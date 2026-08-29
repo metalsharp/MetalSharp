@@ -497,6 +497,8 @@ int main(int argc, char** argv) {
     UINT64 footprint_overflow_total = 0;
     UINT64 planar_footprint_total = 0;
     bool planar_footprint_ok = false;
+    UINT64 d32_footprint_total = 0;
+    bool d32_footprint_ok = false;
     UINT64 nv12_footprint_total = 0;
     bool nv12_footprint_ok = false;
     HRESULT invalid_nv12_height_hr = E_FAIL;
@@ -1031,6 +1033,28 @@ int main(int argc, char** argv) {
                 (!subresource || planar_layouts[subresource].Offset >
                                      planar_layouts[subresource - 1].Offset);
         }
+        D3D12_RESOURCE_DESC d32_footprint_desc =
+            texture_desc(4, 4, DXGI_FORMAT_D32_FLOAT_S8X24_UINT);
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT d32_layouts[2] = {};
+        UINT d32_rows[2] = {};
+        UINT64 d32_row_sizes[2] = {};
+        device->GetCopyableFootprints(
+            &d32_footprint_desc, 0, 2, 0, d32_layouts, d32_rows,
+            d32_row_sizes, &d32_footprint_total);
+        d32_footprint_ok =
+            d32_layouts[0].Footprint.Format == DXGI_FORMAT_R32_TYPELESS &&
+            d32_layouts[1].Footprint.Format == DXGI_FORMAT_R8_TYPELESS &&
+            d32_layouts[0].Footprint.Width == 4 &&
+            d32_layouts[1].Footprint.Width == 4 &&
+            d32_layouts[0].Footprint.Height == 4 &&
+            d32_layouts[1].Footprint.Height == 4 &&
+            d32_layouts[0].Footprint.RowPitch == 256 &&
+            d32_layouts[1].Footprint.RowPitch == 256 &&
+            d32_rows[0] == 4 && d32_rows[1] == 4 &&
+            d32_row_sizes[0] == 16 && d32_row_sizes[1] == 4 &&
+            d32_layouts[0].Offset == 0 &&
+            d32_layouts[1].Offset == 1024 &&
+            d32_footprint_total == 2048;
         D3D12_RESOURCE_DESC nv12_desc =
             texture_desc(13, 8, DXGI_FORMAT_NV12);
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT nv12_layouts[2] = {};
@@ -3908,7 +3932,8 @@ int main(int argc, char** argv) {
         null_allocation_size == 0 && null_allocation_alignment == 0 &&
         invalid_footprint_total == UINT64_MAX &&
         footprint_overflow_total == UINT64_MAX && planar_footprint_ok &&
-        planar_footprint_total != 0 && nv12_footprint_ok &&
+        d32_footprint_ok && planar_footprint_total != 0 &&
+        d32_footprint_total == 2048 && nv12_footprint_ok &&
         invalid_nv12_height_hr == E_INVALIDARG &&
         SUCCEEDED(null_sideband_query_hr) && null_sideband_size == 0 &&
         null_sideband_alignment == 0 && null_sideband_offset == 0 &&
@@ -4245,6 +4270,10 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(planar_footprint_total));
     std::printf("    \"planar_footprint_verified\": %s,\n",
                 planar_footprint_ok ? "true" : "false");
+    std::printf("    \"d32_footprint_total\": %llu,\n",
+                static_cast<unsigned long long>(d32_footprint_total));
+    std::printf("    \"d32_footprint_verified\": %s,\n",
+                d32_footprint_ok ? "true" : "false");
     std::printf("    \"nv12_footprint_total\": %llu,\n",
                 static_cast<unsigned long long>(nv12_footprint_total));
     std::printf("    \"nv12_footprint_verified\": %s,\n",
