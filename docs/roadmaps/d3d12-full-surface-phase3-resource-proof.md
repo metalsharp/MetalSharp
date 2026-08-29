@@ -105,7 +105,9 @@
   sideband output without dereferencing the caller's null pointer. Checked
   allocation arithmetic rejects a `UINT64_MAX` buffer size with the same zero
   allocation result instead of wrapping. A two-resource sideband query also
-  reports the aggregate 128-KiB size and aligned offsets `0`/`65536`.
+  reports the aggregate 128-KiB size and aligned offsets `0`/`65536`. A
+  mixed 64-KiB/4-MiB/64-KiB batch reports the required 12-MiB aggregate,
+  4-MiB alignment, and middle-resource placement at `4 MiB`.
 - Committed-resource validation rejects a null heap-properties pointer, a
   buffer placed in a heap with `DENY_BUFFERS`, and 1D/2D/3D dimensions above
   the D3D12 request limits, all with exact `E_INVALIDARG` before allocating
@@ -256,6 +258,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.allocation_overflow": [0, 0],
   "resource_shapes.allocation_batch": [131072, 65536, 0, 65536, 65536],
   "resource_shapes.allocation_batch_verified": true,
+  "resource_shapes.allocation_mixed": [12582912, 4194304, 0, 4194304, 8388608],
+  "resource_shapes.allocation_mixed_verified": true,
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.invalid_msaa_mips_allocation": [0, 0],
   "resource_shapes.volume_allocation": [65536, 65536],
