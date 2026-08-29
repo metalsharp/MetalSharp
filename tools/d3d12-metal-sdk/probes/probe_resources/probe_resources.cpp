@@ -351,6 +351,7 @@ int main(int argc, char** argv) {
     D3D12_GPU_VIRTUAL_ADDRESS default_gpu_va = 0;
     bool command_resource_lifetime_ok = false;
     bool atomic_copy_ok = false;
+    bool atomic64_copy_ok = false;
     bool discard_ok = false;
     bool cross_process_shared_ok = false;
     bool shared_heap_cross_process_ok = false;
@@ -617,14 +618,18 @@ int main(int argc, char** argv) {
         for (UINT64 i = 0; i < buffer_bytes; ++i)
             upload_ptr[i] = static_cast<uint8_t>((i * 17u + 3u) & 0xffu);
         const uint32_t atomic_value = 0xa5c0ffeeu;
+        const uint64_t atomic64_value = 0x1122334455667788ull;
         std::memcpy(upload_ptr + 128, &atomic_value, sizeof(atomic_value));
+        std::memcpy(upload_ptr + 256, &atomic64_value, sizeof(atomic64_value));
         upload_buffer->Unmap(0, nullptr);
     }
 
     if (list && upload_buffer && default_buffer && readback_buffer) {
         list->CopyBufferRegion(default_buffer, 0, upload_buffer, 0, buffer_bytes);
-        if (list1)
+        if (list1) {
             list1->AtomicCopyBufferUINT(default_buffer, 128, upload_buffer, 128, 0, nullptr, nullptr);
+            list1->AtomicCopyBufferUINT64(default_buffer, 256, upload_buffer, 256, 0, nullptr, nullptr);
+        }
         D3D12_RESOURCE_BARRIER barrier =
             transition_barrier(default_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list->ResourceBarrier(1, &barrier);
@@ -1493,7 +1498,8 @@ int main(int argc, char** argv) {
     bool buffer_copy_ok = SUCCEEDED(map_readback_hr) && readback_ptr;
     if (buffer_copy_ok) {
         for (UINT64 i = 0; i < buffer_bytes; ++i) {
-            if (i >= 128 && i < 128 + sizeof(uint32_t))
+            if ((i >= 128 && i < 128 + sizeof(uint32_t)) ||
+                (i >= 256 && i < 256 + sizeof(uint64_t)))
                 continue;
             if (readback_ptr[i] != static_cast<uint8_t>((i * 17u + 3u) & 0xffu)) {
                 buffer_copy_ok = false;
@@ -1503,6 +1509,9 @@ int main(int argc, char** argv) {
         uint32_t atomic_readback = 0;
         std::memcpy(&atomic_readback, readback_ptr + 128, sizeof(atomic_readback));
         atomic_copy_ok = buffer_copy_ok && atomic_readback == 0xa5c0ffeeu;
+        uint64_t atomic64_readback = 0;
+        std::memcpy(&atomic64_readback, readback_ptr + 256, sizeof(atomic64_readback));
+        atomic64_copy_ok = buffer_copy_ok && atomic64_readback == 0x1122334455667788ull;
         readback_buffer->Unmap(0, nullptr);
     }
 
@@ -1851,7 +1860,7 @@ int main(int argc, char** argv) {
         mipped_reserved_tiling_count == 2 && SUCCEEDED(sparse_unmap_close_hr) && SUCCEEDED(sparse_unmap_execute_hr) &&
         SUCCEEDED(sparse_unmap_signal_hr) && SUCCEEDED(sparse_unmap_wait_hr) && SUCCEEDED(sparse_unmapped_map_hr) &&
         sparse_unmapped_zero_ok && command_resource_lifetime_ok &&
-        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && atomic_copy_ok && discard_ok && resource_shapes_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
+        default_cpu_io_ok && residency_state_ok && address_heap_open_ok && atomic_copy_ok && atomic64_copy_ok && discard_ok && resource_shapes_ok && sparse_total_tiles == 2 && sparse_tiling_count == 2 &&
         sparse_tile_shape.WidthInTexels == 128 && sparse_tile_shape.HeightInTexels == 128 &&
         sparse_tiling[0].WidthInTiles == 1 && sparse_tiling[0].HeightInTiles == 1 &&
         sparse_tiling[1].WidthInTiles == 1 && sparse_tiling[1].HeightInTiles == 1 &&
@@ -1889,6 +1898,7 @@ int main(int argc, char** argv) {
     print_hr("default_read_from_subresource", default_read_subresource_hr);
     std::printf("    \"copy_verified\": %s,\n", buffer_copy_ok ? "true" : "false");
     std::printf("    \"atomic_copy_verified\": %s,\n", atomic_copy_ok ? "true" : "false");
+    std::printf("    \"atomic64_copy_verified\": %s,\n", atomic64_copy_ok ? "true" : "false");
     std::printf("    \"discard_verified\": %s,\n", discard_ok ? "true" : "false");
     std::printf("    \"default_desc_width\": %llu,\n", static_cast<unsigned long long>(default_buffer_desc.Width));
     std::printf("    \"upload_gpu_va_nonzero\": %s,\n", upload_gpu_va != 0 ? "true" : "false");
