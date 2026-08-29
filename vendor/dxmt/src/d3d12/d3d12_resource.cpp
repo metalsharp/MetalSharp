@@ -14,6 +14,12 @@ namespace dxmt {
 
 namespace {
 
+static bool IsCPUAccessibleHeapType(D3D12_HEAP_TYPE type) {
+  const UINT value = static_cast<UINT>(type);
+  return value == static_cast<UINT>(D3D12_HEAP_TYPE_UPLOAD) ||
+         value == static_cast<UINT>(D3D12_HEAP_TYPE_READBACK) || value == 5;
+}
+
 static bool SubmitBufferCopy(WMT::Device device, WMT::Buffer source,
                              uint64_t source_offset, WMT::Buffer destination,
                              uint64_t destination_offset, uint64_t length) {
@@ -933,8 +939,7 @@ void MTLD3D12Resource::InitializeResource(
 
   if (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
     bool cpu_accessible =
-        m_is_reserved || m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
-        m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK;
+        m_is_reserved || IsCPUAccessibleHeapType(m_heap_properties.Type);
     WMTBufferInfo buf_info = {};
     buf_info.length = m_desc.Width ? m_desc.Width : 256;
     if (m_is_reserved && !backing_buffer.handle) {
@@ -1001,8 +1006,7 @@ void MTLD3D12Resource::InitializeResource(
       }
     }
   } else {
-    bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
-                           m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
+    bool cpu_accessible = IsCPUAccessibleHeapType(m_heap_properties.Type);
     m_is_shading_rate_image =
         m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
         m_desc.Format == DXGI_FORMAT_R8_UINT &&
@@ -1142,8 +1146,7 @@ WMT::Reference<WMT::Texture> MTLD3D12Resource::GetMTLTexture() {
   if (m_is_reserved)
     return m_mtl_texture;
   if (!m_mtl_texture.handle && m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER) {
-    bool cpu_accessible = (m_heap_properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
-                           m_heap_properties.Type == D3D12_HEAP_TYPE_READBACK);
+    bool cpu_accessible = IsCPUAccessibleHeapType(m_heap_properties.Type);
     auto wmt_device = m_device->GetDXMTDevice().device();
     WMTTextureInfo tex_info = {};
     tex_info.width = m_desc.Width ? m_desc.Width : 1;

@@ -6,9 +6,10 @@
 
 ## Implemented behavior
 
-- CPU-visible upload/readback buffers and default-resource
-  `ReadFromSubresource`/`WriteToSubresource` now use validated buffer copies;
-  an out-of-bounds `Map` read range rejects with `E_INVALIDARG` and leaves the
+- CPU-visible upload/readback and GPU-upload buffers, plus default-resource
+  `ReadFromSubresource`/`WriteToSubresource`, now use validated buffer copies;
+  committed and placed GPU-upload buffers map and round-trip exact bytes. An
+  out-of-bounds `Map` read range rejects with `E_INVALIDARG` and leaves the
   output pointer null.
 - Texture subresource I/O resolves mip, array, box, block-compressed, and
   volume regions with correct row and slice pitches.
@@ -253,6 +254,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.placed_1d_array_io_verified": true,
   "resource_shapes.placed_2d_io_verified": true,
+  "resource_shapes.gpu_upload_resource_io_verified": true,
+  "resource_shapes.gpu_upload_placed_io_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
   "resource_shapes.oversized_1d": "0x80070057",
   "resource_shapes.oversized_2d": "0x80070057",

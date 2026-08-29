@@ -34,8 +34,10 @@ MTLD3D12Heap::MTLD3D12Heap(MTLD3D12Device *device, const D3D12_HEAP_DESC &desc)
       (desc.Flags & D3D12_HEAP_FLAG_DENY_BUFFERS) == 0;
   if (buffers_only && desc.SizeInBytes) {
     auto wmt_device = m_device->GetDXMTDevice().device();
-    bool cpu_accessible = (desc.Properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
-                           desc.Properties.Type == D3D12_HEAP_TYPE_READBACK);
+    bool cpu_accessible =
+        desc.Properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
+        desc.Properties.Type == D3D12_HEAP_TYPE_READBACK ||
+        static_cast<UINT>(desc.Properties.Type) == 5;
     m_buf_info.length = desc.SizeInBytes;
     m_buf_info.options =
         cpu_accessible ? WMTResourceStorageModeShared
