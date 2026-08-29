@@ -13517,6 +13517,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Signal(ID3D12Fence *fence,
   signal_timer.SetDetail("queue_type=%u value=%llu fence=%p", m_desc.Type,
                          (unsigned long long)value, (void *)fence);
   cmdbuf.commit();
+  if (dxmt_fence->HasSharedMapping() &&
+      !dxmt_fence->ScheduleSharedMappingSignal(value)) {
+    QTRACE("CmdQueue::Signal failed to schedule shared-mapping propagation "
+           "value=%llu",
+           (unsigned long long)value);
+  }
   QTRACE("CmdQueue::Signal queued queue_type=%u value=%llu fence=%p",
          m_desc.Type, (unsigned long long)value, (void *)fence);
   return S_OK;
@@ -13532,6 +13538,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Wait(ID3D12Fence *fence,
   auto shared_event = dxmt_fence->GetMTLSharedEvent();
   if (!shared_event.handle)
     return E_FAIL;
+  if (dxmt_fence->HasSharedMapping() &&
+      !dxmt_fence->ScheduleLocalEventSignalFromMapping(value)) {
+    QTRACE("CmdQueue::Wait failed to bridge shared mapping value=%llu",
+           (unsigned long long)value);
+    return E_FAIL;
+  }
   std::lock_guard submit_lock(m_submit_mutex);
   auto cmdbuf = m_wmt_queue.commandBuffer();
   if (!cmdbuf.handle)

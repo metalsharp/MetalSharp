@@ -342,7 +342,28 @@ int main(int argc, char** argv) {
                                                    L"metalsharp-probe-fence", &shared_fence_handle)
                      : E_FAIL;
     HRESULT shared_fence_signal_hr =
-        shared_fence ? shared_fence->Signal(7) : E_FAIL;
+        shared_fence && queue ? queue->Signal(shared_fence, 7) : E_FAIL;
+    HRESULT shared_fence_mapping_signal_hr = E_FAIL;
+    HRESULT shared_fence_wait_hr = E_FAIL;
+    if (SUCCEEDED(shared_fence_signal_hr) && shared_fence_handle && device) {
+        ID3D12Fence *mapped_fence_probe = nullptr;
+        if (SUCCEEDED(device->OpenSharedHandle(
+                shared_fence_handle, IID_PPV_ARGS(&mapped_fence_probe))) &&
+            mapped_fence_probe) {
+            for (UINT attempt = 0; attempt < 5000; ++attempt) {
+                if (mapped_fence_probe->GetCompletedValue() >= 7) {
+                    shared_fence_mapping_signal_hr = S_OK;
+                    break;
+                }
+                Sleep(1);
+            }
+            shared_fence_wait_hr =
+                sparse_mapping_queue
+                    ? sparse_mapping_queue->Wait(mapped_fence_probe, 7)
+                    : E_FAIL;
+            mapped_fence_probe->Release();
+        }
+    }
 
     const UINT64 buffer_bytes = 4096;
     D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
@@ -520,6 +541,20 @@ int main(int argc, char** argv) {
         probe_resource_shape("texture2d_typeless", shape);
         shape = texture_desc(7, 5, DXGI_FORMAT_BC1_UNORM);
         probe_resource_shape("texture2d_bc1_unaligned", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_B8G8R8X8_UNORM);
+        probe_resource_shape("texture2d_b8g8r8x8", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_B5G6R5_UNORM);
+        probe_resource_shape("texture2d_b5g6r5", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_B5G5R5A1_UNORM);
+        probe_resource_shape("texture2d_b5g5r5a1", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_B4G4R4A4_UNORM);
+        probe_resource_shape("texture2d_b4g4r4a4", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R9G9B9E5_SHAREDEXP);
+        probe_resource_shape("texture2d_r9g9b9e5", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_R8G8_B8G8_UNORM);
+        probe_resource_shape("texture2d_r8g8_b8g8", shape);
+        shape = texture_desc(8, 8, DXGI_FORMAT_G8R8_G8B8_UNORM);
+        probe_resource_shape("texture2d_g8r8_g8b8", shape);
         shape = texture_desc(7, 5, DXGI_FORMAT_R8_UNORM);
         shape.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
         shape.DepthOrArraySize = 4;
@@ -3292,6 +3327,13 @@ int main(int argc, char** argv) {
     std::vector<FormatProbe> formats = {
         {"R8G8B8A8_UNORM", DXGI_FORMAT_R8G8B8A8_UNORM},
         {"B8G8R8A8_UNORM", DXGI_FORMAT_B8G8R8A8_UNORM},
+        {"B8G8R8X8_UNORM", DXGI_FORMAT_B8G8R8X8_UNORM},
+        {"B5G6R5_UNORM", DXGI_FORMAT_B5G6R5_UNORM},
+        {"B5G5R5A1_UNORM", DXGI_FORMAT_B5G5R5A1_UNORM},
+        {"B4G4R4A4_UNORM", DXGI_FORMAT_B4G4R4A4_UNORM},
+        {"R9G9B9E5_SHAREDEXP", DXGI_FORMAT_R9G9B9E5_SHAREDEXP},
+        {"R8G8_B8G8_UNORM", DXGI_FORMAT_R8G8_B8G8_UNORM},
+        {"G8R8_G8B8_UNORM", DXGI_FORMAT_G8R8_G8B8_UNORM},
         {"R16G16B16A16_FLOAT", DXGI_FORMAT_R16G16B16A16_FLOAT},
         {"R32_FLOAT", DXGI_FORMAT_R32_FLOAT},
         {"D24_UNORM_S8_UINT", DXGI_FORMAT_D24_UNORM_S8_UINT, E_FAIL, E_FAIL, 0, 0, 0, 2},
@@ -3520,7 +3562,8 @@ int main(int argc, char** argv) {
         format_support_ok && sparse_format_matrix_ok && unsupported_texture_rejected && cross_process_shared_ok &&
         shared_heap_roundtrip_ok && SUCCEEDED(shared_fence_create_hr) &&
         SUCCEEDED(shared_fence_handle_hr) && SUCCEEDED(shared_fence_signal_hr) &&
-        shared_heap_cross_process_ok;
+        SUCCEEDED(shared_fence_mapping_signal_hr) &&
+        SUCCEEDED(shared_fence_wait_hr) && shared_heap_cross_process_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-resources.v1\",\n");
@@ -3725,6 +3768,8 @@ int main(int argc, char** argv) {
     print_hr("fence_create", shared_fence_create_hr);
     print_hr("fence_handle_create", shared_fence_handle_hr);
     print_hr("fence_signal", shared_fence_signal_hr);
+    print_hr("fence_mapping_signal", shared_fence_mapping_signal_hr);
+    print_hr("fence_wait_mapping", shared_fence_wait_hr);
     std::printf("    \"fence_cross_process_verified\": %s\n", shared_heap_cross_process_ok ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"textures\": {\n");

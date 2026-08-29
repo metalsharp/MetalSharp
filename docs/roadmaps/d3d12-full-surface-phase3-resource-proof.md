@@ -20,7 +20,9 @@
 - Named buffers, CPU-visible heaps, and fences use platform file mappings with
   fixed metadata headers rather than a process-local object map. A second Wine
   process can reconstruct a buffer, observe writes to the same backing, and
-  observe a signaled fence value.
+  observe a signaled fence value. Queue `Signal` propagates completion into
+  the pointer-free fence mapping, and an independently reopened fence bridges
+  that mapping into a queue `Wait` before the child-process readback.
 - `OpenExistingHeapFromAddress` resolves a live mapped heap only for the owning
   device, and `OpenExistingHeapFromFileMapping` validates and reconstructs a
   shared CPU-visible heap.
@@ -61,7 +63,10 @@
   exact compressed bytes, in addition to the command-list copy proof.
 - Direct default-resource subresource I/O is behavior-backed for a 2D array
   with mips (boxed mip write/read) and a 3D volume (two depth slices), with
-  exact row and slice pitches and byte readback.
+  exact row and slice pitches and byte readback. Additional legal packed
+  format variants (B8G8R8X8, B5G6R5, B5G5R5A1, B4G4R4A4, R9G9B9E5, and the
+  4:2:2 packed forms) now create through their matching Metal pixel formats
+  and pass format-info/support queries.
 - A two-slice 1D-array resource and a six-face cube resource (the D3D12
   six-slice 2D representation) create successfully; the backend preserves the
   1D array length, and each 1D-array slice and cube face independently
@@ -190,6 +195,8 @@ The isolated source-staged probe passed with:
   "shared_handles.heap_roundtrip_verified": true,
   "shared_handles.heap_cross_process_verified": true,
   "shared_handles.fence_cross_process_verified": true,
+  "shared_handles.fence_mapping_signal": "0x00000000",
+  "shared_handles.fence_wait_mapping": "0x00000000",
   "shared_handles.invalid_create_access": "0x80070057",
   "shared_handles.invalid_open_access": "0x80070057",
   "buffers.address_heap_open_verified": true,

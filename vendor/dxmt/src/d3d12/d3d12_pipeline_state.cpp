@@ -1435,6 +1435,23 @@ WMTPixelFormat MTLD3D12PipelineState::DXGIToMTLPixelFormat(DXGI_FORMAT format) {
     return WMTPixelFormatBGRA8Unorm;
   case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
     return WMTPixelFormatBGRA8Unorm_sRGB;
+  case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+  case DXGI_FORMAT_B8G8R8X8_UNORM:
+    return WMTPixelFormatBGRX8Unorm;
+  case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+    return WMTPixelFormatBGRX8Unorm_sRGB;
+  case DXGI_FORMAT_B5G6R5_UNORM:
+    return WMTPixelFormatB5G6R5Unorm;
+  case DXGI_FORMAT_B5G5R5A1_UNORM:
+    return WMTPixelFormatA1BGR5Unorm;
+  case DXGI_FORMAT_B4G4R4A4_UNORM:
+    return WMTPixelFormatBGRA4Unorm;
+  case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+    return WMTPixelFormatRGB9E5Float;
+  case DXGI_FORMAT_R8G8_B8G8_UNORM:
+    return WMTPixelFormatBGRG422;
+  case DXGI_FORMAT_G8R8_G8B8_UNORM:
+    return WMTPixelFormatGBGR422;
   case DXGI_FORMAT_R16G16B16A16_TYPELESS:
     return WMTPixelFormatRGBA16Uint;
   case DXGI_FORMAT_R16G16B16A16_FLOAT:
