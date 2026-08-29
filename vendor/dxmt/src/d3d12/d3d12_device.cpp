@@ -709,7 +709,11 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
       (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0;
   const bool cross_adapter =
       (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_CROSS_ADAPTER) != 0;
+  const bool simultaneous_access =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS) != 0;
   if ((render_target && depth_stencil) || cross_adapter ||
+      (simultaneous_access &&
+       (depth_stencil || desc.SampleDesc.Count > 1)) ||
       (depth_stencil && unordered_access) ||
       (depth_stencil && !IsDepthStencilResourceFormat(desc.Format)) ||
       (render_target && IsDepthStencilResourceFormat(desc.Format)) ||
