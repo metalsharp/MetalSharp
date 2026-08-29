@@ -66,7 +66,10 @@
   round-trips distinct bytes through `WriteToSubresource`/`ReadFromSubresource`.
 - NV12 footprints expand luma/chroma into R8/R8G8 planes with half-resolution
   chroma dimensions (`13x8` plus `7x4`, 3072 bytes total); odd NV12 heights
-  reject with `E_INVALIDARG`.
+  reject with `E_INVALIDARG`. Committed NV12 and P010 resources use an explicit
+  tightly packed CPU multi-plane provider: luma and chroma `WriteToSubresource`
+  and `ReadFromSubresource` calls round-trip exact bytes on both planes rather
+  than treating a single-plane Metal texture as planar data.
 - Planar depth/stencil footprints expand the D24/R24G8 family into the
   documented R32 depth and R8 stencil planes across array slices and mips;
   eight subresources report exact plane formats, row sizes, dimensions, and
@@ -226,6 +229,8 @@ The isolated source-staged probe passed with:
   "resource_shapes.invalid_heap_flags": "0x80070057",
   "textures.direct_io_texture_verified": true,
   "textures.direct_io_volume_verified": true,
+  "textures.direct_io_nv12_verified": true,
+  "textures.direct_io_p010_verified": true,
   "textures.unaligned_bc1_direct_io_verified": true,
   "textures.unaligned_bc1_copy_verified": true,
   "formats.D24_UNORM_S8_UINT.plane_count": 2,

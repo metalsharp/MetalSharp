@@ -1320,6 +1320,8 @@ int main(int argc, char** argv) {
     ID3D12Resource* texture_readback = nullptr;
     ID3D12Resource* direct_io_texture = nullptr;
     ID3D12Resource* direct_io_volume = nullptr;
+    ID3D12Resource* direct_io_nv12 = nullptr;
+    ID3D12Resource* direct_io_p010 = nullptr;
     ID3D12Resource* unsupported_texture = nullptr;
     ID3D12Heap* sparse_heap = nullptr;
     ID3D12Heap* reuse_heap = nullptr;
@@ -1543,8 +1545,16 @@ int main(int argc, char** argv) {
     HRESULT direct_io_volume_create_hr = E_FAIL;
     HRESULT direct_io_volume_write_hr = E_FAIL;
     HRESULT direct_io_volume_read_hr = E_FAIL;
+    HRESULT direct_io_nv12_create_hr = E_FAIL;
+    HRESULT direct_io_nv12_write_hr[2] = {E_FAIL, E_FAIL};
+    HRESULT direct_io_nv12_read_hr[2] = {E_FAIL, E_FAIL};
+    HRESULT direct_io_p010_create_hr = E_FAIL;
+    HRESULT direct_io_p010_write_hr[2] = {E_FAIL, E_FAIL};
+    HRESULT direct_io_p010_read_hr[2] = {E_FAIL, E_FAIL};
     bool direct_io_texture_ok = false;
     bool direct_io_volume_ok = false;
+    bool direct_io_nv12_ok = false;
+    bool direct_io_p010_ok = false;
     D3D12_RESOURCE_DESC direct_io_texture_desc =
         texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
     direct_io_texture_desc.DepthOrArraySize = 2;
@@ -1597,6 +1607,72 @@ int main(int argc, char** argv) {
             SUCCEEDED(direct_io_volume_write_hr) &&
             SUCCEEDED(direct_io_volume_read_hr) &&
             std::memcmp(volume_source, volume_destination, sizeof(volume_source)) == 0;
+    }
+    D3D12_RESOURCE_DESC direct_io_nv12_desc =
+        texture_desc(13, 8, DXGI_FORMAT_NV12);
+    direct_io_nv12_create_hr =
+        device ? device->CreateCommittedResource(
+                     &default_heap, D3D12_HEAP_FLAG_NONE, &direct_io_nv12_desc,
+                     D3D12_RESOURCE_STATE_COMMON, nullptr,
+                     IID_PPV_ARGS(&direct_io_nv12))
+               : E_FAIL;
+    if (direct_io_nv12) {
+        uint8_t y_source[13 * 8] = {};
+        uint8_t uv_source[7 * 4 * 2] = {};
+        for (UINT i = 0; i < sizeof(y_source); ++i)
+            y_source[i] = static_cast<uint8_t>((i * 5u + 1u) & 0xffu);
+        for (UINT i = 0; i < sizeof(uv_source); ++i)
+            uv_source[i] = static_cast<uint8_t>((i * 7u + 3u) & 0xffu);
+        direct_io_nv12_write_hr[0] = direct_io_nv12->WriteToSubresource(
+            0, nullptr, y_source, 13, sizeof(y_source));
+        direct_io_nv12_write_hr[1] = direct_io_nv12->WriteToSubresource(
+            1, nullptr, uv_source, 14, sizeof(uv_source));
+        uint8_t y_destination[sizeof(y_source)] = {};
+        uint8_t uv_destination[sizeof(uv_source)] = {};
+        direct_io_nv12_read_hr[0] = direct_io_nv12->ReadFromSubresource(
+            y_destination, 13, sizeof(y_destination), 0, nullptr);
+        direct_io_nv12_read_hr[1] = direct_io_nv12->ReadFromSubresource(
+            uv_destination, 14, sizeof(uv_destination), 1, nullptr);
+        direct_io_nv12_ok =
+            SUCCEEDED(direct_io_nv12_write_hr[0]) &&
+            SUCCEEDED(direct_io_nv12_write_hr[1]) &&
+            SUCCEEDED(direct_io_nv12_read_hr[0]) &&
+            SUCCEEDED(direct_io_nv12_read_hr[1]) &&
+            std::memcmp(y_source, y_destination, sizeof(y_source)) == 0 &&
+            std::memcmp(uv_source, uv_destination, sizeof(uv_source)) == 0;
+    }
+    D3D12_RESOURCE_DESC direct_io_p010_desc =
+        texture_desc(8, 8, DXGI_FORMAT_P010);
+    direct_io_p010_create_hr =
+        device ? device->CreateCommittedResource(
+                     &default_heap, D3D12_HEAP_FLAG_NONE, &direct_io_p010_desc,
+                     D3D12_RESOURCE_STATE_COMMON, nullptr,
+                     IID_PPV_ARGS(&direct_io_p010))
+               : E_FAIL;
+    if (direct_io_p010) {
+        uint8_t y_source[8 * 8 * 2] = {};
+        uint8_t uv_source[4 * 4 * 4] = {};
+        for (UINT i = 0; i < sizeof(y_source); ++i)
+            y_source[i] = static_cast<uint8_t>((i * 11u + 5u) & 0xffu);
+        for (UINT i = 0; i < sizeof(uv_source); ++i)
+            uv_source[i] = static_cast<uint8_t>((i * 13u + 9u) & 0xffu);
+        direct_io_p010_write_hr[0] = direct_io_p010->WriteToSubresource(
+            0, nullptr, y_source, 16, sizeof(y_source));
+        direct_io_p010_write_hr[1] = direct_io_p010->WriteToSubresource(
+            1, nullptr, uv_source, 16, sizeof(uv_source));
+        uint8_t y_destination[sizeof(y_source)] = {};
+        uint8_t uv_destination[sizeof(uv_source)] = {};
+        direct_io_p010_read_hr[0] = direct_io_p010->ReadFromSubresource(
+            y_destination, 16, sizeof(y_destination), 0, nullptr);
+        direct_io_p010_read_hr[1] = direct_io_p010->ReadFromSubresource(
+            uv_destination, 16, sizeof(uv_destination), 1, nullptr);
+        direct_io_p010_ok =
+            SUCCEEDED(direct_io_p010_write_hr[0]) &&
+            SUCCEEDED(direct_io_p010_write_hr[1]) &&
+            SUCCEEDED(direct_io_p010_read_hr[0]) &&
+            SUCCEEDED(direct_io_p010_read_hr[1]) &&
+            std::memcmp(y_source, y_destination, sizeof(y_source)) == 0 &&
+            std::memcmp(uv_source, uv_destination, sizeof(uv_source)) == 0;
     }
     D3D12_RESOURCE_DESC unsupported_texture_desc = texture_desc(4, 4, DXGI_FORMAT_R1_UNORM);
     HRESULT unsupported_texture_hr =
@@ -3018,6 +3094,8 @@ int main(int argc, char** argv) {
         SUCCEEDED(direct_io_texture_read_hr) && direct_io_texture_ok &&
         SUCCEEDED(direct_io_volume_create_hr) && SUCCEEDED(direct_io_volume_write_hr) &&
         SUCCEEDED(direct_io_volume_read_hr) && direct_io_volume_ok &&
+        SUCCEEDED(direct_io_nv12_create_hr) && direct_io_nv12_ok &&
+        SUCCEEDED(direct_io_p010_create_hr) && direct_io_p010_ok &&
         SUCCEEDED(bc_texture_hr) && SUCCEEDED(bc_upload_hr) && SUCCEEDED(bc_readback_hr) &&
         SUCCEEDED(bc_upload_map_hr) && SUCCEEDED(bc_readback_map_hr) && bc_copy_ok &&
         SUCCEEDED(bc_direct_write_hr) && SUCCEEDED(bc_direct_read_hr) && bc_direct_io_ok &&
@@ -3322,6 +3400,20 @@ int main(int argc, char** argv) {
     print_hr("direct_io_volume_read", direct_io_volume_read_hr);
     std::printf("    \"direct_io_volume_verified\": %s,\n",
                 direct_io_volume_ok ? "true" : "false");
+    print_hr("direct_io_nv12_create", direct_io_nv12_create_hr);
+    print_hr("direct_io_nv12_y_write", direct_io_nv12_write_hr[0]);
+    print_hr("direct_io_nv12_uv_write", direct_io_nv12_write_hr[1]);
+    print_hr("direct_io_nv12_y_read", direct_io_nv12_read_hr[0]);
+    print_hr("direct_io_nv12_uv_read", direct_io_nv12_read_hr[1]);
+    std::printf("    \"direct_io_nv12_verified\": %s,\n",
+                direct_io_nv12_ok ? "true" : "false");
+    print_hr("direct_io_p010_create", direct_io_p010_create_hr);
+    print_hr("direct_io_p010_y_write", direct_io_p010_write_hr[0]);
+    print_hr("direct_io_p010_uv_write", direct_io_p010_write_hr[1]);
+    print_hr("direct_io_p010_y_read", direct_io_p010_read_hr[0]);
+    print_hr("direct_io_p010_uv_read", direct_io_p010_read_hr[1]);
+    std::printf("    \"direct_io_p010_verified\": %s,\n",
+                direct_io_p010_ok ? "true" : "false");
     std::printf("    \"width\": %llu,\n", static_cast<unsigned long long>(texture_roundtrip_desc.Width));
     std::printf("    \"height\": %u,\n", texture_roundtrip_desc.Height);
     std::printf("    \"row_pitch\": %u,\n", texture_footprint.Footprint.RowPitch);

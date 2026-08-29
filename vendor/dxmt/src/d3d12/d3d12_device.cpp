@@ -695,6 +695,12 @@ static bool IsValidResourceDesc(const D3D12_RESOURCE_DESC &desc) {
     return false;
   }
 
+  const bool planar =
+      desc.Format == DXGI_FORMAT_NV12 || desc.Format == DXGI_FORMAT_P010 ||
+      desc.Format == DXGI_FORMAT_P016 || desc.Format == DXGI_FORMAT_420_OPAQUE;
+  if (planar && desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+    return false;
+
   if (!desc.Height || !desc.DepthOrArraySize ||
       (desc.SampleDesc.Count == 1 && desc.SampleDesc.Quality != 0) ||
       ((desc.Format == DXGI_FORMAT_NV12 || desc.Format == DXGI_FORMAT_P010 ||
