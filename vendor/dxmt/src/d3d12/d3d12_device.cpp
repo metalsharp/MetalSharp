@@ -4704,6 +4704,10 @@ MTLD3D12Device::GetResourceAllocationInfo(
   __ret->Alignment = 0;
   UINT64 cursor = 0;
   for (UINT i = 0; i < resource_desc_count; i++) {
+    if (!IsValidResourceDesc(resource_descs[i])) {
+      __ret->Alignment = 0;
+      return __ret;
+    }
     UINT64 alignment = ResourcePlacementAlignment(resource_descs[i]);
     UINT64 size = EstimateResourceAllocationSize(resource_descs[i]);
     __ret->Alignment = std::max<UINT64>(__ret->Alignment, alignment);
@@ -4739,6 +4743,12 @@ static D3D12_RESOURCE_ALLOCATION_INFO *FillResourceAllocationInfoWithSideband(
   __ret->Alignment = 0;
   UINT64 cursor = 0;
   for (UINT i = 0; i < resource_desc_count; i++) {
+    if (!IsValidResourceDesc(resource_descs[i])) {
+      __ret->Alignment = 0;
+      if (resource_allocation_info1)
+        resource_allocation_info1[i] = {};
+      return __ret;
+    }
     UINT64 alignment = ResourcePlacementAlignment(resource_descs[i]);
     UINT64 size = EstimateResourceAllocationSize(resource_descs[i]);
     cursor = AlignTo(cursor, alignment);

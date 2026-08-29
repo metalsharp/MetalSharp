@@ -334,7 +334,11 @@ int main(int argc, char** argv) {
     ID3D12Heap* shared_heap_file_open = nullptr;
     std::vector<ResourceShapeProbe> resource_shapes;
     HRESULT invalid_zero_width_hr = E_FAIL;
+    UINT64 invalid_zero_width_allocation_size = 0;
+    UINT64 invalid_zero_width_allocation_alignment = 0;
     HRESULT invalid_msaa_mips_hr = E_FAIL;
+    UINT64 invalid_msaa_mips_allocation_size = 0;
+    UINT64 invalid_msaa_mips_allocation_alignment = 0;
     HANDLE shared_heap_handle = nullptr;
     HRESULT shared_heap_create_hr = E_FAIL;
     HRESULT shared_heap_open_hr = E_FAIL;
@@ -425,6 +429,10 @@ int main(int argc, char** argv) {
                                                                  IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
+        D3D12_RESOURCE_ALLOCATION_INFO invalid_zero_width_info =
+            device->GetResourceAllocationInfo(0, 1, &invalid);
+        invalid_zero_width_allocation_size = invalid_zero_width_info.SizeInBytes;
+        invalid_zero_width_allocation_alignment = invalid_zero_width_info.Alignment;
         invalid_resource = nullptr;
         invalid = texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
         invalid.SampleDesc.Count = 4;
@@ -434,6 +442,10 @@ int main(int argc, char** argv) {
                                                                 IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
+        D3D12_RESOURCE_ALLOCATION_INFO invalid_msaa_mips_info =
+            device->GetResourceAllocationInfo(0, 1, &invalid);
+        invalid_msaa_mips_allocation_size = invalid_msaa_mips_info.SizeInBytes;
+        invalid_msaa_mips_allocation_alignment = invalid_msaa_mips_info.Alignment;
     }
     auto same_resource_desc = [](const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
         return a.Dimension == b.Dimension && a.Alignment == b.Alignment && a.Width == b.Width &&
@@ -508,6 +520,8 @@ int main(int argc, char** argv) {
         verify_footprints(footprint_bc, 1, 7, 5, 1, 16, 2);
     resource_shapes_ok = resource_shapes_ok && footprint_matrix_ok &&
                          FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr) &&
+                         invalid_zero_width_allocation_size == 0 && invalid_zero_width_allocation_alignment == 0 &&
+                         invalid_msaa_mips_allocation_size == 0 && invalid_msaa_mips_allocation_alignment == 0 &&
                          FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -2019,7 +2033,13 @@ int main(int argc, char** argv) {
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
     std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
+    std::printf("    \"invalid_zero_width_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(invalid_zero_width_allocation_size),
+                static_cast<unsigned long long>(invalid_zero_width_allocation_alignment));
     print_hr("invalid_msaa_mips", invalid_msaa_mips_hr);
+    std::printf("    \"invalid_msaa_mips_allocation\": [%llu,%llu],\n",
+                static_cast<unsigned long long>(invalid_msaa_mips_allocation_size),
+                static_cast<unsigned long long>(invalid_msaa_mips_allocation_alignment));
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);
