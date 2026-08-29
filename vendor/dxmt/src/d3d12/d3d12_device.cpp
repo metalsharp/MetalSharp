@@ -6459,13 +6459,16 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::OpenExistingHeapFromFileMapping(
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::EnqueueMakeResident(
     D3D12_RESIDENCY_FLAGS flags, UINT num_objects,
     ID3D12Pageable *const *objects, ID3D12Fence *fence, UINT64 fence_value) {
-  TRACE("ID3D12Device3::EnqueueMakeResident -> S_OK (delegating to "
-        "MakeResident)");
+  TRACE("ID3D12Device3::EnqueueMakeResident flags=0x%x objects=%u fence=%p",
+        (unsigned)flags, num_objects, (void *)fence);
+  if (static_cast<UINT>(flags) & ~static_cast<UINT>(
+                                      D3D12_RESIDENCY_FLAG_DENY_OVERBUDGET))
+    return E_INVALIDARG;
   HRESULT hr = MakeResident(num_objects, objects);
-  if (SUCCEEDED(hr) && fence) {
-    fence->Signal(fence_value);
-  }
-  return hr;
+  if (FAILED(hr) || !fence)
+    return hr;
+  HRESULT signal_hr = fence->Signal(fence_value);
+  return FAILED(signal_hr) ? signal_hr : hr;
 }
 
 /*** ID3D12Device4 ***/

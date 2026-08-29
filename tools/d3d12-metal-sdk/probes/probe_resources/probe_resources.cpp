@@ -300,6 +300,11 @@ int main(int argc, char** argv) {
     ID3D12GraphicsCommandList1* list1 = nullptr;
     ID3D12Fence* fence = nullptr;
     ID3D12Fence* sparse_mapping_fence = nullptr;
+    ID3D12Fence* residency_fence = nullptr;
+    HRESULT residency_fence_hr = E_FAIL;
+    HRESULT enqueue_make_resident_hr = E_FAIL;
+    HRESULT invalid_enqueue_flags_hr = E_FAIL;
+    UINT64 enqueue_fence_completed = 0;
     HRESULT queue_hr = device ? device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)) : E_FAIL;
     HRESULT sparse_mapping_queue_hr =
         device ? device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&sparse_mapping_queue)) : E_FAIL;
@@ -733,6 +738,27 @@ int main(int argc, char** argv) {
             if (SUCCEEDED(remade_placed_map))
                 not_resident_placed->Unmap(0, nullptr);
         }
+        residency_fence_hr = device->CreateFence(
+            0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&residency_fence));
+        ID3D12Device3 *device3_residency = nullptr;
+        HRESULT device3_residency_hr = device->QueryInterface(
+            IID_PPV_ARGS(&device3_residency));
+        if (residency_fence && device3_residency && not_resident_committed) {
+            ID3D12Pageable *pageable = not_resident_committed;
+            device->Evict(1, &pageable);
+            enqueue_make_resident_hr = device3_residency->EnqueueMakeResident(
+                D3D12_RESIDENCY_FLAG_NONE, 1, &pageable, residency_fence, 9);
+            const D3D12_RESIDENCY_FLAGS invalid_flags =
+                static_cast<D3D12_RESIDENCY_FLAGS>(2);
+            invalid_enqueue_flags_hr = device3_residency->EnqueueMakeResident(
+                invalid_flags, 1, &pageable, residency_fence, 10);
+            enqueue_fence_completed = residency_fence->GetCompletedValue();
+        } else {
+            enqueue_make_resident_hr = device3_residency_hr;
+            invalid_enqueue_flags_hr = device3_residency_hr;
+        }
+        if (device3_residency)
+            device3_residency->Release();
     }
     auto same_resource_desc = [](const D3D12_RESOURCE_DESC& a, const D3D12_RESOURCE_DESC& b) {
         return a.Dimension == b.Dimension && a.Alignment == b.Alignment && a.Width == b.Width &&
@@ -831,6 +857,8 @@ int main(int argc, char** argv) {
                          SUCCEEDED(not_resident_make_resident_hr) &&
                          SUCCEEDED(not_resident_remade_map_hr) && SUCCEEDED(not_resident_heap_hr) &&
                          SUCCEEDED(not_resident_placed_hr) && not_resident_roundtrip_ok &&
+                         SUCCEEDED(residency_fence_hr) && SUCCEEDED(enqueue_make_resident_hr) &&
+                         invalid_enqueue_flags_hr == E_INVALIDARG && enqueue_fence_completed >= 9 &&
                          FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -2537,6 +2565,11 @@ int main(int argc, char** argv) {
     print_hr("not_resident_placed", not_resident_placed_hr);
     std::printf("    \"not_resident_roundtrip_verified\": %s,\n",
                 not_resident_roundtrip_ok ? "true" : "false");
+    print_hr("residency_fence", residency_fence_hr);
+    print_hr("enqueue_make_resident", enqueue_make_resident_hr);
+    print_hr("invalid_enqueue_flags", invalid_enqueue_flags_hr);
+    std::printf("    \"enqueue_fence_completed\": %llu,\n",
+                static_cast<unsigned long long>(enqueue_fence_completed));
     print_hr("misaligned_placement", misaligned_placement_hr);
     print_hr("invalid_heap_alignment", invalid_heap_alignment_hr);
     print_hr("invalid_heap_flags", invalid_heap_flags_hr);
