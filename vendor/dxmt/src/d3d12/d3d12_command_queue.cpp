@@ -8536,7 +8536,9 @@ static bool BuildSparseTextureMappings(
     return false;
   D3D12_RESOURCE_DESC desc = {};
   resource->GetDesc(&desc);
-  if ((desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+  const bool one_d = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+  if ((desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+       desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
        desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE3D) ||
       desc.SampleDesc.Count > 1 || !desc.MipLevels ||
       !desc.DepthOrArraySize)
@@ -8558,11 +8560,12 @@ static bool BuildSparseTextureMappings(
   // placement-sparse queue consumes regions in sparse-tile units; a D3D12
   // 64 KiB tile is four 16 KiB Metal pages on the proof host.
   const UINT metal_tiles_x =
-      metal4 ? (volume ? 1u : 2u)
-             : std::max<UINT>(1, shape.WidthInTexels / 2);
+      metal4 ? (volume ? 1u : one_d ? 4u : 2u)
+             : (one_d ? std::max<UINT>(1, shape.WidthInTexels / 4)
+                      : std::max<UINT>(1, shape.WidthInTexels / 2));
   const UINT metal_tiles_y =
-      metal4 ? (volume ? 1u : 2u)
-             : std::max<UINT>(1, shape.HeightInTexels / 2);
+      metal4 ? (volume ? 1u : one_d ? 1u : 2u)
+             : (one_d ? 1u : std::max<UINT>(1, shape.HeightInTexels / 2));
   const UINT metal_tiles_z = std::max<UINT>(1, shape.DepthInTexels);
   // MTL4 heap offsets count the 16 KiB sparse pages consumed by each
   // mapping operation, while D3D12 heap offsets count 64 KiB tiles.  Keep

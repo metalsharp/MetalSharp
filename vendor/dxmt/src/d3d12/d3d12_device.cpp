@@ -5400,7 +5400,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
       desc->MipLevels == 1 && desc->SampleDesc.Count <= 1 &&
       desc->Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
   const bool reserved_texture =
-      (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+      (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+       desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
        desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D) &&
       desc->MipLevels && desc->MipLevels <= 16 &&
       desc->SampleDesc.Count <= 1 && desc->Width && desc->Height &&
@@ -5946,6 +5947,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetResourceTiling(
   }
   const bool volume = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
   const bool array_texture =
+      desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
       desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D;
   if ((!array_texture && !volume) || desc.SampleDesc.Count > 1 ||
       !desc.MipLevels || !desc.DepthOrArraySize)

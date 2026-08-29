@@ -389,7 +389,78 @@ SampleCountForResourceDesc(const D3D12_RESOURCE_DESC &desc,
 }
 
 static D3D12_TILE_SHAPE TileShapeForFormat(DXGI_FORMAT format,
-                                            bool volume = false) {
+                                            bool volume = false,
+                                            bool one_d = false) {
+  if (one_d) {
+    switch (format) {
+    case DXGI_FORMAT_R8_TYPELESS:
+    case DXGI_FORMAT_R8_UNORM:
+    case DXGI_FORMAT_R8_UINT:
+    case DXGI_FORMAT_R8_SNORM:
+    case DXGI_FORMAT_R8_SINT:
+    case DXGI_FORMAT_A8_UNORM:
+      return {65536, 1, 1};
+    case DXGI_FORMAT_R8G8_TYPELESS:
+    case DXGI_FORMAT_R8G8_UNORM:
+    case DXGI_FORMAT_R8G8_UINT:
+    case DXGI_FORMAT_R8G8_SNORM:
+    case DXGI_FORMAT_R8G8_SINT:
+    case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_R16_FLOAT:
+    case DXGI_FORMAT_D16_UNORM:
+    case DXGI_FORMAT_R16_UNORM:
+    case DXGI_FORMAT_R16_UINT:
+    case DXGI_FORMAT_R16_SNORM:
+    case DXGI_FORMAT_R16_SINT:
+      return {32768, 1, 1};
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+    case DXGI_FORMAT_R8G8B8A8_UINT:
+    case DXGI_FORMAT_R8G8B8A8_SNORM:
+    case DXGI_FORMAT_R8G8B8A8_SINT:
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+    case DXGI_FORMAT_R10G10B10A2_UINT:
+    case DXGI_FORMAT_R11G11B10_FLOAT:
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+    case DXGI_FORMAT_B8G8R8X8_TYPELESS:
+    case DXGI_FORMAT_B8G8R8X8_UNORM:
+    case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+    case DXGI_FORMAT_R32_TYPELESS:
+    case DXGI_FORMAT_D32_FLOAT:
+    case DXGI_FORMAT_R32_FLOAT:
+    case DXGI_FORMAT_R32_UINT:
+    case DXGI_FORMAT_R32_SINT:
+      return {16384, 1, 1};
+    case DXGI_FORMAT_R16G16_TYPELESS:
+    case DXGI_FORMAT_R16G16_FLOAT:
+    case DXGI_FORMAT_R16G16_UNORM:
+    case DXGI_FORMAT_R16G16_UINT:
+    case DXGI_FORMAT_R16G16_SNORM:
+    case DXGI_FORMAT_R16G16_SINT:
+    case DXGI_FORMAT_R32G32_TYPELESS:
+    case DXGI_FORMAT_R32G32_FLOAT:
+    case DXGI_FORMAT_R32G32_UINT:
+    case DXGI_FORMAT_R32G32_SINT:
+      return {8192, 1, 1};
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R16G16B16A16_UINT:
+    case DXGI_FORMAT_R16G16B16A16_SNORM:
+    case DXGI_FORMAT_R16G16B16A16_SINT:
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_UINT:
+    case DXGI_FORMAT_R32G32B32A32_SINT:
+      return {4096, 1, 1};
+    default:
+      break;
+    }
+  }
   // Volume tiled resources use a 4x4x4 tile grouping.  Their standard tile
   // shape is not the 2D shape divided by an arbitrary slice count; it is
   // selected from the format's bits per texel/block as specified by D3D12.
@@ -573,7 +644,9 @@ static D3D12_TILE_SHAPE TileShapeForFormat(DXGI_FORMAT format,
 
 static uint64_t SparseHeapSizeForResource(const D3D12_RESOURCE_DESC &desc) {
   const bool volume = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
-  const D3D12_TILE_SHAPE shape = TileShapeForFormat(desc.Format, volume);
+  const D3D12_TILE_SHAPE shape =
+      TileShapeForFormat(desc.Format, volume,
+                         desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D);
   const uint64_t slices =
       volume ? 1 : std::max<uint32_t>(1, desc.DepthOrArraySize);
   const uint64_t mips = std::max<uint32_t>(1, desc.MipLevels);
@@ -801,8 +874,13 @@ void MTLD3D12Resource::InitializeResource(
       (unsigned)tex_info.mipmap_level_count, (unsigned)tex_info.sample_count,
       (unsigned)tex_info.options);
     const bool placement_sparse_candidate =
-        m_is_reserved && m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
-        std::max<UINT16>(m_desc.MipLevels, 1) == 1;
+        m_is_reserved && std::max<UINT16>(m_desc.MipLevels, 1) == 1 &&
+        ((m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+          m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM) ||
+         (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+          m_desc.Format == DXGI_FORMAT_R32_FLOAT) ||
+         (m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D &&
+          m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM));
     if (placement_sparse_candidate) {
       // Metal 4 placement-sparse textures are created without a backing heap;
       // UpdateTileMappings supplies the D3D12 placement heap later. This keeps
@@ -951,7 +1029,8 @@ D3D12_TILE_SHAPE MTLD3D12Resource::GetTiledResourceTileShape() const {
   if (IsBuffer())
     return {D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES, 1, 1};
   return TileShapeForFormat(
-      m_desc.Format, m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D);
+      m_desc.Format, m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D,
+      m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D);
 }
 
 bool MTLD3D12Resource::ConfigureSamplerFeedback(

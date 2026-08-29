@@ -527,10 +527,12 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
   const bool volume =
       resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D;
   const bool array_texture =
-      resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+      (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D ||
+       resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D) &&
       resource_desc.DepthOrArraySize > 1;
   if (buffer_to_texture == texture_to_buffer ||
-      (resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+      (resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE1D &&
+       resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
        !volume) ||
       resource_desc.SampleDesc.Count > 1 ||
       buffer_offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0) {
