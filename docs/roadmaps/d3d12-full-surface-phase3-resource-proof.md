@@ -24,6 +24,10 @@
   packed and partial mips, volume tiling, format variants, tile mapping,
   unmapped zeroing, and physical-page ownership remain behavior-backed by the
   resource probe.
+- Copyable footprint dimensions, pitches, row counts, and 512-byte placement
+  alignment are validated for 1D, arrays, mip chains, volumes, and unaligned
+  BC1 dimensions; BC footprints report texel dimensions while retaining
+  block-rounded row math.
 - Shared mapping views and section handles are released with the resource;
   malformed or unknown handles remain rejected.
 
@@ -52,6 +56,7 @@ The isolated source-staged probe passed with:
   "buffers.address_heap_open_verified": true,
   "buffers.heap_aliasing_verified": true,
   "resource_shapes.all_created_and_roundtripped": true,
+  "resource_shapes.footprint_matrix_verified": true,
   "resource_shapes.invalid_zero_width": "0x80070057",
   "resource_shapes.invalid_msaa_mips": "0x80070057",
   "resource_shapes.misaligned_placement": "0x80070057",

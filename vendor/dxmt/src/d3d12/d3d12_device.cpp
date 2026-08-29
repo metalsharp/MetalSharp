@@ -5481,15 +5481,13 @@ void STDMETHODCALLTYPE MTLD3D12Device::GetCopyableFootprints(
     if (layouts) {
       layouts[i].Offset = offset;
       layouts[i].Footprint.Format = format;
-      layouts[i].Footprint.Width = static_cast<UINT>(std::min<UINT64>(
-          desc && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
-              ? width
-              : width_blocks * block_size,
-          UINT32_MAX));
+      // Footprint dimensions are expressed in texels. Block-compressed
+      // formats use block-rounded rows and pitches, but do not expose the
+      // padded block dimensions to the caller.
+      layouts[i].Footprint.Width = static_cast<UINT>(
+          std::min<UINT64>(width, UINT32_MAX));
       layouts[i].Footprint.Height = static_cast<UINT>(
-          desc && desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER
-              ? height
-              : std::min<UINT64>(rows * block_size, UINT32_MAX));
+          std::min<UINT64>(height, UINT32_MAX));
       layouts[i].Footprint.Depth = depth;
       layouts[i].Footprint.RowPitch = static_cast<UINT>(aligned_row_pitch);
     }

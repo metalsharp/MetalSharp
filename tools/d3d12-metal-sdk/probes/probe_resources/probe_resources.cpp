@@ -444,7 +444,70 @@ int main(int argc, char** argv) {
     bool resource_shapes_ok = !resource_shapes.empty();
     for (const auto& shape : resource_shapes)
         resource_shapes_ok = resource_shapes_ok && SUCCEEDED(shape.hr) && same_resource_desc(shape.created, shape.requested);
-    resource_shapes_ok = resource_shapes_ok && FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr) &&
+    auto verify_footprints = [&](const D3D12_RESOURCE_DESC& desc, UINT count, UINT expected_width,
+                                 UINT expected_height, UINT expected_depth, UINT64 expected_row_bytes,
+                                 UINT expected_rows) {
+        if (!device || !count || count > 16)
+            return false;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[16] = {};
+        UINT rows[16] = {};
+        UINT64 row_bytes[16] = {};
+        UINT64 total = 0;
+        device->GetCopyableFootprints(&desc, 0, count, 0, layouts, rows, row_bytes, &total);
+        if (!total)
+            return false;
+        for (UINT i = 0; i < count; ++i) {
+            if (layouts[i].Offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT ||
+                layouts[i].Footprint.Width != expected_width ||
+                layouts[i].Footprint.Height != expected_height ||
+                layouts[i].Footprint.Depth != expected_depth ||
+                layouts[i].Footprint.RowPitch < D3D12_TEXTURE_DATA_PITCH_ALIGNMENT ||
+                row_bytes[i] != expected_row_bytes || rows[i] != expected_rows)
+                return false;
+            if (i && layouts[i].Offset <= layouts[i - 1].Offset)
+                return false;
+        }
+        return true;
+    };
+    D3D12_RESOURCE_DESC footprint_1d = texture_desc(17, 1, DXGI_FORMAT_R8_UNORM);
+    footprint_1d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+    D3D12_RESOURCE_DESC footprint_array = texture_desc(19, 11, DXGI_FORMAT_R8G8B8A8_UNORM);
+    footprint_array.DepthOrArraySize = 4;
+    D3D12_RESOURCE_DESC footprint_mips = texture_desc(33, 17, DXGI_FORMAT_R8G8B8A8_UNORM);
+    footprint_mips.MipLevels = 6;
+    D3D12_RESOURCE_DESC footprint_3d = texture_desc(7, 5, DXGI_FORMAT_R8_UNORM);
+    footprint_3d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+    footprint_3d.DepthOrArraySize = 4;
+    D3D12_RESOURCE_DESC footprint_bc = texture_desc(7, 5, DXGI_FORMAT_BC1_UNORM);
+    auto verify_mip_footprints = [&](const D3D12_RESOURCE_DESC& desc, UINT count) {
+        if (!device || !count || count > 16)
+            return false;
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[16] = {};
+        UINT rows[16] = {};
+        UINT64 row_bytes[16] = {};
+        UINT64 total = 0;
+        device->GetCopyableFootprints(&desc, 0, count, 0, layouts, rows, row_bytes, &total);
+        if (!total)
+            return false;
+        for (UINT mip = 0; mip < count; ++mip) {
+            const UINT width = std::max<UINT>(1, desc.Width >> mip);
+            const UINT height = std::max<UINT>(1, desc.Height >> mip);
+            if (layouts[mip].Offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT ||
+                layouts[mip].Footprint.Width != width || layouts[mip].Footprint.Height != height ||
+                layouts[mip].Footprint.Depth != 1 || row_bytes[mip] != UINT64(width) * 4 ||
+                rows[mip] != height || (mip && layouts[mip].Offset <= layouts[mip - 1].Offset))
+                return false;
+        }
+        return true;
+    };
+    const bool footprint_matrix_ok =
+        verify_footprints(footprint_1d, 1, 17, 1, 1, 17, 1) &&
+        verify_footprints(footprint_array, 4, 19, 11, 1, 19 * 4, 11) &&
+        verify_mip_footprints(footprint_mips, 6) &&
+        verify_footprints(footprint_3d, 1, 7, 5, 4, 7, 5) &&
+        verify_footprints(footprint_bc, 1, 7, 5, 1, 16, 2);
+    resource_shapes_ok = resource_shapes_ok && footprint_matrix_ok &&
+                         FAILED(invalid_zero_width_hr) && FAILED(invalid_msaa_mips_hr) &&
                          FAILED(invalid_heap_alignment_hr) && FAILED(invalid_heap_flags_hr) &&
                          FAILED(misaligned_placement_hr);
     HRESULT upload_buffer_hr = device ? device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
@@ -1954,6 +2017,7 @@ int main(int argc, char** argv) {
     std::printf("  },\n");
     std::printf("  \"resource_shapes\": {\n");
     std::printf("    \"all_created_and_roundtripped\": %s,\n", resource_shapes_ok ? "true" : "false");
+    std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("invalid_msaa_mips", invalid_msaa_mips_hr);
     print_hr("misaligned_placement", misaligned_placement_hr);
