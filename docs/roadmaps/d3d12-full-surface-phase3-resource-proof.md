@@ -158,9 +158,11 @@
   pointer); descriptor identity and shared bytes remain valid across the
   original and both opened objects.
 - Shared-handle creation and named opening reject zero access masks with
-  exact `E_INVALIDARG`; valid named buffer, heap, and fence mappings retain
-  their cross-process behavior. Attempting to share a texture returns the
-  explicit `E_NOTIMPL` provider boundary instead of a process-local success.
+  exact `E_INVALIDARG`; unsupported shared-cross-adapter fence creation also
+  rejects with exact `E_INVALIDARG`. Valid named buffer, heap, and fence
+  mappings retain their cross-process behavior. Attempting to share a texture
+  returns the explicit `E_NOTIMPL` provider boundary instead of a process-local
+  success.
   A non-CPU-visible default heap is rejected the same way, while CPU-visible
   upload heaps remain shareable through the file-mapping provider.
 - Descriptor heaps and query heaps now participate in the D3D12 residency
@@ -274,6 +276,7 @@ The isolated source-staged probe passed with:
   "shared_handles.fence_wait_mapping": "0x00000000",
   "shared_handles.invalid_create_access": "0x80070057",
   "shared_handles.invalid_open_access": "0x80070057",
+  "shared_handles.invalid_shared_cross_adapter_fence": "0x80070057",
   "buffers.address_heap_open_verified": true,
   "buffers.heap_aliasing_verified": true,
   "buffers.heap_residency_verified": true,

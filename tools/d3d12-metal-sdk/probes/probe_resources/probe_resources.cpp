@@ -550,6 +550,7 @@ int main(int argc, char** argv) {
     HRESULT unnamed_shared_fence_handle_hr = E_FAIL;
     HRESULT unnamed_shared_fence_open_hr = E_FAIL;
     HRESULT unnamed_shared_fence_signal_hr = E_FAIL;
+    HRESULT invalid_shared_cross_adapter_fence_hr = E_FAIL;
     bool unnamed_shared_fence_roundtrip_ok = false;
     if (SUCCEEDED(shared_fence_signal_hr) && shared_fence_handle && device) {
         ID3D12Fence *mapped_fence_probe = nullptr;
@@ -574,6 +575,14 @@ int main(int argc, char** argv) {
         device ? device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                                      IID_PPV_ARGS(&unnamed_shared_fence))
                : E_FAIL;
+    ID3D12Fence *invalid_shared_cross_adapter_fence = nullptr;
+    invalid_shared_cross_adapter_fence_hr =
+        device ? device->CreateFence(
+                     0, D3D12_FENCE_FLAG_SHARED_CROSS_ADAPTER,
+                     IID_PPV_ARGS(&invalid_shared_cross_adapter_fence))
+               : E_FAIL;
+    if (invalid_shared_cross_adapter_fence)
+        invalid_shared_cross_adapter_fence->Release();
     unnamed_shared_fence_handle_hr =
         unnamed_shared_fence
             ? device->CreateSharedHandle(unnamed_shared_fence,
@@ -4741,6 +4750,7 @@ int main(int argc, char** argv) {
         SUCCEEDED(shared_default_heap_create_hr) &&
         shared_default_heap_handle_hr == E_NOTIMPL &&
         unnamed_shared_roundtrip_ok && unnamed_shared_cross_process_ok &&
+        invalid_shared_cross_adapter_fence_hr == E_INVALIDARG &&
         unnamed_shared_fence_cross_process_ok &&
         unnamed_shared_heap_cross_process_ok &&
         SUCCEEDED(unnamed_shared_source_hr) &&
@@ -5070,6 +5080,8 @@ int main(int argc, char** argv) {
     print_hr("unnamed_fence_handle_create", unnamed_shared_fence_handle_hr);
     print_hr("unnamed_fence_open", unnamed_shared_fence_open_hr);
     print_hr("unnamed_fence_signal", unnamed_shared_fence_signal_hr);
+    print_hr("invalid_shared_cross_adapter_fence",
+             invalid_shared_cross_adapter_fence_hr);
     std::printf("    \"unnamed_fence_roundtrip_verified\": %s,\n",
                 unnamed_shared_fence_roundtrip_ok ? "true" : "false");
     std::printf("    \"fence_cross_process_verified\": %s\n", shared_heap_cross_process_ok ? "true" : "false");

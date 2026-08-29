@@ -5979,6 +5979,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateFence(UINT64 initial_value,
   if (!fence)
     return E_POINTER;
   InitReturnPtr(fence);
+  if (static_cast<UINT>(flags) &
+      static_cast<UINT>(D3D12_FENCE_FLAG_SHARED_CROSS_ADAPTER))
+    return E_INVALIDARG;
+  if (static_cast<UINT>(flags) &
+      ~static_cast<UINT>(D3D12_FENCE_FLAG_SHARED))
+    return E_INVALIDARG;
 
   auto f = new MTLD3D12Fence(this, initial_value, flags);
   TRACE("CreateFence init=%llu fence=%p", (unsigned long long)initial_value,
