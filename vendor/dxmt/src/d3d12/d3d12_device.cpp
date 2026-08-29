@@ -515,6 +515,63 @@ static D3D12_RESOURCE_DESC NormalizeResourceDesc(
   return normalized;
 }
 
+static bool IsDepthStencilFormat(DXGI_FORMAT format) {
+  switch (format) {
+  case DXGI_FORMAT_D16_UNORM:
+  case DXGI_FORMAT_D24_UNORM_S8_UINT:
+  case DXGI_FORMAT_D32_FLOAT:
+  case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool AreClearFormatsCompatible(DXGI_FORMAT resource_format,
+                                       DXGI_FORMAT clear_format) {
+  if (resource_format == clear_format)
+    return true;
+  switch (resource_format) {
+  case DXGI_FORMAT_R8G8B8A8_TYPELESS:
+    return clear_format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+           clear_format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+           clear_format == DXGI_FORMAT_R8G8B8A8_UINT ||
+           clear_format == DXGI_FORMAT_R8G8B8A8_SINT;
+  case DXGI_FORMAT_B8G8R8A8_TYPELESS:
+    return clear_format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+           clear_format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+  case DXGI_FORMAT_R32_TYPELESS:
+    return clear_format == DXGI_FORMAT_R32_FLOAT ||
+           clear_format == DXGI_FORMAT_R32_UINT ||
+           clear_format == DXGI_FORMAT_R32_SINT ||
+           clear_format == DXGI_FORMAT_D32_FLOAT;
+  case DXGI_FORMAT_R24G8_TYPELESS:
+    return clear_format == DXGI_FORMAT_D24_UNORM_S8_UINT;
+  case DXGI_FORMAT_R32G8X24_TYPELESS:
+    return clear_format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+  default:
+    return false;
+  }
+}
+
+static bool IsValidOptimizedClearValue(
+    const D3D12_RESOURCE_DESC &desc,
+    const D3D12_CLEAR_VALUE *clear_value) {
+  if (!clear_value)
+    return true;
+  const bool render_target =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) != 0;
+  const bool depth_stencil =
+      (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0;
+  if (!render_target && !depth_stencil)
+    return false;
+  const bool clear_is_depth = IsDepthStencilFormat(clear_value->Format);
+  if (clear_is_depth != depth_stencil ||
+      !AreClearFormatsCompatible(desc.Format, clear_value->Format))
+    return false;
+  return true;
+}
+
 static bool IsResourceAllowedByHeapFlags(
     const D3D12_RESOURCE_DESC &desc, D3D12_HEAP_FLAGS heap_flags) {
   const UINT flags = static_cast<UINT>(heap_flags);
@@ -5018,7 +5075,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
   InitReturnPtr(resource);
   D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
   if (!IsValidResourceDesc(normalized_desc) ||
-      !IsResourceAllowedByHeapFlags(normalized_desc, heap_flags))
+      !IsResourceAllowedByHeapFlags(normalized_desc, heap_flags) ||
+      !IsValidOptimizedClearValue(normalized_desc, optimized_clear_value))
     return E_INVALIDARG;
   desc = &normalized_desc;
 
@@ -5100,7 +5158,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
     return E_POINTER;
   InitReturnPtr(resource);
   D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
-  if (!IsValidResourceDesc(normalized_desc))
+  if (!IsValidResourceDesc(normalized_desc) ||
+      !IsValidOptimizedClearValue(normalized_desc, optimized_clear_value))
     return E_INVALIDARG;
   desc = &normalized_desc;
 
@@ -5262,6 +5321,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource(
     return E_INVALIDARG;
   desc = &normalized_desc;
   if (desc->Flags & kD3D12ResourceFlagUseTightAlignment)
+    return E_INVALIDARG;
+  if (!IsValidOptimizedClearValue(*desc, optimized_clear_value))
     return E_INVALIDARG;
   const bool reserved_buffer =
       desc->Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&

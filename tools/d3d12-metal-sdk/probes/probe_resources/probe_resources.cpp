@@ -352,6 +352,8 @@ int main(int argc, char** argv) {
     HRESULT invalid_committed_heap_flags_hr = E_FAIL;
     HRESULT invalid_buffer_resource_flags_hr = E_FAIL;
     HRESULT invalid_texture_resource_flags_hr = E_FAIL;
+    HRESULT invalid_clear_without_flag_hr = E_FAIL;
+    HRESULT invalid_clear_format_hr = E_FAIL;
     HRESULT null_heap_properties_hr = E_FAIL;
     UINT64 invalid_zero_width_allocation_size = 0;
     UINT64 invalid_zero_width_allocation_alignment = 0;
@@ -520,6 +522,27 @@ int main(int argc, char** argv) {
         invalid_texture_resource_flags_hr = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_NONE, &invalid_texture_flags,
             D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_CLEAR_VALUE invalid_color_clear = {};
+        invalid_color_clear.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        invalid_clear_without_flag_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COMMON, &invalid_color_clear,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        D3D12_RESOURCE_DESC color_rt_desc =
+            texture_desc(8, 8, DXGI_FORMAT_R8G8B8A8_UNORM);
+        color_rt_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        D3D12_CLEAR_VALUE invalid_depth_clear = {};
+        invalid_depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+        invalid_clear_format_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &color_rt_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &invalid_depth_clear,
             IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
@@ -910,6 +933,8 @@ int main(int argc, char** argv) {
                          invalid_committed_heap_flags_hr == E_INVALIDARG &&
                          invalid_buffer_resource_flags_hr == E_INVALIDARG &&
                          invalid_texture_resource_flags_hr == E_INVALIDARG &&
+                         invalid_clear_without_flag_hr == E_INVALIDARG &&
+                         invalid_clear_format_hr == E_INVALIDARG &&
                          null_heap_properties_hr == E_INVALIDARG &&
                          FAILED(invalid_msaa_mips_hr) &&
                          invalid_zero_width_allocation_size == 0 && invalid_zero_width_allocation_alignment == 0 &&
@@ -2609,6 +2634,8 @@ int main(int argc, char** argv) {
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
     print_hr("invalid_buffer_resource_flags", invalid_buffer_resource_flags_hr);
     print_hr("invalid_texture_resource_flags", invalid_texture_resource_flags_hr);
+    print_hr("invalid_clear_without_flag", invalid_clear_without_flag_hr);
+    print_hr("invalid_clear_format", invalid_clear_format_hr);
     print_hr("null_heap_properties", null_heap_properties_hr);
     std::printf("    \"invalid_zero_width_allocation\": [%llu,%llu],\n",
                 static_cast<unsigned long long>(invalid_zero_width_allocation_size),
