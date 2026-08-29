@@ -3,6 +3,7 @@
 #include "com/com_pointer.hpp"
 #include "com/com_private_data.hpp"
 #include "d3d12.h"
+#include "d3d12_residency.hpp"
 #include "Metal.hpp"
 #include <atomic>
 #include <vector>
@@ -85,13 +86,24 @@ public:
            m_gpu_descriptor_buffer.handle != 0;
   }
   WMT::Reference<WMT::Buffer> GetShaderVisibleBuffer() {
-    return m_gpu_descriptor_buffer;
+    return m_residency.isResident() ? m_gpu_descriptor_buffer
+                                    : WMT::Reference<WMT::Buffer>{};
   }
   uint64_t GetShaderVisibleGPUAddress(uint32_t index = 0) const {
-    if (!m_gpu_descriptor_buffer.handle || index >= m_desc.NumDescriptors)
+    if (!m_residency.isResident() || !m_gpu_descriptor_buffer.handle ||
+        index >= m_desc.NumDescriptors)
       return 0;
     return m_gpu_descriptor_gpu_address +
            uint64_t(index) * sizeof(D3D12DescriptorTableEntry);
+  }
+  bool IsResident() const { return m_residency.isResident(); }
+  void MakeResident() { m_residency.makeResident(); }
+  void Evict() { m_residency.evict(); }
+  D3D12_RESIDENCY_PRIORITY GetResidencyPriority() const {
+    return m_residency.priority();
+  }
+  void SetResidencyPriority(D3D12_RESIDENCY_PRIORITY priority) {
+    m_residency.setPriority(priority);
   }
   uint32_t GetDescriptorIndex(const D3D12Descriptor *descriptor) const;
   uint32_t GetDescriptorIndexFromGPUHandle(
@@ -124,6 +136,7 @@ public:
 private:
   MTLD3D12Device *m_device;
   D3D12_DESCRIPTOR_HEAP_DESC m_desc;
+  ResidencyState m_residency;
   D3D12Descriptor *m_data = nullptr;
   bool m_data_is_virtual = false;
   size_t m_data_size = 0;

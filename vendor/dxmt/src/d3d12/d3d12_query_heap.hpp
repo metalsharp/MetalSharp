@@ -3,6 +3,7 @@
 #include "com/com_pointer.hpp"
 #include "com/com_private_data.hpp"
 #include "d3d12.h"
+#include "d3d12_residency.hpp"
 #include <atomic>
 #include <vector>
 
@@ -33,6 +34,15 @@ public:
 
   D3D12_QUERY_HEAP_TYPE GetType() const { return m_desc.Type; }
   UINT GetCount() const { return m_desc.Count; }
+  bool IsResident() const { return m_residency.isResident(); }
+  void MakeResident() { m_residency.makeResident(); }
+  void Evict() { m_residency.evict(); }
+  D3D12_RESIDENCY_PRIORITY GetResidencyPriority() const {
+    return m_residency.priority();
+  }
+  void SetResidencyPriority(D3D12_RESIDENCY_PRIORITY priority) {
+    m_residency.setPriority(priority);
+  }
   uint64_t *GetData() { return m_data.data(); }
   D3D12_QUERY_DATA_PIPELINE_STATISTICS1 *GetPipelineStatistics1Data(
       UINT index) {
@@ -48,6 +58,7 @@ public:
 private:
   MTLD3D12Device *m_device;
   D3D12_QUERY_HEAP_DESC m_desc;
+  ResidencyState m_residency;
   std::vector<uint64_t> m_data;
   std::vector<D3D12_QUERY_DATA_PIPELINE_STATISTICS1> m_pipeline_statistics1;
   std::vector<D3D12_QUERY_DATA_PIPELINE_STATISTICS1>

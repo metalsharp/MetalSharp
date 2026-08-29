@@ -220,6 +220,8 @@ enum class D3D12ResidencyObjectKind {
   Invalid,
   Resource,
   Heap,
+  DescriptorHeap,
+  QueryHeap,
 };
 
 static D3D12ResidencyObjectKind
@@ -235,6 +237,16 @@ ClassifyResidencyObject(ID3D12Pageable *object) {
   if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
     heap->Release();
     return D3D12ResidencyObjectKind::Heap;
+  }
+  ID3D12DescriptorHeap *descriptor_heap = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&descriptor_heap)))) {
+    descriptor_heap->Release();
+    return D3D12ResidencyObjectKind::DescriptorHeap;
+  }
+  ID3D12QueryHeap *query_heap = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&query_heap)))) {
+    query_heap->Release();
+    return D3D12ResidencyObjectKind::QueryHeap;
   }
   return D3D12ResidencyObjectKind::Invalid;
 }
@@ -5663,10 +5675,22 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::MakeResident(
       return E_INVALIDARG;
   }
   for (UINT i = 0; i < object_count; i++) {
-    if (kinds[i] == D3D12ResidencyObjectKind::Resource)
+    switch (kinds[i]) {
+    case D3D12ResidencyObjectKind::Resource:
       static_cast<MTLD3D12Resource *>(objects[i])->MakeResident();
-    else
+      break;
+    case D3D12ResidencyObjectKind::Heap:
       static_cast<MTLD3D12Heap *>(objects[i])->MakeResident();
+      break;
+    case D3D12ResidencyObjectKind::DescriptorHeap:
+      static_cast<MTLD3D12DescriptorHeap *>(objects[i])->MakeResident();
+      break;
+    case D3D12ResidencyObjectKind::QueryHeap:
+      static_cast<MTLD3D12QueryHeap *>(objects[i])->MakeResident();
+      break;
+    default:
+      break;
+    }
   }
   return S_OK;
 }
@@ -5684,10 +5708,22 @@ MTLD3D12Device::Evict(UINT object_count, ID3D12Pageable *const *objects) {
       return E_INVALIDARG;
   }
   for (UINT i = 0; i < object_count; i++) {
-    if (kinds[i] == D3D12ResidencyObjectKind::Resource)
+    switch (kinds[i]) {
+    case D3D12ResidencyObjectKind::Resource:
       static_cast<MTLD3D12Resource *>(objects[i])->Evict();
-    else
+      break;
+    case D3D12ResidencyObjectKind::Heap:
       static_cast<MTLD3D12Heap *>(objects[i])->Evict();
+      break;
+    case D3D12ResidencyObjectKind::DescriptorHeap:
+      static_cast<MTLD3D12DescriptorHeap *>(objects[i])->Evict();
+      break;
+    case D3D12ResidencyObjectKind::QueryHeap:
+      static_cast<MTLD3D12QueryHeap *>(objects[i])->Evict();
+      break;
+    default:
+      break;
+    }
   }
   return S_OK;
 }
@@ -6203,12 +6239,26 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetResidencyPriority(
       return E_INVALIDARG;
   }
   for (UINT i = 0; i < object_count; i++) {
-    if (kinds[i] == D3D12ResidencyObjectKind::Resource)
+    switch (kinds[i]) {
+    case D3D12ResidencyObjectKind::Resource:
       static_cast<MTLD3D12Resource *>(objects[i])->SetResidencyPriority(
           priorities[i]);
-    else
+      break;
+    case D3D12ResidencyObjectKind::Heap:
       static_cast<MTLD3D12Heap *>(objects[i])->SetResidencyPriority(
           priorities[i]);
+      break;
+    case D3D12ResidencyObjectKind::DescriptorHeap:
+      static_cast<MTLD3D12DescriptorHeap *>(objects[i])->SetResidencyPriority(
+          priorities[i]);
+      break;
+    case D3D12ResidencyObjectKind::QueryHeap:
+      static_cast<MTLD3D12QueryHeap *>(objects[i])->SetResidencyPriority(
+          priorities[i]);
+      break;
+    default:
+      break;
+    }
   }
   return S_OK;
 }
