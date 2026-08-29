@@ -198,6 +198,42 @@ void ReleaseSharedHandleEntry(D3D12SharedHandleEntry &entry) {
   entry = {};
 }
 
+enum class D3D12ResidencyObjectKind {
+  Invalid,
+  Resource,
+  Heap,
+};
+
+static D3D12ResidencyObjectKind
+ClassifyResidencyObject(ID3D12Pageable *object) {
+  if (!object)
+    return D3D12ResidencyObjectKind::Invalid;
+  ID3D12Resource *resource = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&resource)))) {
+    resource->Release();
+    return D3D12ResidencyObjectKind::Resource;
+  }
+  ID3D12Heap *heap = nullptr;
+  if (SUCCEEDED(object->QueryInterface(IID_PPV_ARGS(&heap)))) {
+    heap->Release();
+    return D3D12ResidencyObjectKind::Heap;
+  }
+  return D3D12ResidencyObjectKind::Invalid;
+}
+
+static bool IsValidResidencyPriority(D3D12_RESIDENCY_PRIORITY priority) {
+  switch (priority) {
+  case D3D12_RESIDENCY_PRIORITY_MINIMUM:
+  case D3D12_RESIDENCY_PRIORITY_LOW:
+  case D3D12_RESIDENCY_PRIORITY_NORMAL:
+  case D3D12_RESIDENCY_PRIORITY_HIGH:
+  case D3D12_RESIDENCY_PRIORITY_MAXIMUM:
+    return true;
+  default:
+    return false;
+  }
+}
+
 struct D3D12SharedHandleRegistryCleanup {
   ~D3D12SharedHandleRegistryCleanup() {
     std::lock_guard lock(g_shared_handle_mutex);
@@ -416,7 +452,11 @@ static UINT64 EstimateResourceAllocationSize(const D3D12_RESOURCE_DESC &desc) {
                    ResourcePlacementAlignment(desc));
 
   UINT mip_levels = std::max<UINT>(desc.MipLevels, 1);
-  UINT array_size = std::max<UINT>(desc.DepthOrArraySize, 1);
+  // A 3D resource stores depth in each mip and has no array slices. Treating
+  // DepthOrArraySize as an array count here double-counts every volume.
+  UINT array_size = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                         ? 1
+                         : std::max<UINT>(desc.DepthOrArraySize, 1);
   UINT bytes_per_texel = FormatBytesPerTexel(desc.Format);
   UINT block_size = FormatBlockSize(desc.Format);
   if (!bytes_per_texel)
@@ -5365,20 +5405,18 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::MakeResident(
   TRACE("MakeResident count=%u objects=%p", object_count, (void *)objects);
   if (object_count && !objects)
     return E_INVALIDARG;
+  std::vector<D3D12ResidencyObjectKind> kinds(object_count,
+                                               D3D12ResidencyObjectKind::Invalid);
   for (UINT i = 0; i < object_count; i++) {
-    if (!objects[i])
+    kinds[i] = ClassifyResidencyObject(objects[i]);
+    if (kinds[i] == D3D12ResidencyObjectKind::Invalid)
       return E_INVALIDARG;
-    ID3D12Resource *resource = nullptr;
-    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&resource)))) {
-      static_cast<MTLD3D12Resource *>(resource)->MakeResident();
-      resource->Release();
-      continue;
-    }
-    ID3D12Heap *heap = nullptr;
-    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&heap)))) {
-      static_cast<MTLD3D12Heap *>(heap)->MakeResident();
-      heap->Release();
-    }
+  }
+  for (UINT i = 0; i < object_count; i++) {
+    if (kinds[i] == D3D12ResidencyObjectKind::Resource)
+      static_cast<MTLD3D12Resource *>(objects[i])->MakeResident();
+    else
+      static_cast<MTLD3D12Heap *>(objects[i])->MakeResident();
   }
   return S_OK;
 }
@@ -5388,20 +5426,18 @@ MTLD3D12Device::Evict(UINT object_count, ID3D12Pageable *const *objects) {
   TRACE("Evict count=%u objects=%p", object_count, (void *)objects);
   if (object_count && !objects)
     return E_INVALIDARG;
+  std::vector<D3D12ResidencyObjectKind> kinds(object_count,
+                                               D3D12ResidencyObjectKind::Invalid);
   for (UINT i = 0; i < object_count; i++) {
-    if (!objects[i])
+    kinds[i] = ClassifyResidencyObject(objects[i]);
+    if (kinds[i] == D3D12ResidencyObjectKind::Invalid)
       return E_INVALIDARG;
-    ID3D12Resource *resource = nullptr;
-    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&resource)))) {
-      static_cast<MTLD3D12Resource *>(resource)->Evict();
-      resource->Release();
-      continue;
-    }
-    ID3D12Heap *heap = nullptr;
-    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&heap)))) {
-      static_cast<MTLD3D12Heap *>(heap)->Evict();
-      heap->Release();
-    }
+  }
+  for (UINT i = 0; i < object_count; i++) {
+    if (kinds[i] == D3D12ResidencyObjectKind::Resource)
+      static_cast<MTLD3D12Resource *>(objects[i])->Evict();
+    else
+      static_cast<MTLD3D12Heap *>(objects[i])->Evict();
   }
   return S_OK;
 }
@@ -5885,21 +5921,22 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::SetResidencyPriority(
         (void *)objects, (void *)priorities);
   if (object_count && (!objects || !priorities))
     return E_INVALIDARG;
+  std::vector<D3D12ResidencyObjectKind> kinds(object_count,
+                                               D3D12ResidencyObjectKind::Invalid);
   for (UINT i = 0; i < object_count; i++) {
-    if (!objects[i])
+    if (!IsValidResidencyPriority(priorities[i]))
       return E_INVALIDARG;
-    ID3D12Resource *resource = nullptr;
-    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&resource)))) {
-      static_cast<MTLD3D12Resource *>(resource)->SetResidencyPriority(
+    kinds[i] = ClassifyResidencyObject(objects[i]);
+    if (kinds[i] == D3D12ResidencyObjectKind::Invalid)
+      return E_INVALIDARG;
+  }
+  for (UINT i = 0; i < object_count; i++) {
+    if (kinds[i] == D3D12ResidencyObjectKind::Resource)
+      static_cast<MTLD3D12Resource *>(objects[i])->SetResidencyPriority(
           priorities[i]);
-      resource->Release();
-      continue;
-    }
-    ID3D12Heap *heap = nullptr;
-    if (SUCCEEDED(objects[i]->QueryInterface(IID_PPV_ARGS(&heap)))) {
-      static_cast<MTLD3D12Heap *>(heap)->SetResidencyPriority(priorities[i]);
-      heap->Release();
-    }
+    else
+      static_cast<MTLD3D12Heap *>(objects[i])->SetResidencyPriority(
+          priorities[i]);
   }
   return S_OK;
 }
