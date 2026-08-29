@@ -364,6 +364,8 @@ int main(int argc, char** argv) {
     std::vector<ResourceShapeProbe> resource_shapes;
     HRESULT invalid_zero_width_hr = E_FAIL;
     HRESULT invalid_committed_heap_flags_hr = E_FAIL;
+    HRESULT invalid_upload_state_hr = E_FAIL;
+    HRESULT invalid_readback_state_hr = E_FAIL;
     HRESULT invalid_buffer_resource_flags_hr = E_FAIL;
     HRESULT invalid_texture_resource_flags_hr = E_FAIL;
     HRESULT invalid_depth_format_flags_hr = E_FAIL;
@@ -523,6 +525,20 @@ int main(int argc, char** argv) {
         invalid_committed_heap_flags_hr = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_DENY_BUFFERS, &buffer,
             D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        invalid_upload_state_hr = device->CreateCommittedResource(
+            &upload_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&invalid_resource));
+        if (invalid_resource)
+            invalid_resource->Release();
+        invalid_resource = nullptr;
+        invalid_readback_state_hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
             IID_PPV_ARGS(&invalid_resource));
         if (invalid_resource)
             invalid_resource->Release();
@@ -963,6 +979,8 @@ int main(int argc, char** argv) {
     resource_shapes_ok = resource_shapes_ok && footprint_matrix_ok &&
                          FAILED(invalid_zero_width_hr) &&
                          invalid_committed_heap_flags_hr == E_INVALIDARG &&
+                         invalid_upload_state_hr == E_INVALIDARG &&
+                         invalid_readback_state_hr == E_INVALIDARG &&
                          invalid_buffer_resource_flags_hr == E_INVALIDARG &&
                          invalid_texture_resource_flags_hr == E_INVALIDARG &&
                          invalid_depth_format_flags_hr == E_INVALIDARG &&
@@ -2820,6 +2838,8 @@ int main(int argc, char** argv) {
     std::printf("    \"footprint_matrix_verified\": %s,\n", footprint_matrix_ok ? "true" : "false");
     print_hr("invalid_zero_width", invalid_zero_width_hr);
     print_hr("invalid_committed_heap_flags", invalid_committed_heap_flags_hr);
+    print_hr("invalid_upload_state", invalid_upload_state_hr);
+    print_hr("invalid_readback_state", invalid_readback_state_hr);
     print_hr("invalid_buffer_resource_flags", invalid_buffer_resource_flags_hr);
     print_hr("invalid_texture_resource_flags", invalid_texture_resource_flags_hr);
     print_hr("invalid_depth_format_flags", invalid_depth_format_flags_hr);
