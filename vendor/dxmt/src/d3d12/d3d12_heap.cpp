@@ -189,6 +189,28 @@ HRESULT CreateSharedHeapMapping(
   metadata.mapping_size = mapping_size;
   metadata.data_size = desc.SizeInBytes;
   metadata.heap_desc = desc;
+  ID3D12Device *heap_device = nullptr;
+  if (FAILED(heap->GetDevice(IID_PPV_ARGS(&heap_device)))) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
+  LUID heap_luid = {};
+  if (!heap_device->GetAdapterLuid(&heap_luid)) {
+    heap_device->Release();
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
+  metadata.adapter_luid =
+      (static_cast<uint64_t>(static_cast<uint32_t>(heap_luid.HighPart)) << 32) |
+      static_cast<uint32_t>(heap_luid.LowPart);
+  heap_device->Release();
+  if (!metadata.adapter_luid) {
+    UnmapViewOfFile(view);
+    CloseHandle(section);
+    return E_FAIL;
+  }
   std::memcpy(view, &metadata, sizeof(metadata));
   HANDLE owner_mapping = nullptr;
   HRESULT hr = DuplicateHeapMappingHandle(section, &owner_mapping);
@@ -225,7 +247,25 @@ HRESULT OpenSharedHeapFromMapping(MTLD3D12Device *device, HANDLE mapping,
       metadata.mapping_size < metadata.data_offset ||
       metadata.data_size != metadata.heap_desc.SizeInBytes ||
       metadata.data_size > metadata.mapping_size - metadata.data_offset ||
-      !metadata.data_size) {
+      !metadata.data_size || metadata.adapter_luid == 0) {
+    UnmapViewOfFile(view);
+    return DXGI_ERROR_INVALID_CALL;
+  }
+  ID3D12Device *current_device = nullptr;
+  if (FAILED(device->QueryInterface(IID_PPV_ARGS(&current_device)))) {
+    UnmapViewOfFile(view);
+    return E_FAIL;
+  }
+  LUID current_luid = {};
+  const bool luid_ok = current_device->GetAdapterLuid(&current_luid) != nullptr;
+  const uint64_t current_luid_value =
+      luid_ok
+          ? (static_cast<uint64_t>(static_cast<uint32_t>(current_luid.HighPart))
+             << 32) |
+                static_cast<uint32_t>(current_luid.LowPart)
+          : 0;
+  current_device->Release();
+  if (!luid_ok || current_luid_value != metadata.adapter_luid) {
     UnmapViewOfFile(view);
     return DXGI_ERROR_INVALID_CALL;
   }
