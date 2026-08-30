@@ -118,6 +118,8 @@ enum class TypedData {
     R10G10B10A2UInt,
     R10G10B10A2UNorm,
     R11G11B10Float,
+    R64UInt,
+    R64SInt,
 };
 
 struct ShapeInfo {
@@ -130,6 +132,7 @@ struct ShapeInfo {
     uint32_t dimensions_expected;
     DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
     TypedData typed_data = TypedData::None;
+    uint32_t expected_high = 0;
 };
 
 static const ShapeInfo kReadCases[] = {
@@ -170,6 +173,10 @@ static const ShapeInfo kReadCases[] = {
      64, 1028, DXGI_FORMAT_R10G10B10A2_UNORM, TypedData::R10G10B10A2UNorm},
     {"texture_packed_r11g11b10_float", "cs_texture_2d.cso", TextureShape::Texture2D, false, false,
      64, 1028, DXGI_FORMAT_R11G11B10_FLOAT, TypedData::R11G11B10Float},
+    {"texture_typed_r64_uint", "cs_texture_typed_uint64.cso", TextureShape::Texture2D, false, false,
+     0x89abcdef, 1028, DXGI_FORMAT_R32G32_UINT, TypedData::R64UInt, 0x01234567},
+    {"texture_typed_r64_sint", "cs_texture_typed_sint64.cso", TextureShape::Texture2D, false, false,
+     0x12345678, 1028, DXGI_FORMAT_R32G32_UINT, TypedData::R64SInt, 0xffffffff},
 };
 
 static const ShapeInfo kStoreCases[] = {
@@ -198,6 +205,10 @@ static const ShapeInfo kStoreCases[] = {
      0xc0000100, 0, DXGI_FORMAT_R10G10B10A2_UNORM, TypedData::R10G10B10A2UNorm},
     {"texture_packed_r11g11b10_float", "cs_store_2d.cso", TextureShape::Texture2D, false, false,
      0x00000340, 0, DXGI_FORMAT_R11G11B10_FLOAT, TypedData::R11G11B10Float},
+    {"texture_typed_r64_uint", "cs_store_typed_uint64.cso", TextureShape::Texture2D, false, false,
+     0x89abcdef, 0, DXGI_FORMAT_R32G32_UINT, TypedData::R64UInt, 0x01234567},
+    {"texture_typed_r64_sint", "cs_store_typed_sint64.cso", TextureShape::Texture2D, false, false,
+     0x12345678, 0, DXGI_FORMAT_R32G32_UINT, TypedData::R64SInt, 0xffffffff},
 };
 
 static D3D12_RESOURCE_DESC texture_desc(TextureShape shape, bool writable) {
@@ -513,6 +524,8 @@ struct CaseResult {
     HRESULT pso_hr = E_FAIL;
     uint32_t expected = 64;
     uint32_t actual = 0;
+    uint32_t expected_high = 0;
+    uint32_t actual_high = 0;
     uint32_t dimensions_expected = 0;
     uint32_t dimensions_actual = 0;
     std::string detail;
@@ -523,6 +536,7 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     result.name = info.name;
     result.operation = "read";
     result.expected = info.expected;
+    result.expected_high = info.expected_high;
     result.dimensions_expected = info.dimensions_expected;
     std::vector<uint8_t> shader;
     if (!read_binary_file(info.shader, shader)) {
@@ -648,18 +662,29 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
             case TypedData::R11G11B10Float:
                 pixel[0] = 0x40; pixel[1] = 0x03; pixel[2] = 0x00; pixel[3] = 0x00;
                 break;
+            case TypedData::R64UInt:
+                pixel[0] = 0xef; pixel[1] = 0xcd; pixel[2] = 0xab; pixel[3] = 0x89;
+                pixel[4] = 0x67; pixel[5] = 0x45; pixel[6] = 0x23; pixel[7] = 0x01;
+                break;
+            case TypedData::R64SInt:
+                pixel[0] = 0x78; pixel[1] = 0x56; pixel[2] = 0x34; pixel[3] = 0x12;
+                pixel[4] = 0xff; pixel[5] = 0xff; pixel[6] = 0xff; pixel[7] = 0xff;
+                break;
             case TypedData::None:
                 break;
             }
             const UINT bytes_per_pixel =
-                info.typed_data == TypedData::R16UInt ||
+                info.typed_data == TypedData::R64UInt ||
+                        info.typed_data == TypedData::R64SInt
+                    ? 8
+                    : info.typed_data == TypedData::R16UInt ||
                         info.typed_data == TypedData::R16SInt ||
                         info.typed_data == TypedData::R16Float ||
                         info.typed_data == TypedData::R16UNorm ||
                         info.typed_data == TypedData::R16SNorm
                     ? 2
                     : 4;
-            uint8_t pattern[4] = {};
+            uint8_t pattern[8] = {};
             std::memcpy(pattern, pixel, bytes_per_pixel);
             for (UINT y = 0; y < rows[0]; ++y) {
                 uint8_t* row = mapped + footprints[0].Offset +
@@ -744,16 +769,24 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     }
     if (SUCCEEDED(hr)) {
         uint32_t* mapped = nullptr;
-        D3D12_RANGE range = {0, 2 * sizeof(uint32_t)};
+        const bool typed_64 = info.typed_data == TypedData::R64UInt ||
+                              info.typed_data == TypedData::R64SInt;
+        D3D12_RANGE range = {0, (typed_64 ? 3u : 2u) * sizeof(uint32_t)};
         hr = readback->Map(0, &range, reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr) && mapped) {
             result.actual = mapped[0];
-            result.dimensions_actual = mapped[1];
+            if (typed_64) {
+                result.actual_high = mapped[1];
+                result.dimensions_actual = mapped[2];
+            } else {
+                result.dimensions_actual = mapped[1];
+            }
             readback->Unmap(0, nullptr);
         }
     }
     result.hr = hr;
     result.pass = SUCCEEDED(hr) && result.actual == result.expected &&
+                  result.actual_high == result.expected_high &&
                   result.dimensions_actual == result.dimensions_expected;
     result.detail = result.pass ? "dimension-aware DXIL texture read and GetDimensions matched exact readback"
                                 : errors.empty() ? "texture dimension readback failed"
@@ -769,6 +802,7 @@ static CaseResult run_store_case(ID3D12Device* device, const ShapeInfo& info) {
     result.name = info.name;
     result.operation = "store";
     result.expected = info.expected;
+    result.expected_high = info.expected_high;
     std::vector<uint8_t> shader;
     if (!read_binary_file(info.shader, shader)) {
         result.detail = "compiled DXIL blob missing: " + g_binary_file_error;
@@ -868,16 +902,23 @@ static CaseResult run_store_case(ID3D12Device* device, const ShapeInfo& info) {
                                  footprints[0].Footprint.RowPitch;
             else if (info.array)
                 target_offset = footprints[1].Offset;
-            if (info.typed_data != TypedData::None)
+            if (info.typed_data != TypedData::None) {
                 std::memcpy(&result.actual, mapped + target_offset,
                             sizeof(result.actual));
-            else
+                if (info.typed_data == TypedData::R64UInt ||
+                    info.typed_data == TypedData::R64SInt)
+                    std::memcpy(&result.actual_high,
+                                mapped + target_offset + sizeof(uint32_t),
+                                sizeof(result.actual_high));
+            } else {
                 result.actual = mapped[target_offset];
+            }
             readback->Unmap(0, nullptr);
         }
     }
     result.hr = hr;
-    result.pass = SUCCEEDED(hr) && result.actual == result.expected;
+    result.pass = SUCCEEDED(hr) && result.actual == result.expected &&
+                  result.actual_high == result.expected_high;
     result.detail = result.pass ? "dimension-aware DXIL texture store matched exact readback"
                                 : errors.empty() ? "texture dimension store readback failed"
                                                  : errors;
@@ -908,10 +949,11 @@ int main() {
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {
         const auto& result = results[i];
-        std::printf("    {\"name\":\"%s\",\"operation\":\"%s\",\"pass\":%s,\"hr\":\"%s\",\"pso_hr\":\"%s\",\"expected\":%u,\"actual\":%u,\"dimensions_expected\":%u,\"dimensions_actual\":%u,\"detail\":\"%s\"}%s\n",
+        std::printf("    {\"name\":\"%s\",\"operation\":\"%s\",\"pass\":%s,\"hr\":\"%s\",\"pso_hr\":\"%s\",\"expected\":%u,\"actual\":%u,\"expected_high\":%u,\"actual_high\":%u,\"dimensions_expected\":%u,\"dimensions_actual\":%u,\"detail\":\"%s\"}%s\n",
                     json_escape(result.name).c_str(), result.operation.c_str(),
                     result.pass ? "true" : "false", hr_hex(result.hr).c_str(),
                     hr_hex(result.pso_hr).c_str(), result.expected, result.actual,
+                    result.expected_high, result.actual_high,
                     result.dimensions_expected, result.dimensions_actual,
                     json_escape(result.detail).c_str(),
                     i + 1 == results.size() ? "" : ",");

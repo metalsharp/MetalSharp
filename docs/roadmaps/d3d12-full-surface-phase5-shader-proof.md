@@ -74,7 +74,9 @@
   R16 floating reads plus writable R32 and RGBA8 signed/unsigned stores all
   return exact packed values. R16 UNORM/SNORM, RGBA8 SNORM,
   R10G10B10A2 UINT/UNORM, and R11G11B10 FLOAT reads and writes also match
-  their exact normalized results or packed storage bits. The D3D12 MSAA SRV view path now preserves the
+  their exact normalized results or packed storage bits. Scalar signed and
+  unsigned 64-bit texture accesses over R32G32_UINT preserve both 32-bit
+  halves for reads and writes. The D3D12 MSAA SRV view path now preserves the
   multisample Metal texture type instead of creating an incompatible 2D view.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
@@ -163,7 +165,7 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-normalized-packed2`: 38/38 cases passed with exact
+`phase5-typed64-2`: 42/42 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
 for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
 R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`, RGBA8_UINT `0x281e140a`, RGBA8_SINT
@@ -172,8 +174,10 @@ R32_UINT `0x12345678`, R32_SINT `0xffed2979`, RGBA8_UINT `0x281e140a`, and
 RGBA8_SINT `0xfcfdfeff`. The expanded normalized/packed cases return exact
 read values `64` or packed UINT `0x031e140a`, and exact writable bits R16_UNORM
 `0x4000`, R16_SNORM `0x2000`, RGBA8_SNORM `0x7f000020`, R10G10B10A2_UINT
-`0xc1e0500a`, R10G10B10A2_UNORM `0xc0000100`, and R11G11B10_FLOAT `0x340`,
-with no offline converter. The same run covers the Metal-specific 1D
+`0xc1e0500a`, R10G10B10A2_UNORM `0xc0000100`, and R11G11B10_FLOAT `0x340`.
+The signed/unsigned 64-bit cases preserve exact low/high pairs
+`{0x89abcdef,0x01234567}` and `{0x12345678,0xffffffff}` respectively on both
+load and store, with no offline converter. The same run covers the Metal-specific 1D
 explicit-level-zero path through the native 1D sampler;
 nonzero 1D LOD modifiers remain fail-closed because Metal exposes no
 semantically equivalent overload. The latest SM6.6/6.7 profile

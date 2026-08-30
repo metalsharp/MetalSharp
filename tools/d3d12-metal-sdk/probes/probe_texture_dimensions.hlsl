@@ -21,6 +21,10 @@ Texture2D<uint4> tex_uint4 : register(t0);
 Texture2D<int4> tex_sint4 : register(t0);
 #elif defined(M12_TYPED_FLOAT16)
 Texture2D<float> tex_float : register(t0);
+#elif defined(M12_TYPED_UINT64)
+Texture2D<uint64_t> tex_uint64 : register(t0);
+#elif defined(M12_TYPED_SINT64)
+Texture2D<int64_t> tex_sint64 : register(t0);
 #endif
 
 RWStructuredBuffer<uint> output : register(u0);
@@ -149,6 +153,26 @@ void cs_texture_typed_float16(uint3 id : SV_DispatchThreadID) {
   tex_float.GetDimensions(w, h);
   output[1] = w | (h << 8);
 }
+#elif defined(M12_TYPED_UINT64)
+[numthreads(1,1,1)]
+void cs_texture_typed_uint64(uint3 id : SV_DispatchThreadID) {
+  uint64_t value = tex_uint64.Load(int3(0, 0, 0));
+  output[0] = (uint)value;
+  output[1] = (uint)(value >> 32);
+  uint w, h;
+  tex_uint64.GetDimensions(w, h);
+  output[2] = w | (h << 8);
+}
+#elif defined(M12_TYPED_SINT64)
+[numthreads(1,1,1)]
+void cs_texture_typed_sint64(uint3 id : SV_DispatchThreadID) {
+  uint64_t value = (uint64_t)tex_sint64.Load(int3(0, 0, 0));
+  output[0] = (uint)value;
+  output[1] = (uint)(value >> 32);
+  uint w, h;
+  tex_sint64.GetDimensions(w, h);
+  output[2] = w | (h << 8);
+}
 #endif
 
 RWTexture1D<float4> rw1 : register(u0);
@@ -164,6 +188,10 @@ RWTexture2D<int> rw_sint : register(u0);
 RWTexture2D<uint4> rw_uint4 : register(u0);
 #elif defined(M12_STORE_SINT4)
 RWTexture2D<int4> rw_sint4 : register(u0);
+#elif defined(M12_STORE_UINT64)
+RWTexture2D<uint64_t> rw_uint64 : register(u0);
+#elif defined(M12_STORE_SINT64)
+RWTexture2D<int64_t> rw_sint64 : register(u0);
 #endif
 RWTexture2DMS<float4> rwms : register(u0);
 RWTexture2DMSArray<float4> rwmsa : register(u0);
@@ -190,6 +218,12 @@ void cs_store_typed_uint4(uint3 id : SV_DispatchThreadID) { rw_uint4[uint2(0, 0)
 #elif defined(M12_STORE_SINT4)
 [numthreads(1,1,1)]
 void cs_store_typed_sint4(uint3 id : SV_DispatchThreadID) { rw_sint4[uint2(0, 0)] = int4(-1, -2, -3, -4); }
+#elif defined(M12_STORE_UINT64)
+[numthreads(1,1,1)]
+void cs_store_typed_uint64(uint3 id : SV_DispatchThreadID) { rw_uint64[uint2(0, 0)] = 0x0123456789abcdefull; }
+#elif defined(M12_STORE_SINT64)
+[numthreads(1,1,1)]
+void cs_store_typed_sint64(uint3 id : SV_DispatchThreadID) { rw_sint64[uint2(0, 0)] = (int64_t)0xffffffff12345678ull; }
 #endif
 [numthreads(4,1,1)]
 void cs_store_2d_ms(uint3 id : SV_DispatchThreadID) { rwms[uint2(0, 0)] = float4(0.25, 0, 0, 1); }
