@@ -60,7 +60,7 @@
   ID zero is used by a float bitcast, emitting `as_type<int>` rather than a
   numeric conversion; it also handles the signed/unsigned result semantics
   of `firstbitlow`/`firstbithigh`. The source-staged semantic run continues to
-  match `math_bits` and all 15 semantic lanes.
+  match `math_bits`, `math_intrinsics`, and all 16 semantic lanes.
 - The object-contract probe now exercises the memory shader-cache session's
   descriptor, store, size-query, short-buffer, replacement, missing-key, and
   pointer-validation semantics. `shader_cache_session_pass` is true.
