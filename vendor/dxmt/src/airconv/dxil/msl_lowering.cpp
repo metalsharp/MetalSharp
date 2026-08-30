@@ -4161,9 +4161,21 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                handle + " + " + byte_offset + "), (uint)(" + compare_value +
                "), (uint)(" + new_value + "))";
     }
-    case 75: case 76: case 97: case 98: return "0.5";
-    case 77: return "1";
-    case 109: return "0";
+    case 75:
+    case 76:
+    case 97:
+    case 98:
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(ctx, "DXIL multisample/sample-position intrinsic is unsupported; rejecting shader");
+        return "0.5";
+    case 77:
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(ctx, "DXIL render-target sample-count intrinsic is unsupported; rejecting shader");
+        return "1";
+    case 109:
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(ctx, "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
+        return "0";
     case 80: return "threadgroup_barrier(mem_flags::mem_threadgroup)";
     case DXOP_Discard:
         return "discard_fragment()";

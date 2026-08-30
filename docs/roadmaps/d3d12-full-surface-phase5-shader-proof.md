@@ -53,7 +53,9 @@
   advertised as implemented. The shader corpus also compiles an
   `AppendStructuredBuffer` case and verifies that PSO creation rejects its
   unsupported counter intrinsic with `0x80004005`; positive append/consume
-  readback remains open.
+  readback remains open. Previously silent sample-position, sample-count, and
+  cycle-counter placeholders now also increment the unsupported-intrinsic
+  diagnostic and reject PSO creation rather than succeeding with fake values.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
