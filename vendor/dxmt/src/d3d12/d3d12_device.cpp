@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstdio>
 #include <cstring>
 #include <cwchar>
 #include <limits>
@@ -33,6 +34,7 @@
 #include <unordered_set>
 #include <vector>
 #include <string>
+#include <sys/stat.h>
 #include <type_traits>
 #include <utility>
 #include <d3d12.h>
@@ -3464,21 +3466,85 @@ bool GetD3D12StateObjectShaderRecordLocalRootSignature(
                                        local_root_signature);
 }
 
+static std::mutex g_shader_cache_session_file_mutex;
+
+struct ShaderCacheSessionFileHeader {
+  uint32_t magic = 0;
+  uint32_t version = 0;
+  uint32_t entry_count = 0;
+};
+
+static constexpr uint32_t kShaderCacheSessionFileMagic = 0x3143534d; // MSC1
+static constexpr uint32_t kShaderCacheSessionFileVersion = 1;
+static constexpr uint32_t kShaderCacheSessionMaxFileBytes = 64u * 1024u * 1024u;
+
+static std::string ShaderCacheSessionBasePath(
+    const D3D12_SHADER_CACHE_SESSION_DESC &desc) {
+  if (desc.Flags & D3D12_SHADER_CACHE_FLAG_USE_WORKING_DIR)
+    return ".";
+  const char *env_path = std::getenv("DXMT_SHADER_CACHE_PATH");
+  return env_path && env_path[0] ? env_path : "/tmp/dxmt_shader_cache";
+}
+
+static std::string ShaderCacheSessionPath(
+    const D3D12_SHADER_CACHE_SESSION_DESC &desc) {
+  const auto &id = desc.Identifier;
+  char identifier[96] = {};
+  std::snprintf(
+      identifier, sizeof(identifier),
+      "%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+      static_cast<unsigned long>(id.Data1), static_cast<unsigned>(id.Data2),
+      static_cast<unsigned>(id.Data3), static_cast<unsigned>(id.Data4[0]),
+      static_cast<unsigned>(id.Data4[1]), static_cast<unsigned>(id.Data4[2]),
+      static_cast<unsigned>(id.Data4[3]), static_cast<unsigned>(id.Data4[4]),
+      static_cast<unsigned>(id.Data4[5]), static_cast<unsigned>(id.Data4[6]),
+      static_cast<unsigned>(id.Data4[7]));
+  std::string base = ShaderCacheSessionBasePath(desc);
+  while (base.size() > 1 && (base.back() == '/' || base.back() == '\\'))
+    base.pop_back();
+  std::string path = base + "/shader-session-" + identifier;
+  if (desc.Flags & D3D12_SHADER_CACHE_FLAG_DRIVER_VERSIONED)
+    path += str::format("-", static_cast<unsigned long long>(desc.Version));
+  return path + ".bin";
+}
+
+static void EnsureShaderCacheSessionDirectory(
+    const D3D12_SHADER_CACHE_SESSION_DESC &desc) {
+  if (desc.Flags & D3D12_SHADER_CACHE_FLAG_USE_WORKING_DIR)
+    return;
+  const std::string base = ShaderCacheSessionBasePath(desc);
+  if (base == "/tmp/dxmt_shader_cache")
+    CreateDirectoryA("Z:\\tmp\\dxmt_shader_cache", nullptr);
+  mkdir(base.c_str());
+}
+
 class MTLD3D12ShaderCacheSession : public ComObject<ID3D12ShaderCacheSession> {
 public:
   MTLD3D12ShaderCacheSession(MTLD3D12Device *device,
                              const D3D12_SHADER_CACHE_SESSION_DESC &desc)
       : m_device(device), m_desc(desc) {
     m_device->AddRef();
+    if (m_desc.Mode == D3D12_SHADER_CACHE_MODE_DISK) {
+      m_disk_path = ShaderCacheSessionPath(m_desc);
+      std::lock_guard<std::mutex> lock(g_shader_cache_session_file_mutex);
+      LoadFromDiskLocked();
+    }
     TRACE("ShaderCacheSession create mode=%u flags=0x%x max_bytes=%u "
-          "max_entries=%u version=%llu",
+          "max_entries=%u version=%llu disk=%s",
           (unsigned)m_desc.Mode, (unsigned)m_desc.Flags,
           m_desc.MaximumInMemoryCacheSizeBytes,
           m_desc.MaximumInMemoryCacheEntries,
-          (unsigned long long)m_desc.Version);
+          (unsigned long long)m_desc.Version,
+          m_disk_path.empty() ? "false" : m_disk_path.c_str());
   }
 
-  ~MTLD3D12ShaderCacheSession() { m_device->Release(); }
+  ~MTLD3D12ShaderCacheSession() {
+    if (!m_disk_path.empty() && m_delete_on_destroy) {
+      std::lock_guard<std::mutex> lock(g_shader_cache_session_file_mutex);
+      std::remove(m_disk_path.c_str());
+    }
+    m_device->Release();
+  }
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
     if (!ppv)
@@ -3516,6 +3582,7 @@ public:
                                       void *value, UINT *value_size) override {
     if (!value_size || (!key && key_size))
       return E_POINTER;
+    std::lock_guard<std::mutex> lock(g_shader_cache_session_file_mutex);
     auto iter = m_values.find(key_from_bytes(key, key_size));
     if (iter == m_values.end()) {
       TRACE("ShaderCacheSession FindValue miss key_size=%u", key_size);
@@ -3549,6 +3616,7 @@ public:
                                        UINT value_size) override {
     if ((!key && key_size) || (!value && value_size))
       return E_POINTER;
+    std::lock_guard<std::mutex> lock(g_shader_cache_session_file_mutex);
     const std::string cache_key = key_from_bytes(key, key_size);
     auto existing = m_values.find(cache_key);
     if (existing == m_values.end() && m_desc.MaximumInMemoryCacheEntries &&
@@ -3558,6 +3626,9 @@ public:
       return E_OUTOFMEMORY;
     }
     const size_t old_size = existing == m_values.end() ? 0 : existing->second.size();
+    const size_t old_total = m_value_bytes;
+    const std::vector<uint8_t> old_value =
+        existing == m_values.end() ? std::vector<uint8_t>() : existing->second;
     const size_t retained_size = m_value_bytes - old_size;
     if (m_desc.MaximumInMemoryCacheSizeBytes &&
         value_size > m_desc.MaximumInMemoryCacheSizeBytes -
@@ -3578,6 +3649,19 @@ public:
     if (value_size)
       memcpy(entry.data(), value, value_size);
     m_value_bytes = retained_size + value_size;
+    if (!m_disk_path.empty() && !PersistToDiskLocked()) {
+      if (existing == m_values.end()) {
+        m_values.erase(cache_key);
+      } else {
+        existing->second.resize(old_size);
+        if (old_size)
+          memcpy(existing->second.data(), old_value.data(), old_size);
+      }
+      m_value_bytes = old_total;
+      TRACE("ShaderCacheSession StoreValue persistence failed path=%s",
+            m_disk_path.c_str());
+      return E_FAIL;
+    }
     TRACE("ShaderCacheSession StoreValue key_size=%u value_size=%u entries=%zu total=%zu",
           key_size, value_size, m_values.size(), m_value_bytes);
     return S_OK;
@@ -3602,12 +3686,117 @@ private:
     return std::string(static_cast<const char *>(key), key_size);
   }
 
+  void LoadFromDiskLocked() {
+    FILE *file = std::fopen(m_disk_path.c_str(), "rb");
+    if (!file)
+      return;
+    if (std::fseek(file, 0, SEEK_END) != 0) {
+      std::fclose(file);
+      return;
+    }
+    long file_size = std::ftell(file);
+    if (file_size < static_cast<long>(sizeof(ShaderCacheSessionFileHeader)) ||
+        file_size > static_cast<long>(kShaderCacheSessionMaxFileBytes) ||
+        std::fseek(file, 0, SEEK_SET) != 0) {
+      std::fclose(file);
+      return;
+    }
+
+    ShaderCacheSessionFileHeader header = {};
+    if (std::fread(&header, sizeof(header), 1, file) != 1 ||
+        header.magic != kShaderCacheSessionFileMagic ||
+        header.version != kShaderCacheSessionFileVersion) {
+      std::fclose(file);
+      return;
+    }
+
+    for (uint32_t i = 0; i < header.entry_count; ++i) {
+      uint32_t key_size = 0;
+      uint32_t value_size = 0;
+      if (std::fread(&key_size, sizeof(key_size), 1, file) != 1 ||
+          std::fread(&value_size, sizeof(value_size), 1, file) != 1 ||
+          key_size > 1024u * 1024u || value_size > kShaderCacheSessionMaxFileBytes ||
+          static_cast<uint64_t>(key_size) + value_size >
+              static_cast<uint64_t>(file_size))
+        break;
+      std::string key(key_size, '\0');
+      std::vector<uint8_t> value(value_size);
+      if ((key_size && std::fread(key.data(), 1, key_size, file) != key_size) ||
+          (value_size && std::fread(value.data(), 1, value_size, file) != value_size))
+        break;
+      if (m_desc.MaximumValueFileSizeBytes &&
+          value_size > m_desc.MaximumValueFileSizeBytes)
+        continue;
+      if (m_desc.MaximumInMemoryCacheEntries &&
+          m_values.size() >= m_desc.MaximumInMemoryCacheEntries)
+        break;
+      if (m_desc.MaximumInMemoryCacheSizeBytes &&
+          value_size > m_desc.MaximumInMemoryCacheSizeBytes -
+                           std::min<size_t>(m_value_bytes,
+                                            m_desc.MaximumInMemoryCacheSizeBytes))
+        continue;
+      auto inserted = m_values.emplace(std::move(key), std::move(value));
+      if (inserted.second)
+        m_value_bytes += inserted.first->second.size();
+    }
+    std::fclose(file);
+  }
+
+  bool PersistToDiskLocked() {
+    if (m_disk_path.empty())
+      return true;
+    EnsureShaderCacheSessionDirectory(m_desc);
+    const std::string temporary =
+        m_disk_path + ".tmp-" + std::to_string(GetCurrentProcessId());
+    FILE *file = std::fopen(temporary.c_str(), "wb");
+    if (!file)
+      return false;
+
+    ShaderCacheSessionFileHeader header;
+    header.magic = kShaderCacheSessionFileMagic;
+    header.version = kShaderCacheSessionFileVersion;
+    header.entry_count = static_cast<uint32_t>(m_values.size());
+    bool ok = m_values.size() <= UINT32_MAX &&
+              std::fwrite(&header, sizeof(header), 1, file) == 1;
+    size_t bytes = sizeof(header);
+    for (const auto &entry : m_values) {
+      if (!ok || entry.first.size() > UINT32_MAX ||
+          entry.second.size() > UINT32_MAX ||
+          bytes > kShaderCacheSessionMaxFileBytes -
+                      (sizeof(uint32_t) * 2 + entry.first.size() +
+                       entry.second.size())) {
+        ok = false;
+        break;
+      }
+      uint32_t key_size = static_cast<uint32_t>(entry.first.size());
+      uint32_t value_size = static_cast<uint32_t>(entry.second.size());
+      ok = std::fwrite(&key_size, sizeof(key_size), 1, file) == 1 &&
+           std::fwrite(&value_size, sizeof(value_size), 1, file) == 1 &&
+           (!key_size || std::fwrite(entry.first.data(), 1, key_size, file) == key_size) &&
+           (!value_size || std::fwrite(entry.second.data(), 1, value_size, file) == value_size);
+      bytes += sizeof(uint32_t) * 2 + key_size + value_size;
+    }
+    ok = ok && std::fflush(file) == 0 && std::ferror(file) == 0;
+    std::fclose(file);
+    if (!ok) {
+      std::remove(temporary.c_str());
+      return false;
+    }
+    std::remove(m_disk_path.c_str());
+    if (std::rename(temporary.c_str(), m_disk_path.c_str()) != 0) {
+      std::remove(temporary.c_str());
+      return false;
+    }
+    return true;
+  }
+
   MTLD3D12Device *m_device;
   ComPrivateData m_private_data;
   D3D12_SHADER_CACHE_SESSION_DESC m_desc;
   std::unordered_map<std::string, std::vector<uint8_t>> m_values;
   size_t m_value_bytes = 0;
   bool m_delete_on_destroy = false;
+  std::string m_disk_path;
 };
 
 const D3D12_COMMAND_SIGNATURE_DESC *

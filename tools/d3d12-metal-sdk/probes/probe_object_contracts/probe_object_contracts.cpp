@@ -297,6 +297,54 @@ static bool test_shader_cache_session(ID3D12ShaderCacheSession* session) {
     return true;
 }
 
+static bool test_disk_shader_cache_session(ID3D12Device9* device) {
+    if (!device)
+        return false;
+
+    D3D12_SHADER_CACHE_SESSION_DESC desc = {};
+    desc.Identifier.Data1 = 0x4d313253; // M12S
+    desc.Identifier.Data2 = 0x4348;      // CH
+    desc.Identifier.Data3 = 0x4531;      // E1
+    desc.Identifier.Data4[0] = 0x01;
+    desc.Identifier.Data4[1] = 0x61;
+    desc.Identifier.Data4[2] = 0x9a;
+    desc.Identifier.Data4[3] = 0x5f;
+    desc.Identifier.Data4[4] = 0x70;
+    desc.Identifier.Data4[5] = 0x72;
+    desc.Identifier.Data4[6] = 0x6f;
+    desc.Identifier.Data4[7] = 0x6f;
+    desc.Mode = D3D12_SHADER_CACHE_MODE_DISK;
+    desc.Flags = D3D12_SHADER_CACHE_FLAG_NONE;
+    desc.MaximumInMemoryCacheSizeBytes = 4096;
+    desc.MaximumInMemoryCacheEntries = 8;
+    desc.MaximumValueFileSizeBytes = 64;
+    desc.Version = 1;
+
+    const uint8_t key[] = {0x4d, 0x31, 0x32, 0x2d, 0x64, 0x69, 0x73, 0x6b};
+    const uint8_t value[] = {0x91, 0x82, 0x73, 0x64, 0x55, 0x46};
+    ID3D12ShaderCacheSession* writer = nullptr;
+    HRESULT hr = device->CreateShaderCacheSession(&desc, IID_PPV_ARGS(&writer));
+    if (FAILED(hr) || !writer)
+        return false;
+    bool pass = writer->StoreValue(key, sizeof(key), value, sizeof(value)) == S_OK;
+    writer->Release();
+    if (!pass)
+        return false;
+
+    ID3D12ShaderCacheSession* reader = nullptr;
+    hr = device->CreateShaderCacheSession(&desc, IID_PPV_ARGS(&reader));
+    if (FAILED(hr) || !reader)
+        return false;
+    uint8_t readback[sizeof(value)] = {};
+    UINT readback_size = sizeof(readback);
+    pass = reader->FindValue(key, sizeof(key), readback, &readback_size) == S_OK &&
+           readback_size == sizeof(value) &&
+           std::memcmp(readback, value, sizeof(value)) == 0;
+    reader->SetDeleteOnDestroy();
+    reader->Release();
+    return pass;
+}
+
 static void append_result(std::vector<ObjectResult>& results, const char* name, HRESULT hr, ID3D12Object* object,
                           IUnknown* interface_value) {
     results.push_back(test_object(name, hr, object, interface_value));
@@ -322,6 +370,7 @@ int main() {
     std::vector<ObjectResult> results;
     bool info_queue_pass = false;
     bool shader_cache_session_pass = false;
+    bool shader_cache_disk_session_pass = false;
     std::string info_queue_error;
     if (device) {
         device->AddRef();
@@ -437,6 +486,8 @@ int main() {
         cache_desc.Flags = D3D12_SHADER_CACHE_FLAG_NONE;
         hr = device9 ? device9->CreateShaderCacheSession(&cache_desc, IID_PPV_ARGS(&shader_cache)) : device9_hr;
         shader_cache_session_pass = SUCCEEDED(hr) && test_shader_cache_session(shader_cache);
+        shader_cache_disk_session_pass = SUCCEEDED(device9_hr) &&
+                                         test_disk_shader_cache_session(device9);
         append_result(results, "shader_cache_session", hr, shader_cache, device);
         if (device9)
             device9->Release();
@@ -444,7 +495,8 @@ int main() {
         info_queue_pass = test_info_queue(device, info_queue_error);
     }
 
-    bool pass = SUCCEEDED(device_hr) && !results.empty() && info_queue_pass && shader_cache_session_pass;
+    bool pass = SUCCEEDED(device_hr) && !results.empty() && info_queue_pass &&
+                shader_cache_session_pass && shader_cache_disk_session_pass;
     for (const auto& result : results)
         pass = pass && result.pass;
 
@@ -455,6 +507,7 @@ int main() {
     std::printf("  \"object_count\": %zu,\n", results.size());
     std::printf("  \"info_queue_pass\": %s,\n", info_queue_pass ? "true" : "false");
     std::printf("  \"shader_cache_session_pass\": %s,\n", shader_cache_session_pass ? "true" : "false");
+    std::printf("  \"shader_cache_disk_session_pass\": %s,\n", shader_cache_disk_session_pass ? "true" : "false");
     if (!info_queue_error.empty())
         std::printf("  \"info_queue_error\": \"%s\",\n", json_escape(info_queue_error).c_str());
     std::printf("  \"objects\": [\n");
