@@ -794,6 +794,24 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         emitWavePrefixHelper("m12_wave_multi_prefix_bit_and", "T(~0u)", "&=");
         emitWavePrefixHelper("m12_wave_multi_prefix_bit_or", "T(0)", "|=");
         emitWavePrefixHelper("m12_wave_multi_prefix_bit_xor", "T(0)", "^=");
+        os << "static inline long m12_wave_active_sum_long(long value) {\n";
+        os << "  ulong result = 0ul;\n";
+        for (unsigned other = 0; other < 32; ++other) {
+            os << "  uint low_" << other << " = simd_broadcast((uint)value, " << other << "u);\n";
+            os << "  uint high_" << other << " = simd_broadcast((uint)((ulong)value >> 32), " << other << "u);\n";
+            os << "  result += (ulong)low_" << other << " | ((ulong)high_" << other << " << 32);\n";
+        }
+        os << "  return (long)result;\n";
+        os << "}\n\n";
+        os << "static inline long m12_wave_prefix_sum_long(long value, uint lane) {\n";
+        os << "  ulong result = 0ul;\n";
+        for (unsigned other = 0; other < 32; ++other) {
+            os << "  uint low_" << other << " = simd_broadcast((uint)value, " << other << "u);\n";
+            os << "  uint high_" << other << " = simd_broadcast((uint)((ulong)value >> 32), " << other << "u);\n";
+            os << "  if (lane > " << other << "u) result += (ulong)low_" << other << " | ((ulong)high_" << other << " << 32);\n";
+        }
+        os << "  return (long)result;\n";
+        os << "}\n\n";
     }
 
     if (ctx.uses_atomic32_emulation) {
@@ -4354,6 +4372,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WaveActiveOp: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_op");
+        if (callee_name.find(".i64") != std::string::npos && op == 0u)
+            return "m12_wave_active_sum_long((long)(" + value + "))";
         switch (op) {
         case 0: return "simd_sum(" + value + ")";
         case 1: return "simd_product(" + value + ")";
@@ -4375,6 +4395,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WavePrefixOp: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_prefix_op");
+        if (callee_name.find(".i64") != std::string::npos && op == 0u)
+            return "m12_wave_prefix_sum_long((long)(" + value + "), simd_lane)";
         switch (op) {
         case 0: return "simd_prefix_exclusive_sum(" + value + ")";
         case 1: return "simd_prefix_exclusive_product(" + value + ")";
