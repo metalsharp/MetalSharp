@@ -269,6 +269,7 @@ public:
       UINT thread_group_count_z) override;
 
   const std::vector<uint8_t> &GetCommands() const { return m_cmds; }
+  bool IsClosed() const { return m_closed; }
   void ClearCommands() {
     ReleaseReferencedPipelineStates();
     m_cmds.clear();
@@ -284,10 +285,15 @@ public:
   void RetainRootSignature(ID3D12RootSignature *root_signature);
   void RetainQueryHeap(ID3D12QueryHeap *query_heap);
   void RetainCommandSignature(ID3D12CommandSignature *signature);
+  void RetainProtectedResourceSession(
+      ID3D12ProtectedResourceSession *protected_session);
+  void RetainMetaCommand(ID3D12MetaCommand *meta_command);
   void RetainReferencedObjectsInto(MTLD3D12GraphicsCommandList *target) const;
 
 private:
   template <typename T> void Emit(const T &cmd) {
+    if (m_closed)
+      return;
     auto offset = m_cmds.size();
     m_cmds.resize(offset + sizeof(T));
     memcpy(m_cmds.data() + offset, &cmd, sizeof(T));
@@ -295,6 +301,8 @@ private:
 
   template <typename T>
   void EmitVar(T &cmd, const void *extra, uint32_t extra_size) {
+    if (m_closed)
+      return;
     auto offset = m_cmds.size();
     m_cmds.resize(offset + sizeof(T) - 1 + extra_size);
     cmd.header.size = sizeof(T) - 1 + extra_size;
@@ -312,12 +320,19 @@ private:
   bool m_closed = false;
   uint64_t m_debug_id = 0;
   std::vector<uint8_t> m_cmds;
+  ID3D12PipelineState *m_current_pipeline_state = nullptr;
+  UINT m_view_instance_mask = UINT_MAX;
+  UINT m_sample_count = 0;
+  UINT m_sample_pixel_count = 1;
   std::vector<ID3D12PipelineState *> m_referenced_pipeline_states;
   std::vector<ID3D12StateObject *> m_referenced_state_objects;
   std::vector<ID3D12DescriptorHeap *> m_referenced_descriptor_heaps;
   std::vector<ID3D12RootSignature *> m_referenced_root_signatures;
   std::vector<ID3D12QueryHeap *> m_referenced_query_heaps;
   std::vector<ID3D12CommandSignature *> m_referenced_command_signatures;
+  std::vector<ID3D12ProtectedResourceSession *>
+      m_referenced_protected_resource_sessions;
+  std::vector<ID3D12MetaCommand *> m_referenced_meta_commands;
   std::vector<ID3D12Resource *> m_referenced_resources;
   ComPrivateData m_private_data;
   std::atomic<uint32_t> m_refCount = {1ul};

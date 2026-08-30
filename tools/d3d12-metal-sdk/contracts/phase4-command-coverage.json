@@ -1,0 +1,88 @@
+{
+  "schema": "metalsharp.d3d12.phase4-command-coverage.v1",
+  "phase": 4,
+  "profile": "metalsharp-isolated",
+  "status": "closed",
+  "result": "probe-command-replay",
+  "rows": [
+    {
+      "id": "command-replay-core",
+      "status": "closed",
+      "result": "probe-command-replay",
+      "checks": [
+        ["pass"],
+        ["coverage", "command_list_reset_close_reuse"],
+        ["coverage", "queue_execute_multiple_lists"],
+        ["coverage", "predication_execution_verified"],
+        ["coverage", "enhanced_barrier_global_buffer_texture"]
+      ]
+    },
+    {
+      "id": "indirect-argument-validation",
+      "status": "closed",
+      "result": "probe-command-replay",
+      "checks": [
+        ["pass"],
+        ["coverage", "command_signature_bounds_validation"],
+        ["coverage", "execute_indirect_gpu_argument_and_count"],
+        ["coverage", "execute_indirect_root_constants_verified"],
+        ["coverage", "execute_indirect_graphics_readback"],
+        ["coverage", "execute_indirect_indexed_graphics_readback"],
+        ["coverage", "execute_indirect_root_descriptors_readback"]
+      ]
+    },
+    {
+      "id": "stream-output-single-dxbc-provider",
+      "status": "closed",
+      "result": "probe-command-replay",
+      "checks": [
+        ["pass"],
+        ["coverage", "stream_output_capture_and_counter"]
+      ],
+      "remaining": "The provider is intentionally limited to one non-rasterized DXBC vertex stream; multiple streams, nonzero-initial-counter/append semantics, overflow continuation, DXIL/geometry capture, and downstream consumption remain open."
+    },
+    {
+      "id": "complete-indirect-argument-kind-matrix",
+      "status": "closed",
+      "result": "probe-command-replay",
+      "checks": [
+        ["pass"],
+        ["coverage", "command_signature_bounds_validation"],
+        ["coverage", "execute_indirect_dispatch_rays_readback"],
+        ["coverage", "execute_indirect_dispatch_mesh_readback"]
+      ]
+    },
+    {
+      "id": "view-instancing-mask-side-effect",
+      "status": "closed",
+      "result": "probe-command-replay",
+      "checks": [
+        ["pass"],
+        ["coverage", "view_instancing_mask_side_effect"]
+      ]
+    },
+    {
+      "id": "multi-pixel-sample-positions",
+      "status": "closed",
+      "result": "probe-command-replay",
+      "checks": [
+        ["pass"],
+        ["coverage", "multi_pixel_sample_positions"]
+      ],
+      "remaining": "The provider proof covers a four-sample 2x2 programmable pattern with direct draw/MSAA resolve; broader sample-count/pattern and indirect-work coverage remains in the Phase 6 and indirect-work lanes."
+    },
+    {
+      "id": "queue-priority-vblank-callbacks",
+      "status": "closed",
+      "result": "probe-queues",
+      "checks": [
+        ["pass"],
+        ["queues", "queue_validation_ok"],
+        ["queues", "high_priority_ok"],
+        ["queues", "clock_calibration_verified"],
+        ["synchronization", "enqueue_event_signaled_after_all_queues"],
+        ["synchronization", "vblank_verified"]
+      ]
+    }
+  ]
+}

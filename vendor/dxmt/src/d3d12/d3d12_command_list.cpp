@@ -57,6 +57,7 @@ static void LogCommandListLifecycle(const char *label, uint64_t id,
       " comp_consts=", stats.set_compute_root_constants_count,
       " zero_draw=", stats.IsZeroDrawGraphicsList(),
       " draw_bearing=", stats.IsDrawBearing(),
+      " unknown_types=", stats.unknown_type_count,
       " corrupt=", stats.corrupt));
 }
 
@@ -73,6 +74,7 @@ MTLD3D12GraphicsCommandList::MTLD3D12GraphicsCommandList(
     CmdSetPipelineState cmd = {};
     cmd.header = {CmdType::SetPipelineState, sizeof(cmd)};
     cmd.pso = initial_state;
+    m_current_pipeline_state = initial_state;
     RetainPipelineState(initial_state);
     Emit(cmd);
   }
@@ -88,7 +90,7 @@ MTLD3D12GraphicsCommandList::~MTLD3D12GraphicsCommandList() {
 
 void MTLD3D12GraphicsCommandList::RetainPipelineState(
     ID3D12PipelineState *pipeline_state) {
-  if (!pipeline_state)
+  if (!pipeline_state || m_closed)
     return;
   pipeline_state->AddRef();
   m_referenced_pipeline_states.push_back(pipeline_state);
@@ -96,14 +98,14 @@ void MTLD3D12GraphicsCommandList::RetainPipelineState(
 
 void MTLD3D12GraphicsCommandList::RetainStateObject(
     ID3D12StateObject *state_object) {
-  if (!state_object)
+  if (!state_object || m_closed)
     return;
   state_object->AddRef();
   m_referenced_state_objects.push_back(state_object);
 }
 
 void MTLD3D12GraphicsCommandList::RetainResource(ID3D12Resource *resource) {
-  if (!resource)
+  if (!resource || m_closed)
     return;
   resource->AddRef();
   m_referenced_resources.push_back(resource);
@@ -118,7 +120,7 @@ void MTLD3D12GraphicsCommandList::RetainGPUAddress(
 
 void MTLD3D12GraphicsCommandList::RetainDescriptor(
     D3D12_CPU_DESCRIPTOR_HANDLE descriptor) {
-  if (!descriptor.ptr)
+  if (!descriptor.ptr || m_closed)
     return;
   auto *entry = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (!entry || !entry->owner)
@@ -132,7 +134,7 @@ void MTLD3D12GraphicsCommandList::RetainDescriptor(
 
 void MTLD3D12GraphicsCommandList::RetainRootSignature(
     ID3D12RootSignature *root_signature) {
-  if (!root_signature)
+  if (!root_signature || m_closed)
     return;
   root_signature->AddRef();
   m_referenced_root_signatures.push_back(root_signature);
@@ -140,7 +142,7 @@ void MTLD3D12GraphicsCommandList::RetainRootSignature(
 
 void MTLD3D12GraphicsCommandList::RetainQueryHeap(
     ID3D12QueryHeap *query_heap) {
-  if (!query_heap)
+  if (!query_heap || m_closed)
     return;
   query_heap->AddRef();
   m_referenced_query_heaps.push_back(query_heap);
@@ -148,10 +150,26 @@ void MTLD3D12GraphicsCommandList::RetainQueryHeap(
 
 void MTLD3D12GraphicsCommandList::RetainCommandSignature(
     ID3D12CommandSignature *signature) {
-  if (!signature)
+  if (!signature || m_closed)
     return;
   signature->AddRef();
   m_referenced_command_signatures.push_back(signature);
+}
+
+void MTLD3D12GraphicsCommandList::RetainProtectedResourceSession(
+    ID3D12ProtectedResourceSession *protected_session) {
+  if (!protected_session || m_closed)
+    return;
+  protected_session->AddRef();
+  m_referenced_protected_resource_sessions.push_back(protected_session);
+}
+
+void MTLD3D12GraphicsCommandList::RetainMetaCommand(
+    ID3D12MetaCommand *meta_command) {
+  if (!meta_command || m_closed)
+    return;
+  meta_command->AddRef();
+  m_referenced_meta_commands.push_back(meta_command);
 }
 
 void MTLD3D12GraphicsCommandList::RetainReferencedObjectsInto(
@@ -174,6 +192,10 @@ void MTLD3D12GraphicsCommandList::RetainReferencedObjectsInto(
     target->RetainQueryHeap(query_heap);
   for (auto *signature : m_referenced_command_signatures)
     target->RetainCommandSignature(signature);
+  for (auto *protected_session : m_referenced_protected_resource_sessions)
+    target->RetainProtectedResourceSession(protected_session);
+  for (auto *meta_command : m_referenced_meta_commands)
+    target->RetainMetaCommand(meta_command);
   for (auto *resource : m_referenced_resources)
     target->RetainResource(resource);
 }
@@ -209,6 +231,16 @@ void MTLD3D12GraphicsCommandList::ReleaseReferencedPipelineStates() {
       signature->Release();
   }
   m_referenced_command_signatures.clear();
+  for (auto *protected_session : m_referenced_protected_resource_sessions) {
+    if (protected_session)
+      protected_session->Release();
+  }
+  m_referenced_protected_resource_sessions.clear();
+  for (auto *meta_command : m_referenced_meta_commands) {
+    if (meta_command)
+      meta_command->Release();
+  }
+  m_referenced_meta_commands.clear();
   for (auto *resource : m_referenced_resources) {
     if (resource)
       resource->Release();
@@ -314,6 +346,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Reset(
   m_closed = false;
   ReleaseReferencedPipelineStates();
   m_cmds.clear();
+  m_current_pipeline_state = initial_state;
+  m_view_instance_mask = UINT_MAX;
+  m_sample_count = 0;
+  m_sample_pixel_count = 1;
   if (initial_state) {
     CmdSetPipelineState cmd = {};
     cmd.header = {CmdType::SetPipelineState, sizeof(cmd)};
@@ -327,8 +363,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Reset(
 
 void STDMETHODCALLTYPE
 MTLD3D12GraphicsCommandList::ClearState(ID3D12PipelineState *pipeline_state) {
+  if (m_closed)
+    return;
   ReleaseReferencedPipelineStates();
   m_cmds.clear();
+  m_current_pipeline_state = pipeline_state;
+  m_sample_count = 0;
+  m_sample_pixel_count = 1;
   if (pipeline_state) {
     CmdSetPipelineState cmd = {};
     cmd.header = {CmdType::SetPipelineState, sizeof(cmd)};
@@ -342,27 +383,99 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DrawInstanced(
     UINT vertex_count, UINT instance_count, UINT start_vertex,
     UINT start_instance) {
   CLTRACE("DrawInstanced v=%u i=%u", vertex_count, instance_count);
-  CmdDrawInstanced cmd = {};
-  cmd.header = {CmdType::DrawInstanced, sizeof(cmd)};
-  cmd.vertex_count = vertex_count;
-  cmd.instance_count = instance_count;
-  cmd.start_vertex = start_vertex;
-  cmd.start_instance = start_instance;
-  Emit(cmd);
+  auto *view_pso =
+      static_cast<MTLD3D12PipelineState *>(m_current_pipeline_state);
+  const UINT view_count =
+      view_pso ? view_pso->GetViewInstanceCount() : 0;
+  const bool view_locations_complete =
+      view_pso && view_pso->GetViewInstanceLocations().size() == view_count;
+  const UINT sample_pixels =
+      m_sample_count && m_sample_pixel_count > 1 ? m_sample_pixel_count : 1;
+  auto emit_draw = [&](uint32_t view, uint32_t sample) {
+      CmdDrawInstanced cmd = {};
+      cmd.header = {CmdType::DrawInstanced, sizeof(cmd)};
+      cmd.vertex_count = vertex_count;
+      cmd.instance_count = instance_count;
+      cmd.start_vertex = start_vertex;
+      cmd.start_instance = start_instance;
+      cmd.view_instance_index = view;
+      cmd.sample_pixel_index = sample;
+      Emit(cmd);
+  };
+  bool emitted = false;
+  if (view_count && view_locations_complete) {
+    const uint32_t valid_mask =
+        view_count == 32 ? UINT32_MAX : ((1u << view_count) - 1u);
+    const uint32_t active_mask =
+        (view_pso->UsesViewInstanceMasking() ? m_view_instance_mask
+                                             : valid_mask) &
+        valid_mask;
+    for (UINT view = 0; view < view_count; ++view) {
+      if (!(active_mask & (1u << view)))
+        continue;
+      for (UINT sample = 0; sample < sample_pixels; ++sample) {
+        emit_draw(view, sample_pixels > 1 ? sample : kNoViewInstanceIndex);
+        emitted = true;
+      }
+    }
+  }
+  if (!emitted) {
+    for (UINT sample = 0; sample < sample_pixels; ++sample) {
+      emit_draw(kNoViewInstanceIndex,
+                sample_pixels > 1 ? sample : kNoViewInstanceIndex);
+      emitted = true;
+    }
+  }
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DrawIndexedInstanced(
     UINT index_count, UINT instance_count, UINT start_vertex,
     INT base_vertex, UINT start_instance) {
   CLTRACE("DrawIndexedInstanced idx=%u i=%u", index_count, instance_count);
-  CmdDrawIndexedInstanced cmd = {};
-  cmd.header = {CmdType::DrawIndexedInstanced, sizeof(cmd)};
-  cmd.index_count = index_count;
-  cmd.instance_count = instance_count;
-  cmd.start_index = start_vertex;
-  cmd.base_vertex = base_vertex;
-  cmd.start_instance = start_instance;
-  Emit(cmd);
+  auto *view_pso =
+      static_cast<MTLD3D12PipelineState *>(m_current_pipeline_state);
+  const UINT view_count =
+      view_pso ? view_pso->GetViewInstanceCount() : 0;
+  const bool view_locations_complete =
+      view_pso && view_pso->GetViewInstanceLocations().size() == view_count;
+  const UINT sample_pixels =
+      m_sample_count && m_sample_pixel_count > 1 ? m_sample_pixel_count : 1;
+  auto emit_draw = [&](uint32_t view, uint32_t sample) {
+      CmdDrawIndexedInstanced cmd = {};
+      cmd.header = {CmdType::DrawIndexedInstanced, sizeof(cmd)};
+      cmd.index_count = index_count;
+      cmd.instance_count = instance_count;
+      cmd.start_index = start_vertex;
+      cmd.base_vertex = base_vertex;
+      cmd.start_instance = start_instance;
+      cmd.view_instance_index = view;
+      cmd.sample_pixel_index = sample;
+      Emit(cmd);
+  };
+  bool emitted = false;
+  if (view_count && view_locations_complete) {
+    const uint32_t valid_mask =
+        view_count == 32 ? UINT32_MAX : ((1u << view_count) - 1u);
+    const uint32_t active_mask =
+        (view_pso->UsesViewInstanceMasking() ? m_view_instance_mask
+                                             : valid_mask) &
+        valid_mask;
+    for (UINT view = 0; view < view_count; ++view) {
+      if (!(active_mask & (1u << view)))
+        continue;
+      for (UINT sample = 0; sample < sample_pixels; ++sample) {
+        emit_draw(view, sample_pixels > 1 ? sample : kNoViewInstanceIndex);
+        emitted = true;
+      }
+    }
+  }
+  if (!emitted) {
+    for (UINT sample = 0; sample < sample_pixels; ++sample) {
+      emit_draw(kNoViewInstanceIndex,
+                sample_pixels > 1 ? sample : kNoViewInstanceIndex);
+      emitted = true;
+    }
+  }
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Dispatch(UINT x, UINT y,
@@ -395,7 +508,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTextureRegion(
     const D3D12_TEXTURE_COPY_LOCATION *dst, UINT dst_x, UINT dst_y,
     UINT dst_z, const D3D12_TEXTURE_COPY_LOCATION *src,
     const D3D12_BOX *src_box) {
-  if (!dst || !src) return;
+  if (m_closed || !dst || !src)
+    return;
   CmdCopyTextureRegion cmd = {};
   cmd.header = {CmdType::CopyTextureRegion, sizeof(cmd)};
   cmd.dst_resource = dst->pResource;
@@ -453,6 +567,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::CopyTiles(
     const D3D12_TILE_REGION_SIZE *tile_region_size,
     ID3D12Resource *buffer, UINT64 buffer_offset,
     D3D12_TILE_COPY_FLAGS flags) {
+  if (m_closed)
+    return;
   auto *resource = static_cast<MTLD3D12Resource *>(tiled_resource);
   if (!resource || !resource->IsSparseBacked() || !tile_region_start_coordinate ||
       !tile_region_size || !buffer || !tile_region_size->NumTiles) {
@@ -895,30 +1011,39 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetPrimitiveTopology(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetViewports(
     UINT count, const D3D12_VIEWPORT *viewports) {
-  size_t extra = count * sizeof(D3D12_VIEWPORT);
-  auto total = sizeof(CmdRSSetViewports) - sizeof(D3D12_VIEWPORT) + extra;
+  constexpr size_t base_size = sizeof(CmdRSSetViewports) -
+                                sizeof(D3D12_VIEWPORT);
+  if (m_closed || count > 16 || (count && !viewports) ||
+      count > (UINT32_MAX - base_size) / sizeof(D3D12_VIEWPORT))
+    return;
+  size_t extra = size_t(count) * sizeof(D3D12_VIEWPORT);
+  auto total = base_size + extra;
   auto offset = m_cmds.size();
   m_cmds.resize(offset + total);
   CmdRSSetViewports cmd = {};
   cmd.header = {CmdType::RSSetViewports, (uint32_t)total};
   cmd.count = count;
-  memcpy(m_cmds.data() + offset, &cmd, sizeof(CmdRSSetViewports) - sizeof(D3D12_VIEWPORT));
-  memcpy(m_cmds.data() + offset + sizeof(CmdRSSetViewports) - sizeof(D3D12_VIEWPORT),
-         viewports, extra);
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (extra)
+    memcpy(m_cmds.data() + offset + base_size, viewports, extra);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetScissorRects(
     UINT count, const D3D12_RECT *rects) {
-  size_t extra = count * sizeof(D3D12_RECT);
-  auto total = sizeof(CmdRSSetScissorRects) - sizeof(D3D12_RECT) + extra;
+  constexpr size_t base_size = sizeof(CmdRSSetScissorRects) - sizeof(D3D12_RECT);
+  if (m_closed || count > 16 || (count && !rects) ||
+      count > (UINT32_MAX - base_size) / sizeof(D3D12_RECT))
+    return;
+  size_t extra = size_t(count) * sizeof(D3D12_RECT);
+  auto total = base_size + extra;
   auto offset = m_cmds.size();
   m_cmds.resize(offset + total);
   CmdRSSetScissorRects cmd = {};
   cmd.header = {CmdType::RSSetScissorRects, (uint32_t)total};
   cmd.count = count;
-  memcpy(m_cmds.data() + offset, &cmd, sizeof(CmdRSSetScissorRects) - sizeof(D3D12_RECT));
-  memcpy(m_cmds.data() + offset + sizeof(CmdRSSetScissorRects) - sizeof(D3D12_RECT),
-         rects, extra);
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (extra)
+    memcpy(m_cmds.data() + offset + base_size, rects, extra);
 }
 
 void STDMETHODCALLTYPE
@@ -940,6 +1065,9 @@ MTLD3D12GraphicsCommandList::OMSetStencilRef(UINT stencil_ref) {
 void STDMETHODCALLTYPE
 MTLD3D12GraphicsCommandList::SetPipelineState(
     ID3D12PipelineState *pipeline_state) {
+  if (m_closed)
+    return;
+  m_current_pipeline_state = pipeline_state;
   CmdSetPipelineState cmd = {};
   cmd.header = {CmdType::SetPipelineState, sizeof(cmd)};
   cmd.pso = pipeline_state;
@@ -949,7 +1077,11 @@ MTLD3D12GraphicsCommandList::SetPipelineState(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResourceBarrier(
     UINT barrier_count, const D3D12_RESOURCE_BARRIER *barriers) {
-  if (barrier_count && !barriers)
+  constexpr size_t base_size = sizeof(CmdResourceBarrier) -
+                                sizeof(D3D12_RESOURCE_BARRIER);
+  if (m_closed || (barrier_count && !barriers) ||
+      barrier_count > (UINT32_MAX - base_size) /
+                          sizeof(D3D12_RESOURCE_BARRIER))
     return;
   for (UINT i = 0; i < barrier_count; i++) {
     switch (barriers[i].Type) {
@@ -967,54 +1099,90 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResourceBarrier(
       break;
     }
   }
-  size_t extra = barrier_count * sizeof(D3D12_RESOURCE_BARRIER);
-  auto total = sizeof(CmdResourceBarrier) - sizeof(D3D12_RESOURCE_BARRIER) + extra;
+  size_t extra = size_t(barrier_count) * sizeof(D3D12_RESOURCE_BARRIER);
+  auto total = base_size + extra;
   auto offset = m_cmds.size();
   m_cmds.resize(offset + total);
   CmdResourceBarrier cmd = {};
   cmd.header = {CmdType::ResourceBarrier, (uint32_t)total};
   cmd.count = barrier_count;
-  memcpy(m_cmds.data() + offset, &cmd, sizeof(CmdResourceBarrier) - sizeof(D3D12_RESOURCE_BARRIER));
-  memcpy(m_cmds.data() + offset + sizeof(CmdResourceBarrier) - sizeof(D3D12_RESOURCE_BARRIER),
-         barriers, extra);
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (extra)
+    memcpy(m_cmds.data() + offset + base_size, barriers, extra);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Barrier(
     UINT32 num_barrier_groups,
     const D3D12_BARRIER_GROUP *barrier_groups) {
-  if (!num_barrier_groups || !barrier_groups)
+  if (m_closed || !num_barrier_groups || !barrier_groups)
     return;
-  CmdEnhancedBarrier cmd = {};
-  cmd.header = {CmdType::EnhancedBarrier, sizeof(cmd)};
-  cmd.group_count = num_barrier_groups;
+  std::vector<CmdEnhancedBarrierRecord> records;
+  records.reserve(num_barrier_groups);
+  uint32_t global_barrier_count = 0;
+  uint32_t buffer_barrier_count = 0;
+  uint32_t texture_barrier_count = 0;
   for (UINT32 i = 0; i < num_barrier_groups; i++) {
     const auto &group = barrier_groups[i];
-    if (!group.NumBarriers || !group.pGlobalBarriers)
+    if (!group.NumBarriers)
       continue;
     switch (group.Type) {
     case D3D12_BARRIER_TYPE_GLOBAL:
-      cmd.global_barrier_count += group.NumBarriers;
+      if (!group.pGlobalBarriers)
+        continue;
+      for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++) {
+        CmdEnhancedBarrierRecord record = {};
+        record.type = D3D12_BARRIER_TYPE_GLOBAL;
+        record.barrier.global = group.pGlobalBarriers[barrier];
+        records.push_back(record);
+      }
+      global_barrier_count += group.NumBarriers;
       break;
     case D3D12_BARRIER_TYPE_BUFFER:
-      cmd.buffer_barrier_count += group.NumBarriers;
-      if (group.pBufferBarriers) {
-        for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++)
-          RetainResource(group.pBufferBarriers[barrier].pResource);
+      if (!group.pBufferBarriers)
+        continue;
+      for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++) {
+        CmdEnhancedBarrierRecord record = {};
+        record.type = D3D12_BARRIER_TYPE_BUFFER;
+        record.barrier.buffer = group.pBufferBarriers[barrier];
+        records.push_back(record);
+        RetainResource(group.pBufferBarriers[barrier].pResource);
       }
+      buffer_barrier_count += group.NumBarriers;
       break;
     case D3D12_BARRIER_TYPE_TEXTURE:
-      cmd.texture_barrier_count += group.NumBarriers;
-      if (group.pTextureBarriers) {
-        for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++)
-          RetainResource(group.pTextureBarriers[barrier].pResource);
+      if (!group.pTextureBarriers)
+        continue;
+      for (UINT32 barrier = 0; barrier < group.NumBarriers; barrier++) {
+        CmdEnhancedBarrierRecord record = {};
+        record.type = D3D12_BARRIER_TYPE_TEXTURE;
+        record.barrier.texture = group.pTextureBarriers[barrier];
+        records.push_back(record);
+        RetainResource(group.pTextureBarriers[barrier].pResource);
       }
+      texture_barrier_count += group.NumBarriers;
       break;
     default:
       CLTRACE("Barrier ignored unknown group type=%u", (unsigned)group.Type);
       break;
     }
   }
-  Emit(cmd);
+  constexpr size_t base_size = offsetof(CmdEnhancedBarrier, records);
+  if (records.size() > (UINT32_MAX - base_size) /
+                           sizeof(CmdEnhancedBarrierRecord))
+    return;
+  const size_t extra = records.size() * sizeof(CmdEnhancedBarrierRecord);
+  const size_t total = base_size + extra;
+  const size_t offset = m_cmds.size();
+  m_cmds.resize(offset + total);
+  CmdEnhancedBarrier cmd = {};
+  cmd.header = {CmdType::EnhancedBarrier, static_cast<uint32_t>(total)};
+  cmd.group_count = num_barrier_groups;
+  cmd.global_barrier_count = global_barrier_count;
+  cmd.buffer_barrier_count = buffer_barrier_count;
+  cmd.texture_barrier_count = texture_barrier_count;
+  cmd.record_count = static_cast<uint32_t>(records.size());
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  memcpy(m_cmds.data() + offset + base_size, records.data(), extra);
   CLTRACE("Barrier groups=%u global=%u buffer=%u texture=%u",
           cmd.group_count, cmd.global_barrier_count, cmd.buffer_barrier_count,
           cmd.texture_barrier_count);
@@ -1022,9 +1190,14 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Barrier(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteBundle(
     ID3D12GraphicsCommandList *command_list) {
+  if (m_closed)
+    return;
   CLTRACE("ExecuteBundle cmds=%zu", command_list ? static_cast<MTLD3D12GraphicsCommandList*>(command_list)->GetCommands().size() : 0);
   if (command_list) {
     auto *bundle = static_cast<MTLD3D12GraphicsCommandList*>(command_list);
+    if (bundle->GetType() != D3D12_COMMAND_LIST_TYPE_BUNDLE ||
+        !bundle->IsClosed())
+      return;
     const auto &bundle_cmds = bundle->GetCommands();
     m_cmds.insert(m_cmds.end(), bundle_cmds.begin(), bundle_cmds.end());
     bundle->RetainReferencedObjectsInto(this);
@@ -1033,7 +1206,7 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteBundle(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetDescriptorHeaps(
     UINT heap_count, ID3D12DescriptorHeap *const *heaps) {
-  if (heap_count && !heaps)
+  if (m_closed || heap_count > 2 || (heap_count && !heaps))
     return;
   for (UINT i = 0; i < heap_count; i++) {
     if (heaps[i]) {
@@ -1127,8 +1300,12 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetGraphicsRoot32BitConstant
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetComputeRoot32BitConstants(
     UINT root_parameter_index, UINT constant_count, const void *data,
     UINT dst_offset) {
-  size_t extra = constant_count * 4;
-  const size_t data_offset = offsetof(CmdSetRoot32BitConstants, data);
+  constexpr size_t data_offset = offsetof(CmdSetRoot32BitConstants, data);
+  if (m_closed || constant_count > 64 ||
+      (constant_count && !data) ||
+      constant_count > (UINT32_MAX - data_offset) / sizeof(uint32_t))
+    return;
+  size_t extra = size_t(constant_count) * sizeof(uint32_t);
   auto total = data_offset + extra;
   auto offset = m_cmds.size();
   m_cmds.resize(offset + total);
@@ -1144,8 +1321,12 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetComputeRoot32BitConstants
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetGraphicsRoot32BitConstants(
     UINT root_parameter_index, UINT constant_count, const void *data,
     UINT dst_offset) {
-  size_t extra = constant_count * 4;
-  const size_t data_offset = offsetof(CmdSetRoot32BitConstants, data);
+  constexpr size_t data_offset = offsetof(CmdSetRoot32BitConstants, data);
+  if (m_closed || constant_count > 64 ||
+      (constant_count && !data) ||
+      constant_count > (UINT32_MAX - data_offset) / sizeof(uint32_t))
+    return;
+  size_t extra = size_t(constant_count) * sizeof(uint32_t);
   auto total = data_offset + extra;
   auto offset = m_cmds.size();
   m_cmds.resize(offset + total);
@@ -1238,18 +1419,23 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetIndexBuffer(
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetVertexBuffers(
     UINT start_slot, UINT count,
     const D3D12_VERTEX_BUFFER_VIEW *views) {
-  size_t extra = count * sizeof(D3D12_VERTEX_BUFFER_VIEW);
-  auto total = sizeof(CmdIASetVertexBuffers) - sizeof(D3D12_VERTEX_BUFFER_VIEW) + extra;
+  constexpr size_t base_size = sizeof(CmdIASetVertexBuffers) -
+                                sizeof(D3D12_VERTEX_BUFFER_VIEW);
+  if (m_closed || start_slot >= 32 || count > 32 - start_slot ||
+      (count && !views) ||
+      count > (UINT32_MAX - base_size) / sizeof(D3D12_VERTEX_BUFFER_VIEW))
+    return;
+  size_t extra = size_t(count) * sizeof(D3D12_VERTEX_BUFFER_VIEW);
+  auto total = base_size + extra;
   auto offset = m_cmds.size();
   m_cmds.resize(offset + total);
   CmdIASetVertexBuffers cmd = {};
   cmd.header = {CmdType::IASetVertexBuffers, (uint32_t)total};
   cmd.start_slot = start_slot;
   cmd.count = count;
-  memcpy(m_cmds.data() + offset, &cmd, sizeof(CmdIASetVertexBuffers) - sizeof(D3D12_VERTEX_BUFFER_VIEW));
-  if (views) {
-    memcpy(m_cmds.data() + offset + sizeof(CmdIASetVertexBuffers) - sizeof(D3D12_VERTEX_BUFFER_VIEW),
-           views, extra);
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (extra) {
+    memcpy(m_cmds.data() + offset + base_size, views, extra);
     for (UINT i = 0; i < count; i++)
       RetainGPUAddress(views[i].BufferLocation);
   }
@@ -1257,12 +1443,40 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetVertexBuffers(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SOSetTargets(
     UINT start_slot, UINT view_count,
-    const D3D12_STREAM_OUTPUT_BUFFER_VIEW *views) {}
+    const D3D12_STREAM_OUTPUT_BUFFER_VIEW *views) {
+  if (m_closed || start_slot >= 4 || view_count > 4 - start_slot ||
+      (view_count && !views))
+    return;
+  const size_t base_size = offsetof(CmdSetStreamOutputTargets, views);
+  if (view_count > (UINT32_MAX - base_size) /
+                       sizeof(D3D12_STREAM_OUTPUT_BUFFER_VIEW))
+    return;
+  const size_t total_size =
+      base_size + size_t(view_count) * sizeof(D3D12_STREAM_OUTPUT_BUFFER_VIEW);
+  const size_t offset = m_cmds.size();
+  m_cmds.resize(offset + total_size);
+  CmdSetStreamOutputTargets cmd = {};
+  cmd.header = {CmdType::SetStreamOutputTargets,
+                static_cast<uint32_t>(total_size)};
+  cmd.start_slot = start_slot;
+  cmd.view_count = view_count;
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (view_count) {
+    memcpy(m_cmds.data() + offset + base_size, views,
+           size_t(view_count) * sizeof(D3D12_STREAM_OUTPUT_BUFFER_VIEW));
+    for (UINT i = 0; i < view_count; ++i) {
+      RetainGPUAddress(views[i].BufferLocation);
+      RetainGPUAddress(views[i].BufferFilledSizeLocation);
+    }
+  }
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetRenderTargets(
     UINT rt_count, const D3D12_CPU_DESCRIPTOR_HANDLE *rts,
     WINBOOL single_handle,
     const D3D12_CPU_DESCRIPTOR_HANDLE *dsv) {
+  if (m_closed || rt_count > 8 || (rt_count && !rts))
+    return;
   CmdOMSetRenderTargets cmd = {};
   cmd.header = {CmdType::OMSetRenderTargets, sizeof(cmd)};
   cmd.rt_count = rt_count;
@@ -1517,11 +1731,15 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::OMSetDepthBounds(
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetSamplePositions(
     UINT sample_count, UINT pixel_count,
     D3D12_SAMPLE_POSITION *sample_positions) {
+  if (m_closed)
+    return;
   const bool valid_sample_count = sample_count == 1 || sample_count == 2 ||
                                   sample_count == 4 || sample_count == 8 ||
                                   sample_count == 16 || sample_count == 32;
+  const bool valid_pixel_count = pixel_count == 1 || pixel_count == 2 ||
+                                 pixel_count == 4;
   const bool reset = sample_count == 0 && pixel_count == 0 && !sample_positions;
-  if ((!reset && (!valid_sample_count || pixel_count != 1 || !sample_positions)) ||
+  if ((!reset && (!valid_sample_count || !valid_pixel_count || !sample_positions)) ||
       sample_count > 32 || pixel_count > UINT32_MAX / std::max(sample_count, 1u))
     return;
   const uint64_t position_count = reset ? 0 : uint64_t(sample_count) * pixel_count;
@@ -1534,6 +1752,8 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetSamplePositions(
   m_cmds.resize(offset + total_size);
   CmdSetSamplePositions cmd = {};
   cmd.header = {CmdType::SetSamplePositions, static_cast<uint32_t>(total_size)};
+  m_sample_count = reset ? 0 : sample_count;
+  m_sample_pixel_count = reset ? 1 : pixel_count;
   cmd.sample_count = sample_count;
   cmd.pixel_count = pixel_count;
   cmd.position_count = static_cast<uint32_t>(position_count);
@@ -1569,12 +1789,24 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ResolveSubresourceRegion(
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetViewInstanceMask(
-    UINT mask) {}
+    UINT mask) {
+  if (m_closed)
+    return;
+  m_view_instance_mask = mask;
+  CmdSetViewInstanceMask cmd = {};
+  cmd.header = {CmdType::SetViewInstanceMask, sizeof(cmd)};
+  cmd.mask = mask;
+  Emit(cmd);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::WriteBufferImmediate(
     UINT count, const D3D12_WRITEBUFFERIMMEDIATE_PARAMETER *parameters,
     const D3D12_WRITEBUFFERIMMEDIATE_MODE *modes) {
-  if (!count || !parameters)
+  constexpr size_t base_size = sizeof(CmdWriteBufferImmediate) -
+                                sizeof(CmdWriteBufferImmediateEntry);
+  if (m_closed || !count || !parameters ||
+      count > (UINT32_MAX - base_size) /
+                  sizeof(CmdWriteBufferImmediateEntry))
     return;
   std::vector<CmdWriteBufferImmediateEntry> entries(count);
   for (UINT i = 0; i < count; i++) {
@@ -1582,25 +1814,26 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::WriteBufferImmediate(
     entries[i].mode = modes ? modes[i] : D3D12_WRITEBUFFERIMMEDIATE_MODE_DEFAULT;
   }
   CmdWriteBufferImmediate cmd = {};
-  size_t extra = count * sizeof(CmdWriteBufferImmediateEntry);
-  auto total = sizeof(CmdWriteBufferImmediate) -
-               sizeof(CmdWriteBufferImmediateEntry) + extra;
+  size_t extra = size_t(count) * sizeof(CmdWriteBufferImmediateEntry);
+  auto total = base_size + extra;
   auto offset = m_cmds.size();
   m_cmds.resize(offset + total);
   cmd.header = {CmdType::WriteBufferImmediate, (uint32_t)total};
   cmd.count = count;
-  memcpy(m_cmds.data() + offset, &cmd,
-         sizeof(CmdWriteBufferImmediate) -
-             sizeof(CmdWriteBufferImmediateEntry));
-  memcpy(m_cmds.data() + offset + sizeof(CmdWriteBufferImmediate) -
-             sizeof(CmdWriteBufferImmediateEntry),
-         entries.data(), extra);
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  memcpy(m_cmds.data() + offset + base_size, entries.data(), extra);
 }
 
 /*** ID3D12GraphicsCommandList3 ***/
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetProtectedResourceSession(
     ID3D12ProtectedResourceSession *protected_session) {
-  CLTRACE("SetProtectedResourceSession -> noop");
+  if (m_closed)
+    return;
+  CmdSetProtectedResourceSession cmd = {};
+  cmd.header = {CmdType::SetProtectedResourceSession, sizeof(cmd)};
+  cmd.protected_session = protected_session;
+  RetainProtectedResourceSession(protected_session);
+  Emit(cmd);
 }
 
 /*** ID3D12GraphicsCommandList4 ***/
@@ -1610,6 +1843,16 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginRenderPass(
     const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *depth_stencil,
     D3D12_RENDER_PASS_FLAGS flags) {
   CLTRACE("BeginRenderPass numRT=%u flags=0x%x", num_render_targets, (unsigned)flags);
+
+  if (m_closed || num_render_targets > 8 ||
+      (num_render_targets && !render_targets))
+    return;
+  CmdBeginRenderPass begin = {};
+  begin.header = {CmdType::BeginRenderPass, sizeof(begin)};
+  begin.render_target_count = num_render_targets;
+  begin.flags = static_cast<uint32_t>(flags);
+  begin.has_depth_stencil = depth_stencil != nullptr;
+  Emit(begin);
 
   if (render_targets && num_render_targets > 0) {
     D3D12_CPU_DESCRIPTOR_HANDLE rt_handles[8];
@@ -1629,6 +1872,9 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginRenderPass(
       }
     }
   }
+
+  if (depth_stencil && num_render_targets == 0)
+    OMSetRenderTargets(0, nullptr, FALSE, &depth_stencil->cpuDescriptor);
 
   if (depth_stencil) {
     D3D12_CLEAR_FLAGS clear_flags = (D3D12_CLEAR_FLAGS)0;
@@ -1655,15 +1901,53 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginRenderPass(
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::EndRenderPass() {
   CLTRACE("EndRenderPass");
+  CmdHeader cmd = {CmdType::EndRenderPass, sizeof(CmdHeader)};
+  Emit(cmd);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::InitializeMetaCommand(
     ID3D12MetaCommand *meta_command, const void *initialization_parameters_data,
-    SIZE_T initialization_parameters_data_size_in_bytes) {}
+    SIZE_T initialization_parameters_data_size_in_bytes) {
+  if (m_closed || !meta_command ||
+      initialization_parameters_data_size_in_bytes > UINT32_MAX -
+          offsetof(CmdMetaCommand, data) ||
+      (initialization_parameters_data_size_in_bytes &&
+       !initialization_parameters_data))
+    return;
+  CmdMetaCommand cmd = {};
+  cmd.header = {CmdType::InitializeMetaCommand,
+                static_cast<uint32_t>(offsetof(CmdMetaCommand, data) +
+                                      initialization_parameters_data_size_in_bytes)};
+  cmd.meta_command = meta_command;
+  cmd.data_size = static_cast<uint32_t>(
+      initialization_parameters_data_size_in_bytes);
+  RetainMetaCommand(meta_command);
+  const uint8_t empty = 0;
+  EmitVar(cmd, initialization_parameters_data ? initialization_parameters_data
+                                               : &empty,
+          cmd.data_size);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteMetaCommand(
     ID3D12MetaCommand *meta_command, const void *execution_parameters_data,
-    SIZE_T execution_parameters_data_size_in_bytes) {}
+    SIZE_T execution_parameters_data_size_in_bytes) {
+  if (m_closed || !meta_command ||
+      execution_parameters_data_size_in_bytes > UINT32_MAX -
+          offsetof(CmdMetaCommand, data) ||
+      (execution_parameters_data_size_in_bytes &&
+       !execution_parameters_data))
+    return;
+  CmdMetaCommand cmd = {};
+  cmd.header = {CmdType::ExecuteMetaCommand,
+                static_cast<uint32_t>(offsetof(CmdMetaCommand, data) +
+                                      execution_parameters_data_size_in_bytes)};
+  cmd.meta_command = meta_command;
+  cmd.data_size = static_cast<uint32_t>(execution_parameters_data_size_in_bytes);
+  RetainMetaCommand(meta_command);
+  const uint8_t empty = 0;
+  EmitVar(cmd, execution_parameters_data ? execution_parameters_data : &empty,
+          cmd.data_size);
+}
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationStructure(
     const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC *desc,

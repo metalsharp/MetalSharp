@@ -1,10 +1,92 @@
 #pragma once
 
 #include "d3d12_command_defs.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
 namespace dxmt {
+
+constexpr size_t kD3D12CommandTypeCount =
+    static_cast<size_t>(CmdType::Count);
+static_assert(kD3D12CommandTypeCount <= 64,
+              "command inventory mask must fit in one uint64_t");
+constexpr uint64_t kD3D12AllCommandTypesMask =
+    kD3D12CommandTypeCount == 64
+        ? UINT64_MAX
+        : ((uint64_t{1} << kD3D12CommandTypeCount) - 1);
+
+inline bool D3D12IsKnownCommandType(CmdType type) {
+  return static_cast<size_t>(type) < kD3D12CommandTypeCount;
+}
+
+inline const char *D3D12CommandTypeName(CmdType type) {
+  switch (type) {
+  case CmdType::DrawInstanced: return "DrawInstanced";
+  case CmdType::DrawIndexedInstanced: return "DrawIndexedInstanced";
+  case CmdType::Dispatch: return "Dispatch";
+  case CmdType::DispatchMesh: return "DispatchMesh";
+  case CmdType::ExecuteIndirect: return "ExecuteIndirect";
+  case CmdType::SetPredication: return "SetPredication";
+  case CmdType::SetMarker: return "SetMarker";
+  case CmdType::BeginEvent: return "BeginEvent";
+  case CmdType::EndEvent: return "EndEvent";
+  case CmdType::SetSamplePositions: return "SetSamplePositions";
+  case CmdType::SetViewInstanceMask: return "SetViewInstanceMask";
+  case CmdType::SetStreamOutputTargets: return "SetStreamOutputTargets";
+  case CmdType::BeginRenderPass: return "BeginRenderPass";
+  case CmdType::EndRenderPass: return "EndRenderPass";
+  case CmdType::SetProtectedResourceSession: return "SetProtectedResourceSession";
+  case CmdType::InitializeMetaCommand: return "InitializeMetaCommand";
+  case CmdType::ExecuteMetaCommand: return "ExecuteMetaCommand";
+  case CmdType::CopyBufferRegion: return "CopyBufferRegion";
+  case CmdType::CopyTextureRegion: return "CopyTextureRegion";
+  case CmdType::CopyResource: return "CopyResource";
+  case CmdType::SetPipelineState: return "SetPipelineState";
+  case CmdType::SetGraphicsRootSignature: return "SetGraphicsRootSignature";
+  case CmdType::SetComputeRootSignature: return "SetComputeRootSignature";
+  case CmdType::SetGraphicsRoot32BitConstants: return "SetGraphicsRoot32BitConstants";
+  case CmdType::SetComputeRoot32BitConstants: return "SetComputeRoot32BitConstants";
+  case CmdType::SetGraphicsRootConstantBufferView: return "SetGraphicsRootConstantBufferView";
+  case CmdType::SetComputeRootConstantBufferView: return "SetComputeRootConstantBufferView";
+  case CmdType::SetGraphicsRootShaderResourceView: return "SetGraphicsRootShaderResourceView";
+  case CmdType::SetComputeRootShaderResourceView: return "SetComputeRootShaderResourceView";
+  case CmdType::SetGraphicsRootUnorderedAccessView: return "SetGraphicsRootUnorderedAccessView";
+  case CmdType::SetComputeRootUnorderedAccessView: return "SetComputeRootUnorderedAccessView";
+  case CmdType::SetGraphicsRootDescriptorTable: return "SetGraphicsRootDescriptorTable";
+  case CmdType::SetComputeRootDescriptorTable: return "SetComputeRootDescriptorTable";
+  case CmdType::IASetPrimitiveTopology: return "IASetPrimitiveTopology";
+  case CmdType::IASetVertexBuffers: return "IASetVertexBuffers";
+  case CmdType::IASetIndexBuffer: return "IASetIndexBuffer";
+  case CmdType::RSSetViewports: return "RSSetViewports";
+  case CmdType::RSSetScissorRects: return "RSSetScissorRects";
+  case CmdType::OMSetRenderTargets: return "OMSetRenderTargets";
+  case CmdType::OMSetBlendFactor: return "OMSetBlendFactor";
+  case CmdType::OMSetStencilRef: return "OMSetStencilRef";
+  case CmdType::ClearRenderTargetView: return "ClearRenderTargetView";
+  case CmdType::ClearDepthStencilView: return "ClearDepthStencilView";
+  case CmdType::ClearUnorderedAccessView: return "ClearUnorderedAccessView";
+  case CmdType::DiscardResource: return "DiscardResource";
+  case CmdType::ResourceBarrier: return "ResourceBarrier";
+  case CmdType::EnhancedBarrier: return "EnhancedBarrier";
+  case CmdType::SetDescriptorHeaps: return "SetDescriptorHeaps";
+  case CmdType::ResolveSubresource: return "ResolveSubresource";
+  case CmdType::WriteBufferImmediate: return "WriteBufferImmediate";
+  case CmdType::BeginQuery: return "BeginQuery";
+  case CmdType::EndQuery: return "EndQuery";
+  case CmdType::ResolveQueryData: return "ResolveQueryData";
+  case CmdType::BuildRaytracingAccelerationStructure: return "BuildRaytracingAccelerationStructure";
+  case CmdType::CopyRaytracingAccelerationStructure: return "CopyRaytracingAccelerationStructure";
+  case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo: return "EmitRaytracingAccelerationStructurePostbuildInfo";
+  case CmdType::SetPipelineState1: return "SetPipelineState1";
+  case CmdType::DispatchRays: return "DispatchRays";
+  case CmdType::OMSetDepthBounds: return "OMSetDepthBounds";
+  case CmdType::RSSetShadingRate: return "RSSetShadingRate";
+  case CmdType::RSSetShadingRateImage: return "RSSetShadingRateImage";
+  case CmdType::Count: break;
+  }
+  return "Unknown";
+}
 
 struct D3D12CommandStreamStats {
   uint32_t command_count = 0;
@@ -33,6 +115,16 @@ struct D3D12CommandStreamStats {
   uint32_t ia_set_index_buffer_count = 0;
   uint32_t rs_set_viewports_count = 0;
   uint32_t rs_set_scissors_count = 0;
+  uint32_t set_view_instance_mask_count = 0;
+  uint32_t set_stream_output_targets_count = 0;
+  uint32_t begin_render_pass_count = 0;
+  uint32_t end_render_pass_count = 0;
+  uint32_t set_protected_resource_session_count = 0;
+  uint32_t initialize_meta_command_count = 0;
+  uint32_t execute_meta_command_count = 0;
+  std::array<uint32_t, kD3D12CommandTypeCount> type_counts = {};
+  uint64_t type_mask = 0;
+  uint32_t unknown_type_count = 0;
   bool corrupt = false;
   size_t corrupt_offset = 0;
   uint32_t corrupt_type = 0;
@@ -53,7 +145,9 @@ struct D3D12CommandStreamStats {
            set_graphics_root_table_count ||
            om_set_render_targets_count || ia_set_vertex_buffers_count ||
            ia_set_index_buffer_count || rs_set_viewports_count ||
-           rs_set_scissors_count;
+           rs_set_scissors_count || set_view_instance_mask_count ||
+           set_stream_output_targets_count || begin_render_pass_count ||
+           end_render_pass_count;
   }
 
   bool HasClearOrComputeWork() const {
@@ -67,6 +161,12 @@ struct D3D12CommandStreamStats {
 
   bool IsDrawBearing() const { return AnyDrawCount() != 0; }
 
+  bool HasUnknownCommandTypes() const { return unknown_type_count != 0; }
+
+  bool HasCompleteKnownTypeInventory() const {
+    return !unknown_type_count && type_mask == kD3D12AllCommandTypesMask;
+  }
+
   bool IsFrameProgressCandidate() const {
     return IsDrawBearing() || IsZeroDrawGraphicsList() || HasClearOrComputeWork();
   }
@@ -74,6 +174,13 @@ struct D3D12CommandStreamStats {
 
 inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
                                        CmdType type) {
+  const size_t type_index = static_cast<size_t>(type);
+  if (type_index < kD3D12CommandTypeCount) {
+    stats.type_counts[type_index]++;
+    stats.type_mask |= uint64_t{1} << type_index;
+  } else {
+    stats.unknown_type_count++;
+  }
   switch (type) {
   case CmdType::DrawInstanced:
   case CmdType::DispatchMesh:
@@ -155,6 +262,27 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
   case CmdType::RSSetScissorRects:
     stats.rs_set_scissors_count++;
     break;
+  case CmdType::SetViewInstanceMask:
+    stats.set_view_instance_mask_count++;
+    break;
+  case CmdType::SetStreamOutputTargets:
+    stats.set_stream_output_targets_count++;
+    break;
+  case CmdType::BeginRenderPass:
+    stats.begin_render_pass_count++;
+    break;
+  case CmdType::EndRenderPass:
+    stats.end_render_pass_count++;
+    break;
+  case CmdType::SetProtectedResourceSession:
+    stats.set_protected_resource_session_count++;
+    break;
+  case CmdType::InitializeMetaCommand:
+    stats.initialize_meta_command_count++;
+    break;
+  case CmdType::ExecuteMetaCommand:
+    stats.execute_meta_command_count++;
+    break;
   default:
     break;
   }
@@ -163,6 +291,12 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
 inline D3D12CommandStreamStats
 D3D12CollectCommandStreamStats(const uint8_t *data, size_t size) {
   D3D12CommandStreamStats stats = {};
+  if (size && !data) {
+    stats.corrupt = true;
+    stats.corrupt_size = size > UINT32_MAX ? UINT32_MAX
+                                            : static_cast<uint32_t>(size);
+    return stats;
+  }
   size_t offset = 0;
   while (offset < size) {
     if (offset + sizeof(CmdHeader) > size) {

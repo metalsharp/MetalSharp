@@ -1318,6 +1318,25 @@ size_t MTLD3D12PipelineState::ApplyShaderVariantHash(
     size_t hash, ShaderType type) const {
   if (type == ShaderType::Vertex || type == ShaderType::Pixel)
     hash ^= 0x4d31327672735f70ull;
+  if (type == ShaderType::Vertex && m_has_stream_output) {
+    hash ^= 0x534f5645524c4159ull;
+    hash = hash * 131 + m_stream_output.NumEntries;
+    hash = hash * 131 + m_stream_output.NumStrides;
+    hash = hash * 131 + m_stream_output.RasterizedStream;
+    for (const auto &entry : m_stream_output_elements) {
+      hash = hash * 131 + entry.Stream;
+      hash = hash * 131 + entry.SemanticIndex;
+      hash = hash * 131 + entry.StartComponent;
+      hash = hash * 131 + entry.ComponentCount;
+      hash = hash * 131 + entry.OutputSlot;
+      if (entry.SemanticName) {
+        for (const char *s = entry.SemanticName; *s; ++s)
+          hash = hash * 131 + static_cast<unsigned char>(*s);
+      }
+    }
+    for (UINT stride : m_stream_output_strides)
+      hash = hash * 131 + stride;
+  }
   if (type == ShaderType::Pixel && IsDepthBoundsTestEnabled()) {
     hash ^= 0xd3b0a7d5e91c2468ull;
     hash ^= static_cast<size_t>(m_sample_count) * 0x9e3779b97f4a7c15ull;
@@ -2496,6 +2515,8 @@ bool MTLD3D12PipelineState::CompileShader(
   }
 
   SM50_SHADER_IA_INPUT_LAYOUT_DATA ia_layout = {};
+  SM50_SHADER_EMULATE_VERTEX_STREAM_OUTPUT_DATA stream_output = {};
+  std::vector<SM50_STREAM_OUTPUT_ELEMENT> stream_output_elements;
   SM50_SHADER_COMPILATION_ARGUMENT_DATA *compile_args =
       (SM50_SHADER_COMPILATION_ARGUMENT_DATA *)&common;
   if (type == ShaderType::Vertex) {
@@ -2505,6 +2526,98 @@ bool MTLD3D12PipelineState::CompileShader(
     ia_layout.slot_mask = ia_slot_mask;
     ia_layout.num_elements = (uint32_t)ia_elements.size();
     ia_layout.elements = ia_elements.data();
+
+    if (m_has_stream_output) {
+      if (m_stream_output.NumEntries == 0 ||
+          m_stream_output.pSODeclaration == nullptr ||
+          m_stream_output.NumStrides != 1 ||
+          m_stream_output.pBufferStrides == nullptr ||
+          m_stream_output.pBufferStrides[0] == 0 ||
+          m_stream_output.pBufferStrides[0] >
+              D3D12_SO_BUFFER_MAX_STRIDE_IN_BYTES ||
+          m_stream_output.RasterizedStream != D3D12_SO_NO_RASTERIZED_STREAM) {
+        return RecordCompileFailure(
+            "pso/unsupported_stream_output_desc",
+            "Only one non-rasterized stream-output declaration with one nonzero "
+            "buffer stride is supported");
+      }
+
+      using namespace microsoft;
+      CSignatureParser output_parser;
+      if (FAILED(DXBCGetOutputSignature(bytecode, &output_parser))) {
+        return RecordCompileFailure(
+            "pso/unsupported_stream_output_signature",
+            "Stream-output DXBC has no readable output signature");
+      }
+      const D3D11_SIGNATURE_PARAMETER *output_parameters = nullptr;
+      const uint32_t output_parameter_count =
+          output_parser.GetParameters(&output_parameters);
+      uint32_t output_offset = 0;
+      stream_output_elements.reserve(m_stream_output.NumEntries * 4u);
+      for (UINT i = 0; i < m_stream_output.NumEntries; ++i) {
+        const auto &entry = m_stream_output.pSODeclaration[i];
+        if (entry.Stream != 0 || entry.OutputSlot != 0 ||
+            entry.StartComponent > 3 || entry.ComponentCount > 4 ||
+            uint32_t(entry.StartComponent) + uint32_t(entry.ComponentCount) >
+                4) {
+          return RecordCompileFailure(
+              "pso/unsupported_stream_output_desc",
+              str::format("Unsupported stream-output entry ", i,
+                          " stream=", (unsigned)entry.Stream,
+                          " output_slot=", (unsigned)entry.OutputSlot,
+                          " start=", (unsigned)entry.StartComponent,
+                          " count=", (unsigned)entry.ComponentCount));
+        }
+        if (entry.ComponentCount == 0)
+          continue;
+
+        uint32_t register_id = 0xffffffffu;
+        if (entry.SemanticName) {
+          const auto *parameter = std::find_if(
+              output_parameters, output_parameters + output_parameter_count,
+              [&](const D3D11_SIGNATURE_PARAMETER &candidate) {
+                return candidate.SemanticName &&
+                       candidate.SemanticIndex == entry.SemanticIndex &&
+                       strcasecmp(candidate.SemanticName, entry.SemanticName) ==
+                           0;
+              });
+          if (parameter == output_parameters + output_parameter_count) {
+            return RecordCompileFailure(
+                "pso/unsupported_stream_output_signature",
+                str::format("Stream-output semantic not found: ",
+                            entry.SemanticName, entry.SemanticIndex));
+          }
+          register_id = parameter->Register;
+        }
+
+        for (UINT component = 0; component < entry.ComponentCount;
+             ++component) {
+          stream_output_elements.push_back({
+              register_id,
+              uint32_t(entry.StartComponent) + component,
+              0,
+              output_offset});
+          output_offset += sizeof(float);
+        }
+      }
+      if (stream_output_elements.empty() ||
+          output_offset > m_stream_output.pBufferStrides[0]) {
+        return RecordCompileFailure(
+            "pso/unsupported_stream_output_desc",
+            "Stream-output declaration does not fit within its buffer stride");
+      }
+      stream_output.next = &common;
+      stream_output.type = SM50_SHADER_EMULATE_VERTEX_STREAM_OUTPUT;
+      stream_output.num_output_slots = 1;
+      stream_output.num_elements =
+          static_cast<uint32_t>(stream_output_elements.size());
+      stream_output.strides[0] = m_stream_output.pBufferStrides[0];
+      stream_output.elements = stream_output_elements.data();
+      ia_layout.next = &stream_output;
+      PSTRACE("CompileShader: %s stream-output elements=%u stride=%u",
+              func_name, stream_output.num_elements, stream_output.strides[0]);
+    }
+
     compile_args = (SM50_SHADER_COMPILATION_ARGUMENT_DATA *)&ia_layout;
     PSTRACE("CompileShader: %s IA args elements=%u slot_mask=0x%x", func_name,
             ia_layout.num_elements, ia_layout.slot_mask);
@@ -3076,9 +3189,19 @@ bool MTLD3D12PipelineState::Compile() {
   }
 
   if (m_has_stream_output) {
-    return RecordCompileFailure(
-        "pso/unsupported_stream_output",
-        "Graphics PSO uses stream output, which is not implemented");
+    if (m_vs.empty() || !m_gs.empty() || !m_hs.empty() || !m_ds.empty() ||
+        !m_ps.empty()) {
+      return RecordCompileFailure(
+          "pso/unsupported_stream_output_stage_mix",
+          "The stream-output provider requires a vertex-only, non-rasterized "
+          "DXBC graphics pipeline");
+    }
+    if (DXBCContainerHasChunk(m_vs.data(), m_vs.size(), "DXIL")) {
+      return RecordCompileFailure(
+          "pso/unsupported_stream_output_dxil",
+          "The stream-output provider requires DXBC; DXIL stream capture is "
+          "not silently downgraded");
+    }
   }
   if (m_uses_conservative_rasterization &&
       !m_uses_conservative_rasterization_reference_model) {
@@ -3154,7 +3277,7 @@ bool MTLD3D12PipelineState::Compile() {
   if (ps_func.handle)
     info.fragment_function = ps_func.handle;
 
-  info.rasterization_enabled = true;
+  info.rasterization_enabled = !m_has_stream_output;
   info.raster_sample_count = m_sample_count ? m_sample_count : 1;
 
   for (UINT i = 0; i < m_num_render_targets && i < 8; i++) {
@@ -3741,9 +3864,41 @@ void MTLD3D12PipelineState::SetGraphicsDesc(
   m_blend_desc = desc.BlendState;
   m_rasterizer_desc = desc.RasterizerState;
   m_depth_stencil_desc = desc.DepthStencilState;
+  m_stream_output = {};
+  m_stream_output_elements.clear();
+  m_stream_output_semantic_names.clear();
+  m_stream_output_strides.clear();
   m_has_stream_output =
       desc.StreamOutput.NumEntries > 0 || desc.StreamOutput.NumStrides > 0 ||
       desc.StreamOutput.pSODeclaration || desc.StreamOutput.pBufferStrides;
+  if (desc.StreamOutput.NumEntries && desc.StreamOutput.pSODeclaration) {
+    m_stream_output_semantic_names.reserve(desc.StreamOutput.NumEntries);
+    m_stream_output_elements.reserve(desc.StreamOutput.NumEntries);
+    for (UINT i = 0; i < desc.StreamOutput.NumEntries; ++i) {
+      auto entry = desc.StreamOutput.pSODeclaration[i];
+      m_stream_output_semantic_names.emplace_back(
+          entry.SemanticName ? entry.SemanticName : "");
+      entry.SemanticName = entry.SemanticName
+                               ? m_stream_output_semantic_names.back().c_str()
+                               : nullptr;
+      m_stream_output_elements.push_back(entry);
+    }
+  }
+  if (desc.StreamOutput.NumStrides && desc.StreamOutput.pBufferStrides) {
+    const UINT stride_count = std::min<UINT>(desc.StreamOutput.NumStrides, 4);
+    m_stream_output_strides.assign(desc.StreamOutput.pBufferStrides,
+                                   desc.StreamOutput.pBufferStrides + stride_count);
+  }
+  m_stream_output.NumEntries =
+      static_cast<UINT>(m_stream_output_elements.size());
+  m_stream_output.pSODeclaration = m_stream_output_elements.empty()
+                                       ? nullptr
+                                       : m_stream_output_elements.data();
+  m_stream_output.NumStrides = static_cast<UINT>(m_stream_output_strides.size());
+  m_stream_output.pBufferStrides = m_stream_output_strides.empty()
+                                       ? nullptr
+                                       : m_stream_output_strides.data();
+  m_stream_output.RasterizedStream = desc.StreamOutput.RasterizedStream;
   m_vs_uses_stage_in = false;
   m_ia_slot_mask = 0;
   m_ia_input_elements.clear();
@@ -3775,6 +3930,18 @@ void MTLD3D12PipelineState::SetGraphicsDesc(
         static_cast<const uint8_t *>(desc.CachedPSO.pCachedBlob);
     m_cached_pso_blob.assign(
         cached_data, cached_data + desc.CachedPSO.CachedBlobSizeInBytes);
+  }
+}
+
+void MTLD3D12PipelineState::SetViewInstancing(
+    const D3D12ViewInstancingDesc &desc) {
+  m_view_instance_count = desc.ViewInstanceCount;
+  m_view_instancing_flags = desc.Flags;
+  m_view_instance_locations.clear();
+  if (desc.ViewInstanceCount && desc.pViewInstanceLocations) {
+    m_view_instance_locations.assign(
+        desc.pViewInstanceLocations,
+        desc.pViewInstanceLocations + desc.ViewInstanceCount);
   }
 }
 

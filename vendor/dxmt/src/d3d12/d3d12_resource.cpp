@@ -1868,6 +1868,33 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
   return E_FAIL;
 }
 
+bool MTLD3D12Resource::ReadBufferRange(uint64_t offset, void *dst_data,
+                                       uint64_t length) {
+  if (!dst_data || !length || !IsBuffer() || !IsResident() ||
+      offset > m_desc.Width || length > m_desc.Width - offset ||
+      length > static_cast<uint64_t>(SIZE_MAX))
+    return false;
+  if (m_cpu_addr) {
+    std::memcpy(dst_data, static_cast<const uint8_t *>(m_cpu_addr) + offset,
+                static_cast<size_t>(length));
+    return true;
+  }
+  if (!m_mtl_buffer.handle)
+    return false;
+
+  WMTBufferInfo staging_info = {};
+  staging_info.length = length;
+  staging_info.options = WMTResourceStorageModeShared;
+  auto staging = m_device->GetDXMTDevice().device().newBuffer(staging_info);
+  void *staging_data = staging_info.memory.get_accessible_or_null();
+  if (!staging.handle || !staging_data ||
+      !SubmitBufferCopy(m_device->GetDXMTDevice().device(), m_mtl_buffer, offset,
+                        staging, 0, length))
+    return false;
+  std::memcpy(dst_data, staging_data, static_cast<size_t>(length));
+  return true;
+}
+
 HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
     void *dst_data, UINT dst_row_pitch, UINT dst_slice_pitch,
     UINT src_sub_resource, const D3D12_BOX *src_box) {
@@ -1884,23 +1911,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
     if (src_sub_resource || !dst_row_pitch || dst_row_pitch > m_desc.Width)
       return E_INVALIDARG;
     const uint64_t length = dst_row_pitch;
-    if (m_cpu_addr) {
-      std::memcpy(dst_data, m_cpu_addr, static_cast<size_t>(length));
-      return S_OK;
-    }
-    if (!m_mtl_buffer.handle)
-      return E_FAIL;
-    WMTBufferInfo staging_info = {};
-    staging_info.length = length;
-    staging_info.options = WMTResourceStorageModeShared;
-    auto staging = m_device->GetDXMTDevice().device().newBuffer(staging_info);
-    void *staging_data = staging_info.memory.get_accessible_or_null();
-    if (!staging.handle || !staging_data ||
-        !SubmitBufferCopy(m_device->GetDXMTDevice().device(), m_mtl_buffer, 0,
-                          staging, 0, length))
-      return E_FAIL;
-    std::memcpy(dst_data, staging_data, static_cast<size_t>(length));
-    return S_OK;
+    return ReadBufferRange(0, dst_data, length) ? S_OK : E_FAIL;
   }
 
   if (m_desc.Dimension > D3D12_RESOURCE_DIMENSION_TEXTURE3D ||

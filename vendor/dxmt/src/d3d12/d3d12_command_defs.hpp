@@ -16,6 +16,13 @@ enum class CmdType : uint32_t {
   BeginEvent,
   EndEvent,
   SetSamplePositions,
+  SetViewInstanceMask,
+  SetStreamOutputTargets,
+  BeginRenderPass,
+  EndRenderPass,
+  SetProtectedResourceSession,
+  InitializeMetaCommand,
+  ExecuteMetaCommand,
   CopyBufferRegion,
   CopyTextureRegion,
   CopyResource,
@@ -60,6 +67,7 @@ enum class CmdType : uint32_t {
   OMSetDepthBounds,
   RSSetShadingRate,
   RSSetShadingRateImage,
+  Count,
 };
 
 struct CmdHeader {
@@ -67,12 +75,17 @@ struct CmdHeader {
   uint32_t size;
 };
 
+inline constexpr uint32_t kNoViewInstanceIndex = UINT32_MAX;
+
 struct CmdDrawInstanced {
   CmdHeader header;
   uint32_t vertex_count;
   uint32_t instance_count;
   uint32_t start_vertex;
   uint32_t start_instance;
+  // UINT32_MAX means the command is not a recording-time expansion.
+  uint32_t view_instance_index;
+  uint32_t sample_pixel_index;
 };
 
 struct CmdDrawIndexedInstanced {
@@ -82,6 +95,8 @@ struct CmdDrawIndexedInstanced {
   uint32_t start_index;
   int32_t base_vertex;
   uint32_t start_instance;
+  uint32_t view_instance_index;
+  uint32_t sample_pixel_index;
 };
 
 struct CmdDispatch {
@@ -104,12 +119,23 @@ struct CmdDispatchRays {
   D3D12_DISPATCH_RAYS_DESC desc;
 };
 
+struct CmdEnhancedBarrierRecord {
+  D3D12_BARRIER_TYPE type;
+  union {
+    D3D12_GLOBAL_BARRIER global;
+    D3D12_BUFFER_BARRIER buffer;
+    D3D12_TEXTURE_BARRIER texture;
+  } barrier;
+};
+
 struct CmdEnhancedBarrier {
   CmdHeader header;
   uint32_t group_count;
   uint32_t global_barrier_count;
   uint32_t buffer_barrier_count;
   uint32_t texture_barrier_count;
+  uint32_t record_count;
+  CmdEnhancedBarrierRecord records[1];
 };
 
 struct CmdEmitRaytracingAccelerationStructurePostbuildInfo {
@@ -170,6 +196,37 @@ struct CmdSetSamplePositions {
   uint32_t pixel_count;
   uint32_t position_count;
   D3D12_SAMPLE_POSITION positions[1];
+};
+
+struct CmdSetViewInstanceMask {
+  CmdHeader header;
+  uint32_t mask;
+};
+
+struct CmdSetStreamOutputTargets {
+  CmdHeader header;
+  uint32_t start_slot;
+  uint32_t view_count;
+  D3D12_STREAM_OUTPUT_BUFFER_VIEW views[1];
+};
+
+struct CmdBeginRenderPass {
+  CmdHeader header;
+  uint32_t render_target_count;
+  uint32_t flags;
+  uint8_t has_depth_stencil;
+};
+
+struct CmdSetProtectedResourceSession {
+  CmdHeader header;
+  ID3D12ProtectedResourceSession *protected_session;
+};
+
+struct CmdMetaCommand {
+  CmdHeader header;
+  ID3D12MetaCommand *meta_command;
+  uint32_t data_size;
+  uint8_t data[1];
 };
 
 struct CmdCopyBufferRegion {

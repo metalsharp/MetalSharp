@@ -91,13 +91,13 @@
     {
       "api": "D3D12 stream output",
       "evidence": [
-        "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-        "tools/d3d12-metal-sdk/probes/probe_graphics_pso",
-        "tools/d3d12-metal-sdk/probes/probe_device_caps"
+        "vendor/dxmt/src/d3d12/d3d12_pipeline_state.cpp",
+        "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp",
+        "tools/d3d12-metal-sdk/probes/probe_command_replay"
       ],
-      "reason": "Stream output has no compute-emulation path; PSO creation and format support must not advertise it.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "A bounded SM50 provider now captures one non-rasterized DXBC vertex stream into one output buffer and updates its filled-size location through an ordered blit. Multiple streams, append/counter accumulation, overflow continuation, DXIL/geometry-stage capture, and downstream-consumer coverage remain unproven and stay fail-closed.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 sparse and reserved resources",

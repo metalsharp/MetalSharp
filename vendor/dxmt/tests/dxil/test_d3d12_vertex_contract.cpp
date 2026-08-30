@@ -289,6 +289,8 @@ int main() {
   append_command(zero_draw_stream, set_pso);
   auto pso_only_stats = dxmt::D3D12CollectCommandStreamStats(
       zero_draw_stream.data(), zero_draw_stream.size());
+  expect_equal("command stats pso histogram",
+               pso_only_stats.type_counts[static_cast<size_t>(dxmt::CmdType::SetPipelineState)], 1);
   expect_true("command stats pso-only is graphics setup",
               pso_only_stats.HasGraphicsSetup());
   expect_true("command stats pso-only is zero-draw graphics",
@@ -328,6 +330,48 @@ int main() {
               zero_draw_stats.IsFrameProgressCandidate());
   expect_equal("command stats zero direct draw count",
                zero_draw_stats.DirectDrawCount(), 0);
+
+  dxmt::CmdSetViewInstanceMask view_mask = {};
+  view_mask.header = {dxmt::CmdType::SetViewInstanceMask, sizeof(view_mask)};
+  append_command(zero_draw_stream, view_mask);
+  dxmt::CmdSetStreamOutputTargets stream_targets = {};
+  stream_targets.header = {dxmt::CmdType::SetStreamOutputTargets,
+                           sizeof(stream_targets)};
+  append_command(zero_draw_stream, stream_targets);
+  auto advanced_stats = dxmt::D3D12CollectCommandStreamStats(
+      zero_draw_stream.data(), zero_draw_stream.size());
+  expect_equal("command stats view-mask histogram",
+               advanced_stats.type_counts[static_cast<size_t>(dxmt::CmdType::SetViewInstanceMask)], 1);
+  expect_equal("command stats stream-output histogram",
+               advanced_stats.type_counts[static_cast<size_t>(dxmt::CmdType::SetStreamOutputTargets)], 1);
+  expect_true("command stats advanced setup is visible",
+              advanced_stats.HasGraphicsSetup());
+
+  std::vector<uint8_t> unknown_stream(sizeof(dxmt::CmdHeader), 0);
+  auto *unknown_header = reinterpret_cast<dxmt::CmdHeader *>(unknown_stream.data());
+  unknown_header->type = dxmt::CmdType::Count;
+  unknown_header->size = sizeof(dxmt::CmdHeader);
+  auto unknown_stats = dxmt::D3D12CollectCommandStreamStats(
+      unknown_stream.data(), unknown_stream.size());
+  expect_equal("command stats unknown type count",
+               unknown_stats.unknown_type_count, 1);
+  expect_true("command stats unknown type has no known histogram entry",
+              unknown_stats.type_counts[static_cast<size_t>(dxmt::CmdType::SetPipelineState)] == 0);
+
+  std::vector<uint8_t> complete_inventory_stream;
+  for (size_t i = 0; i < dxmt::kD3D12CommandTypeCount; ++i) {
+    dxmt::CmdHeader header = {};
+    header.type = static_cast<dxmt::CmdType>(i);
+    header.size = sizeof(header);
+    append_command(complete_inventory_stream, header);
+  }
+  auto complete_inventory_stats = dxmt::D3D12CollectCommandStreamStats(
+      complete_inventory_stream.data(), complete_inventory_stream.size());
+  expect_equal("command stats complete inventory count",
+               complete_inventory_stats.command_count,
+               static_cast<uint32_t>(dxmt::kD3D12CommandTypeCount));
+  expect_true("command stats complete inventory has no unknown types",
+              complete_inventory_stats.HasCompleteKnownTypeInventory());
 
   dxmt::CmdDrawInstanced draw = {};
   draw.header = {dxmt::CmdType::DrawInstanced, sizeof(draw)};

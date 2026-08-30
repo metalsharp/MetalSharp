@@ -11,6 +11,7 @@ struct ResourceStateSnapshot {
   D3D12_RESOURCE_STATES legacy_state = D3D12_RESOURCE_STATE_COMMON;
   D3D12_BARRIER_LAYOUT layout = D3D12_BARRIER_LAYOUT_COMMON;
   uint64_t generation = 0;
+  D3D12_BARRIER_ACCESS access = D3D12_BARRIER_ACCESS_COMMON;
 };
 
 // Tracks the D3D12-visible state independently of any Metal encoder.  A
@@ -78,6 +79,21 @@ public:
       return false;
     state.layout = after;
     state.generation = ++generation_;
+    return true;
+  }
+
+  // Enhanced buffer barriers carry byte-range/access information rather than
+  // a texture layout.  Keep the last access and generation visible even
+  // though Metal's encoder model does not need an explicit buffer layout.
+  bool transitionEnhancedAccess(D3D12_BARRIER_ACCESS before,
+                                D3D12_BARRIER_ACCESS after,
+                                uint64_t offset, uint64_t size) {
+    (void)before;
+    (void)offset;
+    (void)size;
+    std::lock_guard lock(mutex_);
+    global_.access = after;
+    global_.generation = ++generation_;
     return true;
   }
 

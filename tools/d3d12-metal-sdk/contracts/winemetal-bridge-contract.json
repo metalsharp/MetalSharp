@@ -1,6 +1,6 @@
 {
   "schema": "metalsharp.d3d12-metal.winemetal-bridge-contract.v1",
-  "abi_version": 30,
+  "abi_version": 31,
   "source_audit": {
     "pe_header": "vendor/dxmt/src/winemetal/winemetal.h",
     "cxx_facade": "vendor/dxmt/src/winemetal/Metal.hpp",
@@ -84,6 +84,7 @@
     "WMTBootstrapLookUp",
     "CreateMetalViewFromHWND",
     "ReleaseMetalView",
+    "WMTWaitForVBlank",
     "MTLCommandEncoder_pushDebugGroup",
     "MTLCommandEncoder_popDebugGroup",
     "MTLCommandEncoder_insertDebugSignpost"
@@ -157,6 +158,7 @@
     "_WMTBootstrapLookUp",
     "_CreateMetalViewFromHWND",
     "_ReleaseMetalView",
+    "_WMTWaitForVBlank",
     "_MTLCommandEncoder_pushDebugGroup",
     "_MTLCommandEncoder_popDebugGroup",
     "_MTLCommandEncoder_insertDebugSignpost"
@@ -165,6 +167,7 @@
     "unixcall_mtldevice_newlibrary": 32,
     "unixcall_mtldevice_newlibrary_source": 40,
     "unixcall_mtldevice_newrasterizationratemap": 56,
+    "unixcall_wmt_wait_for_vblank": 16,
     "WMTRenderPassInfo": 960,
     "unixcall_mtldevice_newrenderpso": 32,
     "unixcall_mtldevice_newcomputepso": 32,

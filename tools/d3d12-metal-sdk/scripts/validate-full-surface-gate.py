@@ -20,6 +20,7 @@ SDK_DIR = ROOT_DIR / "tools" / "d3d12-metal-sdk"
 CONTRACT_DIR = SDK_DIR / "contracts"
 DEFAULT_RESULTS_DIR = SDK_DIR / "results"
 DEFAULT_MANIFEST = CONTRACT_DIR / "phase3-exhaustive-coverage.json"
+PHASE4_MANIFEST = CONTRACT_DIR / "phase4-command-coverage.json"
 VALIDATORS = (
     "validate-contracts.py",
     "validate-probe-matrix.py",
@@ -39,10 +40,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--results-dir", type=Path, default=DEFAULT_RESULTS_DIR
     )
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--manifest", type=Path,
+                        help="Coverage manifest (defaults to the selected phase).")
     parser.add_argument(
-        "--phase", choices=("3", "all"), default="all",
-        help="Gate Phase 3 or all currently declared phases (default: all).",
+        "--phase", choices=("3", "4", "all"), default="all",
+        help="Gate Phase 3, Phase 4, or all currently declared phases (default: all).",
     )
     parser.add_argument(
         "--format", choices=("text", "json"), default="text"
@@ -119,7 +121,7 @@ def check_result(
     checks: list[dict[str, Any]] = []
     row_pass = True
     for check in row.get("checks", []):
-        if not isinstance(check, list) or len(check) < 2:
+        if not isinstance(check, list) or len(check) < 1:
             row_pass = False
             checks.append({"path": check, "pass": False, "detail": "invalid check declaration"})
             continue
@@ -147,6 +149,9 @@ def check_result(
 
 
 def build_summary(args: argparse.Namespace) -> dict[str, Any]:
+    manifest_path = args.manifest or (
+        PHASE4_MANIFEST if args.phase == "4" else DEFAULT_MANIFEST
+    )
     blockers: list[dict[str, str]] = []
     validator_rows = run_validators()
     for row in validator_rows:
@@ -156,7 +161,7 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
     manifest_error: str | None = None
     manifest: dict[str, Any] = {}
     try:
-        value = load_json(args.manifest)
+        value = load_json(manifest_path)
         if not isinstance(value, dict):
             manifest_error = "coverage manifest must be a JSON object"
         else:
@@ -164,7 +169,8 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         manifest_error = f"coverage manifest cannot be loaded: {exc}"
     if manifest_error:
-        blockers.append({"id": "phase3-coverage-manifest", "detail": manifest_error})
+        blockers.append({"id": f"phase{args.phase}-coverage-manifest",
+                         "detail": manifest_error})
 
     if args.phase == "all":
         full_contract_path = CONTRACT_DIR / "d3d12-full-surface-contract.json"
@@ -192,18 +198,28 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
 
     manifest_rows: list[dict[str, Any]] = []
     if manifest:
-        if manifest.get("schema") != "metalsharp.d3d12.phase3-exhaustive-coverage.v1":
-            blockers.append({"id": "phase3-coverage-manifest-schema", "detail": "unexpected coverage manifest schema"})
-        if args.phase in ("3", "all"):
+        expected_schema = {
+            "3": "metalsharp.d3d12.phase3-exhaustive-coverage.v1",
+            "4": "metalsharp.d3d12.phase4-command-coverage.v1",
+        }.get(args.phase)
+        if args.phase == "all":
+            expected_schema = "metalsharp.d3d12.phase3-exhaustive-coverage.v1"
+        if expected_schema and manifest.get("schema") != expected_schema:
+            blockers.append({"id": f"phase{args.phase}-coverage-manifest-schema",
+                             "detail": "unexpected coverage manifest schema"})
+        if args.phase in ("3", "4", "all"):
             if manifest.get("status") != "closed":
-                blockers.append({"id": "phase3-exhaustive-status", "detail": f"manifest status is {manifest.get('status')!r}, not 'closed'"})
+                blockers.append({"id": f"phase{args.phase}-coverage-status",
+                                 "detail": f"manifest status is {manifest.get('status')!r}, not 'closed'"})
             rows = manifest.get("rows")
             if not isinstance(rows, list) or not rows:
-                blockers.append({"id": "phase3-exhaustive-rows", "detail": "coverage manifest rows are missing or empty"})
+                blockers.append({"id": f"phase{args.phase}-coverage-rows",
+                                 "detail": "coverage manifest rows are missing or empty"})
             else:
                 for row in rows:
                     if not isinstance(row, dict) or not row.get("id"):
-                        blockers.append({"id": "phase3-exhaustive-row-shape", "detail": "coverage row is not a named object"})
+                        blockers.append({"id": f"phase{args.phase}-coverage-row-shape",
+                                         "detail": "coverage row is not a named object"})
                         continue
                     evidence, row_blockers = check_result(args.results_dir, args.profile, row)
                     manifest_rows.append(evidence)
@@ -212,6 +228,47 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
                     if row.get("status") != "closed":
                         blockers.append({"id": str(row["id"]), "detail": row.get("remaining", "coverage row is still open")})
 
+    additional_manifests: list[str] = []
+    if args.phase == "all":
+        # Keep the historical Phase 3 manifest as the primary input while
+        # making an all-phase gate fail closed when a later declared phase has
+        # an open manifest of its own.
+        additional_manifests.append(str(PHASE4_MANIFEST))
+        try:
+            phase4_manifest = load_json(PHASE4_MANIFEST)
+        except (OSError, json.JSONDecodeError) as exc:
+            phase4_manifest = {}
+            blockers.append({"id": "phase4-coverage-manifest",
+                             "detail": f"coverage manifest cannot be loaded: {exc}"})
+        if isinstance(phase4_manifest, dict):
+            if phase4_manifest.get("schema") != "metalsharp.d3d12.phase4-command-coverage.v1":
+                blockers.append({"id": "phase4-coverage-manifest-schema",
+                                 "detail": "unexpected Phase 4 coverage manifest schema"})
+            if phase4_manifest.get("status") != "closed":
+                blockers.append({"id": "phase4-coverage-status",
+                                 "detail": f"manifest status is {phase4_manifest.get('status')!r}, not 'closed'"})
+            phase4_rows = phase4_manifest.get("rows")
+            if not isinstance(phase4_rows, list) or not phase4_rows:
+                blockers.append({"id": "phase4-coverage-rows",
+                                 "detail": "coverage manifest rows are missing or empty"})
+            else:
+                for row in phase4_rows:
+                    if not isinstance(row, dict) or not row.get("id"):
+                        blockers.append({"id": "phase4-coverage-row-shape",
+                                         "detail": "coverage row is not a named object"})
+                        continue
+                    evidence, row_blockers = check_result(
+                        args.results_dir, args.profile, row
+                    )
+                    evidence["phase"] = 4
+                    manifest_rows.append(evidence)
+                    for row_id in row_blockers:
+                        blockers.append({"id": f"phase4:{row_id}",
+                                         "detail": "required behavior evidence failed"})
+                    if row.get("status") != "closed":
+                        blockers.append({"id": f"phase4:{row['id']}",
+                                         "detail": row.get("remaining", "coverage row is still open")})
+
     result = {
         "schema": "metalsharp.d3d12-metal.full-surface-gate-result.v1",
         "profile": args.profile,
@@ -219,7 +276,8 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
         "pass": not blockers,
         "promotion_ready": not blockers,
         "validators": validator_rows,
-        "coverage_manifest": str(args.manifest),
+        "coverage_manifest": str(manifest_path),
+        "additional_coverage_manifests": additional_manifests,
         "coverage_rows": manifest_rows,
         "blockers": blockers,
     }
