@@ -85,6 +85,7 @@ enum DXIntrinsicOpcode {
   DXOP_QuadReadLaneAt = 122,
   DXOP_QuadOp = 123,
   DXOP_QuadVote = 222,
+  DXOP_IsHelperLane = 221,
   DXOP_TextureStoreSample = 225,
   DXOP_TextureSampleCmpLevel = 224,
   DXOP_TextureSampleCmpGrad = 254,
@@ -328,6 +329,7 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "quadReadLaneAt", 14) == 0) return 122;
     if (strncmp(s, "quadOp", 6) == 0) return 123;
     if (strncmp(s, "quadVote", 8) == 0) return 222;
+    if (strncmp(s, "isHelperLane", 12) == 0) return DXOP_IsHelperLane;
     if (strncmp(s, "writeSamplerFeedbackLevel", 25) == 0) return 176;
     if (strncmp(s, "writeSamplerFeedbackGrad", 24) == 0) return 177;
     if (strncmp(s, "writeSamplerFeedbackBias", 24) == 0) return 175;
@@ -399,6 +401,7 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_QuadReadLaneAt:
     case DXOP_QuadOp:
     case DXOP_QuadVote:
+    case DXOP_IsHelperLane:
     case DXOP_WriteSamplerFeedback:
     case DXOP_WriteSamplerFeedbackBias:
     case DXOP_WriteSamplerFeedbackLevel:
@@ -3201,6 +3204,7 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_WaveAllTrue:
     case DXOP_WaveActiveAllEqual:
     case DXOP_QuadVote:
+    case DXOP_IsHelperLane:
         return {MSLTypeKind::Bool, 0, {}};
     case DXOP_ThreadId:
     case DXOP_GroupId:
@@ -4272,6 +4276,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         default: ctx.unsupported_intrinsics++; return value;
         }
     }
+    case DXOP_IsHelperLane:
+        return "simd_is_helper_thread()";
     case DXOP_QuadVote: {
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "quad_vote");
         if (op == 0)
