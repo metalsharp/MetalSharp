@@ -64,7 +64,8 @@
   dimension-aware MSL declarations and coordinates. The source-staged texture
   matrix passes exact readback for 1D, 1D-array, 2D, 2D-array, 3D, cube,
   cube-array, and 2D-MS resources (including dimension-specific sample/load
-  coordinates), plus UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D; the
+  coordinates and GetDimensions width/height/depth/array/sample results), plus
+  UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D; the
   D3D12 MSAA SRV view path now preserves the multisample Metal texture type
   instead of creating an incompatible 2D view.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
@@ -143,9 +144,9 @@ atomic/special-float, binding-baseline, resource-metadata/texture-dimension,
 and focused lowering-report-audit rows while keeping the exhaustive
 SM5.x–SM6.9 opcode/stage/resource/cache/session row open. The latest isolated
 texture-dimension result is profile
-`phase5-texture-dimensions-sample2`: 14/14 cases passed with exact
-dimension-specific readback (64/96 values for distinct slices/faces) and no
-offline converter.
+`phase5-texture-dimensions-getdims-final`: 14/14 cases passed with exact
+dimension-specific sample/load/store and GetDimensions readback (64/96 values
+for distinct slices/faces) and no offline converter.
 
 ## Remaining Phase 5 work
 
