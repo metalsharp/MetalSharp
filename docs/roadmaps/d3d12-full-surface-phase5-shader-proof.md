@@ -15,8 +15,9 @@
   `-enable-16bit-types`.
 - The exact semantic readback probe covers float/int math and bitcasts, raw
   buffer load/store, UAV exchange/add/compare-exchange atomics, 32-bit
-  special-float predicates, hyperbolic/normal math, `msad4`, group-shared
-  atomics and barriers, WaveOps/QuadOps, SM6.7 vector/int64 arithmetic, SM6.8
+  special-float predicates, hyperbolic/normal math, `msad4`, SM6.4 signed and
+  unsigned `dot4add` packed accumulation, group-shared atomics and barriers,
+  WaveOps/QuadOps, SM6.7 vector/int64 arithmetic, SM6.8
   wide arithmetic, SM6.9 float16 to integer conversion, and a 4x4 texture's
   Load, SampleLevel, SampleGrad, SampleBias, GatherRed, and GetDimensions
   forms. Every lane creates a PSO, dispatches through the DXMT command path,
@@ -32,7 +33,8 @@
   offsets, `SampleCmpLevel`, and `QuadVote`; the complete runtime matrix now
   passes with zero mismatches. Its added SM6.8 `SampleCmpGrad` and
   `SampleCmpBias` compute cases also compile, link, dispatch, and read back
-  zero mismatches.
+  zero mismatches. The packed-dot cases return exact 25 (unsigned) and 23
+  (signed) values through the rebuilt typed lowering path.
 - Existing compute PSO evidence covers CBV/SRV/UAV binding, texture sampling,
   32-bit atomics, indirect dispatch bounds, and explicit append/consume-counter
   policy. Append/consume counters remain fail-closed rather than being

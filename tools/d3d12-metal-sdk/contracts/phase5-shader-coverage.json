@@ -23,7 +23,7 @@
       "checks": [
         ["ok"]
       ],
-      "remaining": "The exact semantic readback set covers arithmetic, hyperbolic/normal math, msad4, buffers, barriers, wave/quad operations, SM6.7 vector/int64 arithmetic, SM6.8 wide arithmetic, and SM6.9 float16 conversion."
+      "remaining": "The exact semantic readback set covers arithmetic, hyperbolic/normal math, msad4, SM6.4 signed/unsigned dot4add packed accumulation, buffers, barriers, wave/quad operations, SM6.7 vector/int64 arithmetic, SM6.8 wide arithmetic, and SM6.9 float16 conversion."
     },
     {
       "id": "wave-quad-runtime-matrix",
