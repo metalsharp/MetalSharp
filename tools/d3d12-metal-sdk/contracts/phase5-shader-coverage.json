@@ -76,10 +76,11 @@
       "checks": [
         ["pass"],
         ["pipeline_library_serialization_pass"],
+        ["pipeline_library_recreation_pass"],
         ["shader_cache_session_pass"],
         ["shader_cache_disk_session_pass"]
       ],
-      "remaining": "Memory and disk-session key/value semantics, size queries, replacement, limits, and missing-key errors are covered; complete compiler-factory/state-database behavior remains in the exhaustive row."
+      "remaining": "Memory and disk-session key/value semantics, size queries, replacement, limits, and missing-key errors plus executable stored-compute-pipeline recreation are covered; complete compiler-factory/state-database behavior remains in the exhaustive row."
     },
     {
       "id": "sm66-sm67-extended-runtime-matrix",
