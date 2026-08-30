@@ -60,7 +60,7 @@
   ID zero is used by a float bitcast, emitting `as_type<int>` rather than a
   numeric conversion; it also handles the signed/unsigned result semantics
   of `firstbitlow`/`firstbithigh`. The source-staged semantic run continues to
-  match `math_bits` and all 14 semantic lanes.
+  match `math_bits` and all 15 semantic lanes.
 - The object-contract probe now exercises the memory shader-cache session's
   descriptor, store, size-query, short-buffer, replacement, missing-key, and
   pointer-validation semantics. `shader_cache_session_pass` is true.
@@ -86,6 +86,7 @@ so PSO creation exercised the runtime MSL compiler directly:
 ```json
 {
   "ok": true,
+  "math_intrinsics": {"expected": [1065353216, 0, 1065353216, 0, 0, 0, 0, 0, 1090519040, 1077936128, 1056964608, 2], "actual": [1065353216, 0, 1065353216, 0, 0, 0, 0, 0, 1090519040, 1077936128, 1056964608, 2]},
   "special_float": {"expected": [1, 1, 1, 0], "actual": [1, 1, 1, 0]},
   "atomic_uav": {"expected": [7, 0, 5, 8], "actual": [7, 0, 5, 8]},
   "sm67_vector_int64": {"expected": [68, 69, 70, 71], "actual": [68, 69, 70, 71]},
