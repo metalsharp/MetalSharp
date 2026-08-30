@@ -1164,9 +1164,11 @@ static CaseResult run_consume_counter_case() {
     return result;
 }
 
-static CaseResult run_pixel_counter_case() {
-    CaseResult result = {"pixel_append_counter_runtime", false, E_FAIL, "", ""};
-    const char* hlsl =
+static CaseResult run_graphics_counter_case(bool pixel_stage) {
+    CaseResult result = {pixel_stage ? "pixel_append_counter_runtime"
+                                     : "vertex_append_counter_runtime",
+                         false, E_FAIL, "", ""};
+    const char* pixel_hlsl =
         "struct VSOut { float4 position : SV_Position; };"
         "VSOut vs_main(uint id : SV_VertexID) {"
         " float2 p = id == 0 ? float2(-1,-1) :"
@@ -1176,6 +1178,17 @@ static CaseResult run_pixel_counter_case() {
         "float4 ps_main(float4 position : SV_Position) : SV_Target {"
         " output.Append(uint(position.x) + uint(position.y) * 2u);"
         " return float4(1,0,0,1); }";
+    const char* vertex_hlsl =
+        "AppendStructuredBuffer<uint> output : register(u0);"
+        "struct VSOut { float4 position : SV_Position; };"
+        "VSOut vs_main(uint id : SV_VertexID) {"
+        " output.Append(10u + id);"
+        " float2 p = id == 0 ? float2(-1,-1) :"
+        "            (id == 1 ? float2(3,-1) : float2(-1,3));"
+        " VSOut o; o.position=float4(p,0,1); return o; }"
+        "float4 ps_main() : SV_Target { return float4(1,0,0,1); }";
+    const char* hlsl = pixel_stage ? pixel_hlsl : vertex_hlsl;
+    const uint32_t value_count = pixel_stage ? 4u : 3u;
     const uint32_t zero = 0;
 
     ID3D12Device* device = nullptr;
@@ -1210,7 +1223,8 @@ static CaseResult run_pixel_counter_case() {
         range.BaseShaderRegister = 0;
         D3D12_ROOT_PARAMETER param = {};
         param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        param.ShaderVisibility = pixel_stage ? D3D12_SHADER_VISIBILITY_PIXEL
+                                             : D3D12_SHADER_VISIBILITY_VERTEX;
         param.DescriptorTable.NumDescriptorRanges = 1;
         param.DescriptorTable.pDescriptorRanges = &range;
         D3D12_ROOT_SIGNATURE_DESC desc = {};
@@ -1263,7 +1277,7 @@ static CaseResult run_pixel_counter_case() {
         hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtv_heap));
     }
     if (SUCCEEDED(hr))
-        hr = create_default_buffer(device, 16,
+        hr = create_default_buffer(device, value_count * sizeof(uint32_t),
                                    D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                    &output);
@@ -1303,7 +1317,7 @@ static CaseResult run_pixel_counter_case() {
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
         uav.Format = DXGI_FORMAT_UNKNOWN;
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.NumElements = 4;
+        uav.Buffer.NumElements = value_count;
         uav.Buffer.StructureByteStride = sizeof(uint32_t);
         device->CreateUnorderedAccessView(
             output, counter, &uav,
@@ -1342,26 +1356,38 @@ static CaseResult run_pixel_counter_case() {
                                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                D3D12_RESOURCE_STATE_COPY_SOURCE)};
         list->ResourceBarrier(4, barriers);
-        list->CopyBufferRegion(readback, 0, output, 0, 16);
+        list->CopyBufferRegion(readback, 0, output, 0,
+                               value_count * sizeof(uint32_t));
         list->CopyBufferRegion(readback, 16, counter, 0, sizeof(uint32_t));
         hr = execute_and_wait(device, queue, list);
     }
 
     uint32_t got[5] = {};
     bool read_ok = SUCCEEDED(hr) && readback_u32(readback, got, 5);
-    std::sort(got, got + 4);
-    const uint32_t expected[5] = {0, 1, 2, 3, 4};
-    bool verified = read_ok && std::memcmp(got, expected, sizeof(expected)) == 0;
+    std::sort(got, got + value_count);
+    const uint32_t pixel_expected[4] = {0, 1, 2, 3};
+    const uint32_t vertex_expected[3] = {10, 11, 12};
+    const uint32_t* expected = pixel_stage ? pixel_expected : vertex_expected;
+    bool verified = read_ok && got[4] == value_count &&
+                    std::memcmp(got, expected,
+                                value_count * sizeof(uint32_t)) == 0;
     result.pass = SUCCEEDED(hr) && verified;
     result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
     result.detail = result.pass
-                        ? "pixel append counter recorded four exact fragment values and counter 4"
-                        : detail.empty() ? "pixel append counter data or counter readback mismatch"
+                        ? (pixel_stage
+                               ? "pixel append counter recorded four exact fragment values and counter 4"
+                               : "vertex append counter recorded three exact vertex values and counter 3")
+                        : detail.empty() ? "graphics append counter data or counter readback mismatch"
                                          : detail;
     char extra[192] = {};
-    std::snprintf(extra, sizeof(extra),
-                  "\"supported\":true,\"values\":[%u,%u,%u,%u],\"counter\":%u",
-                  got[0], got[1], got[2], got[3], got[4]);
+    if (pixel_stage)
+        std::snprintf(extra, sizeof(extra),
+                      "\"supported\":true,\"values\":[%u,%u,%u,%u],\"counter\":%u",
+                      got[0], got[1], got[2], got[3], got[4]);
+    else
+        std::snprintf(extra, sizeof(extra),
+                      "\"supported\":true,\"values\":[%u,%u,%u],\"counter\":%u",
+                      got[0], got[1], got[2], got[4]);
     result.extra = extra;
 
     safe_release(readback);
@@ -1398,7 +1424,8 @@ int main() {
         cases.push_back(run_dispatch_indirect_case());
         cases.push_back(run_counter_case());
         cases.push_back(run_consume_counter_case());
-        cases.push_back(run_pixel_counter_case());
+        cases.push_back(run_graphics_counter_case(false));
+        cases.push_back(run_graphics_counter_case(true));
     }
 
     bool pass = !cases.empty();
@@ -1424,6 +1451,7 @@ int main() {
     std::printf("    \"append_consume_counter_status\": true,\n");
     std::printf("    \"append_counter_runtime\": true,\n");
     std::printf("    \"consume_counter_runtime\": true,\n");
+    std::printf("    \"vertex_append_counter_runtime\": true,\n");
     std::printf("    \"pixel_append_counter_runtime\": true,\n");
     std::printf("    \"dispatch_indirect_layout_and_bounds\": true\n");
     std::printf("  },\n");

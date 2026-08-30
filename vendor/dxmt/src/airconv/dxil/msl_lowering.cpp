@@ -4860,7 +4860,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             if (binding.resource_class == 1 && binding.has_counter)
                 ++counter_bindings;
         const uint32_t reserved_srv_register =
-            ctx.shader.kind == DxilShaderKind::Pixel ? 9u : 14u;
+            ctx.shader.kind == DxilShaderKind::Compute ? 14u : 9u;
         bool reserved_srv_used = false;
         for (const auto &range : ctx.binding_plan.ranges)
             if (range.kind == DescriptorRangePlan::Kind::SRV &&
@@ -4869,13 +4869,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 range.count > reserved_srv_register - range.lower_bound)
                 reserved_srv_used = true;
         if ((ctx.shader.kind != DxilShaderKind::Compute &&
+             ctx.shader.kind != DxilShaderKind::Vertex &&
              ctx.shader.kind != DxilShaderKind::Pixel) ||
             counter_bindings != 1 || reserved_srv_used ||
             ctx.options.resource_heap_directly_indexed) {
             ctx.unsupported_intrinsics++;
             recordDiagnostic(
                 ctx,
-                "DXIL buffer counter requires compute/pixel stage, exactly one table-bound counter UAV, and a free reserved SRV slot (stage=%u counters=%u reserved_t=%u occupied=%u direct_heap=%u)",
+                "DXIL buffer counter requires compute/vertex/pixel stage, exactly one table-bound counter UAV, and a free reserved SRV slot (stage=%u counters=%u reserved_t=%u occupied=%u direct_heap=%u)",
                 static_cast<unsigned>(ctx.shader.kind), counter_bindings,
                 reserved_srv_register, reserved_srv_used ? 1u : 0u,
                 ctx.options.resource_heap_directly_indexed ? 1u : 0u);
@@ -4883,7 +4884,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         auto delta = ensureScalarIndex(numericArg(1, "1"));
         const char *counter_buffer =
-            ctx.shader.kind == DxilShaderKind::Pixel ? "buf25" : "buf30";
+            ctx.shader.kind == DxilShaderKind::Compute ? "buf30" : "buf25";
         return "m12_update_counter(reinterpret_cast<device atomic_uint*>(" +
                std::string(counter_buffer) + "), (int)(" + delta + "))";
     }

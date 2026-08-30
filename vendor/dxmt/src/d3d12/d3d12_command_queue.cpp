@@ -6558,26 +6558,43 @@ struct ReplayState {
                                  RootBindingStages());
           RetainResourceMetalObjectsForCompletion(res);
           if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV &&
-              desc->resource_uav_counter &&
-              (vis == D3D12_SHADER_VISIBILITY_ALL ||
-               vis == D3D12_SHADER_VISIBILITY_PIXEL)) {
+              desc->resource_uav_counter) {
+            const auto &vertex_reflection = pso->GetVSReflection();
             const auto &pixel_reflection = pso->GetPSReflection();
+            const bool vertex_uses_t9 =
+                (vertex_reflection.SRVSlotMaskLo & (1ull << 9)) != 0;
             const bool pixel_uses_t9 =
                 (pixel_reflection.SRVSlotMaskLo & (1ull << 9)) != 0;
             auto *counter = static_cast<MTLD3D12Resource *>(
                 desc->resource_uav_counter);
-            if (!pixel_uses_t9 && counter->GetMTLBuffer().handle) {
+            bool bound_counter = false;
+            if (!vertex_uses_t9 &&
+                (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                 vis == D3D12_SHADER_VISIBILITY_VERTEX) &&
+                counter->GetMTLBuffer().handle) {
+              SetVertexBufferTracked(counter->GetMTLBuffer(),
+                                     desc->uav.Buffer.CounterOffsetInBytes,
+                                     25);
+              bound_counter = true;
+            }
+            if (!pixel_uses_t9 &&
+                (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                 vis == D3D12_SHADER_VISIBILITY_PIXEL) &&
+                counter->GetMTLBuffer().handle) {
               SetFragmentBufferTracked(counter->GetMTLBuffer(),
                                        desc->uav.Buffer.CounterOffsetInBytes,
                                        25);
+              bound_counter = true;
+            }
+            if (bound_counter) {
               render_enc.useResource(
                   counter->GetMTLBuffer(),
                   (WMTResourceUsage)(WMTResourceUsageRead |
                                      WMTResourceUsageWrite),
-                  WMTRenderStageFragment);
+                  RootBindingStages());
               RetainResourceMetalObjectsForCompletion(counter);
-              QTRACE("ApplyRootBindings: pixel UAV counter u%u -> reserved "
-                     "slot=25 offset=%llu",
+              QTRACE("ApplyRootBindings: graphics UAV counter u%u -> "
+                     "reserved slot=25 offset=%llu",
                      shader_register,
                      (unsigned long long)
                          desc->uav.Buffer.CounterOffsetInBytes);
