@@ -1164,6 +1164,223 @@ static CaseResult run_consume_counter_case() {
     return result;
 }
 
+static CaseResult run_pixel_counter_case() {
+    CaseResult result = {"pixel_append_counter_runtime", false, E_FAIL, "", ""};
+    const char* hlsl =
+        "struct VSOut { float4 position : SV_Position; };"
+        "VSOut vs_main(uint id : SV_VertexID) {"
+        " float2 p = id == 0 ? float2(-1,-1) :"
+        "            (id == 1 ? float2(3,-1) : float2(-1,3));"
+        " VSOut o; o.position=float4(p,0,1); return o; }"
+        "AppendStructuredBuffer<uint> output : register(u0);"
+        "float4 ps_main(float4 position : SV_Position) : SV_Target {"
+        " output.Append(uint(position.x) + uint(position.y) * 2u);"
+        " return float4(1,0,0,1); }";
+    const uint32_t zero = 0;
+
+    ID3D12Device* device = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* heap = nullptr;
+    ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* counter = nullptr;
+    ID3D12Resource* counter_upload = nullptr;
+    ID3D12Resource* render_target = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    std::vector<uint8_t> vs;
+    std::vector<uint8_t> ps;
+    std::string detail;
+
+    HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr) && !compile_dxil_shader(hlsl, "vs_main", "vs_6_0", vs,
+                                              detail))
+        hr = E_FAIL;
+    if (SUCCEEDED(hr) && !compile_dxil_shader(hlsl, "ps_main", "ps_6_0", ps,
+                                              detail))
+        hr = E_FAIL;
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_RANGE range = {};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        range.NumDescriptors = 1;
+        range.BaseShaderRegister = 0;
+        D3D12_ROOT_PARAMETER param = {};
+        param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        param.DescriptorTable.NumDescriptorRanges = 1;
+        param.DescriptorTable.pDescriptorRanges = &range;
+        D3D12_ROOT_SIGNATURE_DESC desc = {};
+        desc.NumParameters = 1;
+        desc.pParameters = &param;
+        desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        hr = serialize_root_signature(desc, &root_blob, detail);
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                         root_blob->GetBufferSize(),
+                                         IID_PPV_ARGS(&root));
+    if (SUCCEEDED(hr)) {
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = root;
+        desc.VS = {vs.data(), vs.size()};
+        desc.PS = {ps.data(), ps.size()};
+        desc.SampleMask = UINT_MAX;
+        desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        desc.RasterizerState.DepthClipEnable = TRUE;
+        desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+            D3D12_COLOR_WRITE_ENABLE_ALL;
+        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        desc.NumRenderTargets = 1;
+        desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pso));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                             IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       allocator, nullptr,
+                                       IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = 1;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        desc.NumDescriptors = 1;
+        hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&rtv_heap));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_default_buffer(device, 16,
+                                   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                   &output);
+    if (SUCCEEDED(hr))
+        hr = create_default_buffer(device, 4096,
+                                   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_COPY_DEST, &counter);
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, &zero, sizeof(zero),
+                                  &counter_upload);
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = 2;
+        desc.Height = 2;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+            IID_PPV_ARGS(&render_target));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC desc = buffer_desc(32);
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_UNKNOWN;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 4;
+        uav.Buffer.StructureByteStride = sizeof(uint32_t);
+        device->CreateUnorderedAccessView(
+            output, counter, &uav,
+            heap->GetCPUDescriptorHandleForHeapStart());
+        D3D12_RENDER_TARGET_VIEW_DESC rtv = {};
+        rtv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle =
+            rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateRenderTargetView(render_target, &rtv, rtv_handle);
+
+        list->CopyBufferRegion(counter, 0, counter_upload, 0, sizeof(zero));
+        D3D12_RESOURCE_BARRIER counter_ready = transition_barrier(
+            counter, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list->ResourceBarrier(1, &counter_ready);
+        ID3D12DescriptorHeap* heaps[] = {heap};
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetGraphicsRootSignature(root);
+        list->SetGraphicsRootDescriptorTable(
+            0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetPipelineState(pso);
+        list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
+        const D3D12_VIEWPORT viewport = {0, 0, 2, 2, 0, 1};
+        const D3D12_RECT scissor = {0, 0, 2, 2};
+        list->RSSetViewports(1, &viewport);
+        list->RSSetScissorRects(1, &scissor);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list->DrawInstanced(3, 1, 0, 0);
+        D3D12_RESOURCE_BARRIER barriers[4] = {
+            uav_barrier(output), uav_barrier(counter),
+            transition_barrier(output,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(counter,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE)};
+        list->ResourceBarrier(4, barriers);
+        list->CopyBufferRegion(readback, 0, output, 0, 16);
+        list->CopyBufferRegion(readback, 16, counter, 0, sizeof(uint32_t));
+        hr = execute_and_wait(device, queue, list);
+    }
+
+    uint32_t got[5] = {};
+    bool read_ok = SUCCEEDED(hr) && readback_u32(readback, got, 5);
+    std::sort(got, got + 4);
+    const uint32_t expected[5] = {0, 1, 2, 3, 4};
+    bool verified = read_ok && std::memcmp(got, expected, sizeof(expected)) == 0;
+    result.pass = SUCCEEDED(hr) && verified;
+    result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
+    result.detail = result.pass
+                        ? "pixel append counter recorded four exact fragment values and counter 4"
+                        : detail.empty() ? "pixel append counter data or counter readback mismatch"
+                                         : detail;
+    char extra[192] = {};
+    std::snprintf(extra, sizeof(extra),
+                  "\"supported\":true,\"values\":[%u,%u,%u,%u],\"counter\":%u",
+                  got[0], got[1], got[2], got[3], got[4]);
+    result.extra = extra;
+
+    safe_release(readback);
+    safe_release(render_target);
+    safe_release(counter_upload);
+    safe_release(counter);
+    safe_release(output);
+    safe_release(rtv_heap);
+    safe_release(heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(root_blob);
+    safe_release(device);
+    return result;
+}
+
 int main() {
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     HMODULE d3dcompiler = LoadLibraryA("d3dcompiler_47.dll");
@@ -1181,6 +1398,7 @@ int main() {
         cases.push_back(run_dispatch_indirect_case());
         cases.push_back(run_counter_case());
         cases.push_back(run_consume_counter_case());
+        cases.push_back(run_pixel_counter_case());
     }
 
     bool pass = !cases.empty();
@@ -1206,6 +1424,7 @@ int main() {
     std::printf("    \"append_consume_counter_status\": true,\n");
     std::printf("    \"append_counter_runtime\": true,\n");
     std::printf("    \"consume_counter_runtime\": true,\n");
+    std::printf("    \"pixel_append_counter_runtime\": true,\n");
     std::printf("    \"dispatch_indirect_layout_and_bounds\": true\n");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
