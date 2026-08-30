@@ -50,6 +50,19 @@ namespace {
 
 static constexpr uint32_t kD3D12RootParameterSlotCount = 64;
 
+static uint32_t DirectBufferSlotForRange(
+    D3D12_DESCRIPTOR_RANGE_TYPE range_type, uint32_t shader_register) {
+  // D3D12 keeps SRV and UAV/CBV registers in independent namespaces while
+  // the direct MSL ABI exposes one buffer namespace.  The typed DXIL lowerer
+  // reserves the upper half for SRV buffers.
+  if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV) {
+    if (shader_register >= 15)
+      return UINT32_MAX;
+    return shader_register + 16;
+  }
+  return shader_register;
+}
+
 bool DXMTD3D12AutopresentSwapchain() {
   static int enabled = [] {
     const char *value = std::getenv("DXMT_D3D12_AUTOPRESENT_SWAPCHAIN");
@@ -6389,8 +6402,15 @@ struct ReplayState {
         if (!res || !res->GetMTLBuffer().handle)
           return;
         D3D12_SHADER_VISIBILITY vis = D3D12_SHADER_VISIBILITY_ALL;
-        uint32_t slot = root_register_and_vis(type, &vis);
-        if (slot >= 31)
+        uint32_t register_index = root_register_and_vis(type, &vis);
+        D3D12_DESCRIPTOR_RANGE_TYPE range_type =
+            type == D3D12_ROOT_PARAMETER_TYPE_CBV
+                ? D3D12_DESCRIPTOR_RANGE_TYPE_CBV
+                : (type == D3D12_ROOT_PARAMETER_TYPE_UAV
+                       ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV
+                       : D3D12_DESCRIPTOR_RANGE_TYPE_SRV);
+        uint32_t slot = DirectBufferSlotForRange(range_type, register_index);
+        if (slot == UINT32_MAX || slot >= 31)
           return;
         uint64_t offset = address - res->GetGPUVirtualAddress();
         if (vis == D3D12_SHADER_VISIBILITY_ALL ||
@@ -6498,8 +6518,9 @@ struct ReplayState {
         }
         if (!desc->resource)
           return;
-        uint32_t buf_slot = shader_register;
-        if (buf_slot >= kD3D12M12DirectBufferSlots)
+        uint32_t buf_slot = DirectBufferSlotForRange(range_type, shader_register);
+        if (buf_slot == UINT32_MAX ||
+            buf_slot >= kD3D12M12DirectBufferSlots)
           return;
         auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
         if (res->GetMTLBuffer().handle) {
@@ -8634,14 +8655,16 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         return;
       auto *res = device->LookupResourceByGPUAddress(address);
       if (res && res->GetMTLBuffer().handle) {
-        uint32_t slot = compute_root_register(type);
+        uint32_t register_index = compute_root_register(type);
         D3D12_DESCRIPTOR_RANGE_TYPE range_type =
             type == D3D12_ROOT_PARAMETER_TYPE_CBV
                 ? D3D12_DESCRIPTOR_RANGE_TYPE_CBV
                 : (type == D3D12_ROOT_PARAMETER_TYPE_UAV
                        ? D3D12_DESCRIPTOR_RANGE_TYPE_UAV
                        : D3D12_DESCRIPTOR_RANGE_TYPE_SRV);
-        if (slot >= 31 || !compute_uses_descriptor(range_type, slot))
+        uint32_t slot = DirectBufferSlotForRange(range_type, register_index);
+        if (slot == UINT32_MAX || slot >= 31 ||
+            !compute_uses_descriptor(range_type, register_index))
           return;
         append_compute_setbuffer(res->GetMTLBuffer().handle,
                                  address - res->GetGPUVirtualAddress(), slot);
@@ -8680,8 +8703,8 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
       }
       if (!desc->resource)
         return;
-      uint32_t buf_slot = shader_register;
-      if (buf_slot >= 31)
+      uint32_t buf_slot = DirectBufferSlotForRange(range_type, shader_register);
+      if (buf_slot == UINT32_MAX || buf_slot >= 31)
         return;
       auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
       bool writable = range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
@@ -8813,7 +8836,12 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
           else if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
                    desc->cbv.BufferLocation)
             offset = desc->cbv.BufferLocation - res->GetGPUVirtualAddress();
-          append_compute_setbuffer(res->GetMTLBuffer().handle, offset, index);
+          uint32_t buffer_slot =
+              DirectBufferSlotForRange(desc->range_type, index);
+          if (buffer_slot == UINT32_MAX || buffer_slot >= 31)
+            continue;
+          append_compute_setbuffer(res->GetMTLBuffer().handle, offset,
+                                   buffer_slot);
           append_compute_useresource(
               res->GetMTLBuffer().handle,
               writable ? (WMTResourceUsage)(WMTResourceUsageRead |

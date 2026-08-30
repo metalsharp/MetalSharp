@@ -429,6 +429,24 @@ static bool isPrintableString(const std::string &text) {
   return true;
 }
 
+static double decodeHalfConstant(uint16_t raw) {
+  const int sign = (raw & 0x8000u) ? -1 : 1;
+  const uint32_t exponent = (raw >> 10) & 0x1fu;
+  const uint32_t mantissa = raw & 0x03ffu;
+  if (exponent == 0) {
+    if (mantissa == 0)
+      return sign < 0 ? -0.0 : 0.0;
+    return sign * std::ldexp(static_cast<double>(mantissa), -24);
+  }
+  if (exponent == 0x1f) {
+    if (mantissa == 0)
+      return sign < 0 ? -INFINITY : INFINITY;
+    return NAN;
+  }
+  return sign * std::ldexp(1.0 + static_cast<double>(mantissa) / 1024.0,
+                           static_cast<int>(exponent) - 15);
+}
+
 static std::string formatFloatConstant(double value, bool suffix_f) {
   if (std::isnan(value))
     return "NAN";
@@ -848,7 +866,8 @@ static bool parseConstantsBlock(ParseContext &ctx, std::vector<LLVMValue> &targe
         v.constant_data = std::to_string(decodeSignedVBR(ops[1]));
       } else if (rec_code == kConstantsCode_Float && ops.size() > 1) {
         if (cur_type < ctx.module.types.size() &&
-            ctx.module.types[cur_type].kind == LLVMType::Float) {
+            ctx.module.types[cur_type].kind == LLVMType::Float &&
+            ctx.module.types[cur_type].bit_width == 32) {
           float f;
           uint32_t raw = (uint32_t)ops[1];
           memcpy(&f, &raw, sizeof(f));
@@ -859,6 +878,11 @@ static bool parseConstantsBlock(ParseContext &ctx, std::vector<LLVMValue> &targe
           uint64_t raw = ops[1];
           memcpy(&d, &raw, sizeof(d));
           v.constant_data = formatFloatConstant(d, false);
+        } else if (cur_type < ctx.module.types.size() &&
+                   ctx.module.types[cur_type].kind == LLVMType::Float &&
+                   ctx.module.types[cur_type].bit_width == 16) {
+          v.constant_data = formatFloatConstant(
+              decodeHalfConstant(static_cast<uint16_t>(ops[1] & 0xffffu)), true);
         }
       } else if (rec_code == kConstantsCode_Null) {
         v.constant_data = "0";
@@ -907,7 +931,7 @@ static bool parseConstantsBlock(ParseContext &ctx, std::vector<LLVMValue> &targe
       auto format_data_element = [&](uint64_t raw) -> std::string {
         if (element_type < ctx.module.types.size()) {
           const auto &type = ctx.module.types[element_type];
-          if (type.kind == LLVMType::Float) {
+          if (type.kind == LLVMType::Float && type.bit_width == 32) {
             float f;
             uint32_t bits = (uint32_t)raw;
             memcpy(&f, &bits, sizeof(f));
@@ -919,6 +943,9 @@ static bool parseConstantsBlock(ParseContext &ctx, std::vector<LLVMValue> &targe
             memcpy(&d, &bits, sizeof(d));
             return formatFloatConstant(d, false);
           }
+          if (type.kind == LLVMType::Float && type.bit_width == 16)
+            return formatFloatConstant(
+                decodeHalfConstant(static_cast<uint16_t>(raw & 0xffffu)), true);
         }
         return std::to_string(raw);
       };

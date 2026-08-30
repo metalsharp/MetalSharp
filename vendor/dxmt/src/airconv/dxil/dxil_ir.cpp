@@ -57,7 +57,9 @@ MSLType DXILIRBuilder::resolveType(uint32_t type_id, const LLVMModule &mod) {
     auto &t = mod.types[type_id];
     switch (t.kind) {
     case LLVMType::Void: return {MSLTypeKind::Void, 0, {}};
-    case LLVMType::Float: return {MSLTypeKind::Float, 0, {}};
+    case LLVMType::Float:
+        return t.bit_width == 16 ? MSLType{MSLTypeKind::Half, 0, {}}
+                                 : MSLType{MSLTypeKind::Float, 0, {}};
     case LLVMType::Double: return {MSLTypeKind::Double, 0, {}};
     case LLVMType::Integer: {
         if (t.bit_width == 1) return {MSLTypeKind::Bool, 0, {}};

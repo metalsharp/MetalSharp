@@ -697,16 +697,15 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  while (true) {\n";
         os << "    uint result = expected;\n";
         os << "    switch (op) {\n";
-        os << "    case 0u: result = value; break;\n";
-        os << "    case 1u: result = expected + value; break;\n";
-        os << "    case 2u: result = expected - value; break;\n";
-        os << "    case 3u: result = expected & value; break;\n";
-        os << "    case 5u: result = expected | value; break;\n";
-        os << "    case 6u: result = expected ^ value; break;\n";
-        os << "    case 7u: result = uint(max(int(expected), int(value))); break;\n";
-        os << "    case 8u: result = uint(min(int(expected), int(value))); break;\n";
-        os << "    case 9u: result = max(expected, value); break;\n";
-        os << "    case 10u: result = min(expected, value); break;\n";
+        os << "    case 0u: result = expected + value; break;\n";
+        os << "    case 1u: result = expected & value; break;\n";
+        os << "    case 2u: result = expected | value; break;\n";
+        os << "    case 3u: result = expected ^ value; break;\n";
+        os << "    case 4u: result = uint(min(int(expected), int(value))); break;\n";
+        os << "    case 5u: result = uint(max(int(expected), int(value))); break;\n";
+        os << "    case 6u: result = min(expected, value); break;\n";
+        os << "    case 7u: result = max(expected, value); break;\n";
+        os << "    case 8u: result = value; break;\n";
         os << "    default: return expected;\n";
         os << "    }\n";
         os << "    if (atomic_compare_exchange_weak_explicit(target, &expected, result, memory_order_relaxed, memory_order_relaxed))\n";
@@ -2773,6 +2772,20 @@ static ValueRole roleForHandleKind(DescriptorRangePlan::Kind kind) {
     return ValueRole::Generic;
 }
 
+static uint32_t directBufferBindingIndex(const LowerContext &ctx,
+                                         const ResourceHandleRecord &handle,
+                                         const char *target_prefix) {
+    uint32_t binding_index = handle.lower_bound + handle.binding_index;
+    // D3D12 keeps SRV and UAV/CBV register namespaces independent.  The
+    // direct MSL ABI has one buffer namespace, so place SRV buffers in the
+    // upper half of the 31-slot direct buffer range.  Textures retain their
+    // texture namespace and are unaffected.
+    if (std::strcmp(target_prefix, "buf") == 0 &&
+        handle.kind == DescriptorRangePlan::Kind::SRV)
+        binding_index += 16;
+    return binding_index;
+}
+
 static uint32_t cappedBindingIndex(const LowerContext &ctx, const char *prefix, uint32_t binding_index) {
     uint32_t limit = 0;
     if (std::strcmp(prefix, "buf") == 0)
@@ -2791,7 +2804,10 @@ static std::string materializeHandleName(const LowerContext &ctx,
                                          const ResourceHandleRecord &handle,
                                          const char *target_prefix = nullptr) {
     const char *prefix = target_prefix ? target_prefix : bindingPrefixForKind(handle.kind);
-    uint32_t binding_index = handle.lower_bound + handle.binding_index;
+    uint32_t binding_index = target_prefix &&
+                                     std::strcmp(target_prefix, "buf") == 0
+                                 ? directBufferBindingIndex(ctx, handle, target_prefix)
+                                 : handle.lower_bound + handle.binding_index;
     return std::string(prefix) + std::to_string(cappedBindingIndex(ctx, prefix, binding_index));
 }
 
@@ -2819,10 +2835,16 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
     std::unordered_map<uint32_t, HandleBinding> handle_bindings;
     auto rememberHandle = [&](uint32_t result_id,
                               DescriptorRangePlan::Kind kind,
-                              uint32_t lower_bound, uint32_t count) {
+                              uint32_t lower_bound, uint32_t count,
+                              uint32_t binding_index = 0) {
         if (!result_id)
             return;
         handle_bindings[result_id] = {kind, lower_bound, count};
+        ResourceHandleRecord record;
+        record.kind = kind;
+        record.lower_bound = lower_bound;
+        record.binding_index = binding_index;
+        ctx.resource_handles[result_id] = record;
     };
     auto markWritableMSAASlots = [&](uint32_t handle_id) {
         auto it = handle_bindings.find(handle_id);
@@ -2909,7 +2931,7 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                     index = 0;
                 auto kind = descriptorKindForResourceClass(resource_class);
                 recordDescriptorRange(plan, {kind, 0, index, 1});
-                rememberHandle(result_id, kind, index, 1);
+                rememberHandle(result_id, kind, 0, 1, index);
             } else if (intrinsic_id == DXOP_CreateHandleFromBinding && fn_args.size() >= 1) {
                 std::string binding = resolveValue(ctx, fn_args[0]);
                 auto parts = parseAggregateLiteral(binding);
@@ -2938,9 +2960,20 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                     rememberHandle(result_id, base->second.kind,
                                    base->second.lower_bound,
                                    base->second.count);
+                    auto properties = parseAggregateLiteral(
+                        resolveValue(ctx, fn_args[1]));
+                    auto base_record = ctx.resource_handles.find(fn_args[0]);
+                    if (base_record != ctx.resource_handles.end()) {
+                        auto annotated = base_record->second;
+                        if (!properties.empty())
+                            parseUnsignedLiteral(properties[0],
+                                                 annotated.resource_kind);
+                        if (properties.size() > 1)
+                            parseUnsignedLiteral(properties[1],
+                                                 annotated.element_stride);
+                        ctx.resource_handles[result_id] = annotated;
+                    }
                     if (base->second.kind == DescriptorRangePlan::Kind::UAV) {
-                        auto properties = parseAggregateLiteral(
-                            resolveValue(ctx, fn_args[1]));
                         uint32_t resource_kind = 0;
                         if (!properties.empty() &&
                             parseUnsignedLiteral(properties[0], resource_kind) &&
@@ -3072,15 +3105,21 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::Void, 0, {}};
     case DXOP_CBufferLoad:
     case DXOP_CBufferLoadLegacy:
-    case DXOP_BufferLoad:
     case DXOP_TextureLoad:
     case DXOP_TextureSample:
     case DXOP_TextureSampleBias:
     case DXOP_TextureSampleLevel:
     case DXOP_TextureSampleGrad:
     case DXOP_TextureGather:
-    case DXOP_TextureGatherCmp:
         return {MSLTypeKind::Float4, 0, {}};
+    case DXOP_BufferLoad:
+        return callee_name.find(".i32") != std::string::npos
+                   ? MSLType{MSLTypeKind::UInt4, 0, {}}
+                   : MSLType{MSLTypeKind::Float4, 0, {}};
+    case DXOP_TextureGatherCmp:
+        return ctx.shader.kind == DxilShaderKind::Compute
+                   ? MSLType{MSLTypeKind::Float, 0, {}}
+                   : MSLType{MSLTypeKind::Float4, 0, {}};
     case DXOP_TextureGatherRaw:
         return {MSLTypeKind::UInt4, 0, {}};
     case DXOP_RawBufferLoad:
@@ -3455,7 +3494,33 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "float4(0)";
         ctx.last_buffer_handle = handle;
         auto idx = ensureScalarIndex(numericArg(1, "0"));
-        return "(reinterpret_cast<device float4&>(" + handle + "[((int)(" + idx + "))*16]))";
+        uint32_t resource_kind = 0;
+        uint32_t element_stride = 0;
+        auto handle_it = ctx.resource_handles.find(args[0]);
+        if (handle_it != ctx.resource_handles.end()) {
+            resource_kind = handle_it->second.resource_kind;
+            element_stride = handle_it->second.element_stride;
+        }
+        std::string byte_offset;
+        if (resource_kind == 0u || resource_kind == 11u) {
+            byte_offset = "((int)(" + idx + "))";
+        } else if (resource_kind == 12u) {
+            if (element_stride == 0)
+                element_stride = 16;
+            byte_offset = "((int)(" + idx + ") * " +
+                          std::to_string(element_stride) + " + (int)(" +
+                          ensureScalarIndex(numericArg(2, "0")) + "))";
+        } else {
+            if (element_stride == 0)
+                element_stride = 16;
+            byte_offset = "((int)(" + idx + ") * " +
+                          std::to_string(element_stride) + ")";
+        }
+        if (callee_name.find(".i32") != std::string::npos)
+            return "uint4(reinterpret_cast<device uint&>(" + handle + "[" +
+                   byte_offset + "]), 0u, 0u, 0u)";
+        return "(reinterpret_cast<device float4&>(" + handle + "[" +
+               byte_offset + "]))";
     }
     case DXOP_RawBufferLoad: case 303: case 1025: {
         if (args.size() < 3) return "uint4(0)";
@@ -3477,7 +3542,27 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         // BufferStore coordinates are byte offsets for raw/byte-address
         // resources. Respect the DXIL write mask so undefined components do
         // not overwrite adjacent lanes.
-        std::string base = "(((int)(" + idx + ")) + ((int)(" + off + ")))";
+        uint32_t resource_kind = 0;
+        uint32_t element_stride = 0;
+        auto handle_it = ctx.resource_handles.find(args[0]);
+        if (handle_it != ctx.resource_handles.end()) {
+            resource_kind = handle_it->second.resource_kind;
+            element_stride = handle_it->second.element_stride;
+        }
+        std::string base;
+        if (resource_kind == 12u) {
+            if (element_stride == 0)
+                element_stride = 16;
+            base = "(((int)(" + idx + ")) * " +
+                   std::to_string(element_stride) + " + ((int)(" + off + ")))";
+        } else if (resource_kind == 10u) {
+            if (element_stride == 0)
+                element_stride = 16;
+            base = "(((int)(" + idx + ")) * " +
+                   std::to_string(element_stride) + ")";
+        } else {
+            base = "(((int)(" + idx + ")) + ((int)(" + off + ")))";
+        }
         std::ostringstream store;
         uint32_t value_count =
             std::min<uint32_t>(4, static_cast<uint32_t>(args.size()) - 4);
@@ -3606,6 +3691,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto oy = ensureScalarIndex(numericArg(7, "0"));
         if (intrinsic_id == DXOP_TextureGatherCmp) {
             auto compare = numericArg(9, "0.0");
+            if (ctx.shader.kind == DxilShaderKind::Compute) {
+                auto sample = "((" + handle + ".read(uint2((uint)(" + cx +
+                               "), (uint)(" + cy + "))) <= (float)(" +
+                               compare + ")) ? 1.0f : 0.0f)";
+                return sample;
+            }
             return handle + ".gather_compare(" + samp + ", float2(" + cx +
                    ", " + cy + "), (float)(" + compare + "), int2(" + ox +
                    ", " + oy + "))";
@@ -3648,6 +3739,10 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto cmp = valueArg(9, "0.0");
         auto ox = ensureScalarIndex(numericArg(6, "0"));
         auto oy = ensureScalarIndex(numericArg(7, "0"));
+        if (ctx.shader.kind == DxilShaderKind::Compute) {
+            return "((" + handle + ".read(uint2((uint)(" + cx + "), (uint)(" +
+                   cy + "))) <= (float)(" + cmp + ")) ? 1.0f : 0.0f)";
+        }
         if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224) {
             auto lod = numericArg(10, "0.0");
             return handle + ".sample_compare(" + samp + ", float2(" + cx +
@@ -4511,6 +4606,9 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         else if (callee_name.find("dx.op.writeSamplerFeedback") !=
                  std::string::npos)
             intrinsic_id = DXOP_WriteSamplerFeedback;
+        else if (callee_name.find("dx.op.textureGatherCmp") !=
+                 std::string::npos)
+            intrinsic_id = DXOP_TextureGatherCmp;
         bool opcode_prefixed_intrinsic = false;
         if (!call_args.empty() && (callee_name.empty() || startsWith(callee_name, "dx.op."))) {
             uint32_t opcode = literalFromValue(ctx, call_args[0], 0);
@@ -5313,11 +5411,24 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 exprContainsRawResourceHandle(ptr) || exprLooksScalarLiteral(ptr) ||
                 exprLooksVectorValue(ptr) || DXILIRBuilder::isVectorType(ptr_name_type)) {
                 expr = defaultForType(result_type);
-            } else if (isPointerType(ptr_type)) {
-                expr = "*((" + std::string(pointerAddressSpace(inst.operands[0])) + " " +
-                       type_name + "*)(" + ptr + "))";
+            } else if (isPointerType(ptr_type) ||
+                       ptr.find("threadgroup") != std::string::npos ||
+                       ptr.find("device") != std::string::npos ||
+                       ptr.find("gvar_") != std::string::npos) {
+                expr = "*reinterpret_cast<" + std::string(pointerAddressSpace(inst.operands[0])) + " " +
+                       type_name + "*>(" + ptr + ")";
             }
-            emitTypedLine(result_type, result, expr);
+            if (ptr.find("gvar_") != std::string::npos) {
+                std::string group_expr = "static_cast<" + type_name + ">(*reinterpret_cast<threadgroup uint*>(" + ptr + "))";
+                if (ctx.predeclared_names.find(result) !=
+                    ctx.predeclared_names.end())
+                    os << "  " << result << " = " << group_expr << ";\n";
+                else
+                    os << "  " << type_name << " " << result << " = "
+                       << group_expr << ";\n";
+            } else {
+                emitTypedLine(result_type, result, expr);
+            }
             ctx.value_table[value_counter] = result;
             ctx.value_types[value_counter] = result_type;
         }
