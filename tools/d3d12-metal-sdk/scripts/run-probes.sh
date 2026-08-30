@@ -2454,10 +2454,20 @@ prepare_texture_dimension_probes() {
       cs_texture_3d cs_texture_cube cs_texture_cube_array cs_texture_2d_ms \
       cs_texture_2d_ms_array cs_store_1d cs_store_1d_array cs_store_2d \
       cs_store_2d_array cs_store_3d; do
-      WINEPREFIX="$WINE_PREFIX" \
-      WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -E "$entry" -T cs_6_0 -HV 2021 \
-        -Fo "${entry}.cso" probe_texture_dimensions.hlsl >/dev/null
+      rm -f "${entry}.cso" "${entry}.dxc.log"
+      if ! WINEPREFIX="$WINE_PREFIX" \
+           WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+           "$WINE_BIN" dxc.exe -nologo -E "$entry" -T cs_6_6 -HV 2021 \
+           -Fo "${entry}.cso" probe_texture_dimensions.hlsl \
+           >"${entry}.dxc.log" 2>&1; then
+        cat "${entry}.dxc.log" >&2
+        return 1
+      fi
+      if [[ ! -s "${entry}.cso" ]]; then
+        cat "${entry}.dxc.log" >&2
+        return 1
+      fi
+      rm -f "${entry}.dxc.log"
     done
   )
 }
