@@ -31,9 +31,9 @@
   with zero mismatches. The added bit-count case reports 16 active even lanes
   and the expected exclusive prefix count for every lane; the match and
   multi-prefix cases report exact per-value lane masks and group-local
-  results. The 64-bit wave sum/prefix case is lowered through a two-lane
-  `uint` readback decomposition because Metal has no 64-bit SIMD reduction,
-  and matches every lane exactly.
+  results. The 64-bit wave sum/product/prefix and bitwise cases are lowered
+  through a two-lane `uint` readback decomposition because Metal has no
+  64-bit SIMD reduction, and match every lane exactly.
 - The SM6.6/6.7 capability matrix independently verifies root constants,
   descriptor indexing, 32/64-bit atomics, barriers, raw gather, programmable
   offsets, `SampleCmpLevel`, and `QuadVote`; the complete runtime matrix now

@@ -812,6 +812,50 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         }
         os << "  return (long)result;\n";
         os << "}\n\n";
+        os << "static inline long m12_wave_active_product_long(long value) {\n";
+        os << "  ulong result = 1ul;\n";
+        for (unsigned other = 0; other < 32; ++other) {
+            os << "  uint low_" << other << " = simd_broadcast((uint)value, " << other << "u);\n";
+            os << "  uint high_" << other << " = simd_broadcast((uint)((ulong)value >> 32), " << other << "u);\n";
+            os << "  result *= (ulong)low_" << other << " | ((ulong)high_" << other << " << 32);\n";
+        }
+        os << "  return (long)result;\n";
+        os << "}\n\n";
+        os << "static inline long m12_wave_prefix_product_long(long value, uint lane) {\n";
+        os << "  ulong result = 1ul;\n";
+        for (unsigned other = 0; other < 32; ++other) {
+            os << "  uint low_" << other << " = simd_broadcast((uint)value, " << other << "u);\n";
+            os << "  uint high_" << other << " = simd_broadcast((uint)((ulong)value >> 32), " << other << "u);\n";
+            os << "  if (lane > " << other << "u) result *= (ulong)low_" << other << " | ((ulong)high_" << other << " << 32);\n";
+        }
+        os << "  return (long)result;\n";
+        os << "}\n\n";
+        os << "static inline long m12_wave_active_bit_long(long value, uint op) {\n";
+        os << "  ulong result = op == 0u ? ~0ul : 0ul;\n";
+        for (unsigned other = 0; other < 32; ++other) {
+            os << "  uint low_" << other << " = simd_broadcast((uint)value, " << other << "u);\n";
+            os << "  uint high_" << other << " = simd_broadcast((uint)((ulong)value >> 32), " << other << "u);\n";
+            os << "  ulong other_value_" << other << " = (ulong)low_" << other << " | ((ulong)high_" << other << " << 32);\n";
+            os << "  if (op == 0u) result &= other_value_" << other << ";\n";
+            os << "  else if (op == 1u) result |= other_value_" << other << ";\n";
+            os << "  else if (op == 2u) result ^= other_value_" << other << ";\n";
+        }
+        os << "  return (long)result;\n";
+        os << "}\n\n";
+        os << "static inline long m12_wave_prefix_bit_long(long value, uint lane, uint op) {\n";
+        os << "  ulong result = op == 0u ? ~0ul : 0ul;\n";
+        for (unsigned other = 0; other < 32; ++other) {
+            os << "  uint low_" << other << " = simd_broadcast((uint)value, " << other << "u);\n";
+            os << "  uint high_" << other << " = simd_broadcast((uint)((ulong)value >> 32), " << other << "u);\n";
+            os << "  ulong other_value_" << other << " = (ulong)low_" << other << " | ((ulong)high_" << other << " << 32);\n";
+            os << "  if (lane > " << other << "u) {\n";
+            os << "    if (op == 0u) result &= other_value_" << other << ";\n";
+            os << "    else if (op == 1u) result |= other_value_" << other << ";\n";
+            os << "    else if (op == 2u) result ^= other_value_" << other << ";\n";
+            os << "  }\n";
+        }
+        os << "  return (long)result;\n";
+        os << "}\n\n";
     }
 
     if (ctx.uses_atomic32_emulation) {
@@ -4372,8 +4416,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WaveActiveOp: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_op");
-        if (callee_name.find(".i64") != std::string::npos && op == 0u)
-            return "m12_wave_active_sum_long((long)(" + value + "))";
+        if (callee_name.find(".i64") != std::string::npos) {
+            if (op == 0u)
+                return "m12_wave_active_sum_long((long)(" + value + "))";
+            if (op == 1u)
+                return "m12_wave_active_product_long((long)(" + value + "))";
+            ctx.unsupported_intrinsics++;
+            return value;
+        }
         switch (op) {
         case 0: return "simd_sum(" + value + ")";
         case 1: return "simd_product(" + value + ")";
@@ -4385,6 +4435,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WaveActiveBit: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_bit");
+        if (callee_name.find(".i64") != std::string::npos) {
+            if (op <= 2u)
+                return "m12_wave_active_bit_long((long)(" + value + "), " + std::to_string(op) + "u)";
+            ctx.unsupported_intrinsics++;
+            return value;
+        }
         switch (op) {
         case 0: return "simd_and(" + value + ")";
         case 1: return "simd_or(" + value + ")";
@@ -4395,8 +4451,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WavePrefixOp: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_prefix_op");
-        if (callee_name.find(".i64") != std::string::npos && op == 0u)
-            return "m12_wave_prefix_sum_long((long)(" + value + "), simd_lane)";
+        if (callee_name.find(".i64") != std::string::npos) {
+            if (op == 0u)
+                return "m12_wave_prefix_sum_long((long)(" + value + "), simd_lane)";
+            if (op == 1u)
+                return "m12_wave_prefix_product_long((long)(" + value + "), simd_lane)";
+            ctx.unsupported_intrinsics++;
+            return value;
+        }
         switch (op) {
         case 0: return "simd_prefix_exclusive_sum(" + value + ")";
         case 1: return "simd_prefix_exclusive_product(" + value + ")";
