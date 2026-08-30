@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <dirent.h>
 #include <map>
 #include <string>
 #include <sys/stat.h>
@@ -1273,6 +1274,41 @@ void ShutdownAsyncPipelineCompiler() { GetAsyncPipelineCompiler().Shutdown(); }
 std::mutex MTLD3D12PipelineState::s_shader_mutex;
 std::unordered_map<size_t, WMT::Reference<WMT::Function>>
     MTLD3D12PipelineState::s_shader_cache;
+static std::atomic_bool g_d3d12_shader_cache_enabled{true};
+
+bool D3D12ShaderCacheEnabled() {
+  return g_d3d12_shader_cache_enabled.load(std::memory_order_acquire);
+}
+
+void SetD3D12ShaderCacheEnabled(bool enabled) {
+  g_d3d12_shader_cache_enabled.store(enabled, std::memory_order_release);
+}
+
+void ClearD3D12ShaderCache() {
+  {
+    std::lock_guard<std::mutex> lock(MTLD3D12PipelineState::s_shader_mutex);
+    MTLD3D12PipelineState::s_shader_cache.clear();
+  }
+  const std::string directory = ShaderCacheDir();
+  DIR *dir = opendir(directory.c_str());
+  if (!dir)
+    return;
+  while (dirent *entry = readdir(dir)) {
+    const char *name = entry->d_name;
+    if (!name || name[0] == '.')
+      continue;
+    std::string path(name);
+    const bool generated =
+        path.ends_with(".metallib") || path.ends_with(".json") ||
+        path.ends_with(".dxbc") || path.ends_with(".msl") ||
+        path.ends_with(".txt") || path.ends_with(".log") ||
+        path.ends_with(".fail");
+    if (generated)
+      unlink((directory + "/" + path).c_str());
+  }
+  closedir(dir);
+  PSTRACE("Shader cache cleared directory=%s", directory.c_str());
+}
 
 MTLD3D12PipelineState::MTLD3D12PipelineState(MTLD3D12Device *device,
                                              bool is_compute)
@@ -1876,7 +1912,7 @@ bool MTLD3D12PipelineState::CompileShader(
   if (type == ShaderType::Compute &&
       DXBCShaderUsesDirectResourceHeap(bytecode, size))
     m_uses_direct_resource_descriptor_heap = true;
-  {
+  if (D3D12ShaderCacheEnabled()) {
     std::lock_guard<std::mutex> lock(s_shader_mutex);
     PSTRACE("CompileShader: %s hash=0x%zx size=%zu cache_entries=%zu",
             func_name, hash, size, s_shader_cache.size());
@@ -1887,6 +1923,8 @@ bool MTLD3D12PipelineState::CompileShader(
       PSTRACE("CompileShader: %s CACHE HIT hash=0x%zx", func_name, hash);
       return true;
     }
+  } else {
+    PSTRACE("CompileShader: %s cache disabled hash=0x%zx", func_name, hash);
   }
 
   if (bytecode && size >= 4) {
@@ -1974,7 +2012,9 @@ bool MTLD3D12PipelineState::CompileShader(
           EnsureShaderCacheDir();
           DumpShaderBlob(dxbc_path, bytecode, size);
 
-          FILE *mf = fopen(metallib_path, "rb");
+          FILE *mf = D3D12ShaderCacheEnabled()
+                         ? fopen(metallib_path, "rb")
+                         : nullptr;
           if (mf && type == ShaderType::Pixel &&
               (IsDepthBoundsTestEnabled() ||
                m_uses_conservative_rasterization)) {
@@ -2209,7 +2249,7 @@ bool MTLD3D12PipelineState::CompileShader(
 
             if (out_func.handle) {
               PSTRACE("  DXIL shader compiled OK! entry=%s", entry_name);
-              {
+              if (D3D12ShaderCacheEnabled()) {
                 std::lock_guard<std::mutex> lock(s_shader_mutex);
                 s_shader_cache[hash] = out_func;
               }
@@ -2296,7 +2336,7 @@ bool MTLD3D12PipelineState::CompileShader(
                 out_func = library.newFunction("ps_main");
               if (out_func.handle) {
                 PSTRACE("  DXIL loaded from cache OK! entry=%s", fn_name);
-                {
+                if (D3D12ShaderCacheEnabled()) {
                   std::lock_guard<std::mutex> lock(s_shader_mutex);
                   s_shader_cache[hash] = out_func;
                 }
@@ -2739,7 +2779,7 @@ bool MTLD3D12PipelineState::CompileShader(
   PSTRACE("CompileShader: %s SM50 OK function=%llu", func_name,
           (unsigned long long)out_func.handle);
   Logger::info(str::format("  Compiled ", func_name, " OK"));
-  {
+  if (D3D12ShaderCacheEnabled()) {
     std::lock_guard<std::mutex> lock(s_shader_mutex);
     s_shader_cache[hash] = out_func;
   }

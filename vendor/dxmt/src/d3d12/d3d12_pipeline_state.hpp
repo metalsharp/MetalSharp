@@ -18,6 +18,9 @@ namespace dxmt {
 class MTLD3D12Device;
 
 void ShutdownAsyncPipelineCompiler();
+bool D3D12ShaderCacheEnabled();
+void SetD3D12ShaderCacheEnabled(bool enabled);
+void ClearD3D12ShaderCache();
 
 struct StageInVertexAttributeInfo {
   uint32_t register_index = 0;
@@ -289,6 +292,7 @@ private:
                           uint32_t &slot_mask);
   size_t ApplyShaderVariantHash(size_t hash, ShaderType type) const;
 
+  friend void ClearD3D12ShaderCache();
   static std::mutex s_shader_mutex;
   static std::unordered_map<size_t, WMT::Reference<WMT::Function>>
       s_shader_cache;
