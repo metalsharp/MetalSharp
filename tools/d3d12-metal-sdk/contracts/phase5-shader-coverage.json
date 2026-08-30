@@ -60,6 +60,16 @@
       "remaining": "Append/consume UAV counters remain explicitly unsupported and require a dedicated provider and readback matrix."
     },
     {
+      "id": "shader-cache-session-roundtrip",
+      "status": "closed",
+      "result": "probe-object-contracts",
+      "checks": [
+        ["pass"],
+        ["shader_cache_session_pass"]
+      ],
+      "remaining": "Memory-session key/value semantics, size queries, replacement, limits, and missing-key errors are covered; disk-backed persistence and complete compiler-factory/state-database behavior remain in the exhaustive row."
+    },
+    {
       "id": "sm66-sm67-extended-runtime-matrix",
       "status": "closed",
       "result": "probe-sm66-capabilities",
