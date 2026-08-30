@@ -56,6 +56,8 @@
   readback remains open. Previously silent sample-position, sample-count, and
   cycle-counter placeholders now also increment the unsupported-intrinsic
   diagnostic and reject PSO creation rather than succeeding with fake values.
+  Unknown/non-DXIL call sites likewise reject instead of becoming zero-valued
+  temporaries until helper-function lowering is implemented.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
