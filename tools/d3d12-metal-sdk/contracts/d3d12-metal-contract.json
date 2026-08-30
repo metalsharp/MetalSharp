@@ -307,8 +307,8 @@
           "CreateUnorderedAccessView": {
             "difficulty": "hard",
             "metal": "N/A (implicit via MTLTexture with usageShaderWrite / MTLBuffer)",
-            "notes": "UAVs map to MTLTexture with usageShaderWrite or MTLBuffer. Atomic UAVs use MTLBuffer with atomic access. Counter UAVs need append/consume emulation.",
-            "translation": "create MTLTexture with usageShaderWrite or buffer+offset+atomic_flag"
+            "notes": "UAVs map to MTLTexture with usageShaderWrite or MTLBuffer. Atomic UAVs use MTLBuffer with atomic access. One table-bound external counter UAV uses reserved compute buffer slot 30 and exact append/consume atomic semantics; multi-counter, direct-heap, graphics-stage, and t14-conflicting forms reject.",
+            "translation": "create MTLTexture with usageShaderWrite or bind buffer+offset; bind one external counter as device atomic_uint"
           },
           "Evict": {
             "difficulty": "easy",

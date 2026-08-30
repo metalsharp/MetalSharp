@@ -2121,6 +2121,12 @@ bool MTLD3D12PipelineState::CompileShader(
                 lowering_options.depth_bounds_test && m_sample_count > 1;
             lowering_options.sampler_feedback =
                 requires_sampler_feedback_custom;
+            if (auto *root_signature =
+                    static_cast<MTLD3D12RootSignature *>(m_root_sig))
+              lowering_options.resource_heap_directly_indexed =
+                  (root_signature->GetFlags() &
+                   D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED) !=
+                  0;
             lowering_options.vrs_per_primitive =
                 type == ShaderType::Vertex || type == ShaderType::Pixel;
             lowering_options.conservative_rasterization =

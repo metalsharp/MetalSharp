@@ -129,6 +129,12 @@ enum DXILMathOpcode {
 static const char *kMetalHeader = R"(#include <metal_stdlib>
 using namespace metal;
 
+static inline uint m12_update_counter(device atomic_uint* counter, int delta) {
+  uint original = atomic_fetch_add_explicit(counter, uint(delta),
+                                             memory_order_relaxed);
+  return delta < 0 ? original - 1u : original;
+}
+
 )";
 
 static std::string emitValue(uint32_t idx) {
@@ -3484,7 +3490,7 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                                metadata->sample_count});
                     rememberHandle(
                         result_id, kind, metadata->lower_bound, metadata->count,
-                        index, metadata,
+                        metadata->count <= 1 ? 0 : index, metadata,
                         fn_args.size() > 2
                             ? dynamicIndexFor(fn_args[2], metadata->count)
                             : std::string());
@@ -3519,7 +3525,7 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                                metadata->sample_count});
                     rememberHandle(
                         result_id, kind, metadata->lower_bound, metadata->count,
-                        index, metadata,
+                        metadata->count <= 1 ? 0 : index, metadata,
                         fn_args.size() > 1
                             ? dynamicIndexFor(fn_args[1], metadata->count)
                             : std::string());
@@ -3975,8 +3981,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         handle.resource_class = resource_class;
         handle.register_space = register_space;
         handle.lower_bound = lower_bound;
-        handle.binding_index = binding_index;
         handle.binding_count = metadata && metadata->count ? metadata->count : 1;
+        handle.binding_index = handle.binding_count <= 1 ? 0 : binding_index;
         handle.non_uniform = non_uniform;
         handle.dynamic_index = dynamic_index;
         applyResourceBindingMetadata(metadata, handle);
@@ -4848,10 +4854,33 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         return call + ")";
     }
-    case DXOP_BufferUpdateCounter:
-        ctx.unsupported_intrinsics++;
-        recordDiagnostic(ctx, "DXIL buffer update counter is unsupported; rejecting append/consume semantics");
-        return "0";
+    case DXOP_BufferUpdateCounter: {
+        uint32_t counter_bindings = 0;
+        for (const auto &binding : ctx.mod.resource_bindings)
+            if (binding.resource_class == 1 && binding.has_counter)
+                ++counter_bindings;
+        bool srv_slot_14_used = false;
+        for (const auto &range : ctx.binding_plan.ranges)
+            if (range.kind == DescriptorRangePlan::Kind::SRV &&
+                range.register_space == 0 && range.lower_bound <= 14 &&
+                range.count > 14 - range.lower_bound)
+                srv_slot_14_used = true;
+        if (ctx.shader.kind != DxilShaderKind::Compute ||
+            counter_bindings != 1 || srv_slot_14_used ||
+            ctx.options.resource_heap_directly_indexed) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(
+                ctx,
+                "DXIL buffer counter requires compute stage, exactly one table-bound counter UAV, and reserved SRV slot t14 (stage=%u counters=%u t14=%u direct_heap=%u)",
+                static_cast<unsigned>(ctx.shader.kind), counter_bindings,
+                srv_slot_14_used ? 1u : 0u,
+                ctx.options.resource_heap_directly_indexed ? 1u : 0u);
+            return "0";
+        }
+        auto delta = ensureScalarIndex(numericArg(1, "1"));
+        return "m12_update_counter(reinterpret_cast<device atomic_uint*>(buf30), "
+               "(int)(" + delta + "))";
+    }
     case DXOP_CheckAccessFullyMapped:
         return "true";
     case 72: {

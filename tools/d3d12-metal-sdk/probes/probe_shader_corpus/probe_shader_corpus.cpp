@@ -202,7 +202,7 @@ static HRESULT create_corpus_root_signature(ID3D12Device* device, D3D12Serialize
                                             ID3D12RootSignature** root, std::string& errors) {
     D3D12_DESCRIPTOR_RANGE ranges[3] = {};
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[0].NumDescriptors = 3;
+    ranges[0].NumDescriptors = 4;
     ranges[0].BaseShaderRegister = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -326,8 +326,8 @@ static CaseResult run_dxc_case(ID3D12Device* device, ID3D12RootSignature* root, 
     } else if (result.expected_pso_rejection) {
         result.case_pass = result.compile_ok && !result.pso_created && FAILED(result.pso_hr);
         result.detail = result.case_pass
-                            ? "DXIL compiled, but unsupported append/consume counter semantics were rejected at PSO creation"
-                            : "append/consume counter shader unexpectedly produced a linked PSO";
+                            ? "DXIL compiled, but the unsupported counter configuration was rejected at PSO creation"
+                            : "unsupported counter configuration unexpectedly produced a linked PSO";
     } else {
         result.case_pass = result.compile_ok && result.pso_created;
         if (!result.compile_ok)
@@ -469,6 +469,7 @@ int main() {
 RWByteAddressBuffer out_uav : register(u0);
 AppendStructuredBuffer<uint> append_output : register(u1);
 RWStructuredBuffer<uint4> out_structured : register(u2);
+AppendStructuredBuffer<uint> append_output2 : register(u3);
 ByteAddressBuffer raw_inputs[2] : register(t0);
 StructuredBuffer<uint4> structured_inputs : register(t2);
 Buffer<uint4> typed_inputs : register(t3);
@@ -551,6 +552,12 @@ void cs_append_counter(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4, 1, 1)]
+void cs_two_append_counters(uint3 id : SV_DispatchThreadID) {
+  append_output.Append(id.x + 1u);
+  append_output2.Append(id.x + 5u);
+}
+
+[numthreads(4, 1, 1)]
 void cs_uav_writes(uint3 id : SV_DispatchThreadID) {
   out_uav.Store(id.x * 4, id.x * multiplier + addend);
 }
@@ -605,7 +612,8 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
         {"sm68_vector_arithmetic", "sm67_through_sm69_progression", "cs_sm68", "cs_6_8", false, false},
         {"sm69_integer_float_mix", "sm67_through_sm69_progression", "cs_sm69", "cs_6_9", false, false},
         {"resource_indexing", "resource_indexing", "cs_resource_indexing", "cs_6_0", false, false},
-        {"unsupported_append_counter", "unsupported_counter_rejection", "cs_append_counter", "cs_6_0", false, false, true},
+        {"append_counter_link", "append_counter_link", "cs_append_counter", "cs_6_0", false, false},
+        {"two_counter_fail_closed", "counter_fail_closed", "cs_two_append_counters", "cs_6_0", false, false, true},
         {"uav_writes", "uav_writes", "cs_uav_writes", "cs_6_0", false, false},
         {"typed_structured_buffers", "typed_and_structured_buffers", "cs_typed_structured_buffers", "cs_6_0", false,
          false},
@@ -635,7 +643,8 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     bool root_constants = false;
     bool waveops_compile_link = false;
     bool unsupported_rejection = false;
-    bool unsupported_counter_rejection = false;
+    bool append_counter_link = false;
+    bool counter_fail_closed = false;
 
     for (const auto& result : results) {
         required_cases_pass = required_cases_pass && result.case_pass;
@@ -659,14 +668,16 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
             waveops_compile_link = result.case_pass;
         if (result.category == "unsupported_feature_rejection")
             unsupported_rejection = result.case_pass;
-        if (result.category == "unsupported_counter_rejection")
-            unsupported_counter_rejection = result.case_pass;
+        if (result.category == "append_counter_link")
+            append_counter_link = result.case_pass;
+        if (result.category == "counter_fail_closed")
+            counter_fail_closed = result.case_pass;
     }
 
     bool synthetic_shader_corpus_proven =
         entrypoints_ok && required_cases_pass && sm50_baseline && sm60_to_sm66 && sm67_to_sm69 && resource_indexing && uav_writes &&
         typed_structured_buffers && texture_sampling && root_constants && waveops_compile_link && unsupported_rejection &&
-        unsupported_counter_rejection;
+        append_counter_link && counter_fail_closed;
     bool pass = synthetic_shader_corpus_proven;
 
     std::printf("{\n");
@@ -701,7 +712,9 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"waveops_compile_link\": %s,\n", waveops_compile_link ? "true" : "false");
     std::printf("    \"waveops_runtime_gated_by_probe_wave_ops\": true,\n");
     std::printf("    \"unsupported_feature_rejection\": %s,\n", unsupported_rejection ? "true" : "false");
-    std::printf("    \"unsupported_counter_rejection\": %s,\n", unsupported_counter_rejection ? "true" : "false");
+    std::printf("    \"append_counter_link\": %s,\n", append_counter_link ? "true" : "false");
+    std::printf("    \"counter_fail_closed\": %s,\n", counter_fail_closed ? "true" : "false");
+    std::printf("    \"unsupported_counter_rejection\": false,\n");
     std::printf("    \"title_captures_gating\": false\n");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");

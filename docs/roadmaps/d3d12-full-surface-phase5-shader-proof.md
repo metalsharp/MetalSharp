@@ -52,13 +52,15 @@
   return exact 25 (unsigned) and 23 (signed) values and the exact `dot2add`
   float bits `0x41800000` through the rebuilt typed lowering path.
 - Existing compute PSO evidence covers CBV/SRV/UAV binding, texture sampling,
-  32-bit atomics, indirect dispatch bounds, and explicit append/consume-counter
-  policy. Append/consume counters remain fail-closed rather than being
-  advertised as implemented. The shader corpus also compiles an
-  `AppendStructuredBuffer` case and verifies that PSO creation rejects its
-  unsupported counter intrinsic with `0x80004005`; positive append/consume
-  readback remains open. Previously silent sample-position, sample-count, and
-  cycle-counter placeholders now also increment the unsupported-intrinsic
+  32-bit atomics, indirect dispatch bounds, and append/consume counters. The
+  direct compute ABI reserves buffer slot 30 for one external structured-UAV
+  counter and rejects a counter shader that also requires SRV `t14` or more
+  than one counter binding. Exact append readback is `{100,101,102,103}` with
+  counter `4`; exact consume readback is `{200,201,202,203}` with counter `0`.
+  The shader corpus independently compiles and links its
+  `AppendStructuredBuffer` case. Multi-counter and dynamically indexed
+  counter heaps remain fail-closed. Previously silent sample-position,
+  sample-count, and cycle-counter placeholders now increment the unsupported-intrinsic
   diagnostic and reject PSO creation rather than succeeding with fake values.
   Unknown/non-DXIL call sites likewise reject instead of becoming zero-valued
   temporaries until helper-function lowering is implemented.
@@ -168,8 +170,8 @@ texture-dimension result is profile
 `phase5-typed64-2`: 42/42 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
 for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
-R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`, RGBA8_UINT `0x281e140a`, RGBA8_SINT
-`0xfcfdfeff`, and R16_FLOAT half bits `0x3400`. Writable typed cases return
+R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`,
+RGBA8_UINT `0x281e140a`, RGBA8_SINT `0xfcfdfeff`, and R16_FLOAT half bits `0x3400`. Writable typed cases return
 R32_UINT `0x12345678`, R32_SINT `0xffed2979`, RGBA8_UINT `0x281e140a`, and
 RGBA8_SINT `0xfcfdfeff`. The expanded normalized/packed cases return exact
 read values `64` or packed UINT `0x031e140a`, and exact writable bits R16_UNORM
@@ -184,7 +186,12 @@ semantically equivalent overload. The latest SM6.6/6.7 profile
 `phase5-atomic-load-final` also passes every focused case, including atomic
 barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
 and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to
-`/nonexistent`.
+`/nonexistent`. Profile `phase5-append-consume5` passes the complete compute
+PSO probe, including exact append and consume data plus external counter
+readback. Profile `phase5-counter-corpus-negative` passes the shader corpus
+with `append_counter_link=true` and rejects a two-counter shader with exact
+`0x80004005`; `phase5-counter-semantic` preserves all 20
+semantic lanes with zero mismatches.
 
 ## Remaining Phase 5 work
 
@@ -192,8 +199,8 @@ The complete exit gate is not claimed. The stable corpus still needs positive
 and negative behavior evidence for every declared DXIL opcode/intrinsic,
 control-flow and aggregate shape, graphics stage, remaining texture sampling
 forms, typed/raw/structured/counter resource, cache/compiler-session path, and
-all legal SM5.x–SM6.9 operations. Append/consume UAV counters and other
-explicitly limited providers remain fail-closed until their exact readback
-matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
+all legal SM5.x–SM6.9 operations. Multi-counter, directly indexed counter-heap,
+and other explicitly limited providers remain fail-closed until their exact
+readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.
