@@ -2151,6 +2151,10 @@ void cs_math_bits(uint3 id : SV_DispatchThreadID) {
     outbuf.Store(16, (uint)firstbitlow(0x10u));
     outbuf.Store(20, (uint)firstbithigh(0x10u));
     outbuf.Store(24, (uint)firstbithigh(-16));
+    outbuf.Store(28, reversebits(1u));
+    outbuf.Store(32, min(7u, 3u));
+    outbuf.Store(36, max(7u, 3u));
+    outbuf.Store(40, mad(2u, 3u, 4u));
   }
 }
 

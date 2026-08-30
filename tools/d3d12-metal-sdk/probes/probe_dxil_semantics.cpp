@@ -700,7 +700,8 @@ int main() {
     const bool warmup_only = getenv_string("D3D12_METAL_SDK_DXIL_SEMANTICS_MODE") == "warmup";
     SemanticCase cases[] = {
         {"math_bits", "probe_dxil_semantic_math_bits.cso", {},
-         {22, 48, 0x3f800000u, 8, 4, 4, 3}, "float_int_math_bitcasts"},
+         {22, 48, 0x3f800000u, 8, 4, 4, 3, 0x80000000u, 3, 7, 10},
+         "float_int_math_bitcasts"},
         {"math_extended", "probe_dxil_semantic_math_extended.cso", {},
          {0x3f800000u, 0u, 0u, 1u, 7u}, "hyperbolic_normal_and_msad"},
         {"dot4add_unsigned", "probe_dxil_semantic_dot4add_unsigned.cso", {5u},
