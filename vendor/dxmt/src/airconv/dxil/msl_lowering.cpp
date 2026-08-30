@@ -5140,6 +5140,13 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 ctx.value_table[value_counter] = translated;
             }
         } else {
+            // A non-DXIL call would otherwise become a zero-valued temporary
+            // and allow an unlowered helper/unknown intrinsic to reach MSL.
+            // User-defined helper functions are not emitted by this backend,
+            // so reject the shader until a real call graph lowering exists.
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL call has no lowering: %s",
+                             callee_name.empty() ? "<unknown>" : callee_name.c_str());
             ensureValueTable(value_counter);
             MSLType result_type = getTypeForInst(inst.type_id);
             if (!isUsableType(result_type))
