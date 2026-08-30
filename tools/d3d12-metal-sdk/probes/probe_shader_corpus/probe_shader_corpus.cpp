@@ -472,6 +472,25 @@ void cs_sm66(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4, 1, 1)]
+void cs_sm67(uint3 id : SV_DispatchThreadID) {
+  uint4 vector = uint4(id.x + 1u, id.x + 2u, id.x + 3u, id.x + 4u);
+  uint64_t wide = (uint64_t(vector.x) << 32) | uint64_t(vector.x + 67u);
+  out_uav.Store(id.x * 4, uint(wide));
+}
+
+[numthreads(4, 1, 1)]
+void cs_sm68(uint3 id : SV_DispatchThreadID) {
+  uint64_t wide = uint64_t(id.x + 1u) * uint64_t(68u);
+  out_uav.Store(id.x * 4, uint(wide));
+}
+
+[numthreads(4, 1, 1)]
+void cs_sm69(uint3 id : SV_DispatchThreadID) {
+  float value = 69.0f + float(id.x) * 1.5f;
+  out_uav.Store(id.x * 4, uint(value));
+}
+
+[numthreads(4, 1, 1)]
 void cs_resource_indexing(uint3 id : SV_DispatchThreadID) {
   uint index = selector & 1u;
   out_uav.Store(id.x * 4, raw_inputs[index].Load(id.x * 4) + addend);
@@ -528,6 +547,9 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
         {"sm64_int64_probe", "sm60_through_sm66_progression", "cs_sm64", "cs_6_4", false, false},
         {"sm65_bit_ops_probe", "sm60_through_sm66_progression", "cs_sm65", "cs_6_5", false, false},
         {"sm66_waveops_compile_link", "waveops", "cs_sm66", "cs_6_6", false, true},
+        {"sm67_vector_int64", "sm67_through_sm69_progression", "cs_sm67", "cs_6_7", false, false},
+        {"sm68_vector_arithmetic", "sm67_through_sm69_progression", "cs_sm68", "cs_6_8", false, false},
+        {"sm69_integer_float_mix", "sm67_through_sm69_progression", "cs_sm69", "cs_6_9", false, false},
         {"resource_indexing", "resource_indexing", "cs_resource_indexing", "cs_6_0", false, false},
         {"uav_writes", "uav_writes", "cs_uav_writes", "cs_6_0", false, false},
         {"typed_structured_buffers", "typed_and_structured_buffers", "cs_typed_structured_buffers", "cs_6_0", false,
@@ -550,6 +572,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     bool required_cases_pass = corpus_complete;
     bool sm50_baseline = false;
     bool sm60_to_sm66 = true;
+    bool sm67_to_sm69 = true;
     bool resource_indexing = false;
     bool uav_writes = false;
     bool typed_structured_buffers = false;
@@ -564,6 +587,8 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
             sm50_baseline = result.case_pass;
         if (result.category == "sm60_through_sm66_progression")
             sm60_to_sm66 = sm60_to_sm66 && result.case_pass;
+        if (result.category == "sm67_through_sm69_progression")
+            sm67_to_sm69 = sm67_to_sm69 && result.case_pass;
         if (result.category == "resource_indexing")
             resource_indexing = result.case_pass;
         if (result.category == "uav_writes")
@@ -581,7 +606,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     }
 
     bool synthetic_shader_corpus_proven =
-        entrypoints_ok && required_cases_pass && sm50_baseline && sm60_to_sm66 && resource_indexing && uav_writes &&
+        entrypoints_ok && required_cases_pass && sm50_baseline && sm60_to_sm66 && sm67_to_sm69 && resource_indexing && uav_writes &&
         typed_structured_buffers && texture_sampling && root_constants && waveops_compile_link && unsupported_rejection;
     bool pass = synthetic_shader_corpus_proven;
 
@@ -608,6 +633,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"synthetic_shader_corpus_proven\": %s,\n", synthetic_shader_corpus_proven ? "true" : "false");
     std::printf("    \"sm50_baseline\": %s,\n", sm50_baseline ? "true" : "false");
     std::printf("    \"sm60_to_sm66_progression\": %s,\n", sm60_to_sm66 ? "true" : "false");
+    std::printf("    \"sm67_to_sm69_progression\": %s,\n", sm67_to_sm69 ? "true" : "false");
     std::printf("    \"resource_indexing\": %s,\n", resource_indexing ? "true" : "false");
     std::printf("    \"uav_writes\": %s,\n", uav_writes ? "true" : "false");
     std::printf("    \"typed_and_structured_buffers\": %s,\n", typed_structured_buffers ? "true" : "false");

@@ -2108,6 +2108,15 @@ bool MTLD3D12PipelineState::CompileShader(
                     msl_result->source.size(), msl_result->entry_point.c_str(),
                     msl_result->unsupported_intrinsics,
                     msl_result->unsupported_opcodes);
+            if (msl_result->unsupported_intrinsics || msl_result->unsupported_opcodes) {
+              const std::string detail = str::format(
+                  func_name, " unsupported DXIL semantics: intrinsics=",
+                  msl_result->unsupported_intrinsics, " opcodes=",
+                  msl_result->unsupported_opcodes);
+              PSTRACE("  rejecting shader with unsupported semantics: %s",
+                      detail.c_str());
+              return RecordCompileFailure("shader/unsupported_semantics", detail);
+            }
 
             char msl_error_path[1024];
             snprintf(msl_error_path, sizeof(msl_error_path), "%s.msl.err.txt",

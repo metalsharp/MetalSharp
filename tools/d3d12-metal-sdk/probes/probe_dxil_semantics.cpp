@@ -434,6 +434,12 @@ int main() {
         {"buffer_load_store", "probe_dxil_semantic_buffer.cso", {2, 4, 6, 8}, {7, 13, 19, 25}, "buffer_load_store"},
         {"atomics_ids", "probe_dxil_semantic_atomics_ids.cso", {}, {4, 6, 8, 10}, "barrier_atomics_compute_ids"},
         {"wave_quad", "probe_dxil_semantic_wave_quad.cso", {}, {273, 273, 273, 273}, "wave_quad_ops"},
+        {"sm67_vector_int64", "probe_dxil_semantic_sm67.cso", {}, {68, 69, 70, 71},
+         "sm67_long_vector_and_int64"},
+        {"sm68_vector_arithmetic", "probe_dxil_semantic_sm68.cso", {}, {68, 136, 204, 272},
+         "sm68_vector_and_wide_arithmetic"},
+        {"sm69_integer_float_mix", "probe_dxil_semantic_sm69.cso", {}, {69, 70, 72, 73},
+         "sm69_integer_float16_conversion"},
     };
 
     ID3D12Device* device = nullptr;
