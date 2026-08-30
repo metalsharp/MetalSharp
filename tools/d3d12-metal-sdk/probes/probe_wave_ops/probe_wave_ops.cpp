@@ -263,6 +263,20 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         const uint32_t triangular = lane * (lane + 1u) / 2u;
         return 528u + triangular;
     }
+    if (std::strcmp(name, "wave_i64_active_product") == 0)
+        return 3793632897u; // 3^32 modulo 2^32
+    if (std::strcmp(name, "wave_i64_prefix_product") == 0) {
+        uint64_t product = 1u;
+        for (uint32_t i = 0; i < lane; ++i)
+            product *= 3u;
+        return static_cast<uint32_t>(product);
+    }
+    if (std::strcmp(name, "wave_i64_bit_and") == 0)
+        return 0u;
+    if (std::strcmp(name, "wave_i64_bit_or") == 0)
+        return 31u;
+    if (std::strcmp(name, "wave_i64_bit_xor") == 0)
+        return 0u;
     return 0xffffffffu;
 }
 
@@ -510,6 +524,36 @@ void cs_wave_i64_sum_prefix(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIn
   uint64_t prefix = WavePrefixSum(value);
   outbuf.Store(gi * 4, uint(sum + prefix));
 }
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_active_product(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t product = WaveActiveProduct(uint64_t(3u));
+  outbuf.Store(gi * 4, uint(product));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_prefix_product(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t product = WavePrefixProduct(uint64_t(3u));
+  outbuf.Store(gi * 4, uint(product));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_bit_and(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t value = 0x100000000ull | uint64_t(gi);
+  outbuf.Store(gi * 4, uint(WaveActiveBitAnd(value)));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_bit_or(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t value = 0x100000000ull | uint64_t(gi);
+  outbuf.Store(gi * 4, uint(WaveActiveBitOr(value)));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_bit_xor(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t value = 0x100000000ull | uint64_t(gi);
+  outbuf.Store(gi * 4, uint(WaveActiveBitXor(value)));
+}
 )";
 
     bool hlsl_written = write_text_file("Z:\\tmp\\dxmt_wave_ops.hlsl", hlsl);
@@ -551,6 +595,11 @@ void cs_wave_i64_sum_prefix(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIn
         {"wave_multi_prefix_xor", "cs_wave_multi_prefix_xor", "cs_6_5"},
         {"wave_multi_prefix_and", "cs_wave_multi_prefix_and", "cs_6_5"},
         {"wave_i64_sum_prefix", "cs_wave_i64_sum_prefix", "cs_6_6"},
+        {"wave_i64_active_product", "cs_wave_i64_active_product", "cs_6_6"},
+        {"wave_i64_prefix_product", "cs_wave_i64_prefix_product", "cs_6_6"},
+        {"wave_i64_bit_and", "cs_wave_i64_bit_and", "cs_6_6"},
+        {"wave_i64_bit_or", "cs_wave_i64_bit_or", "cs_6_6"},
+        {"wave_i64_bit_xor", "cs_wave_i64_bit_xor", "cs_6_6"},
     };
 
     std::vector<CaseResult> results;
