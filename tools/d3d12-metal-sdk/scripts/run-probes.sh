@@ -2174,6 +2174,14 @@ void cs_math_intrinsics(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(36, asuint(log2(one + one + one + one + one + one + one + one)));
   outbuf.Store(40, asuint(rsqrt(one + one + one + one)));
   outbuf.Store(44, (uint)round(2.25));
+  outbuf.Store(48, asuint(frac(2.75)));
+  outbuf.Store(52, (uint)min(-2, 3));
+  outbuf.Store(56, (uint)max(-2, 3));
+  outbuf.Store(60, min(7u, 3u));
+  outbuf.Store(64, max(7u, 3u));
+  outbuf.Store(68, 13u / 3u);
+  outbuf.Store(72, 5u * 7u);
+  outbuf.Store(76, 13u - 5u);
 }
 
 [numthreads(1, 1, 1)]
