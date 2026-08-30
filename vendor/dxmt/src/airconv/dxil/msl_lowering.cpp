@@ -4443,22 +4443,44 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto handle = handleArg(0, "tex", "tex0");
         const uint32_t resource_kind = resourceKindForHandle(ctx, args.empty() ? 0u : args[0]);
         auto mip = args.size() > 1 ? ensureScalarIndex(numericArg(1, "0")) : "0";
-        std::string width = handle + ".get_width((uint)(" + mip + "))";
+        const bool multisample = resource_kind == 3u || resource_kind == 8u;
+        std::string width = multisample
+                                ? handle + ".get_width()"
+                                : handle + ".get_width((uint)(" + mip + "))";
         std::string height = "1u";
-        std::string depth_or_array = "1u";
-        std::string mip_count = handle + ".get_num_mip_levels()";
-        if (resource_kind == 2u || resource_kind == 7u ||
-            resource_kind == 3u || resource_kind == 8u ||
-            resource_kind == 5u || resource_kind == 9u)
-            height = handle + ".get_height((uint)(" + mip + "))";
+        if (resource_kind == 2u || resource_kind == 3u ||
+            resource_kind == 4u || resource_kind == 5u ||
+            resource_kind == 7u || resource_kind == 8u ||
+            resource_kind == 9u)
+            height = multisample ? handle + ".get_height()"
+                                 : handle + ".get_height((uint)(" + mip + "))";
+        std::string array_size = isTextureArrayResourceKind(resource_kind)
+                                     ? handle + ".get_array_size()"
+                                     : "1u";
+        std::string depth = resource_kind == 4u
+                                ? handle + ".get_depth((uint)(" + mip + "))"
+                                : "1u";
+        std::string samples = multisample ? handle + ".get_num_samples()" : "1u";
+        // GetDimensions returns only the components applicable to the DXIL
+        // resource shape: 1D (w[,array]), 2D (w,h[,array]), 3D (w,h,d),
+        // cube (w,h[,array]), and MSAA (w,h[,array],samples).  The lowerer
+        // uses a four-lane carrier, so place each value in the component that
+        // the corresponding DXIL extractvalue consumes.
+        if (resource_kind == 1u)
+            return "uint4(" + width + ", 1u, 1u, 1u)";
+        if (resource_kind == 6u)
+            return "uint4(" + width + ", " + array_size + ", 1u, 1u)";
+        if (resource_kind == 3u)
+            return "uint4(" + width + ", " + height + ", 1u, " + samples + ")";
+        if (resource_kind == 8u)
+            return "uint4(" + width + ", " + height + ", " + array_size +
+                   ", " + samples + ")";
         if (resource_kind == 4u)
-            depth_or_array = handle + ".get_depth((uint)(" + mip + "))";
-        else if (isTextureArrayResourceKind(resource_kind))
-            depth_or_array = handle + ".get_array_size()";
-        if (resource_kind == 3u || resource_kind == 8u)
-            mip_count = handle + ".get_num_samples()";
-        return "uint4(" + width + ", " + height + ", " + depth_or_array + ", " +
-               mip_count + ")";
+            return "uint4(" + width + ", " + height + ", " + depth + ", 1u)";
+        if (resource_kind == 7u || resource_kind == 9u)
+            return "uint4(" + width + ", " + height + ", " + array_size +
+                   ", 1u)";
+        return "uint4(" + width + ", " + height + ", 1u, 1u)";
     }
     case 83: case 85: return "dfdx(" + valueArg(0, "0.0") + ")";
     case 84: case 86: return "dfdy(" + valueArg(0, "0.0") + ")";

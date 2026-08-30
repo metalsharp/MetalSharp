@@ -109,7 +109,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The source-staged matrix proves exact readback for 1D, 1D-array, 2D, 2D-array, 3D, cube, cube-array, and 2D MSAA textures plus UAV stores for 1D/1D-array/2D/2D-array/3D; MSAA UAV stores and broader format/operation coverage remain tracked separately."
+      "remaining": "The source-staged matrix proves exact sample/load, GetDimensions, and readback for 1D, 1D-array, 2D, 2D-array, 3D, cube, cube-array, and 2D MSAA textures plus UAV stores for 1D/1D-array/2D/2D-array/3D; MSAA UAV stores and broader format/operation coverage remain tracked separately."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",

@@ -109,26 +109,27 @@ struct ShapeInfo {
     bool multisample;
     bool array;
     uint32_t expected;
+    uint32_t dimensions_expected;
 };
 
 static const ShapeInfo kReadCases[] = {
-    {"texture1d", "cs_texture_1d.cso", TextureShape::Texture1D, false, false, 64},
-    {"texture1d_array", "cs_texture_1d_array.cso", TextureShape::Texture1DArray, false, true, 96},
-    {"texture2d", "cs_texture_2d.cso", TextureShape::Texture2D, false, false, 64},
-    {"texture2d_array", "cs_texture_2d_array.cso", TextureShape::Texture2DArray, false, true, 96},
-    {"texture3d", "cs_texture_3d.cso", TextureShape::Texture3D, false, false, 96},
-    {"texturecube", "cs_texture_cube.cso", TextureShape::TextureCube, false, true, 96},
-    {"texturecube_array", "cs_texture_cube_array.cso", TextureShape::TextureCubeArray, false, true, 96},
-    {"texture2d_ms", "cs_texture_2d_ms.cso", TextureShape::Texture2DMS, true, false, 64},
-    {"texture2d_ms_array", "cs_texture_2d_ms_array.cso", TextureShape::Texture2DMSArray, true, true, 96},
+    {"texture1d", "cs_texture_1d.cso", TextureShape::Texture1D, false, false, 64, 4},
+    {"texture1d_array", "cs_texture_1d_array.cso", TextureShape::Texture1DArray, false, true, 96, 131076},
+    {"texture2d", "cs_texture_2d.cso", TextureShape::Texture2D, false, false, 64, 1028},
+    {"texture2d_array", "cs_texture_2d_array.cso", TextureShape::Texture2DArray, false, true, 96, 132100},
+    {"texture3d", "cs_texture_3d.cso", TextureShape::Texture3D, false, false, 96, 263172},
+    {"texturecube", "cs_texture_cube.cso", TextureShape::TextureCube, false, true, 96, 1028},
+    {"texturecube_array", "cs_texture_cube_array.cso", TextureShape::TextureCubeArray, false, true, 96, 132100},
+    {"texture2d_ms", "cs_texture_2d_ms.cso", TextureShape::Texture2DMS, true, false, 64, 33555460},
+    {"texture2d_ms_array", "cs_texture_2d_ms_array.cso", TextureShape::Texture2DMSArray, true, true, 96, 33686532},
 };
 
 static const ShapeInfo kStoreCases[] = {
-    {"texture1d", "cs_store_1d.cso", TextureShape::Texture1D, false, false, 64},
-    {"texture1d_array", "cs_store_1d_array.cso", TextureShape::Texture1DArray, false, true, 64},
-    {"texture2d", "cs_store_2d.cso", TextureShape::Texture2D, false, false, 64},
-    {"texture2d_array", "cs_store_2d_array.cso", TextureShape::Texture2DArray, false, true, 64},
-    {"texture3d", "cs_store_3d.cso", TextureShape::Texture3D, false, false, 64},
+    {"texture1d", "cs_store_1d.cso", TextureShape::Texture1D, false, false, 64, 0},
+    {"texture1d_array", "cs_store_1d_array.cso", TextureShape::Texture1DArray, false, true, 64, 0},
+    {"texture2d", "cs_store_2d.cso", TextureShape::Texture2D, false, false, 64, 0},
+    {"texture2d_array", "cs_store_2d_array.cso", TextureShape::Texture2DArray, false, true, 64, 0},
+    {"texture3d", "cs_store_3d.cso", TextureShape::Texture3D, false, false, 64, 0},
 };
 
 static D3D12_RESOURCE_DESC texture_desc(TextureShape shape, bool writable) {
@@ -422,6 +423,8 @@ struct CaseResult {
     HRESULT pso_hr = E_FAIL;
     uint32_t expected = 64;
     uint32_t actual = 0;
+    uint32_t dimensions_expected = 0;
+    uint32_t dimensions_actual = 0;
     std::string detail;
 };
 
@@ -430,6 +433,7 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     result.name = info.name;
     result.operation = "read";
     result.expected = info.expected;
+    result.dimensions_expected = info.dimensions_expected;
     std::vector<uint8_t> shader;
     if (!read_binary_file(info.shader, shader)) {
         result.detail = "compiled DXIL blob missing";
@@ -575,16 +579,18 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     }
     if (SUCCEEDED(hr)) {
         uint32_t* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(uint32_t)};
+        D3D12_RANGE range = {0, 2 * sizeof(uint32_t)};
         hr = readback->Map(0, &range, reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr) && mapped) {
             result.actual = mapped[0];
+            result.dimensions_actual = mapped[1];
             readback->Unmap(0, nullptr);
         }
     }
     result.hr = hr;
-    result.pass = SUCCEEDED(hr) && result.actual == result.expected;
-    result.detail = result.pass ? "dimension-aware DXIL texture read matched exact readback"
+    result.pass = SUCCEEDED(hr) && result.actual == result.expected &&
+                  result.dimensions_actual == result.dimensions_expected;
+    result.detail = result.pass ? "dimension-aware DXIL texture read and GetDimensions matched exact readback"
                                 : errors.empty() ? "texture dimension readback failed"
                                                  : errors;
     safe_release(readback); safe_release(output); safe_release(upload); safe_release(texture);
@@ -732,10 +738,11 @@ int main() {
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {
         const auto& result = results[i];
-        std::printf("    {\"name\":\"%s\",\"operation\":\"%s\",\"pass\":%s,\"hr\":\"%s\",\"pso_hr\":\"%s\",\"expected\":%u,\"actual\":%u,\"detail\":\"%s\"}%s\n",
+        std::printf("    {\"name\":\"%s\",\"operation\":\"%s\",\"pass\":%s,\"hr\":\"%s\",\"pso_hr\":\"%s\",\"expected\":%u,\"actual\":%u,\"dimensions_expected\":%u,\"dimensions_actual\":%u,\"detail\":\"%s\"}%s\n",
                     json_escape(result.name).c_str(), result.operation.c_str(),
                     result.pass ? "true" : "false", hr_hex(result.hr).c_str(),
                     hr_hex(result.pso_hr).c_str(), result.expected, result.actual,
+                    result.dimensions_expected, result.dimensions_actual,
                     json_escape(result.detail).c_str(),
                     i + 1 == results.size() ? "" : ",");
     }
