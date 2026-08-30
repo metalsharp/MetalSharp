@@ -163,7 +163,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; the expanded typed-family row covers signed, writable, normalized, and packed 10/11-bit breadth while 64-bit and multisample writable forms remain exhaustive work."
+      "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; the expanded typed-family row covers signed, writable, normalized, packed 10/11-bit, and scalar 64-bit breadth while multisample writable forms remain exhaustive work."
     },
     {
       "id": "dxil-resource-signed-and-writable-r32-runtime",
@@ -172,7 +172,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The focused source-staged matrix proves R32_SINT and R32_UINT read views plus an R32_UINT writable view with exact readback; R16/RG16/RGBA8 and normalized/packed breadth is covered by the expanded row while 64-bit and MSAA-UAV forms remain exhaustive work."
+      "remaining": "The focused source-staged matrix proves R32_SINT and R32_UINT read views plus an R32_UINT writable view with exact readback; R16/RG16/RGBA8, normalized/packed, and scalar 64-bit breadth is covered by the expanded row while MSAA-UAV forms remain exhaustive work."
     },
     {
       "id": "dxil-expanded-typed-texture-families-runtime",
@@ -181,7 +181,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The 38-case source-staged matrix proves R32/R16/RG16/RGBA8 signed, unsigned, floating, and normalized access plus packed R10G10B10A2 UINT/UNORM and R11G11B10 FLOAT reads/writes with exact logical or storage-bit readback. 64-bit and multisample writable families remain in the exhaustive row."
+      "remaining": "The 42-case source-staged matrix proves R32/R16/RG16/RGBA8 signed, unsigned, floating, and normalized access; packed R10G10B10A2 UINT/UNORM and R11G11B10 FLOAT; and scalar signed/unsigned 64-bit R32G32_UINT reads/writes with exact logical or storage-bit readback. Multisample writable families remain in the exhaustive row."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
