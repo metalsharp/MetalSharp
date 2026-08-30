@@ -22,8 +22,9 @@
   WaveOps/QuadOps, SM6.7 vector/int64 arithmetic, SM6.8
   wide arithmetic, SM6.9 float16 to integer conversion, multi-block
   switch/PHI/vector-aggregate and loop-carried aggregate cases, a selected
-  double-arithmetic lane, and a 4x4 texture's Load, SampleLevel,
-  SampleGrad, SampleBias, GatherRed, and GetDimensions forms. Every lane
+  double-arithmetic lane, the complete 32-bit atomic binop matrix, and a 4x4
+  texture's Load, SampleLevel, SampleGrad, SampleBias, GatherRed, and
+  GetDimensions forms. Every lane
   creates a PSO, dispatches through the DXMT command path, and matches its
   expected readback. The fresh no-offline-converter run reports
   `{1065353216, 0, 0, 1, 7}` for the extended math case.
@@ -81,7 +82,7 @@
   of `firstbitlow`/`firstbithigh`. The LLVM type reader now resolves vector
   element references from `type_refs` and rejects unsupported array values
   without recursive type resolution. The source-staged semantic run continues
-  to match `math_bits`, `math_intrinsics`, and all 18 semantic lanes.
+  to match `math_bits`, `math_intrinsics`, and all 19 semantic lanes.
 - The object-contract probe now exercises pipeline-library serialization plus
   memory and disk shader-cache sessions. It verifies serialized-size/header
   round-trip, malformed-blob rejection, missing-name rejection, descriptor,
@@ -130,6 +131,7 @@ so PSO creation exercised the runtime MSL compiler directly:
   "control_flow_aggregates": {"expected": [120, 212, 328, 320], "actual": [120, 212, 328, 320]},
   "loop_aggregate": {"expected": [1, 3, 6, 10], "actual": [1, 3, 6, 10]},
   "double_arithmetic": {"expected": [37], "actual": [37]},
+  "atomic_matrix": {"expected": [13, 10, 6, 15, 15, 15, 9, 15, 3, 4294967295, 3, 0, 3, 4294967295, 3, 0, 9, 5], "actual": [13, 10, 6, 15, 15, 15, 9, 15, 3, 4294967295, 3, 0, 3, 4294967295, 3, 0, 9, 5]},
   "texture_sampling_forms": {"expected": [64, 64, 64, 64, 64, 68], "actual": [64, 64, 64, 64, 64, 68]}
 }
 ```
@@ -148,8 +150,9 @@ complete cache set.
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
 closed semantic, WaveOps (including active/prefix bit counts), control-flow,
-double-arithmetic, diagnostic, atomic/special-float, binding-baseline,
-resource-metadata/texture-dimension, and focused lowering-report-audit rows
+double-arithmetic, atomic-binop, diagnostic, atomic/special-float,
+binding-baseline, resource-metadata/texture-dimension, and focused
+lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile

@@ -2288,6 +2288,38 @@ void cs_atomic_uav(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(12, original);
 }
 
+[numthreads(1, 1, 1)]
+void cs_atomic_matrix(uint3 id : SV_DispatchThreadID) {
+  uint original = 0;
+  outbuf.Store(0, 10u);
+  outbuf.InterlockedAdd(0, 3u, original);
+  outbuf.Store(4, original);
+  outbuf.Store(8, 15u);
+  outbuf.InterlockedAnd(8, 6u, original);
+  outbuf.Store(12, original);
+  outbuf.Store(16, 15u);
+  outbuf.InterlockedOr(16, 6u, original);
+  outbuf.Store(20, original);
+  outbuf.Store(24, 15u);
+  outbuf.InterlockedXor(24, 6u, original);
+  outbuf.Store(28, original);
+  outbuf.Store(32, 0xffffffffu);
+  outbuf.InterlockedMin(32, 3u, original);
+  outbuf.Store(36, original);
+  outbuf.Store(40, 0u);
+  outbuf.InterlockedMax(40, 3u, original);
+  outbuf.Store(44, original);
+  outbuf.Store(48, 0xffffffffu);
+  outbuf.InterlockedMin(48, 3u, original);
+  outbuf.Store(52, original);
+  outbuf.Store(56, 0u);
+  outbuf.InterlockedMax(56, 3u, original);
+  outbuf.Store(60, original);
+  outbuf.Store(64, 5u);
+  outbuf.InterlockedExchange(64, 9u, original);
+  outbuf.Store(68, original);
+}
+
 groupshared uint g_counter;
 
 [numthreads(4, 1, 1)]
@@ -2438,6 +2470,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_atomic_uav -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_atomic_uav.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_atomic_matrix -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_atomic_matrix.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_atomics_ids -T cs_6_0 -HV 2021 \
