@@ -100,19 +100,33 @@
         ["coverage", "cbv_srv_uav_reads"],
         ["coverage", "uav_writes"],
         ["coverage", "atomics_32bit"],
+        ["coverage", "append_counter_runtime"],
+        ["coverage", "consume_counter_runtime"],
         ["coverage", "dispatch_indirect_layout_and_bounds"]
       ],
-      "remaining": "Append/consume UAV counters remain explicitly unsupported and require a dedicated provider and readback matrix."
+      "remaining": "Single external-counter append/consume semantics are exact; multi-counter and directly indexed counter heaps remain fail-closed."
     },
     {
-      "id": "unsupported-counter-intrinsic-rejection",
+      "id": "append-consume-counter-runtime",
+      "status": "closed",
+      "result": "probe-compute-pso",
+      "checks": [
+        ["pass"],
+        ["coverage", "append_counter_runtime"],
+        ["coverage", "consume_counter_runtime"]
+      ],
+      "remaining": "The focused runtime proves append values 100..103 with counter 4 and consume values 200..203 with counter 0. Multi-counter and dynamically indexed counter-heap forms remain in the exhaustive row."
+    },
+    {
+      "id": "counter-provider-fail-closed-boundary",
       "status": "closed",
       "result": "probe-shader-corpus",
       "checks": [
         ["pass"],
-        ["summary", "unsupported_counter_rejection"]
+        ["summary", "append_counter_link"],
+        ["summary", "counter_fail_closed"]
       ],
-      "remaining": "Append/consume UAV counters still require a positive provider/readback matrix before they can be advertised."
+      "remaining": "The corpus links one counter UAV and rejects a two-counter shader with E_FAIL; directly indexed counter heaps and graphics-stage counters remain fail-closed."
     },
     {
       "id": "shader-cache-session-roundtrip",
@@ -190,7 +204,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "Positive and negative evidence is still incomplete for the full stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, counter, cache, and compiler-session matrix."
+      "remaining": "Positive and negative evidence is still incomplete for the full stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter/direct-counter-heap, cache, and compiler-session matrix."
     }
   ]
 }

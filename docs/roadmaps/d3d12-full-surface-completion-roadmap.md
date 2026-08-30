@@ -735,7 +735,8 @@ semantics.
 `docs/roadmaps/d3d12-full-surface-phase5-shader-proof.md` records the typed
 DXIL rejection boundary, SM5.0 through SM6.9 compile/link progression, exact
 SM6.7/6.8/6.9 semantic readbacks, WaveOps/QuadOps matrix, the source-staged
-resource-metadata/texture-dimension readback matrix, and malformed-DXIL
+resource-metadata/42-case typed texture matrix, exact single-counter
+append/consume readbacks with bounded negative cases, and malformed-DXIL
 negative evidence. The fail-closed manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`; its exhaustive
 opcode/stage/resource/cache/session row remains open, so `D3D12_FEATURE_SHADER_MODEL`

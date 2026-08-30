@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -248,6 +249,90 @@ static bool readback_u32(ID3D12Resource* readback, uint32_t* values, size_t coun
     std::memcpy(values, data, count * sizeof(uint32_t));
     D3D12_RANGE write_range = {0, 0};
     readback->Unmap(0, &write_range);
+    return true;
+}
+
+static bool write_text_file(const char* path, const char* text) {
+    HANDLE file = CreateFileA(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    DWORD written = 0;
+    DWORD size = static_cast<DWORD>(std::strlen(text));
+    bool ok = WriteFile(file, text, size, &written, nullptr) && written == size;
+    CloseHandle(file);
+    return ok;
+}
+
+static std::vector<uint8_t> read_binary_file(const char* path) {
+    HANDLE file = CreateFileA(path, GENERIC_READ,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE |
+                                  FILE_SHARE_DELETE,
+                              nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                              nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return {};
+    LARGE_INTEGER size = {};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 ||
+        size.QuadPart > 16 * 1024 * 1024) {
+        CloseHandle(file);
+        return {};
+    }
+    std::vector<uint8_t> out(static_cast<size_t>(size.QuadPart));
+    DWORD read = 0;
+    ReadFile(file, out.data(), static_cast<DWORD>(out.size()), &read, nullptr);
+    out.resize(read);
+    CloseHandle(file);
+    return out;
+}
+
+static DWORD run_process_wait(std::string command_line) {
+    STARTUPINFOA startup = {};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process = {};
+    std::vector<char> mutable_command(command_line.begin(), command_line.end());
+    mutable_command.push_back('\0');
+    if (!CreateProcessA(nullptr, mutable_command.data(), nullptr, nullptr,
+                        FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup,
+                        &process))
+        return 0xffffffffu;
+    WaitForSingleObject(process.hProcess, 30000);
+    DWORD exit_code = 0xffffffffu;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return exit_code;
+}
+
+static bool compile_dxil_shader(const char* source, const char* entry,
+                                const char* target,
+                                std::vector<uint8_t>& bytecode,
+                                std::string& error) {
+    const char* source_path = "Z:\\tmp\\dxmt_compute_counter.hlsl";
+    const char* output_path = "Z:\\tmp\\dxmt_compute_counter.dxil";
+    const char* error_path = "Z:\\tmp\\dxmt_compute_counter.err";
+    DeleteFileA(output_path);
+    DeleteFileA(error_path);
+    if (!write_text_file(source_path, source)) {
+        error = "failed to stage DXIL source";
+        return false;
+    }
+    std::string command = "dxc.exe -nologo -HV 2021 -E ";
+    command += entry;
+    command += " -T ";
+    command += target;
+    command += " -Fo ";
+    command += output_path;
+    command += " -Fe ";
+    command += error_path;
+    command += " ";
+    command += source_path;
+    DWORD exit_code = run_process_wait(command);
+    bytecode = read_binary_file(output_path);
+    if (exit_code != 0 || bytecode.empty()) {
+        error = "DXC failed for append/consume counter shader";
+        return false;
+    }
     return true;
 }
 
@@ -745,11 +830,337 @@ static CaseResult run_dispatch_indirect_case() {
 }
 
 static CaseResult run_counter_case() {
-    CaseResult result = {"append_consume_counter_status", false, E_FAIL, "", ""};
-    result.pass = true;
-    result.hr = S_FALSE;
-    result.detail = "Append/consume UAV counters are explicitly unsupported by the current DXMT D3D12 compute bridge";
-    result.extra = "\"supported\":false";
+    CaseResult result = {"append_counter_runtime", false, E_FAIL, "", ""};
+    const char* hlsl =
+        "AppendStructuredBuffer<uint> output : register(u0);"
+        "[numthreads(4,1,1)] void main(uint3 id : SV_DispatchThreadID) {"
+        " output.Append(100u + id.x); }";
+
+    ID3D12Device* device = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* heap = nullptr;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* counter = nullptr;
+    ID3D12Resource* counter_upload = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    std::vector<uint8_t> cs;
+    std::string detail;
+
+    HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr) && !compile_dxil_shader(hlsl, "main", "cs_6_0", cs,
+                                              detail))
+        hr = E_FAIL;
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_RANGE range = {};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        range.NumDescriptors = 1;
+        range.BaseShaderRegister = 0;
+        D3D12_ROOT_PARAMETER param = {};
+        param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        param.DescriptorTable.NumDescriptorRanges = 1;
+        param.DescriptorTable.pDescriptorRanges = &range;
+        D3D12_ROOT_SIGNATURE_DESC desc = {};
+        desc.NumParameters = 1;
+        desc.pParameters = &param;
+        hr = serialize_root_signature(desc, &root_blob, detail);
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                         root_blob->GetBufferSize(),
+                                         IID_PPV_ARGS(&root));
+    if (SUCCEEDED(hr)) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = root;
+        desc.CS = {cs.data(), cs.size()};
+        hr = device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                             IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                       allocator, nullptr,
+                                       IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = 1;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_default_buffer(device, 16,
+                                   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                   &output);
+    if (SUCCEEDED(hr))
+        hr = create_default_buffer(device, 4096,
+                                   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_COPY_DEST, &counter);
+    const uint32_t zero = 0;
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, &zero, sizeof(zero),
+                                  &counter_upload);
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC desc = buffer_desc(32);
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_UNKNOWN;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 4;
+        uav.Buffer.StructureByteStride = sizeof(uint32_t);
+        uav.Buffer.CounterOffsetInBytes = 0;
+        device->CreateUnorderedAccessView(
+            output, counter, &uav,
+            heap->GetCPUDescriptorHandleForHeapStart());
+
+        list->CopyBufferRegion(counter, 0, counter_upload, 0, sizeof(zero));
+        D3D12_RESOURCE_BARRIER counter_ready = transition_barrier(
+            counter, D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list->ResourceBarrier(1, &counter_ready);
+        ID3D12DescriptorHeap* heaps[] = {heap};
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetComputeRootSignature(root);
+        list->SetComputeRootDescriptorTable(
+            0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetPipelineState(pso);
+        list->Dispatch(1, 1, 1);
+        D3D12_RESOURCE_BARRIER barriers[4] = {
+            uav_barrier(output), uav_barrier(counter),
+            transition_barrier(output,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(counter,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE)};
+        list->ResourceBarrier(4, barriers);
+        list->CopyBufferRegion(readback, 0, output, 0, 16);
+        list->CopyBufferRegion(readback, 16, counter, 0, sizeof(uint32_t));
+        hr = execute_and_wait(device, queue, list);
+    }
+
+    uint32_t got[5] = {};
+    bool read_ok = SUCCEEDED(hr) && readback_u32(readback, got, 5);
+    std::sort(got, got + 4);
+    const uint32_t expected[5] = {100, 101, 102, 103, 4};
+    bool verified = read_ok && std::memcmp(got, expected, sizeof(expected)) == 0;
+    result.pass = SUCCEEDED(hr) && verified;
+    result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
+    result.detail = result.pass
+                        ? "append counter allocated four exact indices and advanced the external UAV counter"
+                        : detail.empty() ? "append counter data or counter readback mismatch"
+                                         : detail;
+    char extra[192] = {};
+    std::snprintf(extra, sizeof(extra),
+                  "\"supported\":true,\"values\":[%u,%u,%u,%u],\"counter\":%u",
+                  got[0], got[1], got[2], got[3], got[4]);
+    result.extra = extra;
+
+    safe_release(readback);
+    safe_release(counter_upload);
+    safe_release(counter);
+    safe_release(output);
+    safe_release(heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(root_blob);
+    safe_release(device);
+    return result;
+}
+
+static CaseResult run_consume_counter_case() {
+    CaseResult result = {"consume_counter_runtime", false, E_FAIL, "", ""};
+    const char* hlsl =
+        "ConsumeStructuredBuffer<uint> input : register(u0);"
+        "RWStructuredBuffer<uint> output : register(u1);"
+        "[numthreads(4,1,1)] void main(uint3 id : SV_DispatchThreadID) {"
+        " output[id.x] = input.Consume(); }";
+    const uint32_t input_values[4] = {200, 201, 202, 203};
+    const uint32_t initial_counter = 4;
+
+    ID3D12Device* device = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* heap = nullptr;
+    ID3D12Resource* input = nullptr;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* counter = nullptr;
+    ID3D12Resource* input_upload = nullptr;
+    ID3D12Resource* counter_upload = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    std::vector<uint8_t> cs;
+    std::string detail;
+
+    HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr) && !compile_dxil_shader(hlsl, "main", "cs_6_0", cs,
+                                              detail))
+        hr = E_FAIL;
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_RANGE range = {};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        range.NumDescriptors = 2;
+        range.BaseShaderRegister = 0;
+        D3D12_ROOT_PARAMETER param = {};
+        param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        param.DescriptorTable.NumDescriptorRanges = 1;
+        param.DescriptorTable.pDescriptorRanges = &range;
+        D3D12_ROOT_SIGNATURE_DESC desc = {};
+        desc.NumParameters = 1;
+        desc.pParameters = &param;
+        hr = serialize_root_signature(desc, &root_blob, detail);
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                         root_blob->GetBufferSize(),
+                                         IID_PPV_ARGS(&root));
+    if (SUCCEEDED(hr)) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = root;
+        desc.CS = {cs.data(), cs.size()};
+        hr = device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                             IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                       allocator, nullptr,
+                                       IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = 2;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_default_buffer(device, 16,
+                                   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_COPY_DEST, &input);
+    if (SUCCEEDED(hr))
+        hr = create_default_buffer(device, 16,
+                                   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                                   &output);
+    if (SUCCEEDED(hr))
+        hr = create_default_buffer(device, 4096,
+                                   D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                                   D3D12_RESOURCE_STATE_COPY_DEST, &counter);
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, input_values, sizeof(input_values),
+                                  &input_upload);
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, &initial_counter,
+                                  sizeof(initial_counter), &counter_upload);
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC desc = buffer_desc(32);
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        UINT increment = device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_UNKNOWN;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 4;
+        uav.Buffer.StructureByteStride = sizeof(uint32_t);
+        uav.Buffer.CounterOffsetInBytes = 0;
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu =
+            heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateUnorderedAccessView(input, counter, &uav, cpu);
+        cpu = offset_cpu(cpu, increment, 1);
+        uav.Buffer.CounterOffsetInBytes = 0;
+        device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
+
+        list->CopyBufferRegion(input, 0, input_upload, 0,
+                               sizeof(input_values));
+        list->CopyBufferRegion(counter, 0, counter_upload, 0,
+                               sizeof(initial_counter));
+        D3D12_RESOURCE_BARRIER ready[2] = {
+            transition_barrier(input, D3D12_RESOURCE_STATE_COPY_DEST,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition_barrier(counter, D3D12_RESOURCE_STATE_COPY_DEST,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS)};
+        list->ResourceBarrier(2, ready);
+        ID3D12DescriptorHeap* heaps[] = {heap};
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetComputeRootSignature(root);
+        list->SetComputeRootDescriptorTable(
+            0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetPipelineState(pso);
+        list->Dispatch(1, 1, 1);
+        D3D12_RESOURCE_BARRIER barriers[4] = {
+            uav_barrier(output), uav_barrier(counter),
+            transition_barrier(output,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(counter,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE)};
+        list->ResourceBarrier(4, barriers);
+        list->CopyBufferRegion(readback, 0, output, 0, 16);
+        list->CopyBufferRegion(readback, 16, counter, 0, sizeof(uint32_t));
+        hr = execute_and_wait(device, queue, list);
+    }
+
+    uint32_t got[5] = {};
+    bool read_ok = SUCCEEDED(hr) && readback_u32(readback, got, 5);
+    std::sort(got, got + 4);
+    const uint32_t expected[5] = {200, 201, 202, 203, 0};
+    bool verified = read_ok && std::memcmp(got, expected, sizeof(expected)) == 0;
+    result.pass = SUCCEEDED(hr) && verified;
+    result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
+    result.detail = result.pass
+                        ? "consume counter returned four exact elements and decremented the external UAV counter to zero"
+                        : detail.empty() ? "consume counter data or counter readback mismatch"
+                                         : detail;
+    char extra[192] = {};
+    std::snprintf(extra, sizeof(extra),
+                  "\"supported\":true,\"values\":[%u,%u,%u,%u],\"counter\":%u",
+                  got[0], got[1], got[2], got[3], got[4]);
+    result.extra = extra;
+
+    safe_release(readback);
+    safe_release(counter_upload);
+    safe_release(input_upload);
+    safe_release(counter);
+    safe_release(output);
+    safe_release(input);
+    safe_release(heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(root_blob);
+    safe_release(device);
     return result;
 }
 
@@ -769,6 +1180,7 @@ int main() {
         cases.push_back(run_atomic_case());
         cases.push_back(run_dispatch_indirect_case());
         cases.push_back(run_counter_case());
+        cases.push_back(run_consume_counter_case());
     }
 
     bool pass = !cases.empty();
@@ -792,6 +1204,8 @@ int main() {
     std::printf("    \"uav_writes\": true,\n");
     std::printf("    \"atomics_32bit\": true,\n");
     std::printf("    \"append_consume_counter_status\": true,\n");
+    std::printf("    \"append_counter_runtime\": true,\n");
+    std::printf("    \"consume_counter_runtime\": true,\n");
     std::printf("    \"dispatch_indirect_layout_and_bounds\": true\n");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");

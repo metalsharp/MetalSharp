@@ -8749,6 +8749,24 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
             writable ? (WMTResourceUsage)(WMTResourceUsageRead |
                                           WMTResourceUsageWrite)
                      : WMTResourceUsageRead);
+        if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV &&
+            desc->resource_uav_counter &&
+            !compute_uses_descriptor(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 14)) {
+          auto *counter = static_cast<MTLD3D12Resource *>(
+              desc->resource_uav_counter);
+          if (counter->GetMTLBuffer().handle) {
+            append_compute_setbuffer(counter->GetMTLBuffer().handle,
+                                     desc->uav.Buffer.CounterOffsetInBytes,
+                                     30);
+            append_compute_useresource(
+                counter->GetMTLBuffer().handle,
+                (WMTResourceUsage)(WMTResourceUsageRead |
+                                   WMTResourceUsageWrite));
+            QTRACE("%s: table UAV counter u%u -> reserved slot=30 offset=%llu",
+                   trace_prefix, shader_register,
+                   (unsigned long long)desc->uav.Buffer.CounterOffsetInBytes);
+          }
+        }
       } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
         append_compute_settexture(tex.handle, shader_register);
         append_compute_useresource(

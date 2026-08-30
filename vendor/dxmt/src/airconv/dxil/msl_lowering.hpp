@@ -44,6 +44,9 @@ struct MSLLoweringOptions {
   bool depth_bounds_test = false;
   bool depth_bounds_multisample = false;
   bool sampler_feedback = false;
+  // Counter UAVs currently use one reserved direct buffer slot and do not
+  // support dynamically indexed resource heaps.
+  bool resource_heap_directly_indexed = false;
   // Reserve the DXMT fragment runtime slot and carry the flat
   // SV_ShadingRate-producing value through a dedicated interface member.  A
   // command-list replay can then select the effective rate without confusing
