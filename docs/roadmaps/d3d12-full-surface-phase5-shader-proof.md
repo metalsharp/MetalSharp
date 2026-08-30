@@ -53,12 +53,13 @@
   float bits `0x41800000` through the rebuilt typed lowering path.
 - Existing compute PSO evidence covers CBV/SRV/UAV binding, texture sampling,
   32-bit atomics, indirect dispatch bounds, and append/consume counters. The
-  direct ABI reserves compute buffer slot 30 and pixel buffer slot 25 for one
-  external structured-UAV counter; it rejects shaders that also require the
-  corresponding SRV `t14`/`t9` slot or more than one counter binding. Exact
-  compute append readback is `{100,101,102,103}` with counter `4`; exact
-  consume readback is `{200,201,202,203}` with counter `0`. A 2x2 pixel draw
-  appends exact fragment values `{0,1,2,3}` and counter `4`. The shader corpus
+  direct ABI reserves compute buffer slot 30 and graphics buffer slot 25 for
+  one external structured-UAV counter; it rejects shaders that also require
+  the corresponding SRV `t14`/`t9` slot or more than one counter binding.
+  Exact compute append readback is `{100,101,102,103}` with counter `4`; exact
+  consume readback is `{200,201,202,203}` with counter `0`. A vertex draw
+  appends `{10,11,12}` with counter `3`, and a 2x2 pixel draw appends exact
+  fragment values `{0,1,2,3}` with counter `4`. The shader corpus
   independently compiles and links its
   `AppendStructuredBuffer` case. Multi-counter and dynamically indexed
   counter heaps remain fail-closed. Previously silent sample-position,
@@ -190,8 +191,8 @@ barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
 and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to
 `/nonexistent`. Profile `phase5-append-consume5` passes the complete compute
 PSO probe, including exact append and consume data plus external counter
-readback. Profile `phase5-pixel-counter3` additionally passes the pixel-stage
-append case. Profile `phase5-counter-corpus-negative` passes the shader corpus
+readback. Profile `phase5-graphics-counter1` additionally passes exact vertex-
+and pixel-stage append cases. Profile `phase5-counter-corpus-negative` passes the shader corpus
 with `append_counter_link=true` and rejects a two-counter shader with exact
 `0x80004005`; `phase5-counter-semantic` preserves all 20
 semantic lanes with zero mismatches.
@@ -203,7 +204,7 @@ and negative behavior evidence for every declared DXIL opcode/intrinsic,
 control-flow and aggregate shape, graphics stage, remaining texture sampling
 forms, typed/raw/structured/counter resource, cache/compiler-session path, and
 all legal SM5.x–SM6.9 operations. Multi-counter, directly indexed counter-heap,
-non-compute/pixel stages, and other explicitly limited providers remain
+non-compute/vertex/pixel stages, and other explicitly limited providers remain
 fail-closed until their exact
 readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
