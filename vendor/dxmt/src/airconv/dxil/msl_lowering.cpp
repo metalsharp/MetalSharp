@@ -4204,11 +4204,13 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         switch (resource_kind) {
         case 1u:
             coord = "(" + c0 + ")";
+            has_offset = false;
             break;
         case 6u:
             coord = "(" + c0 + ")";
             array_index = "(uint)(" + c1 + ")";
             has_array_index = true;
+            has_offset = false;
             break;
         case 2u:
             coord = "float2(" + c0 + ", " + c1 + ")";
@@ -4244,6 +4246,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             break;
         }
 
+        if ((resource_kind == 1u || resource_kind == 6u) &&
+            intrinsic_id != DXOP_TextureSample) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL explicit sample modifier is unsupported for 1D resource kind=%u", resource_kind);
+            return "float4(0)";
+        }
         std::string call = handle + ".sample(" + samp + ", " + coord;
         if (has_array_index)
             call += ", " + array_index;
