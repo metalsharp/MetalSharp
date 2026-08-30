@@ -44,6 +44,15 @@
       "remaining": "The parser now resolves LLVM vector element type references without self-recursion and the SM6.7/6.8 vector lanes remain exact; first-class LLVM array values and broader matrix/type lowering remain in the exhaustive row."
     },
     {
+      "id": "dxil-atomic-binop-complete-32-bit",
+      "status": "closed",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The source-staged atomic matrix exercises add, and, or, xor, signed/unsigned min/max, and exchange with exact old/new-value readback; 64-bit atomic resource-class breadth remains in the exhaustive row."
+    },
+    {
       "id": "dxil-double-arithmetic-runtime",
       "status": "closed",
       "result": "probe-dxil-semantics",
