@@ -161,6 +161,21 @@
       "kind": "probe",
       "path": "tools/ci/m12-check.sh",
       "note": "CI-oriented M12 live render pipeline proof."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_dxil_semantics.cpp",
+      "note": "Exact runtime readbacks for arithmetic, barriers, wave/quad operations, SM6.7/6.8 arithmetic, and SM6.9 float16 conversion."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_shader_corpus/probe_shader_corpus.cpp",
+      "note": "Pinned DXC SM5.0 through SM6.9 compile/link progression and deterministic unsupported-target rejection."
+    },
+    {
+      "kind": "manifest",
+      "path": "tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json",
+      "note": "Fail-closed Phase 5 shader evidence rows and explicit exhaustive-matrix residual."
     }
   ]
 }

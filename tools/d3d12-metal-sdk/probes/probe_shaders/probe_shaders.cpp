@@ -448,7 +448,7 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID) {
                      SUCCEEDED(compute_pso_hr) && compute_pso;
     bool cache_valid = vs_metallib && ps_metallib && cs_metallib;
     bool diagnostics_valid =
-        SUCCEEDED(bad_compute_pso_hr) && bad_compute_pso && failure_trace_ok && dxil_container_trace_ok;
+        FAILED(bad_compute_pso_hr) && !bad_compute_pso && failure_trace_ok && dxil_container_trace_ok;
     bool dxc_valid =
         !dxc_required || (dxc_available && SUCCEEDED(dxc_compute_pso_hr) && dxc_compute_pso && dxc_dxil_to_msl_ok);
     bool pass = entrypoints_valid && SUCCEEDED(create_hr) && compile_valid && pso_valid && sm6_probe_explicit &&
@@ -488,7 +488,7 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID) {
     print_hr("compute_pso", compute_pso_hr);
     print_hr("bad_compute_pso", bad_compute_pso_hr);
     print_hr("dxc_compute_pso", dxc_compute_pso_hr);
-    std::printf("    \"bad_compute_returns_object_but_logs_failure\": %s\n", diagnostics_valid ? "true" : "false");
+    std::printf("    \"bad_compute_rejected_with_diagnostic\": %s\n", diagnostics_valid ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"dxmt_shader_paths\": {\n");
     std::printf("    \"dxbc_vertex_sm50\": %s,\n", graphics_trace_ok ? "true" : "false");

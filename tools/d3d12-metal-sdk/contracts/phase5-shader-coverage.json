@@ -1,0 +1,71 @@
+{
+  "schema": "metalsharp.d3d12.phase5-shader-coverage.v1",
+  "phase": 5,
+  "profile": "metalsharp-isolated",
+  "status": "open",
+  "rows": [
+    {
+      "id": "shader-model-progression-sm50-sm69",
+      "status": "closed",
+      "result": "probe-shader-corpus",
+      "checks": [
+        ["pass"],
+        ["summary", "sm60_to_sm66_progression"],
+        ["summary", "sm67_to_sm69_progression"],
+        ["summary", "sm50_baseline"]
+      ],
+      "remaining": "This row proves the pinned DXC target progression and PSO linking for the synthetic corpus; it does not claim exhaustive opcode or stage coverage."
+    },
+    {
+      "id": "typed-dxil-runtime-readback-sm60-sm69",
+      "status": "closed",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The exact semantic readback set covers arithmetic, buffers, barriers, wave/quad operations, SM6.7 vector/int64 arithmetic, SM6.8 wide arithmetic, and SM6.9 float16 conversion."
+    },
+    {
+      "id": "wave-quad-runtime-matrix",
+      "status": "closed",
+      "result": "probe-wave-ops",
+      "checks": [
+        ["pass"],
+        ["summary", "runtime_correctness_complete"],
+        ["summary", "waveops_reportable"]
+      ]
+    },
+    {
+      "id": "unsupported-dxil-semantics-fail-closed",
+      "status": "closed",
+      "result": "probe-shaders",
+      "checks": [
+        ["pass"],
+        ["pipeline_state", "bad_compute_rejected_with_diagnostic"]
+      ],
+      "remaining": "Unsupported semantics are rejected instead of being promoted through placeholder MSL; implementation breadth remains tracked by the open exhaustive row."
+    },
+    {
+      "id": "resource-atomic-and-indirect-baseline",
+      "status": "closed",
+      "result": "probe-compute-pso",
+      "checks": [
+        ["pass"],
+        ["coverage", "cbv_srv_uav_reads"],
+        ["coverage", "uav_writes"],
+        ["coverage", "atomics_32bit"],
+        ["coverage", "dispatch_indirect_layout_and_bounds"]
+      ],
+      "remaining": "Append/consume UAV counters remain explicitly unsupported and require a dedicated provider and readback matrix."
+    },
+    {
+      "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
+      "status": "open",
+      "result": "probe-shader-corpus",
+      "checks": [
+        ["pass"]
+      ],
+      "remaining": "Positive and negative evidence is still incomplete for the full stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, counter, cache, and compiler-session matrix."
+    }
+  ]
+}

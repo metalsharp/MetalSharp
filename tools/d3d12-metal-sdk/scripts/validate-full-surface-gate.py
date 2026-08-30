@@ -21,11 +21,13 @@ CONTRACT_DIR = SDK_DIR / "contracts"
 DEFAULT_RESULTS_DIR = SDK_DIR / "results"
 DEFAULT_MANIFEST = CONTRACT_DIR / "phase3-exhaustive-coverage.json"
 PHASE4_MANIFEST = CONTRACT_DIR / "phase4-command-coverage.json"
+PHASE5_MANIFEST = CONTRACT_DIR / "phase5-shader-coverage.json"
 VALIDATORS = (
     "validate-contracts.py",
     "validate-probe-matrix.py",
     "validate-interface-census.py",
     "validate-full-surface-contract.py",
+    "validate-shader-engine.py",
 )
 MISSING = object()
 
@@ -43,8 +45,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path,
                         help="Coverage manifest (defaults to the selected phase).")
     parser.add_argument(
-        "--phase", choices=("3", "4", "all"), default="all",
-        help="Gate Phase 3, Phase 4, or all currently declared phases (default: all).",
+        "--phase", choices=("3", "4", "5", "all"), default="all",
+        help="Gate Phase 3, Phase 4, Phase 5, or all currently declared phases (default: all).",
     )
     parser.add_argument(
         "--format", choices=("text", "json"), default="text"
@@ -150,7 +152,8 @@ def check_result(
 
 def build_summary(args: argparse.Namespace) -> dict[str, Any]:
     manifest_path = args.manifest or (
-        PHASE4_MANIFEST if args.phase == "4" else DEFAULT_MANIFEST
+        PHASE4_MANIFEST if args.phase == "4" else
+        PHASE5_MANIFEST if args.phase == "5" else DEFAULT_MANIFEST
     )
     blockers: list[dict[str, str]] = []
     validator_rows = run_validators()
@@ -201,13 +204,14 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
         expected_schema = {
             "3": "metalsharp.d3d12.phase3-exhaustive-coverage.v1",
             "4": "metalsharp.d3d12.phase4-command-coverage.v1",
+            "5": "metalsharp.d3d12.phase5-shader-coverage.v1",
         }.get(args.phase)
         if args.phase == "all":
             expected_schema = "metalsharp.d3d12.phase3-exhaustive-coverage.v1"
         if expected_schema and manifest.get("schema") != expected_schema:
             blockers.append({"id": f"phase{args.phase}-coverage-manifest-schema",
                              "detail": "unexpected coverage manifest schema"})
-        if args.phase in ("3", "4", "all"):
+        if args.phase in ("3", "4", "5", "all"):
             if manifest.get("status") != "closed":
                 blockers.append({"id": f"phase{args.phase}-coverage-status",
                                  "detail": f"manifest status is {manifest.get('status')!r}, not 'closed'"})
@@ -233,7 +237,7 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
         # Keep the historical Phase 3 manifest as the primary input while
         # making an all-phase gate fail closed when a later declared phase has
         # an open manifest of its own.
-        additional_manifests.append(str(PHASE4_MANIFEST))
+        additional_manifests.extend((str(PHASE4_MANIFEST), str(PHASE5_MANIFEST)))
         try:
             phase4_manifest = load_json(PHASE4_MANIFEST)
         except (OSError, json.JSONDecodeError) as exc:
@@ -267,6 +271,41 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
                                          "detail": "required behavior evidence failed"})
                     if row.get("status") != "closed":
                         blockers.append({"id": f"phase4:{row['id']}",
+                                         "detail": row.get("remaining", "coverage row is still open")})
+
+        try:
+            phase5_manifest = load_json(PHASE5_MANIFEST)
+        except (OSError, json.JSONDecodeError) as exc:
+            phase5_manifest = {}
+            blockers.append({"id": "phase5-coverage-manifest",
+                             "detail": f"coverage manifest cannot be loaded: {exc}"})
+        if isinstance(phase5_manifest, dict):
+            if phase5_manifest.get("schema") != "metalsharp.d3d12.phase5-shader-coverage.v1":
+                blockers.append({"id": "phase5-coverage-manifest-schema",
+                                 "detail": "unexpected Phase 5 coverage manifest schema"})
+            if phase5_manifest.get("status") != "closed":
+                blockers.append({"id": "phase5-coverage-status",
+                                 "detail": f"coverage manifest status is {phase5_manifest.get('status')!r}, not 'closed'"})
+            phase5_rows = phase5_manifest.get("rows")
+            if not isinstance(phase5_rows, list) or not phase5_rows:
+                blockers.append({"id": "phase5-coverage-rows",
+                                 "detail": "coverage manifest rows are missing or empty"})
+            else:
+                for row in phase5_rows:
+                    if not isinstance(row, dict) or not row.get("id"):
+                        blockers.append({"id": "phase5-coverage-row-shape",
+                                         "detail": "coverage row is not a named object"})
+                        continue
+                    evidence, row_blockers = check_result(
+                        args.results_dir, args.profile, row
+                    )
+                    evidence["phase"] = 5
+                    manifest_rows.append(evidence)
+                    for row_id in row_blockers:
+                        blockers.append({"id": f"phase5:{row_id}",
+                                         "detail": "required behavior evidence failed"})
+                    if row.get("status") != "closed":
+                        blockers.append({"id": f"phase5:{row['id']}",
                                          "detail": row.get("remaining", "coverage row is still open")})
 
     result = {

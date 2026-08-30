@@ -11478,7 +11478,7 @@
           "source_references": [
             {
               "lines": [
-                4018
+                4027
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_pipeline_state.cpp"
             },
@@ -18890,7 +18890,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "f11f3454b0e9c7a123769daca834ee7b0b6488f6",
+    "git_head": "ccbb903d7f93d12d72d51988d20f67bf02508a04",
     "runtime_file_count": 166,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
@@ -18899,7 +18899,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "f1e8b31f6dd0bf6a12e10aacab77cebf054ab54331e793b1ab4860eb1a226cc2"
+    "runtime_tree_sha256": "4604de48c3b6d6529ce8b01dd4fcd180345293d846d005f6298498a251e478bc"
   },
   "state": "phase0_inventory",
   "summary": {

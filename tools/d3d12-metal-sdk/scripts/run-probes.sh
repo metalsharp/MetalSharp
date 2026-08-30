@@ -2174,22 +2174,63 @@ void cs_wave_quad(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
                (across == (id.x ^ 1u) ? 0x1u : 0u);
   outbuf.Store(gi * 4, valid);
 }
+
+[numthreads(4, 1, 1)]
+void cs_sm67(uint3 id : SV_DispatchThreadID) {
+  uint4 vector = uint4(id.x + 1u, id.x + 2u, id.x + 3u, id.x + 4u);
+  uint64_t wide = (uint64_t(vector.x) << 32) | uint64_t(vector.x + 67u);
+  outbuf.Store(id.x * 4, uint(wide));
+}
+
+[numthreads(4, 1, 1)]
+void cs_sm68(uint3 id : SV_DispatchThreadID) {
+  uint64_t wide = uint64_t(id.x + 1u) * uint64_t(68u);
+  outbuf.Store(id.x * 4, uint(wide));
+}
+
 HLSL
+
+  local sm69_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_sm69.hlsl"
+  cat > "$sm69_hlsl" <<'HLSL_SM69'
+RWByteAddressBuffer outbuf : register(u0);
+
+[numthreads(4, 1, 1)]
+void cs_sm69(uint3 id : SV_DispatchThreadID) {
+  float16_t value = float16_t(69.0) + float16_t(id.x) * float16_t(1.5);
+  outbuf.Store(id.x * 4, uint(value));
+}
+HLSL_SM69
 
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-    "$WINE_BIN" dxc.exe -nologo -E cs_math_bits -T cs_6_0 -Fo probe_dxil_semantic_math_bits.cso probe_dxil_semantics.hlsl >/dev/null
+    "$WINE_BIN" dxc.exe -nologo -E cs_math_bits -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_math_bits.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-    "$WINE_BIN" dxc.exe -nologo -E cs_buffer -T cs_6_0 -Fo probe_dxil_semantic_buffer.cso probe_dxil_semantics.hlsl >/dev/null
+    "$WINE_BIN" dxc.exe -nologo -E cs_buffer -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_buffer.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-    "$WINE_BIN" dxc.exe -nologo -E cs_atomics_ids -T cs_6_0 -Fo probe_dxil_semantic_atomics_ids.cso probe_dxil_semantics.hlsl >/dev/null
+    "$WINE_BIN" dxc.exe -nologo -E cs_atomics_ids -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_atomics_ids.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-    "$WINE_BIN" dxc.exe -nologo -E cs_wave_quad -T cs_6_6 -Fo probe_dxil_semantic_wave_quad.cso probe_dxil_semantics.hlsl >/dev/null
+    "$WINE_BIN" dxc.exe -nologo -E cs_wave_quad -T cs_6_6 -HV 2021 \
+      -Fo probe_dxil_semantic_wave_quad.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm67 -T cs_6_7 -HV 2021 \
+      -Fo probe_dxil_semantic_sm67.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm68 -T cs_6_8 -HV 2021 \
+      -Fo probe_dxil_semantic_sm68.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69.cso probe_dxil_semantic_sm69.hlsl >/dev/null
   )
 
   mkdir -p "$SHADER_CACHE_DIR"
