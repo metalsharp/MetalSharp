@@ -86,6 +86,8 @@ enum DXIntrinsicOpcode {
   DXOP_WaveAllBitCount = 135,
   DXOP_WavePrefixBitCount = 136,
   DXOP_WaveMatch = 165,
+  DXOP_WaveMultiPrefixOp = 166,
+  DXOP_WaveMultiPrefixBitCount = 167,
   DXOP_QuadReadLaneAt = 122,
   DXOP_QuadOp = 123,
   DXOP_QuadVote = 222,
@@ -333,6 +335,8 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "waveAllBitCount", 15) == 0) return 135;
     if (strncmp(s, "wavePrefixBitCount", 18) == 0) return 136;
     if (strncmp(s, "waveMatch", 9) == 0) return DXOP_WaveMatch;
+    if (strncmp(s, "waveMultiPrefixOp", 17) == 0) return DXOP_WaveMultiPrefixOp;
+    if (strncmp(s, "waveMultiPrefixBitCount", 23) == 0) return DXOP_WaveMultiPrefixBitCount;
     if (strncmp(s, "wavePrefixOp", 12) == 0) return 121;
     if (strncmp(s, "quadReadLaneAt", 14) == 0) return 122;
     if (strncmp(s, "quadOp", 6) == 0) return 123;
@@ -404,6 +408,8 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_WaveAllBitCount:
     case DXOP_WavePrefixBitCount:
     case DXOP_WaveMatch:
+    case DXOP_WaveMultiPrefixOp:
+    case DXOP_WaveMultiPrefixBitCount:
     case DXOP_WavePrefixOp:
     case DXOP_LegacyF32ToF16:
     case DXOP_LegacyF16ToF32:
@@ -762,6 +768,11 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  for (uint other = 0u; other < count; ++other)\n";
         os << "    if (value == simd_broadcast(value, other)) mask |= 1u << other;\n";
         os << "  return mask;\n";
+        os << "}\n\n";
+        os << "static inline uint m12_wave_multi_prefix_bit_count(uint value, uint mask, uint lane) {\n";
+        os << "  uint active = static_cast<uint>(static_cast<simd_vote::vote_t>(simd_ballot(value != 0u)));\n";
+        os << "  uint lower = lane == 0u ? 0u : ((1u << lane) - 1u);\n";
+        os << "  return popcount(mask & active & lower);\n";
         os << "}\n\n";
     }
 
@@ -3249,6 +3260,8 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::UInt, 0, {}};
     case DXOP_WaveMatch:
         return {MSLTypeKind::UInt4, 0, {}};
+    case DXOP_WaveMultiPrefixBitCount:
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_LegacyF32ToF16:
         return {MSLTypeKind::UInt, 0, {}};
     case DXOP_LegacyF16ToF32:
@@ -4288,6 +4301,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto value = numericArg(0, "0");
         return "uint4(m12_wave_match(uint(" + value + "), simd_lane, simd_count), 0u, 0u, 0u)";
     }
+    case DXOP_WaveMultiPrefixBitCount:
+        return "m12_wave_multi_prefix_bit_count(uint(" + numericArg(0, "0") + "), uint(" +
+               numericArg(1, "0") + "), simd_lane)";
     case DXOP_WaveActiveOp: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_op");
