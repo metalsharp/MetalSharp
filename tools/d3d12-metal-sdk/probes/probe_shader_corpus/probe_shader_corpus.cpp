@@ -266,6 +266,9 @@ struct CaseResult {
     bool compile_ok = false;
     bool dxil_blob = false;
     bool pso_created = false;
+    bool geometry_compile_ok = false;
+    bool geometry_pso_created = false;
+    HRESULT geometry_pso_hr = E_FAIL;
     bool case_pass = false;
     DWORD dxc_exit_code = 0xffffffffu;
     HRESULT pso_hr = E_FAIL;
@@ -352,6 +355,12 @@ struct VSOut {
   float4 color : COLOR0;
 };
 
+[maxvertexcount(3)]
+void gs_main(triangle VSOut input[3], inout TriangleStream<VSOut> output) {
+  for (uint i = 0; i < 3; ++i)
+    output.Append(input[i]);
+}
+
 VSOut vs_main(uint vertex_id : SV_VertexID) {
   float2 positions[3] = {
     float2(0.0, 0.5),
@@ -371,15 +380,21 @@ float4 ps_main(VSOut input) : SV_Target0 {
 
     ID3DBlob* vs = nullptr;
     ID3DBlob* ps = nullptr;
+    ID3DBlob* gs = nullptr;
     ID3DBlob* vs_errors = nullptr;
     ID3DBlob* ps_errors = nullptr;
+    ID3DBlob* gs_errors = nullptr;
     HRESULT vs_hr = compile ? compile(hlsl, std::strlen(hlsl), "probe_shader_corpus_sm50.hlsl", nullptr, nullptr,
                                       "vs_main", "vs_5_0", 0, 0, &vs, &vs_errors)
                             : E_FAIL;
     HRESULT ps_hr = compile ? compile(hlsl, std::strlen(hlsl), "probe_shader_corpus_sm50.hlsl", nullptr, nullptr,
                                       "ps_main", "ps_5_0", 0, 0, &ps, &ps_errors)
                             : E_FAIL;
+    HRESULT gs_hr = compile ? compile(hlsl, std::strlen(hlsl), "probe_shader_corpus_sm50.hlsl", nullptr, nullptr,
+                                      "gs_main", "gs_5_0", 0, 0, &gs, &gs_errors)
+                            : E_FAIL;
     result.compile_ok = SUCCEEDED(vs_hr) && vs && SUCCEEDED(ps_hr) && ps;
+    result.geometry_compile_ok = SUCCEEDED(gs_hr) && gs;
     result.dxil_blob = false;
     result.dxc_exit_code = 0;
 
@@ -402,24 +417,49 @@ float4 ps_main(VSOut input) : SV_Target0 {
         safe_release(pso);
     }
 
-    result.case_pass = result.compile_ok && result.pso_created;
-    if (!result.compile_ok) {
+    if (result.geometry_compile_ok && result.compile_ok && device && root) {
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = root;
+        desc.VS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+        desc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
+        desc.GS = {gs->GetBufferPointer(), gs->GetBufferSize()};
+        desc.BlendState = default_blend_desc();
+        desc.SampleMask = UINT_MAX;
+        desc.RasterizerState = default_rasterizer_desc();
+        desc.DepthStencilState = default_depth_stencil_desc();
+        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        desc.NumRenderTargets = 1;
+        desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        ID3D12PipelineState* geometry_pso = nullptr;
+        result.geometry_pso_hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&geometry_pso));
+        result.geometry_pso_created = SUCCEEDED(result.geometry_pso_hr) && geometry_pso;
+        safe_release(geometry_pso);
+    }
+
+    result.case_pass = result.compile_ok && result.pso_created && result.geometry_compile_ok &&
+                       result.geometry_pso_created;
+    if (!result.compile_ok || !result.geometry_compile_ok) {
         std::string errors;
         if (vs_errors)
             errors.append(static_cast<const char*>(vs_errors->GetBufferPointer()), vs_errors->GetBufferSize());
         if (ps_errors)
             errors.append(static_cast<const char*>(ps_errors->GetBufferPointer()), ps_errors->GetBufferSize());
-        result.detail = errors.empty() ? "d3dcompiler_47 did not produce SM 5.0 graphics blobs" : errors;
-    } else if (!result.pso_created) {
-        result.detail = "SM 5.0 graphics shaders compiled, but graphics PSO linking failed";
+        if (gs_errors)
+            errors.append(static_cast<const char*>(gs_errors->GetBufferPointer()), gs_errors->GetBufferSize());
+        result.detail = errors.empty() ? "d3dcompiler_47 did not produce SM 5.0 graphics-stage blobs" : errors;
+    } else if (!result.pso_created || !result.geometry_pso_created) {
+        result.detail = "SM 5.0 graphics stages compiled, but graphics PSO linking failed";
     } else {
-        result.detail = "SM 5.0 graphics baseline compiled and linked";
+        result.detail = "SM 5.0 vertex/pixel/geometry stages compiled and linked";
     }
 
     safe_release(vs);
     safe_release(ps);
+    safe_release(gs);
     safe_release(vs_errors);
     safe_release(ps_errors);
+    safe_release(gs_errors);
     return result;
 }
 
@@ -680,6 +720,9 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
         std::printf("      \"dxc_exit_code\": %lu,\n", static_cast<unsigned long>(result.dxc_exit_code));
         std::printf("      \"pso_created\": %s,\n", result.pso_created ? "true" : "false");
         std::printf("      \"pso_hr\": \"%s\",\n", hr_hex(result.pso_hr).c_str());
+        std::printf("      \"geometry_compile_ok\": %s,\n", result.geometry_compile_ok ? "true" : "false");
+        std::printf("      \"geometry_pso_created\": %s,\n", result.geometry_pso_created ? "true" : "false");
+        std::printf("      \"geometry_pso_hr\": \"%s\",\n", hr_hex(result.geometry_pso_hr).c_str());
         std::printf("      \"case_pass\": %s,\n", result.case_pass ? "true" : "false");
         std::printf("      \"detail\": \"%s\"\n", json_escape(result.detail).c_str());
         std::printf("    }%s\n", i + 1 == results.size() ? "" : ",");

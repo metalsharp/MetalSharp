@@ -9,9 +9,9 @@
 - The typed DXIL-to-MSL path now rejects a generated shader when lowering
   reports unsupported intrinsics or opcodes. An unsupported operation cannot
   silently become a placeholder MSL value and a successful PSO.
-- The pinned DXC corpus compiles and links the SM5.0 graphics baseline and
-  compute targets SM6.0 through SM6.9. SM6.7/6.8 include vector and 64-bit
-  arithmetic; the SM6.9 runtime lane uses `float16_t` with
+- The pinned DXC corpus compiles and links the SM5.0 vertex/pixel/geometry
+  graphics baseline and compute targets SM6.0 through SM6.9. SM6.7/6.8
+  include vector and 64-bit arithmetic; the SM6.9 runtime lane uses `float16_t` with
   `-enable-16bit-types`.
 - The exact semantic readback probe covers float/int math and bitcasts,
   first-bit and reverse-bit operations, min/max and integer multiply-add, raw
