@@ -78,7 +78,7 @@
         ["summary", "runtime_correctness_complete"],
         ["summary", "sm67_breadth_complete"]
       ],
-      "remaining": "The focused matrix covers the current SM6.6/6.7 atomic, descriptor, texture, sample-compare, raw-gather, QuadVote, and root-constant provider; complete SM5.x–SM6.9 opcode/stage/resource coverage remains open."
+      "remaining": "The focused matrix covers the current SM6.6/6.7 atomic, descriptor, texture, sample-compare, raw-gather, QuadVote, root-constant provider, and SM6.8 SampleCmpGrad/SampleCmpBias cases; complete SM5.x–SM6.9 opcode/stage/resource coverage remains open."
     },
     {
       "id": "lowering-report-unsupported-placeholder-audit",
