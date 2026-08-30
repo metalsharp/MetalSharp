@@ -277,6 +277,14 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         return 31u;
     if (std::strcmp(name, "wave_i64_bit_xor") == 0)
         return 0u;
+    if (std::strcmp(name, "wave_i64_signed_min") == 0)
+        return 69u;
+    if (std::strcmp(name, "wave_i64_signed_max") == 0)
+        return 100u;
+    if (std::strcmp(name, "wave_i64_unsigned_min") == 0)
+        return 1u;
+    if (std::strcmp(name, "wave_i64_unsigned_max") == 0)
+        return 32u;
     return 0xffffffffu;
 }
 
@@ -554,6 +562,30 @@ void cs_wave_i64_bit_xor(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex
   uint64_t value = 0x100000000ull | uint64_t(gi);
   outbuf.Store(gi * 4, uint(WaveActiveBitXor(value)));
 }
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_signed_min(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  int64_t value = 100ll - int64_t(gi);
+  outbuf.Store(gi * 4, uint(WaveActiveMin(value)));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_signed_max(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  int64_t value = 100ll - int64_t(gi);
+  outbuf.Store(gi * 4, uint(WaveActiveMax(value)));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_unsigned_min(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t value = uint64_t(gi + 1u);
+  outbuf.Store(gi * 4, uint(WaveActiveMin(value)));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_unsigned_max(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t value = uint64_t(gi + 1u);
+  outbuf.Store(gi * 4, uint(WaveActiveMax(value)));
+}
 )";
 
     bool hlsl_written = write_text_file("Z:\\tmp\\dxmt_wave_ops.hlsl", hlsl);
@@ -600,6 +632,10 @@ void cs_wave_i64_bit_xor(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex
         {"wave_i64_bit_and", "cs_wave_i64_bit_and", "cs_6_6"},
         {"wave_i64_bit_or", "cs_wave_i64_bit_or", "cs_6_6"},
         {"wave_i64_bit_xor", "cs_wave_i64_bit_xor", "cs_6_6"},
+        {"wave_i64_signed_min", "cs_wave_i64_signed_min", "cs_6_6"},
+        {"wave_i64_signed_max", "cs_wave_i64_signed_max", "cs_6_6"},
+        {"wave_i64_unsigned_min", "cs_wave_i64_unsigned_min", "cs_6_6"},
+        {"wave_i64_unsigned_max", "cs_wave_i64_unsigned_max", "cs_6_6"},
     };
 
     std::vector<CaseResult> results;
