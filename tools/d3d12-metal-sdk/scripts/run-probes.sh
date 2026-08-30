@@ -2549,7 +2549,7 @@ prepare_texture_dimension_probes() {
     for entry in \
       cs_texture_1d cs_texture_1d_array cs_texture_2d cs_texture_2d_array \
       cs_texture_3d cs_texture_cube cs_texture_cube_array cs_texture_2d_ms \
-      cs_texture_2d_ms_array cs_store_1d cs_store_1d_array cs_store_2d \
+      cs_texture_2d_ms_array cs_texture_typed_uint cs_store_1d cs_store_1d_array cs_store_2d \
       cs_store_2d_array cs_store_3d; do
       rm -f "${entry}.cso" "${entry}.dxc.log"
       if ! WINEPREFIX="$WINE_PREFIX" \

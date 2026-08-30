@@ -9,6 +9,7 @@ TextureCube<float4> texcube : register(t0);
 TextureCubeArray<float4> texcubea : register(t0);
 Texture2DMS<float4> texms : register(t0);
 Texture2DMSArray<float4> texmsa : register(t0);
+Texture2D<uint> tex_uint : register(t0);
 
 RWStructuredBuffer<uint> output : register(u0);
 
@@ -82,6 +83,14 @@ void cs_texture_2d_ms_array(uint3 id : SV_DispatchThreadID) {
   uint w, h, elements, samples;
   texmsa.GetDimensions(w, h, elements, samples);
   output[1] = w | (h << 8) | (elements << 16) | (samples << 24);
+}
+
+[numthreads(1,1,1)]
+void cs_texture_typed_uint(uint3 id : SV_DispatchThreadID) {
+  output[0] = tex_uint.Load(int3(0, 0, 0));
+  uint w, h;
+  tex_uint.GetDimensions(w, h);
+  output[1] = w | (h << 8);
 }
 
 RWTexture1D<float4> rw1 : register(u0);

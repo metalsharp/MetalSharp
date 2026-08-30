@@ -52,14 +52,22 @@ static constexpr uint32_t kD3D12RootParameterSlotCount = 64;
 
 static uint32_t DirectBufferSlotForRange(
     D3D12_DESCRIPTOR_RANGE_TYPE range_type, uint32_t shader_register) {
-  // D3D12 keeps SRV and UAV/CBV registers in independent namespaces while
-  // the direct MSL ABI exposes one buffer namespace.  The typed DXIL lowerer
-  // reserves the upper half for SRV buffers.
+  // D3D12 keeps SRV, UAV, and CBV registers in independent namespaces while
+  // the direct MSL ABI exposes one buffer namespace.  Reserve 0..7 for UAVs,
+  // 8..15 for CBVs, and 16..30 for SRVs.  The shader lowerer uses the same
+  // partition so a root CBV and UAV at register zero cannot alias.
   if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV) {
     if (shader_register >= 15)
       return UINT32_MAX;
     return shader_register + 16;
   }
+  if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV) {
+    if (shader_register >= 8)
+      return UINT32_MAX;
+    return shader_register + 8;
+  }
+  if (shader_register >= 8)
+    return UINT32_MAX;
   return shader_register;
 }
 
@@ -8635,9 +8643,17 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
       struct wmtcmd_compute_setbytes sb = {};
       sb.type = WMTComputeCommandSetBytes;
       sb.length = const_size;
-      sb.index = i;
+      uint32_t constant_register = i;
+      if (compute_sig && i < compute_sig->GetParameters().size() &&
+          compute_sig->GetParameters()[i].type ==
+              D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS)
+        constant_register = compute_sig->GetParameters()[i].register_index;
+      uint32_t constant_slot = DirectBufferSlotForRange(
+          D3D12_DESCRIPTOR_RANGE_TYPE_CBV, constant_register);
+      sb.index = constant_slot == UINT32_MAX ? i : constant_slot;
       sb.bytes.ptr = (void *)(const_buf + const_off);
-      append_cmd(&sb, sizeof(sb));
+      if (append_cmd(&sb, sizeof(sb)))
+        mark_compute_buffer(sb.index);
     }
     auto compute_root_register = [&](D3D12_ROOT_PARAMETER_TYPE type) {
       if (compute_sig && i < compute_sig->GetParameters().size()) {
