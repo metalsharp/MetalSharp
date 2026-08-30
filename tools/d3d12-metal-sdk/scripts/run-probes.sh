@@ -2349,6 +2349,15 @@ void cs_control_aggregate(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(id.x * 4, value);
 }
 
+[numthreads(4, 1, 1)]
+void cs_loop_aggregate(uint3 id : SV_DispatchThreadID) {
+  uint value = 0u;
+  [loop]
+  for (uint i = 0u; i <= id.x; ++i)
+    value += i + 1u;
+  outbuf.Store(id.x * 4, value);
+}
+
 HLSL
 
   local sm69_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_sm69.hlsl"
@@ -2443,6 +2452,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_control_aggregate -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_control_aggregate.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_loop_aggregate -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_loop_aggregate.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \

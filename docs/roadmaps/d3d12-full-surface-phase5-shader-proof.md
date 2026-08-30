@@ -20,8 +20,9 @@
   and signed/unsigned `dot4add` packed accumulation, group-shared atomics and
   barriers,
   WaveOps/QuadOps, SM6.7 vector/int64 arithmetic, SM6.8
-  wide arithmetic, SM6.9 float16 to integer conversion, a multi-block
-  switch/PHI/vector-aggregate case, and a 4x4 texture's Load, SampleLevel,
+  wide arithmetic, SM6.9 float16 to integer conversion, multi-block
+  switch/PHI/vector-aggregate and loop-carried aggregate cases, and a 4x4
+  texture's Load, SampleLevel,
   SampleGrad, SampleBias, GatherRed, and GetDimensions forms. Every lane
   creates a PSO, dispatches through the DXMT command path, and matches its
   expected readback. The fresh no-offline-converter run reports
@@ -111,7 +112,7 @@ METAL_SHADER_CONVERTER=/nonexistent \
 ```
 
 The latest isolated semantic result (profile
-`phase5-control-flow-semantic-fix`) passed with these exact lanes. It was run
+`phase5-loop-aggregate-source`) passed with these exact lanes. It was run
 against the rebuilt typed lowering path with no offline shader converter,
 so PSO creation exercised the runtime MSL compiler directly:
 
@@ -125,6 +126,7 @@ so PSO creation exercised the runtime MSL compiler directly:
   "sm68_vector_arithmetic": {"expected": [68, 136, 204, 272], "actual": [68, 136, 204, 272]},
   "sm69_integer_float_mix": {"expected": [69, 70, 72, 73], "actual": [69, 70, 72, 73]},
   "control_flow_aggregates": {"expected": [120, 212, 328, 320], "actual": [120, 212, 328, 320]},
+  "loop_aggregate": {"expected": [1, 3, 6, 10], "actual": [1, 3, 6, 10]},
   "texture_sampling_forms": {"expected": [64, 64, 64, 64, 64, 68], "actual": [64, 64, 64, 64, 64, 68]}
 }
 ```
