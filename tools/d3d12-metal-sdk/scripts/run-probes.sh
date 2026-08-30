@@ -2144,10 +2144,32 @@ void cs_math_bits(uint3 id : SV_DispatchThreadID) {
   }
 }
 
+[numthreads(1, 1, 1)]
+void cs_special_float(uint3 id : SV_DispatchThreadID) {
+  float nan_value = asfloat(0x7fc00000u);
+  float inf_value = asfloat(0x7f800000u);
+  float finite_value = 1.5;
+  outbuf.Store(0, isnan(nan_value) ? 1u : 0u);
+  outbuf.Store(4, isinf(inf_value) ? 1u : 0u);
+  outbuf.Store(8, isfinite(finite_value) ? 1u : 0u);
+  outbuf.Store(12, isfinite(inf_value) ? 1u : 0u);
+}
+
 [numthreads(4, 1, 1)]
 void cs_buffer(uint3 id : SV_DispatchThreadID) {
   uint v = inbuf.Load(id.x * 4);
   outbuf.Store(id.x * 4, v * 3 + 1);
+}
+
+[numthreads(1, 1, 1)]
+void cs_atomic_uav(uint3 id : SV_DispatchThreadID) {
+  uint original = 0;
+  outbuf.InterlockedExchange(0, 5, original);
+  outbuf.Store(4, original);
+  outbuf.InterlockedAdd(0, 3, original);
+  outbuf.Store(8, original);
+  outbuf.InterlockedCompareExchange(0, 8, 7, original);
+  outbuf.Store(12, original);
 }
 
 groupshared uint g_counter;
@@ -2238,8 +2260,16 @@ HLSL_TEXTURE
       -Fo probe_dxil_semantic_math_bits.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_special_float -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_special_float.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_buffer -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_buffer.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_atomic_uav -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_atomic_uav.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_atomics_ids -T cs_6_0 -HV 2021 \
