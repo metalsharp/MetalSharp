@@ -634,6 +634,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name, "sample_cmp_level_sm67") == 0) {
                 const uint32_t expected[] = {25, 75, 0, 1};
                 std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "sample_cmp_grad_sm68") == 0 ||
+                       std::strcmp(audit_case.name, "sample_cmp_bias_sm68") == 0) {
+                const uint32_t expected[] = {0, 0, 0, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
             } else {
                 const uint32_t expected[] = {260, 261, 262, 263};
                 std::memcpy(result.expected, expected, sizeof(expected));
@@ -973,6 +977,21 @@ void cs_sample_cmp_level_sm67(uint3 id : SV_DispatchThreadID) {
                          (uint)mip0, (uint)mip1));
 }
 
+[numthreads(1, 1, 1)]
+void cs_sample_cmp_grad_sm68(uint3 id : SV_DispatchThreadID) {
+  float value = comparison_tex.SampleCmpGrad(
+      comparison_smp, float2(0.5, 0.5), 0.5,
+      float2(0.0, 0.0), float2(0.0, 0.0));
+  outbuf.Store(0, (uint)value);
+}
+
+[numthreads(4, 1, 1)]
+void cs_sample_cmp_bias_sm68(uint3 id : SV_DispatchThreadID) {
+  float value = comparison_tex.SampleCmpBias(
+      comparison_smp, float2(0.5, 0.5), 0.5, 0.0);
+  outbuf.Store(0, (uint)value);
+}
+
 [numthreads(32, 1, 1)]
 void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
   bool any_vote = QuadAny((id.x & 3u) == 2u);
@@ -1035,6 +1054,8 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
          true},
         {"raw_gather_sm67", "cs_raw_gather_sm67", "cs_6_7", "sm67_raw_gather", true},
         {"sample_cmp_level_sm67", "cs_sample_cmp_level_sm67", "cs_6_7", "sm67_sample_cmp_level", true},
+        {"sample_cmp_grad_sm68", "cs_sample_cmp_grad_sm68", "cs_6_8", "sm68_sample_cmp_gradient", true},
+        {"sample_cmp_bias_sm68", "cs_sample_cmp_bias_sm68", "cs_6_8", "sm68_sample_cmp_bias", true},
         {"quad_vote_sm67", "cs_quad_vote_sm67", "cs_6_7", "sm67_quad_vote", true},
     };
 

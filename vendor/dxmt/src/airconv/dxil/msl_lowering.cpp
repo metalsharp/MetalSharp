@@ -36,6 +36,7 @@ enum DXIntrinsicOpcode {
   DXOP_TextureSampleCmp = 64,
   DXOP_TextureSampleCmpLevelZero = 65,
   DXOP_Barrier = 80,
+  DXOP_Discard = 82,
   DXOP_Unary = 13,
   DXOP_Binary = 14,
   DXOP_Tertiary = 15,
@@ -54,8 +55,19 @@ enum DXIntrinsicOpcode {
   DXOP_DerivFineX = 85,
   DXOP_DerivFineY = 86,
   DXOP_CalcLOD = 81,
+  DXOP_LegacyF32ToF16 = 130,
   DXOP_LegacyF16ToF32 = 131,
-  DXOP_LegacyF32ToF16 = 132,
+  DXOP_LegacyDoubleToFloat = 132,
+  DXOP_LegacyDoubleToSInt32 = 133,
+  DXOP_LegacyDoubleToUInt32 = 134,
+  DXOP_MakeDouble = 101,
+  DXOP_SplitDouble = 102,
+  DXOP_BitcastI16ToF16 = 124,
+  DXOP_BitcastF16ToI16 = 125,
+  DXOP_BitcastI32ToF32 = 126,
+  DXOP_BitcastF32ToI32 = 127,
+  DXOP_BitcastI64ToF64 = 128,
+  DXOP_BitcastF64ToI64 = 129,
   DXOP_WaveIsFirstLane = 110,
   DXOP_WaveGetLaneIndex = 111,
   DXOP_WaveGetLaneCount = 112,
@@ -75,6 +87,8 @@ enum DXIntrinsicOpcode {
   DXOP_QuadVote = 222,
   DXOP_TextureStoreSample = 225,
   DXOP_TextureSampleCmpLevel = 224,
+  DXOP_TextureSampleCmpGrad = 254,
+  DXOP_TextureSampleCmpBias = 255,
   DXOP_TextureGatherCmp = 74,
   DXOP_TextureGatherRaw = 223,
   DXOP_WriteSamplerFeedback = 174,
@@ -252,8 +266,10 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "textureGatherRaw.", 17) == 0) return 223;
     if (strncmp(s, "textureGather.", 14) == 0) return 73;
     if (strncmp(s, "sampleCmpLevelZero.", 19) == 0) return 65;
-    if (strncmp(s, "sampleCmpLevel.", 15) == 0) return 224;
-    if (strncmp(s, "sampleCmp.", 10) == 0) return 64;
+    if (strncmp(s, "sampleCmpLevel.", 15) == 0) return DXOP_TextureSampleCmpLevel;
+    if (strncmp(s, "sampleCmpGrad.", 14) == 0) return DXOP_TextureSampleCmpGrad;
+    if (strncmp(s, "sampleCmpBias.", 14) == 0) return DXOP_TextureSampleCmpBias;
+    if (strncmp(s, "sampleCmp.", 10) == 0) return DXOP_TextureSampleCmp;
     if (strncmp(s, "sampleGrad.", 11) == 0) return 63;
     if (strncmp(s, "sampleLevel.", 12) == 0) return 62;
     if (strncmp(s, "sampleBias.", 10) == 0) return 61;
@@ -266,6 +282,7 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "dot3.", 5) == 0) return 55;
     if (strncmp(s, "dot4.", 5) == 0) return 56;
     if (strncmp(s, "barrier", 7) == 0) return 80;
+    if (strncmp(s, "discard", 7) == 0) return DXOP_Discard;
     if (strncmp(s, "checkAccessFullyMapped", 22) == 0) return 71;
     if (strncmp(s, "getDimensions", 13) == 0) return 72;
     if (strncmp(s, "rawBufferLoadLegacy", 19) == 0) return 1025;
@@ -281,10 +298,19 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "derivFineX", 10) == 0) return 85;
     if (strncmp(s, "derivFineY", 10) == 0) return 86;
     if (strncmp(s, "calculateLOD", 12) == 0 || strncmp(s, "calcLOD", 7) == 0) return 81;
-    if (strncmp(s, "makeDouble", 10) == 0) return 101;
-    if (strncmp(s, "splitDouble", 11) == 0) return 102;
-    if (strncmp(s, "legacyF16ToF32", 14) == 0) return 131;
-    if (strncmp(s, "legacyF32ToF16", 14) == 0) return 132;
+    if (strncmp(s, "makeDouble", 10) == 0) return DXOP_MakeDouble;
+    if (strncmp(s, "splitDouble", 11) == 0) return DXOP_SplitDouble;
+    if (strncmp(s, "bitcastI16toF16", 15) == 0) return DXOP_BitcastI16ToF16;
+    if (strncmp(s, "bitcastF16toI16", 15) == 0) return DXOP_BitcastF16ToI16;
+    if (strncmp(s, "bitcastI32toF32", 15) == 0) return DXOP_BitcastI32ToF32;
+    if (strncmp(s, "bitcastF32toI32", 15) == 0) return DXOP_BitcastF32ToI32;
+    if (strncmp(s, "bitcastI64toF64", 15) == 0) return DXOP_BitcastI64ToF64;
+    if (strncmp(s, "bitcastF64toI64", 15) == 0) return DXOP_BitcastF64ToI64;
+    if (strncmp(s, "legacyF32ToF16", 14) == 0) return DXOP_LegacyF32ToF16;
+    if (strncmp(s, "legacyF16ToF32", 14) == 0) return DXOP_LegacyF16ToF32;
+    if (strncmp(s, "legacyDoubleToFloat", 19) == 0) return DXOP_LegacyDoubleToFloat;
+    if (strncmp(s, "legacyDoubleToSInt32", 20) == 0) return DXOP_LegacyDoubleToSInt32;
+    if (strncmp(s, "legacyDoubleToUInt32", 20) == 0) return DXOP_LegacyDoubleToUInt32;
     if (strncmp(s, "waveReadLaneFirst", 17) == 0) return 118;
     if (strncmp(s, "waveReadLaneAt", 14) == 0) return 117;
     if (strncmp(s, "waveIsFirstLane", 15) == 0) return 110;
@@ -333,6 +359,8 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_TextureSampleBias:
     case DXOP_TextureSampleLevel:
     case DXOP_TextureSampleGrad:
+    case DXOP_TextureSampleCmpGrad:
+    case DXOP_TextureSampleCmpBias:
     case DXOP_TextureLoad:
     case DXOP_TextureStore:
     case DXOP_TextureGather:
@@ -341,6 +369,14 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_BufferStore:
     case DXOP_RawBufferLoad:
     case DXOP_RawBufferStore:
+    case DXOP_MakeDouble:
+    case DXOP_SplitDouble:
+    case DXOP_BitcastI16ToF16:
+    case DXOP_BitcastF16ToI16:
+    case DXOP_BitcastI32ToF32:
+    case DXOP_BitcastF32ToI32:
+    case DXOP_BitcastI64ToF64:
+    case DXOP_BitcastF64ToI64:
     case DXOP_WaveIsFirstLane:
     case DXOP_WaveGetLaneIndex:
     case DXOP_WaveGetLaneCount:
@@ -355,6 +391,11 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_WaveAllBitCount:
     case DXOP_WavePrefixBitCount:
     case DXOP_WavePrefixOp:
+    case DXOP_LegacyF32ToF16:
+    case DXOP_LegacyF16ToF32:
+    case DXOP_LegacyDoubleToFloat:
+    case DXOP_LegacyDoubleToSInt32:
+    case DXOP_LegacyDoubleToUInt32:
     case DXOP_QuadReadLaneAt:
     case DXOP_QuadOp:
     case DXOP_QuadVote:
@@ -586,6 +627,7 @@ struct LowerContext {
     bool compute_texture_store_shader = false;
     bool texture_store_sample_shader = false;
     std::set<uint32_t> writable_msaa_texture_slots;
+    bool sample_cmp_shader = false;
     bool compute_sample_cmp_shader = false;
     bool compute_texture_sample_shader = false;
     bool uses_atomic64_emulation = false;
@@ -1101,6 +1143,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         if (ctx.options.conservative_rasterization)
             os << "  constant m12_conservative_data& m12_conservative [[buffer(26)]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
+            bool comparison_slot = ctx.sample_cmp_shader;
             bool srv_slot = false;
             bool uav_slot = false;
             for (const auto &range : ctx.binding_plan.ranges) {
@@ -1113,7 +1156,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                     i < range.lower_bound + range.count)
                     uav_slot = true;
             }
-            if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
+            if (comparison_slot && srv_slot && !uav_slot)
+                os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+            else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
                 os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
             else if (uav_slot && (ctx.texture_store_sample_shader ||
                                   ctx.writable_msaa_texture_slots.count(i)))
@@ -3108,6 +3153,7 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_BufferStore:
     case DXOP_RawBufferStore:
     case DXOP_Barrier:
+    case DXOP_Discard:
     case 225:
     case 1026:
         return {MSLTypeKind::Void, 0, {}};
@@ -3138,11 +3184,12 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_TextureSampleCmp:
     case DXOP_TextureSampleCmpLevelZero:
     case DXOP_TextureSampleCmpLevel:
+    case DXOP_TextureSampleCmpGrad:
+    case DXOP_TextureSampleCmpBias:
     case DXOP_CalcLOD:
     case DXOP_Dot2:
     case DXOP_Dot3:
     case DXOP_Dot4:
-    case DXOP_LegacyF16ToF32:
         return {MSLTypeKind::Float, 0, {}};
     case DXOP_CheckAccessFullyMapped:
     case 8:
@@ -3169,13 +3216,37 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_WaveGetLaneCount:
     case DXOP_WaveAllBitCount:
     case DXOP_WavePrefixBitCount:
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_LegacyF32ToF16:
+        return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_LegacyF16ToF32:
+    case DXOP_LegacyDoubleToFloat:
+        return {MSLTypeKind::Float, 0, {}};
+    case DXOP_LegacyDoubleToSInt32:
+        return {MSLTypeKind::Int, 0, {}};
+    case DXOP_LegacyDoubleToUInt32:
         return {MSLTypeKind::UInt, 0, {}};
     case DXOP_DerivCoarseX:
     case DXOP_DerivCoarseY:
     case DXOP_DerivFineX:
     case DXOP_DerivFineY:
         return args.empty() ? MSLType{MSLTypeKind::Float, 0, {}} : valueTypeOrUnknown(ctx, args[0]);
+    case DXOP_MakeDouble:
+        return {MSLTypeKind::Double, 0, {}};
+    case DXOP_SplitDouble:
+        return {MSLTypeKind::UInt2, 0, {}};
+    case DXOP_BitcastI16ToF16:
+        return {MSLTypeKind::Half, 0, {}};
+    case DXOP_BitcastF16ToI16:
+        return {MSLTypeKind::Short, 0, {}};
+    case DXOP_BitcastI32ToF32:
+        return {MSLTypeKind::Float, 0, {}};
+    case DXOP_BitcastF32ToI32:
+        return {MSLTypeKind::Int, 0, {}};
+    case DXOP_BitcastI64ToF64:
+        return {MSLTypeKind::Double, 0, {}};
+    case DXOP_BitcastF64ToI64:
+        return {MSLTypeKind::Long, 0, {}};
     case DXOP_WaveActiveBallot:
         return {MSLTypeKind::UInt4, 0, {}};
     case DXOP_WaveReadLaneAt:
@@ -3744,7 +3815,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return "(isfinite(" + value + ") && (" + value + ") != 0.0 && abs(" +
                value + ") >= " + minimum + ")";
     }
-    case DXOP_TextureSampleCmp: case DXOP_TextureSampleCmpLevelZero: case 224: {
+    case DXOP_TextureSampleCmp:
+    case DXOP_TextureSampleCmpLevelZero:
+    case DXOP_TextureSampleCmpGrad:
+    case DXOP_TextureSampleCmpBias:
+    case 224: {
         if (args.size() < 10) return "0.0";
         auto handle = handleArg(0, "tex", "tex0");
         auto samp = handleArg(1, "samp", "samp0");
@@ -3760,6 +3835,19 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 sample += ", (uint)(" + numericArg(10, "0") + ")";
             sample += ")";
             return "(((float)(" + cmp + ") <= " + sample + ") ? 1.0f : 0.0f)";
+        }
+        if (intrinsic_id == DXOP_TextureSampleCmpGrad) {
+            auto ddx = "float2(" + numericArg(10, "0.0") + ", " + numericArg(11, "0.0") + ")";
+            auto ddy = "float2(" + numericArg(13, "0.0") + ", " + numericArg(14, "0.0") + ")";
+            return handle + ".sample_compare(" + samp + ", float2(" + cx +
+                   ", " + cy + "), (float)(" + cmp + "), gradient2d(" + ddx +
+                   ", " + ddy + "), int2(" + ox + ", " + oy + "))";
+        }
+        if (intrinsic_id == DXOP_TextureSampleCmpBias) {
+            auto bias = numericArg(10, "0.0");
+            return handle + ".sample_compare(" + samp + ", float2(" + cx +
+                   ", " + cy + "), (float)(" + cmp + "), bias((float)(" +
+                   bias + ")), int2(" + ox + ", " + oy + "))";
         }
         if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224) {
             auto lod = numericArg(10, "0.0");
@@ -3930,6 +4018,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case 77: return "1";
     case 109: return "0";
     case 80: return "threadgroup_barrier(mem_flags::mem_threadgroup)";
+    case DXOP_Discard:
+        return "discard_fragment()";
     case DXOP_Unary: {
         if (args.size() < 2) return "0";
         uint32_t op = literalArg(0, 0xFFFFFFFFu, "unary");
@@ -4095,8 +4185,33 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (ctx.shader.kind == DxilShaderKind::Pixel) return std::string("result") + componentSuffix(comp) + " = " + val;
         return "";
     }
-    case 131: return "static_cast<float>(half(" + numericArg(1, "0") + "))";
-    case 132: return "static_cast<uint>(half(" + numericArg(1, "0.0") + "))";
+    case DXOP_MakeDouble:
+        if (args.size() < 2) return "0.0";
+        return "as_type<float64_t>((ulong(uint(" + numericArg(0, "0") + ")) | (ulong(uint(" +
+               numericArg(1, "0") + ")) << 32)))";
+    case DXOP_SplitDouble: {
+        auto bits = "as_type<ulong>(float64_t(" + numericArg(0, "0.0") + "))";
+        return "uint2(uint(" + bits + " >> 32), uint(" + bits + "))";
+    }
+    case DXOP_BitcastI16ToF16:
+        return "as_type<half>(short(" + numericArg(0, "0") + "))";
+    case DXOP_BitcastF16ToI16:
+        return "as_type<short>(half(" + numericArg(0, "0.0") + "))";
+    case DXOP_BitcastI32ToF32:
+        return "as_type<float>(uint(" + numericArg(0, "0") + "))";
+    case DXOP_BitcastF32ToI32:
+        return "as_type<int>(float(" + numericArg(0, "0.0") + "))";
+    case DXOP_BitcastI64ToF64:
+        return "as_type<float64_t>(ulong(" + numericArg(0, "0") + "))";
+    case DXOP_BitcastF64ToI64:
+        return "as_type<long>(float64_t(" + numericArg(0, "0.0") + "))";
+    case DXOP_LegacyF32ToF16:
+        return "static_cast<uint>(as_type<ushort>(half(" + numericArg(0, "0.0") + ")))";
+    case DXOP_LegacyF16ToF32:
+        return "static_cast<float>(as_type<half>(ushort(" + numericArg(0, "0") + ")))";
+    case DXOP_LegacyDoubleToFloat: return "static_cast<float>(" + numericArg(0, "0.0") + ")";
+    case DXOP_LegacyDoubleToSInt32: return "static_cast<int>(" + numericArg(0, "0.0") + ")";
+    case DXOP_LegacyDoubleToUInt32: return "static_cast<uint>(" + numericArg(0, "0.0") + ")";
     case DXOP_WaveReadLaneFirst: return "simd_broadcast_first(" + numericArg(0, "0") + ")";
     case DXOP_WaveReadLaneAt: return "simd_broadcast(" + numericArg(0, "0") + ", (uint)(" + numericArg(1, "0") + "))";
     case DXOP_WaveIsFirstLane: return "(simd_lane == 0u)";
@@ -5626,17 +5741,16 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             break;
         }
     }
-    ctx.compute_sample_cmp_shader = shader.kind == DxilShaderKind::Compute;
-    if (ctx.compute_sample_cmp_shader) {
-        ctx.compute_sample_cmp_shader = false;
-        for (const auto &decl : module.functions) {
-            if (startsWith(decl.name, "dx.op.sampleCmp") ||
-                startsWith(decl.name, "dx.op.textureGatherCmp")) {
-                ctx.compute_sample_cmp_shader = true;
-                break;
-            }
+    ctx.sample_cmp_shader = false;
+    for (const auto &decl : module.functions) {
+        if (startsWith(decl.name, "dx.op.sampleCmp") ||
+            startsWith(decl.name, "dx.op.textureGatherCmp")) {
+            ctx.sample_cmp_shader = true;
+            break;
         }
     }
+    ctx.compute_sample_cmp_shader = shader.kind == DxilShaderKind::Compute &&
+                                    ctx.sample_cmp_shader;
     ctx.compute_texture_sample_shader = shader.kind == DxilShaderKind::Compute;
     if (ctx.compute_texture_sample_shader) {
         ctx.compute_texture_sample_shader = false;

@@ -30,7 +30,9 @@
 - The SM6.6/6.7 capability matrix independently verifies root constants,
   descriptor indexing, 32/64-bit atomics, barriers, raw gather, programmable
   offsets, `SampleCmpLevel`, and `QuadVote`; the complete runtime matrix now
-  passes with zero mismatches.
+  passes with zero mismatches. Its added SM6.8 `SampleCmpGrad` and
+  `SampleCmpBias` compute cases also compile, link, dispatch, and read back
+  zero mismatches.
 - Existing compute PSO evidence covers CBV/SRV/UAV binding, texture sampling,
   32-bit atomics, indirect dispatch bounds, and explicit append/consume-counter
   policy. Append/consume counters remain fail-closed rather than being
