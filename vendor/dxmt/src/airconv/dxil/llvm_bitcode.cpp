@@ -304,6 +304,11 @@ static LLVMInstruction::Opcode decodeCmp(uint32_t predicate) {
 }
 
 static uint32_t decodeRelativeValue(uint64_t encoded, uint32_t next_value) {
+  // LLVM function operands reserve the zero relative encoding for undef.
+  // Treating it as the current SSA value shifts all following operands and
+  // turns omitted DXIL texture offsets into real offsets.
+  if (encoded == 0)
+    return UINT32_MAX;
   if (encoded <= next_value)
     return next_value - (uint32_t)encoded;
   return (uint32_t)encoded;
@@ -879,7 +884,9 @@ static bool parseConstantsBlock(ParseContext &ctx, std::vector<LLVMValue> &targe
     case kConstantsCode_Null:
     case kConstantsCode_Undefined: {
       LLVMValue v;
-      v.kind = LLVMValue::Constant;
+      v.kind = rec_code == kConstantsCode_Undefined
+                   ? LLVMValue::Undef
+                   : LLVMValue::Constant;
       v.type_id = cur_type;
       v.id = next_value_id++;
       if (rec_code == kConstantsCode_Integer && ops.size() > 1) {
@@ -1761,7 +1768,8 @@ static bool resolveMetadataInteger(const LLVMModule &module,
 static bool resolveMetadataTags(const LLVMModule &module,
                                const MetadataState &md_state,
                                const MetadataRecord *tags,
-                               uint32_t &element_stride) {
+                               uint32_t &element_stride,
+                               uint32_t &element_type) {
   if (!tags || tags->kind != MetadataRecord::Kind::Node)
     return false;
   for (size_t i = 0; i + 1 < tags->operands.size(); i += 2) {
@@ -1773,14 +1781,17 @@ static bool resolveMetadataTags(const LLVMModule &module,
                                 metadataNodeOperand(md_state, *tags, i + 1),
                                 candidate))
       continue;
-    // DXIL tag 1 is the structured-buffer element stride.  Tag 0 is an
-    // element type identifier and is not a byte stride.
-    if (tag == 1) {
+    // DXIL ExtPropTags::ElementType is tag 0 and
+    // ExtPropTags::StructuredBufferStride is tag 1.  Keep both values: the
+    // element type selects the integer/float Metal texture view while the
+    // stride selects structured-buffer byte addressing.
+    if (tag == 0) {
+      element_type = candidate;
+    } else if (tag == 1) {
       element_stride = candidate;
-      return true;
     }
   }
-  return false;
+  return element_stride != 0 || element_type != 0;
 }
 
 static void recoverResourcesFromMetadata(LLVMModule &module,
@@ -1846,7 +1857,7 @@ static void recoverResourcesFromMetadata(LLVMModule &module,
           binding.sample_count = sample_count;
         resolveMetadataTags(
             module, md_state, metadataNodeOperand(md_state, *resource, 8),
-            binding.element_stride);
+            binding.element_stride, binding.element_type);
       } else if (resource_class == 1) { // UAV
         resolveMetadataInteger(
             module, metadataNodeOperand(md_state, *resource, 6),
@@ -1863,7 +1874,7 @@ static void recoverResourcesFromMetadata(LLVMModule &module,
           binding.rasterizer_ordered = flag != 0;
         resolveMetadataTags(
             module, md_state, metadataNodeOperand(md_state, *resource, 10),
-            binding.element_stride);
+            binding.element_stride, binding.element_type);
       } else if (resource_class == 2) { // CBV
         binding.resource_kind = 13; // DXIL ResourceKind::CBuffer.
       } else { // Sampler

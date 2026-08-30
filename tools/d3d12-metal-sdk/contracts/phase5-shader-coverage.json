@@ -136,7 +136,7 @@
         ["summary", "runtime_correctness_complete"],
         ["summary", "sm67_breadth_complete"]
       ],
-      "remaining": "The focused matrix covers the current SM6.6/6.7 atomic, descriptor, texture, sample-compare, raw-gather, QuadVote, root-constant provider, and SM6.8 SampleCmpGrad/SampleCmpBias cases; complete SM5.x–SM6.9 opcode/stage/resource coverage remains open."
+      "remaining": "The focused matrix covers the current SM6.6/6.7 atomic, descriptor, texture, static and programmable offset, typed-texture, sample-compare, raw-gather, QuadVote, root-constant provider, and SM6.8 SampleCmpGrad/SampleCmpBias cases; complete SM5.x–SM6.9 opcode/stage/resource coverage remains open."
     },
     {
       "id": "lowering-report-unsupported-placeholder-audit",
@@ -155,6 +155,15 @@
         ["pass"]
       ],
       "remaining": "The source-staged matrix proves exact sample/load, GetDimensions, and readback for 1D, 1D-array, 2D, 2D-array, 3D, cube, cube-array, and 2D MSAA textures plus UAV stores for 1D/1D-array/2D/2D-array/3D; MSAA UAV stores and broader format/operation coverage remain tracked separately."
+    },
+    {
+      "id": "dxil-resource-element-type-runtime",
+      "status": "closed",
+      "result": "probe-texture-dimensions",
+      "checks": [
+        ["pass"]
+      ],
+      "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; signed, normalized, packed, and writable typed-texture format families remain in the exhaustive row."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",

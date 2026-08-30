@@ -24,7 +24,8 @@
   switch/PHI/vector-aggregate and loop-carried aggregate cases, a selected
   double-arithmetic lane, the complete 32-bit atomic binop matrix, and a 4x4
   texture's Load, SampleLevel, SampleGrad, SampleBias, GatherRed, and
-  GetDimensions forms. Every lane
+  GetDimensions forms, plus an R32_UINT `Texture2D<uint>` Load/GetDimensions
+  lane. Every lane
   creates a PSO, dispatches through the DXMT command path, and matches its
   expected readback. The fresh no-offline-converter run reports
   `{1065353216, 0, 0, 1, 7}` for the extended math case.
@@ -44,12 +45,12 @@
   minimum/maximum result `0x00200001`.
 - The SM6.6/6.7 capability matrix independently verifies root constants,
   descriptor indexing, 32/64-bit atomics, barriers, raw gather, programmable
-  offsets, `SampleCmpLevel`, and `QuadVote`; the complete runtime matrix now
-  passes with zero mismatches. Its added SM6.8 `SampleCmpGrad` and
-  `SampleCmpBias` compute cases also compile, link, dispatch, and read back
-  zero mismatches. The packed-dot cases return exact 25 (unsigned) and 23
-  (signed) values and the exact `dot2add` float bits `0x41800000` through the
-  rebuilt typed lowering path.
+  and static texture offsets, typed `Texture2D<uint>` load, `SampleCmpLevel`,
+  and `QuadVote`; the complete runtime matrix now passes with zero mismatches.
+  Its added SM6.8 `SampleCmpGrad` and `SampleCmpBias` compute cases also
+  compile, link, dispatch, and read back zero mismatches. The packed-dot cases
+  return exact 25 (unsigned) and 23 (signed) values and the exact `dot2add`
+  float bits `0x41800000` through the rebuilt typed lowering path.
 - Existing compute PSO evidence covers CBV/SRV/UAV binding, texture sampling,
   32-bit atomics, indirect dispatch bounds, and explicit append/consume-counter
   policy. Append/consume counters remain fail-closed rather than being
@@ -158,9 +159,14 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-texture-dimensions-getdims-final`: 14/14 cases passed with exact
+`phase5-current-typed`: 15/15 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
-for distinct slices/faces) and no offline converter.
+for distinct slices/faces), including the exact R32_UINT value `0x281e140a`,
+and no offline converter. The latest SM6.6/6.7 profile
+`phase5-atomic-load-final` also passes every focused case, including atomic
+barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
+and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to
+`/nonexistent`.
 
 ## Remaining Phase 5 work
 

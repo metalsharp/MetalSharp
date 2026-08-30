@@ -628,8 +628,14 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                 std::fill(result.expected, result.expected + 32, 3u);
             } else if (std::strcmp(audit_case.name, "raw_gather_sm67") == 0) {
                 std::fill(result.expected, result.expected + 4, 0x281e140au);
+            } else if (std::strcmp(audit_case.name, "typed_texture_load_sm67") == 0) {
+                const uint32_t expected[] = {0x281e140au, 0, 0, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "programmable_offset_sm67") == 0) {
                 const uint32_t expected[] = {300, 341, 382, 383};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "static_offsets_sm67") == 0) {
+                const uint32_t expected[] = {260, 300, 340, 380};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "sample_cmp_level_sm67") == 0) {
                 const uint32_t expected[] = {25, 75, 0, 1};
@@ -960,9 +966,32 @@ void cs_programmable_offset_sm67(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_static_offsets_sm67(uint3 id : SV_DispatchThreadID) {
+  float4 s0 = tex.SampleLevel(smp, float2(0.5, 0.5), 0.0, int2(0, 0));
+  float4 s1 = tex.SampleLevel(smp, float2(0.5, 0.5), 0.0, int2(1, 0));
+  float4 s2 = tex.SampleLevel(smp, float2(0.5, 0.5), 0.0, int2(2, 0));
+  float4 s3 = tex.SampleLevel(smp, float2(0.5, 0.5), 0.0, int2(3, 0));
+  uint sum0 = (uint)(s0.r * 255.0 + 0.5) + (uint)(s0.g * 255.0 + 0.5) +
+              (uint)(s0.b * 255.0 + 0.5) + (uint)(s0.a * 255.0 + 0.5);
+  uint sum1 = (uint)(s1.r * 255.0 + 0.5) + (uint)(s1.g * 255.0 + 0.5) +
+              (uint)(s1.b * 255.0 + 0.5) + (uint)(s1.a * 255.0 + 0.5);
+  uint sum2 = (uint)(s2.r * 255.0 + 0.5) + (uint)(s2.g * 255.0 + 0.5) +
+              (uint)(s2.b * 255.0 + 0.5) + (uint)(s2.a * 255.0 + 0.5);
+  uint sum3 = (uint)(s3.r * 255.0 + 0.5) + (uint)(s3.g * 255.0 + 0.5) +
+              (uint)(s3.b * 255.0 + 0.5) + (uint)(s3.a * 255.0 + 0.5);
+  outbuf.Store4(0, uint4(sum0, sum1, sum2, sum3));
+}
+
+[numthreads(1, 1, 1)]
 void cs_raw_gather_sm67(uint3 id : SV_DispatchThreadID) {
   uint4 gathered = raw_tex.GatherRaw(smp, float2(0.5, 0.5));
   outbuf.Store4(0, gathered);
+}
+
+[numthreads(1, 1, 1)]
+void cs_typed_texture_load_sm67(uint3 id : SV_DispatchThreadID) {
+  uint value = raw_tex.Load(int3(0, 0, 0));
+  outbuf.Store(0, value);
 }
 
 [numthreads(1, 1, 1)]
@@ -1052,7 +1081,9 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"texture_sampler", "cs_texture_sampler", "cs_6_6", "samplers_texture_paths", true},
         {"programmable_offset_sm67", "cs_programmable_offset_sm67", "cs_6_7", "sm67_programmable_texture_offsets",
          true},
+        {"static_offsets_sm67", "cs_static_offsets_sm67", "cs_6_7", "sm67_static_texture_offsets", true},
         {"raw_gather_sm67", "cs_raw_gather_sm67", "cs_6_7", "sm67_raw_gather", true},
+        {"typed_texture_load_sm67", "cs_typed_texture_load_sm67", "cs_6_7", "typed_texture_element_type", true},
         {"sample_cmp_level_sm67", "cs_sample_cmp_level_sm67", "cs_6_7", "sm67_sample_cmp_level", true},
         {"sample_cmp_grad_sm68", "cs_sample_cmp_grad_sm68", "cs_6_8", "sm68_sample_cmp_gradient", true},
         {"sample_cmp_bias_sm68", "cs_sample_cmp_bias_sm68", "cs_6_8", "sm68_sample_cmp_bias", true},
@@ -1105,7 +1136,9 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
     }
     const bool sm67_breadth_complete =
         sm67_reportable && atomic_case_passed("programmable_offset_sm67") && atomic_case_passed("raw_gather_sm67") &&
-        atomic_case_passed("sample_cmp_level_sm67") && atomic_case_passed("quad_vote_sm67");
+        atomic_case_passed("typed_texture_load_sm67") && atomic_case_passed("static_offsets_sm67") &&
+        atomic_case_passed("sample_cmp_level_sm67") &&
+        atomic_case_passed("quad_vote_sm67");
     bool pass = entrypoints_ok && compiler_acceptance_complete && pso_link_complete && runtime_complete &&
                 atomic64_conservative;
 

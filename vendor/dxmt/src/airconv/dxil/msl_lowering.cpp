@@ -590,6 +590,7 @@ struct DescriptorRangePlan {
     uint32_t lower_bound = 0;
     uint32_t count = 1;
     uint32_t resource_kind = 0;
+    uint32_t element_type = 0;
     uint32_t element_stride = 0;
     uint32_t sample_count = 1;
 };
@@ -600,10 +601,13 @@ struct ResourceHandleRecord {
     uint32_t register_space = 0;
     uint32_t lower_bound = 0;
     uint32_t binding_index = 0;
+    uint32_t binding_count = 1;
     uint32_t resource_kind = 0;
+    uint32_t element_type = 0;
     uint32_t element_stride = 0;
     uint32_t sample_count = 1;
     bool non_uniform = false;
+    std::string dynamic_index;
 };
 
 struct BindingPlan {
@@ -684,6 +688,43 @@ static bool isTextureCubeResourceKind(uint32_t resource_kind) {
     return resource_kind == 5u || resource_kind == 9u;
 }
 
+// DXIL ElementType values are defined by the resource metadata ABI.  The
+// integer element types are 1..7 (I1/I16/U16/I32/U32/I64/U64); normalized and
+// floating types are represented as float texture components in Metal.
+static bool isIntegerResourceElementType(uint32_t element_type) {
+    return element_type >= 1u && element_type <= 7u;
+}
+
+static bool isSignedResourceElementType(uint32_t element_type) {
+    return element_type == 1u || element_type == 2u ||
+           element_type == 4u || element_type == 6u;
+}
+
+static uint32_t resourceElementTypeForTextureSlot(const LowerContext &ctx,
+                                                  uint32_t slot) {
+    uint32_t srv_type = 0;
+    uint32_t uav_type = 0;
+    for (const auto &range : ctx.binding_plan.ranges) {
+        if ((range.kind != DescriptorRangePlan::Kind::SRV &&
+             range.kind != DescriptorRangePlan::Kind::UAV) ||
+            slot < range.lower_bound ||
+            slot - range.lower_bound >= range.count ||
+            !isTextureResourceKind(range.resource_kind))
+            continue;
+        if (range.kind == DescriptorRangePlan::Kind::UAV)
+            uav_type = range.element_type;
+        else
+            srv_type = range.element_type;
+    }
+    return uav_type ? uav_type : srv_type;
+}
+
+static uint32_t resourceElementTypeForHandle(const LowerContext &ctx,
+                                              uint32_t handle_id) {
+    auto it = ctx.resource_handles.find(handle_id);
+    return it == ctx.resource_handles.end() ? 0u : it->second.element_type;
+}
+
 static uint32_t resourceKindForTextureSlot(const LowerContext &ctx,
                                            uint32_t slot) {
     uint32_t srv_kind = 0;
@@ -719,9 +760,17 @@ static bool textureSlotHasRangeKind(const LowerContext &ctx, uint32_t slot,
 
 static std::string textureBindingType(uint32_t resource_kind, bool writable,
                                       bool integer, bool sampled,
-                                      bool writable_msaa_compat = false) {
-    const char *element = integer ? "uint" : "float";
-    const char *access = writable ? "read_write" : (sampled ? "sample" : "read");
+                                      bool writable_msaa_compat = false,
+                                      bool signed_integer = false,
+                                      bool allow_integer_sampling = false) {
+    const char *element = integer ? (signed_integer ? "int" : "uint") : "float";
+    // Metal cannot filter integer textures.  A typed integer SRV therefore
+    // remains a read-only texture even when the shader's operation family is
+    // otherwise a sampled-texture family.
+    const char *access = writable ? "read_write"
+                                  : (sampled && (!integer || allow_integer_sampling)
+                                         ? "sample"
+                                         : "read");
     if (writable_msaa_compat && isTextureMSAAResourceKind(resource_kind))
         return "texture2d_array<" + std::string(element) +
                ", access::read_write>";
@@ -800,11 +849,16 @@ static void emitBindingManifest(LowerContext &ctx) {
            << " lower=" << range.lower_bound
            << " count=" << range.count
            << " resource_kind=" << range.resource_kind
+           << " element_type=" << range.element_type
            << " sample_count=" << range.sample_count
            << " stride=" << range.element_stride << "\n";
     }
     os << "\n";
 }
+
+static uint32_t directBufferBindingIndex(const LowerContext &ctx,
+                                         const ResourceHandleRecord &handle,
+                                         const char *target_prefix);
 
 static void emitDefaultVertexVaryingWrites(std::ostream &os,
                                            bool procedural_fullscreen,
@@ -858,6 +912,36 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 26);
     os << kMetalHeader;
     emitBindingManifest(ctx);
+
+    std::set<std::pair<uint32_t, uint32_t>> dynamic_buffer_ranges;
+    for (const auto &entry : ctx.resource_handles) {
+        const auto &handle = entry.second;
+        if (handle.kind != DescriptorRangePlan::Kind::SRV ||
+            handle.dynamic_index.empty() || handle.binding_count <= 1)
+            continue;
+        const uint32_t base = directBufferBindingIndex(ctx, handle, "buf");
+        if (base >= ctx.binding_plan.direct_buffer_count)
+            continue;
+        const uint32_t count = std::min<uint32_t>(
+            handle.binding_count, ctx.binding_plan.direct_buffer_count - base);
+        if (count > 1)
+            dynamic_buffer_ranges.insert({base, count});
+    }
+    for (const auto &[base, count] : dynamic_buffer_ranges) {
+        const std::string helper = "m12_dynamic_buffer_load_" +
+                                   std::to_string(base) + "_" +
+                                   std::to_string(count);
+        os << "static inline uint4 " << helper
+           << "(uint index, int byte_offset";
+        for (uint32_t i = 0; i < count; ++i)
+            os << ", device char* b" << (base + i);
+        os << ") {\n";
+        for (uint32_t i = 0; i < count; ++i)
+            os << "  if (index == " << i << "u) return reinterpret_cast<device uint4&>(b"
+               << (base + i) << "[byte_offset]);\n";
+        os << "  return uint4(0);\n";
+        os << "}\n\n";
+    }
 
     if (ctx.compute_wave_shader) {
         os << "static inline uint m12_wave_match(uint value, uint lane, uint count) {\n";
@@ -1299,6 +1383,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 }
             }
             uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
+            uint32_t element_type = resourceElementTypeForTextureSlot(ctx, i);
+            bool integer_element = isIntegerResourceElementType(element_type);
+            bool signed_integer = isSignedResourceElementType(element_type);
             if (resource_kind != 0u) {
                 bool texture_uav_slot = textureSlotHasRangeKind(
                     ctx, i, DescriptorRangePlan::Kind::UAV);
@@ -1307,7 +1394,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                      ctx.texture_store_sample_shader ||
                      ctx.writable_msaa_texture_slots.count(i));
                 if (raw_gather_slot)
-                    os << "  " << textureBindingType(resource_kind, false, true, true)
+                    os << "  " << textureBindingType(resource_kind, false, true, true,
+                                                          false, false, true)
                        << " tex" << i << " [[texture(" << i << ")]],\n";
                 else if (comparison_slot && (resource_kind == 2u ||
                                                resource_kind == 7u ||
@@ -1319,9 +1407,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                        << " tex" << i << " [[texture(" << i << ")]],\n";
                 else
                     os << "  " << textureBindingType(
-                               resource_kind, texture_uav_slot, false,
+                               resource_kind, texture_uav_slot, integer_element,
                                !texture_uav_slot && ctx.compute_texture_sample_shader,
-                               writable_msaa)
+                               writable_msaa, signed_integer)
                        << " tex" << i << " [[texture(" << i << ")]],\n";
             } else if (raw_gather_slot)
                 os << "  texture2d<uint, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
@@ -1363,8 +1451,11 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                              " [[buffer(" + std::to_string(i) + ")]]");
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
             uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
+            uint32_t element_type = resourceElementTypeForTextureSlot(ctx, i);
             params.push_back("  " + textureBindingType(
-                                  resource_kind, false, false, true) +
+                                  resource_kind, false,
+                                  isIntegerResourceElementType(element_type), true,
+                                  false, isSignedResourceElementType(element_type)) +
                              " tex" + std::to_string(i) + " [[texture(" +
                              std::to_string(i) + ")]]");
         }
@@ -1414,6 +1505,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                     uav_slot = true;
             }
             uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
+            uint32_t element_type = resourceElementTypeForTextureSlot(ctx, i);
+            bool integer_element = isIntegerResourceElementType(element_type);
+            bool signed_integer = isSignedResourceElementType(element_type);
             if (resource_kind != 0u) {
                 bool texture_uav_slot = textureSlotHasRangeKind(
                     ctx, i, DescriptorRangePlan::Kind::UAV);
@@ -1431,8 +1525,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                        << " tex" << i << " [[texture(" << i << ")]],\n";
                 else
                     os << "  " << textureBindingType(
-                               resource_kind, texture_uav_slot, false,
-                               !texture_uav_slot, writable_msaa)
+                               resource_kind, texture_uav_slot, integer_element,
+                               !texture_uav_slot, writable_msaa, signed_integer)
                        << " tex" << i << " [[texture(" << i << ")]],\n";
             } else if (comparison_slot && srv_slot && !uav_slot)
                 os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
@@ -2408,6 +2502,7 @@ static std::string coerceResolvedValue(const std::string &value, const MSLType &
     if ((DXILIRBuilder::isFloatType(target) || DXILIRBuilder::isIntType(target)) &&
         (exprContainsRawResourceHandle(resolved) || exprContainsPointerSyntax(resolved)) &&
         resolved.find("m12_load_vertex_attr(") == std::string::npos &&
+        resolved.find("m12_dynamic_buffer_load_") == std::string::npos &&
         resolved.find("reinterpret_cast<device ") == std::string::npos &&
         resolved.find("reinterpret_cast<thread ") == std::string::npos &&
         resolved.find("reinterpret_cast<threadgroup ") == std::string::npos)
@@ -2523,7 +2618,9 @@ static std::string coerceResolvedValue(const LowerContext &ctx, const std::strin
         return defaultForType(target);
 
     if ((DXILIRBuilder::isFloatType(target) || DXILIRBuilder::isIntType(target)) &&
-        typeLooksResourceHandle(source_type))
+        typeLooksResourceHandle(source_type) &&
+        sanitized_value.find("*reinterpret_cast<") == std::string::npos &&
+        sanitized_value.find("*reinterpret_cast <") == std::string::npos)
         return defaultForType(target);
 
     if ((DXILIRBuilder::isFloatType(target) || DXILIRBuilder::isIntType(target)) &&
@@ -3126,13 +3223,16 @@ static uint32_t directBufferBindingIndex(const LowerContext &ctx,
                                          const ResourceHandleRecord &handle,
                                          const char *target_prefix) {
     uint32_t binding_index = handle.lower_bound + handle.binding_index;
-    // D3D12 keeps SRV and UAV/CBV register namespaces independent.  The
-    // direct MSL ABI has one buffer namespace, so place SRV buffers in the
-    // upper half of the 31-slot direct buffer range.  Textures retain their
-    // texture namespace and are unaffected.
-    if (std::strcmp(target_prefix, "buf") == 0 &&
-        handle.kind == DescriptorRangePlan::Kind::SRV)
-        binding_index += 16;
+    // D3D12 keeps SRV, UAV, and CBV register namespaces independent.  The
+    // direct MSL ABI has one buffer namespace, so reserve 0..7 for UAVs,
+    // 8..15 for CBVs, and 16..30 for SRVs.  Textures retain their texture
+    // namespace and are unaffected.
+    if (std::strcmp(target_prefix, "buf") == 0) {
+        if (handle.kind == DescriptorRangePlan::Kind::SRV)
+            binding_index += 16;
+        else if (handle.kind == DescriptorRangePlan::Kind::CBV)
+            binding_index += 8;
+    }
     return binding_index;
 }
 
@@ -3158,6 +3258,23 @@ static std::string materializeHandleName(const LowerContext &ctx,
                                      std::strcmp(target_prefix, "buf") == 0
                                  ? directBufferBindingIndex(ctx, handle, target_prefix)
                                  : handle.lower_bound + handle.binding_index;
+    if (target_prefix && std::strcmp(target_prefix, "buf") == 0 &&
+        handle.kind == DescriptorRangePlan::Kind::SRV &&
+        !handle.dynamic_index.empty() && handle.binding_count > 1) {
+        // The direct MSL ABI exposes one pointer per buffer slot rather than
+        // an argument-buffer array.  Preserve a dynamically indexed SRV
+        // binding with a bounded pointer-select expression instead of
+        // collapsing it to element zero.
+        std::string selected = "buf" + std::to_string(cappedBindingIndex(
+            ctx, prefix, binding_index + handle.binding_count - 1));
+        for (uint32_t i = handle.binding_count - 1; i > 0; --i) {
+            uint32_t candidate = cappedBindingIndex(ctx, prefix, binding_index + i - 1);
+            selected = "((uint(" + handle.dynamic_index + ") == " +
+                       std::to_string(i - 1) + "u) ? buf" +
+                       std::to_string(candidate) + " : " + selected + ")";
+        }
+        return selected;
+    }
     return std::string(prefix) + std::to_string(cappedBindingIndex(ctx, prefix, binding_index));
 }
 
@@ -3176,6 +3293,8 @@ static void recordDescriptorRange(BindingPlan &plan, DescriptorRangePlan range) 
             existing.count = std::max(existing.count, range.count);
             if (existing.resource_kind == 0)
                 existing.resource_kind = range.resource_kind;
+            if (existing.element_type == 0)
+                existing.element_type = range.element_type;
             if (existing.element_stride == 0)
                 existing.element_stride = range.element_stride;
             if (existing.sample_count <= 1)
@@ -3215,7 +3334,9 @@ static void applyResourceBindingMetadata(
     record.resource_class = metadata->resource_class;
     record.register_space = metadata->register_space;
     record.lower_bound = metadata->lower_bound;
+    record.binding_count = metadata->count ? metadata->count : 1;
     record.resource_kind = metadata->resource_kind;
+    record.element_type = metadata->element_type;
     record.element_stride = metadata->element_stride;
     record.sample_count = metadata->sample_count ? metadata->sample_count : 1;
 }
@@ -3226,20 +3347,24 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         DescriptorRangePlan::Kind kind = DescriptorRangePlan::Kind::SRV;
         uint32_t lower_bound = 0;
         uint32_t count = 1;
+        std::string dynamic_index;
     };
     std::unordered_map<uint32_t, HandleBinding> handle_bindings;
     auto rememberHandle = [&](uint32_t result_id,
                               DescriptorRangePlan::Kind kind,
                               uint32_t lower_bound, uint32_t count,
                               uint32_t binding_index = 0,
-                              const DxilResourceBinding *metadata = nullptr) {
+                              const DxilResourceBinding *metadata = nullptr,
+                              const std::string &dynamic_index = {}) {
         if (!result_id)
             return;
-        handle_bindings[result_id] = {kind, lower_bound, count};
+        handle_bindings[result_id] = {kind, lower_bound, count, dynamic_index};
         ResourceHandleRecord record;
         record.kind = kind;
         record.lower_bound = lower_bound;
+        record.binding_count = count ? count : 1;
         record.binding_index = binding_index;
+        record.dynamic_index = dynamic_index;
         applyResourceBindingMetadata(metadata, record);
         ctx.resource_handles[result_id] = record;
     };
@@ -3276,6 +3401,25 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         if (callee < ctx.value_table.size())
             return ctx.value_table[callee];
         return {};
+    };
+    auto valueText = [&](uint32_t value_id) -> std::string {
+        if (value_id < ctx.value_table.size() &&
+            !ctx.value_table[value_id].empty())
+            return ctx.value_table[value_id];
+        for (const auto &constant : ctx.mod.constants)
+            if (constant.id == value_id && !constant.constant_data.empty())
+                return constant.constant_data;
+        for (const auto &constant : fn.constants)
+            if (constant.id == value_id && !constant.constant_data.empty())
+                return constant.constant_data;
+        return emitValue(value_id);
+    };
+    auto dynamicIndexFor = [&](uint32_t value_id, uint32_t count) -> std::string {
+        if (count <= 1)
+            return {};
+        const std::string text = valueText(value_id);
+        uint32_t literal = 0;
+        return parseUnsignedLiteral(text, literal) ? std::string() : text;
     };
 
     for (const auto &block : fn.blocks) {
@@ -3335,10 +3479,15 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                         plan, {kind, metadata->register_space,
                                metadata->lower_bound, metadata->count,
                                metadata->resource_kind,
+                               metadata->element_type,
                                metadata->element_stride,
                                metadata->sample_count});
-                    rememberHandle(result_id, kind, metadata->lower_bound,
-                                   metadata->count, index, metadata);
+                    rememberHandle(
+                        result_id, kind, metadata->lower_bound, metadata->count,
+                        index, metadata,
+                        fn_args.size() > 2
+                            ? dynamicIndexFor(fn_args[2], metadata->count)
+                            : std::string());
                 } else {
                     recordDescriptorRange(plan, {kind, 0, index, 1});
                     rememberHandle(result_id, kind, 0, 1, index);
@@ -3355,6 +3504,9 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 if (upper_bound >= lower_bound)
                     count = upper_bound - lower_bound + 1;
                 auto kind = descriptorKindForResourceClass(resource_class);
+                uint32_t index = fn_args.size() > 1
+                                    ? literalFromValue(ctx, fn_args[1], 0)
+                                    : 0;
                 const auto *metadata = findResourceBindingAtBinding(
                     ctx.mod, resource_class, space, lower_bound);
                 if (metadata) {
@@ -3362,13 +3514,22 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                         plan, {kind, metadata->register_space,
                                metadata->lower_bound, metadata->count,
                                metadata->resource_kind,
+                               metadata->element_type,
                                metadata->element_stride,
                                metadata->sample_count});
-                    rememberHandle(result_id, kind, metadata->lower_bound,
-                                   metadata->count, 0, metadata);
+                    rememberHandle(
+                        result_id, kind, metadata->lower_bound, metadata->count,
+                        index, metadata,
+                        fn_args.size() > 1
+                            ? dynamicIndexFor(fn_args[1], metadata->count)
+                            : std::string());
                 } else {
                     recordDescriptorRange(plan, {kind, space, lower_bound, count});
-                    rememberHandle(result_id, kind, lower_bound, count);
+                    rememberHandle(
+                        result_id, kind, lower_bound, count, index, nullptr,
+                        fn_args.size() > 1
+                            ? dynamicIndexFor(fn_args[1], count)
+                            : std::string());
                 }
             } else if (intrinsic_id == DXOP_CreateHandleFromHeap && fn_args.size() >= 1) {
                 uint32_t heap_index = literalFromValue(ctx, fn_args[0], 0);
@@ -3383,7 +3544,8 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 if (base != handle_bindings.end()) {
                     rememberHandle(result_id, base->second.kind,
                                    base->second.lower_bound,
-                                   base->second.count);
+                                   base->second.count, 0, nullptr,
+                                   base->second.dynamic_index);
                     auto properties = parseAggregateLiteral(
                         resolveValue(ctx, fn_args[1]));
                     auto base_record = ctx.resource_handles.find(fn_args[0]);
@@ -3530,17 +3692,39 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::Void, 0, {}};
     case DXOP_CBufferLoad:
     case DXOP_CBufferLoadLegacy:
-    case DXOP_TextureLoad:
+        return callee_name.find(".i32") != std::string::npos
+                   ? MSLType{MSLTypeKind::UInt4, 0, {}}
+                   : MSLType{MSLTypeKind::Float4, 0, {}};
     case DXOP_TextureSample:
     case DXOP_TextureSampleBias:
     case DXOP_TextureSampleLevel:
     case DXOP_TextureSampleGrad:
     case DXOP_TextureGather:
         return {MSLTypeKind::Float4, 0, {}};
-    case DXOP_BufferLoad:
+    case DXOP_TextureLoad: {
+        const uint32_t element_type = args.empty()
+                                          ? 0u
+                                          : resourceElementTypeForHandle(ctx, args[0]);
+        if (element_type == 4u)
+            return {MSLTypeKind::Int4, 0, {}};
+        if (element_type == 5u)
+            return {MSLTypeKind::UInt4, 0, {}};
         return callee_name.find(".i32") != std::string::npos
                    ? MSLType{MSLTypeKind::UInt4, 0, {}}
                    : MSLType{MSLTypeKind::Float4, 0, {}};
+    }
+    case DXOP_BufferLoad: {
+        const uint32_t element_type = args.empty()
+                                          ? 0u
+                                          : resourceElementTypeForHandle(ctx, args[0]);
+        if (element_type == 4u)
+            return {MSLTypeKind::Int4, 0, {}};
+        if (element_type == 5u)
+            return {MSLTypeKind::UInt4, 0, {}};
+        return callee_name.find(".i32") != std::string::npos
+                   ? MSLType{MSLTypeKind::UInt4, 0, {}}
+                   : MSLType{MSLTypeKind::Float4, 0, {}};
+    }
     case DXOP_TextureGatherCmp:
         return ctx.shader.kind == DxilShaderKind::Compute
                    ? MSLType{MSLTypeKind::Float, 0, {}}
@@ -3784,14 +3968,17 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     auto recordHandle = [&](DescriptorRangePlan::Kind kind, uint32_t resource_class,
                             uint32_t lower_bound, uint32_t binding_index,
                             uint32_t register_space = 0, bool non_uniform = false,
-                            const DxilResourceBinding *metadata = nullptr) -> std::string {
+                            const DxilResourceBinding *metadata = nullptr,
+                            const std::string &dynamic_index = {}) -> std::string {
         ResourceHandleRecord handle;
         handle.kind = kind;
         handle.resource_class = resource_class;
         handle.register_space = register_space;
         handle.lower_bound = lower_bound;
         handle.binding_index = binding_index;
+        handle.binding_count = metadata && metadata->count ? metadata->count : 1;
         handle.non_uniform = non_uniform;
+        handle.dynamic_index = dynamic_index;
         applyResourceBindingMetadata(metadata, handle);
         ctx.pending_handle = handle;
         return materializeHandleName(ctx, handle);
@@ -3812,6 +3999,26 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (parseUnsignedLiteral(text, value)) return value;
         return fallback;
     };
+    auto isUndefArg = [&](size_t arg) {
+        if (arg >= args.size() || args[arg] == UINT32_MAX)
+            return true;
+        const uint32_t idx = args[arg];
+        for (const auto &constant : ctx.mod.constants)
+            if (constant.id == idx && constant.kind == LLVMValue::Undef)
+                return true;
+        if (ctx.current_fn)
+            for (const auto &constant : ctx.current_fn->constants)
+                if (constant.id == idx && constant.kind == LLVMValue::Undef)
+                return true;
+        return false;
+    };
+    auto isZeroLiteralArg = [&](size_t arg) {
+        if (isUndefArg(arg))
+            return true;
+        const std::string text = valueArg(arg, "");
+        uint32_t value = 0;
+        return parseUnsignedLiteral(text, value) && value == 0;
+    };
 
     switch (intrinsic_id) {
     case DXOP_CreateHandle: {
@@ -3829,10 +4036,17 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         ctx.next_binding++;
         const auto *metadata =
             findResourceBinding(ctx.mod, resource_class, range_id);
+        std::string dynamic_index;
+        if (args.size() > 2 && metadata && metadata->count > 1) {
+            const std::string text = valueArg(2, "0");
+            uint32_t literal = 0;
+            if (!parseUnsignedLiteral(text, literal))
+                dynamic_index = text;
+        }
         return recordHandle(descriptorKindForResourceClass(resource_class),
                             resource_class, metadata ? metadata->lower_bound : 0,
                             index, metadata ? metadata->register_space : 0,
-                            non_uniform, metadata);
+                            non_uniform, metadata, dynamic_index);
     }
     case DXOP_CreateHandleForLib: case DXOP_AnnotateHandle: {
         if (!args.empty()) {
@@ -3891,11 +4105,21 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         bool non_uniform = args.size() >= 3 && literalArg(2, 0, "non uniform") != 0;
         const auto *metadata = findResourceBindingAtBinding(
             ctx.mod, resource_class, register_space, lower_bound);
+        std::string dynamic_index;
+        const uint32_t range_count = metadata && metadata->count
+                                          ? metadata->count
+                                          : count;
+        if (args.size() >= 2 && range_count > 1) {
+            const std::string text = valueArg(1, "0");
+            uint32_t literal = 0;
+            if (!parseUnsignedLiteral(text, literal))
+                dynamic_index = text;
+        }
         return recordHandle(descriptorKindForResourceClass(resource_class),
                             resource_class,
                             metadata ? metadata->lower_bound : lower_bound,
                             index, metadata ? metadata->register_space : register_space,
-                            non_uniform, metadata);
+                            non_uniform, metadata, dynamic_index);
     }
     case DXOP_CreateHandleFromHeap: {
         uint32_t heap_index = literalArg(0, 0, "heap");
@@ -3959,16 +4183,34 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_CBufferLoad: case DXOP_CBufferLoadLegacy: {
         if (args.size() < 2) return "float4(0)";
         auto handle = handleArg(0, "buf", "buf0");
+        auto handle_record = ctx.resource_handles.find(args[0]);
+        if (handle_record == ctx.resource_handles.end() ||
+            handle_record->second.kind != DescriptorRangePlan::Kind::CBV) {
+            // Some DXIL 1.x modules leave the cbuffer handle's binding
+            // record unresolved after resource annotation.  CBufferLoad is
+            // still unambiguous: recover the first CBV range rather than
+            // silently reading the SRV texture namespace.
+            for (const auto &range : ctx.binding_plan.ranges) {
+                if (range.kind == DescriptorRangePlan::Kind::CBV) {
+                    handle = "buf" + std::to_string(range.lower_bound + 8u);
+                    break;
+                }
+            }
+        }
         if (!startsWith(handle, "buf"))
             return "float4(0)";
         ctx.last_buffer_handle = handle;
         auto reg = ensureScalarIndex(numericArg(1, "0"));
-        return "(reinterpret_cast<device float4&>(" + handle + "[((int)(" + reg + "))*64]))";
+        const char *element = callee_name.find(".i32") != std::string::npos
+                                  ? "uint4"
+                                  : "float4";
+        return "(reinterpret_cast<device " + std::string(element) + "&>(" +
+               handle + "[((int)(" + reg + "))*64]))";
     }
     case DXOP_BufferLoad: {
         if (args.size() < 3) return "float4(0)";
         auto handle = handleArg(0, "buf", "buf0");
-        if (!startsWith(handle, "buf"))
+        if (handle.find("buf") == std::string::npos)
             return "float4(0)";
         ctx.last_buffer_handle = handle;
         auto idx = ensureScalarIndex(numericArg(1, "0"));
@@ -3991,8 +4233,72 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         } else {
             if (element_stride == 0)
                 element_stride = 16;
-            byte_offset = "((int)(" + idx + ") * " +
+                byte_offset = "((int)(" + idx + ") * " +
                           std::to_string(element_stride) + ")";
+        }
+        if (callee_name.find(".i32") != std::string::npos &&
+            handle.find("? buf") != std::string::npos) {
+            const size_t index_start = handle.find("uint(");
+            const size_t index_end = index_start == std::string::npos
+                                         ? std::string::npos
+                                         : handle.find(')', index_start + 5);
+            const size_t first_buffer = handle.find("? buf");
+            std::string dynamic_index;
+            uint32_t base = 0;
+            uint32_t count = 0;
+            if (index_start != std::string::npos &&
+                index_end != std::string::npos &&
+                first_buffer != std::string::npos) {
+                dynamic_index = handle.substr(index_start + 5,
+                                              index_end - index_start - 5);
+                size_t cursor = first_buffer;
+                while (cursor != std::string::npos) {
+                    cursor += 5;
+                    size_t end = cursor;
+                    while (end < handle.size() &&
+                           std::isdigit(static_cast<unsigned char>(handle[end])))
+                        ++end;
+                    uint32_t candidate = 0;
+                    if (count == 0 && parseUnsignedLiteral(
+                            handle.substr(cursor, end - cursor), candidate))
+                        base = candidate;
+                    ++count;
+                    cursor = handle.find("buf", end);
+                }
+            }
+            if (!dynamic_index.empty() && count > 1) {
+                const std::string helper = "m12_dynamic_buffer_load_" +
+                                           std::to_string(base) + "_" +
+                                           std::to_string(count) + "(uint(" +
+                                           dynamic_index + "), " + byte_offset;
+                std::string call = helper;
+                for (uint32_t i = 0; i < count; ++i)
+                    call += ", buf" + std::to_string(base + i);
+                return call + ")";
+            }
+        }
+        if (handle_it != ctx.resource_handles.end() &&
+            handle_it->second.kind == DescriptorRangePlan::Kind::SRV &&
+            !handle_it->second.dynamic_index.empty() &&
+            handle_it->second.binding_count > 1 &&
+            callee_name.find(".i32") != std::string::npos) {
+            const uint32_t base = directBufferBindingIndex(
+                ctx, handle_it->second, "buf");
+            const uint32_t count = std::min<uint32_t>(
+                handle_it->second.binding_count,
+                ctx.binding_plan.direct_buffer_count > base
+                    ? ctx.binding_plan.direct_buffer_count - base
+                    : 0);
+            if (count > 1) {
+                std::string helper = "m12_dynamic_buffer_load_" +
+                                     std::to_string(base) + "_" +
+                                     std::to_string(count) + "(uint(" +
+                                     handle_it->second.dynamic_index + "), " +
+                                     byte_offset;
+                for (uint32_t i = 0; i < count; ++i)
+                    helper += ", buf" + std::to_string(base + i);
+                return helper + ")";
+            }
         }
         if (callee_name.find(".i32") != std::string::npos)
             return "uint4(reinterpret_cast<device uint&>(" + handle + "[" +
@@ -4003,17 +4309,77 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_RawBufferLoad: case 303: case 1025: {
         if (args.size() < 3) return "uint4(0)";
         auto handle = handleArg(0, "buf", "buf0");
-        if (!startsWith(handle, "buf"))
+        if (handle.find("buf") == std::string::npos)
             return "uint4(0)";
         ctx.last_buffer_handle = handle;
         auto idx = ensureScalarIndex(numericArg(1, "0"));
         auto off = ensureScalarIndex(numericArg(2, "0"));
-        return "(reinterpret_cast<device uint4&>(" + handle + "[(((int)(" + idx + "))*4 + ((int)(" + off + ")))]))";
+        uint32_t resource_kind = 0;
+        uint32_t element_stride = 0;
+        auto handle_it = ctx.resource_handles.find(args[0]);
+        if (handle_it != ctx.resource_handles.end()) {
+            resource_kind = handle_it->second.resource_kind;
+            element_stride = handle_it->second.element_stride;
+        }
+        std::string raw_byte_offset;
+        if (resource_kind == 12u) {
+            if (element_stride == 0)
+                element_stride = 4;
+            raw_byte_offset = "(((int)(" + idx + ")) * " +
+                              std::to_string(element_stride) +
+                              " + ((int)(" + off + ")))";
+        } else {
+            // ByteAddressBuffer coordinates are already byte offsets.  The
+            // structured-buffer form uses coord0 as an element index and
+            // coord1 as the byte offset within that element.
+            raw_byte_offset = "(((int)(" + idx + ")) + ((int)(" + off + ")))";
+        }
+        if (handle.find("? buf") != std::string::npos) {
+            const size_t index_start = handle.find("uint(");
+            const size_t index_end = index_start == std::string::npos
+                                         ? std::string::npos
+                                         : handle.find(')', index_start + 5);
+            const size_t first_buffer = handle.find("? buf");
+            std::string dynamic_index;
+            uint32_t base = 0;
+            uint32_t count = 0;
+            if (index_start != std::string::npos &&
+                index_end != std::string::npos &&
+                first_buffer != std::string::npos) {
+                dynamic_index = handle.substr(index_start + 5,
+                                              index_end - index_start - 5);
+                size_t cursor = first_buffer;
+                while (cursor != std::string::npos) {
+                    cursor += 5;
+                    size_t end = cursor;
+                    while (end < handle.size() &&
+                           std::isdigit(static_cast<unsigned char>(handle[end])))
+                        ++end;
+                    uint32_t candidate = 0;
+                    if (count == 0 && parseUnsignedLiteral(
+                            handle.substr(cursor, end - cursor), candidate))
+                        base = candidate;
+                    ++count;
+                    cursor = handle.find("buf", end);
+                }
+            }
+            if (!dynamic_index.empty() && count > 1) {
+                std::string call = "m12_dynamic_buffer_load_" +
+                                   std::to_string(base) + "_" +
+                                   std::to_string(count) + "(uint(" +
+                                   dynamic_index + "), " + raw_byte_offset;
+                for (uint32_t i = 0; i < count; ++i)
+                    call += ", buf" + std::to_string(base + i);
+                return call + ")";
+            }
+        }
+        return "(reinterpret_cast<device uint4&>(" + handle + "[" +
+               raw_byte_offset + "]))";
     }
     case DXOP_BufferStore: case DXOP_RawBufferStore: case 1026: {
         if (args.size() < 4) return "";
         auto handle = handleArg(0, "buf", "buf0");
-        if (!startsWith(handle, "buf"))
+        if (handle.find("buf") == std::string::npos)
             return "";
         auto idx = ensureScalarIndex(numericArg(1, "0"));
         auto off = ensureScalarIndex(numericArg(2, "0"));
@@ -4149,8 +4515,16 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto c1 = ensureScalarIndex(numericArg(2, "0"));
         auto c2 = ensureScalarIndex(numericArg(3, "0"));
         size_t vb = 4;
-        std::string value = "float4(" + numericArg(vb, "0.0") + ", " + numericArg(vb+1, "0.0") +
-                            ", " + numericArg(vb+2, "0.0") + ", " + numericArg(vb+3, "0.0") + ")";
+        const uint32_t element_type = resourceElementTypeForHandle(ctx, args[0]);
+        const bool integer_element = isIntegerResourceElementType(element_type);
+        const char *value_type = integer_element
+                                      ? (isSignedResourceElementType(element_type) ? "int4" : "uint4")
+                                      : "float4";
+        const char *literal_fallback = integer_element ? "0" : "0.0";
+        std::string value = std::string(value_type) + "(" + numericArg(vb, literal_fallback) + ", " +
+                            numericArg(vb+1, literal_fallback) + ", " +
+                            numericArg(vb+2, literal_fallback) + ", " +
+                            numericArg(vb+3, literal_fallback) + ")";
         if (startsWith(handle, "buf"))
             return "reinterpret_cast<device float4&>(" + handle + "[(((int)(" + c1 + "))*4096 + ((int)(" + c0 + "))*16)]) = " + value;
         if (intrinsic_id == DXOP_TextureStoreSample &&
@@ -4245,6 +4619,35 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             coord = "float2(" + c0 + ", " + c1 + ")";
             break;
         }
+        // The DXIL call has fixed-width offset operands.  An omitted HLSL
+        // offset is encoded as undef; do not turn that placeholder into a
+        // real one-texel Metal offset.
+        if (has_offset &&
+            (isUndefArg(6) ||
+             (isZeroLiteralArg(6) && isZeroLiteralArg(7) &&
+              isZeroLiteralArg(8))))
+            has_offset = false;
+        if (has_offset) {
+            // Do not use Metal's integer sample-offset overload here.  Its
+            // address quantization differs from HLSL's texel-relative offset
+            // for normalized coordinates.  Apply the offset in normalized
+            // texture space instead, which also handles a dynamic offset.
+            auto shifted = [&](const std::string &value,
+                               const std::string &offset,
+                               const char *dimension) {
+                return "((float)(" + value + ") + (float)(" + offset +
+                       ") / float(" + handle + ".get_" + dimension + "()))";
+            };
+            if (resource_kind == 4u) {
+                coord = "float3(" + shifted(c0, ox, "width") + ", " +
+                        shifted(c1, oy, "height") + ", " +
+                        shifted(c2, oz, "depth") + ")";
+            } else if (resource_kind == 2u || resource_kind == 7u) {
+                coord = "float2(" + shifted(c0, ox, "width") + ", " +
+                        shifted(c1, oy, "height") + ")";
+            }
+            has_offset = false;
+        }
 
         if ((resource_kind == 1u || resource_kind == 6u) &&
             intrinsic_id != DXOP_TextureSample) {
@@ -4276,8 +4679,6 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 call += ", int(" + ox + ")";
             else if (resource_kind == 4u)
                 call += ", int3(" + ox + ", " + oy + ", " + oz + ")";
-            else if (resource_kind == 0u)
-                call += ", int2(" + ox + ", " + oy + ")";
             else
                 call += ", int2(" + ox + ", " + oy + ")";
         }
@@ -5664,6 +6065,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         if (inst.operands.size() >= 2)
             result_type = chooseBinaryType(result_type, operandType(inst.operands[0]),
                                            operandType(inst.operands[1]), MSLTypeKind::Int);
+        if (inst.operands.size() >= 2 &&
+            (operandType(inst.operands[0]).kind == MSLTypeKind::Long ||
+             operandType(inst.operands[1]).kind == MSLTypeKind::Long))
+            result_type = {MSLTypeKind::Long, 0, {}};
         auto pre_it = ctx.predeclared_types.find(result);
         if (pre_it != ctx.predeclared_types.end() &&
             DXILIRBuilder::isVectorType(pre_it->second) &&
@@ -5681,7 +6086,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             result_type = integerTypeFor(result_type);
         if ((inst.opcode == LLVMInstruction::Shl || inst.opcode == LLVMInstruction::LShr ||
              inst.opcode == LLVMInstruction::AShr) &&
-            !DXILIRBuilder::isVectorType(result_type))
+            !DXILIRBuilder::isVectorType(result_type) &&
+            result_type.kind != MSLTypeKind::Long)
             result_type = {MSLTypeKind::Int, 0, {}};
         bool is_shift = inst.opcode == LLVMInstruction::Shl ||
                         inst.opcode == LLVMInstruction::LShr ||
@@ -6304,16 +6710,18 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 result_type = {MSLTypeKind::UInt, 0, {}};
             std::string type_name = emitTypeName(result_type);
             std::string expr = defaultForType(result_type);
-            if (startsWith(ptr, "tex") || startsWith(ptr, "samp") ||
-                exprContainsRawResourceHandle(ptr) || exprLooksScalarLiteral(ptr) ||
-                exprLooksVectorValue(ptr) || DXILIRBuilder::isVectorType(ptr_name_type)) {
-                expr = defaultForType(result_type);
-            } else if (isPointerType(ptr_type) ||
-                       ptr.find("threadgroup") != std::string::npos ||
-                       ptr.find("device") != std::string::npos ||
-                       ptr.find("gvar_") != std::string::npos) {
+            const bool pointer_expression =
+                isPointerType(ptr_type) || exprContainsPointerSyntax(ptr) ||
+                ptr.find("threadgroup") != std::string::npos ||
+                ptr.find("device") != std::string::npos ||
+                ptr.find("gvar_") != std::string::npos;
+            if (pointer_expression) {
                 expr = "*reinterpret_cast<" + std::string(pointerAddressSpace(inst.operands[0])) + " " +
                        type_name + "*>(" + ptr + ")";
+            } else if (startsWith(ptr, "tex") || startsWith(ptr, "samp") ||
+                       exprContainsRawResourceHandle(ptr) || exprLooksScalarLiteral(ptr) ||
+                       exprLooksVectorValue(ptr) || DXILIRBuilder::isVectorType(ptr_name_type)) {
+                expr = defaultForType(result_type);
             }
             if (ptr.find("gvar_") != std::string::npos) {
                 std::string group_expr = "static_cast<" + type_name + ">(*reinterpret_cast<threadgroup uint*>(" + ptr + "))";

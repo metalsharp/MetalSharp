@@ -110,6 +110,8 @@ struct ShapeInfo {
     bool array;
     uint32_t expected;
     uint32_t dimensions_expected;
+    DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    bool typed_uint = false;
 };
 
 static const ShapeInfo kReadCases[] = {
@@ -122,6 +124,8 @@ static const ShapeInfo kReadCases[] = {
     {"texturecube_array", "cs_texture_cube_array.cso", TextureShape::TextureCubeArray, false, true, 96, 132100},
     {"texture2d_ms", "cs_texture_2d_ms.cso", TextureShape::Texture2DMS, true, false, 64, 33555460},
     {"texture2d_ms_array", "cs_texture_2d_ms_array.cso", TextureShape::Texture2DMSArray, true, true, 96, 33686532},
+    {"texture_typed_uint", "cs_texture_typed_uint.cso", TextureShape::Texture2D, false, false,
+     0x281e140a, 1028, DXGI_FORMAT_R32_UINT, true},
 };
 
 static const ShapeInfo kStoreCases[] = {
@@ -304,9 +308,10 @@ static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
     return hr;
 }
 
-static void make_srv_desc(TextureShape shape, D3D12_SHADER_RESOURCE_VIEW_DESC& srv) {
+static void make_srv_desc(TextureShape shape, D3D12_SHADER_RESOURCE_VIEW_DESC& srv,
+                          DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM) {
     srv = {};
-    srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv.Format = format;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     switch (shape) {
     case TextureShape::Texture1D:
@@ -463,6 +468,7 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
         hr = result.pso_hr;
     }
     D3D12_RESOURCE_DESC tex_desc = texture_desc(info.shape, false);
+    tex_desc.Format = info.format;
     const UINT subresources = info.shape == TextureShape::Texture3D
                                   ? 1
                                   : tex_desc.DepthOrArraySize;
@@ -508,6 +514,20 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     }
     if (SUCCEEDED(hr) && !fill_upload(upload, footprints, rows, tex_desc, 64))
         hr = E_FAIL;
+    if (SUCCEEDED(hr) && info.typed_uint) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, 0};
+        hr = upload->Map(0, &read_range,
+                         reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr) && mapped) {
+            mapped[footprints[0].Offset + 0] = 10;
+            mapped[footprints[0].Offset + 1] = 20;
+            mapped[footprints[0].Offset + 2] = 30;
+            mapped[footprints[0].Offset + 3] = 40;
+            D3D12_RANGE write_range = {0, static_cast<SIZE_T>(upload->GetDesc().Width)};
+            upload->Unmap(0, &write_range);
+        }
+    }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_RESOURCE_DESC desc = buffer_desc(256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
@@ -532,7 +552,7 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
         uav.Buffer.StructureByteStride = 4;
         device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-        make_srv_desc(info.shape, srv);
+        make_srv_desc(info.shape, srv, info.format);
         device->CreateShaderResourceView(texture, &srv, offset_cpu(cpu, inc, 1));
         D3D12_SAMPLER_DESC sampler = {};
         sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;

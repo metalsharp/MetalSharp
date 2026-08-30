@@ -141,6 +141,9 @@ struct DxilResourceBinding {
   uint32_t lower_bound = 0;
   uint32_t count = 1;
   uint32_t resource_kind = 0;
+  // DXIL ExtPropTags::ElementType.  Zero means the metadata did not carry a
+  // typed element declaration (raw buffers and older modules use that form).
+  uint32_t element_type = 0;
   uint32_t element_stride = 0;
   uint32_t sample_count = 1;
   bool globally_coherent = false;
