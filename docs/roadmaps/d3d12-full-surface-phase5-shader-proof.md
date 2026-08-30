@@ -50,7 +50,10 @@
 - Existing compute PSO evidence covers CBV/SRV/UAV binding, texture sampling,
   32-bit atomics, indirect dispatch bounds, and explicit append/consume-counter
   policy. Append/consume counters remain fail-closed rather than being
-  advertised as implemented.
+  advertised as implemented. The shader corpus also compiles an
+  `AppendStructuredBuffer` case and verifies that PSO creation rejects its
+  unsupported counter intrinsic with `0x80004005`; positive append/consume
+  readback remains open.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
