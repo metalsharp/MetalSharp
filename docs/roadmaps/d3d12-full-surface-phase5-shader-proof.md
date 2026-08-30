@@ -24,8 +24,8 @@
   switch/PHI/vector-aggregate and loop-carried aggregate cases, a selected
   double-arithmetic lane, the complete 32-bit atomic binop matrix, and a 4x4
   texture's Load, SampleLevel, SampleGrad, SampleBias, GatherRed, and
-  GetDimensions forms, plus an R32_UINT `Texture2D<uint>` Load/GetDimensions
-  lane. Every lane
+  GetDimensions forms, plus signed and unsigned R32 typed texture
+  Load/GetDimensions lanes. Every lane
   creates a PSO, dispatches through the DXMT command path, and matches its
   expected readback. The fresh no-offline-converter run reports
   `{1065353216, 0, 0, 1, 7}` for the extended math case.
@@ -69,9 +69,10 @@
   matrix passes exact readback for 1D, 1D-array, 2D, 2D-array, 3D, cube,
   cube-array, and 2D-MS resources (including dimension-specific sample/load
   coordinates and GetDimensions width/height/depth/array/sample results), plus
-  UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D; the
-  D3D12 MSAA SRV view path now preserves the multisample Metal texture type
-  instead of creating an incompatible 2D view.
+  UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D; the focused matrix also
+  proves signed and unsigned R32 typed texture reads plus an R32_UINT writable
+  texture store. The D3D12 MSAA SRV view path now preserves the multisample
+  Metal texture type instead of creating an incompatible 2D view.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
@@ -159,10 +160,11 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-current-typed`: 15/15 cases passed with exact
+`phase5-typed-families`: 17/17 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
-for distinct slices/faces), including the exact R32_UINT value `0x281e140a`,
-and no offline converter. The latest SM6.6/6.7 profile
+for distinct slices/faces), including the exact R32_UINT and R32_SINT read
+value `0x281e140a` and writable R32_UINT value `0x12345678`, with no offline
+converter. The latest SM6.6/6.7 profile
 `phase5-atomic-load-final` also passes every focused case, including atomic
 barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
 and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to
