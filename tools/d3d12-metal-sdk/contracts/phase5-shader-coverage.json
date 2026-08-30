@@ -60,6 +60,17 @@
       "remaining": "Append/consume UAV counters remain explicitly unsupported and require a dedicated provider and readback matrix."
     },
     {
+      "id": "sm66-sm67-extended-runtime-matrix",
+      "status": "closed",
+      "result": "probe-sm66-capabilities",
+      "checks": [
+        ["pass"],
+        ["summary", "runtime_correctness_complete"],
+        ["summary", "sm67_breadth_complete"]
+      ],
+      "remaining": "The focused matrix covers the current SM6.6/6.7 atomic, descriptor, texture, sample-compare, raw-gather, QuadVote, and root-constant provider; complete SM5.x–SM6.9 opcode/stage/resource coverage remains open."
+    },
+    {
       "id": "lowering-report-unsupported-placeholder-audit",
       "status": "closed",
       "result": "dxil-lowering-audit",

@@ -1385,11 +1385,18 @@ convert_dxil_shader_cache() {
     local base="${dxbc%.dxbc}"
     local metallib="$base.metallib"
     local reflection="$base.json"
+    local msl="$base.msl"
     local layout="$base.vertex-layout.json"
     local fail_marker="$base.msc.fail"
     local dxbc_size
     dxbc_size="$(wc -c < "$dxbc" | tr -d '[:space:]')"
     if [[ -s "$metallib" && -s "$reflection" && ! -s "${base}.msl.err.txt" ]]; then
+      continue
+    fi
+    if [[ "${DXMT_D3D12_PRESERVE_TYPED_MSL_ENTRIES:-}" == *"cs_sample_cmp_level_sm67"* &&
+          -s "$msl" && ! -s "${base}.msl.err.txt" &&
+          -s "${base}.module.txt" &&
+          "$(grep -c '^  name=cs_sample_cmp_level_sm67 ' "$base.module.txt" || true)" -gt 0 ]]; then
       continue
     fi
     # DXMT can leave an internally generated metallib beside a failed MSL
@@ -2691,7 +2698,8 @@ if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then
     D3D12_METAL_SDK_SM66_MODE="warmup" \
     "$WINE_BIN" "$SM66_CAPABILITIES_PROBE_EXE" > "$SM66_CAPABILITIES_WARMUP_RESULT_FILE" || true
   )
-  convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+  DXMT_D3D12_PRESERVE_TYPED_MSL_ENTRIES=cs_sample_cmp_level_sm67 \
+    convert_dxil_shader_cache "$SHADER_CACHE_DIR"
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
