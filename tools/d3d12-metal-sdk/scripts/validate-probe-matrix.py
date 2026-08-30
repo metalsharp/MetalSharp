@@ -26,6 +26,7 @@ REQUIRED_GROUPS = {
     "graphics_pso_state_matrix": ["probe-graphics-pso", "probe-mini-graphics-pso"],
     "compute_pso_dispatch": ["probe-compute-pso", "probe-mini-compute-dispatch", "probe-mini-compute-first-use-dispatch"],
     "dxil_opcode_groups": ["probe-dxil-semantics", "probe-mini-dxil-texture-color-output"],
+    "dxil_texture_dimension_metadata": ["probe-texture-dimensions"],
     "synthetic_shader_corpus": ["probe-shader-corpus"],
     "sm66_capability_audit": ["probe-sm66-capabilities"],
     "writable_msaa_texture": ["probe-writable-msaa"],

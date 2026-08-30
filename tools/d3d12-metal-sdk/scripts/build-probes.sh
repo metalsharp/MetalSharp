@@ -134,6 +134,10 @@ build_probe \
   -o "$OUT_DIR/probe_dxil_semantics.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_texture_dimensions.cpp" \
+  -o "$OUT_DIR/probe_texture_dimensions.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_shader_corpus/probe_shader_corpus.cpp" \
   -o "$OUT_DIR/probe_shader_corpus.exe"
 
