@@ -2152,6 +2152,16 @@ void cs_math_bits(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_math_extended(uint3 id : SV_DispatchThreadID) {
+  uint4 sad = msad4(0x01020304u, uint2(0x01020304u, 0u), uint4(7u, 0u, 0u, 0u));
+  outbuf.Store(0, asuint(cosh(0.0)));
+  outbuf.Store(4, asuint(sinh(0.0)));
+  outbuf.Store(8, asuint(tanh(0.0)));
+  outbuf.Store(12, isnormal(1.0) ? 1u : 0u);
+  outbuf.Store(16, sad.x);
+}
+
+[numthreads(1, 1, 1)]
 void cs_special_float(uint3 id : SV_DispatchThreadID) {
   float nan_value = asfloat(0x7fc00000u);
   float inf_value = asfloat(0x7f800000u);
@@ -2266,6 +2276,9 @@ HLSL_TEXTURE
     "$WINE_BIN" dxc.exe -nologo -E cs_math_bits -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_math_bits.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_math_extended -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_math_extended.cso probe_dxil_semantics.hlsl >/dev/null
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_special_float -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_special_float.cso probe_dxil_semantics.hlsl >/dev/null

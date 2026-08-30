@@ -88,8 +88,9 @@ enum DXIntrinsicOpcode {
 
 enum DXILMathOpcode {
   DXILOP_FAbs = 6, DXILOP_Saturate = 7, DXILOP_IsNaN = 8, DXILOP_IsInf = 9,
-  DXILOP_IsFinite = 10, DXILOP_Cos = 12, DXILOP_Sin = 13, DXILOP_Tan = 14,
+  DXILOP_IsFinite = 10, DXILOP_IsNormal = 11, DXILOP_Cos = 12, DXILOP_Sin = 13, DXILOP_Tan = 14,
   DXILOP_Acos = 15, DXILOP_Asin = 16, DXILOP_Atan = 17,
+  DXILOP_Hcos = 18, DXILOP_Hsin = 19, DXILOP_Htan = 20,
   DXILOP_Exp = 21, DXILOP_Frc = 22, DXILOP_Log = 23,
   DXILOP_Sqrt = 24, DXILOP_Rsqrt = 25,
   DXILOP_Round_ne = 26, DXILOP_Round_ni = 27, DXILOP_Round_pi = 28, DXILOP_Round_z = 29,
@@ -100,6 +101,7 @@ enum DXILMathOpcode {
   DXILOP_IMul = 41, DXILOP_UMul = 42, DXILOP_UDiv = 43,
   DXILOP_UAddc = 44, DXILOP_USubb = 45,
   DXILOP_FMad = 46, DXILOP_Fma = 47, DXILOP_IMad = 48, DXILOP_UMad = 49,
+  DXILOP_Msad = 50,
   DXILOP_Ibfe = 51, DXILOP_Ubfe = 52, DXILOP_Bfi = 53,
 };
 
@@ -3191,6 +3193,7 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         case DXILOP_IsNaN:
         case DXILOP_IsInf:
         case DXILOP_IsFinite:
+        case DXILOP_IsNormal:
             return {MSLTypeKind::Bool, 0, {}};
         case DXILOP_Countbits:
         case DXILOP_FirstbitLo:
@@ -3216,6 +3219,9 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return promoted;
     }
     case DXOP_Tertiary: {
+        uint32_t op = args.empty() ? 0xFFFFFFFFu : literalFromValue(ctx, args[0], 0xFFFFFFFFu);
+        if (op == DXILOP_Msad)
+            return {MSLTypeKind::UInt, 0, {}};
         MSLType a = args.size() > 1 ? valueTypeOrUnknown(ctx, args[1]) : MSLType{};
         MSLType b = args.size() > 2 ? valueTypeOrUnknown(ctx, args[2]) : MSLType{};
         MSLType c = args.size() > 3 ? valueTypeOrUnknown(ctx, args[3]) : MSLType{};
@@ -3938,12 +3944,16 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         case DXILOP_IsNaN: return "isnan(" + fx + ")";
         case DXILOP_IsInf: return "isinf(" + fx + ")";
         case DXILOP_IsFinite: return "isfinite(" + fx + ")";
+        case DXILOP_IsNormal: return "isnormal(" + fx + ")";
         case DXILOP_Cos: return "cos(" + fx + ")";
         case DXILOP_Sin: return "sin(" + fx + ")";
         case DXILOP_Tan: return "tan(" + fx + ")";
         case DXILOP_Acos: return "acos(" + fx + ")";
         case DXILOP_Asin: return "asin(" + fx + ")";
         case DXILOP_Atan: return "atan(" + fx + ")";
+        case DXILOP_Hcos: return "cosh(" + fx + ")";
+        case DXILOP_Hsin: return "sinh(" + fx + ")";
+        case DXILOP_Htan: return "tanh(" + fx + ")";
         case DXILOP_Exp: return "exp2(" + fx + ")";
         case DXILOP_Frc: return "fract(" + fx + ")";
         case DXILOP_Log: return "log2(" + fx + ")";
@@ -3989,6 +3999,16 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "fma(static_cast<float>(" + a + "), static_cast<float>(" + b +
                    "), static_cast<float>(" + c + "))";
         case DXILOP_IMad: case DXILOP_UMad: return "((" + a + ") * (" + b + ") + (" + c + "))";
+        case DXILOP_Msad: {
+            const char *shifts[] = {"0u", "8u", "16u", "24u"};
+            std::string result = "(uint(" + c + ")";
+            for (const char *shift : shifts) {
+                std::string ref = "((uint)(" + a + ") >> " + shift + ") & 0xffu";
+                std::string src = "((uint)(" + b + ") >> " + shift + ") & 0xffu";
+                result += " + (" + ref + " != 0u ? uint(abs(int(" + ref + ") - int(" + src + "))) : 0u)";
+            }
+            return result + ")";
+        }
         case DXILOP_Ibfe: return "extract_bits(" + a + ", " + b + ", " + c + ")";
         case DXILOP_Ubfe: return "extract_bits((uint)(" + a + "), (uint)(" + b + "), (uint)(" + c + "))";
         case DXILOP_Bfi: return "insert_bits((uint)(" + b + "), (uint)(" + a + "), (uint)(" + c + "))";
@@ -4127,6 +4147,16 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     }
     case DXOP_QuadReadLaneAt:
         return "quad_broadcast(" + numericArg(0, "0") + ", (uint)(" + numericArg(1, "0") + "))";
+    case DXOP_QuadOp: {
+        auto value = numericArg(0, "0");
+        uint32_t op = literalArg(1, 0xFFFFFFFFu, "quad_op");
+        switch (op) {
+        case 0: return "quad_shuffle_xor(" + value + ", 1u)";
+        case 1: return "quad_shuffle_xor(" + value + ", 2u)";
+        case 2: return "quad_shuffle_xor(" + value + ", 3u)";
+        default: ctx.unsupported_intrinsics++; return value;
+        }
+    }
     case DXOP_QuadVote: {
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "quad_vote");
         if (op == 0)
@@ -4632,6 +4662,13 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 intrinsic_id = opcode;
                 opcode_prefixed_intrinsic = true;
             }
+        }
+        if (intrinsic_id == DXOP_SpecialFloat && !call_args.empty()) {
+            uint32_t opcode = literalFromValue(ctx, call_args[0], 0);
+            if (opcode >= 8 && opcode <= 11)
+                intrinsic_id = opcode;
+            else
+                intrinsic_id = 0;
         }
 
         if (intrinsic_id != 0 && call_args.empty()) {

@@ -15,12 +15,13 @@
   `-enable-16bit-types`.
 - The exact semantic readback probe covers float/int math and bitcasts, raw
   buffer load/store, UAV exchange/add/compare-exchange atomics, 32-bit
-  special-float predicates, group-shared atomics and barriers, WaveOps/QuadOps,
-  SM6.7 vector/int64 arithmetic, SM6.8 wide arithmetic, SM6.9 float16 to
-  integer conversion, and a 4x4 texture's Load, SampleLevel, SampleGrad,
-  SampleBias, GatherRed, and GetDimensions forms. Every lane creates a PSO,
-  dispatches through the DXMT command path, and matches its expected
-  readback.
+  special-float predicates, hyperbolic/normal math, `msad4`, group-shared
+  atomics and barriers, WaveOps/QuadOps, SM6.7 vector/int64 arithmetic, SM6.8
+  wide arithmetic, SM6.9 float16 to integer conversion, and a 4x4 texture's
+  Load, SampleLevel, SampleGrad, SampleBias, GatherRed, and GetDimensions
+  forms. Every lane creates a PSO, dispatches through the DXMT command path,
+  and matches its expected readback. The fresh no-offline-converter run reports
+  `{1065353216, 0, 0, 1, 7}` for the extended math case.
 - The WaveOps probe independently verifies lane index/count, ballot, lane
   reads, any/all, quad operations, reductions, prefix behavior, and
   `WaveActiveCountBits`/`WavePrefixCountBits` on the 32-lane dispatch, with
@@ -57,7 +58,9 @@ METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh --shader-corpus-only
 ```
 
-The latest isolated semantic result passed with these exact lanes:
+The latest isolated semantic result passed with these exact lanes. It was
+run against the rebuilt typed lowering path with no offline shader converter,
+so PSO creation exercised the runtime MSL compiler directly:
 
 ```json
 {
