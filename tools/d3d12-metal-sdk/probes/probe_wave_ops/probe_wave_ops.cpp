@@ -285,6 +285,15 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         return 1u;
     if (std::strcmp(name, "wave_i64_unsigned_max") == 0)
         return 32u;
+    if (std::strcmp(name, "wave_f16_sum_prefix") == 0) {
+        const uint32_t triangular = lane * (lane + 1u) / 2u;
+        float value = static_cast<float>(528u + triangular);
+        uint32_t bits = 0;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return bits;
+    }
+    if (std::strcmp(name, "wave_f16_min_max") == 0)
+        return 1u | (32u << 16);
     return 0xffffffffu;
 }
 
@@ -392,6 +401,8 @@ static CaseResult run_case(ID3D12Device* device, ID3D12RootSignature* root, cons
     command += wave_case.entry;
     command += " -T ";
     command += wave_case.target;
+    if (std::strcmp(wave_case.target, "cs_6_9") == 0)
+        command += " -enable-16bit-types";
     command += " -Fo ";
     command += dxil_path;
     command += " Z:\\tmp\\dxmt_wave_ops.hlsl";
@@ -586,6 +597,22 @@ void cs_wave_i64_unsigned_max(uint3 id : SV_DispatchThreadID, uint gi : SV_Group
   uint64_t value = uint64_t(gi + 1u);
   outbuf.Store(gi * 4, uint(WaveActiveMax(value)));
 }
+
+[numthreads(32, 1, 1)]
+void cs_wave_f16_sum_prefix(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  half value = half(gi + 1u);
+  half sum = WaveActiveSum(value);
+  half prefix = WavePrefixSum(value);
+  outbuf.Store(gi * 4, asuint(float(sum + prefix)));
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_f16_min_max(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  half value = half(gi + 1u);
+  half lo = WaveActiveMin(value);
+  half hi = WaveActiveMax(value);
+  outbuf.Store(gi * 4, uint(lo) | (uint(hi) << 16));
+}
 )";
 
     bool hlsl_written = write_text_file("Z:\\tmp\\dxmt_wave_ops.hlsl", hlsl);
@@ -636,6 +663,8 @@ void cs_wave_i64_unsigned_max(uint3 id : SV_DispatchThreadID, uint gi : SV_Group
         {"wave_i64_signed_max", "cs_wave_i64_signed_max", "cs_6_6"},
         {"wave_i64_unsigned_min", "cs_wave_i64_unsigned_min", "cs_6_6"},
         {"wave_i64_unsigned_max", "cs_wave_i64_unsigned_max", "cs_6_6"},
+        {"wave_f16_sum_prefix", "cs_wave_f16_sum_prefix", "cs_6_9"},
+        {"wave_f16_min_max", "cs_wave_f16_min_max", "cs_6_9"},
     };
 
     std::vector<CaseResult> results;

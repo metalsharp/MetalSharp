@@ -5429,6 +5429,17 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             std::string val = getValue(inst.operands[0]);
             auto src_type = operandType(inst.operands[0]);
             auto dst_type = result_type;
+            // LLVM type IDs are zero-based, while zero is also used as the
+            // reader's unknown-type sentinel.  DXIL modules commonly place
+            // i32 at type ID zero, so preserve an explicit i32 bitcast target
+            // instead of falling back to the source floating-point type.
+            if (!isUsableType(dst_type) && inst.type_id == 0 &&
+                !ctx.mod.types.empty() &&
+                ctx.mod.types[0].kind == LLVMType::Integer &&
+                ctx.mod.types[0].bit_width == 32) {
+                dst_type = {MSLTypeKind::Int, 0, {}};
+                result_type = dst_type;
+            }
             if (!isUsableType(dst_type)) {
                 if (isUsableType(src_type)) {
                     dst_type = src_type;
