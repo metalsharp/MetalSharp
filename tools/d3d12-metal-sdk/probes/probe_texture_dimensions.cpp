@@ -112,6 +112,7 @@ struct ShapeInfo {
     uint32_t dimensions_expected;
     DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
     bool typed_uint = false;
+    bool typed_signed = false;
 };
 
 static const ShapeInfo kReadCases[] = {
@@ -126,6 +127,8 @@ static const ShapeInfo kReadCases[] = {
     {"texture2d_ms_array", "cs_texture_2d_ms_array.cso", TextureShape::Texture2DMSArray, true, true, 96, 33686532},
     {"texture_typed_uint", "cs_texture_typed_uint.cso", TextureShape::Texture2D, false, false,
      0x281e140a, 1028, DXGI_FORMAT_R32_UINT, true},
+    {"texture_typed_sint", "cs_texture_typed_sint.cso", TextureShape::Texture2D, false, false,
+     0x281e140a, 1028, DXGI_FORMAT_R32_SINT, false, true},
 };
 
 static const ShapeInfo kStoreCases[] = {
@@ -134,6 +137,8 @@ static const ShapeInfo kStoreCases[] = {
     {"texture2d", "cs_store_2d.cso", TextureShape::Texture2D, false, false, 64, 0},
     {"texture2d_array", "cs_store_2d_array.cso", TextureShape::Texture2DArray, false, true, 64, 0},
     {"texture3d", "cs_store_3d.cso", TextureShape::Texture3D, false, false, 64, 0},
+    {"texture_typed_uint", "cs_store_typed_uint.cso", TextureShape::Texture2D, false, false,
+     0x12345678, 0, DXGI_FORMAT_R32_UINT, true},
 };
 
 static D3D12_RESOURCE_DESC texture_desc(TextureShape shape, bool writable) {
@@ -355,9 +360,10 @@ static void make_srv_desc(TextureShape shape, D3D12_SHADER_RESOURCE_VIEW_DESC& s
     }
 }
 
-static void make_uav_desc(TextureShape shape, D3D12_UNORDERED_ACCESS_VIEW_DESC& uav) {
+static void make_uav_desc(TextureShape shape, D3D12_UNORDERED_ACCESS_VIEW_DESC& uav,
+                          DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM) {
     uav = {};
-    uav.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    uav.Format = format;
     switch (shape) {
     case TextureShape::Texture1D:
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1D;
@@ -514,7 +520,7 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     }
     if (SUCCEEDED(hr) && !fill_upload(upload, footprints, rows, tex_desc, 64))
         hr = E_FAIL;
-    if (SUCCEEDED(hr) && info.typed_uint) {
+    if (SUCCEEDED(hr) && (info.typed_uint || info.typed_signed)) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, 0};
         hr = upload->Map(0, &read_range,
@@ -649,6 +655,7 @@ static CaseResult run_store_case(ID3D12Device* device, const ShapeInfo& info) {
         hr = result.pso_hr;
     }
     D3D12_RESOURCE_DESC tex_desc = texture_desc(info.shape, true);
+    tex_desc.Format = info.format;
     const UINT subresources = info.shape == TextureShape::Texture3D ? 1 : tex_desc.DepthOrArraySize;
     std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints(subresources);
     std::vector<UINT> rows(subresources);
@@ -685,7 +692,7 @@ static CaseResult run_store_case(ID3D12Device* device, const ShapeInfo& info) {
     }
     if (SUCCEEDED(hr)) {
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        make_uav_desc(info.shape, uav);
+        make_uav_desc(info.shape, uav, info.format);
         device->CreateUnorderedAccessView(texture, nullptr, &uav,
                                           heap->GetCPUDescriptorHandleForHeapStart());
         ID3D12DescriptorHeap* heaps[] = {heap};
@@ -722,7 +729,10 @@ static CaseResult run_store_case(ID3D12Device* device, const ShapeInfo& info) {
                                  footprints[0].Footprint.RowPitch;
             else if (info.array)
                 target_offset = footprints[1].Offset;
-            result.actual = mapped[target_offset];
+            if (info.typed_uint)
+                result.actual = *reinterpret_cast<uint32_t*>(mapped + target_offset);
+            else
+                result.actual = mapped[target_offset];
             readback->Unmap(0, nullptr);
         }
     }

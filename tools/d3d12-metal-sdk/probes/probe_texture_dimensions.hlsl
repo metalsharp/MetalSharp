@@ -10,6 +10,7 @@ TextureCubeArray<float4> texcubea : register(t0);
 Texture2DMS<float4> texms : register(t0);
 Texture2DMSArray<float4> texmsa : register(t0);
 Texture2D<uint> tex_uint : register(t0);
+Texture2D<int> tex_sint : register(t0);
 
 RWStructuredBuffer<uint> output : register(u0);
 
@@ -93,11 +94,20 @@ void cs_texture_typed_uint(uint3 id : SV_DispatchThreadID) {
   output[1] = w | (h << 8);
 }
 
+[numthreads(1,1,1)]
+void cs_texture_typed_sint(uint3 id : SV_DispatchThreadID) {
+  output[0] = (uint)tex_sint.Load(int3(0, 0, 0));
+  uint w, h;
+  tex_sint.GetDimensions(w, h);
+  output[1] = w | (h << 8);
+}
+
 RWTexture1D<float4> rw1 : register(u0);
 RWTexture1DArray<float4> rw1a : register(u0);
 RWTexture2D<float4> rw2 : register(u0);
 RWTexture2DArray<float4> rw2a : register(u0);
 RWTexture3D<float4> rw3 : register(u0);
+RWTexture2D<uint> rw_uint : register(u0);
 RWTexture2DMS<float4> rwms : register(u0);
 RWTexture2DMSArray<float4> rwmsa : register(u0);
 
@@ -111,6 +121,8 @@ void cs_store_2d(uint3 id : SV_DispatchThreadID) { rw2[uint2(0, 0)] = float4(0.2
 void cs_store_2d_array(uint3 id : SV_DispatchThreadID) { rw2a[uint3(0, 0, 1)] = float4(0.25, 0, 0, 1); }
 [numthreads(4,1,1)]
 void cs_store_3d(uint3 id : SV_DispatchThreadID) { rw3[uint3(0, 0, 1)] = float4(0.25, 0, 0, 1); }
+[numthreads(1,1,1)]
+void cs_store_typed_uint(uint3 id : SV_DispatchThreadID) { rw_uint[uint2(0, 0)] = 0x12345678; }
 [numthreads(4,1,1)]
 void cs_store_2d_ms(uint3 id : SV_DispatchThreadID) { rwms[uint2(0, 0)] = float4(0.25, 0, 0, 1); }
 [numthreads(4,1,1)]

@@ -166,6 +166,15 @@
       "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; signed, normalized, packed, and writable typed-texture format families remain in the exhaustive row."
     },
     {
+      "id": "dxil-resource-signed-and-writable-r32-runtime",
+      "status": "closed",
+      "result": "probe-texture-dimensions",
+      "checks": [
+        ["pass"]
+      ],
+      "remaining": "The focused source-staged matrix proves R32_SINT and R32_UINT read views plus an R32_UINT writable view with exact readback; 16-bit, packed, normalized, 64-bit, MSAA-UAV, and broader typed format families remain in the exhaustive row."
+    },
+    {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "open",
       "result": "probe-shader-corpus",
