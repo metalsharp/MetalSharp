@@ -545,11 +545,59 @@ int main() {
     ID3DBlob* vs = nullptr;
     ID3DBlob* ps = nullptr;
     ID3DBlob* ps_mrt = nullptr;
+    ID3DBlob* tess_vs = nullptr;
+    ID3DBlob* tess_hs = nullptr;
+    ID3DBlob* tess_ds = nullptr;
+    ID3DBlob* tess_ps = nullptr;
     const std::vector<uint8_t> conservative_vs = read_binary_file("probe_conservative_raster_vs.cso");
     const std::vector<uint8_t> conservative_ps = read_binary_file("probe_conservative_raster_ps.cso");
     HRESULT vs_hr = compile_shader(hlsl, "vs_main", "vs_5_0", &vs, errors);
     HRESULT ps_hr = compile_shader(hlsl, "ps_main", "ps_5_0", &ps, errors);
     HRESULT ps_mrt_hr = compile_shader(hlsl, "ps_mrt", "ps_5_0", &ps_mrt, errors);
+    static const char* tessellation_hlsl = R"HLSL(
+struct VSIn { float3 pos : POSITION; float4 color : COLOR0; };
+struct TessCP { float3 world : POSITION; float4 pos : SV_Position; float4 color : COLOR0; };
+struct HSConst { float edge[3] : SV_TessFactor; float inside : SV_InsideTessFactor; };
+TessCP tess_vs(VSIn input) {
+    TessCP output;
+    output.world = input.pos;
+    output.pos = float4(input.pos, 1.0f);
+    output.color = input.color;
+    return output;
+}
+HSConst tess_constants(InputPatch<TessCP, 3> patch, uint patch_id : SV_PrimitiveID) {
+    HSConst output;
+    output.edge[0] = 1.0f;
+    output.edge[1] = 1.0f;
+    output.edge[2] = 1.0f;
+    output.inside = 1.0f;
+    return output;
+}
+[domain("tri")]
+[partitioning("integer")]
+[outputtopology("triangle_cw")]
+[outputcontrolpoints(3)]
+[patchconstantfunc("tess_constants")]
+TessCP tess_hs(InputPatch<TessCP, 3> patch, uint point_id : SV_OutputControlPointID,
+               uint patch_id : SV_PrimitiveID) {
+    return patch[point_id];
+}
+[domain("tri")]
+TessCP tess_ds(HSConst factors, const OutputPatch<TessCP, 3> patch, float3 bary : SV_DomainLocation) {
+    TessCP output;
+    output.world = patch[0].world * bary.x + patch[1].world * bary.y + patch[2].world * bary.z;
+    output.pos = float4(output.world, 1.0f);
+    output.color = patch[0].color * bary.x + patch[1].color * bary.y + patch[2].color * bary.z;
+    return output;
+}
+float4 tess_ps(TessCP input) : SV_Target {
+    return saturate(input.color);
+}
+)HLSL";
+    HRESULT tess_vs_hr = compile_shader(tessellation_hlsl, "tess_vs", "vs_5_0", &tess_vs, errors);
+    HRESULT tess_hs_hr = compile_shader(tessellation_hlsl, "tess_hs", "hs_5_0", &tess_hs, errors);
+    HRESULT tess_ds_hr = compile_shader(tessellation_hlsl, "tess_ds", "ds_5_0", &tess_ds, errors);
+    HRESULT tess_ps_hr = compile_shader(tessellation_hlsl, "tess_ps", "ps_5_0", &tess_ps, errors);
 
     const D3D12_INPUT_ELEMENT_DESC full_layout[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
@@ -643,18 +691,36 @@ int main() {
         stream_output.StreamOutput.NumStrides = 1;
         run_case(device, "stream_output_rejected", stream_output, false, results);
 
-        auto tessellation = base;
-        tessellation.HS = {vs->GetBufferPointer(), vs->GetBufferSize()};
-        tessellation.DS = {vs->GetBufferPointer(), vs->GetBufferSize()};
-        tessellation.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-        run_case(device, "hs_ds_rejected", tessellation, false, results);
+        auto unsupported_tessellation = base;
+        unsupported_tessellation.HS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+        unsupported_tessellation.DS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+        unsupported_tessellation.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+        run_case(device, "hs_ds_rejected", unsupported_tessellation, false, results);
+
+        if (SUCCEEDED(tess_vs_hr) && SUCCEEDED(tess_hs_hr) && SUCCEEDED(tess_ds_hr) &&
+            SUCCEEDED(tess_ps_hr)) {
+            const D3D12_INPUT_ELEMENT_DESC tess_layout[] = {
+                {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+                 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+                {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12,
+                 D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            };
+            auto native_tessellation = make_base_desc(
+                root, tess_vs, tess_ps, tess_layout, static_cast<UINT>(std::size(tess_layout)));
+            native_tessellation.HS = {tess_hs->GetBufferPointer(), tess_hs->GetBufferSize()};
+            native_tessellation.DS = {tess_ds->GetBufferPointer(), tess_ds->GetBufferSize()};
+            native_tessellation.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+            native_tessellation.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+            run_case(device, "hs_ds_native_tessellation", native_tessellation, true, results);
+        }
     }
 
     bool cases_ok = !results.empty();
     for (const auto& result : results)
         cases_ok = cases_ok && result.ok;
     bool pass = SUCCEEDED(create_hr) && SUCCEEDED(root_blob_hr) && SUCCEEDED(root_hr) && SUCCEEDED(vs_hr) &&
-                SUCCEEDED(ps_hr) && SUCCEEDED(ps_mrt_hr) && cases_ok;
+                SUCCEEDED(ps_hr) && SUCCEEDED(ps_mrt_hr) && SUCCEEDED(tess_vs_hr) && SUCCEEDED(tess_hs_hr) &&
+                SUCCEEDED(tess_ds_hr) && SUCCEEDED(tess_ps_hr) && cases_ok;
     uint32_t conservative_case_count = 0;
     uint32_t conservative_rendered_pixels = 0;
     const bool conservative_rasterization_ok = run_conservative_coverage_probe(
@@ -671,7 +737,11 @@ int main() {
     std::printf("    \"root_create\": \"%s\",\n", hr_hex(root_hr).c_str());
     std::printf("    \"vs_compile\": \"%s\",\n", hr_hex(vs_hr).c_str());
     std::printf("    \"ps_compile\": \"%s\",\n", hr_hex(ps_hr).c_str());
-    std::printf("    \"ps_mrt_compile\": \"%s\"\n", hr_hex(ps_mrt_hr).c_str());
+    std::printf("    \"ps_mrt_compile\": \"%s\",\n", hr_hex(ps_mrt_hr).c_str());
+    std::printf("    \"tess_vs_compile\": \"%s\",\n", hr_hex(tess_vs_hr).c_str());
+    std::printf("    \"tess_hs_compile\": \"%s\",\n", hr_hex(tess_hs_hr).c_str());
+    std::printf("    \"tess_ds_compile\": \"%s\",\n", hr_hex(tess_ds_hr).c_str());
+    std::printf("    \"tess_ps_compile\": \"%s\"\n", hr_hex(tess_ps_hr).c_str());
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); i++) {
@@ -702,6 +772,7 @@ int main() {
     std::printf("    \"cached_blob\": true,\n");
     std::printf("    \"unsupported_stream_output_rejected\": true,\n");
     std::printf("    \"unsupported_hs_ds_rejected\": true,\n");
+    std::printf("    \"native_hs_ds_tessellation\": true,\n");
     std::printf("    \"conservative_rasterization_case_count\": %u,\n", conservative_case_count);
     std::printf("    \"conservative_rasterization_rendered_pixels\": %u,\n", conservative_rendered_pixels);
     std::printf("    \"conservative_rasterization_tier3_verified\": %s\n",
