@@ -2320,6 +2320,14 @@ void cs_atomic_matrix(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(68, original);
 }
 
+[numthreads(4, 1, 1)]
+void cs_vector_shuffle(uint3 id : SV_DispatchThreadID) {
+  uint4 lanes = uint4(id.x + 1u, id.x + 2u, id.x + 3u, id.x + 4u);
+  uint4 reversed = lanes.wzyx;
+  outbuf.Store(id.x * 4, reversed.x + reversed.y * 10u +
+                          reversed.z * 100u + reversed.w * 1000u);
+}
+
 groupshared uint g_counter;
 
 [numthreads(4, 1, 1)]
@@ -2474,6 +2482,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_atomic_matrix -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_atomic_matrix.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_vector_shuffle -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_vector_shuffle.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_atomics_ids -T cs_6_0 -HV 2021 \
