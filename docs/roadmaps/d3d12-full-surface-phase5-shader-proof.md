@@ -20,10 +20,11 @@
   and signed/unsigned `dot4add` packed accumulation, group-shared atomics and
   barriers,
   WaveOps/QuadOps, SM6.7 vector/int64 arithmetic, SM6.8
-  wide arithmetic, SM6.9 float16 to integer conversion, and a 4x4 texture's
-  Load, SampleLevel, SampleGrad, SampleBias, GatherRed, and GetDimensions
-  forms. Every lane creates a PSO, dispatches through the DXMT command path,
-  and matches its expected readback. The fresh no-offline-converter run reports
+  wide arithmetic, SM6.9 float16 to integer conversion, a multi-block
+  switch/PHI/vector-aggregate case, and a 4x4 texture's Load, SampleLevel,
+  SampleGrad, SampleBias, GatherRed, and GetDimensions forms. Every lane
+  creates a PSO, dispatches through the DXMT command path, and matches its
+  expected readback. The fresh no-offline-converter run reports
   `{1065353216, 0, 0, 1, 7}` for the extended math case.
 - The WaveOps probe independently verifies lane index/count, ballot, lane
   reads, any/all, quad operations, reductions, prefix behavior,
@@ -109,8 +110,9 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --texture-dimensions-only
 ```
 
-The latest isolated semantic result passed with these exact lanes. It was
-run against the rebuilt typed lowering path with no offline shader converter,
+The latest isolated semantic result (profile
+`phase5-control-flow-semantic-fix`) passed with these exact lanes. It was run
+against the rebuilt typed lowering path with no offline shader converter,
 so PSO creation exercised the runtime MSL compiler directly:
 
 ```json
@@ -122,6 +124,7 @@ so PSO creation exercised the runtime MSL compiler directly:
   "sm67_vector_int64": {"expected": [68, 69, 70, 71], "actual": [68, 69, 70, 71]},
   "sm68_vector_arithmetic": {"expected": [68, 136, 204, 272], "actual": [68, 136, 204, 272]},
   "sm69_integer_float_mix": {"expected": [69, 70, 72, 73], "actual": [69, 70, 72, 73]},
+  "control_flow_aggregates": {"expected": [120, 212, 328, 320], "actual": [120, 212, 328, 320]},
   "texture_sampling_forms": {"expected": [64, 64, 64, 64, 64, 68], "actual": [64, 64, 64, 64, 64, 68]}
 }
 ```
@@ -139,10 +142,11 @@ complete cache set.
 
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
-closed semantic, WaveOps (including active/prefix bit counts), diagnostic,
-atomic/special-float, binding-baseline, resource-metadata/texture-dimension,
-and focused lowering-report-audit rows while keeping the exhaustive
-SM5.x–SM6.9 opcode/stage/resource/cache/session row open. The latest isolated
+closed semantic, WaveOps (including active/prefix bit counts), control-flow,
+diagnostic, atomic/special-float, binding-baseline,
+resource-metadata/texture-dimension, and focused lowering-report-audit rows
+while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
+row open. The latest isolated
 texture-dimension result is profile
 `phase5-texture-dimensions-getdims-final`: 14/14 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values

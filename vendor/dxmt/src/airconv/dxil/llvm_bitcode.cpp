@@ -1085,6 +1085,21 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
     return decodeRelativeValue(encoded, next_value);
   };
 
+  auto signedRelativeValue = [&](uint64_t encoded) {
+    int64_t diff = decodeSignedVBR(encoded);
+    if (diff == INT64_MIN)
+      return 0u;
+    if (diff >= 0) {
+      uint64_t result = next_value >= static_cast<uint64_t>(diff)
+                            ? static_cast<uint64_t>(next_value) - diff
+                            : 0;
+      return static_cast<uint32_t>(result);
+    }
+    uint64_t result = static_cast<uint64_t>(next_value) +
+                      static_cast<uint64_t>(-(diff + 1)) + 1u;
+    return static_cast<uint32_t>(result);
+  };
+
   auto valueTypePair = [&](const std::vector<uint64_t> &record, size_t &slot, uint32_t &type_id) {
     uint32_t value_id = slot < record.size() ? value(record[slot++]) : 0;
     type_id = 0;
@@ -1514,7 +1529,9 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
           if (ops.size() > 1)
             inst.type_id = (uint32_t)ops[1];
           for (size_t i = 2; i + 1 < ops.size(); i += 2) {
-            inst.operands.push_back(value(ops[i]));
+            // PHI values are encoded with signed relative VBRs
+            // (pushValueSigned), unlike ordinary operands' unsigned deltas.
+            inst.operands.push_back(signedRelativeValue(ops[i]));
             inst.operands.push_back((uint32_t)ops[i + 1]);
           }
         }
@@ -1532,16 +1549,39 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
       }
       break;
     case kFuncCode_InstSwitch: {
-      if (cur_block < fn.blocks.size() && ops.size() >= 5) {
+      if (cur_block < fn.blocks.size() && ops.size() >= 4) {
         LLVMInstruction inst;
         inst.opcode = LLVMInstruction::Switch;
+        // SWITCH records are [condition type, condition, default BB,
+        // case-value, case BB, ...].  Unlike ordinary SSA operands, case
+        // values are direct function/module constant IDs and basic-block
+        // operands are already block indexes.
         size_t slot = 1;
-        uint32_t cond_type_id = 0;
-        inst.operands.push_back(valueTypePair(ops, slot, cond_type_id));
+        inst.type_id = (uint32_t)ops[slot++];
+        inst.operands.push_back(value(ops[slot++]));
         inst.operands.push_back((uint32_t)ops[slot++]);
-        uint32_t num_cases = (uint32_t)ops[slot++];
-        for (uint32_t i = 0; i < num_cases && slot + 1 < ops.size(); i++) {
-          inst.operands.push_back((uint32_t)ops[slot++]);
+        auto switchCaseValue = [&](uint64_t raw) -> uint32_t {
+          uint32_t constant_id = (uint32_t)raw;
+          const LLVMValue *constant = findConstantById(ctx.module, constant_id);
+          if (!constant) {
+            for (const auto &candidate : fn.constants) {
+              if (candidate.id == constant_id) {
+                constant = &candidate;
+                break;
+              }
+            }
+          }
+          if (constant && !constant->constant_data.empty()) {
+            char *end = nullptr;
+            long long parsed = std::strtoll(constant->constant_data.c_str(),
+                                            &end, 10);
+            if (end && *end == '\0')
+              return (uint32_t)parsed;
+          }
+          return constant_id;
+        };
+        while (slot + 1 < ops.size()) {
+          inst.operands.push_back(switchCaseValue(ops[slot++]));
           inst.operands.push_back((uint32_t)ops[slot++]);
         }
         fn.blocks[cur_block].instructions.push_back(inst);
