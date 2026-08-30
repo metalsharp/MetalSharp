@@ -4198,9 +4198,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         case DXILOP_Round_z: return "trunc(" + fx + ")";
         case DXILOP_Bfrev: return "reverse_bits(" + x + ")";
         case DXILOP_Countbits: return "popcount(static_cast<uint>(" + x + "))";
-        case DXILOP_FirstbitLo: return "ctz(" + x + ")";
-        case DXILOP_FirstbitHi: return "clz(" + x + ")";
-        case DXILOP_FirstbitSHi: return "((" + x + ") < 0 ? clz(~(" + x + ")) : clz(" + x + "))";
+        case DXILOP_FirstbitLo:
+            return "((uint(" + x + ") == 0u) ? -1 : int(ctz(uint(" + x + "))))";
+        case DXILOP_FirstbitHi:
+            return "((uint(" + x + ") == 0u) ? -1 : int(31u - clz(uint(" + x + "))))";
+        case DXILOP_FirstbitSHi:
+            return "((" + x + ") < 0 ? ((~uint(" + x + ") == 0u) ? -1 : int(31u - clz(~uint(" + x + ")))) : ((uint(" + x + ") == 0u) ? -1 : int(31u - clz(uint(" + x + ")))))";
         default: ctx.unsupported_intrinsics++; return x;
         }
     }

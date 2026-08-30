@@ -57,8 +57,9 @@
   unsupported-intrinsic/opcode counts and placeholder lowering markers. The
   typed lowerer now preserves an explicit DXIL i32 destination when LLVM type
   ID zero is used by a float bitcast, emitting `as_type<int>` rather than a
-  numeric conversion; the source-staged semantic run continues to match
-  `math_bits` and all 14 semantic lanes.
+  numeric conversion; it also handles the signed/unsigned result semantics
+  of `firstbitlow`/`firstbithigh`. The source-staged semantic run continues to
+  match `math_bits` and all 14 semantic lanes.
 - The object-contract probe now exercises the memory shader-cache session's
   descriptor, store, size-query, short-buffer, replacement, missing-key, and
   pointer-validation semantics. `shader_cache_session_pass` is true.
