@@ -727,6 +727,8 @@ int main() {
          "sm68_vector_and_wide_arithmetic"},
         {"control_flow_aggregates", "probe_dxil_semantic_control_aggregate.cso", {},
          {120, 212, 328, 320}, "control_flow_and_aggregates"},
+        {"loop_aggregate", "probe_dxil_semantic_loop_aggregate.cso", {},
+         {1, 3, 6, 10}, "control_flow_and_aggregates"},
         {"sm69_integer_float_mix", "probe_dxil_semantic_sm69.cso", {}, {69, 70, 72, 73},
          "sm69_integer_float16_conversion"},
         {"texture_sampling_forms", "probe_dxil_semantic_texture_ops.cso", {},

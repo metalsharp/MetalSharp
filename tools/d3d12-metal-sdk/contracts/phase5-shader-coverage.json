@@ -32,7 +32,7 @@
       "checks": [
         ["ok"]
       ],
-      "remaining": "The source-staged control-flow case covers a multi-block switch, PHI merge, vector aggregate extraction, and exact four-lane readback; loop, nested-control, and broader aggregate forms remain in the exhaustive row."
+      "remaining": "The source-staged control-flow cases cover a multi-block switch, PHI merge, loop-carried aggregate state, vector aggregate extraction, and exact four-lane readback; nested-control and broader aggregate forms remain in the exhaustive row."
     },
     {
       "id": "wave-quad-runtime-matrix",
