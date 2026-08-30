@@ -202,7 +202,7 @@ static HRESULT create_corpus_root_signature(ID3D12Device* device, D3D12Serialize
                                             ID3D12RootSignature** root, std::string& errors) {
     D3D12_DESCRIPTOR_RANGE ranges[3] = {};
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[0].NumDescriptors = 2;
+    ranges[0].NumDescriptors = 3;
     ranges[0].BaseShaderRegister = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -253,6 +253,7 @@ struct CorpusCase {
     const char* target;
     bool expected_rejection;
     bool waveops_case;
+    bool expected_pso_rejection = false;
 };
 
 struct CaseResult {
@@ -261,6 +262,7 @@ struct CaseResult {
     std::string target;
     bool expected_rejection = false;
     bool waveops_case = false;
+    bool expected_pso_rejection = false;
     bool compile_ok = false;
     bool dxil_blob = false;
     bool pso_created = false;
@@ -278,6 +280,7 @@ static CaseResult run_dxc_case(ID3D12Device* device, ID3D12RootSignature* root, 
     result.target = corpus_case.target;
     result.expected_rejection = corpus_case.expected_rejection;
     result.waveops_case = corpus_case.waveops_case;
+    result.expected_pso_rejection = corpus_case.expected_pso_rejection;
 
     const std::string base = std::string("Z:\\tmp\\dxmt_shader_corpus_") + corpus_case.name;
     const std::string dxil_path = base + ".dxil";
@@ -301,7 +304,7 @@ static CaseResult run_dxc_case(ID3D12Device* device, ID3D12RootSignature* root, 
     result.dxil_size = dxil.size();
     result.compile_ok = result.dxc_exit_code == 0 && result.dxil_blob;
 
-    if (result.compile_ok && !result.expected_rejection && device && root) {
+    if (result.compile_ok && device && root) {
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
         desc.pRootSignature = root;
         desc.CS.pShaderBytecode = dxil.data();
@@ -317,6 +320,11 @@ static CaseResult run_dxc_case(ID3D12Device* device, ID3D12RootSignature* root, 
         result.case_pass = !result.compile_ok;
         result.detail = result.case_pass ? "unsupported shader-model target was deterministically rejected"
                                          : "unsupported shader-model target unexpectedly compiled";
+    } else if (result.expected_pso_rejection) {
+        result.case_pass = result.compile_ok && !result.pso_created && FAILED(result.pso_hr);
+        result.detail = result.case_pass
+                            ? "DXIL compiled, but unsupported append/consume counter semantics were rejected at PSO creation"
+                            : "append/consume counter shader unexpectedly produced a linked PSO";
     } else {
         result.case_pass = result.compile_ok && result.pso_created;
         if (!result.compile_ok)
@@ -419,7 +427,8 @@ int main() {
     const char* hlsl_path = "Z:\\tmp\\dxmt_shader_corpus.hlsl";
     const char* hlsl = R"(
 RWByteAddressBuffer out_uav : register(u0);
-RWStructuredBuffer<uint4> out_structured : register(u1);
+AppendStructuredBuffer<uint> append_output : register(u1);
+RWStructuredBuffer<uint4> out_structured : register(u2);
 ByteAddressBuffer raw_inputs[2] : register(t0);
 StructuredBuffer<uint4> structured_inputs : register(t2);
 Buffer<uint4> typed_inputs : register(t3);
@@ -497,6 +506,11 @@ void cs_resource_indexing(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4, 1, 1)]
+void cs_append_counter(uint3 id : SV_DispatchThreadID) {
+  append_output.Append(id.x + 1u);
+}
+
+[numthreads(4, 1, 1)]
 void cs_uav_writes(uint3 id : SV_DispatchThreadID) {
   out_uav.Store(id.x * 4, id.x * multiplier + addend);
 }
@@ -551,6 +565,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
         {"sm68_vector_arithmetic", "sm67_through_sm69_progression", "cs_sm68", "cs_6_8", false, false},
         {"sm69_integer_float_mix", "sm67_through_sm69_progression", "cs_sm69", "cs_6_9", false, false},
         {"resource_indexing", "resource_indexing", "cs_resource_indexing", "cs_6_0", false, false},
+        {"unsupported_append_counter", "unsupported_counter_rejection", "cs_append_counter", "cs_6_0", false, false, true},
         {"uav_writes", "uav_writes", "cs_uav_writes", "cs_6_0", false, false},
         {"typed_structured_buffers", "typed_and_structured_buffers", "cs_typed_structured_buffers", "cs_6_0", false,
          false},
@@ -580,6 +595,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     bool root_constants = false;
     bool waveops_compile_link = false;
     bool unsupported_rejection = false;
+    bool unsupported_counter_rejection = false;
 
     for (const auto& result : results) {
         required_cases_pass = required_cases_pass && result.case_pass;
@@ -603,11 +619,14 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
             waveops_compile_link = result.case_pass;
         if (result.category == "unsupported_feature_rejection")
             unsupported_rejection = result.case_pass;
+        if (result.category == "unsupported_counter_rejection")
+            unsupported_counter_rejection = result.case_pass;
     }
 
     bool synthetic_shader_corpus_proven =
         entrypoints_ok && required_cases_pass && sm50_baseline && sm60_to_sm66 && sm67_to_sm69 && resource_indexing && uav_writes &&
-        typed_structured_buffers && texture_sampling && root_constants && waveops_compile_link && unsupported_rejection;
+        typed_structured_buffers && texture_sampling && root_constants && waveops_compile_link && unsupported_rejection &&
+        unsupported_counter_rejection;
     bool pass = synthetic_shader_corpus_proven;
 
     std::printf("{\n");
@@ -642,6 +661,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"waveops_compile_link\": %s,\n", waveops_compile_link ? "true" : "false");
     std::printf("    \"waveops_runtime_gated_by_probe_wave_ops\": true,\n");
     std::printf("    \"unsupported_feature_rejection\": %s,\n", unsupported_rejection ? "true" : "false");
+    std::printf("    \"unsupported_counter_rejection\": %s,\n", unsupported_counter_rejection ? "true" : "false");
     std::printf("    \"title_captures_gating\": false\n");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
@@ -653,6 +673,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
         std::printf("      \"target\": \"%s\",\n", json_escape(result.target).c_str());
         std::printf("      \"expected_rejection\": %s,\n", result.expected_rejection ? "true" : "false");
         std::printf("      \"waveops_case\": %s,\n", result.waveops_case ? "true" : "false");
+        std::printf("      \"expected_pso_rejection\": %s,\n", result.expected_pso_rejection ? "true" : "false");
         std::printf("      \"compile_ok\": %s,\n", result.compile_ok ? "true" : "false");
         std::printf("      \"dxil_blob\": %s,\n", result.dxil_blob ? "true" : "false");
         std::printf("      \"dxil_size\": %zu,\n", result.dxil_size);

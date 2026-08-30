@@ -4005,8 +4005,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return handle + ".sample_compare(" + samp + ", float2(" + cx + ", " +
                cy + "), (float)(" + cmp + "), int2(" + ox + ", " + oy + "))";
     }
-    case 70: return "0";
-    case 71: return "true";
+    case DXOP_BufferUpdateCounter:
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(ctx, "DXIL buffer update counter is unsupported; rejecting append/consume semantics");
+        return "0";
+    case DXOP_CheckAccessFullyMapped:
+        return "true";
     case 72: {
         auto handle = handleArg(0, "tex", "tex0");
         return "uint4(" + handle + ".get_width(), " + handle + ".get_height(), 1, 1)";
