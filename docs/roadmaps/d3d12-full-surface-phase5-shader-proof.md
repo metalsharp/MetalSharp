@@ -37,6 +37,9 @@
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
   generated-report audit also checks every focused report for nonzero
   unsupported-intrinsic/opcode counts and placeholder lowering markers.
+- The object-contract probe now exercises the memory shader-cache session's
+  descriptor, store, size-query, short-buffer, replacement, missing-key, and
+  pointer-validation semantics. `shader_cache_session_pass` is true.
 
 ## Exact evidence
 

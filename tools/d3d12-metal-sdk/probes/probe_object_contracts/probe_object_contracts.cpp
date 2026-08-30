@@ -250,6 +250,53 @@ static bool test_info_queue(ID3D12Device* device, std::string& failure) {
     return pass;
 }
 
+static bool test_shader_cache_session(ID3D12ShaderCacheSession* session) {
+    if (!session)
+        return false;
+    D3D12_SHADER_CACHE_SESSION_DESC desc = {};
+    if (session->GetDesc(&desc) != &desc || desc.Mode != D3D12_SHADER_CACHE_MODE_MEMORY)
+        return false;
+
+    const uint8_t key[] = {0x10, 0x20, 0x30, 0x40};
+    const uint8_t value[] = {0xde, 0xad, 0xbe, 0xef, 0x42};
+    if (session->StoreValue(key, sizeof(key), value, sizeof(value)) != S_OK)
+        return false;
+
+    UINT size = 0;
+    if (session->FindValue(key, sizeof(key), nullptr, &size) != S_OK || size != sizeof(value))
+        return false;
+    uint8_t short_value = 0;
+    UINT short_size = sizeof(short_value);
+    if (session->FindValue(key, sizeof(key), &short_value, &short_size) !=
+            HRESULT_FROM_WIN32(ERROR_MORE_DATA) ||
+        short_size != sizeof(value))
+        return false;
+    uint8_t readback[sizeof(value)] = {};
+    UINT readback_size = sizeof(readback);
+    if (session->FindValue(key, sizeof(key), readback, &readback_size) != S_OK ||
+        readback_size != sizeof(value) || std::memcmp(readback, value, sizeof(value)) != 0)
+        return false;
+
+    const uint8_t replacement[] = {1, 2, 3};
+    if (session->StoreValue(key, sizeof(key), replacement, sizeof(replacement)) != S_OK)
+        return false;
+    readback_size = sizeof(readback);
+    std::memset(readback, 0, sizeof(readback));
+    if (session->FindValue(key, sizeof(key), readback, &readback_size) != S_OK ||
+        readback_size != sizeof(replacement) ||
+        std::memcmp(readback, replacement, sizeof(replacement)) != 0)
+        return false;
+
+    const uint8_t missing_key[] = {0xff};
+    size = 0;
+    if (session->FindValue(missing_key, sizeof(missing_key), nullptr, &size) != DXGI_ERROR_NOT_FOUND || size != 0)
+        return false;
+    if (session->FindValue(nullptr, 1, nullptr, &size) != E_POINTER)
+        return false;
+    session->SetDeleteOnDestroy();
+    return true;
+}
+
 static void append_result(std::vector<ObjectResult>& results, const char* name, HRESULT hr, ID3D12Object* object,
                           IUnknown* interface_value) {
     results.push_back(test_object(name, hr, object, interface_value));
@@ -274,6 +321,7 @@ int main() {
                       : E_NOINTERFACE;
     std::vector<ObjectResult> results;
     bool info_queue_pass = false;
+    bool shader_cache_session_pass = false;
     std::string info_queue_error;
     if (device) {
         device->AddRef();
@@ -388,6 +436,7 @@ int main() {
         cache_desc.Mode = D3D12_SHADER_CACHE_MODE_MEMORY;
         cache_desc.Flags = D3D12_SHADER_CACHE_FLAG_NONE;
         hr = device9 ? device9->CreateShaderCacheSession(&cache_desc, IID_PPV_ARGS(&shader_cache)) : device9_hr;
+        shader_cache_session_pass = SUCCEEDED(hr) && test_shader_cache_session(shader_cache);
         append_result(results, "shader_cache_session", hr, shader_cache, device);
         if (device9)
             device9->Release();
@@ -395,7 +444,7 @@ int main() {
         info_queue_pass = test_info_queue(device, info_queue_error);
     }
 
-    bool pass = SUCCEEDED(device_hr) && !results.empty() && info_queue_pass;
+    bool pass = SUCCEEDED(device_hr) && !results.empty() && info_queue_pass && shader_cache_session_pass;
     for (const auto& result : results)
         pass = pass && result.pass;
 
@@ -405,6 +454,7 @@ int main() {
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"object_count\": %zu,\n", results.size());
     std::printf("  \"info_queue_pass\": %s,\n", info_queue_pass ? "true" : "false");
+    std::printf("  \"shader_cache_session_pass\": %s,\n", shader_cache_session_pass ? "true" : "false");
     if (!info_queue_error.empty())
         std::printf("  \"info_queue_error\": \"%s\",\n", json_escape(info_queue_error).c_str());
     std::printf("  \"objects\": [\n");

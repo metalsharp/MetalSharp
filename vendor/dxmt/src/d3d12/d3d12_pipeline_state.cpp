@@ -249,6 +249,30 @@ bool DXBCShaderUsesSamplerFeedback(const void *bytecode, SIZE_T size) {
   return false;
 }
 
+bool DXBCShaderUsesSampleCmpLevel(const void *bytecode, SIZE_T size) {
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+    for (const auto &fn : module->functions) {
+      if (fn.name.find("dx.op.sampleCmpLevel") != std::string::npos)
+        return true;
+    }
+  }
+  return false;
+}
+
 bool DXBCShaderUsesDirectResourceHeap(const void *bytecode, SIZE_T size) {
   using namespace microsoft;
   CDXBCParser parser;
@@ -1905,6 +1929,8 @@ bool MTLD3D12PipelineState::CompileShader(
       type == ShaderType::Compute && DXBCShaderUsesAtomic64(bytecode, size);
   const bool requires_sampler_feedback_custom =
       DXBCShaderUsesSamplerFeedback(bytecode, size);
+  const bool requires_sample_cmp_level_custom =
+      type == ShaderType::Compute && DXBCShaderUsesSampleCmpLevel(bytecode, size);
   if (requires_int64_custom)
     m_uses_atomic64_emulation = true;
   if (requires_sampler_feedback_custom)
@@ -2036,6 +2062,13 @@ bool MTLD3D12PipelineState::CompileShader(
             // Sampler feedback is represented by a padded software map. The
             // custom lowering knows that ABI; a converter-produced metallib
             // does not.
+            fclose(mf);
+            mf = nullptr;
+          }
+          if (mf && requires_sample_cmp_level_custom) {
+            // SampleCmpLevel needs the explicit mip level and the typed
+            // lowering's comparison ordering; an offline converter cache can
+            // silently collapse the level argument.
             fclose(mf);
             mf = nullptr;
           }

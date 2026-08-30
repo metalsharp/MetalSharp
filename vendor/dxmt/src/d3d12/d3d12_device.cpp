@@ -3549,24 +3549,37 @@ public:
                                        UINT value_size) override {
     if ((!key && key_size) || (!value && value_size))
       return E_POINTER;
-    if (m_desc.MaximumInMemoryCacheEntries &&
+    const std::string cache_key = key_from_bytes(key, key_size);
+    auto existing = m_values.find(cache_key);
+    if (existing == m_values.end() && m_desc.MaximumInMemoryCacheEntries &&
         m_values.size() >= m_desc.MaximumInMemoryCacheEntries) {
       TRACE("ShaderCacheSession StoreValue rejected: entry limit=%u",
             m_desc.MaximumInMemoryCacheEntries);
       return E_OUTOFMEMORY;
     }
+    const size_t old_size = existing == m_values.end() ? 0 : existing->second.size();
+    const size_t retained_size = m_value_bytes - old_size;
     if (m_desc.MaximumInMemoryCacheSizeBytes &&
-        value_size > m_desc.MaximumInMemoryCacheSizeBytes) {
-      TRACE("ShaderCacheSession StoreValue rejected: value_size=%u limit=%u",
-            value_size, m_desc.MaximumInMemoryCacheSizeBytes);
+        value_size > m_desc.MaximumInMemoryCacheSizeBytes -
+                         std::min<size_t>(retained_size,
+                                          m_desc.MaximumInMemoryCacheSizeBytes)) {
+      TRACE("ShaderCacheSession StoreValue rejected: total_size=%zu limit=%u",
+            retained_size + value_size, m_desc.MaximumInMemoryCacheSizeBytes);
       return E_OUTOFMEMORY;
     }
-    auto &entry = m_values[key_from_bytes(key, key_size)];
+    if (m_desc.MaximumValueFileSizeBytes &&
+        value_size > m_desc.MaximumValueFileSizeBytes) {
+      TRACE("ShaderCacheSession StoreValue rejected: value_size=%u file_limit=%u",
+            value_size, m_desc.MaximumValueFileSizeBytes);
+      return E_OUTOFMEMORY;
+    }
+    auto &entry = m_values[cache_key];
     entry.resize(value_size);
     if (value_size)
       memcpy(entry.data(), value, value_size);
-    TRACE("ShaderCacheSession StoreValue key_size=%u value_size=%u entries=%zu",
-          key_size, value_size, m_values.size());
+    m_value_bytes = retained_size + value_size;
+    TRACE("ShaderCacheSession StoreValue key_size=%u value_size=%u entries=%zu total=%zu",
+          key_size, value_size, m_values.size(), m_value_bytes);
     return S_OK;
   }
 
@@ -3593,6 +3606,7 @@ private:
   ComPrivateData m_private_data;
   D3D12_SHADER_CACHE_SESSION_DESC m_desc;
   std::unordered_map<std::string, std::vector<uint8_t>> m_values;
+  size_t m_value_bytes = 0;
   bool m_delete_on_destroy = false;
 };
 
@@ -8090,6 +8104,16 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateShaderCacheSession(
   if (!desc || !session)
     return E_POINTER;
   InitReturnPtr(session);
+  constexpr unsigned known_modes = D3D12_SHADER_CACHE_MODE_MEMORY |
+                                   D3D12_SHADER_CACHE_MODE_DISK;
+  constexpr unsigned known_flags = D3D12_SHADER_CACHE_FLAG_DRIVER_VERSIONED |
+                                   D3D12_SHADER_CACHE_FLAG_USE_WORKING_DIR;
+  if (static_cast<unsigned>(desc->Mode) & ~known_modes ||
+      (static_cast<unsigned>(desc->Flags) & ~known_flags)) {
+    TRACE("ID3D12Device9::CreateShaderCacheSession invalid mode=%u flags=0x%x",
+          (unsigned)desc->Mode, (unsigned)desc->Flags);
+    return E_INVALIDARG;
+  }
   TRACE("ID3D12Device9::CreateShaderCacheSession mode=%u flags=0x%x riid=%s",
         (unsigned)desc->Mode, (unsigned)desc->Flags, str::format(riid).c_str());
   auto *cache = new MTLD3D12ShaderCacheSession(this, *desc);
