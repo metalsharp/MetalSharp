@@ -259,6 +259,10 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         return (lane / 4u) & 1u ? 1u << (lane & 3u) : 0u;
     if (std::strcmp(name, "wave_multi_prefix_and") == 0)
         return 0xffffffffu;
+    if (std::strcmp(name, "wave_i64_sum_prefix") == 0) {
+        const uint32_t triangular = lane * (lane + 1u) / 2u;
+        return 528u + triangular;
+    }
     return 0xffffffffu;
 }
 
@@ -498,6 +502,14 @@ void cs_wave_multi_prefix_and(uint3 id : SV_DispatchThreadID, uint gi : SV_Group
   uint value = WaveMultiPrefixBitAnd(0xffffffffu, match);
   outbuf.Store(gi * 4, value);
 }
+
+[numthreads(32, 1, 1)]
+void cs_wave_i64_sum_prefix(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint64_t value = uint64_t(gi + 1u);
+  uint64_t sum = WaveActiveSum(value);
+  uint64_t prefix = WavePrefixSum(value);
+  outbuf.Store(gi * 4, uint(sum + prefix));
+}
 )";
 
     bool hlsl_written = write_text_file("Z:\\tmp\\dxmt_wave_ops.hlsl", hlsl);
@@ -538,6 +550,7 @@ void cs_wave_multi_prefix_and(uint3 id : SV_DispatchThreadID, uint gi : SV_Group
         {"wave_multi_prefix_or", "cs_wave_multi_prefix_or", "cs_6_5"},
         {"wave_multi_prefix_xor", "cs_wave_multi_prefix_xor", "cs_6_5"},
         {"wave_multi_prefix_and", "cs_wave_multi_prefix_and", "cs_6_5"},
+        {"wave_i64_sum_prefix", "cs_wave_i64_sum_prefix", "cs_6_6"},
     };
 
     std::vector<CaseResult> results;
