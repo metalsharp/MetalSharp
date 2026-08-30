@@ -112,6 +112,12 @@ enum class TypedData {
     RGBA8UInt,
     RGBA8SInt,
     R16Float,
+    R16UNorm,
+    R16SNorm,
+    RGBA8SNorm,
+    R10G10B10A2UInt,
+    R10G10B10A2UNorm,
+    R11G11B10Float,
 };
 
 struct ShapeInfo {
@@ -152,6 +158,18 @@ static const ShapeInfo kReadCases[] = {
      0xfcfdfeff, 1028, DXGI_FORMAT_R8G8B8A8_SINT, TypedData::RGBA8SInt},
     {"texture_typed_r16_float", "cs_texture_typed_float16.cso", TextureShape::Texture2D, false, false,
      0x3400, 1028, DXGI_FORMAT_R16_FLOAT, TypedData::R16Float},
+    {"texture_normalized_r16_unorm", "cs_texture_2d.cso", TextureShape::Texture2D, false, false,
+     64, 1028, DXGI_FORMAT_R16_UNORM, TypedData::R16UNorm},
+    {"texture_normalized_r16_snorm", "cs_texture_2d.cso", TextureShape::Texture2D, false, false,
+     64, 1028, DXGI_FORMAT_R16_SNORM, TypedData::R16SNorm},
+    {"texture_normalized_rgba8_snorm", "cs_texture_2d.cso", TextureShape::Texture2D, false, false,
+     64, 1028, DXGI_FORMAT_R8G8B8A8_SNORM, TypedData::RGBA8SNorm},
+    {"texture_packed_r10g10b10a2_uint", "cs_texture_typed_uint4.cso", TextureShape::Texture2D, false, false,
+     0x031e140a, 1028, DXGI_FORMAT_R10G10B10A2_UINT, TypedData::R10G10B10A2UInt},
+    {"texture_packed_r10g10b10a2_unorm", "cs_texture_2d.cso", TextureShape::Texture2D, false, false,
+     64, 1028, DXGI_FORMAT_R10G10B10A2_UNORM, TypedData::R10G10B10A2UNorm},
+    {"texture_packed_r11g11b10_float", "cs_texture_2d.cso", TextureShape::Texture2D, false, false,
+     64, 1028, DXGI_FORMAT_R11G11B10_FLOAT, TypedData::R11G11B10Float},
 };
 
 static const ShapeInfo kStoreCases[] = {
@@ -168,6 +186,18 @@ static const ShapeInfo kStoreCases[] = {
      0x281e140a, 0, DXGI_FORMAT_R8G8B8A8_UINT, TypedData::RGBA8UInt},
     {"texture_typed_rgba8_sint", "cs_store_typed_sint4.cso", TextureShape::Texture2D, false, false,
      0xfcfdfeff, 0, DXGI_FORMAT_R8G8B8A8_SINT, TypedData::RGBA8SInt},
+    {"texture_normalized_r16_unorm", "cs_store_2d.cso", TextureShape::Texture2D, false, false,
+     0x00004000, 0, DXGI_FORMAT_R16_UNORM, TypedData::R16UNorm},
+    {"texture_normalized_r16_snorm", "cs_store_2d.cso", TextureShape::Texture2D, false, false,
+     0x00002000, 0, DXGI_FORMAT_R16_SNORM, TypedData::R16SNorm},
+    {"texture_normalized_rgba8_snorm", "cs_store_2d.cso", TextureShape::Texture2D, false, false,
+     0x7f000020, 0, DXGI_FORMAT_R8G8B8A8_SNORM, TypedData::RGBA8SNorm},
+    {"texture_packed_r10g10b10a2_uint", "cs_store_typed_uint4.cso", TextureShape::Texture2D, false, false,
+     0xc1e0500a, 0, DXGI_FORMAT_R10G10B10A2_UINT, TypedData::R10G10B10A2UInt},
+    {"texture_packed_r10g10b10a2_unorm", "cs_store_2d.cso", TextureShape::Texture2D, false, false,
+     0xc0000100, 0, DXGI_FORMAT_R10G10B10A2_UNORM, TypedData::R10G10B10A2UNorm},
+    {"texture_packed_r11g11b10_float", "cs_store_2d.cso", TextureShape::Texture2D, false, false,
+     0x00000340, 0, DXGI_FORMAT_R11G11B10_FLOAT, TypedData::R11G11B10Float},
 };
 
 static D3D12_RESOURCE_DESC texture_desc(TextureShape shape, bool writable) {
@@ -600,8 +630,44 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
             case TypedData::R16Float:
                 pixel[0] = 0x00; pixel[1] = 0x34;
                 break;
+            case TypedData::R16UNorm:
+                pixel[0] = 0x00; pixel[1] = 0x40;
+                break;
+            case TypedData::R16SNorm:
+                pixel[0] = 0x00; pixel[1] = 0x20;
+                break;
+            case TypedData::RGBA8SNorm:
+                pixel[0] = 0x20; pixel[1] = 0x00; pixel[2] = 0x00; pixel[3] = 0x7f;
+                break;
+            case TypedData::R10G10B10A2UInt:
+                pixel[0] = 0x0a; pixel[1] = 0x50; pixel[2] = 0xe0; pixel[3] = 0xc1;
+                break;
+            case TypedData::R10G10B10A2UNorm:
+                pixel[0] = 0x00; pixel[1] = 0x01; pixel[2] = 0x00; pixel[3] = 0xc0;
+                break;
+            case TypedData::R11G11B10Float:
+                pixel[0] = 0x40; pixel[1] = 0x03; pixel[2] = 0x00; pixel[3] = 0x00;
+                break;
             case TypedData::None:
                 break;
+            }
+            const UINT bytes_per_pixel =
+                info.typed_data == TypedData::R16UInt ||
+                        info.typed_data == TypedData::R16SInt ||
+                        info.typed_data == TypedData::R16Float ||
+                        info.typed_data == TypedData::R16UNorm ||
+                        info.typed_data == TypedData::R16SNorm
+                    ? 2
+                    : 4;
+            uint8_t pattern[4] = {};
+            std::memcpy(pattern, pixel, bytes_per_pixel);
+            for (UINT y = 0; y < rows[0]; ++y) {
+                uint8_t* row = mapped + footprints[0].Offset +
+                               static_cast<size_t>(y) *
+                                   footprints[0].Footprint.RowPitch;
+                for (UINT x = 0; x < footprints[0].Footprint.Width; ++x)
+                    std::memcpy(row + x * bytes_per_pixel, pattern,
+                                bytes_per_pixel);
             }
             D3D12_RANGE write_range = {0, static_cast<SIZE_T>(upload->GetDesc().Width)};
             upload->Unmap(0, &write_range);
