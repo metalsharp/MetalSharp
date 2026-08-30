@@ -3693,7 +3693,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             auto compare = numericArg(9, "0.0");
             if (ctx.shader.kind == DxilShaderKind::Compute) {
                 auto sample = "((" + handle + ".read(uint2((uint)(" + cx +
-                               "), (uint)(" + cy + "))) <= (float)(" +
+                               "), (uint)(" + cy + "))) >= (float)(" +
                                compare + ")) ? 1.0f : 0.0f)";
                 return sample;
             }
@@ -3740,8 +3740,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto ox = ensureScalarIndex(numericArg(6, "0"));
         auto oy = ensureScalarIndex(numericArg(7, "0"));
         if (ctx.shader.kind == DxilShaderKind::Compute) {
-            return "((" + handle + ".read(uint2((uint)(" + cx + "), (uint)(" +
-                   cy + "))) <= (float)(" + cmp + ")) ? 1.0f : 0.0f)";
+            std::string sample = handle + ".read(uint2((uint)(" + cx +
+                                  "), (uint)(" + cy + "))";
+            if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224)
+                sample += ", (uint)(" + numericArg(10, "0") + ")";
+            sample += ")";
+            return "(((float)(" + cmp + ") <= " + sample + ") ? 1.0f : 0.0f)";
         }
         if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224) {
             auto lod = numericArg(10, "0.0");

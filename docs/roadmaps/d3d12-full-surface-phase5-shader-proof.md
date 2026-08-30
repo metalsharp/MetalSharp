@@ -24,6 +24,10 @@
 - The WaveOps probe independently verifies lane index/count, ballot, lane
   reads, any/all, quad operations, reductions, and prefix behavior on the
   32-lane dispatch, with zero mismatches.
+- The SM6.6/6.7 capability matrix independently verifies root constants,
+  descriptor indexing, 32/64-bit atomics, barriers, raw gather, programmable
+  offsets, `SampleCmpLevel`, and `QuadVote`; the complete runtime matrix now
+  passes with zero mismatches.
 - Existing compute PSO evidence covers CBV/SRV/UAV binding, texture sampling,
   32-bit atomics, indirect dispatch bounds, and explicit append/consume-counter
   policy. Append/consume counters remain fail-closed rather than being
