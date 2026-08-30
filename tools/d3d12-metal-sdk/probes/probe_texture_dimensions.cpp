@@ -133,11 +133,16 @@ struct ShapeInfo {
     DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
     TypedData typed_data = TypedData::None;
     uint32_t expected_high = 0;
+    uint16_t mip_levels = 1;
 };
 
 static const ShapeInfo kReadCases[] = {
     {"texture1d", "cs_texture_1d.cso", TextureShape::Texture1D, false, false, 64, 4},
     {"texture1d_array", "cs_texture_1d_array.cso", TextureShape::Texture1DArray, false, true, 96, 131076},
+    {"texture1d_mip", "cs_texture_1d_mip.cso", TextureShape::Texture1D, false, false,
+     96, 131074, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2},
+    {"texture1d_array_mip", "cs_texture_1d_array_mip.cso", TextureShape::Texture1DArray, false, true,
+     96, 131586, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2},
     {"texture2d", "cs_texture_2d.cso", TextureShape::Texture2D, false, false, 64, 1028},
     {"texture2d_array", "cs_texture_2d_array.cso", TextureShape::Texture2DArray, false, true, 96, 132100},
     {"texture3d", "cs_texture_3d.cso", TextureShape::Texture3D, false, false, 96, 263172},
@@ -404,40 +409,41 @@ static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
 }
 
 static void make_srv_desc(TextureShape shape, D3D12_SHADER_RESOURCE_VIEW_DESC& srv,
-                          DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM) {
+                          DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM,
+                          UINT mip_levels = 1) {
     srv = {};
     srv.Format = format;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     switch (shape) {
     case TextureShape::Texture1D:
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
-        srv.Texture1D.MipLevels = 1;
+        srv.Texture1D.MipLevels = mip_levels;
         break;
     case TextureShape::Texture1DArray:
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1DARRAY;
-        srv.Texture1DArray.MipLevels = 1;
+        srv.Texture1DArray.MipLevels = mip_levels;
         srv.Texture1DArray.ArraySize = 2;
         break;
     case TextureShape::Texture2D:
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srv.Texture2D.MipLevels = 1;
+        srv.Texture2D.MipLevels = mip_levels;
         break;
     case TextureShape::Texture2DArray:
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
-        srv.Texture2DArray.MipLevels = 1;
+        srv.Texture2DArray.MipLevels = mip_levels;
         srv.Texture2DArray.ArraySize = 2;
         break;
     case TextureShape::Texture3D:
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D;
-        srv.Texture3D.MipLevels = 1;
+        srv.Texture3D.MipLevels = mip_levels;
         break;
     case TextureShape::TextureCube:
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
-        srv.TextureCube.MipLevels = 1;
+        srv.TextureCube.MipLevels = mip_levels;
         break;
     case TextureShape::TextureCubeArray:
         srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
-        srv.TextureCubeArray.MipLevels = 1;
+        srv.TextureCubeArray.MipLevels = mip_levels;
         srv.TextureCubeArray.NumCubes = 2;
         break;
     case TextureShape::Texture2DMS:
@@ -568,9 +574,11 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     }
     D3D12_RESOURCE_DESC tex_desc = texture_desc(info.shape, false);
     tex_desc.Format = info.format;
-    const UINT subresources = info.shape == TextureShape::Texture3D
-                                  ? 1
-                                  : tex_desc.DepthOrArraySize;
+    tex_desc.MipLevels = info.mip_levels;
+    const UINT array_size = info.shape == TextureShape::Texture3D
+                                ? 1
+                                : tex_desc.DepthOrArraySize;
+    const UINT subresources = array_size * tex_desc.MipLevels;
     std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints(subresources);
     std::vector<UINT> rows(subresources);
     std::vector<UINT64> row_bytes(subresources);
@@ -722,7 +730,7 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
         uav.Buffer.StructureByteStride = 4;
         device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-        make_srv_desc(info.shape, srv, info.format);
+        make_srv_desc(info.shape, srv, info.format, info.mip_levels);
         device->CreateShaderResourceView(texture, &srv, offset_cpu(cpu, inc, 1));
         D3D12_SAMPLER_DESC sampler = {};
         sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;

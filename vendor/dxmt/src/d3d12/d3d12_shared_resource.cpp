@@ -154,8 +154,8 @@ static bool FillSharedTextureInfo(const D3D12_RESOURCE_DESC &desc,
   info = {};
   info.type = WMTTextureType2D;
   if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D) {
-    info.type = desc.DepthOrArraySize > 1 ? WMTTextureType1DArray
-                                         : WMTTextureType1D;
+    info.type = desc.DepthOrArraySize > 1 ? WMTTextureType2DArray
+                                         : WMTTextureType2D;
   } else if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D) {
     info.type = WMTTextureType3D;
   } else if (desc.SampleDesc.Count > 1) {

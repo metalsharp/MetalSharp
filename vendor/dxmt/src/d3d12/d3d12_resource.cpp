@@ -652,7 +652,10 @@ TextureTypeForResourceDesc(const D3D12_RESOURCE_DESC &desc) {
   UINT sample_count = desc.SampleDesc.Count ? desc.SampleDesc.Count : 1;
   switch (desc.Dimension) {
   case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
-    return (desc.DepthOrArraySize > 1) ? WMTTextureType1DArray : WMTTextureType1D;
+    // Metal 1D arrays cannot carry mip chains. Represent D3D12 1D resources
+    // as height-one 2D textures so array/mip/sample semantics stay complete.
+    return (desc.DepthOrArraySize > 1) ? WMTTextureType2DArray
+                                       : WMTTextureType2D;
   case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
     return WMTTextureType3D;
   default:
