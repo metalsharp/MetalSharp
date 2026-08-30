@@ -8104,8 +8104,32 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateShaderCacheSession(
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Device::ShaderCacheControl(D3D12_SHADER_CACHE_KIND_FLAGS kinds,
                                    D3D12_SHADER_CACHE_CONTROL_FLAGS control) {
-  TRACE("ID3D12Device9::ShaderCacheControl kinds=0x%x control=0x%x -> S_OK",
-        (unsigned)kinds, (unsigned)control);
+  constexpr unsigned known_kinds =
+      D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CACHE_FOR_DRIVER |
+      D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CONVERSIONS |
+      D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_DRIVER_MANAGED |
+      D3D12_SHADER_CACHE_KIND_FLAG_APPLICATION_MANAGED;
+  constexpr unsigned known_controls =
+      D3D12_SHADER_CACHE_CONTROL_FLAG_DISABLE |
+      D3D12_SHADER_CACHE_CONTROL_FLAG_ENABLE |
+      D3D12_SHADER_CACHE_CONTROL_FLAG_CLEAR;
+  if (!kinds || !control || (static_cast<unsigned>(kinds) & ~known_kinds) ||
+      (static_cast<unsigned>(control) & ~known_controls) ||
+      ((control & D3D12_SHADER_CACHE_CONTROL_FLAG_DISABLE) &&
+       (control & D3D12_SHADER_CACHE_CONTROL_FLAG_ENABLE))) {
+    TRACE("ID3D12Device9::ShaderCacheControl invalid kinds=0x%x control=0x%x",
+          (unsigned)kinds, (unsigned)control);
+    return E_INVALIDARG;
+  }
+  if (control & D3D12_SHADER_CACHE_CONTROL_FLAG_DISABLE)
+    SetD3D12ShaderCacheEnabled(false);
+  if (control & D3D12_SHADER_CACHE_CONTROL_FLAG_ENABLE)
+    SetD3D12ShaderCacheEnabled(true);
+  if (control & D3D12_SHADER_CACHE_CONTROL_FLAG_CLEAR)
+    ClearD3D12ShaderCache();
+  TRACE("ID3D12Device9::ShaderCacheControl kinds=0x%x control=0x%x enabled=%u",
+        (unsigned)kinds, (unsigned)control,
+        D3D12ShaderCacheEnabled() ? 1u : 0u);
   return S_OK;
 }
 

@@ -44,6 +44,13 @@ static std::string json_escape(const std::string& input) {
     return out;
 }
 
+static std::string hr_hex(HRESULT hr) {
+    char buffer[16] = {};
+    std::snprintf(buffer, sizeof(buffer), "0x%08lx",
+                  static_cast<unsigned long>(static_cast<uint32_t>(hr)));
+    return buffer;
+}
+
 static std::string getenv_string(const char* key) {
     DWORD needed = GetEnvironmentVariableA(key, nullptr, 0);
     if (needed == 0)
@@ -260,21 +267,34 @@ int main() {
     const char* dxc_hlsl_path = "Z:\\tmp\\dxmt_dxc_sm6_compute.hlsl";
     const char* dxc_dxil_path = "Z:\\tmp\\dxmt_dxc_sm6_compute.dxil";
     const char* dxc_errors_path = "Z:\\tmp\\dxmt_dxc_sm6_errors.txt";
-    const char* vs_metallib_path = "Z:\\tmp\\dxmt_sm50_vs_main.metallib";
-    const char* ps_metallib_path = "Z:\\tmp\\dxmt_sm50_ps_main.metallib";
-    const char* cs_metallib_path = "Z:\\tmp\\dxmt_sm50_cs_main.metallib";
+    std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
+    std::string expect_dxc = getenv_string("D3D12_METAL_SDK_EXPECT_DXC");
+    std::string shader_cache_root = getenv_string("DXMT_SHADER_CACHE_PATH");
+    if (!shader_cache_root.empty() && shader_cache_root.front() == '/') {
+        shader_cache_root = "Z:" + shader_cache_root;
+        for (char& character : shader_cache_root) {
+            if (character == '/')
+                character = '\\';
+        }
+    }
+    const std::string vs_metallib_path = shader_cache_root.empty()
+                                             ? "Z:\\tmp\\dxmt_sm50_vs_main.metallib"
+                                             : shader_cache_root + "\\dxmt_sm50_vs_main.metallib";
+    const std::string ps_metallib_path = shader_cache_root.empty()
+                                             ? "Z:\\tmp\\dxmt_sm50_ps_main.metallib"
+                                             : shader_cache_root + "\\dxmt_sm50_ps_main.metallib";
+    const std::string cs_metallib_path = shader_cache_root.empty()
+                                             ? "Z:\\tmp\\dxmt_sm50_cs_main.metallib"
+                                             : shader_cache_root + "\\dxmt_sm50_cs_main.metallib";
     DeleteFileA(shader_trace_path);
     DeleteFileA(dxil_trace_path);
     DeleteFileA(shader_args_path);
     DeleteFileA(dxc_hlsl_path);
     DeleteFileA(dxc_dxil_path);
     DeleteFileA(dxc_errors_path);
-    DeleteFileA(vs_metallib_path);
-    DeleteFileA(ps_metallib_path);
-    DeleteFileA(cs_metallib_path);
-
-    std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
-    std::string expect_dxc = getenv_string("D3D12_METAL_SDK_EXPECT_DXC");
+    DeleteFileA(vs_metallib_path.c_str());
+    DeleteFileA(ps_metallib_path.c_str());
+    DeleteFileA(cs_metallib_path.c_str());
 
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     HMODULE d3dcompiler = LoadLibraryA("d3dcompiler_47.dll");
@@ -414,9 +434,9 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID) {
     unsigned long long vs_metallib_size = 0;
     unsigned long long ps_metallib_size = 0;
     unsigned long long cs_metallib_size = 0;
-    bool vs_metallib = file_nonzero(vs_metallib_path, &vs_metallib_size);
-    bool ps_metallib = file_nonzero(ps_metallib_path, &ps_metallib_size);
-    bool cs_metallib = file_nonzero(cs_metallib_path, &cs_metallib_size);
+    bool vs_metallib = file_nonzero(vs_metallib_path.c_str(), &vs_metallib_size);
+    bool ps_metallib = file_nonzero(ps_metallib_path.c_str(), &ps_metallib_size);
+    bool cs_metallib = file_nonzero(cs_metallib_path.c_str(), &cs_metallib_size);
     bool graphics_trace_ok =
         contains(trace, "CompileShader: vs_main SM50 OK") && contains(trace, "CompileShader: ps_main SM50 OK");
     bool compute_trace_ok = contains(trace, "CompileShader: cs_main SM50 OK") || contains(args_trace, "CS_ARGS_DEBUG");
@@ -447,12 +467,31 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID) {
     bool pso_valid = SUCCEEDED(create_root_hr) && SUCCEEDED(graphics_pso_hr) && graphics_pso &&
                      SUCCEEDED(compute_pso_hr) && compute_pso;
     bool cache_valid = vs_metallib && ps_metallib && cs_metallib;
+    ID3D12Device9* device9 = nullptr;
+    HRESULT device9_qi = device ? device->QueryInterface(IID_PPV_ARGS(&device9)) : E_FAIL;
+    HRESULT cache_disable_hr = FAILED(device9_qi)
+                                   ? device9_qi
+                                   : device9->ShaderCacheControl(
+                                         D3D12_SHADER_CACHE_KIND_FLAG_APPLICATION_MANAGED,
+                                         D3D12_SHADER_CACHE_CONTROL_FLAG_DISABLE);
+    HRESULT cache_enable_hr = FAILED(cache_disable_hr)
+                                  ? cache_disable_hr
+                                  : device9->ShaderCacheControl(
+                                        D3D12_SHADER_CACHE_KIND_FLAG_APPLICATION_MANAGED,
+                                        D3D12_SHADER_CACHE_CONTROL_FLAG_ENABLE);
+    HRESULT cache_invalid_hr = FAILED(device9_qi)
+                                   ? device9_qi
+                                   : device9->ShaderCacheControl(
+                                         static_cast<D3D12_SHADER_CACHE_KIND_FLAGS>(0),
+                                         D3D12_SHADER_CACHE_CONTROL_FLAG_CLEAR);
+    bool cache_control_valid = SUCCEEDED(device9_qi) && SUCCEEDED(cache_disable_hr) &&
+                               SUCCEEDED(cache_enable_hr) && cache_invalid_hr == E_INVALIDARG;
     bool diagnostics_valid =
         FAILED(bad_compute_pso_hr) && !bad_compute_pso && failure_trace_ok && dxil_container_trace_ok;
     bool dxc_valid =
         !dxc_required || (dxc_available && SUCCEEDED(dxc_compute_pso_hr) && dxc_compute_pso && dxc_dxil_to_msl_ok);
     bool pass = entrypoints_valid && SUCCEEDED(create_hr) && compile_valid && pso_valid && sm6_probe_explicit &&
-                bindless_explicit && dxc_valid;
+                bindless_explicit && dxc_valid && cache_control_valid;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-shaders.v1\",\n");
@@ -513,6 +552,11 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID) {
     std::printf("    \"errors\": \"%s\"\n", json_escape(dxc_errors).c_str());
     std::printf("  },\n");
     std::printf("  \"shader_cache\": {\n");
+    std::printf("    \"device9_qi\": \"%s\",\n", hr_hex(device9_qi).c_str());
+    std::printf("    \"cache_disable\": \"%s\",\n", hr_hex(cache_disable_hr).c_str());
+    std::printf("    \"cache_enable\": \"%s\",\n", hr_hex(cache_enable_hr).c_str());
+    std::printf("    \"cache_invalid\": \"%s\",\n", hr_hex(cache_invalid_hr).c_str());
+    std::printf("    \"cache_control_valid\": %s,\n", cache_control_valid ? "true" : "false");
     std::printf("    \"vs_metallib\": %s,\n", vs_metallib ? "true" : "false");
     std::printf("    \"ps_metallib\": %s,\n", ps_metallib ? "true" : "false");
     std::printf("    \"cs_metallib\": %s,\n", cs_metallib ? "true" : "false");
@@ -564,6 +608,8 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID) {
         ps_errors->Release();
     if (vs_errors)
         vs_errors->Release();
+    if (device9)
+        device9->Release();
     if (device)
         device->Release();
 

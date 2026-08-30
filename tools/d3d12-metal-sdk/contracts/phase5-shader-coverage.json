@@ -41,7 +41,8 @@
       "result": "probe-shaders",
       "checks": [
         ["pass"],
-        ["pipeline_state", "bad_compute_rejected_with_diagnostic"]
+        ["pipeline_state", "bad_compute_rejected_with_diagnostic"],
+        ["shader_cache", "cache_control_valid"]
       ],
       "remaining": "Unsupported semantics are rejected instead of being promoted through placeholder MSL; implementation breadth remains tracked by the open exhaustive row."
     },

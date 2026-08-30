@@ -63,7 +63,12 @@ The shader-corpus summary passed `sm50_baseline`, the SM6.0–SM6.6
 progression, and the new `sm67_to_sm69_progression`; its `cs_9_9` negative
 case was deterministically rejected. The diagnostic result passed with
 `bad_compute_pso=0x80004005` and
-`bad_compute_rejected_with_diagnostic=true`.
+`bad_compute_rejected_with_diagnostic=true`. The same probe exercises the
+ID3D12Device9 shader-cache control boundary: application-managed disable and
+enable return `S_OK`, while zero-kind control returns `E_INVALIDARG` and the
+reported `cache_control_valid` flag is true. The same run reports nonzero
+SM5 cache artifacts (`vs_metallib`, `ps_metallib`, and `cs_metallib`) and a
+complete cache set.
 
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
