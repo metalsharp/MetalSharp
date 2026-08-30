@@ -35,6 +35,15 @@
       "remaining": "The source-staged control-flow cases cover a multi-block switch, PHI merge, loop-carried aggregate state, vector aggregate extraction, and exact four-lane readback; nested-control and broader aggregate forms remain in the exhaustive row."
     },
     {
+      "id": "dxil-double-arithmetic-runtime",
+      "status": "closed",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The source-staged lane proves the selected double arithmetic expression through exact integer readback; broader double precision, make/split, bitcast, and capability semantics remain in the exhaustive row."
+    },
+    {
       "id": "wave-quad-runtime-matrix",
       "status": "closed",
       "result": "probe-wave-ops",
