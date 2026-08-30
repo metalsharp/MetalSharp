@@ -15,46 +15,73 @@ RWStructuredBuffer<uint> output : register(u0);
 [numthreads(4,1,1)]
 void cs_texture_1d(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex1.Sample(samp, 0.5).r * 255.0 + 0.5);
+  uint w;
+  tex1.GetDimensions(w);
+  output[1] = w;
 }
 
 [numthreads(4,1,1)]
 void cs_texture_1d_array(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex1a.Sample(samp, float2(0.5, 1)).r * 255.0 + 0.5);
+  uint w, elements;
+  tex1a.GetDimensions(w, elements);
+  output[1] = w | (elements << 16);
 }
 
 [numthreads(4,1,1)]
 void cs_texture_2d(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex2.SampleLevel(samp, float2(0.5, 0.5), 0).r * 255.0 + 0.5);
+  uint w, h;
+  tex2.GetDimensions(w, h);
+  output[1] = w | (h << 8);
 }
 
 [numthreads(4,1,1)]
 void cs_texture_2d_array(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex2a.SampleLevel(samp, float3(0.5, 0.5, 1), 0).r * 255.0 + 0.5);
+  uint w, h, elements;
+  tex2a.GetDimensions(w, h, elements);
+  output[1] = w | (h << 8) | (elements << 16);
 }
 
 [numthreads(4,1,1)]
 void cs_texture_3d(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex3.SampleLevel(samp, float3(0.5, 0.5, 0.375), 0).r * 255.0 + 0.5);
+  uint w, h, d;
+  tex3.GetDimensions(w, h, d);
+  output[1] = w | (h << 8) | (d << 16);
 }
 
 [numthreads(4,1,1)]
 void cs_texture_cube(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(texcube.SampleLevel(samp, float3(0, 0, 1), 0).r * 255.0 + 0.5);
+  uint w, h;
+  texcube.GetDimensions(w, h);
+  output[1] = w | (h << 8);
 }
 
 [numthreads(4,1,1)]
 void cs_texture_cube_array(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(texcubea.SampleLevel(samp, float4(0, 0, 1, 1), 0).r * 255.0 + 0.5);
+  uint w, h, cubes;
+  texcubea.GetDimensions(w, h, cubes);
+  output[1] = w | (h << 8) | (cubes << 16);
 }
 
 [numthreads(4,1,1)]
 void cs_texture_2d_ms(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(texms.Load(int2(0, 0), 0).r * 255.0 + 0.5);
+  uint w, h, samples;
+  texms.GetDimensions(w, h, samples);
+  output[1] = w | (h << 8) | (samples << 24);
 }
 
 [numthreads(4,1,1)]
 void cs_texture_2d_ms_array(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(texmsa.Load(int3(0, 0, 1), 0).r * 255.0 + 0.5);
+  uint w, h, elements, samples;
+  texmsa.GetDimensions(w, h, elements, samples);
+  output[1] = w | (h << 8) | (elements << 16) | (samples << 24);
 }
 
 RWTexture1D<float4> rw1 : register(u0);
