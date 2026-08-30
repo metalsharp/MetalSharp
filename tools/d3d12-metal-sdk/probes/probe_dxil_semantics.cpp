@@ -706,6 +706,8 @@ int main() {
          {25u}, "sm64_packed_dot_accumulate"},
         {"dot4add_signed", "probe_dxil_semantic_dot4add_signed.cso", {5u},
          {23u}, "sm64_packed_dot_accumulate"},
+        {"dot2add_half", "probe_dxil_semantic_dot2add_half.cso", {5u},
+         {0x41800000u}, "sm64_packed_dot_accumulate"},
         {"special_float", "probe_dxil_semantic_special_float.cso", {}, {1, 1, 1, 0}, "special_float_predicates"},
         {"buffer_load_store", "probe_dxil_semantic_buffer.cso", {2, 4, 6, 8}, {7, 13, 19, 25}, "buffer_load_store"},
         {"atomic_uav", "probe_dxil_semantic_atomic_uav.cso", {}, {7, 0, 5, 8},
