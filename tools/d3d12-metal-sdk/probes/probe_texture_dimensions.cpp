@@ -102,6 +102,18 @@ enum class TextureShape {
     Texture2DMSArray,
 };
 
+enum class TypedData {
+    None,
+    R32UInt,
+    R32SInt,
+    R16UInt,
+    R16SInt,
+    RG16UInt,
+    RGBA8UInt,
+    RGBA8SInt,
+    R16Float,
+};
+
 struct ShapeInfo {
     const char* name;
     const char* shader;
@@ -111,8 +123,7 @@ struct ShapeInfo {
     uint32_t expected;
     uint32_t dimensions_expected;
     DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    bool typed_uint = false;
-    bool typed_signed = false;
+    TypedData typed_data = TypedData::None;
 };
 
 static const ShapeInfo kReadCases[] = {
@@ -126,9 +137,21 @@ static const ShapeInfo kReadCases[] = {
     {"texture2d_ms", "cs_texture_2d_ms.cso", TextureShape::Texture2DMS, true, false, 64, 33555460},
     {"texture2d_ms_array", "cs_texture_2d_ms_array.cso", TextureShape::Texture2DMSArray, true, true, 96, 33686532},
     {"texture_typed_uint", "cs_texture_typed_uint.cso", TextureShape::Texture2D, false, false,
-     0x281e140a, 1028, DXGI_FORMAT_R32_UINT, true},
+     0x281e140a, 1028, DXGI_FORMAT_R32_UINT, TypedData::R32UInt},
     {"texture_typed_sint", "cs_texture_typed_sint.cso", TextureShape::Texture2D, false, false,
-     0x281e140a, 1028, DXGI_FORMAT_R32_SINT, false, true},
+     0x281e140a, 1028, DXGI_FORMAT_R32_SINT, TypedData::R32SInt},
+    {"texture_typed_r16_uint", "cs_texture_typed_uint.cso", TextureShape::Texture2D, false, false,
+     0x1234, 1028, DXGI_FORMAT_R16_UINT, TypedData::R16UInt},
+    {"texture_typed_r16_sint", "cs_texture_typed_sint.cso", TextureShape::Texture2D, false, false,
+     0xfffffffe, 1028, DXGI_FORMAT_R16_SINT, TypedData::R16SInt},
+    {"texture_typed_rg16_uint", "cs_texture_typed_uint2.cso", TextureShape::Texture2D, false, false,
+     0x56781234, 1028, DXGI_FORMAT_R16G16_UINT, TypedData::RG16UInt},
+    {"texture_typed_rgba8_uint", "cs_texture_typed_uint4.cso", TextureShape::Texture2D, false, false,
+     0x281e140a, 1028, DXGI_FORMAT_R8G8B8A8_UINT, TypedData::RGBA8UInt},
+    {"texture_typed_rgba8_sint", "cs_texture_typed_sint4.cso", TextureShape::Texture2D, false, false,
+     0xfcfdfeff, 1028, DXGI_FORMAT_R8G8B8A8_SINT, TypedData::RGBA8SInt},
+    {"texture_typed_r16_float", "cs_texture_typed_float16.cso", TextureShape::Texture2D, false, false,
+     0x3400, 1028, DXGI_FORMAT_R16_FLOAT, TypedData::R16Float},
 };
 
 static const ShapeInfo kStoreCases[] = {
@@ -138,7 +161,13 @@ static const ShapeInfo kStoreCases[] = {
     {"texture2d_array", "cs_store_2d_array.cso", TextureShape::Texture2DArray, false, true, 64, 0},
     {"texture3d", "cs_store_3d.cso", TextureShape::Texture3D, false, false, 64, 0},
     {"texture_typed_uint", "cs_store_typed_uint.cso", TextureShape::Texture2D, false, false,
-     0x12345678, 0, DXGI_FORMAT_R32_UINT, true},
+     0x12345678, 0, DXGI_FORMAT_R32_UINT, TypedData::R32UInt},
+    {"texture_typed_sint", "cs_store_typed_sint.cso", TextureShape::Texture2D, false, false,
+     0xffed2979, 0, DXGI_FORMAT_R32_SINT, TypedData::R32SInt},
+    {"texture_typed_rgba8_uint", "cs_store_typed_uint4.cso", TextureShape::Texture2D, false, false,
+     0x281e140a, 0, DXGI_FORMAT_R8G8B8A8_UINT, TypedData::RGBA8UInt},
+    {"texture_typed_rgba8_sint", "cs_store_typed_sint4.cso", TextureShape::Texture2D, false, false,
+     0xfcfdfeff, 0, DXGI_FORMAT_R8G8B8A8_SINT, TypedData::RGBA8SInt},
 };
 
 static D3D12_RESOURCE_DESC texture_desc(TextureShape shape, bool writable) {
@@ -199,14 +228,34 @@ static D3D12_GPU_DESCRIPTOR_HANDLE offset_gpu(D3D12_GPU_DESCRIPTOR_HANDLE start,
     return start;
 }
 
+static std::string g_binary_file_error;
+
 static bool read_binary_file(const char* path, std::vector<uint8_t>& out) {
-    FILE* file = std::fopen(path, "rb");
-    if (!file)
+    std::string resolved = path ? path : "";
+    if (!resolved.empty() && resolved.find(':') == std::string::npos &&
+        resolved.front() != '/' && resolved.front() != '\\') {
+        char module_path[MAX_PATH] = {};
+        DWORD length = GetModuleFileNameA(nullptr, module_path, MAX_PATH);
+        if (length && length < MAX_PATH) {
+            char* slash = std::strrchr(module_path, '\\');
+            if (slash) {
+                slash[1] = '\0';
+                resolved = std::string(module_path) + resolved;
+            }
+        }
+    }
+    FILE* file = std::fopen(resolved.c_str(), "rb");
+    if (!file) {
+        g_binary_file_error = resolved + " (win32=" +
+                              std::to_string(GetLastError()) + ")";
         return false;
+    }
+    g_binary_file_error.clear();
     std::fseek(file, 0, SEEK_END);
     long size = std::ftell(file);
     std::fseek(file, 0, SEEK_SET);
     if (size <= 0) {
+        g_binary_file_error = resolved + " (empty)";
         std::fclose(file);
         return false;
     }
@@ -447,7 +496,7 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     result.dimensions_expected = info.dimensions_expected;
     std::vector<uint8_t> shader;
     if (!read_binary_file(info.shader, shader)) {
-        result.detail = "compiled DXIL blob missing";
+        result.detail = "compiled DXIL blob missing: " + g_binary_file_error;
         result.hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         return result;
     }
@@ -518,18 +567,42 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
                                              D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
                                              IID_PPV_ARGS(&upload));
     }
-    if (SUCCEEDED(hr) && !fill_upload(upload, footprints, rows, tex_desc, 64))
+    if (SUCCEEDED(hr) && info.typed_data == TypedData::None &&
+        !fill_upload(upload, footprints, rows, tex_desc, 64))
         hr = E_FAIL;
-    if (SUCCEEDED(hr) && (info.typed_uint || info.typed_signed)) {
+    if (SUCCEEDED(hr) && info.typed_data != TypedData::None) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, 0};
         hr = upload->Map(0, &read_range,
                          reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr) && mapped) {
-            mapped[footprints[0].Offset + 0] = 10;
-            mapped[footprints[0].Offset + 1] = 20;
-            mapped[footprints[0].Offset + 2] = 30;
-            mapped[footprints[0].Offset + 3] = 40;
+            std::memset(mapped, 0, static_cast<size_t>(upload->GetDesc().Width));
+            uint8_t* pixel = mapped + footprints[0].Offset;
+            switch (info.typed_data) {
+            case TypedData::R32UInt:
+            case TypedData::R32SInt:
+            case TypedData::RGBA8UInt:
+                pixel[0] = 10; pixel[1] = 20; pixel[2] = 30; pixel[3] = 40;
+                break;
+            case TypedData::R16UInt:
+                pixel[0] = 0x34; pixel[1] = 0x12;
+                break;
+            case TypedData::R16SInt:
+                pixel[0] = 0xfe; pixel[1] = 0xff;
+                break;
+            case TypedData::RG16UInt:
+                pixel[0] = 0x34; pixel[1] = 0x12;
+                pixel[2] = 0x78; pixel[3] = 0x56;
+                break;
+            case TypedData::RGBA8SInt:
+                pixel[0] = 0xff; pixel[1] = 0xfe; pixel[2] = 0xfd; pixel[3] = 0xfc;
+                break;
+            case TypedData::R16Float:
+                pixel[0] = 0x00; pixel[1] = 0x34;
+                break;
+            case TypedData::None:
+                break;
+            }
             D3D12_RANGE write_range = {0, static_cast<SIZE_T>(upload->GetDesc().Width)};
             upload->Unmap(0, &write_range);
         }
@@ -632,7 +705,7 @@ static CaseResult run_store_case(ID3D12Device* device, const ShapeInfo& info) {
     result.expected = info.expected;
     std::vector<uint8_t> shader;
     if (!read_binary_file(info.shader, shader)) {
-        result.detail = "compiled DXIL blob missing";
+        result.detail = "compiled DXIL blob missing: " + g_binary_file_error;
         result.hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
         return result;
     }
@@ -729,8 +802,9 @@ static CaseResult run_store_case(ID3D12Device* device, const ShapeInfo& info) {
                                  footprints[0].Footprint.RowPitch;
             else if (info.array)
                 target_offset = footprints[1].Offset;
-            if (info.typed_uint)
-                result.actual = *reinterpret_cast<uint32_t*>(mapped + target_offset);
+            if (info.typed_data != TypedData::None)
+                std::memcpy(&result.actual, mapped + target_offset,
+                            sizeof(result.actual));
             else
                 result.actual = mapped[target_offset];
             readback->Unmap(0, nullptr);

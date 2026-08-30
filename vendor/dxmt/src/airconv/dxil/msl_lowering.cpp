@@ -4650,9 +4650,23 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
 
         if ((resource_kind == 1u || resource_kind == 6u) &&
+            intrinsic_id == DXOP_TextureSampleLevel) {
+            // Metal's 1D sample overload has no level modifier. Level zero is
+            // exactly the native 1D sample operation; reject every other LOD
+            // rather than silently losing filtering or sampler address modes.
+            if (!isZeroLiteralArg(9)) {
+                ctx.unsupported_intrinsics++;
+                recordDiagnostic(ctx,
+                                 "DXIL nonzero explicit LOD is unsupported for 1D resource kind=%u",
+                                 resource_kind);
+                return "float4(0)";
+            }
+            intrinsic_id = DXOP_TextureSample;
+        }
+        if ((resource_kind == 1u || resource_kind == 6u) &&
             intrinsic_id != DXOP_TextureSample) {
             ctx.unsupported_intrinsics++;
-            recordDiagnostic(ctx, "DXIL explicit sample modifier is unsupported for 1D resource kind=%u", resource_kind);
+            recordDiagnostic(ctx, "DXIL sample modifier is unsupported for 1D resource kind=%u", resource_kind);
             return "float4(0)";
         }
         std::string call = handle + ".sample(" + samp + ", " + coord;
@@ -4923,16 +4937,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                               element_offset + "))";
             }
             ctx.uses_atomic64_emulation = true;
-            auto translated =
-                "(long)m12_atomic64_binop(reinterpret_cast<volatile device ulong*>(" +
-                handle + " + " + byte_offset + "), (ulong)(" + val +
-                "), " + std::to_string(op) + "u, m12_atomic64_lock)";
-            recordDiagnostic(
-                ctx,
-                "atomic64 binop handle=%s kind=%u stride=%u op=%u byte_offset=%s value=%s translated=%s",
-                handle.c_str(), resource_kind, element_stride, op,
-                byte_offset.c_str(), val.c_str(), translated.c_str());
-            return translated;
+            return "(long)m12_atomic64_binop(reinterpret_cast<volatile device ulong*>(" +
+                   handle + " + " + byte_offset + "), (ulong)(" + val +
+                   "), " + std::to_string(op) + "u, m12_atomic64_lock)";
         }
         uint32_t resource_kind = 0;
         uint32_t element_stride = 0;
@@ -5926,21 +5933,6 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 callee_name);
             if (translated.find(".sample_compare(") != std::string::npos)
                 result_type = {MSLTypeKind::Float, 0, {}};
-            if (intrinsic_id == DXOP_AtomicBinOp)
-                recordDiagnostic(ctx,
-                                 "atomic binop emit value=%u callee=%s type=%u translated=%s",
-                                 value_counter, callee_name.c_str(),
-                                 static_cast<unsigned>(result_type.kind),
-                                 translated.c_str());
-            if (intrinsic_id == DXOP_CBufferLoad || intrinsic_id == DXOP_CBufferLoadLegacy) {
-                const char *handle_value = "<missing>";
-                uint32_t handle_id = fn_args.empty() ? UINT32_MAX : fn_args[0];
-                if (handle_id < ctx.value_table.size() && !ctx.value_table[handle_id].empty())
-                    handle_value = ctx.value_table[handle_id].c_str();
-                recordDiagnostic(ctx,
-                                 "cbufferLoad value=%u handle_id=%u handle=%s translated=%s",
-                                 value_counter, handle_id, handle_value, translated.c_str());
-            }
             ensureValueTable(value_counter);
             ctx.value_types[value_counter] = result_type;
 
@@ -6618,10 +6610,6 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                    << " = " << translated << ";\n";
             ctx.value_table[value_counter] = result;
             ctx.value_types[value_counter] = result_type;
-            recordDiagnostic(ctx,
-                             "group atomic64 value=%u llvm_op=%u m12_op=%u ptr=%s value=%s",
-                             value_counter, llvm_op, m12_op, ptr.c_str(),
-                             val.c_str());
         } else if (inst.operands.size() >= 3) {
             result_type = {MSLTypeKind::UInt, 0, {}};
             auto ptr = getValue(inst.operands[0]);

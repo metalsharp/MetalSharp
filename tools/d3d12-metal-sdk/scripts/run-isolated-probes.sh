@@ -46,6 +46,7 @@ prefix.
 EOF
 }
 
+prepare_texture_shaders=0
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
@@ -55,6 +56,9 @@ for arg in "$@"; do
     --profile|--profile=*|--wine|--wine=*|--prefix|--prefix=*|--dxmt-runtime|--dxmt-runtime=*)
       echo "error: $arg is owned by run-isolated-probes.sh" >&2
       exit 2
+      ;;
+    --texture-dimensions|--texture-dimensions-only)
+      prepare_texture_shaders=1
       ;;
   esac
 done
@@ -76,6 +80,13 @@ wine_version="$($WINE_BIN --version)"
 if [[ "$wine_version" != "$EXPECTED_WINE_VERSION" ]]; then
   echo "error: expected MetalSharp $EXPECTED_WINE_VERSION, got $wine_version from $WINE_BIN" >&2
   exit 2
+fi
+
+if [[ "$prepare_texture_shaders" == "1" ]]; then
+  METALSHARP_WINE_ROOT="$WINE_ROOT" \
+  METALSHARP_WINE_BIN="$WINE_BIN" \
+  METALSHARP_WINESERVER_BIN="$WINESERVER_BIN" \
+    "$SDK_DIR/scripts/prepare-texture-dimension-shaders.sh"
 fi
 
 mkdir -p "$RESULTS_DIR"
@@ -164,6 +175,7 @@ out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(out)
 PY
 
+METALSHARP_TEXTURE_SHADERS_PREPARED="$prepare_texture_shaders" \
 "$SDK_DIR/scripts/run-probes.sh" \
   --profile "$PROFILE" \
   --wine "$WINE_BIN" \

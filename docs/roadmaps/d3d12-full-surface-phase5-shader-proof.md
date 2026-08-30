@@ -69,10 +69,11 @@
   matrix passes exact readback for 1D, 1D-array, 2D, 2D-array, 3D, cube,
   cube-array, and 2D-MS resources (including dimension-specific sample/load
   coordinates and GetDimensions width/height/depth/array/sample results), plus
-  UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D; the focused matrix also
-  proves signed and unsigned R32 typed texture reads plus an R32_UINT writable
-  texture store. The D3D12 MSAA SRV view path now preserves the multisample
-  Metal texture type instead of creating an incompatible 2D view.
+  UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D. The focused matrix also
+  proves R32, R16, RG16, and RGBA8 typed families: signed/unsigned integer and
+  R16 floating reads plus writable R32 and RGBA8 signed/unsigned stores all
+  return exact packed values. The D3D12 MSAA SRV view path now preserves the
+  multisample Metal texture type instead of creating an incompatible 2D view.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
@@ -160,11 +161,16 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-typed-families`: 17/17 cases passed with exact
+`phase5-typed-families31`: 26/26 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
-for distinct slices/faces), including the exact R32_UINT and R32_SINT read
-value `0x281e140a` and writable R32_UINT value `0x12345678`, with no offline
-converter. The latest SM6.6/6.7 profile
+for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
+R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`, RGBA8_UINT `0x281e140a`, RGBA8_SINT
+`0xfcfdfeff`, and R16_FLOAT half bits `0x3400`. Writable typed cases return
+R32_UINT `0x12345678`, R32_SINT `0xffed2979`, RGBA8_UINT `0x281e140a`, and
+RGBA8_SINT `0xfcfdfeff`, with no offline converter. The same run covers the
+Metal-specific 1D explicit-level-zero path through the native 1D sampler;
+nonzero 1D LOD modifiers remain fail-closed because Metal exposes no
+semantically equivalent overload. The latest SM6.6/6.7 profile
 `phase5-atomic-load-final` also passes every focused case, including atomic
 barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
 and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to
