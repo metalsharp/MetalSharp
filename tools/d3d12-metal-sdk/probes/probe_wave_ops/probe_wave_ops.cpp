@@ -242,6 +242,8 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         return lane;
     if (std::strcmp(name, "active_prefix_bit_count") == 0)
         return 1600u + (lane + 1u) / 2u;
+    if (std::strcmp(name, "wave_match") == 0)
+        return 0x11111111u << (lane & 3u);
     return 0xffffffffu;
 }
 
@@ -433,6 +435,12 @@ void cs_active_prefix_bit_count(uint3 id : SV_DispatchThreadID, uint gi : SV_Gro
   uint prefix = WavePrefixCountBits(bit);
   outbuf.Store(gi * 4, active * 100u + prefix);
 }
+
+[numthreads(32, 1, 1)]
+void cs_wave_match(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint4 match = WaveMatch(gi & 3u);
+  outbuf.Store(gi * 4, match.x);
+}
 )";
 
     bool hlsl_written = write_text_file("Z:\\tmp\\dxmt_wave_ops.hlsl", hlsl);
@@ -466,6 +474,7 @@ void cs_active_prefix_bit_count(uint3 id : SV_DispatchThreadID, uint gi : SV_Gro
         {"active_sum_min_max", "cs_active_sum_min_max", "cs_6_0"},
         {"prefix", "cs_prefix", "cs_6_0"},
         {"active_prefix_bit_count", "cs_active_prefix_bit_count", "cs_6_0"},
+        {"wave_match", "cs_wave_match", "cs_6_5"},
     };
 
     std::vector<CaseResult> results;
