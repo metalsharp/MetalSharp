@@ -26,11 +26,12 @@
   `{1065353216, 0, 0, 1, 7}` for the extended math case.
 - The WaveOps probe independently verifies lane index/count, ballot, lane
   reads, any/all, quad operations, reductions, prefix behavior,
-  `WaveActiveCountBits`/`WavePrefixCountBits`, `WaveMatch`, and
-  `WaveMultiPrefixCountBits` on the 32-lane dispatch, with zero mismatches.
-  The added bit-count case reports 16 active even lanes and the expected
-  exclusive prefix count for every lane; the match and multi-prefix cases
-  report exact per-value lane masks and group-local counts.
+  `WaveActiveCountBits`/`WavePrefixCountBits`, `WaveMatch`, and the complete
+  `WaveMultiPrefix` sum/product/bitwise/count matrix on the 32-lane dispatch,
+  with zero mismatches. The added bit-count case reports 16 active even lanes
+  and the expected exclusive prefix count for every lane; the match and
+  multi-prefix cases report exact per-value lane masks and group-local
+  results.
 - The SM6.6/6.7 capability matrix independently verifies root constants,
   descriptor indexing, 32/64-bit atomics, barriers, raw gather, programmable
   offsets, `SampleCmpLevel`, and `QuadVote`; the complete runtime matrix now
