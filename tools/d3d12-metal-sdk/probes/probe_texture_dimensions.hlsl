@@ -62,6 +62,19 @@ void cs_texture_1d_array_mip(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4,1,1)]
+void cs_texture_1d_advanced(uint3 id : SV_DispatchThreadID) {
+  uint level_value = uint(tex1.SampleLevel(samp, 0.25, 1.0).r * 255.0 + 0.5);
+  uint bias_value = uint(tex1.SampleBias(samp, 0.25, 1.0).r * 255.0 + 0.5);
+  uint grad_value = uint(tex1.SampleGrad(samp, 0.25, 0.5, 0.5).r * 255.0 + 0.5);
+  uint offset_value = uint(tex1.SampleLevel(samp, 0.125, 0.0, 1).r * 255.0 + 0.5);
+  output[0] = level_value | (bias_value << 8) | (grad_value << 16) |
+              (offset_value << 24);
+  uint w, levels;
+  tex1.GetDimensions(1, w, levels);
+  output[1] = w | (levels << 16);
+}
+
+[numthreads(4,1,1)]
 void cs_texture_2d(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex2.SampleLevel(samp, float2(0.5, 0.5), 0).r * 255.0 + 0.5);
   uint w, h;
