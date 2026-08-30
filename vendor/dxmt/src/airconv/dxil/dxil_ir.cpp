@@ -74,27 +74,32 @@ MSLType DXILIRBuilder::resolveType(uint32_t type_id, const LLVMModule &mod) {
         return {MSLTypeKind::DeviceCharPtr, 0, {}};
     }
     case LLVMType::Vector: {
-        if (t.subtypes.empty())
+        // LLVM 3.7 type records carry the vector element in type_refs; the
+        // reader deliberately leaves subtypes empty for those records.  Do
+        // not recurse on the vector type itself (or every vector resolves to
+        // Unknown/recurses forever for arrays).
+        if (t.type_refs.empty())
             return {MSLTypeKind::Unknown, 0, {}};
-        auto elem = resolveType(type_id, mod);
-        auto &elem_type = t.subtypes[0];
+        MSLType elem = resolveType(t.type_refs[0], mod);
         uint32_t count = t.bit_width;
-        if (count == 2) {
-            if (elem_type.kind == LLVMType::Float) return {MSLTypeKind::Float2, 0, {}};
-            if (elem_type.kind == LLVMType::Integer && elem_type.bit_width == 32) return {MSLTypeKind::Int2, 0, {}};
-            if (elem_type.kind == LLVMType::Integer && elem_type.bit_width == 16) return {MSLTypeKind::Short, 0, {}};
-            return {MSLTypeKind::Float2, 0, {}};
-        }
-        if (count == 3) {
-            if (elem_type.kind == LLVMType::Float) return {MSLTypeKind::Float3, 0, {}};
-            if (elem_type.kind == LLVMType::Integer && elem_type.bit_width == 32) return {MSLTypeKind::Int3, 0, {}};
-            return {MSLTypeKind::Float3, 0, {}};
-        }
-        if (count == 4) {
-            if (elem_type.kind == LLVMType::Float) return {MSLTypeKind::Float4, 0, {}};
-            if (elem_type.kind == LLVMType::Integer && elem_type.bit_width == 32) return {MSLTypeKind::Int4, 0, {}};
-            if (elem_type.kind == LLVMType::Integer && elem_type.bit_width == 16) return {MSLTypeKind::Short, 0, {}};
+        if (count < 2 || count > 4)
+            return {MSLTypeKind::Unknown, 0, {}};
+        if (elem.kind == MSLTypeKind::Float || elem.kind == MSLTypeKind::Double ||
+            elem.kind == MSLTypeKind::Half) {
+            if (count == 2) return {MSLTypeKind::Float2, 0, {}};
+            if (count == 3) return {MSLTypeKind::Float3, 0, {}};
             return {MSLTypeKind::Float4, 0, {}};
+        }
+        if (elem.kind == MSLTypeKind::UInt) {
+            if (count == 2) return {MSLTypeKind::UInt2, 0, {}};
+            if (count == 3) return {MSLTypeKind::UInt3, 0, {}};
+            return {MSLTypeKind::UInt4, 0, {}};
+        }
+        if (elem.kind == MSLTypeKind::Int || elem.kind == MSLTypeKind::Short ||
+            elem.kind == MSLTypeKind::UShort || elem.kind == MSLTypeKind::Long) {
+            if (count == 2) return {MSLTypeKind::Int2, 0, {}};
+            if (count == 3) return {MSLTypeKind::Int3, 0, {}};
+            return {MSLTypeKind::Int4, 0, {}};
         }
         return {MSLTypeKind::Unknown, 0, {}};
     }
@@ -108,7 +113,11 @@ MSLType DXILIRBuilder::resolveType(uint32_t type_id, const LLVMModule &mod) {
         return result;
     }
     case LLVMType::Array:
-        return resolveType(t.subtypes.empty() ? 0 : type_id, mod);
+        // MSLType has no first-class runtime array value.  Preserve a
+        // fail-closed Unknown result rather than recursively resolving the
+        // array type itself; aggregate constants are lowered from their
+        // literal representation independently.
+        return {MSLTypeKind::Unknown, 0, {}};
     case LLVMType::Function:
         return {MSLTypeKind::Void, 0, {}};
     }

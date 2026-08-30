@@ -35,6 +35,15 @@
       "remaining": "The source-staged control-flow cases cover a multi-block switch, PHI merge, loop-carried aggregate state, vector aggregate extraction, and exact four-lane readback; nested-control and broader aggregate forms remain in the exhaustive row."
     },
     {
+      "id": "dxil-llvm-vector-type-table-resolution",
+      "status": "closed",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The parser now resolves LLVM vector element type references without self-recursion and the SM6.7/6.8 vector lanes remain exact; first-class LLVM array values and broader matrix/type lowering remain in the exhaustive row."
+    },
+    {
       "id": "dxil-double-arithmetic-runtime",
       "status": "closed",
       "result": "probe-dxil-semantics",

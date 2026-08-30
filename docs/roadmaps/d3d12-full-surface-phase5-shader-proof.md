@@ -78,8 +78,10 @@
   typed lowerer now preserves an explicit DXIL i32 destination when LLVM type
   ID zero is used by a float bitcast, emitting `as_type<int>` rather than a
   numeric conversion; it also handles the signed/unsigned result semantics
-  of `firstbitlow`/`firstbithigh`. The source-staged semantic run continues to
-  match `math_bits`, `math_intrinsics`, and all 15 semantic lanes.
+  of `firstbitlow`/`firstbithigh`. The LLVM type reader now resolves vector
+  element references from `type_refs` and rejects unsupported array values
+  without recursive type resolution. The source-staged semantic run continues
+  to match `math_bits`, `math_intrinsics`, and all 18 semantic lanes.
 - The object-contract probe now exercises pipeline-library serialization plus
   memory and disk shader-cache sessions. It verifies serialized-size/header
   round-trip, malformed-blob rejection, missing-name rejection, descriptor,
@@ -112,7 +114,7 @@ METAL_SHADER_CONVERTER=/nonexistent \
 ```
 
 The latest isolated semantic result (profile
-`phase5-loop-aggregate-source`) passed with these exact lanes. It was run
+`phase5-vector-type-fix2`) passed with these exact lanes. It was run
 against the rebuilt typed lowering path with no offline shader converter,
 so PSO creation exercised the runtime MSL compiler directly:
 
