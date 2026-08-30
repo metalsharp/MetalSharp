@@ -2541,33 +2541,15 @@ HLSL_TEXTURE
 }
 
 prepare_texture_dimension_probes() {
-  local source_hlsl="$SDK_DIR/probes/probe_texture_dimensions.hlsl"
-  local hlsl="$SDK_DIR/out/bin/probe_texture_dimensions.hlsl"
-  cp "$source_hlsl" "$hlsl"
-  (
-    cd "$SDK_DIR/out/bin"
-    for entry in \
-      cs_texture_1d cs_texture_1d_array cs_texture_2d cs_texture_2d_array \
-      cs_texture_3d cs_texture_cube cs_texture_cube_array cs_texture_2d_ms \
-      cs_texture_2d_ms_array cs_texture_typed_uint cs_texture_typed_sint \
-      cs_store_1d cs_store_1d_array cs_store_2d cs_store_2d_array cs_store_3d \
-      cs_store_typed_uint; do
-      rm -f "${entry}.cso" "${entry}.dxc.log"
-      if ! WINEPREFIX="$WINE_PREFIX" \
-           WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-           "$WINE_BIN" dxc.exe -nologo -E "$entry" -T cs_6_6 -HV 2021 \
-           -Fo "${entry}.cso" probe_texture_dimensions.hlsl \
-           >"${entry}.dxc.log" 2>&1; then
-        cat "${entry}.dxc.log" >&2
-        return 1
-      fi
-      if [[ ! -s "${entry}.cso" ]]; then
-        cat "${entry}.dxc.log" >&2
-        return 1
-      fi
-      rm -f "${entry}.dxc.log"
-    done
-  )
+  local wineserver_bin="$(dirname "$WINE_BIN")/wineserver"
+  METALSHARP_WINE_BIN="$WINE_BIN" \
+  METALSHARP_WINESERVER_BIN="$wineserver_bin" \
+    "$SDK_DIR/scripts/prepare-texture-dimension-shaders.sh"
+  # Refresh Wine's Z:-drive directory cache so a caller-supplied prefix sees
+  # the newly generated shader files. Isolated runs prepare before wineboot
+  # and skip this fallback entirely.
+  WINEPREFIX="$WINE_PREFIX" "$wineserver_bin" -k >/dev/null 2>&1 || true
+  WINEPREFIX="$WINE_PREFIX" "$wineserver_bin" -w >/dev/null 2>&1 || true
 }
 
 SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
@@ -2900,7 +2882,9 @@ if [[ "$RUN_DXIL_SEMANTICS" == "1" ]]; then
 fi
 
 if [[ "$RUN_TEXTURE_DIMENSIONS" == "1" ]]; then
-  prepare_texture_dimension_probes
+  if [[ "${METALSHARP_TEXTURE_SHADERS_PREPARED:-0}" != "1" ]]; then
+    prepare_texture_dimension_probes
+  fi
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
