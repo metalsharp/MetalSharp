@@ -774,6 +774,26 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  uint lower = lane == 0u ? 0u : ((1u << lane) - 1u);\n";
         os << "  return popcount(mask & active & lower);\n";
         os << "}\n\n";
+        auto emitWavePrefixHelper = [&](const char *name, const char *initial,
+                                        const char *operation) {
+            os << "template <typename T> static inline T " << name
+               << "(T value, uint mask, uint lane) {\n";
+            os << "  T result = " << initial << ";\n";
+            for (unsigned other = 0; other < 32; ++other) {
+                os << "  T other_value_" << other << " = simd_broadcast(value, "
+                   << other << "u);\n";
+                os << "  if (lane > " << other << "u && (mask & (1u << "
+                   << other << "u)) != 0u) result " << operation
+                   << " other_value_" << other << ";\n";
+            }
+            os << "  return result;\n";
+            os << "}\n\n";
+        };
+        emitWavePrefixHelper("m12_wave_multi_prefix_sum", "T(0)", "+=");
+        emitWavePrefixHelper("m12_wave_multi_prefix_product", "T(1)", "*=");
+        emitWavePrefixHelper("m12_wave_multi_prefix_bit_and", "T(~0u)", "&=");
+        emitWavePrefixHelper("m12_wave_multi_prefix_bit_or", "T(0)", "|=");
+        emitWavePrefixHelper("m12_wave_multi_prefix_bit_xor", "T(0)", "^=");
     }
 
     if (ctx.uses_atomic32_emulation) {
@@ -3262,6 +3282,8 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::UInt4, 0, {}};
     case DXOP_WaveMultiPrefixBitCount:
         return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_WaveMultiPrefixOp:
+        return !args.empty() ? valueTypeOrUnknown(ctx, args[0]) : declared;
     case DXOP_LegacyF32ToF16:
         return {MSLTypeKind::UInt, 0, {}};
     case DXOP_LegacyF16ToF32:
@@ -4304,6 +4326,31 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WaveMultiPrefixBitCount:
         return "m12_wave_multi_prefix_bit_count(uint(" + numericArg(0, "0") + "), uint(" +
                numericArg(1, "0") + "), simd_lane)";
+    case DXOP_WaveMultiPrefixOp: {
+        auto mask = "uint(" + numericArg(1, "0") + ")";
+        uint32_t op = literalArg(5, 0xFFFFFFFFu, "wave_multi_prefix_op");
+        if (op > 4u) {
+            ctx.unsupported_intrinsics++;
+            return numericArg(0, "0");
+        }
+        const std::string value = numericArg(0, "0");
+        const std::string lane = "simd_lane";
+        switch (op) {
+        case 0u:
+            return "m12_wave_multi_prefix_sum(" + value + ", " + mask + ", " + lane + ")";
+        case 1u:
+            return "m12_wave_multi_prefix_bit_and(" + value + ", " + mask + ", " + lane + ")";
+        case 2u:
+            return "m12_wave_multi_prefix_bit_or(" + value + ", " + mask + ", " + lane + ")";
+        case 3u:
+            return "m12_wave_multi_prefix_bit_xor(" + value + ", " + mask + ", " + lane + ")";
+        case 4u:
+            return "m12_wave_multi_prefix_product(" + value + ", " + mask + ", " + lane + ")";
+        default:
+            ctx.unsupported_intrinsics++;
+            return value;
+        }
+    }
     case DXOP_WaveActiveOp: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_op");

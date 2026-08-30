@@ -246,6 +246,19 @@ static uint32_t expected_value(const char* name, uint32_t lane) {
         return 0x11111111u << (lane & 3u);
     if (std::strcmp(name, "wave_multi_prefix_bit_count") == 0)
         return (lane & 1u) == 0u ? lane / 4u : 0u;
+    if (std::strcmp(name, "wave_multi_prefix_sum") == 0) {
+        const uint32_t group = lane & 3u;
+        const uint32_t count = lane / 4u;
+        return count * (group + 1u) + 2u * count * (count - 1u);
+    }
+    if (std::strcmp(name, "wave_multi_prefix_product") == 0)
+        return 1u << (lane / 4u);
+    if (std::strcmp(name, "wave_multi_prefix_or") == 0)
+        return lane / 4u == 0u ? 0u : 1u << (lane & 3u);
+    if (std::strcmp(name, "wave_multi_prefix_xor") == 0)
+        return (lane / 4u) & 1u ? 1u << (lane & 3u) : 0u;
+    if (std::strcmp(name, "wave_multi_prefix_and") == 0)
+        return 0xffffffffu;
     return 0xffffffffu;
 }
 
@@ -450,6 +463,41 @@ void cs_wave_multi_prefix_bit_count(uint3 id : SV_DispatchThreadID, uint gi : SV
   uint count = WaveMultiPrefixCountBits((gi & 1u) == 0u, match);
   outbuf.Store(gi * 4, count);
 }
+
+[numthreads(32, 1, 1)]
+void cs_wave_multi_prefix_sum(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint4 match = WaveMatch(gi & 3u);
+  uint sum = WaveMultiPrefixSum(gi + 1u, match);
+  outbuf.Store(gi * 4, sum);
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_multi_prefix_product(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint4 match = WaveMatch(gi & 3u);
+  uint product = WaveMultiPrefixProduct(2u, match);
+  outbuf.Store(gi * 4, product);
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_multi_prefix_or(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint4 match = WaveMatch(gi & 3u);
+  uint value = WaveMultiPrefixBitOr(1u << (gi & 3u), match);
+  outbuf.Store(gi * 4, value);
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_multi_prefix_xor(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint4 match = WaveMatch(gi & 3u);
+  uint value = WaveMultiPrefixBitXor(1u << (gi & 3u), match);
+  outbuf.Store(gi * 4, value);
+}
+
+[numthreads(32, 1, 1)]
+void cs_wave_multi_prefix_and(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex) {
+  uint4 match = WaveMatch(gi & 3u);
+  uint value = WaveMultiPrefixBitAnd(0xffffffffu, match);
+  outbuf.Store(gi * 4, value);
+}
 )";
 
     bool hlsl_written = write_text_file("Z:\\tmp\\dxmt_wave_ops.hlsl", hlsl);
@@ -485,6 +533,11 @@ void cs_wave_multi_prefix_bit_count(uint3 id : SV_DispatchThreadID, uint gi : SV
         {"active_prefix_bit_count", "cs_active_prefix_bit_count", "cs_6_0"},
         {"wave_match", "cs_wave_match", "cs_6_5"},
         {"wave_multi_prefix_bit_count", "cs_wave_multi_prefix_bit_count", "cs_6_5"},
+        {"wave_multi_prefix_sum", "cs_wave_multi_prefix_sum", "cs_6_5"},
+        {"wave_multi_prefix_product", "cs_wave_multi_prefix_product", "cs_6_5"},
+        {"wave_multi_prefix_or", "cs_wave_multi_prefix_or", "cs_6_5"},
+        {"wave_multi_prefix_xor", "cs_wave_multi_prefix_xor", "cs_6_5"},
+        {"wave_multi_prefix_and", "cs_wave_multi_prefix_and", "cs_6_5"},
     };
 
     std::vector<CaseResult> results;
