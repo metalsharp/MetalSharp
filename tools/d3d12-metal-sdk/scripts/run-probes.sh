@@ -2148,6 +2148,9 @@ void cs_math_bits(uint3 id : SV_DispatchThreadID) {
     outbuf.Store(4, bits);
     outbuf.Store(8, asuint(asfloat(0x3f800000u)));
     outbuf.Store(12, countbits(0xf0f0u));
+    outbuf.Store(16, (uint)firstbitlow(0x10u));
+    outbuf.Store(20, (uint)firstbithigh(0x10u));
+    outbuf.Store(24, (uint)firstbithigh(-16));
   }
 }
 
