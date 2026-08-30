@@ -75,9 +75,10 @@
       "result": "probe-object-contracts",
       "checks": [
         ["pass"],
-        ["shader_cache_session_pass"]
+        ["shader_cache_session_pass"],
+        ["shader_cache_disk_session_pass"]
       ],
-      "remaining": "Memory-session key/value semantics, size queries, replacement, limits, and missing-key errors are covered; disk-backed persistence and complete compiler-factory/state-database behavior remain in the exhaustive row."
+      "remaining": "Memory and disk-session key/value semantics, size queries, replacement, limits, and missing-key errors are covered; complete compiler-factory/state-database behavior remains in the exhaustive row."
     },
     {
       "id": "sm66-sm67-extended-runtime-matrix",

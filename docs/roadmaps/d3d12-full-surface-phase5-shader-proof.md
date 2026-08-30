@@ -68,9 +68,12 @@
   numeric conversion; it also handles the signed/unsigned result semantics
   of `firstbitlow`/`firstbithigh`. The source-staged semantic run continues to
   match `math_bits`, `math_intrinsics`, and all 16 semantic lanes.
-- The object-contract probe now exercises the memory shader-cache session's
-  descriptor, store, size-query, short-buffer, replacement, missing-key, and
-  pointer-validation semantics. `shader_cache_session_pass` is true.
+- The object-contract probe now exercises memory and disk shader-cache
+  sessions. It verifies descriptor, store, size-query, short-buffer,
+  replacement, missing-key, pointer-validation, and cross-session disk
+  persistence semantics. `shader_cache_session_pass` and
+  `shader_cache_disk_session_pass` are true; complete compiler-factory and
+  state-database behavior remains in the exhaustive row.
 
 ## Exact evidence
 
