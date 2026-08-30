@@ -2159,6 +2159,24 @@ void cs_math_bits(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_math_intrinsics(uint3 id : SV_DispatchThreadID) {
+  float one = asfloat(inbuf.Load(0));
+  float zero = one - one;
+  outbuf.Store(0, asuint(abs(-one)));
+  outbuf.Store(4, asuint(saturate(-one)));
+  outbuf.Store(8, asuint(cos(zero)));
+  outbuf.Store(12, asuint(sin(zero)));
+  outbuf.Store(16, asuint(tan(zero)));
+  outbuf.Store(20, asuint(acos(one)));
+  outbuf.Store(24, asuint(asin(zero)));
+  outbuf.Store(28, asuint(atan(zero)));
+  outbuf.Store(32, asuint(exp2(one + one + one)));
+  outbuf.Store(36, asuint(log2(one + one + one + one + one + one + one + one)));
+  outbuf.Store(40, asuint(rsqrt(one + one + one + one)));
+  outbuf.Store(44, (uint)round(2.25));
+}
+
+[numthreads(1, 1, 1)]
 void cs_math_extended(uint3 id : SV_DispatchThreadID) {
   uint4 sad = msad4(0x01020304u, uint2(0x01020304u, 0u), uint4(7u, 0u, 0u, 0u));
   outbuf.Store(0, asuint(cosh(0.0)));
@@ -2301,6 +2319,9 @@ HLSL_TEXTURE
     "$WINE_BIN" dxc.exe -nologo -E cs_math_bits -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_math_bits.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_math_intrinsics -T cs_6_0 -HV 2021 -Od \
+      -Fo probe_dxil_semantic_math_intrinsics.cso probe_dxil_semantics.hlsl >/dev/null
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_math_extended -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_math_extended.cso probe_dxil_semantics.hlsl >/dev/null
