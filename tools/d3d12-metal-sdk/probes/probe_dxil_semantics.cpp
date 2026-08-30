@@ -700,7 +700,10 @@ int main() {
     const bool warmup_only = getenv_string("D3D12_METAL_SDK_DXIL_SEMANTICS_MODE") == "warmup";
     SemanticCase cases[] = {
         {"math_bits", "probe_dxil_semantic_math_bits.cso", {}, {22, 48, 0x3f800000u, 8}, "float_int_math_bitcasts"},
+        {"special_float", "probe_dxil_semantic_special_float.cso", {}, {1, 1, 1, 0}, "special_float_predicates"},
         {"buffer_load_store", "probe_dxil_semantic_buffer.cso", {2, 4, 6, 8}, {7, 13, 19, 25}, "buffer_load_store"},
+        {"atomic_uav", "probe_dxil_semantic_atomic_uav.cso", {}, {7, 0, 5, 8},
+         "uav_atomic_binop_compare_exchange"},
         {"atomics_ids", "probe_dxil_semantic_atomics_ids.cso", {}, {4, 6, 8, 10}, "barrier_atomics_compute_ids"},
         {"wave_quad", "probe_dxil_semantic_wave_quad.cso", {}, {273, 273, 273, 273}, "wave_quad_ops"},
         {"sm67_vector_int64", "probe_dxil_semantic_sm67.cso", {}, {68, 69, 70, 71},
@@ -726,6 +729,14 @@ int main() {
             ok = ok && results.back().ok;
         }
     }
+    bool atomic_uav_readback = false;
+    bool special_float_readback = false;
+    for (const auto& result : results) {
+        if (result.name == "atomic_uav")
+            atomic_uav_readback = result.ok;
+        if (result.name == "special_float")
+            special_float_readback = result.ok;
+    }
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.dxil-semantic-probe.v1\",\n");
@@ -733,6 +744,8 @@ int main() {
     std::printf("  \"mode\": \"%s\",\n", warmup_only ? "warmup" : "validate");
     std::printf("  \"ok\": %s,\n", ok ? "true" : "false");
     std::printf("  \"device_hr\": \"%s\",\n", hr_hex(create_hr).c_str());
+    std::printf("  \"atomic_uav_readback\": %s,\n", atomic_uav_readback ? "true" : "false");
+    std::printf("  \"special_float_readback\": %s,\n", special_float_readback ? "true" : "false");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < results.size(); ++i) {
         const auto& result = results[i];

@@ -79,6 +79,9 @@ enum DXIntrinsicOpcode {
   DXOP_WriteSamplerFeedbackBias = 175,
   DXOP_WriteSamplerFeedbackLevel = 176,
   DXOP_WriteSamplerFeedbackGrad = 177,
+  // dx.op.isSpecialFloat carries the concrete operation (8..11) in its
+  // opcode argument rather than in the intrinsic name.
+  DXOP_SpecialFloat = 1000,
 };
 
 enum DXILMathOpcode {
@@ -297,7 +300,7 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "writeSamplerFeedbackGrad", 24) == 0) return 177;
     if (strncmp(s, "writeSamplerFeedbackBias", 24) == 0) return 175;
     if (strncmp(s, "writeSamplerFeedback", 20) == 0) return 174;
-    if (strncmp(s, "isSpecialFloat", 14) == 0) return 0;
+    if (strncmp(s, "isSpecialFloat.", 15) == 0) return DXOP_SpecialFloat;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
     if (strncmp(s, "renderTargetGetSamplePosition", 29) == 0) return 76;
@@ -559,6 +562,7 @@ struct LowerContext {
     uint32_t next_binding = 0;
     uint32_t unsupported_intrinsics = 0;
     uint32_t unsupported_opcodes = 0;
+    bool uses_atomic32_emulation = false;
     uint32_t instruction_start_value = 0;
     const LLVMFunction *current_fn = nullptr;
     bool uses_thread_id = false;
@@ -686,6 +690,35 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 26);
     os << kMetalHeader;
     emitBindingManifest(ctx);
+
+    if (ctx.uses_atomic32_emulation) {
+        os << "static inline uint m12_atomic32_binop(volatile device atomic_uint* target, uint value, uint op) {\n";
+        os << "  uint expected = atomic_load_explicit(target, memory_order_relaxed);\n";
+        os << "  while (true) {\n";
+        os << "    uint result = expected;\n";
+        os << "    switch (op) {\n";
+        os << "    case 0u: result = value; break;\n";
+        os << "    case 1u: result = expected + value; break;\n";
+        os << "    case 2u: result = expected - value; break;\n";
+        os << "    case 3u: result = expected & value; break;\n";
+        os << "    case 5u: result = expected | value; break;\n";
+        os << "    case 6u: result = expected ^ value; break;\n";
+        os << "    case 7u: result = uint(max(int(expected), int(value))); break;\n";
+        os << "    case 8u: result = uint(min(int(expected), int(value))); break;\n";
+        os << "    case 9u: result = max(expected, value); break;\n";
+        os << "    case 10u: result = min(expected, value); break;\n";
+        os << "    default: return expected;\n";
+        os << "    }\n";
+        os << "    if (atomic_compare_exchange_weak_explicit(target, &expected, result, memory_order_relaxed, memory_order_relaxed))\n";
+        os << "      return expected;\n";
+        os << "  }\n";
+        os << "}\n\n";
+        os << "static inline uint m12_atomic32_compare_exchange(volatile device atomic_uint* target, uint compare_value, uint new_value) {\n";
+        os << "  uint expected = compare_value;\n";
+        os << "  atomic_compare_exchange_weak_explicit(target, &expected, new_value, memory_order_relaxed, memory_order_relaxed);\n";
+        os << "  return expected;\n";
+        os << "}\n\n";
+    }
 
     if (ctx.uses_atomic64_emulation) {
         os << "static inline ulong m12_atomic64_binop(volatile device ulong* target, ulong value, uint op, device atomic_uint* lock) {\n";
@@ -2846,6 +2879,13 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 if (isOpcodePrefixedDXIntrinsic(opcode))
                     intrinsic_id = opcode;
             }
+            if (intrinsic_id == DXOP_SpecialFloat && !call_args.empty()) {
+                uint32_t opcode = literalFromValue(ctx, call_args[0], 0);
+                if (opcode >= 8 && opcode <= 11)
+                    intrinsic_id = opcode;
+                else
+                    intrinsic_id = 0;
+            }
             if (intrinsic_id == 0) {
                 if (producesValue(inst))
                     ++value_counter;
@@ -3058,6 +3098,10 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_LegacyF16ToF32:
         return {MSLTypeKind::Float, 0, {}};
     case DXOP_CheckAccessFullyMapped:
+    case 8:
+    case 9:
+    case 10:
+    case 11:
     case DXOP_WaveIsFirstLane:
     case DXOP_WaveAnyTrue:
     case DXOP_WaveAllTrue:
@@ -3527,25 +3571,46 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto samp = handleArg(1, "samp", "samp0");
         auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
         auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        auto ox = ensureScalarIndex(numericArg(6, "0"));
+        auto oy = ensureScalarIndex(numericArg(7, "0"));
+        auto coord = "float2(" + cx + ", " + cy + ")";
         if (intrinsic_id == DXOP_TextureSampleLevel) {
-            auto ox = ensureScalarIndex(numericArg(6, "0"));
-            auto oy = ensureScalarIndex(numericArg(7, "0"));
             auto lod = numericArg(9, "0.0");
-            return handle + ".sample(" + samp + ", float2(" + cx + ", " +
-                   cy + "), level((float)(" + lod + ")), int2(" + ox +
-                   ", " + oy + "))";
+            return handle + ".sample(" + samp + ", " + coord +
+                   ", level((float)(" + lod + ")), int2(" + ox + ", " + oy + "))";
         }
-        return handle + ".sample(" + samp + ", float2(" + cx + ", " + cy + "))";
+        if (intrinsic_id == DXOP_TextureSampleBias) {
+            auto bias = numericArg(9, "0.0");
+            return handle + ".sample(" + samp + ", " + coord +
+                   ", bias((float)(" + bias + ")), int2(" + ox + ", " + oy + "))";
+        }
+        if (intrinsic_id == DXOP_TextureSampleGrad) {
+            auto ddx = "float2(" + numericArg(9, "0.0") + ", " +
+                       numericArg(10, "0.0") + ")";
+            auto ddy = "float2(" + numericArg(12, "0.0") + ", " +
+                       numericArg(13, "0.0") + ")";
+            return handle + ".sample(" + samp + ", " + coord +
+                   ", gradient2d(" + ddx + ", " + ddy + "), int2(" +
+                   ox + ", " + oy + "))";
+        }
+        return handle + ".sample(" + samp + ", " + coord + ", int2(" + ox +
+               ", " + oy + "))";
     }
-    case DXOP_TextureGather: case 74: case 223: {
+    case DXOP_TextureGather: case DXOP_TextureGatherCmp: case 223: {
         if (args.size() < 4) return "float4(0)";
         auto handle = handleArg(0, "tex", "tex0");
         auto samp = handleArg(1, "samp", "samp0");
         auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
         auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        auto ox = ensureScalarIndex(numericArg(6, "0"));
+        auto oy = ensureScalarIndex(numericArg(7, "0"));
+        if (intrinsic_id == DXOP_TextureGatherCmp) {
+            auto compare = numericArg(9, "0.0");
+            return handle + ".gather_compare(" + samp + ", float2(" + cx +
+                   ", " + cy + "), (float)(" + compare + "), int2(" + ox +
+                   ", " + oy + "))";
+        }
         if (intrinsic_id == DXOP_TextureGatherRaw || intrinsic_id == 223) {
-            auto ox = ensureScalarIndex(numericArg(6, "0"));
-            auto oy = ensureScalarIndex(numericArg(7, "0"));
             return handle + ".gather(" + samp + ", float2(" + cx + ", " +
                    cy + "), int2(" + ox + ", " + oy + "), component::x)";
         }
@@ -3556,8 +3621,23 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                          textureCoordComponent(ctx, valueArg(3, "0"), 1) + "))";
             return "float4((" + texel + ")." + componentName(ch) + ")";
         }
-        auto sample = handle + ".sample(" + samp + ", float2(" + cx + ", " + cy + "))";
+        auto sample = handle + ".sample(" + samp + ", float2(" + cx + ", " +
+                       cy + "))";
         return "float4((" + sample + ")." + componentName(ch) + ")";
+    }
+    case 8:
+        return "isnan(" + numericArg(0, "0.0") + ")";
+    case 9:
+        return "isinf(" + numericArg(0, "0.0") + ")";
+    case 10:
+        return "isfinite(" + numericArg(0, "0.0") + ")";
+    case 11: {
+        auto value = numericArg(0, "0.0");
+        const char *minimum = callee_name.find(".f16") != std::string::npos
+                                  ? "0.00006103515625"
+                                  : "1.17549435e-38";
+        return "(isfinite(" + value + ") && (" + value + ") != 0.0 && abs(" +
+               value + ") >= " + minimum + ")";
     }
     case DXOP_TextureSampleCmp: case DXOP_TextureSampleCmpLevelZero: case 224: {
         if (args.size() < 10) return "0.0";
@@ -3638,9 +3718,33 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 byte_offset.c_str(), val.c_str(), translated.c_str());
             return translated;
         }
-        return "atomic_fetch_add_explicit(reinterpret_cast<device atomic_uint*>(" +
-               handle + " + (" + coordinate + ")), (uint)(" + val +
-               "), memory_order_relaxed)";
+        uint32_t resource_kind = 0;
+        uint32_t element_stride = 0;
+        auto handle_it = ctx.resource_handles.find(args[0]);
+        if (handle_it != ctx.resource_handles.end()) {
+            resource_kind = handle_it->second.resource_kind;
+            element_stride = handle_it->second.element_stride;
+        }
+        std::string byte_offset;
+        if (resource_kind == 12u) {
+            if (element_stride == 0)
+                element_stride = 4;
+            byte_offset = "((ulong)(" + coordinate + ") * " +
+                          std::to_string(element_stride) + "ul + (ulong)(" +
+                          element_offset + "))";
+        } else if (resource_kind == 10u) {
+            if (element_stride == 0)
+                element_stride = 4;
+            byte_offset = "((ulong)(" + coordinate + ") * " +
+                          std::to_string(element_stride) + "ul)";
+        } else {
+            byte_offset = "((ulong)(" + coordinate + ") + (ulong)(" +
+                          element_offset + "))";
+        }
+        ctx.uses_atomic32_emulation = true;
+        return "m12_atomic32_binop(reinterpret_cast<device atomic_uint*>(" +
+               handle + " + " + byte_offset + "), (uint)(" + val + "), " +
+               std::to_string(op) + "u)";
     }
     case 79: {
         if (args.size() < 2) return "0";
@@ -3677,7 +3781,37 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                    compare_value + "), (ulong)(" + new_value +
                    "), m12_atomic64_lock)";
         }
-        return "atomic_load_explicit(reinterpret_cast<device atomic_uint*>(" + handle + " + (" + ensureScalarIndex(valueArg(1, "0")) + ")), memory_order_relaxed)";
+        auto coordinate = ensureScalarIndex(numericArg(1, "0"));
+        auto element_offset = ensureScalarIndex(numericArg(2, "0"));
+        auto compare_value = ensureScalarIndex(numericArg(4, "0"));
+        auto new_value = ensureScalarIndex(numericArg(5, "0"));
+        uint32_t resource_kind = 0;
+        uint32_t element_stride = 0;
+        auto handle_it = ctx.resource_handles.find(args[0]);
+        if (handle_it != ctx.resource_handles.end()) {
+            resource_kind = handle_it->second.resource_kind;
+            element_stride = handle_it->second.element_stride;
+        }
+        std::string byte_offset;
+        if (resource_kind == 12u) {
+            if (element_stride == 0)
+                element_stride = 4;
+            byte_offset = "((ulong)(" + coordinate + ") * " +
+                          std::to_string(element_stride) + "ul + (ulong)(" +
+                          element_offset + "))";
+        } else if (resource_kind == 10u) {
+            if (element_stride == 0)
+                element_stride = 4;
+            byte_offset = "((ulong)(" + coordinate + ") * " +
+                          std::to_string(element_stride) + "ul)";
+        } else {
+            byte_offset = "((ulong)(" + coordinate + ") + (ulong)(" +
+                          element_offset + "))";
+        }
+        ctx.uses_atomic32_emulation = true;
+        return "m12_atomic32_compare_exchange(reinterpret_cast<device atomic_uint*>(" +
+               handle + " + " + byte_offset + "), (uint)(" + compare_value +
+               "), (uint)(" + new_value + "))";
     }
     case 75: case 76: case 97: case 98: return "0.5";
     case 77: return "1";
@@ -5332,7 +5466,8 @@ std::optional<TypedMSLShader> MSLLowering::lower(
     if (ctx.compute_sample_cmp_shader) {
         ctx.compute_sample_cmp_shader = false;
         for (const auto &decl : module.functions) {
-            if (startsWith(decl.name, "dx.op.sampleCmp")) {
+            if (startsWith(decl.name, "dx.op.sampleCmp") ||
+                startsWith(decl.name, "dx.op.textureGatherCmp")) {
                 ctx.compute_sample_cmp_shader = true;
                 break;
             }
@@ -5358,6 +5493,19 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                 decl.name.find("dx.op.atomicCompareExchange.i64") !=
                     std::string::npos) {
                 ctx.uses_atomic64_emulation = true;
+                break;
+            }
+        }
+    }
+    ctx.uses_atomic32_emulation = shader.kind == DxilShaderKind::Compute;
+    if (ctx.uses_atomic32_emulation) {
+        ctx.uses_atomic32_emulation = false;
+        for (const auto &decl : module.functions) {
+            if (decl.name.find("dx.op.atomicBinOp.i32") !=
+                    std::string::npos ||
+                decl.name.find("dx.op.atomicCompareExchange.i32") !=
+                    std::string::npos) {
+                ctx.uses_atomic32_emulation = true;
                 break;
             }
         }
@@ -5872,10 +6020,17 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                     std::string name = emitValue(vc);
                     if (ctx.value_table.size() <= vc) ctx.value_table.resize(vc + 1);
                     ctx.value_table[vc] = name;
-                    ctx.predeclared_names.insert(name);
-                    ctx.predeclared_types[name] = pre_type;
-                    os << "  " << typedDecl(name, pre_type) << " = "
-                       << defaultForType(pre_type) << "; // dispatch pre-decl\n";
+                    // Resource handles are materialized directly as ABI
+                    // arguments by the intrinsic emitter.  Declaring a
+                    // temporary texture here can give an SRV handle a
+                    // read_write access qualifier (or vice versa) before
+                    // AnnotateHandle has supplied its resource metadata.
+                    if (!typeLooksResourceHandle(pre_type)) {
+                        ctx.predeclared_names.insert(name);
+                        ctx.predeclared_types[name] = pre_type;
+                        os << "  " << typedDecl(name, pre_type) << " = "
+                           << defaultForType(pre_type) << "; // dispatch pre-decl\n";
+                    }
                 }
                 if (produces_value) vc++;
             }

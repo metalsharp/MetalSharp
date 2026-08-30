@@ -14,7 +14,8 @@
   arithmetic; the SM6.9 runtime lane uses `float16_t` with
   `-enable-16bit-types`.
 - The exact semantic readback probe covers float/int math and bitcasts, raw
-  buffer load/store, group-shared atomics and barriers, WaveOps/QuadOps,
+  buffer load/store, UAV exchange/add/compare-exchange atomics, 32-bit
+  special-float predicates, group-shared atomics and barriers, WaveOps/QuadOps,
   SM6.7 vector/int64 arithmetic, SM6.8 wide arithmetic, SM6.9 float16 to
   integer conversion, and a 4x4 texture's Load, SampleLevel, SampleGrad,
   SampleBias, GatherRed, and GetDimensions forms. Every lane creates a PSO,
@@ -52,6 +53,8 @@ The latest isolated semantic result passed with these exact lanes:
 ```json
 {
   "ok": true,
+  "special_float": {"expected": [1, 1, 1, 0], "actual": [1, 1, 1, 0]},
+  "atomic_uav": {"expected": [7, 0, 5, 8], "actual": [7, 0, 5, 8]},
   "sm67_vector_int64": {"expected": [68, 69, 70, 71], "actual": [68, 69, 70, 71]},
   "sm68_vector_arithmetic": {"expected": [68, 136, 204, 272], "actual": [68, 136, 204, 272]},
   "sm69_integer_float_mix": {"expected": [69, 70, 72, 73], "actual": [69, 70, 72, 73]},
@@ -72,8 +75,8 @@ complete cache set.
 
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
-closed semantic, WaveOps, diagnostic, binding-baseline, and focused lowering-
-report-audit rows while keeping the exhaustive SM5.x–SM6.9
+closed semantic, WaveOps, diagnostic, atomic/special-float, binding-baseline,
+and focused lowering-report-audit rows while keeping the exhaustive SM5.x–SM6.9
 opcode/stage/resource/cache/session row open.
 
 ## Remaining Phase 5 work
