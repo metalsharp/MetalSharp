@@ -92,10 +92,11 @@
 - A two-slice 1D-array resource and a six-face cube resource (the D3D12
   six-slice 2D representation) create successfully; D16, R10G10B10A2
   typeless, and the R24/R32 depth-stencil typeless/plane format family also
-  create with matching Metal depth/swizzle providers. Mipped 1D arrays,
-  mipped 2D arrays, mipped 3D volumes, and four-sample 2D MSAA arrays also
-  preserve their requested mip, extent, slice, and sample shape. The backend
-  preserves the 1D array length, and each 1D-array slice and cube face independently
+  create with matching Metal depth/swizzle providers. Logical D3D12 1D and
+  1D-array resources use height-one Metal 2D/2D-array backing because native
+  Metal 1D arrays cannot carry mip chains. Mipped 1D arrays, mipped 2D arrays,
+  mipped 3D volumes, and four-sample 2D MSAA arrays preserve their requested
+  mip, extent, slice, and sample shape. The backend preserves the 1D array length, and each 1D-array slice and cube face independently
   round-trips distinct bytes through `WriteToSubresource`/`ReadFromSubresource`.
   A placed two-slice 1D array also uses the correct Metal array length and
   independently round-trips both slices through a default placement heap. A

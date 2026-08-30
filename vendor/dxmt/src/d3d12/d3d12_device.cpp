@@ -1036,9 +1036,9 @@ TextureTypeForSrvView(const D3D12_SHADER_RESOURCE_VIEW_DESC &desc,
                       const D3D12_RESOURCE_DESC &resource_desc) {
   switch (desc.ViewDimension) {
   case D3D12_SRV_DIMENSION_TEXTURE1D:
-    return WMTTextureType1D;
+    return WMTTextureType2D;
   case D3D12_SRV_DIMENSION_TEXTURE1DARRAY:
-    return WMTTextureType1DArray;
+    return WMTTextureType2DArray;
   case D3D12_SRV_DIMENSION_TEXTURE2D:
     return resource_desc.SampleDesc.Count > 1 ? WMTTextureType2DMultisample
                                               : WMTTextureType2D;
@@ -1076,9 +1076,9 @@ TextureTypeForUavView(const D3D12_UNORDERED_ACCESS_VIEW_DESC &desc,
                       const D3D12_RESOURCE_DESC &resource_desc) {
   switch (desc.ViewDimension) {
   case D3D12_UAV_DIMENSION_TEXTURE1D:
-    return WMTTextureType1D;
+    return WMTTextureType2D;
   case D3D12_UAV_DIMENSION_TEXTURE1DARRAY:
-    return WMTTextureType1DArray;
+    return WMTTextureType2DArray;
   case D3D12_UAV_DIMENSION_TEXTURE2D:
     return IsWritableMSAAResourceDesc(resource_desc)
                ? WMTTextureType2DArray
@@ -6151,8 +6151,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
     const UINT samples = desc->SampleDesc.Count ? desc->SampleDesc.Count : 1;
     if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
       texture_info.type = desc->DepthOrArraySize > 1
-                              ? WMTTextureType1DArray
-                              : WMTTextureType1D;
+                              ? WMTTextureType2DArray
+                              : WMTTextureType2D;
     else if (desc->Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
       texture_info.type = WMTTextureType3D;
     else if (samples > 1)

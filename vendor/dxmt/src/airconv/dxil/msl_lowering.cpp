@@ -782,12 +782,12 @@ static std::string textureBindingType(uint32_t resource_kind, bool writable,
                ", access::read_write>";
 
     switch (resource_kind) {
-    case 1u: return "texture1d<" + std::string(element) + ", access::" + access + ">";
+    case 1u: return "texture2d<" + std::string(element) + ", access::" + access + ">";
     case 2u: return "texture2d<" + std::string(element) + ", access::" + access + ">";
     case 3u: return "texture2d_ms<" + std::string(element) + ", access::read>";
     case 4u: return "texture3d<" + std::string(element) + ", access::" + access + ">";
     case 5u: return "texturecube<" + std::string(element) + ", access::" + access + ">";
-    case 6u: return "texture1d_array<" + std::string(element) + ", access::" + access + ">";
+    case 6u: return "texture2d_array<" + std::string(element) + ", access::" + access + ">";
     case 7u: return "texture2d_array<" + std::string(element) + ", access::" + access + ">";
     case 8u: return "texture2d_ms_array<" + std::string(element) + ", access::read>";
     case 9u: return "texturecube_array<" + std::string(element) + ", access::" + access + ">";
@@ -799,9 +799,9 @@ static std::string depthTextureBindingType(uint32_t resource_kind) {
     if (resource_kind == 7u)
         return "depth2d_array<float, access::sample>";
     if (resource_kind == 6u)
-        return "depth1d_array<float, access::sample>";
+        return "depth2d_array<float, access::sample>";
     if (resource_kind == 1u)
-        return "depth1d<float, access::sample>";
+        return "depth2d<float, access::sample>";
     return "depth2d<float, access::sample>";
 }
 
@@ -4482,10 +4482,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         switch (resource_kind) {
         case 1u:
-            return handle + ".read((uint)(" + c0 + "), (uint)(" + mip + "))";
+            return handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" +
+                   mip + "))";
         case 6u:
-            return handle + ".read((uint)(" + c0 + "), (uint)(" + c1 +
-                   "), (uint)(" + mip + "))";
+            return handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" +
+                   c1 + "), (uint)(" + mip + "))";
         case 2u:
             return handle + ".read(uint2(" + c0 + ", " + c1 +
                    "), (uint)(" + mip + "))";
@@ -4544,9 +4545,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         switch (resource_kind) {
         case 1u:
-            return handle + ".write(" + value + ", (uint)(" + c0 + "))";
+            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), 0u))";
         case 6u:
-            return handle + ".write(" + value + ", (uint)(" + c0 + "), (uint)(" + c1 + "))";
+            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), 0u), (uint)(" + c1 + "))";
         case 2u:
             return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")))";
         case 7u:
@@ -4583,14 +4584,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         bool is_3d_gradient = false;
         switch (resource_kind) {
         case 1u:
-            coord = "(" + c0 + ")";
-            has_offset = false;
+            coord = "float2(" + c0 + ", 0.5f)";
             break;
         case 6u:
-            coord = "(" + c0 + ")";
+            coord = "float2(" + c0 + ", 0.5f)";
             array_index = "(uint)(" + c1 + ")";
             has_array_index = true;
-            has_offset = false;
             break;
         case 2u:
             coord = "float2(" + c0 + ", " + c1 + ")";
@@ -4648,6 +4647,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 coord = "float3(" + shifted(c0, ox, "width") + ", " +
                         shifted(c1, oy, "height") + ", " +
                         shifted(c2, oz, "depth") + ")";
+            } else if (resource_kind == 1u || resource_kind == 6u) {
+                coord = "float2(" + shifted(c0, ox, "width") + ", 0.5f)";
             } else if (resource_kind == 2u || resource_kind == 7u) {
                 coord = "float2(" + shifted(c0, ox, "width") + ", " +
                         shifted(c1, oy, "height") + ")";
@@ -4655,26 +4656,6 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             has_offset = false;
         }
 
-        if ((resource_kind == 1u || resource_kind == 6u) &&
-            intrinsic_id == DXOP_TextureSampleLevel) {
-            // Metal's 1D sample overload has no level modifier. Level zero is
-            // exactly the native 1D sample operation; reject every other LOD
-            // rather than silently losing filtering or sampler address modes.
-            if (!isZeroLiteralArg(9)) {
-                ctx.unsupported_intrinsics++;
-                recordDiagnostic(ctx,
-                                 "DXIL nonzero explicit LOD is unsupported for 1D resource kind=%u",
-                                 resource_kind);
-                return "float4(0)";
-            }
-            intrinsic_id = DXOP_TextureSample;
-        }
-        if ((resource_kind == 1u || resource_kind == 6u) &&
-            intrinsic_id != DXOP_TextureSample) {
-            ctx.unsupported_intrinsics++;
-            recordDiagnostic(ctx, "DXIL sample modifier is unsupported for 1D resource kind=%u", resource_kind);
-            return "float4(0)";
-        }
         std::string call = handle + ".sample(" + samp + ", " + coord;
         if (has_array_index)
             call += ", " + array_index;
@@ -4683,7 +4664,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         } else if (intrinsic_id == DXOP_TextureSampleBias) {
             call += ", bias((float)(" + numericArg(9, "0.0") + "))";
         } else if (intrinsic_id == DXOP_TextureSampleGrad) {
-            if (is_3d_gradient) {
+            if (resource_kind == 1u || resource_kind == 6u) {
+                call += ", gradient2d(float2(" + numericArg(9, "0.0") +
+                        ", 0.0f), float2(" + numericArg(12, "0.0") +
+                        ", 0.0f))";
+            } else if (is_3d_gradient) {
                 call += ", gradient3d(float3(" + numericArg(9, "0.0") + ", " +
                        numericArg(10, "0.0") + ", " + numericArg(11, "0.0") +
                        "), float3(" + numericArg(12, "0.0") + ", " +
@@ -4695,9 +4680,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             }
         }
         if (has_offset) {
-            if (resource_kind == 1u || resource_kind == 6u)
-                call += ", int(" + ox + ")";
-            else if (resource_kind == 4u)
+            if (resource_kind == 4u)
                 call += ", int3(" + ox + ", " + oy + ", " + oz + ")";
             else
                 call += ", int2(" + ox + ", " + oy + ")";
@@ -4793,11 +4776,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         bool has_offset = true;
         switch (resource_kind) {
         case 1u:
-            coord = "(" + c0 + ")";
+            coord = "float2(" + c0 + ", 0.5f)";
             has_offset = true;
             break;
         case 6u:
-            coord = "(" + c0 + ")";
+            coord = "float2(" + c0 + ", 0.5f)";
             array_suffix = ", (uint)(" + c1 + ")";
             break;
         case 2u:
@@ -4823,9 +4806,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (ctx.shader.kind == DxilShaderKind::Compute) {
             std::string sample;
             if (resource_kind == 1u)
-                sample = handle + ".read((uint)(" + c0 + "), (uint)(" + numericArg(10, "0") + "))";
+                sample = handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" + numericArg(10, "0") + "))";
             else if (resource_kind == 6u)
-                sample = handle + ".read((uint)(" + c0 + "), (uint)(" + c1 + "), (uint)(" + numericArg(10, "0") + "))";
+                sample = handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" + c1 + "), (uint)(" + numericArg(10, "0") + "))";
             else
                 sample = handle + ".read(uint2((uint)(" + c0 + "), (uint)(" + c1 + "))" +
                         (resource_kind == 7u ? ", (uint)(" + c2 + ")" : "") +
@@ -4848,7 +4831,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         if (has_offset) {
             if (resource_kind == 1u || resource_kind == 6u)
-                call += ", int(" + ox + ")";
+                call += ", int2(" + ox + ", 0)";
             else
                 call += ", int2(" + ox + ", " + oy + ")";
         }
@@ -4912,26 +4895,32 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                                 ? handle + ".get_depth((uint)(" + mip + "))"
                                 : "1u";
         std::string samples = multisample ? handle + ".get_num_samples()" : "1u";
+        std::string mip_levels = multisample
+                                     ? "1u"
+                                     : handle + ".get_num_mip_levels()";
         // GetDimensions returns only the components applicable to the DXIL
         // resource shape: 1D (w[,array]), 2D (w,h[,array]), 3D (w,h,d),
         // cube (w,h[,array]), and MSAA (w,h[,array],samples).  The lowerer
         // uses a four-lane carrier, so place each value in the component that
         // the corresponding DXIL extractvalue consumes.
         if (resource_kind == 1u)
-            return "uint4(" + width + ", 1u, 1u, 1u)";
+            return "uint4(" + width + ", 1u, 1u, " + mip_levels + ")";
         if (resource_kind == 6u)
-            return "uint4(" + width + ", " + array_size + ", 1u, 1u)";
+            return "uint4(" + width + ", " + array_size + ", 1u, " +
+                   mip_levels + ")";
         if (resource_kind == 3u)
             return "uint4(" + width + ", " + height + ", 1u, " + samples + ")";
         if (resource_kind == 8u)
             return "uint4(" + width + ", " + height + ", " + array_size +
                    ", " + samples + ")";
         if (resource_kind == 4u)
-            return "uint4(" + width + ", " + height + ", " + depth + ", 1u)";
+            return "uint4(" + width + ", " + height + ", " + depth + ", " +
+                   mip_levels + ")";
         if (resource_kind == 7u || resource_kind == 9u)
             return "uint4(" + width + ", " + height + ", " + array_size +
-                   ", 1u)";
-        return "uint4(" + width + ", " + height + ", 1u, 1u)";
+                   ", " + mip_levels + ")";
+        return "uint4(" + width + ", " + height + ", 1u, " + mip_levels +
+               ")";
     }
     case 83: case 85: return "dfdx(" + valueArg(0, "0.0") + ")";
     case 84: case 86: return "dfdy(" + valueArg(0, "0.0") + ")";

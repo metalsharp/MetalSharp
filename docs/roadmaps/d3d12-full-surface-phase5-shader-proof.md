@@ -74,7 +74,10 @@
   matrix passes exact readback for 1D, 1D-array, 2D, 2D-array, 3D, cube,
   cube-array, and 2D-MS resources (including dimension-specific sample/load
   coordinates and GetDimensions width/height/depth/array/sample results), plus
-  UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D. The focused matrix also
+  UAV stores for 1D, 1D-array, 2D, 2D-array, and 3D. D3D12 1D resources use
+  height-one Metal 2D/2D-array backing, avoiding Metal's one-mip 1D-array
+  restriction while preserving the D3D descriptor shape. Nonzero mip-1 sample
+  and GetDimensions readbacks are exact for both scalar and array 1D textures. The focused matrix also
   proves R32, R16, RG16, and RGBA8 typed families: signed/unsigned integer and
   R16 floating reads plus writable R32 and RGBA8 signed/unsigned stores all
   return exact packed values. R16 UNORM/SNORM, RGBA8 SNORM,
@@ -170,7 +173,7 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-typed64-2`: 42/42 cases passed with exact
+`phase5-texture1d-mips1`: 44/44 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
 for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
 R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`,
@@ -182,10 +185,14 @@ read values `64` or packed UINT `0x031e140a`, and exact writable bits R16_UNORM
 `0xc1e0500a`, R10G10B10A2_UNORM `0xc0000100`, and R11G11B10_FLOAT `0x340`.
 The signed/unsigned 64-bit cases preserve exact low/high pairs
 `{0x89abcdef,0x01234567}` and `{0x12345678,0xffffffff}` respectively on both
-load and store, with no offline converter. The same run covers the Metal-specific 1D
-explicit-level-zero path through the native 1D sampler;
-nonzero 1D LOD modifiers remain fail-closed because Metal exposes no
-semantically equivalent overload. The latest SM6.6/6.7 profile
+load and store, with no offline converter. The height-one 2D backing gives
+1D shaders Metal's complete 2D sampling modifiers while retaining D3D12 1D
+coordinates and dimensions: mip-1 1D and 1D-array values are both `96`, with
+exact packed
+GetDimensions values `131074` and `131586`. Resource profile
+`phase5-texture1d-resource` also passes the full 108-format/shape matrix,
+zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
+Metal validation assertion. The latest SM6.6/6.7 profile
 `phase5-atomic-load-final` also passes every focused case, including atomic
 barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
 and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to

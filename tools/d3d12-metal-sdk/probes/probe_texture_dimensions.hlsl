@@ -45,6 +45,22 @@ void cs_texture_1d_array(uint3 id : SV_DispatchThreadID) {
   output[1] = w | (elements << 16);
 }
 
+[numthreads(1,1,1)]
+void cs_texture_1d_mip(uint3 id : SV_DispatchThreadID) {
+  output[0] = uint(tex1.SampleLevel(samp, 0.5, 1.0).r * 255.0 + 0.5);
+  uint w, levels;
+  tex1.GetDimensions(1, w, levels);
+  output[1] = w | (levels << 16);
+}
+
+[numthreads(1,1,1)]
+void cs_texture_1d_array_mip(uint3 id : SV_DispatchThreadID) {
+  output[0] = uint(tex1a.SampleLevel(samp, float2(0.5, 1), 1.0).r * 255.0 + 0.5);
+  uint w, elements, levels;
+  tex1a.GetDimensions(1, w, elements, levels);
+  output[1] = w | (elements << 8) | (levels << 16);
+}
+
 [numthreads(4,1,1)]
 void cs_texture_2d(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex2.SampleLevel(samp, float2(0.5, 0.5), 0).r * 255.0 + 0.5);

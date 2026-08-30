@@ -172,7 +172,16 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The source-staged matrix proves exact sample/load, GetDimensions, and readback for 1D, 1D-array, 2D, 2D-array, 3D, cube, cube-array, and 2D MSAA textures plus UAV stores for 1D/1D-array/2D/2D-array/3D; MSAA UAV stores and broader format/operation coverage remain tracked separately."
+      "remaining": "The source-staged matrix proves exact sample/load, GetDimensions, and readback for 1D, 1D-array, 2D, 2D-array, 3D, cube, cube-array, and 2D MSAA textures plus UAV stores for 1D/1D-array/2D/2D-array/3D. Height-one Metal 2D backing additionally proves nonzero 1D/1D-array mips; MSAA UAV stores and broader operation coverage remain tracked separately."
+    },
+    {
+      "id": "dxil-texture1d-mip-runtime",
+      "status": "closed",
+      "result": "probe-texture-dimensions",
+      "checks": [
+        ["pass"]
+      ],
+      "remaining": "Mip-1 scalar/array 1D sampling and GetDimensions pass over height-one Metal 2D backing, and the resource matrix creates a five-mip 1D array without a Metal assertion. Broader modifier/filter/address combinations remain in the exhaustive row."
     },
     {
       "id": "dxil-resource-element-type-runtime",
