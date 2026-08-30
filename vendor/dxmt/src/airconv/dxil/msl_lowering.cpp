@@ -43,6 +43,9 @@ enum DXIntrinsicOpcode {
   DXOP_Dot2 = 54,
   DXOP_Dot3 = 55,
   DXOP_Dot4 = 56,
+  DXOP_Dot2AddHalf = 162,
+  DXOP_Dot4AddI8Packed = 163,
+  DXOP_Dot4AddU8Packed = 164,
   DXOP_RawBufferLoad = 139,
   DXOP_RawBufferStore = 140,
   DXOP_BufferUpdateCounter = 70,
@@ -282,6 +285,9 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "dot2.", 5) == 0) return 54;
     if (strncmp(s, "dot3.", 5) == 0) return 55;
     if (strncmp(s, "dot4.", 5) == 0) return 56;
+    if (strncmp(s, "dot2AddHalf.", 12) == 0) return DXOP_Dot2AddHalf;
+    if (strncmp(s, "dot4AddI8Packed.", 16) == 0) return DXOP_Dot4AddI8Packed;
+    if (strncmp(s, "dot4AddU8Packed.", 16) == 0) return DXOP_Dot4AddU8Packed;
     if (strncmp(s, "barrier", 7) == 0) return 80;
     if (strncmp(s, "discard", 7) == 0) return DXOP_Discard;
     if (strncmp(s, "checkAccessFullyMapped", 22) == 0) return 71;
@@ -379,6 +385,9 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_BitcastF32ToI32:
     case DXOP_BitcastI64ToF64:
     case DXOP_BitcastF64ToI64:
+    case DXOP_Dot2AddHalf:
+    case DXOP_Dot4AddI8Packed:
+    case DXOP_Dot4AddU8Packed:
     case DXOP_WaveIsFirstLane:
     case DXOP_WaveGetLaneIndex:
     case DXOP_WaveGetLaneCount:
@@ -3193,7 +3202,12 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_Dot2:
     case DXOP_Dot3:
     case DXOP_Dot4:
+    case DXOP_Dot2AddHalf:
         return {MSLTypeKind::Float, 0, {}};
+    case DXOP_Dot4AddI8Packed:
+        return {MSLTypeKind::Int, 0, {}};
+    case DXOP_Dot4AddU8Packed:
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_CheckAccessFullyMapped:
     case 8:
     case 9:
@@ -4120,6 +4134,28 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_Dot4: {
         if (args.size() < 8) return "0.0";
         return "((" + numericArg(0,"0.0") + ")*(" + numericArg(4,"0.0") + ") + (" + numericArg(1,"0.0") + ")*(" + numericArg(5,"0.0") + ") + (" + numericArg(2,"0.0") + ")*(" + numericArg(6,"0.0") + ") + (" + numericArg(3,"0.0") + ")*(" + numericArg(7,"0.0") + "))";
+    }
+    case DXOP_Dot2AddHalf:
+        if (args.size() < 5) return "0.0";
+        return "fma(float(" + numericArg(1, "0.0") + "), float(" + numericArg(3, "0.0") + "), fma(float(" +
+               numericArg(2, "0.0") + "), float(" + numericArg(4, "0.0") + "), float(" +
+               numericArg(0, "0.0") + ")))";
+    case DXOP_Dot4AddI8Packed:
+    case DXOP_Dot4AddU8Packed: {
+        if (args.size() < 3) return "0";
+        const bool signed_bytes = intrinsic_id == DXOP_Dot4AddI8Packed;
+        auto byte = [&](const std::string &value, unsigned shift) {
+            std::string bits = "((uint(" + value + ") >> " + std::to_string(shift) + "u) & 0xffu)";
+            if (!signed_bytes)
+                return bits;
+            return "((int(" + bits + " << 24)) >> 24)";
+        };
+        std::string result = signed_bytes ? "int(" + numericArg(0, "0") + ")"
+                                          : "uint(" + numericArg(0, "0") + ")";
+        for (unsigned shift = 0; shift < 32; shift += 8)
+            result += " + (" + byte(numericArg(1, "0"), shift) + " * " +
+                      byte(numericArg(2, "0"), shift) + ")";
+        return signed_bytes ? result : "uint(" + result + ")";
     }
     case DXOP_LoadInput: {
         if (args.size() < 3) return "0.0";
