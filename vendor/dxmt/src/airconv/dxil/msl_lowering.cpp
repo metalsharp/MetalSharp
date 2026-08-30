@@ -68,6 +68,8 @@ enum DXIntrinsicOpcode {
   DXOP_WaveActiveOp = 119,
   DXOP_WaveActiveBit = 120,
   DXOP_WavePrefixOp = 121,
+  DXOP_WaveAllBitCount = 135,
+  DXOP_WavePrefixBitCount = 136,
   DXOP_QuadReadLaneAt = 122,
   DXOP_QuadOp = 123,
   DXOP_QuadVote = 222,
@@ -292,6 +294,8 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "waveActiveBallot", 16) == 0) return 116;
     if (strncmp(s, "waveActiveOp", 12) == 0) return 119;
     if (strncmp(s, "waveActiveBit", 13) == 0) return 120;
+    if (strncmp(s, "waveAllBitCount", 15) == 0) return 135;
+    if (strncmp(s, "wavePrefixBitCount", 18) == 0) return 136;
     if (strncmp(s, "wavePrefixOp", 12) == 0) return 121;
     if (strncmp(s, "quadReadLaneAt", 14) == 0) return 122;
     if (strncmp(s, "quadOp", 6) == 0) return 123;
@@ -346,6 +350,8 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_WaveReadLaneFirst:
     case DXOP_WaveActiveOp:
     case DXOP_WaveActiveBit:
+    case DXOP_WaveAllBitCount:
+    case DXOP_WavePrefixBitCount:
     case DXOP_WavePrefixOp:
     case DXOP_QuadReadLaneAt:
     case DXOP_QuadOp:
@@ -3159,6 +3165,8 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::UInt, 0, {}};
     case DXOP_WaveGetLaneIndex:
     case DXOP_WaveGetLaneCount:
+    case DXOP_WaveAllBitCount:
+    case DXOP_WavePrefixBitCount:
     case DXOP_LegacyF32ToF16:
         return {MSLTypeKind::UInt, 0, {}};
     case DXOP_DerivCoarseX:
@@ -4083,6 +4091,10 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_WaveActiveBallot:
         return "uint4(static_cast<uint>(static_cast<simd_vote::vote_t>(simd_ballot(" +
                numericArg(0, "0") + "))), 0u, 0u, 0u)";
+    case DXOP_WaveAllBitCount:
+        return "simd_sum(uint(" + numericArg(0, "0") + "))";
+    case DXOP_WavePrefixBitCount:
+        return "simd_prefix_exclusive_sum(uint(" + numericArg(0, "0") + "))";
     case DXOP_WaveActiveOp: {
         auto value = numericArg(0, "0");
         uint32_t op = literalArg(1, 0xFFFFFFFFu, "wave_active_op");
