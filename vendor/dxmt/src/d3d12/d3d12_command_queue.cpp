@@ -6557,6 +6557,32 @@ struct ReplayState {
           render_enc.useResource(res->GetMTLBuffer(), usage,
                                  RootBindingStages());
           RetainResourceMetalObjectsForCompletion(res);
+          if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV &&
+              desc->resource_uav_counter &&
+              (vis == D3D12_SHADER_VISIBILITY_ALL ||
+               vis == D3D12_SHADER_VISIBILITY_PIXEL)) {
+            const auto &pixel_reflection = pso->GetPSReflection();
+            const bool pixel_uses_t9 =
+                (pixel_reflection.SRVSlotMaskLo & (1ull << 9)) != 0;
+            auto *counter = static_cast<MTLD3D12Resource *>(
+                desc->resource_uav_counter);
+            if (!pixel_uses_t9 && counter->GetMTLBuffer().handle) {
+              SetFragmentBufferTracked(counter->GetMTLBuffer(),
+                                       desc->uav.Buffer.CounterOffsetInBytes,
+                                       25);
+              render_enc.useResource(
+                  counter->GetMTLBuffer(),
+                  (WMTResourceUsage)(WMTResourceUsageRead |
+                                     WMTResourceUsageWrite),
+                  WMTRenderStageFragment);
+              RetainResourceMetalObjectsForCompletion(counter);
+              QTRACE("ApplyRootBindings: pixel UAV counter u%u -> reserved "
+                     "slot=25 offset=%llu",
+                     shader_register,
+                     (unsigned long long)
+                         desc->uav.Buffer.CounterOffsetInBytes);
+            }
+          }
           QTRACE("ApplyRootBindings: table buffer reg=%u type=%u off=%llu",
                  shader_register, range_type, (unsigned long long)off);
         } else if (auto tex = DescriptorTexture(desc, res);

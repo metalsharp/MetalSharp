@@ -4859,27 +4859,33 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         for (const auto &binding : ctx.mod.resource_bindings)
             if (binding.resource_class == 1 && binding.has_counter)
                 ++counter_bindings;
-        bool srv_slot_14_used = false;
+        const uint32_t reserved_srv_register =
+            ctx.shader.kind == DxilShaderKind::Pixel ? 9u : 14u;
+        bool reserved_srv_used = false;
         for (const auto &range : ctx.binding_plan.ranges)
             if (range.kind == DescriptorRangePlan::Kind::SRV &&
-                range.register_space == 0 && range.lower_bound <= 14 &&
-                range.count > 14 - range.lower_bound)
-                srv_slot_14_used = true;
-        if (ctx.shader.kind != DxilShaderKind::Compute ||
-            counter_bindings != 1 || srv_slot_14_used ||
+                range.register_space == 0 &&
+                range.lower_bound <= reserved_srv_register &&
+                range.count > reserved_srv_register - range.lower_bound)
+                reserved_srv_used = true;
+        if ((ctx.shader.kind != DxilShaderKind::Compute &&
+             ctx.shader.kind != DxilShaderKind::Pixel) ||
+            counter_bindings != 1 || reserved_srv_used ||
             ctx.options.resource_heap_directly_indexed) {
             ctx.unsupported_intrinsics++;
             recordDiagnostic(
                 ctx,
-                "DXIL buffer counter requires compute stage, exactly one table-bound counter UAV, and reserved SRV slot t14 (stage=%u counters=%u t14=%u direct_heap=%u)",
+                "DXIL buffer counter requires compute/pixel stage, exactly one table-bound counter UAV, and a free reserved SRV slot (stage=%u counters=%u reserved_t=%u occupied=%u direct_heap=%u)",
                 static_cast<unsigned>(ctx.shader.kind), counter_bindings,
-                srv_slot_14_used ? 1u : 0u,
+                reserved_srv_register, reserved_srv_used ? 1u : 0u,
                 ctx.options.resource_heap_directly_indexed ? 1u : 0u);
             return "0";
         }
         auto delta = ensureScalarIndex(numericArg(1, "1"));
-        return "m12_update_counter(reinterpret_cast<device atomic_uint*>(buf30), "
-               "(int)(" + delta + "))";
+        const char *counter_buffer =
+            ctx.shader.kind == DxilShaderKind::Pixel ? "buf25" : "buf30";
+        return "m12_update_counter(reinterpret_cast<device atomic_uint*>(" +
+               std::string(counter_buffer) + "), (int)(" + delta + "))";
     }
     case DXOP_CheckAccessFullyMapped:
         return "true";

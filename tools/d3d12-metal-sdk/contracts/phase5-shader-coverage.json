@@ -102,9 +102,10 @@
         ["coverage", "atomics_32bit"],
         ["coverage", "append_counter_runtime"],
         ["coverage", "consume_counter_runtime"],
+        ["coverage", "pixel_append_counter_runtime"],
         ["coverage", "dispatch_indirect_layout_and_bounds"]
       ],
-      "remaining": "Single external-counter append/consume semantics are exact; multi-counter and directly indexed counter heaps remain fail-closed."
+      "remaining": "Single external-counter compute append/consume and pixel append semantics are exact; multi-counter, directly indexed counter heaps, and other graphics stages remain fail-closed."
     },
     {
       "id": "append-consume-counter-runtime",
@@ -113,9 +114,10 @@
       "checks": [
         ["pass"],
         ["coverage", "append_counter_runtime"],
-        ["coverage", "consume_counter_runtime"]
+        ["coverage", "consume_counter_runtime"],
+        ["coverage", "pixel_append_counter_runtime"]
       ],
-      "remaining": "The focused runtime proves append values 100..103 with counter 4 and consume values 200..203 with counter 0. Multi-counter and dynamically indexed counter-heap forms remain in the exhaustive row."
+      "remaining": "The focused runtime proves compute append values 100..103 with counter 4, consume values 200..203 with counter 0, and pixel append values 0..3 with counter 4. Multi-counter, dynamically indexed counter-heap, and other graphics-stage forms remain in the exhaustive row."
     },
     {
       "id": "counter-provider-fail-closed-boundary",
@@ -126,7 +128,7 @@
         ["summary", "append_counter_link"],
         ["summary", "counter_fail_closed"]
       ],
-      "remaining": "The corpus links one counter UAV and rejects a two-counter shader with E_FAIL; directly indexed counter heaps and graphics-stage counters remain fail-closed."
+      "remaining": "The corpus links one counter UAV and rejects a two-counter shader with E_FAIL; directly indexed counter heaps and non-pixel graphics-stage counters remain fail-closed."
     },
     {
       "id": "shader-cache-session-roundtrip",
