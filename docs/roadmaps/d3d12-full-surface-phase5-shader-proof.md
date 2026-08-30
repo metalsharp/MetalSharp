@@ -15,9 +15,11 @@
   `-enable-16bit-types`.
 - The exact semantic readback probe covers float/int math and bitcasts, raw
   buffer load/store, group-shared atomics and barriers, WaveOps/QuadOps,
-  SM6.7 vector/int64 arithmetic, SM6.8 wide arithmetic, and SM6.9 float16 to
-  integer conversion. Every lane creates a PSO, dispatches through the DXMT
-  command path, and matches its expected four-word readback.
+  SM6.7 vector/int64 arithmetic, SM6.8 wide arithmetic, SM6.9 float16 to
+  integer conversion, and a 4x4 texture's Load, SampleLevel, SampleGrad,
+  SampleBias, GatherRed, and GetDimensions forms. Every lane creates a PSO,
+  dispatches through the DXMT command path, and matches its expected
+  readback.
 - The WaveOps probe independently verifies lane index/count, ballot, lane
   reads, any/all, quad operations, reductions, and prefix behavior on the
   32-lane dispatch, with zero mismatches.
@@ -27,7 +29,9 @@
   advertised as implemented.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
-  valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable.
+  valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
+  generated-report audit also checks every focused report for nonzero
+  unsupported-intrinsic/opcode counts and placeholder lowering markers.
 
 ## Exact evidence
 
@@ -50,7 +54,8 @@ The latest isolated semantic result passed with these exact lanes:
   "ok": true,
   "sm67_vector_int64": {"expected": [68, 69, 70, 71], "actual": [68, 69, 70, 71]},
   "sm68_vector_arithmetic": {"expected": [68, 136, 204, 272], "actual": [68, 136, 204, 272]},
-  "sm69_integer_float_mix": {"expected": [69, 70, 72, 73], "actual": [69, 70, 72, 73]}
+  "sm69_integer_float_mix": {"expected": [69, 70, 72, 73], "actual": [69, 70, 72, 73]},
+  "texture_sampling_forms": {"expected": [64, 64, 64, 64, 64, 68], "actual": [64, 64, 64, 64, 64, 68]}
 }
 ```
 
@@ -62,8 +67,9 @@ case was deterministically rejected. The diagnostic result passed with
 
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
-closed semantic, WaveOps, diagnostic, and binding-baseline rows while keeping
-the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row open.
+closed semantic, WaveOps, diagnostic, binding-baseline, and focused lowering-
+report-audit rows while keeping the exhaustive SM5.x–SM6.9
+opcode/stage/resource/cache/session row open.
 
 ## Remaining Phase 5 work
 

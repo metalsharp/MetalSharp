@@ -177,9 +177,12 @@ static bool runConverterTest(const TestCase &tc) {
         }
     }
 
-    if (msl->unsupported_opcodes > 0) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%u unsupported opcodes", msl->unsupported_opcodes);
+    if (msl->unsupported_opcodes > 0 || msl->unsupported_intrinsics > 0) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "%u unsupported opcodes, %u unsupported intrinsics",
+                 msl->unsupported_opcodes, msl->unsupported_intrinsics);
+        report_fail(tc.name, buf);
+        return false;
     }
 
     if (!g_msl_dump_dir.empty()) {
