@@ -21,8 +21,8 @@
   barriers,
   WaveOps/QuadOps, SM6.7 vector/int64 arithmetic, SM6.8
   wide arithmetic, SM6.9 float16 to integer conversion, multi-block
-  switch/PHI/vector-aggregate and loop-carried aggregate cases, and a 4x4
-  texture's Load, SampleLevel,
+  switch/PHI/vector-aggregate and loop-carried aggregate cases, a selected
+  double-arithmetic lane, and a 4x4 texture's Load, SampleLevel,
   SampleGrad, SampleBias, GatherRed, and GetDimensions forms. Every lane
   creates a PSO, dispatches through the DXMT command path, and matches its
   expected readback. The fresh no-offline-converter run reports
@@ -127,6 +127,7 @@ so PSO creation exercised the runtime MSL compiler directly:
   "sm69_integer_float_mix": {"expected": [69, 70, 72, 73], "actual": [69, 70, 72, 73]},
   "control_flow_aggregates": {"expected": [120, 212, 328, 320], "actual": [120, 212, 328, 320]},
   "loop_aggregate": {"expected": [1, 3, 6, 10], "actual": [1, 3, 6, 10]},
+  "double_arithmetic": {"expected": [37], "actual": [37]},
   "texture_sampling_forms": {"expected": [64, 64, 64, 64, 64, 68], "actual": [64, 64, 64, 64, 64, 68]}
 }
 ```
@@ -145,7 +146,7 @@ complete cache set.
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
 closed semantic, WaveOps (including active/prefix bit counts), control-flow,
-diagnostic, atomic/special-float, binding-baseline,
+double-arithmetic, diagnostic, atomic/special-float, binding-baseline,
 resource-metadata/texture-dimension, and focused lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
