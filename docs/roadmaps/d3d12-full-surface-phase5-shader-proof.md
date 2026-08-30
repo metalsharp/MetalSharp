@@ -82,7 +82,8 @@
   of `firstbitlow`/`firstbithigh`. The LLVM type reader now resolves vector
   element references from `type_refs` and rejects unsupported array values
   without recursive type resolution. The source-staged semantic run continues
-  to match `math_bits`, `math_intrinsics`, and all 19 semantic lanes.
+  to match `math_bits`, `math_intrinsics`, and all 20 semantic lanes, including
+  the four-lane vector aggregate shuffle.
 - The object-contract probe now exercises pipeline-library serialization plus
   memory and disk shader-cache sessions. It verifies serialized-size/header
   round-trip, malformed-blob rejection, missing-name rejection, descriptor,
@@ -132,6 +133,7 @@ so PSO creation exercised the runtime MSL compiler directly:
   "loop_aggregate": {"expected": [1, 3, 6, 10], "actual": [1, 3, 6, 10]},
   "double_arithmetic": {"expected": [37], "actual": [37]},
   "atomic_matrix": {"expected": [13, 10, 6, 15, 15, 15, 9, 15, 3, 4294967295, 3, 0, 3, 4294967295, 3, 0, 9, 5], "actual": [13, 10, 6, 15, 15, 15, 9, 15, 3, 4294967295, 3, 0, 3, 4294967295, 3, 0, 9, 5]},
+  "vector_shuffle": {"expected": [1234, 2345, 3456, 4567], "actual": [1234, 2345, 3456, 4567]},
   "texture_sampling_forms": {"expected": [64, 64, 64, 64, 64, 68], "actual": [64, 64, 64, 64, 64, 68]}
 }
 ```
