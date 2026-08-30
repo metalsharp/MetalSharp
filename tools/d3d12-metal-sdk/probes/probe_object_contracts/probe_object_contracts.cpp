@@ -297,6 +297,46 @@ static bool test_shader_cache_session(ID3D12ShaderCacheSession* session) {
     return true;
 }
 
+static bool test_pipeline_library_serialization(ID3D12Device1* device) {
+    if (!device)
+        return false;
+
+    ID3D12PipelineLibrary* library = nullptr;
+    HRESULT hr = device->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&library));
+    if (FAILED(hr) || !library)
+        return false;
+    SIZE_T serialized_size = library->GetSerializedSize();
+    std::vector<uint8_t> serialized(serialized_size);
+    bool pass = serialized_size >= sizeof(uint32_t) * 4 &&
+                library->Serialize(serialized.data(), serialized.size()) == S_OK;
+
+    ID3D12PipelineLibrary* roundtrip = nullptr;
+    if (pass)
+        pass = device->CreatePipelineLibrary(serialized.data(), serialized.size(),
+                                             IID_PPV_ARGS(&roundtrip)) == S_OK &&
+               roundtrip;
+    D3D12_COMPUTE_PIPELINE_STATE_DESC missing_desc = {};
+    ID3D12PipelineState* missing = nullptr;
+    if (pass)
+        pass = roundtrip->LoadComputePipeline(L"missing", &missing_desc,
+                                              __uuidof(ID3D12PipelineState),
+                                              reinterpret_cast<void**>(&missing)) == E_INVALIDARG &&
+               missing == nullptr;
+
+    uint8_t malformed[sizeof(uint32_t) * 4] = {};
+    ID3D12PipelineLibrary* rejected = nullptr;
+    if (pass)
+        pass = device->CreatePipelineLibrary(malformed, sizeof(malformed),
+                                              IID_PPV_ARGS(&rejected)) == E_INVALIDARG &&
+               rejected == nullptr;
+    if (rejected)
+        rejected->Release();
+    if (roundtrip)
+        roundtrip->Release();
+    library->Release();
+    return pass;
+}
+
 static bool test_disk_shader_cache_session(ID3D12Device9* device) {
     if (!device)
         return false;
@@ -369,6 +409,7 @@ int main() {
                       : E_NOINTERFACE;
     std::vector<ObjectResult> results;
     bool info_queue_pass = false;
+    bool pipeline_library_serialization_pass = false;
     bool shader_cache_session_pass = false;
     bool shader_cache_disk_session_pass = false;
     std::string info_queue_error;
@@ -474,6 +515,8 @@ int main() {
         HRESULT device1_hr = device->QueryInterface(IID_PPV_ARGS(&device1));
         ID3D12PipelineLibrary* pipeline_library = nullptr;
         hr = device1 ? device1->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&pipeline_library)) : device1_hr;
+        pipeline_library_serialization_pass = SUCCEEDED(hr) &&
+                                               test_pipeline_library_serialization(device1);
         append_result(results, "pipeline_library", hr, pipeline_library, device);
         if (device1)
             device1->Release();
@@ -496,7 +539,8 @@ int main() {
     }
 
     bool pass = SUCCEEDED(device_hr) && !results.empty() && info_queue_pass &&
-                shader_cache_session_pass && shader_cache_disk_session_pass;
+                pipeline_library_serialization_pass && shader_cache_session_pass &&
+                shader_cache_disk_session_pass;
     for (const auto& result : results)
         pass = pass && result.pass;
 
@@ -506,6 +550,7 @@ int main() {
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"object_count\": %zu,\n", results.size());
     std::printf("  \"info_queue_pass\": %s,\n", info_queue_pass ? "true" : "false");
+    std::printf("  \"pipeline_library_serialization_pass\": %s,\n", pipeline_library_serialization_pass ? "true" : "false");
     std::printf("  \"shader_cache_session_pass\": %s,\n", shader_cache_session_pass ? "true" : "false");
     std::printf("  \"shader_cache_disk_session_pass\": %s,\n", shader_cache_disk_session_pass ? "true" : "false");
     if (!info_queue_error.empty())

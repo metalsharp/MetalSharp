@@ -75,6 +75,7 @@
       "result": "probe-object-contracts",
       "checks": [
         ["pass"],
+        ["pipeline_library_serialization_pass"],
         ["shader_cache_session_pass"],
         ["shader_cache_disk_session_pass"]
       ],
