@@ -2415,22 +2415,30 @@ struct ID3D12PipelineLibrary1Compat : public ID3D12PipelineLibraryCompat {
                REFIID riid, void **pipeline_state) = 0;
 };
 
+static constexpr uint32_t kPipelineLibraryMagic = 0x314c504d; // MPL1
+static constexpr uint32_t kPipelineLibraryVersion = 1;
+static constexpr SIZE_T kPipelineLibraryMaxSerializedBytes = 64u * 1024u * 1024u;
+
 class MTLD3D12PipelineLibrary : public ComObject<ID3D12PipelineLibrary1Compat> {
 public:
   MTLD3D12PipelineLibrary(MTLD3D12Device *device, const void *blob,
                           SIZE_T blob_size)
       : m_device(device) {
     m_device->AddRef();
-    PLTRACE("PipelineLibrary create blob=%p size=%zu", blob, blob_size);
+    m_valid = blob_size == 0 || LoadSerialized(blob, blob_size);
+    PLTRACE("PipelineLibrary create blob=%p size=%zu valid=%u entries=%zu",
+            blob, blob_size, m_valid ? 1u : 0u, m_entries.size());
   }
 
   ~MTLD3D12PipelineLibrary() {
     for (auto &entry : m_entries) {
-      if (entry.second)
-        entry.second->Release();
+      if (entry.second.pipeline)
+        entry.second.pipeline->Release();
     }
     m_device->Release();
   }
+
+  bool IsValid() const { return m_valid; }
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
     if (!ppv)
@@ -2467,16 +2475,26 @@ public:
 
   HRESULT STDMETHODCALLTYPE
   StorePipeline(LPCWSTR name, ID3D12PipelineState *pipeline) override {
+    if (!name)
+      return E_INVALIDARG;
     if (!pipeline)
       return E_POINTER;
     auto key = key_from_name(name);
     auto iter = m_entries.find(key);
-    if (iter != m_entries.end() && iter->second)
-      iter->second->Release();
+    if (iter != m_entries.end() && iter->second.pipeline)
+      iter->second.pipeline->Release();
+    PipelineEntry entry;
+    entry.pipeline = pipeline;
     pipeline->AddRef();
-    m_entries[key] = pipeline;
+    ID3DBlob *cached_blob = nullptr;
+    if (SUCCEEDED(pipeline->GetCachedBlob(&cached_blob)) && cached_blob) {
+      const auto *bytes = static_cast<const uint8_t *>(cached_blob->GetBufferPointer());
+      entry.cached_blob.assign(bytes, bytes + cached_blob->GetBufferSize());
+      cached_blob->Release();
+    }
+    m_entries[key] = std::move(entry);
     PLTRACE("PipelineLibrary StorePipeline name=%ls pipeline=%p entries=%zu",
-            name ? name : L"(null)", pipeline, m_entries.size());
+            name, pipeline, m_entries.size());
     return S_OK;
   }
 
@@ -2486,14 +2504,29 @@ public:
     if (!pipeline_state)
       return E_POINTER;
     *pipeline_state = nullptr;
-    if (auto *pipeline = lookup(name)) {
+    if (!name || !desc)
+      return E_INVALIDARG;
+    auto *entry = lookup(name);
+    if (!entry)
+      return E_INVALIDARG;
+    if (entry->pipeline) {
       PLTRACE("PipelineLibrary LoadGraphicsPipeline cache hit name=%ls",
-              name ? name : L"(null)");
-      return pipeline->QueryInterface(riid, pipeline_state);
+              name);
+      return entry->pipeline->QueryInterface(riid, pipeline_state);
     }
-    PLTRACE("PipelineLibrary LoadGraphicsPipeline miss name=%ls -> create",
-            name ? name : L"(null)");
-    return m_device->CreateGraphicsPipelineState(desc, riid, pipeline_state);
+    ID3D12PipelineState *created = nullptr;
+    HRESULT hr = m_device->CreateGraphicsPipelineState(
+        desc, IID_PPV_ARGS(&created));
+    if (SUCCEEDED(hr) && created) {
+      entry->pipeline = created;
+      entry->pipeline->AddRef();
+      CaptureCachedBlob(*entry);
+      hr = created->QueryInterface(riid, pipeline_state);
+      created->Release();
+    }
+    PLTRACE("PipelineLibrary LoadGraphicsPipeline serialized name=%ls hr=0x%lx",
+            name, hr);
+    return hr;
   }
 
   HRESULT STDMETHODCALLTYPE LoadComputePipeline(
@@ -2502,30 +2535,79 @@ public:
     if (!pipeline_state)
       return E_POINTER;
     *pipeline_state = nullptr;
-    if (auto *pipeline = lookup(name)) {
+    if (!name || !desc)
+      return E_INVALIDARG;
+    auto *entry = lookup(name);
+    if (!entry)
+      return E_INVALIDARG;
+    if (entry->pipeline) {
       PLTRACE("PipelineLibrary LoadComputePipeline cache hit name=%ls",
-              name ? name : L"(null)");
-      return pipeline->QueryInterface(riid, pipeline_state);
+              name);
+      return entry->pipeline->QueryInterface(riid, pipeline_state);
     }
-    PLTRACE("PipelineLibrary LoadComputePipeline miss name=%ls -> create",
-            name ? name : L"(null)");
-    return m_device->CreateComputePipelineState(desc, riid, pipeline_state);
+    ID3D12PipelineState *created = nullptr;
+    HRESULT hr = m_device->CreateComputePipelineState(
+        desc, IID_PPV_ARGS(&created));
+    if (SUCCEEDED(hr) && created) {
+      entry->pipeline = created;
+      entry->pipeline->AddRef();
+      CaptureCachedBlob(*entry);
+      hr = created->QueryInterface(riid, pipeline_state);
+      created->Release();
+    }
+    PLTRACE("PipelineLibrary LoadComputePipeline serialized name=%ls hr=0x%lx",
+            name, hr);
+    return hr;
   }
 
   SIZE_T STDMETHODCALLTYPE GetSerializedSize() override {
-    return sizeof(uint32_t) * 2;
+    if (!m_valid || m_entries.size() > UINT32_MAX)
+      return 0;
+    SIZE_T size = sizeof(uint32_t) * 4;
+    for (const auto &entry : m_entries) {
+      if (entry.first.size() > UINT32_MAX / sizeof(wchar_t) ||
+          entry.second.cached_blob.size() > UINT32_MAX ||
+          size > kPipelineLibraryMaxSerializedBytes -
+                     (sizeof(uint32_t) * 2 + entry.first.size() * sizeof(wchar_t) +
+                      entry.second.cached_blob.size()))
+        return 0;
+      size += sizeof(uint32_t) * 2 + entry.first.size() * sizeof(wchar_t) +
+              entry.second.cached_blob.size();
+    }
+    return size;
   }
 
   HRESULT STDMETHODCALLTYPE Serialize(void *data, SIZE_T data_size) override {
     if (!data)
       return E_POINTER;
-    if (data_size < GetSerializedSize())
+    SIZE_T required = GetSerializedSize();
+    if (!required || data_size < required)
       return E_INVALIDARG;
-    uint32_t *words = reinterpret_cast<uint32_t *>(data);
-    words[0] = 0x4c505844; // DXPL
-    words[1] = static_cast<uint32_t>(m_entries.size());
+    auto *bytes = static_cast<uint8_t *>(data);
+    auto write_u32 = [&](uint32_t value) {
+      memcpy(bytes, &value, sizeof(value));
+      bytes += sizeof(value);
+    };
+    write_u32(kPipelineLibraryMagic);
+    write_u32(kPipelineLibraryVersion);
+    write_u32(static_cast<uint32_t>(m_entries.size()));
+    write_u32(0);
+    for (const auto &entry : m_entries) {
+      write_u32(static_cast<uint32_t>(entry.first.size() * sizeof(wchar_t)));
+      write_u32(static_cast<uint32_t>(entry.second.cached_blob.size()));
+      SIZE_T name_bytes = entry.first.size() * sizeof(wchar_t);
+      if (name_bytes) {
+        memcpy(bytes, entry.first.data(), name_bytes);
+        bytes += name_bytes;
+      }
+      if (!entry.second.cached_blob.empty()) {
+        memcpy(bytes, entry.second.cached_blob.data(),
+               entry.second.cached_blob.size());
+        bytes += entry.second.cached_blob.size();
+      }
+    }
     PLTRACE("PipelineLibrary Serialize entries=%zu bytes=%zu", m_entries.size(),
-            data_size);
+            required);
     return S_OK;
   }
 
@@ -2535,29 +2617,102 @@ public:
     if (!pipeline_state)
       return E_POINTER;
     *pipeline_state = nullptr;
-    if (auto *pipeline = lookup(name)) {
-      PLTRACE("PipelineLibrary LoadPipeline cache hit name=%ls",
-              name ? name : L"(null)");
-      return pipeline->QueryInterface(riid, pipeline_state);
+    if (!name || !desc)
+      return E_INVALIDARG;
+    auto *entry = lookup(name);
+    if (!entry)
+      return E_INVALIDARG;
+    if (entry->pipeline) {
+      PLTRACE("PipelineLibrary LoadPipeline cache hit name=%ls", name);
+      return entry->pipeline->QueryInterface(riid, pipeline_state);
     }
-    PLTRACE("PipelineLibrary LoadPipeline miss name=%ls -> create",
-            name ? name : L"(null)");
-    return m_device->CreatePipelineState(desc, riid, pipeline_state);
+    ID3D12PipelineState *created = nullptr;
+    HRESULT hr = m_device->CreatePipelineState(desc, IID_PPV_ARGS(&created));
+    if (SUCCEEDED(hr) && created) {
+      entry->pipeline = created;
+      entry->pipeline->AddRef();
+      CaptureCachedBlob(*entry);
+      hr = created->QueryInterface(riid, pipeline_state);
+      created->Release();
+    }
+    PLTRACE("PipelineLibrary LoadPipeline serialized name=%ls hr=0x%lx", name,
+            hr);
+    return hr;
   }
 
 private:
+  struct PipelineEntry {
+    ID3D12PipelineState *pipeline = nullptr;
+    std::vector<uint8_t> cached_blob;
+  };
+
   static std::wstring key_from_name(LPCWSTR name) {
     return name ? std::wstring(name) : std::wstring();
   }
 
-  ID3D12PipelineState *lookup(LPCWSTR name) {
+  PipelineEntry *lookup(LPCWSTR name) {
     auto iter = m_entries.find(key_from_name(name));
-    return iter == m_entries.end() ? nullptr : iter->second;
+    return iter == m_entries.end() ? nullptr : &iter->second;
+  }
+
+  static void CaptureCachedBlob(PipelineEntry &entry) {
+    if (!entry.pipeline)
+      return;
+    ID3DBlob *cached_blob = nullptr;
+    if (FAILED(entry.pipeline->GetCachedBlob(&cached_blob)) || !cached_blob)
+      return;
+    const auto *bytes =
+        static_cast<const uint8_t *>(cached_blob->GetBufferPointer());
+    entry.cached_blob.assign(bytes, bytes + cached_blob->GetBufferSize());
+    cached_blob->Release();
+  }
+
+  bool LoadSerialized(const void *data, SIZE_T size) {
+    if (!data || size < sizeof(uint32_t) * 4 ||
+        size > kPipelineLibraryMaxSerializedBytes)
+      return false;
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    auto read_u32 = [&](SIZE_T offset) -> uint32_t {
+      uint32_t value = 0;
+      memcpy(&value, bytes + offset, sizeof(value));
+      return value;
+    };
+    if (read_u32(0) != kPipelineLibraryMagic ||
+        read_u32(sizeof(uint32_t)) != kPipelineLibraryVersion ||
+        read_u32(sizeof(uint32_t) * 3) != 0)
+      return false;
+    uint32_t count = read_u32(sizeof(uint32_t) * 2);
+    if (count > 4096)
+      return false;
+    SIZE_T offset = sizeof(uint32_t) * 4;
+    for (uint32_t i = 0; i < count; ++i) {
+      if (size - offset < sizeof(uint32_t) * 2)
+        return false;
+      uint32_t name_bytes = read_u32(offset);
+      uint32_t blob_bytes = read_u32(offset + sizeof(uint32_t));
+      offset += sizeof(uint32_t) * 2;
+      if (!name_bytes || name_bytes % sizeof(wchar_t) != 0 ||
+          name_bytes > 4096 || blob_bytes > kPipelineLibraryMaxSerializedBytes ||
+          name_bytes > size - offset ||
+          blob_bytes > size - offset - name_bytes)
+        return false;
+      std::wstring name(name_bytes / sizeof(wchar_t), L'\\0');
+      memcpy(name.data(), bytes + offset, name_bytes);
+      offset += name_bytes;
+      if (name.empty() || m_entries.find(name) != m_entries.end())
+        return false;
+      PipelineEntry entry;
+      entry.cached_blob.assign(bytes + offset, bytes + offset + blob_bytes);
+      offset += blob_bytes;
+      m_entries.emplace(std::move(name), std::move(entry));
+    }
+    return offset == size;
   }
 
   MTLD3D12Device *m_device;
   ComPrivateData m_private_data;
-  std::unordered_map<std::wstring, ID3D12PipelineState *> m_entries;
+  std::unordered_map<std::wstring, PipelineEntry> m_entries;
+  bool m_valid = true;
 };
 
 class MTLD3D12StateObject : public ID3D12StateObject,
@@ -7005,7 +7160,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineLibrary(
     return E_POINTER;
   *lib = nullptr;
 
+  if (blob_size && !blob)
+    return E_INVALIDARG;
   auto pipeline_library = new MTLD3D12PipelineLibrary(this, blob, blob_size);
+  if (!pipeline_library->IsValid()) {
+    delete pipeline_library;
+    return E_INVALIDARG;
+  }
   HRESULT hr = pipeline_library->QueryInterface(riid, lib);
   if (FAILED(hr))
     delete pipeline_library;
