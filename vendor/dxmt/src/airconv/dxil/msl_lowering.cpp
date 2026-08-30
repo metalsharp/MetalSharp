@@ -842,6 +842,20 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         }
         os << "  return (long)result;\n";
         os << "}\n\n";
+        os << "static inline long m12_wave_active_extreme_long(long value, uint signed_op, bool want_min) {\n";
+        os << "  ulong result = 0ul;\n";
+        os << "  bool have_result = false;\n";
+        for (unsigned other = 0; other < 32; ++other) {
+            os << "  uint low_" << other << " = simd_broadcast((uint)value, " << other << "u);\n";
+            os << "  uint high_" << other << " = simd_broadcast((uint)((ulong)value >> 32), " << other << "u);\n";
+            os << "  ulong candidate_" << other << " = (ulong)low_" << other << " | ((ulong)high_" << other << " << 32);\n";
+            os << "  if (!have_result || (want_min ? (signed_op == 0u ? (long)candidate_" << other << " < (long)result : candidate_" << other << " < result) : (signed_op == 0u ? (long)candidate_" << other << " > (long)result : candidate_" << other << " > result))) {\n";
+            os << "    result = candidate_" << other << ";\n";
+            os << "    have_result = true;\n";
+            os << "  }\n";
+        }
+        os << "  return (long)result;\n";
+        os << "}\n\n";
         os << "static inline long m12_wave_prefix_bit_long(long value, uint lane, uint op) {\n";
         os << "  ulong result = op == 0u ? ~0ul : 0ul;\n";
         for (unsigned other = 0; other < 32; ++other) {
@@ -4421,6 +4435,10 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 return "m12_wave_active_sum_long((long)(" + value + "))";
             if (op == 1u)
                 return "m12_wave_active_product_long((long)(" + value + "))";
+            if (op == 2u || op == 3u)
+                return "m12_wave_active_extreme_long((long)(" + value + "), " +
+                       std::to_string(literalArg(2, 0u, "wave_active_signed")) +
+                       "u, " + (op == 2u ? "true" : "false") + ")";
             ctx.unsupported_intrinsics++;
             return value;
         }
