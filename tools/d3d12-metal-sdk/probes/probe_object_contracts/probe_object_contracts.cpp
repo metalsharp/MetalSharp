@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <d3d12.h>
+#include <d3dcompiler.h>
 #include <d3d12sdklayers.h>
 
 extern "C" {
@@ -20,6 +21,29 @@ static const GUID kPayloadGuid = {0xf2fb1880, 0x6d85, 0x4883, {0xb6, 0x47, 0x5b,
 static const GUID kInterfaceGuid = {0x0905e917, 0x82b2, 0x4eaa, {0xb2, 0x86, 0x50, 0x3d, 0xd2, 0x9f, 0x7f, 0x0e}};
 static const GUID kDebugObjectNameWGuid = {
     0x4cca5fd8, 0x921f, 0x42c8, {0x85, 0x66, 0x70, 0xca, 0xf2, 0xa9, 0xb7, 0x41}};
+
+using D3DCompileFn = HRESULT(WINAPI*)(LPCVOID, SIZE_T, LPCSTR,
+                                      const D3D_SHADER_MACRO*, ID3DInclude*,
+                                      LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
+                                      ID3DBlob**);
+using D3D12SerializeRootSignatureFn = HRESULT(WINAPI*)(
+    const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION, ID3DBlob**,
+    ID3DBlob**);
+
+template <typename T> static void safe_release(T*& object) {
+    if (object) {
+        object->Release();
+        object = nullptr;
+    }
+}
+
+template <typename T> static T load_proc(HMODULE module, const char* name) {
+    T fn = nullptr;
+    FARPROC proc = module ? GetProcAddress(module, name) : nullptr;
+    static_assert(sizeof(fn) == sizeof(proc), "function pointer size mismatch");
+    std::memcpy(&fn, &proc, sizeof(fn));
+    return fn;
+}
 
 static std::string getenv_string(const char* key) {
     DWORD needed = GetEnvironmentVariableA(key, nullptr, 0);
@@ -297,6 +321,238 @@ static bool test_shader_cache_session(ID3D12ShaderCacheSession* session) {
     return true;
 }
 
+static bool execute_recreated_compute_pipeline(ID3D12Device* device,
+                                               ID3D12RootSignature* root,
+                                               ID3D12PipelineState* pipeline) {
+    if (!device || !root || !pipeline)
+        return false;
+
+    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+    queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* heap = nullptr;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* readback = nullptr;
+    HRESULT hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                             IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                       allocator, nullptr, IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = 1;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap));
+    }
+    D3D12_HEAP_PROPERTIES default_heap = {};
+    default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    default_heap.CreationNodeMask = 1;
+    default_heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC output_desc = {};
+    output_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    output_desc.Width = 256;
+    output_desc.Height = 1;
+    output_desc.DepthOrArraySize = 1;
+    output_desc.MipLevels = 1;
+    output_desc.SampleDesc.Count = 1;
+    output_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    output_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&output));
+    D3D12_HEAP_PROPERTIES readback_heap = {};
+    readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
+    readback_heap.CreationNodeMask = 1;
+    readback_heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC readback_desc = output_desc;
+    readback_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    if (SUCCEEDED(hr)) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 64;
+        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(
+            output, nullptr, &uav, heap->GetCPUDescriptorHandleForHeapStart());
+        ID3D12DescriptorHeap* heaps[] = {heap};
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetComputeRootSignature(root);
+        list->SetComputeRootDescriptorTable(
+            0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetPipelineState(pipeline);
+        list->Dispatch(1, 1, 1);
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+        barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barriers[0].UAV.pResource = output;
+        barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[1].Transition.pResource = output;
+        barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        list->ResourceBarrier(2, barriers);
+        list->CopyResource(readback, output);
+        hr = list->Close();
+    }
+    ID3D12Fence* fence = nullptr;
+    HANDLE event_handle = nullptr;
+    if (SUCCEEDED(hr)) {
+        ID3D12CommandList* lists[] = {list};
+        queue->ExecuteCommandLists(1, lists);
+        hr = S_OK;
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
+                                 IID_PPV_ARGS(&fence));
+    if (SUCCEEDED(hr))
+        hr = queue->Signal(fence, 1);
+    if (SUCCEEDED(hr))
+        event_handle = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    if (SUCCEEDED(hr) && event_handle)
+        hr = fence->SetEventOnCompletion(1, event_handle);
+    if (SUCCEEDED(hr) && event_handle)
+        hr = WaitForSingleObject(event_handle, 15000) == WAIT_OBJECT_0
+                 ? S_OK
+                 : E_FAIL;
+    bool pass = false;
+    if (SUCCEEDED(hr)) {
+        uint32_t* mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(uint32_t)};
+        hr = readback->Map(0, &range, reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr) && mapped) {
+            pass = mapped[0] == 42u;
+            readback->Unmap(0, nullptr);
+        }
+    }
+    if (event_handle)
+        CloseHandle(event_handle);
+    safe_release(fence);
+    safe_release(readback);
+    safe_release(output);
+    safe_release(heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    return pass && SUCCEEDED(hr);
+}
+
+static bool test_pipeline_library_recreation(ID3D12Device1* device) {
+    if (!device)
+        return false;
+    HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
+    auto compile = load_proc<D3DCompileFn>(compiler, "D3DCompile");
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    auto serialize = load_proc<D3D12SerializeRootSignatureFn>(
+        d3d12, "D3D12SerializeRootSignature");
+    if (!compile || !serialize)
+        return false;
+
+    const char* source =
+        "RWByteAddressBuffer output:register(u0);"
+        "[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){"
+        "output.Store(0,42);}";
+    ID3DBlob* shader = nullptr;
+    ID3DBlob* shader_errors = nullptr;
+    HRESULT hr = compile(source, std::strlen(source), "pipeline-library-recreate.hlsl",
+                         nullptr, nullptr, "main", "cs_5_0", 0, 0, &shader,
+                         &shader_errors);
+    if (shader_errors)
+        shader_errors->Release();
+    if (FAILED(hr) || !shader)
+        return false;
+
+    D3D12_DESCRIPTOR_RANGE range = {};
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    range.NumDescriptors = 1;
+    range.BaseShaderRegister = 0;
+    range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_ROOT_PARAMETER parameter = {};
+    parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameter.DescriptorTable.NumDescriptorRanges = 1;
+    parameter.DescriptorTable.pDescriptorRanges = &range;
+    D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+    root_desc.NumParameters = 1;
+    root_desc.pParameters = &parameter;
+    ID3DBlob* root_blob = nullptr;
+    ID3DBlob* root_errors = nullptr;
+    hr = serialize(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1, &root_blob,
+                   &root_errors);
+    if (root_errors)
+        root_errors->Release();
+    ID3D12RootSignature* root = nullptr;
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                         root_blob->GetBufferSize(),
+                                         IID_PPV_ARGS(&root));
+    if (root_blob)
+        root_blob->Release();
+    ID3D12PipelineState* original = nullptr;
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc = {};
+    pso_desc.pRootSignature = root;
+    pso_desc.CS.pShaderBytecode = shader->GetBufferPointer();
+    pso_desc.CS.BytecodeLength = shader->GetBufferSize();
+    if (SUCCEEDED(hr))
+        hr = device->CreateComputePipelineState(&pso_desc,
+                                                IID_PPV_ARGS(&original));
+    bool pass = SUCCEEDED(hr) && original;
+    ID3DBlob* original_cached = nullptr;
+    if (pass)
+        pass = SUCCEEDED(original->GetCachedBlob(&original_cached)) &&
+               original_cached && original_cached->GetBufferSize() != 0;
+
+    ID3D12PipelineLibrary* library = nullptr;
+    if (pass)
+        pass = device->CreatePipelineLibrary(nullptr, 0,
+                                             IID_PPV_ARGS(&library)) == S_OK &&
+               library;
+    if (pass)
+        pass = library->StorePipeline(L"recreated", original) == S_OK;
+    SIZE_T serialized_size = pass ? library->GetSerializedSize() : 0;
+    std::vector<uint8_t> serialized(serialized_size);
+    if (pass)
+        pass = serialized_size != 0 &&
+               library->Serialize(serialized.data(), serialized.size()) == S_OK;
+    if (original_cached)
+        original_cached->Release();
+    if (original)
+        original->Release();
+    if (library)
+        library->Release();
+
+    ID3D12PipelineLibrary* roundtrip = nullptr;
+    if (pass)
+        pass = device->CreatePipelineLibrary(serialized.data(), serialized.size(),
+                                             IID_PPV_ARGS(&roundtrip)) == S_OK &&
+               roundtrip;
+    ID3D12PipelineState* recreated = nullptr;
+    if (pass)
+        pass = roundtrip->LoadComputePipeline(
+                   L"recreated", &pso_desc, IID_PPV_ARGS(&recreated)) == S_OK &&
+               recreated;
+    if (pass)
+        pass = execute_recreated_compute_pipeline(device, root, recreated);
+
+    if (recreated)
+        recreated->Release();
+    if (roundtrip)
+        roundtrip->Release();
+    if (root)
+        root->Release();
+    shader->Release();
+    return pass;
+}
+
 static bool test_pipeline_library_serialization(ID3D12Device1* device) {
     if (!device)
         return false;
@@ -410,6 +666,7 @@ int main() {
     std::vector<ObjectResult> results;
     bool info_queue_pass = false;
     bool pipeline_library_serialization_pass = false;
+    bool pipeline_library_recreation_pass = false;
     bool shader_cache_session_pass = false;
     bool shader_cache_disk_session_pass = false;
     std::string info_queue_error;
@@ -517,6 +774,8 @@ int main() {
         hr = device1 ? device1->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&pipeline_library)) : device1_hr;
         pipeline_library_serialization_pass = SUCCEEDED(hr) &&
                                                test_pipeline_library_serialization(device1);
+        pipeline_library_recreation_pass = SUCCEEDED(device1_hr) &&
+                                           test_pipeline_library_recreation(device1);
         append_result(results, "pipeline_library", hr, pipeline_library, device);
         if (device1)
             device1->Release();
@@ -539,7 +798,8 @@ int main() {
     }
 
     bool pass = SUCCEEDED(device_hr) && !results.empty() && info_queue_pass &&
-                pipeline_library_serialization_pass && shader_cache_session_pass &&
+                pipeline_library_serialization_pass &&
+                pipeline_library_recreation_pass && shader_cache_session_pass &&
                 shader_cache_disk_session_pass;
     for (const auto& result : results)
         pass = pass && result.pass;
@@ -551,6 +811,7 @@ int main() {
     std::printf("  \"object_count\": %zu,\n", results.size());
     std::printf("  \"info_queue_pass\": %s,\n", info_queue_pass ? "true" : "false");
     std::printf("  \"pipeline_library_serialization_pass\": %s,\n", pipeline_library_serialization_pass ? "true" : "false");
+    std::printf("  \"pipeline_library_recreation_pass\": %s,\n", pipeline_library_recreation_pass ? "true" : "false");
     std::printf("  \"shader_cache_session_pass\": %s,\n", shader_cache_session_pass ? "true" : "false");
     std::printf("  \"shader_cache_disk_session_pass\": %s,\n", shader_cache_disk_session_pass ? "true" : "false");
     if (!info_queue_error.empty())

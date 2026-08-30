@@ -82,10 +82,11 @@
   round-trip, malformed-blob rejection, missing-name rejection, descriptor,
   store, size-query, short-buffer, replacement, missing-key,
   pointer-validation, and cross-session disk persistence semantics.
-  `pipeline_library_serialization_pass`, `shader_cache_session_pass`, and
-  `shader_cache_disk_session_pass` are true; executable stored-pipeline
-  recreation and complete compiler-factory/state-database behavior remain in
-  the exhaustive row.
+  `pipeline_library_serialization_pass`, `pipeline_library_recreation_pass`,
+  `shader_cache_session_pass`, and `shader_cache_disk_session_pass` are true.
+  The recreated stored compute pipeline dispatches and returns exact value 42;
+  complete compiler-factory/state-database behavior remains in the exhaustive
+  row.
 
 ## Exact evidence
 
