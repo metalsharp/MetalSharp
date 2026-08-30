@@ -134,6 +134,7 @@ struct ShapeInfo {
     TypedData typed_data = TypedData::None;
     uint32_t expected_high = 0;
     uint16_t mip_levels = 1;
+    bool sample_pattern = false;
 };
 
 static const ShapeInfo kReadCases[] = {
@@ -143,6 +144,8 @@ static const ShapeInfo kReadCases[] = {
      96, 131074, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2},
     {"texture1d_array_mip", "cs_texture_1d_array_mip.cso", TextureShape::Texture1DArray, false, true,
      96, 131586, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2},
+    {"texture1d_advanced", "cs_texture_1d_advanced.cso", TextureShape::Texture1D, false, false,
+     0x14323232, 131074, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true},
     {"texture2d", "cs_texture_2d.cso", TextureShape::Texture2D, false, false, 64, 1028},
     {"texture2d_array", "cs_texture_2d_array.cso", TextureShape::Texture2DArray, false, true, 96, 132100},
     {"texture3d", "cs_texture_3d.cso", TextureShape::Texture3D, false, false, 96, 263172},
@@ -622,6 +625,33 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     if (SUCCEEDED(hr) && info.typed_data == TypedData::None &&
         !fill_upload(upload, footprints, rows, tex_desc, 64))
         hr = E_FAIL;
+    if (SUCCEEDED(hr) && info.sample_pattern) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, 0};
+        hr = upload->Map(0, &read_range,
+                         reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr) && mapped) {
+            for (UINT subresource = 0; subresource < subresources;
+                 ++subresource) {
+                const uint8_t base = subresource == 0 ? 10 : 50;
+                for (UINT y = 0; y < rows[subresource]; ++y) {
+                    uint8_t* row = mapped + footprints[subresource].Offset +
+                                   static_cast<size_t>(y) *
+                                       footprints[subresource].Footprint.RowPitch;
+                    for (UINT x = 0;
+                         x < footprints[subresource].Footprint.Width; ++x) {
+                        row[x * 4 + 0] = static_cast<uint8_t>(base + x * 10);
+                        row[x * 4 + 1] = 0;
+                        row[x * 4 + 2] = 0;
+                        row[x * 4 + 3] = 255;
+                    }
+                }
+            }
+            D3D12_RANGE write_range = {
+                0, static_cast<SIZE_T>(upload->GetDesc().Width)};
+            upload->Unmap(0, &write_range);
+        }
+    }
     if (SUCCEEDED(hr) && info.typed_data != TypedData::None) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, 0};

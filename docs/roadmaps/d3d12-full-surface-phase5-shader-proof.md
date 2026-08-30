@@ -173,7 +173,7 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-texture1d-mips1`: 44/44 cases passed with exact
+`phase5-texture1d-advanced1`: 45/45 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
 for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
 R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`,
@@ -189,7 +189,9 @@ load and store, with no offline converter. The height-one 2D backing gives
 1D shaders Metal's complete 2D sampling modifiers while retaining D3D12 1D
 coordinates and dimensions: mip-1 1D and 1D-array values are both `96`, with
 exact packed
-GetDimensions values `131074` and `131586`. Resource profile
+GetDimensions values `131074` and `131586`. The combined mip-level, bias,
+gradient, and static-offset lane returns packed exact value `0x14323232`.
+Resource profile
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
 Metal validation assertion. The latest SM6.6/6.7 profile

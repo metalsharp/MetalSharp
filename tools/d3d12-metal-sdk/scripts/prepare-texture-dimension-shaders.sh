@@ -41,7 +41,7 @@ WINEPREFIX="$compiler_prefix" WINEDEBUG=-all \
 
 entries=(
   cs_texture_1d cs_texture_1d_array cs_texture_1d_mip
-  cs_texture_1d_array_mip cs_texture_2d cs_texture_2d_array
+  cs_texture_1d_array_mip cs_texture_1d_advanced cs_texture_2d cs_texture_2d_array
   cs_texture_3d cs_texture_cube cs_texture_cube_array cs_texture_2d_ms
   cs_texture_2d_ms_array cs_texture_typed_uint cs_texture_typed_sint
   cs_texture_typed_uint2 cs_texture_typed_uint4 cs_texture_typed_sint4
