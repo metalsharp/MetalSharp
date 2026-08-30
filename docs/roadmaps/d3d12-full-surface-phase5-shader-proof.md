@@ -34,6 +34,10 @@
   results. The 64-bit wave sum/product/prefix, signed/unsigned min/max, and
   bitwise cases are lowered through a two-lane `uint` readback decomposition
   because Metal has no 64-bit SIMD reduction, and match every lane exactly.
+  The SM6.9 float16 wave cases also compile, link, and read back every lane:
+  `wave_f16_sum_prefix` matches the IEEE-754 bits of
+  `528 + lane * (lane + 1) / 2`, and `wave_f16_min_max` matches the packed
+  minimum/maximum result `0x00200001`.
 - The SM6.6/6.7 capability matrix independently verifies root constants,
   descriptor indexing, 32/64-bit atomics, barriers, raw gather, programmable
   offsets, `SampleCmpLevel`, and `QuadVote`; the complete runtime matrix now
@@ -50,7 +54,11 @@
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
   generated-report audit also checks every focused report for nonzero
-  unsupported-intrinsic/opcode counts and placeholder lowering markers.
+  unsupported-intrinsic/opcode counts and placeholder lowering markers. The
+  typed lowerer now preserves an explicit DXIL i32 destination when LLVM type
+  ID zero is used by a float bitcast, emitting `as_type<int>` rather than a
+  numeric conversion; the source-staged semantic run continues to match
+  `math_bits` and all 14 semantic lanes.
 - The object-contract probe now exercises the memory shader-cache session's
   descriptor, store, size-query, short-buffer, replacement, missing-key, and
   pointer-validation semantics. `shader_cache_session_pass` is true.

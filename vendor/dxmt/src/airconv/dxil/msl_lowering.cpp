@@ -346,7 +346,7 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "writeSamplerFeedbackGrad", 24) == 0) return 177;
     if (strncmp(s, "writeSamplerFeedbackBias", 24) == 0) return 175;
     if (strncmp(s, "writeSamplerFeedback", 20) == 0) return 174;
-    if (strncmp(s, "isSpecialFloat.", 15) == 0) return DXOP_SpecialFloat;
+    if (strncmp(s, "isSpecialFloat.", 14) == 0) return DXOP_SpecialFloat;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
     if (strncmp(s, "renderTargetGetSamplePosition", 29) == 0) return 76;
