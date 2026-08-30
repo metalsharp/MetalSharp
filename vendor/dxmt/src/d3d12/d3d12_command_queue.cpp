@@ -615,7 +615,18 @@ static bool MSCArgumentAcceptsBuffer(const MTL_SM50_SHADER_ARGUMENT &arg,
 
 static bool FormatHasStencil(DXGI_FORMAT format) {
   return format == DXGI_FORMAT_D24_UNORM_S8_UINT ||
-         format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+         format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT ||
+         format == DXGI_FORMAT_R24G8_TYPELESS ||
+         format == DXGI_FORMAT_R32G8X24_TYPELESS ||
+         format == DXGI_FORMAT_R24_UNORM_X8_TYPELESS ||
+         format == DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS ||
+         format == DXGI_FORMAT_X24_TYPELESS_G8_UINT ||
+         format == DXGI_FORMAT_X32_TYPELESS_G8X24_UINT;
+}
+
+static bool FormatHasTwoPlanes(DXGI_FORMAT format) {
+  return FormatHasStencil(format) || format == DXGI_FORMAT_NV12 ||
+         format == DXGI_FORMAT_P010 || format == DXGI_FORMAT_P016;
 }
 
 // D3D12 VRS images address fixed-size 16x16 screen-space tiles.  The
@@ -1133,6 +1144,20 @@ struct ReplayState {
   D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
   D3D12_VERTEX_BUFFER_VIEW vbs[kVertexBufferSlotCount] = {};
   D3D12_INDEX_BUFFER_VIEW ib = {};
+  D3D12_STREAM_OUTPUT_BUFFER_VIEW so_views[4] = {};
+  uint32_t so_view_count = 0;
+  uint32_t view_instance_mask = UINT32_MAX;
+  uint32_t active_view_instance_index = kNoViewInstanceIndex;
+  uint32_t sample_pattern_sample_count = 0;
+  uint32_t sample_pattern_pixel_count = 1;
+  uint32_t active_sample_pixel_index = kNoViewInstanceIndex;
+  bool render_pass_open = false;
+  ID3D12ProtectedResourceSession *protected_session = nullptr;
+  bool stream_output_ready = true;
+  uint64_t stream_output_counter_address = 0;
+  uint64_t stream_output_filled_size = 0;
+  uint64_t stream_output_initial_filled_size = 0;
+  bool stream_output_counter_known = false;
   D3D12_VIEWPORT viewports[16] = {};
   uint32_t viewport_count = 0;
   D3D12_RECT scissor_rects[16] = {};
@@ -1157,6 +1182,7 @@ struct ReplayState {
   WMT::Reference<WMT::Buffer> vrs_rate_map_data;
   WMT::Reference<WMT::Texture> vrs_intermediate_texture;
   WMT::Reference<WMT::Texture> vrs_mask_texture;
+  WMT::Reference<WMT::Texture> stream_output_dummy_target;
   WMT::Reference<WMT::Library> vrs_resolve_library;
   WMT::Reference<WMT::Function> vrs_resolve_vertex_function;
   WMT::Reference<WMT::Function> vrs_resolve_fragment_function;
@@ -2320,7 +2346,7 @@ struct ReplayState {
   uint64_t root_constants_gpu_address = 0;
   uint32_t debug_event_depth = 0;
   uint32_t sample_position_count = 0;
-  WMTSamplePosition sample_positions[32] = {};
+  WMTSamplePosition sample_positions[128] = {};
   WMT::Reference<WMT::Buffer> geometry_draw_args_buf;
   WMT::Reference<WMT::Buffer> msc_vertex_arg_buf;
   WMT::Reference<WMT::Buffer> msc_draw_args_buf;
@@ -5736,7 +5762,17 @@ struct ReplayState {
     if (render_enc_open)
       return;
 
-    if (rt_count == 0) {
+    const bool stream_output_only = pso && pso->HasStreamOutput() &&
+                                    rt_count == 0;
+    const bool view_instance_replay =
+        pso && pso->GetViewInstanceCount() > 0 &&
+        active_view_instance_index != kNoViewInstanceIndex;
+    const D3D12ViewInstanceLocation *view_location = nullptr;
+    if (view_instance_replay &&
+        active_view_instance_index < pso->GetViewInstanceLocations().size())
+      view_location =
+          &pso->GetViewInstanceLocations()[active_view_instance_index];
+    if (rt_count == 0 && !stream_output_only) {
       QTRACE("EnsureRenderEncoder: no render targets set, skipping");
       return;
     }
@@ -5763,6 +5799,8 @@ struct ReplayState {
     depth_bounds_dsv_slice = 0;
 
     bool has_valid_rt = false;
+    bool view_instance_attachment_valid = !view_instance_replay ||
+                                          view_location != nullptr;
     uint32_t render_target_width = 0;
     uint32_t render_target_height = 0;
     uint16_t render_target_array_length = 1;
@@ -5792,6 +5830,16 @@ struct ReplayState {
                                                         attachment_array_length)
                                              : attachment_array_length;
             has_render_target_array = true;
+          }
+          if (view_instance_replay) {
+            const uint32_t relative_slice = view_location->RenderTargetArrayIndex;
+            if (relative_slice >= attachment_array_length ||
+                uint32_t(RTVArraySlice(desc)) + relative_slice > UINT16_MAX) {
+              view_instance_attachment_valid = false;
+            } else {
+              rp.colors[i].slice = static_cast<uint16_t>(
+                  RTVArraySlice(desc) + relative_slice);
+            }
           }
           RetainMTLObjectForCompletion(tex);
           has_valid_rt = true;
@@ -5823,6 +5871,18 @@ struct ReplayState {
                                              : attachment_array_length;
             has_render_target_array = true;
           }
+          if (view_instance_replay) {
+            const uint32_t relative_slice = view_location->RenderTargetArrayIndex;
+            if (relative_slice >= attachment_array_length ||
+                uint32_t(DSVArraySlice(desc)) + relative_slice > UINT16_MAX) {
+              view_instance_attachment_valid = false;
+            } else {
+              rp.depth.slice = static_cast<uint16_t>(
+                  DSVArraySlice(desc) + relative_slice);
+              if (DSVHasStencil(desc))
+                rp.stencil.slice = rp.depth.slice;
+            }
+          }
           RetainMTLObjectForCompletion(dsv_tex);
           if (DSVHasStencil(desc)) {
             rp.stencil.texture = dsv_tex.handle;
@@ -5853,13 +5913,68 @@ struct ReplayState {
       }
     }
 
+    if (stream_output_only) {
+      if (!stream_output_dummy_target.handle) {
+        WMTTextureInfo info = {};
+        info.pixel_format = WMTPixelFormatRGBA8Unorm;
+        info.width = 1;
+        info.height = 1;
+        info.depth = 1;
+        info.array_length = 1;
+        info.type = WMTTextureType2D;
+        info.mipmap_level_count = 1;
+        info.sample_count = 1;
+        info.usage = WMTTextureUsageRenderTarget;
+        stream_output_dummy_target = device->GetMTLDevice().newTexture(info);
+      }
+      if (!stream_output_dummy_target.handle) {
+        QTRACE("EnsureRenderEncoder: stream-output dummy target creation failed");
+        return;
+      }
+      rp.colors[0].texture = stream_output_dummy_target.handle;
+      rp.colors[0].load_action = WMTLoadActionDontCare;
+      rp.colors[0].store_action = WMTStoreActionDontCare;
+      render_target_width = 1;
+      render_target_height = 1;
+      has_valid_rt = true;
+      RetainMTLObjectForCompletion(stream_output_dummy_target);
+    }
+
+    if (view_instance_replay && !view_instance_attachment_valid) {
+      QTRACE("EnsureRenderEncoder: view instance %u attachment location is "
+             "outside the bound RTV/DSV array",
+             active_view_instance_index);
+      return;
+    }
+    if (view_instance_replay)
+      render_target_array_length = 1;
+
     rp.render_target_array_length = static_cast<uint8_t>(
         std::min<uint16_t>(render_target_array_length, UINT8_MAX));
     rp.render_target_width = render_target_width;
     rp.render_target_height = render_target_height;
-    rp.sample_position_count = std::min<uint32_t>(sample_position_count, 32);
-    for (uint32_t i = 0; i < rp.sample_position_count; ++i)
-      rp.sample_positions[i] = sample_positions[i];
+    if (sample_pattern_sample_count && sample_pattern_pixel_count > 0) {
+      const uint32_t pixel_index =
+          active_sample_pixel_index == kNoViewInstanceIndex
+              ? 0
+              : active_sample_pixel_index;
+      const uint64_t position_offset =
+          uint64_t(pixel_index) * sample_pattern_sample_count;
+      if (pixel_index >= sample_pattern_pixel_count ||
+          position_offset + sample_pattern_sample_count > sample_position_count ||
+          sample_pattern_sample_count > 32 || sample_position_count > 128) {
+        QTRACE("EnsureRenderEncoder: invalid sample-position pattern pixel=%u "
+               "pixels=%u samples=%u positions=%u",
+               pixel_index, sample_pattern_pixel_count,
+               sample_pattern_sample_count, sample_position_count);
+        return;
+      }
+      rp.sample_position_count = sample_pattern_sample_count;
+      for (uint32_t i = 0; i < rp.sample_position_count; ++i)
+        rp.sample_positions[i] = sample_positions[position_offset + i];
+    } else {
+      rp.sample_position_count = 0;
+    }
 
     auto try_rate_map = [&](float horizontal, float vertical,
                             const char *source) {
@@ -5984,9 +6099,13 @@ struct ReplayState {
       }
     }
 
-    if (!has_valid_rt) {
+    if (!has_valid_rt && !stream_output_only) {
       QTRACE("EnsureRenderEncoder: no valid RT texture found, skipping");
       return;
+    }
+    if (stream_output_only && !render_target_width && !render_target_height) {
+      render_target_width = 1;
+      render_target_height = 1;
     }
 
     QTRACE("EnsureRenderEncoder: creating render encoder rt_count=%u pso=%p "
@@ -6027,23 +6146,56 @@ struct ReplayState {
 
     if (viewport_count > 0) {
       WMTViewport metal_viewports[16] = {};
-      const uint32_t count = std::min<uint32_t>(viewport_count, 16);
-      for (uint32_t i = 0; i < count; i++) {
-        metal_viewports[i] = {
-            (double)viewports[i].TopLeftX, (double)viewports[i].TopLeftY,
-            (double)viewports[i].Width,    (double)viewports[i].Height,
-            viewports[i].MinDepth,         viewports[i].MaxDepth};
+      uint32_t first_viewport = 0;
+      uint32_t count = std::min<uint32_t>(viewport_count, 16);
+      if (view_instance_replay) {
+        first_viewport = view_location->ViewportArrayIndex;
+        if (first_viewport >= count) {
+          QTRACE("EnsureRenderEncoder: view instance %u viewport index %u "
+                 "outside viewport count %u",
+                 active_view_instance_index, first_viewport, count);
+          CloseRenderEncoder();
+          return;
+        }
+        metal_viewports[0] = {
+            (double)viewports[first_viewport].TopLeftX,
+            (double)viewports[first_viewport].TopLeftY,
+            (double)viewports[first_viewport].Width,
+            (double)viewports[first_viewport].Height,
+            viewports[first_viewport].MinDepth,
+            viewports[first_viewport].MaxDepth};
+        count = 1;
+      } else {
+        for (uint32_t i = 0; i < count; i++) {
+          metal_viewports[i] = {
+              (double)viewports[i].TopLeftX, (double)viewports[i].TopLeftY,
+              (double)viewports[i].Width,    (double)viewports[i].Height,
+              viewports[i].MinDepth,         viewports[i].MaxDepth};
+        }
       }
       // Calling setViewport repeatedly updates viewport zero.  Use Metal's
       // array form so SV_ViewportArrayIndex can select every D3D viewport.
       render_enc.setViewports(metal_viewports, (uint8_t)count);
     }
 
-    if (scissor_count > 0 || vrs_image_tile_active) {
+    if (scissor_count > 0 || vrs_image_tile_active ||
+        active_sample_pixel_index != kNoViewInstanceIndex) {
       WMTScissorRect metal_scissors[16] = {};
-      const uint32_t count = std::min<uint32_t>(
+      uint32_t count = std::min<uint32_t>(
           std::max<uint32_t>(scissor_count, vrs_image_tile_active ? 1u : 0u),
           16);
+      if (view_instance_replay) {
+        if (scissor_count > 0 &&
+            view_location->ViewportArrayIndex >= scissor_count) {
+          QTRACE("EnsureRenderEncoder: view instance %u scissor index %u "
+                 "outside scissor count %u",
+                 active_view_instance_index, view_location->ViewportArrayIndex,
+                 scissor_count);
+          CloseRenderEncoder();
+          return;
+        }
+        count = 1;
+      }
       for (uint32_t i = 0; i < count; i++) {
         LONG left = 0;
         LONG top = 0;
@@ -6052,8 +6204,11 @@ struct ReplayState {
         LONG bottom = static_cast<LONG>(std::min<uint32_t>(
             render_target_height, static_cast<uint32_t>(LONG_MAX)));
         if (scissor_count > 0) {
-          const auto &rect = scissor_rects[
-              std::min<uint32_t>(i, scissor_count - 1)];
+          const uint32_t scissor_index =
+              view_instance_replay
+                  ? view_location->ViewportArrayIndex
+                  : std::min<uint32_t>(i, scissor_count - 1);
+          const auto &rect = scissor_rects[scissor_index];
           left = std::max<LONG>(0, rect.left);
           top = std::max<LONG>(0, rect.top);
           right = std::max<LONG>(left, rect.right);
@@ -6080,6 +6235,20 @@ struct ReplayState {
           bottom = std::min<LONG>(
               bottom,
               static_cast<LONG>(std::min<uint64_t>(tile_bottom, LONG_MAX)));
+        }
+        if (active_sample_pixel_index != kNoViewInstanceIndex &&
+            sample_pattern_pixel_count > 1) {
+          const uint32_t pattern_width = sample_pattern_pixel_count == 4 ? 2 : 2;
+          const uint32_t pixel_x = active_sample_pixel_index % pattern_width;
+          const uint32_t pixel_y = active_sample_pixel_index / pattern_width;
+          const LONG pixel_left = static_cast<LONG>(pixel_x);
+          const LONG pixel_top = static_cast<LONG>(pixel_y);
+          const LONG pixel_right = pixel_left + 1;
+          const LONG pixel_bottom = pixel_top + 1;
+          left = std::max<LONG>(left, pixel_left);
+          top = std::max<LONG>(top, pixel_top);
+          right = std::min<LONG>(right, pixel_right);
+          bottom = std::min<LONG>(bottom, pixel_bottom);
         }
         right = std::max<LONG>(left, right);
         bottom = std::max<LONG>(top, bottom);
@@ -6740,6 +6909,176 @@ struct ReplayState {
     last_bound_vertex_buffers = raw_bound_slots;
   }
 
+  bool PrepareStreamOutputTarget(MTLD3D12Device *device) {
+    stream_output_ready = true;
+    if (!pso || !pso->HasStreamOutput())
+      return true;
+
+    stream_output_ready = false;
+    if (!render_enc_open || !device || pso->GetStreamOutputStride() == 0 ||
+        so_view_count == 0 || so_views[0].BufferLocation == 0 ||
+        so_views[0].SizeInBytes == 0) {
+      QTRACE("StreamOutput target rejected: encoder=%u stride=%u views=%u "
+             "buffer=0x%llx size=%llu filled=0x%llx",
+             render_enc_open ? 1u : 0u, pso->GetStreamOutputStride(),
+             so_view_count, (unsigned long long)so_views[0].BufferLocation,
+             (unsigned long long)so_views[0].SizeInBytes,
+             (unsigned long long)so_views[0].BufferFilledSizeLocation);
+      return false;
+    }
+
+    auto *resource = device->LookupResourceByGPUAddress(
+        so_views[0].BufferLocation);
+    if (!resource || !resource->GetMTLBuffer().handle) {
+      QTRACE("StreamOutput target rejected: unresolved buffer=0x%llx",
+             (unsigned long long)so_views[0].BufferLocation);
+      return false;
+    }
+    const uint64_t resource_offset =
+        so_views[0].BufferLocation - resource->GetGPUVirtualAddress();
+    const uint64_t resource_length = resource->GetBufferByteLength();
+    if (resource_offset > resource_length ||
+        so_views[0].SizeInBytes > resource_length - resource_offset) {
+      QTRACE("StreamOutput target rejected: offset=%llu size=%llu length=%llu",
+             (unsigned long long)resource_offset,
+             (unsigned long long)so_views[0].SizeInBytes,
+             (unsigned long long)resource_length);
+      return false;
+    }
+
+    uint64_t initial_filled_size = 0;
+    const uint64_t counter_address = so_views[0].BufferFilledSizeLocation;
+    if (counter_address) {
+      auto *counter = device->LookupResourceByGPUAddress(counter_address);
+      if (!counter || !counter->GetMTLBuffer().handle)
+        return false;
+      const uint64_t counter_offset =
+          counter_address - counter->GetGPUVirtualAddress();
+      if (counter_offset > counter->GetBufferByteLength() ||
+          sizeof(uint32_t) > counter->GetBufferByteLength() - counter_offset ||
+          (counter_address & (alignof(uint32_t) - 1)) != 0)
+        return false;
+      if (stream_output_counter_known &&
+          stream_output_counter_address == counter_address) {
+        initial_filled_size = stream_output_filled_size;
+      } else {
+        uint32_t filled_size = 0;
+        if (!counter->ReadBufferRange(counter_offset, &filled_size,
+                                      sizeof(filled_size)))
+          return false;
+        initial_filled_size = filled_size;
+        stream_output_counter_address = counter_address;
+        stream_output_filled_size = initial_filled_size;
+        stream_output_counter_known = true;
+      }
+    } else {
+      stream_output_counter_address = 0;
+      stream_output_filled_size = 0;
+      stream_output_counter_known = false;
+    }
+    if (initial_filled_size > so_views[0].SizeInBytes ||
+        resource_offset > resource_length - initial_filled_size) {
+      QTRACE("StreamOutput target rejected: filled=%llu size=%llu",
+             (unsigned long long)initial_filled_size,
+             (unsigned long long)so_views[0].SizeInBytes);
+      return false;
+    }
+    const uint64_t bound_offset = resource_offset + initial_filled_size;
+    stream_output_initial_filled_size = initial_filled_size;
+    if (!SetVertexBufferTracked(resource->GetMTLBuffer(), bound_offset, 20))
+      return false;
+    render_enc.useResource(resource->GetMTLBuffer(), WMTResourceUsageWrite,
+                           WMTRenderStageVertex);
+    RetainResourceMetalObjectsForCompletion(resource);
+    stream_output_ready = true;
+    QTRACE("StreamOutput target bound buffer=0x%llx offset=%llu size=%llu "
+           "stride=%u slot=20",
+           (unsigned long long)so_views[0].BufferLocation,
+           (unsigned long long)bound_offset,
+           (unsigned long long)so_views[0].SizeInBytes,
+           pso->GetStreamOutputStride());
+    return true;
+  }
+
+  bool StreamOutputDrawReady(uint32_t vertex_count, uint32_t instance_count,
+                             bool indexed) const {
+    if (!pso || !pso->HasStreamOutput())
+      return true;
+    if (indexed || instance_count != 1 || !vertex_count ||
+        !stream_output_ready)
+      return false;
+    const uint64_t stride = pso->GetStreamOutputStride();
+    if (!stride || stream_output_initial_filled_size > so_views[0].SizeInBytes)
+      return false;
+    return vertex_count <=
+           (so_views[0].SizeInBytes - stream_output_initial_filled_size) /
+               stride;
+  }
+
+  bool UpdateStreamOutputFilledSize(MTLD3D12Device *device,
+                                    uint32_t vertex_count) {
+    if (!pso || !pso->HasStreamOutput())
+      return true;
+    if (!StreamOutputDrawReady(vertex_count, 1, false))
+      return false;
+    const uint64_t byte_count =
+        uint64_t(vertex_count) * pso->GetStreamOutputStride();
+    if (byte_count > so_views[0].SizeInBytes -
+                         stream_output_initial_filled_size ||
+        stream_output_initial_filled_size > UINT32_MAX - byte_count)
+      return false;
+    const uint64_t new_filled_size =
+        stream_output_initial_filled_size + byte_count;
+    if (!so_views[0].BufferFilledSizeLocation) {
+      stream_output_filled_size = new_filled_size;
+      stream_output_counter_known = false;
+      return true;
+    }
+
+    auto *counter = device->LookupResourceByGPUAddress(
+        so_views[0].BufferFilledSizeLocation);
+    if (!counter || !counter->GetMTLBuffer().handle)
+      return false;
+    const uint64_t counter_offset =
+        so_views[0].BufferFilledSizeLocation - counter->GetGPUVirtualAddress();
+    if (counter_offset > counter->GetBufferByteLength() ||
+        sizeof(uint32_t) > counter->GetBufferByteLength() - counter_offset ||
+        (so_views[0].BufferFilledSizeLocation & (alignof(uint32_t) - 1)) != 0)
+      return false;
+
+    uint32_t filled_size = static_cast<uint32_t>(new_filled_size);
+    auto staging = MakeTransientBuffer(device, sizeof(filled_size));
+    if (!staging.handle)
+      return false;
+    staging.updateContents(0, &filled_size, sizeof(filled_size));
+
+    CloseRenderEncoder();
+    auto encoder = cmdbuf.blitCommandEncoder();
+    if (!encoder.handle)
+      return false;
+    wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
+    copy.type = WMTBlitCommandCopyFromBufferToBuffer;
+    copy.next.set(nullptr);
+    copy.src = staging.handle;
+    copy.src_offset = 0;
+    copy.dst = counter->GetMTLBuffer().handle;
+    copy.dst_offset = counter_offset;
+    copy.copy_length = sizeof(filled_size);
+    const bool encoded = encoder.encodeCommands(
+        reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+    encoder.endEncoding();
+    if (!encoded)
+      return false;
+    RetainResourceMetalObjectsForCompletion(counter);
+    stream_output_counter_address = so_views[0].BufferFilledSizeLocation;
+    stream_output_filled_size = new_filled_size;
+    stream_output_counter_known = true;
+    QTRACE("StreamOutput filled-size counter updated address=0x%llx bytes=%u",
+           (unsigned long long)so_views[0].BufferFilledSizeLocation,
+           filled_size);
+    return true;
+  }
+
   bool HasNonconstantShadingRateImage() const {
     if (!shading_rate_image)
       return false;
@@ -6772,6 +7111,8 @@ struct ReplayState {
     }
     BindStaticSamplers();
     ApplyVertexBuffers(device);
+    if (render_enc_open)
+      PrepareStreamOutputTarget(device);
     BindGeometryMeshBuffers();
   }
 
@@ -9610,6 +9951,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::CopyTileMappings(
 void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
     UINT command_list_count, ID3D12CommandList *const *command_lists) {
   QTRACE("ExecuteCommandLists count=%u", command_list_count);
+  if (command_list_count && !command_lists) {
+    QTRACE("ExecuteCommandLists rejected null list array count=%u",
+           command_list_count);
+    return;
+  }
   std::lock_guard submit_lock(m_submit_mutex);
 
   for (UINT li = 0; li < command_list_count; li++) {
@@ -9618,6 +9964,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
     auto *list = static_cast<MTLD3D12GraphicsCommandList *>(command_lists[li]);
     if (!list) {
       QTRACE("ECL: list %u is null, skipping", li);
+      continue;
+    }
+    if (!list->IsClosed() || list->GetType() != m_desc.Type) {
+      QTRACE("ECL: list %u rejected closed=%u list_type=%u queue_type=%u",
+             li, list->IsClosed() ? 1u : 0u, (unsigned)list->GetType(),
+             (unsigned)m_desc.Type);
       continue;
     }
     const uint64_t command_list_id = list->GetDebugId();
@@ -9685,7 +10037,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
     auto replay_begin = std::chrono::steady_clock::now();
     size_t offset = 0;
     size_t cmd_count = 0;
-    uint32_t type_counts[40] = {};
+    std::array<uint32_t, kD3D12CommandTypeCount> type_counts = {};
+    uint32_t unknown_command_types = 0;
     while (offset < cmds.size()) {
       if (offset + sizeof(CmdHeader) > cmds.size())
         break;
@@ -9698,8 +10051,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         break;
       }
 
-      if ((uint32_t)header->type < 40)
-        type_counts[(uint32_t)header->type]++;
+      const size_t type_index = static_cast<size_t>(header->type);
+      if (type_index < kD3D12CommandTypeCount)
+        type_counts[type_index]++;
+      else
+        unknown_command_types++;
       cmd_count++;
 
       if (cmd_count <= 5 || (cmd_count % 50) == 0)
@@ -9708,6 +10064,43 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       switch (header->type) {
       case CmdType::DrawInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawInstanced *>(header);
+        if (header->size < sizeof(*cmd)) {
+          QTRACE("DrawInstanced rejected malformed record size=%u",
+                 header->size);
+          break;
+        }
+        const uint32_t view_count =
+            st.pso ? st.pso->GetViewInstanceCount() : 0;
+        if (view_count > 0) {
+          if (cmd->view_instance_index == kNoViewInstanceIndex ||
+              cmd->view_instance_index >= view_count) {
+            QTRACE("DrawInstanced skipped because view mask selected no valid "
+                   "view index=%u count=%u",
+                   cmd->view_instance_index, view_count);
+            break;
+          }
+          if (st.active_view_instance_index != cmd->view_instance_index &&
+              st.render_enc_open)
+            st.CloseRenderEncoder();
+          st.active_view_instance_index = cmd->view_instance_index;
+        } else {
+          st.active_view_instance_index = kNoViewInstanceIndex;
+        }
+        if (st.sample_pattern_pixel_count > 1) {
+          if (cmd->sample_pixel_index == kNoViewInstanceIndex ||
+              cmd->sample_pixel_index >= st.sample_pattern_pixel_count) {
+            QTRACE("DrawInstanced skipped because sample pattern selected no "
+                   "valid pixel index=%u count=%u",
+                   cmd->sample_pixel_index, st.sample_pattern_pixel_count);
+            break;
+          }
+          if (st.active_sample_pixel_index != cmd->sample_pixel_index &&
+              st.render_enc_open)
+            st.CloseRenderEncoder();
+          st.active_sample_pixel_index = cmd->sample_pixel_index;
+        } else {
+          st.active_sample_pixel_index = kNoViewInstanceIndex;
+        }
         if (!st.PredicationAllows()) {
           QTRACE("DrawInstanced predication rejected execution");
           break;
@@ -9787,8 +10180,14 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           st.LogTessellationFallbackDraw("DrawInstanced", cmd->vertex_count,
                                          cmd->instance_count, false);
           auto encode_draw = [&]() -> bool {
-            if (!st.render_enc_open)
+            if (!st.render_enc_open ||
+                !st.StreamOutputDrawReady(cmd->vertex_count,
+                                          cmd->instance_count, false)) {
+              QTRACE("DrawInstanced stream-output target/draw rejected v=%u "
+                     "i=%u",
+                     cmd->vertex_count, cmd->instance_count);
               return false;
+            }
             struct wmtcmd_render_draw draw = {};
             draw.type = WMTRenderCommandDraw;
             draw.next.set(nullptr);
@@ -9813,6 +10212,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             if (!st.EncodeRenderCommands(
                     reinterpret_cast<const wmtcmd_render_nop *>(&draw),
                     "draw_instanced"))
+              return false;
+            if (!st.UpdateStreamOutputFilledSize(m_device,
+                                                 cmd->vertex_count))
               return false;
             if (st.HasSwapchainRenderTarget() &&
                 TakeLogBudget(&g_swapchain_draw_logs, 384)) {
@@ -9856,6 +10258,43 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::DrawIndexedInstanced: {
         auto *cmd = reinterpret_cast<const CmdDrawIndexedInstanced *>(header);
+        if (header->size < sizeof(*cmd)) {
+          QTRACE("DrawIndexedInstanced rejected malformed record size=%u",
+                 header->size);
+          break;
+        }
+        const uint32_t view_count =
+            st.pso ? st.pso->GetViewInstanceCount() : 0;
+        if (view_count > 0) {
+          if (cmd->view_instance_index == kNoViewInstanceIndex ||
+              cmd->view_instance_index >= view_count) {
+            QTRACE("DrawIndexedInstanced skipped because view mask selected no "
+                   "valid view index=%u count=%u",
+                   cmd->view_instance_index, view_count);
+            break;
+          }
+          if (st.active_view_instance_index != cmd->view_instance_index &&
+              st.render_enc_open)
+            st.CloseRenderEncoder();
+          st.active_view_instance_index = cmd->view_instance_index;
+        } else {
+          st.active_view_instance_index = kNoViewInstanceIndex;
+        }
+        if (st.sample_pattern_pixel_count > 1) {
+          if (cmd->sample_pixel_index == kNoViewInstanceIndex ||
+              cmd->sample_pixel_index >= st.sample_pattern_pixel_count) {
+            QTRACE("DrawIndexedInstanced skipped because sample pattern "
+                   "selected no valid pixel index=%u count=%u",
+                   cmd->sample_pixel_index, st.sample_pattern_pixel_count);
+            break;
+          }
+          if (st.active_sample_pixel_index != cmd->sample_pixel_index &&
+              st.render_enc_open)
+            st.CloseRenderEncoder();
+          st.active_sample_pixel_index = cmd->sample_pixel_index;
+        } else {
+          st.active_sample_pixel_index = kNoViewInstanceIndex;
+        }
         if (!st.PredicationAllows()) {
           QTRACE("DrawIndexedInstanced predication rejected execution");
           break;
@@ -9876,6 +10315,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           st.LogDrawSafetySkip("DrawIndexedInstanced", safety, cmd->index_count,
                                cmd->instance_count, cmd->start_index,
                                cmd->base_vertex, cmd->start_instance, true);
+          break;
+        }
+        if (st.pso && st.pso->HasStreamOutput()) {
+          QTRACE("DrawIndexedInstanced stream-output provider only supports "
+                 "non-indexed single-instance draws");
           break;
         }
         st.LogNativeVertexResolved("DrawIndexedInstanced", cmd->index_count,
@@ -11164,85 +11608,74 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
 
         auto *arg_res = static_cast<MTLD3D12Resource *>(cmd->argument_buffer);
-        void *arg_base = nullptr;
-        bool arg_mapped = false;
-        std::vector<uint8_t> arg_snapshot;
-        HRESULT map_hr = arg_res->Map(0, nullptr, &arg_base);
-        if (SUCCEEDED(map_hr) && arg_base) {
-          arg_mapped = true;
-        } else {
-          const uint64_t snapshot_end =
-              cmd->argument_buffer_offset +
-              uint64_t(cmd->max_command_count) * sig_desc->ByteStride;
-          if (snapshot_end < cmd->argument_buffer_offset ||
-              snapshot_end > arg_res->GetBufferByteLength() ||
-              snapshot_end > UINT32_MAX) {
-            QTRACE("ExecuteIndirect SKIPPED argument range out of bounds "
-                   "offset=%llu count=%u stride=%u length=%llu",
-                   (unsigned long long)cmd->argument_buffer_offset,
-                   cmd->max_command_count, sig_desc->ByteStride,
-                   (unsigned long long)arg_res->GetBufferByteLength());
-            break;
-          }
-          try {
-            arg_snapshot.resize(static_cast<size_t>(snapshot_end));
-          } catch (const std::bad_alloc &) {
-            QTRACE("ExecuteIndirect SKIPPED argument snapshot allocation");
-            break;
-          }
-          HRESULT read_hr = arg_res->ReadFromSubresource(
-              arg_snapshot.data(), static_cast<UINT>(arg_snapshot.size()),
-              static_cast<UINT>(arg_snapshot.size()), 0, nullptr);
-          if (FAILED(read_hr)) {
-            QTRACE("ExecuteIndirect SKIPPED argument buffer readback hr=0x%08x "
-                   "map_hr=0x%08x",
-                   (unsigned)read_hr, (unsigned)map_hr);
-            break;
-          }
-          arg_base = arg_snapshot.data();
-          QTRACE("ExecuteIndirect read GPU-only argument buffer through "
-                 "validated snapshot bytes=%llu",
-                 (unsigned long long)arg_snapshot.size());
+        if (!arg_res || !arg_res->IsBuffer()) {
+          QTRACE("ExecuteIndirect SKIPPED argument resource is null or not a buffer");
+          break;
         }
-
+        const uint64_t arg_len = arg_res->GetBufferByteLength();
+        if (cmd->argument_buffer_offset > arg_len) {
+          QTRACE("ExecuteIndirect SKIPPED argument offset out of bounds "
+                 "offset=%llu length=%llu",
+                 (unsigned long long)cmd->argument_buffer_offset,
+                 (unsigned long long)arg_len);
+          break;
+        }
         uint32_t command_count = cmd->max_command_count;
         if (cmd->count_buffer) {
           auto *count_res = static_cast<MTLD3D12Resource *>(cmd->count_buffer);
+          if (!count_res || !count_res->IsBuffer()) {
+            QTRACE("ExecuteIndirect count buffer rejected: not a buffer");
+            break;
+          }
           void *count_base = nullptr;
           bool count_mapped = false;
           std::vector<uint8_t> count_snapshot;
           HRESULT count_hr = count_res->Map(0, nullptr, &count_base);
-          if (SUCCEEDED(count_hr) && count_base) {
-            count_mapped = true;
-          } else if (cmd->count_buffer_offset + sizeof(uint32_t) <=
-                     count_res->GetBufferByteLength() &&
-                     cmd->count_buffer_offset + sizeof(uint32_t) <= UINT32_MAX) {
-            const size_t snapshot_size =
-                static_cast<size_t>(cmd->count_buffer_offset + sizeof(uint32_t));
+          bool count_value_available = false;
+          const bool count_map_succeeded = SUCCEEDED(count_hr) && count_base;
+          if (count_map_succeeded) {
+            const bool count_range_valid =
+                cmd->count_buffer_offset <= count_res->GetBufferByteLength() &&
+                sizeof(uint32_t) <= count_res->GetBufferByteLength() -
+                                        cmd->count_buffer_offset &&
+                (cmd->count_buffer_offset & (alignof(uint32_t) - 1)) == 0;
+            if (count_range_valid) {
+              count_mapped = true;
+              count_value_available = true;
+            } else {
+              count_res->Unmap(0, nullptr);
+              count_base = nullptr;
+            }
+          }
+          if (!count_value_available && count_res->GetBufferByteLength() >=
+                         sizeof(uint32_t) &&
+                     cmd->count_buffer_offset <=
+                         count_res->GetBufferByteLength() -
+                             sizeof(uint32_t) &&
+                     (cmd->count_buffer_offset & (alignof(uint32_t) - 1)) == 0) {
             try {
-              count_snapshot.resize(snapshot_size);
+              count_snapshot.resize(sizeof(uint32_t));
             } catch (const std::bad_alloc &) {
               count_snapshot.clear();
             }
-            HRESULT read_hr = count_snapshot.empty()
-                                  ? E_OUTOFMEMORY
-                                  : count_res->ReadFromSubresource(
-                                        count_snapshot.data(),
-                                        static_cast<UINT>(snapshot_size),
-                                        static_cast<UINT>(snapshot_size), 0,
-                                        nullptr);
-            if (SUCCEEDED(read_hr))
+            const bool read_ok =
+                !count_snapshot.empty() && count_res->ReadBufferRange(
+                                               cmd->count_buffer_offset,
+                                               count_snapshot.data(),
+                                               sizeof(uint32_t));
+            if (read_ok) {
               count_base = count_snapshot.data();
-            else
+              count_value_available = true;
+            } else {
               QTRACE("ExecuteIndirect count snapshot unavailable hr=0x%08x "
                      "map_hr=0x%08x",
-                     (unsigned)read_hr, (unsigned)count_hr);
+                     read_ok ? S_OK : E_FAIL, (unsigned)count_hr);
+            }
           }
-          if (count_base && cmd->count_buffer_offset + sizeof(uint32_t) <=
-                                count_res->GetBufferByteLength()) {
+          if (count_value_available) {
             uint32_t gpu_count = *reinterpret_cast<const uint32_t *>(
                 static_cast<const uint8_t *>(count_base) +
-                cmd->count_buffer_offset);
+                (count_mapped ? cmd->count_buffer_offset : 0));
             command_count = std::min(command_count, gpu_count);
             QTRACE("ExecuteIndirect count buffer value=%u clamped=%u",
                    gpu_count, command_count);
@@ -11252,6 +11685,70 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           }
           if (count_mapped)
             count_res->Unmap(0, nullptr);
+        }
+
+        uint64_t argument_bytes = 0;
+        if (cmd->max_command_count &&
+            sig_desc->ByteStride > UINT64_MAX / cmd->max_command_count) {
+          QTRACE("ExecuteIndirect SKIPPED argument range multiplication "
+                 "overflow count=%u stride=%u",
+                 cmd->max_command_count, sig_desc->ByteStride);
+          break;
+        }
+        if (command_count &&
+            sig_desc->ByteStride > UINT64_MAX / command_count) {
+          QTRACE("ExecuteIndirect SKIPPED argument range multiplication "
+                 "overflow after count clamp count=%u stride=%u",
+                 command_count, sig_desc->ByteStride);
+          break;
+        }
+        argument_bytes = uint64_t(command_count) * sig_desc->ByteStride;
+        if (argument_bytes > arg_len - cmd->argument_buffer_offset) {
+          QTRACE("ExecuteIndirect SKIPPED argument range out of bounds "
+                 "offset=%llu count=%u stride=%u bytes=%llu length=%llu",
+                 (unsigned long long)cmd->argument_buffer_offset, command_count,
+                 sig_desc->ByteStride, (unsigned long long)argument_bytes,
+                 (unsigned long long)arg_len);
+          break;
+        }
+
+        void *arg_base = nullptr;
+        bool arg_mapped = false;
+        std::vector<uint8_t> arg_snapshot;
+        uint64_t arg_data_offset = cmd->argument_buffer_offset;
+        uint64_t arg_data_length = arg_len;
+        HRESULT map_hr = arg_res->Map(0, nullptr, &arg_base);
+        if (SUCCEEDED(map_hr) && arg_base) {
+          arg_mapped = true;
+        } else if (argument_bytes) {
+          static constexpr uint64_t kMaxIndirectSnapshotBytes = 64ull * 1024ull * 1024ull;
+          if (argument_bytes > kMaxIndirectSnapshotBytes ||
+              argument_bytes > UINT32_MAX) {
+            QTRACE("ExecuteIndirect SKIPPED argument snapshot exceeds "
+                   "provider limit bytes=%llu max=%llu",
+                   (unsigned long long)argument_bytes,
+                   (unsigned long long)kMaxIndirectSnapshotBytes);
+            break;
+          }
+          try {
+            arg_snapshot.resize(static_cast<size_t>(argument_bytes));
+          } catch (const std::bad_alloc &) {
+            QTRACE("ExecuteIndirect SKIPPED argument snapshot allocation");
+            break;
+          }
+          if (!arg_res->ReadBufferRange(cmd->argument_buffer_offset,
+                                        arg_snapshot.data(), argument_bytes)) {
+            QTRACE("ExecuteIndirect SKIPPED argument buffer readback map_hr=0x%08x",
+                   (unsigned)map_hr);
+            break;
+          }
+          arg_base = arg_snapshot.data();
+          arg_data_offset = 0;
+          arg_data_length = argument_bytes;
+          QTRACE("ExecuteIndirect read GPU-only argument buffer through "
+                 "validated snapshot bytes=%llu offset=%llu",
+                 (unsigned long long)arg_snapshot.size(),
+                 (unsigned long long)cmd->argument_buffer_offset);
         }
 
         auto replay_indirect_draw = [&](const D3D12_DRAW_ARGUMENTS &args) {
@@ -11269,6 +11766,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           }
           st.BindStaticSamplers();
           st.ApplyVertexBuffers(m_device);
+          if (!st.PrepareStreamOutputTarget(m_device) ||
+              !st.StreamOutputDrawReady(args.VertexCountPerInstance,
+                                        args.InstanceCount, false)) {
+            QTRACE("ExecuteIndirect DRAW stream-output target/draw rejected");
+            return;
+          }
           QTRACE("ExecuteIndirect DRAW v=%u i=%u start_v=%u start_i=%u "
                  "enc_open=%d",
                  args.VertexCountPerInstance, args.InstanceCount,
@@ -11304,6 +11807,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             if (st.EncodeRenderCommands(
                     reinterpret_cast<const wmtcmd_render_nop *>(&draw),
                     "execute_indirect_draw")) {
+              if (!st.UpdateStreamOutputFilledSize(
+                      m_device, args.VertexCountPerInstance))
+                return;
               st.MarkSwapchainWorkEncoded();
               if (st.HasSwapchainRenderTarget() &&
                   TakeLogBudget(&g_swapchain_indirect_draw_logs, 128)) {
@@ -11332,6 +11838,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
 
         auto replay_indirect_draw_indexed =
             [&](const D3D12_DRAW_INDEXED_ARGUMENTS &args) {
+              if (st.pso && st.pso->HasStreamOutput()) {
+                QTRACE("ExecuteIndirect DRAW_INDEXED stream-output provider "
+                       "only supports non-indexed draws");
+                return;
+              }
               st.EnsureRenderEncoder(m_device);
               st.ApplyRootBindings(m_device);
               st.BuildVertexConstantBufferTable(m_device);
@@ -11421,24 +11932,27 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               }
             };
 
-        const auto arg_len = arg_res->GetBufferByteLength();
         const uint8_t *arg_bytes = static_cast<const uint8_t *>(arg_base);
         for (uint32_t ci = 0; ci < command_count; ci++) {
           uint64_t record_off =
-              cmd->argument_buffer_offset + uint64_t(ci) * sig_desc->ByteStride;
+              arg_data_offset + uint64_t(ci) * sig_desc->ByteStride;
           uint64_t cursor = 0;
           bool valid_record = true;
           for (uint32_t ai = 0; ai < sig_desc->NumArgumentDescs; ai++) {
             const auto &arg_desc = sig_desc->pArgumentDescs[ai];
             auto can_read = [&](uint64_t size) {
-              bool ok = record_off + cursor + size <= arg_len &&
-                        cursor + size <= sig_desc->ByteStride;
+              bool ok = cursor <= sig_desc->ByteStride &&
+                        size <= sig_desc->ByteStride - cursor &&
+                        record_off <= arg_data_length &&
+                        cursor <= arg_data_length - record_off &&
+                        size <= arg_data_length - record_off - cursor;
               if (!ok) {
                 QTRACE("ExecuteIndirect cmd=%u arg=%u type=%u out-of-bounds "
                        "cursor=%llu size=%llu stride=%u len=%llu",
                        ci, ai, (unsigned)arg_desc.Type,
                        (unsigned long long)cursor, (unsigned long long)size,
-                       sig_desc->ByteStride, (unsigned long long)arg_len);
+                       sig_desc->ByteStride,
+                       (unsigned long long)arg_data_length);
               }
               return ok;
             };
@@ -11556,16 +12070,21 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               break;
             }
             case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT: {
-              uint32_t byte_count = arg_desc.Constant.Num32BitValuesToSet * 4;
-              if (!can_read(byte_count)) {
+              const uint64_t byte_count64 =
+                  uint64_t(arg_desc.Constant.Num32BitValuesToSet) * 4;
+              if (byte_count64 > UINT32_MAX || !can_read(byte_count64)) {
                 valid_record = false;
                 break;
               }
+              const uint32_t byte_count =
+                  static_cast<uint32_t>(byte_count64);
               uint32_t idx = arg_desc.Constant.RootParameterIndex;
-              uint32_t local_off =
-                  arg_desc.Constant.DestOffsetIn32BitValues * 4;
+              const uint64_t local_off64 =
+                  uint64_t(arg_desc.Constant.DestOffsetIn32BitValues) * 4;
               if (idx < st.kRootParameterSlotCount &&
-                  local_off + byte_count <= st.kRootConstantBytes) {
+                  local_off64 <= st.kRootConstantBytes &&
+                  byte_count <= st.kRootConstantBytes - local_off64) {
+                const uint32_t local_off = static_cast<uint32_t>(local_off64);
                 uint32_t off = idx * st.kRootConstantBytes + local_off;
                 memcpy(st.root_constants_buf + off, src, byte_count);
                 memcpy(st.comp_constants_buf + off, src, byte_count);
@@ -11678,14 +12197,31 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::SetSamplePositions: {
         auto *cmd = reinterpret_cast<const CmdSetSamplePositions *>(header);
         const uint32_t base_size = offsetof(CmdSetSamplePositions, positions);
-        if (header->size < base_size || cmd->position_count > 32 ||
-            header->size < base_size + cmd->position_count * sizeof(D3D12_SAMPLE_POSITION)) {
+        const bool valid_sample_count =
+            cmd->sample_count == 1 || cmd->sample_count == 2 ||
+            cmd->sample_count == 4 || cmd->sample_count == 8 ||
+            cmd->sample_count == 16 || cmd->sample_count == 32;
+        const bool valid_pixel_count = cmd->pixel_count == 1 ||
+                                       cmd->pixel_count == 2 ||
+                                       cmd->pixel_count == 4;
+        const bool reset = cmd->sample_count == 0 && cmd->pixel_count == 0 &&
+                           cmd->position_count == 0;
+        const uint64_t expected_positions =
+            uint64_t(cmd->sample_count) * cmd->pixel_count;
+        if (header->size < base_size || cmd->position_count > 128 ||
+            (!reset && (!valid_sample_count || !valid_pixel_count ||
+                        cmd->position_count != expected_positions)) ||
+            header->size <
+                base_size + cmd->position_count * sizeof(D3D12_SAMPLE_POSITION)) {
           QTRACE("SetSamplePositions rejected malformed record count=%u size=%u",
                  cmd->position_count, header->size);
           break;
         }
         st.CloseRenderEncoder();
-        st.sample_position_count = cmd->position_count;
+        st.sample_position_count = reset ? 0 : cmd->position_count;
+        st.sample_pattern_sample_count = reset ? 0 : cmd->sample_count;
+        st.sample_pattern_pixel_count = reset ? 1 : cmd->pixel_count;
+        st.active_sample_pixel_index = kNoViewInstanceIndex;
         auto *positions = reinterpret_cast<const D3D12_SAMPLE_POSITION *>(
             reinterpret_cast<const uint8_t *>(cmd) + base_size);
         for (uint32_t i = 0; i < st.sample_position_count; ++i) {
@@ -11694,6 +12230,98 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         }
         QTRACE("SetSamplePositions samples=%u pixels=%u", cmd->sample_count,
                cmd->pixel_count);
+        break;
+      }
+      case CmdType::SetViewInstanceMask: {
+        auto *cmd = reinterpret_cast<const CmdSetViewInstanceMask *>(header);
+        if (header->size < sizeof(*cmd)) {
+          QTRACE("SetViewInstanceMask rejected malformed record size=%u",
+                 header->size);
+          break;
+        }
+        st.view_instance_mask = cmd->mask;
+        QTRACE("SetViewInstanceMask mask=0x%x", cmd->mask);
+        break;
+      }
+      case CmdType::SetStreamOutputTargets: {
+        auto *cmd = reinterpret_cast<const CmdSetStreamOutputTargets *>(header);
+        const uint32_t base_size = offsetof(CmdSetStreamOutputTargets, views);
+        if (header->size < base_size || cmd->start_slot >= 4 ||
+            cmd->view_count > 4 - cmd->start_slot ||
+            cmd->view_count >
+                (header->size - base_size) /
+                    sizeof(D3D12_STREAM_OUTPUT_BUFFER_VIEW)) {
+          QTRACE("SetStreamOutputTargets rejected malformed record start=%u "
+                 "count=%u size=%u",
+                 cmd->start_slot, cmd->view_count, header->size);
+          break;
+        }
+        const auto *views = reinterpret_cast<const D3D12_STREAM_OUTPUT_BUFFER_VIEW *>(
+            reinterpret_cast<const uint8_t *>(cmd) + base_size);
+        for (uint32_t i = 0; i < cmd->view_count; ++i)
+          st.so_views[cmd->start_slot + i] = views[i];
+        st.so_view_count = std::max(st.so_view_count,
+                                    cmd->start_slot + cmd->view_count);
+        QTRACE("SetStreamOutputTargets start=%u count=%u capture_provider=%s",
+               cmd->start_slot, cmd->view_count,
+               st.pso && st.pso->HasStreamOutput() ? "sm50_vertex_capture"
+                                                    : "deferred");
+        break;
+      }
+      case CmdType::BeginRenderPass: {
+        auto *cmd = reinterpret_cast<const CmdBeginRenderPass *>(header);
+        if (header->size < sizeof(*cmd) || cmd->render_target_count > 8) {
+          QTRACE("BeginRenderPass rejected malformed record targets=%u size=%u",
+                 cmd->render_target_count, header->size);
+          break;
+        }
+        st.render_pass_open = true;
+        QTRACE("BeginRenderPass targets=%u dsv=%u flags=0x%x",
+               cmd->render_target_count, cmd->has_depth_stencil ? 1u : 0u,
+               cmd->flags);
+        break;
+      }
+      case CmdType::EndRenderPass: {
+        if (header->size < sizeof(CmdHeader)) {
+          QTRACE("EndRenderPass rejected malformed record size=%u",
+                 header->size);
+          break;
+        }
+        st.CloseRenderEncoder();
+        st.render_pass_open = false;
+        QTRACE("EndRenderPass closed provider render encoder");
+        break;
+      }
+      case CmdType::SetProtectedResourceSession: {
+        auto *cmd = reinterpret_cast<const CmdSetProtectedResourceSession *>(
+            header);
+        if (header->size < sizeof(*cmd)) {
+          QTRACE("SetProtectedResourceSession rejected malformed record size=%u",
+                 header->size);
+          break;
+        }
+        st.protected_session = cmd->protected_session;
+        QTRACE("SetProtectedResourceSession session=%p provider=unavailable "
+               "operation-not-executed",
+               (void *)st.protected_session);
+        break;
+      }
+      case CmdType::InitializeMetaCommand:
+      case CmdType::ExecuteMetaCommand: {
+        auto *cmd = reinterpret_cast<const CmdMetaCommand *>(header);
+        const uint32_t base_size = offsetof(CmdMetaCommand, data);
+        if (header->size < base_size ||
+            cmd->data_size > header->size - base_size) {
+          QTRACE("MetaCommand rejected malformed record type=%u size=%u "
+                 "data=%u",
+                 static_cast<unsigned>(header->type), header->size,
+                 cmd->data_size);
+          break;
+        }
+        QTRACE("MetaCommand type=%u command=%p data=%u provider=unavailable "
+               "operation-not-executed",
+               static_cast<unsigned>(header->type), (void *)cmd->meta_command,
+               cmd->data_size);
         break;
       }
       case CmdType::CopyBufferRegion: {
@@ -12534,6 +13162,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                  (unsigned)st.render_enc_dsv_format, (unsigned)next_dsv_format);
           st.CloseRenderEncoder();
         }
+        if (st.render_enc_open && st.pso != next_pso &&
+            ((st.pso && st.pso->GetViewInstanceCount() > 0) ||
+             (next_pso && next_pso->GetViewInstanceCount() > 0))) {
+          QTRACE("SetPipelineState closing render encoder for view-instancing "
+                 "transition");
+          st.CloseRenderEncoder();
+        }
         st.pso = next_pso;
         QTRACE(
             "SetPipelineState pso=%p compiled=%d compute=%d stage=%s detail=%s",
@@ -12611,9 +13246,118 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::EnhancedBarrier: {
         auto *cmd = reinterpret_cast<const CmdEnhancedBarrier *>(header);
-        QTRACE("EnhancedBarrier groups=%u global=%u buffer=%u texture=%u",
-               cmd->group_count, cmd->global_barrier_count,
-               cmd->buffer_barrier_count, cmd->texture_barrier_count);
+        const uint32_t base_size = offsetof(CmdEnhancedBarrier, records);
+        const uint32_t record_size = sizeof(CmdEnhancedBarrierRecord);
+        if (header->size < base_size ||
+            cmd->record_count >
+                (header->size - base_size) / record_size) {
+          QTRACE("EnhancedBarrier rejected malformed record groups=%u "
+                 "records=%u size=%u",
+                 cmd->group_count, cmd->record_count, header->size);
+          break;
+        }
+        const auto *records = reinterpret_cast<const CmdEnhancedBarrierRecord *>(
+            reinterpret_cast<const uint8_t *>(cmd) + base_size);
+        uint32_t applied_layouts = 0;
+        uint32_t applied_buffer_access = 0;
+        for (uint32_t i = 0; i < cmd->record_count; ++i) {
+          const auto &record = records[i];
+          if (record.type == D3D12_BARRIER_TYPE_GLOBAL) {
+            QTRACE("  enhanced global[%u] sync=0x%x->0x%x access=0x%x->0x%x",
+                   i, record.barrier.global.SyncBefore,
+                   record.barrier.global.SyncAfter,
+                   record.barrier.global.AccessBefore,
+                   record.barrier.global.AccessAfter);
+            continue;
+          }
+          if (record.type == D3D12_BARRIER_TYPE_BUFFER) {
+            const auto &barrier = record.barrier.buffer;
+            auto *resource =
+                static_cast<MTLD3D12Resource *>(barrier.pResource);
+            const uint64_t resource_size =
+                resource ? resource->GetBufferByteLength() : 0;
+            const uint64_t barrier_size =
+                barrier.Size == UINT64_MAX ? resource_size : barrier.Size;
+            if (!resource || barrier.Offset > resource_size ||
+                barrier_size > resource_size - barrier.Offset) {
+              QTRACE("  enhanced buffer[%u] rejected resource=%p offset=%llu "
+                     "size=%llu resource_size=%llu",
+                     i, (void *)resource,
+                     (unsigned long long)barrier.Offset,
+                     (unsigned long long)barrier.Size,
+                     (unsigned long long)resource_size);
+              continue;
+            }
+            resource->ApplyEnhancedBufferAccess(
+                barrier.AccessBefore, barrier.AccessAfter, barrier.Offset,
+                barrier_size);
+            ++applied_buffer_access;
+            st.RetainResourceMetalObjectsForCompletion(resource);
+            continue;
+          }
+          if (record.type == D3D12_BARRIER_TYPE_TEXTURE) {
+            const auto &barrier = record.barrier.texture;
+            auto *resource =
+                static_cast<MTLD3D12Resource *>(barrier.pResource);
+            if (!resource) {
+              QTRACE("  enhanced texture[%u] rejected null resource", i);
+              continue;
+            }
+            D3D12_RESOURCE_DESC resource_desc = {};
+            resource->GetDesc(&resource_desc);
+            const uint32_t mip_count = std::max<UINT>(resource_desc.MipLevels, 1);
+            const uint32_t array_count =
+                resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                    ? 1u
+                    : std::max<UINT16>(resource_desc.DepthOrArraySize, 1);
+            const uint32_t plane_count =
+                FormatHasTwoPlanes(resource_desc.Format) ? 2u : 1u;
+            const auto &range = barrier.Subresources;
+            const uint32_t first_mip = range.IndexOrFirstMipLevel;
+            const uint32_t first_array = range.FirstArraySlice;
+            const uint32_t first_plane = range.FirstPlane;
+            const uint32_t mip_span =
+                range.NumMipLevels == UINT32_MAX ? mip_count : range.NumMipLevels;
+            const uint32_t array_span = range.NumArraySlices == UINT32_MAX
+                                            ? array_count
+                                            : range.NumArraySlices;
+            const uint32_t plane_span = range.NumPlanes == UINT32_MAX
+                                            ? plane_count
+                                            : range.NumPlanes;
+            if (first_mip > mip_count || mip_span > mip_count - first_mip ||
+                first_array > array_count ||
+                array_span > array_count - first_array ||
+                first_plane > plane_count ||
+                plane_span > plane_count - first_plane) {
+              QTRACE("  enhanced texture[%u] rejected subresource range "
+                     "mip=%u/%u array=%u/%u plane=%u/%u",
+                     i, first_mip, mip_span, first_array, array_span,
+                     first_plane, plane_span);
+              continue;
+            }
+            for (uint32_t plane = first_plane;
+                 plane < first_plane + plane_span; ++plane) {
+              for (uint32_t array = first_array;
+                   array < first_array + array_span; ++array) {
+                for (uint32_t mip = first_mip;
+                     mip < first_mip + mip_span; ++mip) {
+                  const uint32_t subresource =
+                      mip + array * mip_count + plane * mip_count * array_count;
+                  resource->ApplyLayoutTransition(subresource,
+                                                  barrier.LayoutBefore,
+                                                  barrier.LayoutAfter);
+                  ++applied_layouts;
+                }
+              }
+            }
+            st.RetainResourceMetalObjectsForCompletion(resource);
+          }
+        }
+        QTRACE("EnhancedBarrier groups=%u records=%u global=%u buffer=%u "
+               "texture=%u applied_buffer=%u applied_layouts=%u",
+               cmd->group_count, cmd->record_count, cmd->global_barrier_count,
+               cmd->buffer_barrier_count, cmd->texture_barrier_count,
+               applied_buffer_access, applied_layouts);
         st.CloseRenderEncoder();
         if (m_barrier_event.handle) {
           uint64_t seq = ++m_barrier_seq;
@@ -13095,13 +13839,20 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         auto *cmd = reinterpret_cast<const CmdSetRoot32BitConstants *>(header);
         QTRACE("SetGraphicsRoot32BitConstants idx=%u count=%u",
                cmd->root_param_index, cmd->count);
-        if (cmd->root_param_index < st.kRootParameterSlotCount) {
-          uint32_t sz = cmd->count * 4;
-          uint32_t local_off = cmd->dst_offset * 4;
-          uint32_t off =
+        const uint32_t base_size = offsetof(CmdSetRoot32BitConstants, data);
+        const uint64_t data_size = uint64_t(cmd->count) * sizeof(uint32_t);
+        if (header->size >= base_size &&
+            cmd->count <= (header->size - base_size) / sizeof(uint32_t) &&
+            cmd->root_param_index < st.kRootParameterSlotCount &&
+            data_size <= st.kRootConstantBytes &&
+            uint64_t(cmd->dst_offset) * sizeof(uint32_t) <=
+                st.kRootConstantBytes - data_size) {
+          const uint32_t sz = static_cast<uint32_t>(data_size);
+          const uint32_t local_off =
+              cmd->dst_offset * sizeof(uint32_t);
+          const uint32_t off =
               cmd->root_param_index * st.kRootConstantBytes + local_off;
-          if (local_off + sz <= st.kRootConstantBytes &&
-              off + sz <= sizeof(st.root_constants_buf)) {
+          if (uint64_t(off) + sz <= sizeof(st.root_constants_buf)) {
             memcpy(st.root_constants_buf + off, cmd->data, sz);
             st.root_constant_offsets[cmd->root_param_index] =
                 cmd->root_param_index * st.kRootConstantBytes;
@@ -13159,13 +13910,20 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::SetComputeRoot32BitConstants: {
         auto *cmd = reinterpret_cast<const CmdSetRoot32BitConstants *>(header);
-        if (cmd->root_param_index < st.kRootParameterSlotCount) {
-          uint32_t sz = cmd->count * 4;
-          uint32_t local_off = cmd->dst_offset * 4;
-          uint32_t off =
+        const uint32_t base_size = offsetof(CmdSetRoot32BitConstants, data);
+        const uint64_t data_size = uint64_t(cmd->count) * sizeof(uint32_t);
+        if (header->size >= base_size &&
+            cmd->count <= (header->size - base_size) / sizeof(uint32_t) &&
+            cmd->root_param_index < st.kRootParameterSlotCount &&
+            data_size <= st.kRootConstantBytes &&
+            uint64_t(cmd->dst_offset) * sizeof(uint32_t) <=
+                st.kRootConstantBytes - data_size) {
+          const uint32_t sz = static_cast<uint32_t>(data_size);
+          const uint32_t local_off =
+              cmd->dst_offset * sizeof(uint32_t);
+          const uint32_t off =
               cmd->root_param_index * st.kRootConstantBytes + local_off;
-          if (local_off + sz <= st.kRootConstantBytes &&
-              off + sz <= sizeof(st.comp_constants_buf)) {
+          if (uint64_t(off) + sz <= sizeof(st.comp_constants_buf)) {
             memcpy(st.comp_constants_buf + off, cmd->data, sz);
             st.comp_constant_offsets[cmd->root_param_index] =
                 cmd->root_param_index * st.kRootConstantBytes;
@@ -13314,6 +14072,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         break;
       }
       default:
+        QTRACE("ECL: unsupported command type=%u size=%u was not replayed",
+               static_cast<unsigned>(header->type), header->size);
         break;
       }
       offset += header->size;
@@ -13326,10 +14086,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           "ExecuteCommandLists replay_ms=%lld queue_type=%u cmds=%zu list=%u",
           (long long)replay_ms, m_desc.Type, cmd_count, li);
     }
-    QTRACE("ECL: replayed %zu cmds, types:", cmd_count);
-    for (int i = 0; i < 30; i++)
+    QTRACE("ECL: replayed %zu cmds, unknown_types=%u, types:", cmd_count,
+           unknown_command_types);
+    for (size_t i = 0; i < kD3D12CommandTypeCount; i++)
       if (type_counts[i])
-        QTRACE("  type[%d]=%u", i, type_counts[i]);
+        QTRACE("  type[%zu]=%u (%s)", i, type_counts[i],
+               D3D12CommandTypeName(static_cast<CmdType>(i)));
 
     st.CloseRenderEncoder();
     st.CaptureSwapchainRenderReadback(m_device, cmdbuf);
@@ -13414,6 +14176,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           " indexed=", indexed_draw_count, " indirect=", indirect_count,
           " dispatch=", dispatch_count,
           " clears=", clear_rtv_count + clear_dsv_count + clear_uav_count,
+          " unknown_types=", stream_stats.unknown_type_count,
           " swapchain_work=", st.swapchain_work_encoded,
           " has_swapchain_rt=", has_swapchain_work_target,
           " status=", (int)status, " replay_ms=", (long long)replay_ms,
@@ -13627,6 +14390,8 @@ D3D12_COMMAND_QUEUE_DESC *STDMETHODCALLTYPE
 MTLD3D12CommandQueue::GetDesc(D3D12_COMMAND_QUEUE_DESC *__ret) {
   QTRACE("CmdQueue::GetDesc this=%p out=%p type=%u", (void *)this, __ret,
          m_desc.Type);
+  if (!__ret)
+    return nullptr;
   *__ret = m_desc;
   return __ret;
 }

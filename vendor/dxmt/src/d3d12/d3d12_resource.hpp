@@ -116,6 +116,7 @@ public:
   HRESULT STDMETHODCALLTYPE ReadFromSubresource(
       void *dst_data, UINT dst_row_pitch, UINT dst_slice_pitch,
       UINT src_sub_resource, const D3D12_BOX *src_box) override;
+  bool ReadBufferRange(uint64_t offset, void *dst_data, uint64_t length);
   HRESULT STDMETHODCALLTYPE
   GetHeapProperties(D3D12_HEAP_PROPERTIES *heap_properties,
                     D3D12_HEAP_FLAGS *flags) override;
@@ -137,6 +138,12 @@ public:
   bool ApplyLayoutTransition(UINT subresource, D3D12_BARRIER_LAYOUT before,
                              D3D12_BARRIER_LAYOUT after) {
     return m_state_tracker.transitionLayout(subresource, before, after);
+  }
+  bool ApplyEnhancedBufferAccess(D3D12_BARRIER_ACCESS before,
+                                 D3D12_BARRIER_ACCESS after,
+                                 uint64_t offset, uint64_t size) {
+    return m_state_tracker.transitionEnhancedAccess(before, after, offset,
+                                                    size);
   }
   void MarkAliasedState() { m_state_tracker.markAliased(); }
   bool IsResident() const;

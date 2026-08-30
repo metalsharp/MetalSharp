@@ -50,6 +50,20 @@ struct CompiledShader {
   MTL_SHADER_REFLECTION reflection = {};
 };
 
+// The vendored D3D12 header predates the view-instancing stream subobject.
+// Keep a private ABI-compatible copy so the parser can validate and retain
+// the caller-owned locations without depending on the header version.
+struct D3D12ViewInstanceLocation {
+  UINT ViewportArrayIndex = 0;
+  UINT RenderTargetArrayIndex = 0;
+};
+
+struct D3D12ViewInstancingDesc {
+  UINT ViewInstanceCount = 0;
+  const D3D12ViewInstanceLocation *pViewInstanceLocations = nullptr;
+  UINT Flags = 0;
+};
+
 class MTLD3D12PipelineState : public ID3D12PipelineState {
 public:
   MTLD3D12PipelineState(MTLD3D12Device *device, bool is_compute);
@@ -72,6 +86,7 @@ public:
   HRESULT STDMETHODCALLTYPE GetCachedBlob(ID3DBlob **blob) override;
 
   void SetGraphicsDesc(const D3D12_GRAPHICS_PIPELINE_STATE_DESC &desc);
+  void SetViewInstancing(const D3D12ViewInstancingDesc &desc);
   void SetDepthBoundsTestEnable(bool enable) {
     m_depth_bounds_test_enable = enable;
   }
@@ -229,6 +244,21 @@ public:
   bool UsesDirectResourceDescriptorHeap() const {
     return m_uses_direct_resource_descriptor_heap;
   }
+  bool HasStreamOutput() const { return m_has_stream_output; }
+  UINT GetStreamOutputStride(UINT slot = 0) const {
+    return slot < m_stream_output_strides.size()
+               ? m_stream_output_strides[slot]
+               : 0;
+  }
+  UINT GetViewInstanceCount() const { return m_view_instance_count; }
+  const std::vector<D3D12ViewInstanceLocation> &GetViewInstanceLocations() const {
+    return m_view_instance_locations;
+  }
+  UINT GetViewInstancingFlags() const { return m_view_instancing_flags; }
+  bool UsesViewInstanceMasking() const {
+    return (m_view_instancing_flags & 0x1u) != 0;
+  }
+
 
   static WMTPixelFormat DXGIToMTLPixelFormat(DXGI_FORMAT format);
 
@@ -285,7 +315,14 @@ private:
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;
   std::vector<std::string> m_input_semantic_names;
+  D3D12_STREAM_OUTPUT_DESC m_stream_output = {};
+  std::vector<D3D12_SO_DECLARATION_ENTRY> m_stream_output_elements;
+  std::vector<std::string> m_stream_output_semantic_names;
+  std::vector<UINT> m_stream_output_strides;
   bool m_has_stream_output = false;
+  UINT m_view_instance_count = 0;
+  UINT m_view_instancing_flags = 0;
+  std::vector<D3D12ViewInstanceLocation> m_view_instance_locations;
   bool m_vs_uses_stage_in = false;
   bool m_vs_requires_msc_stage_in = false;
   bool m_uses_geometry_mesh_pipeline = false;

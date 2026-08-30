@@ -1012,6 +1012,16 @@ WMTGetDisplayDescription(uint32_t display_id, struct WMTDisplayDescription *desc
   UNIX_CALL(96, &params);
 }
 
+WINEMETAL_API bool
+WMTWaitForVBlank(uint32_t display_id, uint32_t timeout_ms) {
+  struct unixcall_wmt_wait_for_vblank params;
+  params.display_id = display_id;
+  params.timeout_ms = timeout_ms;
+  params.ret = 0;
+  UNIX_CALL(177, &params);
+  return params.ret != 0;
+}
+
 WINEMETAL_API void
 MetalLayer_getEDRValue(obj_handle_t layer, struct WMTEDRValue *value) {
   struct unixcall_generic_obj_constptr_noret params;

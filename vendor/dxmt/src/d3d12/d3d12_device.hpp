@@ -28,6 +28,7 @@ class MTLD3D12Resource;
 class MTLD3D12PipelineState;
 class MTLD3D12CommandQueue;
 class MTLD3D12InfoQueue;
+struct D3D12ViewInstancingDesc;
 
 enum D3D12SamplerFlagsCompat : UINT {
   D3D12SamplerFlagNoneCompat = 0x0,
@@ -489,7 +490,8 @@ public:
 private:
   HRESULT CreateGraphicsPipelineStateInternal(
       const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
-      void **pipeline_state, bool depth_bounds_test_enable);
+      void **pipeline_state, bool depth_bounds_test_enable,
+      const D3D12ViewInstancingDesc *view_instancing = nullptr);
 
   std::unique_ptr<Device> m_device;
   FormatCapabilityInspector m_format_inspector;

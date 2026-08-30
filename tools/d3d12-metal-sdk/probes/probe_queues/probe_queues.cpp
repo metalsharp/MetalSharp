@@ -120,10 +120,55 @@ int main() {
     ID3D12CommandQueue* present_queue = nullptr;
     ID3D12CommandQueue* compute_queue = nullptr;
     ID3D12CommandQueue* copy_queue = nullptr;
+    ID3D12CommandQueue* high_priority_queue = nullptr;
+    D3D12_COMMAND_QUEUE_DESC high_priority_create_desc = {};
+    high_priority_create_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    high_priority_create_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
+    high_priority_create_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+    high_priority_create_desc.NodeMask = 0;
+    HRESULT high_priority_queue_hr =
+        device ? device->CreateCommandQueue(&high_priority_create_desc,
+                                             IID_PPV_ARGS(&high_priority_queue))
+               : E_FAIL;
     HRESULT direct_queue_hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &direct_queue);
     HRESULT present_queue_hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &present_queue);
     HRESULT compute_queue_hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, &compute_queue);
     HRESULT copy_queue_hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_COPY, &copy_queue);
+
+    auto check_invalid_queue = [&](D3D12_COMMAND_QUEUE_DESC desc) {
+        ID3D12CommandQueue* invalid_queue = nullptr;
+        HRESULT invalid_hr = device ? device->CreateCommandQueue(&desc, IID_PPV_ARGS(&invalid_queue)) : E_FAIL;
+        if (invalid_queue)
+            invalid_queue->Release();
+        return invalid_hr;
+    };
+    D3D12_COMMAND_QUEUE_DESC invalid_bundle_desc = {};
+    invalid_bundle_desc.Type = D3D12_COMMAND_LIST_TYPE_BUNDLE;
+    HRESULT invalid_bundle_queue_hr = check_invalid_queue(invalid_bundle_desc);
+    D3D12_COMMAND_QUEUE_DESC video_queue_desc = {};
+    video_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE;
+    HRESULT video_queue_hr = check_invalid_queue(video_queue_desc);
+    D3D12_COMMAND_QUEUE_DESC realtime_queue_desc = {};
+    realtime_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    realtime_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME;
+    HRESULT realtime_queue_hr = check_invalid_queue(realtime_queue_desc);
+    D3D12_COMMAND_QUEUE_DESC timeout_queue_desc = {};
+    timeout_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+    timeout_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
+    HRESULT timeout_queue_hr = check_invalid_queue(timeout_queue_desc);
+    D3D12_COMMAND_QUEUE_DESC high_priority_desc = {};
+    if (high_priority_queue)
+        high_priority_queue->GetDesc(&high_priority_desc);
+    const bool high_priority_ok =
+        SUCCEEDED(high_priority_queue_hr) &&
+        high_priority_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT &&
+        high_priority_desc.Priority == D3D12_COMMAND_QUEUE_PRIORITY_HIGH &&
+        high_priority_desc.Flags == D3D12_COMMAND_QUEUE_FLAG_NONE;
+    const bool queue_validation_ok = invalid_bundle_queue_hr == E_INVALIDARG &&
+                                     video_queue_hr == E_NOTIMPL &&
+                                     realtime_queue_hr == E_NOTIMPL &&
+                                     timeout_queue_hr == E_INVALIDARG &&
+                                     high_priority_ok;
 
     ID3D12CommandAllocator* render_allocator = nullptr;
     ID3D12GraphicsCommandList* render_list = nullptr;
@@ -351,6 +396,22 @@ int main() {
     if (event_handle)
         CloseHandle(event_handle);
 
+    HMODULE dxgi = LoadLibraryA("dxgi.dll");
+    using CreateDXGIFactory1Fn = HRESULT(WINAPI *)(REFIID, void **);
+    auto create_factory1 = reinterpret_cast<CreateDXGIFactory1Fn>(
+        reinterpret_cast<void *>(dxgi ? GetProcAddress(dxgi, "CreateDXGIFactory1")
+                                       : nullptr));
+    IDXGIFactory1 *factory = nullptr;
+    IDXGIAdapter1 *adapter = nullptr;
+    IDXGIOutput *output = nullptr;
+    HRESULT factory_hr = create_factory1
+                             ? create_factory1(IID_PPV_ARGS(&factory))
+                             : E_FAIL;
+    HRESULT adapter_hr = factory ? factory->EnumAdapters1(0, &adapter) : E_FAIL;
+    HRESULT output_hr = adapter ? adapter->EnumOutputs(0, &output) : E_FAIL;
+    HRESULT vblank_hr = output ? output->WaitForVBlank() : E_FAIL;
+    const bool vblank_verified = SUCCEEDED(vblank_hr);
+
     DXGI_RESIDENCY d3d12_residency_before = DXGI_RESIDENCY_EVICTED_TO_DISK;
     DXGI_RESIDENCY d3d12_residency_after_evict = DXGI_RESIDENCY_FULLY_RESIDENT;
     DXGI_RESIDENCY d3d12_residency_after_make = DXGI_RESIDENCY_EVICTED_TO_DISK;
@@ -462,8 +523,10 @@ int main() {
         compute_desc.Type == D3D12_COMMAND_LIST_TYPE_COMPUTE && copy_desc.Type == D3D12_COMMAND_LIST_TYPE_COPY;
     bool fences_ok = copy_completed >= 1 && render_completed >= 2 && compute_completed >= 3 && present_completed >= 4;
     bool pass =
-        SUCCEEDED(create_hr) && SUCCEEDED(direct_queue_hr) && SUCCEEDED(present_queue_hr) &&
-        SUCCEEDED(compute_queue_hr) && SUCCEEDED(copy_queue_hr) && SUCCEEDED(render_objects_hr) &&
+        SUCCEEDED(create_hr) && SUCCEEDED(high_priority_queue_hr) &&
+        SUCCEEDED(direct_queue_hr) && SUCCEEDED(present_queue_hr) &&
+        SUCCEEDED(compute_queue_hr) && SUCCEEDED(copy_queue_hr) && queue_validation_ok &&
+        SUCCEEDED(render_objects_hr) &&
         SUCCEEDED(present_objects_hr) && SUCCEEDED(compute_objects_hr) && SUCCEEDED(copy_objects_hr) &&
         SUCCEEDED(copy_fence_hr) && SUCCEEDED(render_fence_hr) && SUCCEEDED(compute_fence_hr) &&
         SUCCEEDED(present_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(copy_buffer_hr) &&
@@ -492,7 +555,8 @@ int main() {
         readback_ok && queue_types_ok && fences_ok && SUCCEEDED(timestamp_frequency_hr) &&
         null_timestamp_frequency_hr == E_POINTER && clock_calibration_ok &&
         null_clock_calibration_hr == E_POINTER && d3d12_residency_ok &&
-        SUCCEEDED(timestamp_heap_hr) &&
+        SUCCEEDED(factory_hr) && SUCCEEDED(adapter_hr) && SUCCEEDED(output_hr) &&
+        vblank_verified && SUCCEEDED(timestamp_heap_hr) &&
         SUCCEEDED(timestamp_readback_hr) && copy_timestamps_ok;
 
     std::printf("{\n");
@@ -507,6 +571,14 @@ int main() {
     print_hr("present_create", present_queue_hr);
     print_hr("compute_create", compute_queue_hr);
     print_hr("copy_create", copy_queue_hr);
+    print_hr("high_priority_create", high_priority_queue_hr);
+    print_hr("invalid_bundle_queue", invalid_bundle_queue_hr);
+    print_hr("video_queue_not_implemented", video_queue_hr);
+    print_hr("global_realtime_queue_not_implemented", realtime_queue_hr);
+    print_hr("disable_gpu_timeout_queue_rejected", timeout_queue_hr);
+    std::printf("    \"queue_validation_ok\": %s,\n", queue_validation_ok ? "true" : "false");
+    std::printf("    \"high_priority_ok\": %s,\n", high_priority_ok ? "true" : "false");
+    std::printf("    \"high_priority_value\": %d,\n", high_priority_desc.Priority);
     std::printf("    \"direct_type\": %u,\n", direct_desc.Type);
     std::printf("    \"present_type\": %u,\n", present_desc.Type);
     std::printf("    \"compute_type\": %u,\n", compute_desc.Type);
@@ -590,6 +662,11 @@ int main() {
     print_hr("dxgi_queue_block", dxgi_queue_block_hr);
     print_hr("enqueue_set_event", enqueue_set_event_hr);
     print_hr("dxgi_block_release", dxgi_block_release_hr);
+    print_hr("dxgi_factory1", factory_hr);
+    print_hr("dxgi_adapter0", adapter_hr);
+    print_hr("dxgi_output0", output_hr);
+    print_hr("dxgi_wait_for_vblank", vblank_hr);
+    std::printf("    \"vblank_verified\": %s,\n", vblank_verified ? "true" : "false");
     std::printf("    \"enqueue_event_handle_duplicated\": %s,\n", duplicate_enqueue_event ? "true" : "false");
     std::printf("    \"enqueue_event_blocked_before_queue_completion\": %s,\n",
                 enqueue_initial_wait == WAIT_TIMEOUT ? "true" : "false");

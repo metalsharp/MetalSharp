@@ -45,6 +45,12 @@ struct unixcall_generic_obj_constptr_noret {
   struct WMTConstMemoryPointer arg;
 };
 
+struct unixcall_wmt_wait_for_vblank {
+  obj_handle_t display_id;
+  uint32_t timeout_ms;
+  uint32_t ret;
+};
+
 struct unixcall_generic_obj_obj_uint64_noret {
   obj_handle_t handle;
   obj_handle_t arg0;

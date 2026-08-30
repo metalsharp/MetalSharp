@@ -2174,17 +2174,6 @@ struct D3D12FeatureLinearAlgebraSupport {
   UINT LinearAlgebraTier;
 };
 
-struct D3D12ViewInstanceLocation {
-  UINT ViewportArrayIndex;
-  UINT RenderTargetArrayIndex;
-};
-
-struct D3D12ViewInstancingDesc {
-  UINT ViewInstanceCount;
-  const D3D12ViewInstanceLocation *pViewInstanceLocations;
-  UINT Flags;
-};
-
 static D3D12_DEPTH_STENCIL_DESC
 convert_depth_stencil_desc1(const D3D12DepthStencilDesc1 &desc1) {
   D3D12_DEPTH_STENCIL_DESC desc = {};
@@ -2255,6 +2244,104 @@ convert_rasterizer_desc2(const D3D12RasterizerDesc2 &desc2) {
   desc.ForcedSampleCount = desc2.ForcedSampleCount;
   desc.ConservativeRaster = desc2.ConservativeRaster;
   return desc;
+}
+
+static bool IsValidCommandSignatureDesc(
+    const D3D12_COMMAND_SIGNATURE_DESC &desc,
+    ID3D12RootSignature *root_signature) {
+  static constexpr UINT kCommandSignatureByteStrideLimit = 2048;
+  if (!desc.ByteStride || !desc.NumArgumentDescs ||
+      !desc.pArgumentDescs || (desc.ByteStride & 3u) ||
+      desc.ByteStride > kCommandSignatureByteStrideLimit ||
+      desc.NumArgumentDescs > 16)
+    return false;
+
+  const auto *dxmt_root_signature =
+      static_cast<const MTLD3D12RootSignature *>(root_signature);
+  static const std::vector<RootParameter> empty_root_parameters;
+  const auto &root_parameters =
+      dxmt_root_signature ? dxmt_root_signature->GetParameters()
+                          : empty_root_parameters;
+  auto root_parameter_matches = [&](UINT index,
+                                    D3D12_ROOT_PARAMETER_TYPE type) {
+    return dxmt_root_signature && index < root_parameters.size() &&
+           root_parameters[index].type == type;
+  };
+
+  uint64_t cursor = 0;
+  for (UINT i = 0; i < desc.NumArgumentDescs; ++i) {
+    const auto &argument = desc.pArgumentDescs[i];
+    uint64_t argument_size = 0;
+    switch (argument.Type) {
+    case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW:
+      argument_size = sizeof(D3D12_DRAW_ARGUMENTS);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED:
+      argument_size = sizeof(D3D12_DRAW_INDEXED_ARGUMENTS);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH:
+      argument_size = sizeof(D3D12_DISPATCH_ARGUMENTS);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+      if (argument.VertexBuffer.Slot >=
+          D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT)
+        return false;
+      argument_size = sizeof(D3D12_VERTEX_BUFFER_VIEW);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+      argument_size = sizeof(D3D12_INDEX_BUFFER_VIEW);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT: {
+      const uint64_t count = argument.Constant.Num32BitValuesToSet;
+      const uint64_t offset = argument.Constant.DestOffsetIn32BitValues;
+      if (!root_parameter_matches(argument.Constant.RootParameterIndex,
+                                  D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS) ||
+          !count || count > 64 || offset > UINT32_MAX - count)
+        return false;
+      const auto &parameter =
+          root_parameters[argument.Constant.RootParameterIndex];
+      if (offset + count > parameter.num_32bit_values)
+        return false;
+      argument_size = count * sizeof(uint32_t);
+      break;
+    }
+    case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW:
+      if (!root_parameter_matches(
+              argument.ConstantBufferView.RootParameterIndex,
+              D3D12_ROOT_PARAMETER_TYPE_CBV))
+        return false;
+      argument_size = sizeof(D3D12_GPU_VIRTUAL_ADDRESS);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW:
+      if (!root_parameter_matches(
+              argument.ShaderResourceView.RootParameterIndex,
+              D3D12_ROOT_PARAMETER_TYPE_SRV))
+        return false;
+      argument_size = sizeof(D3D12_GPU_VIRTUAL_ADDRESS);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_UNORDERED_ACCESS_VIEW:
+      if (!root_parameter_matches(
+              argument.UnorderedAccessView.RootParameterIndex,
+              D3D12_ROOT_PARAMETER_TYPE_UAV))
+        return false;
+      argument_size = sizeof(D3D12_GPU_VIRTUAL_ADDRESS);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
+      argument_size = sizeof(D3D12_DISPATCH_RAYS_DESC);
+      break;
+    case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_MESH:
+      argument_size = sizeof(D3D12_DISPATCH_MESH_ARGUMENTS);
+      break;
+    default:
+      return false;
+    }
+    if (!argument_size || cursor > UINT64_MAX - argument_size)
+      return false;
+    cursor += argument_size;
+    if (cursor > desc.ByteStride)
+      return false;
+  }
+  return true;
 }
 
 class MTLD3D12CommandSignature : public ComObject<ID3D12CommandSignature> {
@@ -3920,6 +4007,18 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandQueue(
   if (!desc || !command_queue)
     return E_POINTER;
   InitReturnPtr(command_queue);
+  if (desc->Type == D3D12_COMMAND_LIST_TYPE_BUNDLE ||
+      desc->Type > D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE ||
+      (static_cast<UINT>(desc->Flags) &
+       ~static_cast<UINT>(D3D12_COMMAND_QUEUE_FLAG_NONE)) != 0 ||
+      (desc->NodeMask & ~1u) != 0 ||
+      (desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_NORMAL &&
+       desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_HIGH &&
+       desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME))
+    return E_INVALIDARG;
+  if (desc->Type >= D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE ||
+      desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
+    return E_NOTIMPL;
 
   auto queue = new MTLD3D12CommandQueue(this, m_device->queue(), *desc);
   HRESULT hr = queue->QueryInterface(riid, command_queue);
@@ -3949,7 +4048,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
 
 HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
-    void **pipeline_state, bool depth_bounds_test_enable) {
+    void **pipeline_state, bool depth_bounds_test_enable,
+    const D3D12ViewInstancingDesc *view_instancing) {
   if (!desc || !pipeline_state)
     return E_POINTER;
   InitReturnPtr(pipeline_state);
@@ -4000,6 +4100,8 @@ HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
 
   auto pso = new MTLD3D12PipelineState(this, false);
   pso->SetGraphicsDesc(*desc);
+  if (view_instancing)
+    pso->SetViewInstancing(*view_instancing);
   pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
   bool compiled = pso->RequestCompile(!native_tessellation_required);
   auto failure_stage = pso->GetCompileFailureStage();
@@ -6461,7 +6563,7 @@ MTLD3D12Device::CreateCommandSignature(const D3D12_COMMAND_SIGNATURE_DESC *desc,
   InitReturnPtr(command_signature);
   TRACE("CreateCommandSignature stride=%u num_args=%u",
         desc ? desc->ByteStride : 0, desc ? desc->NumArgumentDescs : 0);
-  if (!desc)
+  if (!desc || !IsValidCommandSignatureDesc(*desc, root_signature))
     return E_INVALIDARG;
   auto *obj = new MTLD3D12CommandSignature(this, *desc);
   HRESULT hr = obj->QueryInterface(riid, command_signature);
@@ -6853,6 +6955,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
   bool has_cs = false;
   bool is_compute = true;
   bool depth_bounds_test_enable = false;
+  bool has_view_instancing = false;
+  D3D12ViewInstancingDesc view_instancing = {};
   ID3D12RootSignature *created_stream_root_signature = nullptr;
   struct CreatedRootSignatureGuard {
     ID3D12RootSignature *&root_signature;
@@ -7059,11 +7163,20 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
       break;
     }
     case 22: { // VIEW_INSTANCING
-      D3D12ViewInstancingDesc view_instancing = {};
       if (!read_pipeline_stream_subobject(subobject, end, &view_instancing))
         return E_INVALIDARG;
-      TRACE("CreatePipelineState: view instancing count=%u flags=0x%x ignored",
+      constexpr UINT kViewInstanceMaskingFlag = 0x1u;
+      if (view_instancing.ViewInstanceCount > 32 ||
+          (view_instancing.ViewInstanceCount &&
+           !view_instancing.pViewInstanceLocations) ||
+          (!view_instancing.ViewInstanceCount &&
+           view_instancing.pViewInstanceLocations) ||
+          (view_instancing.Flags & ~kViewInstanceMaskingFlag) != 0)
+        return E_INVALIDARG;
+      TRACE("CreatePipelineState: view instancing count=%u flags=0x%x "
+            "provider=per-view-array-replay",
             view_instancing.ViewInstanceCount, view_instancing.Flags);
+      has_view_instancing = true;
       is_compute = false;
       advanced = advance_pipeline_stream<D3D12ViewInstancingDesc>(&stream, end);
       break;
@@ -7176,6 +7289,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
     }
     auto *pso = new MTLD3D12PipelineState(this, false);
     pso->SetGraphicsDesc(graphics_desc);
+    if (has_view_instancing)
+      pso->SetViewInstancing(view_instancing);
     pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
     pso->SetMeshShaders(amplification_shader, mesh_shader);
     bool compiled = pso->RequestCompile(false);
@@ -7203,7 +7318,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
         graphics_desc.VS.pShaderBytecode, graphics_desc.PS.pShaderBytecode,
         graphics_desc.NumRenderTargets);
   return CreateGraphicsPipelineStateInternal(
-      &graphics_desc, riid, ppPipelineState, depth_bounds_test_enable);
+      &graphics_desc, riid, ppPipelineState, depth_bounds_test_enable,
+      has_view_instancing ? &view_instancing : nullptr);
 }
 
 /*** ID3D12Device3 ***/

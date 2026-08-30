@@ -634,9 +634,9 @@
           },
           "SOSetTargets": {
             "difficulty": "very hard",
-            "metal": "N/A (no stream output in Metal) / compute emulation",
-            "notes": "Metal has no stream output. Must be emulated via transform feedback or compute shader. Most DXMT implementations return NOT_IMPLEMENTED.",
-            "translation": "not supported (Metal has no SO) / compute emulation"
+            "metal": "SM50 vertex-shader lowering / ordered blit counter update",
+            "notes": "Metal has no native stream output. The proven provider rewrites bounded non-rasterized DXBC vertex output through the SM50 stream-output lowering, binds one output slot, and updates BufferFilledSizeLocation after the draw. Multiple streams, append/overflow continuation, and DXIL/geometry-stage capture remain unsupported.",
+            "translation": "SM50 stream-output epilogue -> buffer slot 20; blit filled-size update"
           },
           "SetComputeRoot32BitConstant": {
             "difficulty": "easy",
@@ -747,16 +747,16 @@
             "translation": "emulate with conditional logic or indirect draw/dispatch with count=0"
           },
           "SetSamplePositions": {
-            "difficulty": "easy",
-            "metal": "MTLRenderCommandEncoder::setSamplePositions (Metal 2.1+)",
-            "notes": "Programmable sample positions. Direct mapping.",
-            "translation": "renderEncoder->setSamplePositions(positions, count)"
+            "difficulty": "hard",
+            "metal": "MTLRenderCommandEncoder::setSamplePositions (Metal 2.1+) plus scissored MSAA replay",
+            "notes": "The provider records 1/2/4/8/16/32-sample patterns for one-, two-, and four-pixel blocks, then selects each pixel subset in a separate scissored render pass when Metal cannot represent per-pixel patterns in one encoder.",
+            "translation": "renderEncoder->setSamplePositions(pixel_pattern, sample_count) per scissored replay pass"
           },
           "SetViewInstanceMask": {
-            "difficulty": "moderate",
-            "metal": "MTLRenderCommandEncoder vertex amplification",
-            "notes": "View instance mask -> Metal vertex amplification with view mask.",
-            "translation": "renderEncoder->setVertexAmplificationCount(count, viewMappings)"
+            "difficulty": "hard",
+            "metal": "per-view array-layer replay with viewport/scissor selection",
+            "notes": "The provider retains the view-instancing stream subobject and expands direct draws into the active masked view locations; each view selects an RTV/DSV array slice and viewport before replay.",
+            "translation": "per-view render pass replay; native vertex amplification remains optional"
           },
           "WriteBufferImmediate": {
             "difficulty": "moderate",

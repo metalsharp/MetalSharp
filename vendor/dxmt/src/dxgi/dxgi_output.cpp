@@ -276,7 +276,17 @@ public:
 
   HRESULT
   STDMETHODCALLTYPE
-  WaitForVBlank() final { return S_OK; }
+  WaitForVBlank() final {
+    const uint32_t display_id =
+        monitor_ == wsi::getDefaultMonitor() ? WMTGetPrimaryDisplayId()
+                                              : WMTGetSecondaryDisplayId();
+    if (!display_id || !WMTWaitForVBlank(display_id, 2000)) {
+      ERR("WaitForVBlank: CoreVideo display-link wait failed display=",
+          display_id);
+      return HRESULT_FROM_WIN32(WAIT_TIMEOUT);
+    }
+    return S_OK;
+  }
 
   HRESULT
   STDMETHODCALLTYPE

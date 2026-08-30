@@ -17,7 +17,7 @@ winemetal_unix_ld_args = [
   '-Wl,-install_name,@rpath/winemetal.so',
   winemac_so, ntdll_so,
   '-weak_framework', 'CoreFoundation', '-weak_framework', 'Metal',
-  '-framework', 'MetalFX', '-weak_framework', 'Foundation',
+  '-weak_framework', 'CoreVideo', '-framework', 'MetalFX', '-weak_framework', 'Foundation',
   '-weak_framework', 'CoreGraphics', '-weak_framework', 'QuartzCore',
   '-weak_framework', 'ColorSync',  '-weak_framework', 'Cocoa',
   '-lsqlite3',

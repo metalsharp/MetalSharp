@@ -3,6 +3,7 @@
 #import <Cocoa/Cocoa.h>
 #import <ColorSync/ColorSync.h>
 #import <CoreFoundation/CFRunLoop.h>
+#import <CoreVideo/CVDisplayLink.h>
 #import <Metal/Metal.h>
 #import <Metal/MTL4CommandBuffer.h>
 #import <Metal/MTL4CommandQueue.h>
@@ -10,6 +11,7 @@
 #import <Metal/MTLResidencySet.h>
 #import <MetalFX/MetalFX.h>
 #import <QuartzCore/QuartzCore.h>
+#include <dispatch/dispatch.h>
 #include "objc/objc-runtime.h"
 #include <bootstrap.h>
 #include <mach/mach_port.h>
@@ -4646,6 +4648,99 @@ _WMTGetDisplayDescription(void *obj) {
   return STATUS_SUCCESS;
 }
 
+struct WMTVBlankWaitContext {
+  dispatch_semaphore_t semaphore;
+  volatile uint32_t callback_count;
+};
+
+static CVReturn
+WMTVBlankOutputCallback(CVDisplayLinkRef display_link,
+                        const CVTimeStamp *now,
+                        const CVTimeStamp *output_time,
+                        CVOptionFlags flags_in,
+                        CVOptionFlags *flags_out,
+                        void *context) {
+  (void)display_link;
+  (void)now;
+  (void)output_time;
+  (void)flags_in;
+  (void)flags_out;
+  struct WMTVBlankWaitContext *wait = context;
+  if (wait && wait->semaphore) {
+    __atomic_add_fetch(&wait->callback_count, 1, __ATOMIC_RELAXED);
+    dispatch_semaphore_signal(wait->semaphore);
+  }
+  return kCVReturnSuccess;
+}
+
+static NTSTATUS
+_WMTWaitForVBlank(void *obj) {
+  @autoreleasepool {
+    struct unixcall_wmt_wait_for_vblank *params = obj;
+    params->ret = 0;
+  if (!params->display_id)
+    return STATUS_SUCCESS;
+
+  CVDisplayLinkRef display_link = NULL;
+  CVReturn create_result = CVDisplayLinkCreateWithCGDisplay(
+      (CGDirectDisplayID)params->display_id, &display_link);
+  if (create_result != kCVReturnSuccess || !display_link) {
+    // Some macOS sessions expose an online CG display but reject the
+    // per-display constructor.  Retain the real display-link provider by
+    // falling back to the active-display constructor and selecting the same
+    // display when possible.
+    create_result = CVDisplayLinkCreateWithActiveCGDisplays(&display_link);
+    if (create_result == kCVReturnSuccess && display_link)
+      create_result = CVDisplayLinkSetCurrentCGDisplay(
+          display_link, (CGDirectDisplayID)params->display_id);
+  }
+  if (create_result != kCVReturnSuccess || !display_link) {
+    FILE *log = winemetal_critical_log();
+    if (log) {
+      fprintf(log, "vblank_wait_create_failed display=%llu result=%d\n",
+              (unsigned long long)params->display_id, create_result);
+      fclose(log);
+    }
+    return STATUS_SUCCESS;
+  }
+
+  struct WMTVBlankWaitContext wait = {};
+  wait.semaphore = dispatch_semaphore_create(0);
+  if (!wait.semaphore) {
+    CVDisplayLinkRelease(display_link);
+    return STATUS_SUCCESS;
+  }
+
+  CVReturn callback_result = CVDisplayLinkSetOutputCallback(
+      display_link, WMTVBlankOutputCallback, &wait);
+  CVReturn start_result = kCVReturnSuccess;
+  if (callback_result == kCVReturnSuccess)
+    start_result = CVDisplayLinkStart(display_link);
+
+  const uint32_t timeout_ms = params->timeout_ms ? params->timeout_ms : 1000;
+  bool signaled = false;
+  if (callback_result == kCVReturnSuccess && start_result == kCVReturnSuccess) {
+    dispatch_time_t deadline = dispatch_time(
+        DISPATCH_TIME_NOW, (int64_t)timeout_ms * NSEC_PER_MSEC);
+    signaled = dispatch_semaphore_wait(wait.semaphore, deadline) == 0;
+    CVDisplayLinkStop(display_link);
+  }
+  dispatch_release(wait.semaphore);
+  CVDisplayLinkRelease(display_link);
+  params->ret = signaled ? 1 : 0;
+
+  FILE *log = winemetal_critical_log();
+  if (log) {
+    fprintf(log, "vblank_wait display=%llu timeout_ms=%u result=%u "
+                 "set_result=%d start_result=%d callbacks=%u\n",
+            (unsigned long long)params->display_id, timeout_ms,
+            params->ret, callback_result, start_result, wait.callback_count);
+    fclose(log);
+  }
+    return STATUS_SUCCESS;
+  }
+}
+
 struct DisplaySetting {
   uint64_t version;
   enum WMTColorSpace colorspace;
@@ -5419,6 +5514,7 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandEncoder_pushDebugGroup,
     &_MTLCommandEncoder_popDebugGroup,
     &_MTLCommandEncoder_insertDebugSignpost,
+    &_WMTWaitForVBlank,
 };
 
 #ifndef DXMT_NATIVE
@@ -5600,5 +5696,6 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandEncoder_pushDebugGroup,
     &_MTLCommandEncoder_popDebugGroup,
     &_MTLCommandEncoder_insertDebugSignpost,
+    &_WMTWaitForVBlank,
 };
 #endif

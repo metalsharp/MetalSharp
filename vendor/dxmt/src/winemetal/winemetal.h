@@ -2198,6 +2198,10 @@ WINEMETAL_API uint32_t WMTGetPrimaryDisplayId();
 
 WINEMETAL_API uint32_t WMTGetSecondaryDisplayId();
 
+// Blocks until the next CoreVideo display-link tick for the selected display.
+// The timeout keeps a headless/disconnected display from hanging a D3D12 call.
+WINEMETAL_API bool WMTWaitForVBlank(uint32_t display_id, uint32_t timeout_ms);
+
 struct WMTDisplayDescription {
   float red_primaries[2];
   float blue_primaries[2];

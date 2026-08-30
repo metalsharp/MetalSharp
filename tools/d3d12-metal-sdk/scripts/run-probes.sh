@@ -1388,10 +1388,13 @@ convert_dxil_shader_cache() {
     local fail_marker="$base.msc.fail"
     local dxbc_size
     dxbc_size="$(wc -c < "$dxbc" | tr -d '[:space:]')"
-    if [[ -s "$metallib" && -s "$reflection" ]]; then
+    if [[ -s "$metallib" && -s "$reflection" && ! -s "${base}.msl.err.txt" ]]; then
       continue
     fi
-    rm -f "$fail_marker"
+    # DXMT can leave an internally generated metallib beside a failed MSL
+    # source compile.  Replace that failed artifact with MSC output instead of
+    # treating the mere presence of the file as a successful conversion.
+    rm -f "$metallib" "$reflection" "$fail_marker"
     if [[ "$dxbc_size" -lt 256 ]]; then
       printf 'skipped tiny or intentionally invalid DXIL container: %s bytes\n' "$dxbc_size" > "$fail_marker"
       continue
@@ -1980,6 +1983,147 @@ HLSL
   done
 }
 
+prepare_command_replay_advanced_probes() {
+  local raygen_hlsl="$SDK_DIR/out/bin/probe_command_replay_raygen.hlsl"
+  local mesh_hlsl="$SDK_DIR/out/bin/probe_command_replay_mesh.hlsl"
+  local ray_compiler="$SDK_DIR/out/bin/compile-command-raytracing"
+
+  DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
+    xcrun clang++ -std=c++17 -I/usr/local/include \
+      "$SDK_DIR/scripts/compile-procedural-raytracing.cpp" \
+      -L/usr/local/lib -lmetalirconverter -o "$ray_compiler"
+
+  cat > "$raygen_hlsl" <<'HLSL'
+RWByteAddressBuffer output : register(u0);
+
+[shader("raygeneration")]
+void raygen() {
+  output.Store(0, 0x52415931);
+}
+HLSL
+
+  cat > "$mesh_hlsl" <<'HLSL'
+RWByteAddressBuffer output : register(u0);
+
+struct MeshVertex {
+  float4 position : SV_Position;
+};
+
+struct MeshPrimitive {
+  uint render_target_index : SV_RenderTargetArrayIndex;
+};
+
+[outputtopology("triangle")]
+[numthreads(32, 1, 1)]
+void ms_main(out vertices MeshVertex vertices[3],
+             out primitives MeshPrimitive primitives[1],
+             out indices uint3 triangles[1],
+             uint group_thread_id : SV_GroupIndex) {
+  SetMeshOutputCounts(3, 1);
+  output.Store(0, 0x4d455348);
+  if (group_thread_id == 0) {
+    vertices[0].position = float4(-0.8, -0.8, 0.0, 1.0);
+    vertices[1].position = float4(0.0, 0.8, 0.0, 1.0);
+    vertices[2].position = float4(0.8, -0.8, 0.0, 1.0);
+    primitives[0].render_target_index = 0;
+    triangles[0] = uint3(0, 1, 2);
+  }
+}
+
+float4 ps_main() : SV_Target0 {
+  return float4(0.0, 1.0, 0.0, 1.0);
+}
+HLSL
+
+  local raygen_root="$SDK_DIR/out/bin/probe_command_replay_raygen_root.json"
+  cat > "$raygen_root" <<'JSON'
+{
+  "RootSignature": {
+    "Flags": "IRRootSignatureFlagNone",
+    "NumParameters": 1,
+    "NumStaticSamplers": 0,
+    "Parameters": [{
+      "DescriptorTable": {
+        "DescriptorRanges": [{
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 0,
+          "RangeType": "IRDescriptorRangeTypeSRV",
+          "RegisterSpace": 0
+        }, {
+          "BaseShaderRegister": 0,
+          "Flags": "IRDescriptorRangeFlagNone",
+          "NumDescriptors": 1,
+          "OffsetInDescriptorsFromTableStart": 1,
+          "RangeType": "IRDescriptorRangeTypeUAV",
+          "RegisterSpace": 0
+        }],
+        "NumDescriptorRanges": 2
+      },
+      "ParameterType": "IRRootParameterTypeDescriptorTable",
+      "ShaderVisibility": "IRShaderVisibilityAll"
+    }],
+    "StaticSamplers": []
+  },
+  "version": "IRRootSignatureVersion_1_1"
+}
+JSON
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E raygen -T lib_6_5 \
+      -Fo probe_command_replay_raygen.cso probe_command_replay_raygen.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ms_main -T ms_6_5 \
+      -Fo probe_command_replay_mesh_ms.cso probe_command_replay_mesh.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_command_replay_mesh_ps.cso probe_command_replay_mesh.hlsl >/dev/null
+  )
+
+  mkdir -p "$SHADER_CACHE_DIR"
+  for _command_replay_warmup_pass in 1 2 3; do
+    run_probe_exe "$COMMAND_REPLAY_PROBE_EXE" \
+      "$RESULTS_DIR/probe-command-replay-warmup-$PROFILE.json" || true
+    convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+    local converter="$METAL_SHADER_CONVERTER"
+    if [[ -z "$converter" ]]; then
+      converter="$(command -v metal-shaderconverter || true)"
+    fi
+    local dxbc
+    shopt -s nullglob
+    for dxbc in "$SHADER_CACHE_DIR"/*.dxbc; do
+      if ! cmp -s "$dxbc" "$SDK_DIR/out/bin/probe_command_replay_raygen.cso"; then
+        continue
+      fi
+      local base="${dxbc%.dxbc}"
+      rm -f "$base.metallib" "$base.json" "$base.raydispatch.metallib" "$base.msc.fail"
+      if [[ -n "$converter" && -x "$converter" ]] &&
+         "$converter" -o "$base.metallib" "$dxbc" \
+           --root-signature "$raygen_root" \
+           --entry-point=raygen \
+           --rt-ray-generation-compilation=kernel \
+           --output-reflection-file="$base.json" \
+           --deployment-os=macOS \
+           --minimum-os-build-version=15.0.0 \
+           >"$base.raygen-msc.log" 2>&1 &&
+         DYLD_LIBRARY_PATH=/usr/local/lib "$ray_compiler" \
+           "$dxbc" "$raygen_root" @ray-dispatch "$base.raydispatch.metallib" \
+           >"$base.raydispatch-msc.log" 2>&1; then
+        :
+      else
+        : >"$base.msc.fail"
+      fi
+    done
+    shopt -u nullglob
+  done
+}
+
 prepare_dxil_semantic_probes() {
   local hlsl="$SDK_DIR/out/bin/probe_dxil_semantics.hlsl"
 
@@ -2194,6 +2338,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   if mini_probe_selected dxr_acceleration_structures; then
     prepare_dxr_acceleration_structure_probe
   fi
+fi
+if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
+  prepare_command_replay_advanced_probes
 fi
 
 if [[ "$RUN_LOADER" == "1" ]]; then
@@ -2583,6 +2730,7 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
     WINEDLLOVERRIDES="$DLL_OVERRIDES" \
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+    DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
     "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$COMMAND_REPLAY_RESULT_FILE"
   )

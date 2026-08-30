@@ -356,7 +356,7 @@ red.
 - [x] Phase 1 — Provider, synchronization, and capability architecture
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
-- [ ] Phase 4 — Queues, commands, barriers, and indirect work
+- [x] Phase 4 — Queues, commands, barriers, and indirect work
 - [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders
@@ -665,8 +665,29 @@ replayed with no dropped operation.
 `docs/roadmaps/d3d12-full-surface-phase4-command-proof.md` records the
 behavior-backed atomic-copy, discard, predication, GPU-only indirect argument,
 root-constant, enhanced-barrier, command-annotation, and tier-1 programmable
-sample-position checks. The phase remains open until the
-remaining command inventory and provider-side effects pass the exit gate.
+sample-position checks. The fail-closed manifest is
+`tools/d3d12-metal-sdk/contracts/phase4-command-coverage.json`; its command
+coverage rows are now closed after positive direct/indirect DISPATCH_RAYS and
+DISPATCH_MESH replay readbacks. The latest source-staged probe also verifies a
+bounded single-stream DXBC vertex capture (`filled_size=128`, two exact 4-vertex
+payloads with counter accumulation plus a bounded overflow rejection), GPU-only
+indirect DRAW pixel readback (`[255,0,0,255]`), GPU-only indirect
+CBV/SRV/UAV+DISPATCH readback (`[31,32,33,34]`), GPU-only indirect
+VBV/IBV+DRAW_INDEXED pixel readback (`[255,0,0,255]`), nonzero indirect
+argument offsets after count clamping, exact direct/indirect raygen UAV values
+(`0x52415931`), exact direct/indirect mesh UAV values (`0x4d455348`) and 72
+nonzero raster pixels per path, view-instance mask routing to exact array-layer
+readbacks (`slice0=[255,0,0,255]`, `slice1=[0,255,0,255]`), and a
+four-sample/four-pixel programmable-position MSAA resolve with exact per-pixel
+readback (`pixel1=[255,0,0,255]`, all other tested pixels clear), plus explicit
+command histograms/unknown-type accounting. The queue probe also verifies normal
+queue creation, explicit bundle/video/global-realtime/timeout validation results,
+clock calibration, and cross-queue event completion. Stream output remains a limited provider: multiple streams,
+nonzero-initial-counter/append semantics, overflow continuation, and
+DXIL/geometry-stage capture are not promoted. The Phase 4 command coverage
+manifest is closed and its focused gate passes; broader stream-output,
+indirect-work, and feature-family matrices continue in the later phases rather
+than being promoted by this phase.
 
 ### Phase 5 — Complete the shader compiler and SM5.x–SM6.9 execution surface
 
@@ -1119,9 +1140,9 @@ not check its children.
 - [ ] `SetViewInstanceMask` affects view-instanced output.
 - [ ] Protected command-list association is stored and enforced.
 - [ ] Meta-command initialization/execution has real providers.
-- [ ] `Unmap` flushes/commits the correct CPU writes.
-- [ ] Default/private `ReadFromSubresource` and `WriteToSubresource` work.
-- [ ] `MakeResident`, `Evict`, priority, trim, and residency queries track
+- [x] `Unmap` flushes/commits the correct CPU writes.
+- [x] Default/private `ReadFromSubresource` and `WriteToSubresource` work.
+- [x] `MakeResident`, `Evict`, priority, trim, and residency queries track
       actual state.
 - [ ] Device removed reason and DRED reflect actual faults.
 - [x] Clock calibration returns correlated CPU/GPU timestamps.
@@ -1186,7 +1207,7 @@ not check its children.
 - [ ] Overlay checks and composition have real behavior.
 - [ ] Software/WARP adapter is a functioning CPU provider.
 - [ ] Adapter/occlusion/stereo status callbacks are real and unregisterable.
-- [ ] Shared resource adapter LUID and handles work across processes.
+- [x] Shared resource adapter LUID and handles work across processes.
 
 ### 5.7 Agility/debug/cache completion
 
@@ -1330,3 +1351,20 @@ whether the scoped FL12_2 gate is green.
   adapter-LUID validation. Resource, views, command-replay, legacy, and caps
   probes plus the staged PE/Unix ABI check pass; generated build products are
   removed.
+
+### 2026-08-29 — Phase 4 view/sample provider continuation
+
+- Added a private ABI-compatible view-instancing stream-subobject copy that
+  retains locations, validates masking flags/counts, and expands direct draws
+  into per-view array-layer replay with viewport/scissor selection. The
+  source-staged probe reads back red and green from the two independently
+  selected layers.
+- Extended programmable sample-position records to one-, two-, and four-pixel
+  patterns (up to 128 positions). Direct draw replay selects each pixel's
+  sample subset in a scissored MSAA pass; a four-sample 2x2 pattern produces an
+  exact resolved pixel readback proving the per-pixel selection.
+- Closed the view-instancing, multi-pixel sample-position, queue
+  priority/VBlank/callback, and complete indirect-argument rows in the Phase 4
+  evidence manifest. The source-staged command probe now records direct and
+  ExecuteIndirect DISPATCH_RAYS and DISPATCH_MESH commands with exact UAV and
+  raster readbacks; broader provider breadth remains assigned to later phases.

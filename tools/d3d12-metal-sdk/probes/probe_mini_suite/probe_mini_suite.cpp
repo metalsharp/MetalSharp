@@ -2615,6 +2615,9 @@ static ProbeResult probe_mesh_shader_pso() {
     bool mesh_lane_values_verified = true;
     for (uint32_t lane = 0; lane < 32; lane++)
         mesh_lane_values_verified &= mesh_lane_values[lane] == 0x4153504c + lane;
+    const bool indirect_mesh_behavior_verified =
+        layer_indirect_pixels[0] >= 100 && layer_indirect_pixels[0] <= 400 &&
+        layer_indirect_pixels[1] >= 100 && layer_indirect_pixels[1] <= 400;
     const bool verified =
         SUCCEEDED(hr) && SUCCEEDED(options7_hr) && SUCCEEDED(options2_hr) && options2.DepthBoundsTestSupported &&
         layer_direct_pixels[0] >= 100 && layer_direct_pixels[0] <= 400 && layer_direct_pixels[1] >= 100 &&
@@ -2654,6 +2657,8 @@ static ProbeResult probe_mesh_shader_pso() {
             ",\"mesh_shader_tier\":" + std::to_string(static_cast<UINT>(options7.MeshShaderTier)) +
             ",\"nonzero_pixels\":" + std::to_string(nonzero_pixels) + ",\"direct_pixels\":" +
             std::to_string(direct_pixels) + ",\"indirect_pixels\":" + std::to_string(indirect_pixels) +
+            ",\"indirect_mesh_behavior_verified\":" +
+            (indirect_mesh_behavior_verified ? "true" : "false") +
             ",\"render_target_array_layers\":2" + ",\"layer0_pixels\":" + std::to_string(layer_pixels[0]) +
             ",\"layer1_pixels\":" + std::to_string(layer_pixels[1]) +
             ",\"layer0_direct_pixels\":" + std::to_string(layer_direct_pixels[0]) +
@@ -2947,7 +2952,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_RESOURCE_DESC local_texture_desc =
-            texture_desc(1, 1, DXGI_FORMAT_R8G8B8A8_UNORM, D3D12_RESOURCE_FLAG_NONE);
+            texture_desc(1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+                         D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
         D3D12_CLEAR_VALUE clear_value = {};
         clear_value.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         clear_value.Color[0] = 1.0f;
@@ -4270,6 +4276,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
         }
     }
     const HRESULT removed_reason = device->GetDeviceRemovedReason();
+    const bool indirect_ray_behavior_verified =
+        indirect_ray_dispatch_recorded && indirect_ray_behavior_value == 0x50524f43;
     const bool verified =
         SUCCEEDED(hr) && SUCCEEDED(removed_reason) && source_acceleration_structures_released_before_traversal &&
         current_size > 0 && current_size <= prebuild.ResultDataMaxSizeInBytes && clone_current_size == current_size &&
@@ -4442,6 +4450,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
             hr_hex(indirect_ray_args_hr) + "\",\"indirect_ray_dispatch_recorded\":" +
             (indirect_ray_dispatch_recorded ? "true" : "false") + ",\"indirect_ray_argument_offset\":16" +
             ",\"indirect_ray_behavior_value\":" + std::to_string(indirect_ray_behavior_value) +
+            ",\"indirect_ray_behavior_verified\":" +
+            (indirect_ray_behavior_verified ? "true" : "false") +
             ",\"closest_hit_local_root_marker\":1280262988" + ",\"closest_hit_local_srv_marker\":1397904945" +
             ",\"closest_hit_local_cbv_marker\":1128420913" +
             ",\"closest_hit_local_uav_value\":" + std::to_string(local_root_uav_value) +
