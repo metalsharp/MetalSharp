@@ -1045,6 +1045,10 @@ TextureTypeForSrvView(const D3D12_SHADER_RESOURCE_VIEW_DESC &desc,
   case D3D12_SRV_DIMENSION_TEXTURE2DARRAY:
     return resource_desc.SampleDesc.Count > 1 ? WMTTextureType2DMultisampleArray
                                               : WMTTextureType2DArray;
+  case D3D12_SRV_DIMENSION_TEXTURE2DMS:
+    return WMTTextureType2DMultisample;
+  case D3D12_SRV_DIMENSION_TEXTURE2DMSARRAY:
+    return WMTTextureType2DMultisampleArray;
   case D3D12_SRV_DIMENSION_TEXTURECUBE:
     return WMTTextureTypeCube;
   case D3D12_SRV_DIMENSION_TEXTURECUBEARRAY:

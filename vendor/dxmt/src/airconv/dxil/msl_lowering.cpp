@@ -589,6 +589,9 @@ struct DescriptorRangePlan {
     uint32_t register_space = 0;
     uint32_t lower_bound = 0;
     uint32_t count = 1;
+    uint32_t resource_kind = 0;
+    uint32_t element_stride = 0;
+    uint32_t sample_count = 1;
 };
 
 struct ResourceHandleRecord {
@@ -656,6 +659,97 @@ struct LowerContext {
     bool uses_sampler_feedback = false;
 };
 
+// DXIL ResourceKind values are part of the public DXIL ABI.  Keep the
+// dimension test in one place so descriptor declarations and intrinsic
+// lowering cannot silently fall back to a 2D texture when resource metadata is
+// available.
+static bool isTextureResourceKind(uint32_t resource_kind) {
+    return resource_kind >= 1u && resource_kind <= 9u;
+}
+
+static bool isTextureArrayResourceKind(uint32_t resource_kind) {
+    return resource_kind == 6u || resource_kind == 7u ||
+           resource_kind == 8u || resource_kind == 9u;
+}
+
+static bool isTextureMSAAResourceKind(uint32_t resource_kind) {
+    return resource_kind == 3u || resource_kind == 8u;
+}
+
+static bool isTexture3DResourceKind(uint32_t resource_kind) {
+    return resource_kind == 4u;
+}
+
+static bool isTextureCubeResourceKind(uint32_t resource_kind) {
+    return resource_kind == 5u || resource_kind == 9u;
+}
+
+static uint32_t resourceKindForTextureSlot(const LowerContext &ctx,
+                                           uint32_t slot) {
+    uint32_t srv_kind = 0;
+    uint32_t uav_kind = 0;
+    for (const auto &range : ctx.binding_plan.ranges) {
+        if ((range.kind != DescriptorRangePlan::Kind::SRV &&
+             range.kind != DescriptorRangePlan::Kind::UAV) ||
+            slot < range.lower_bound ||
+            slot - range.lower_bound >= range.count ||
+            !isTextureResourceKind(range.resource_kind))
+            continue;
+        if (range.kind == DescriptorRangePlan::Kind::UAV)
+            uav_kind = range.resource_kind;
+        else
+            srv_kind = range.resource_kind;
+    }
+    // The direct ABI has one texture slot namespace even though D3D12 keeps
+    // SRV and UAV register namespaces independent.  Match the existing
+    // preference for the UAV declaration when both namespaces use a slot.
+    return uav_kind ? uav_kind : srv_kind;
+}
+
+static bool textureSlotHasRangeKind(const LowerContext &ctx, uint32_t slot,
+                                    DescriptorRangePlan::Kind kind) {
+    for (const auto &range : ctx.binding_plan.ranges) {
+        if (range.kind == kind && isTextureResourceKind(range.resource_kind) &&
+            slot >= range.lower_bound &&
+            slot - range.lower_bound < range.count)
+            return true;
+    }
+    return false;
+}
+
+static std::string textureBindingType(uint32_t resource_kind, bool writable,
+                                      bool integer, bool sampled,
+                                      bool writable_msaa_compat = false) {
+    const char *element = integer ? "uint" : "float";
+    const char *access = writable ? "read_write" : (sampled ? "sample" : "read");
+    if (writable_msaa_compat && isTextureMSAAResourceKind(resource_kind))
+        return "texture2d_array<" + std::string(element) +
+               ", access::read_write>";
+
+    switch (resource_kind) {
+    case 1u: return "texture1d<" + std::string(element) + ", access::" + access + ">";
+    case 2u: return "texture2d<" + std::string(element) + ", access::" + access + ">";
+    case 3u: return "texture2d_ms<" + std::string(element) + ", access::read>";
+    case 4u: return "texture3d<" + std::string(element) + ", access::" + access + ">";
+    case 5u: return "texturecube<" + std::string(element) + ", access::" + access + ">";
+    case 6u: return "texture1d_array<" + std::string(element) + ", access::" + access + ">";
+    case 7u: return "texture2d_array<" + std::string(element) + ", access::" + access + ">";
+    case 8u: return "texture2d_ms_array<" + std::string(element) + ", access::read>";
+    case 9u: return "texturecube_array<" + std::string(element) + ", access::" + access + ">";
+    default: return "texture2d<" + std::string(element) + ", access::" + access + ">";
+    }
+}
+
+static std::string depthTextureBindingType(uint32_t resource_kind) {
+    if (resource_kind == 7u)
+        return "depth2d_array<float, access::sample>";
+    if (resource_kind == 6u)
+        return "depth1d_array<float, access::sample>";
+    if (resource_kind == 1u)
+        return "depth1d<float, access::sample>";
+    return "depth2d<float, access::sample>";
+}
+
 static std::string vertexPullField(LowerContext &ctx, uint32_t sig_id) {
     return MSLVertexPullExpression(sig_id, ctx.options);
 }
@@ -704,7 +798,10 @@ static void emitBindingManifest(LowerContext &ctx) {
         os << "// range kind=" << descriptorRangeKindName(range.kind)
            << " space=" << range.register_space
            << " lower=" << range.lower_bound
-           << " count=" << range.count << "\n";
+           << " count=" << range.count
+           << " resource_kind=" << range.resource_kind
+           << " sample_count=" << range.sample_count
+           << " stride=" << range.element_stride << "\n";
     }
     os << "\n";
 }
@@ -1201,7 +1298,32 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                     uav_slot = true;
                 }
             }
-            if (raw_gather_slot)
+            uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
+            if (resource_kind != 0u) {
+                bool texture_uav_slot = textureSlotHasRangeKind(
+                    ctx, i, DescriptorRangePlan::Kind::UAV);
+                bool writable_msaa = texture_uav_slot &&
+                    (isTextureMSAAResourceKind(resource_kind) ||
+                     ctx.texture_store_sample_shader ||
+                     ctx.writable_msaa_texture_slots.count(i));
+                if (raw_gather_slot)
+                    os << "  " << textureBindingType(resource_kind, false, true, true)
+                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                else if (comparison_slot && (resource_kind == 2u ||
+                                               resource_kind == 7u ||
+                                               resource_kind == 0u))
+                    os << "  " << depthTextureBindingType(resource_kind)
+                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
+                    os << "  " << textureBindingType(resource_kind, false, false, true)
+                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                else
+                    os << "  " << textureBindingType(
+                               resource_kind, texture_uav_slot, false,
+                               !texture_uav_slot && ctx.compute_texture_sample_shader,
+                               writable_msaa)
+                       << " tex" << i << " [[texture(" << i << ")]],\n";
+            } else if (raw_gather_slot)
                 os << "  texture2d<uint, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
             else if (comparison_slot)
                 os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
@@ -1239,9 +1361,13 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
             params.push_back("  device char* buf" + std::to_string(i) +
                              " [[buffer(" + std::to_string(i) + ")]]");
-        for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++)
-            params.push_back("  texture2d<float, access::sample> tex" + std::to_string(i) +
-                             " [[texture(" + std::to_string(i) + ")]]");
+        for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
+            uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
+            params.push_back("  " + textureBindingType(
+                                  resource_kind, false, false, true) +
+                             " tex" + std::to_string(i) + " [[texture(" +
+                             std::to_string(i) + ")]]");
+        }
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++)
             params.push_back("  sampler samp" + std::to_string(i) +
                              " [[sampler(" + std::to_string(i) + ")]]");
@@ -1287,7 +1413,28 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                     i < range.lower_bound + range.count)
                     uav_slot = true;
             }
-            if (comparison_slot && srv_slot && !uav_slot)
+            uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
+            if (resource_kind != 0u) {
+                bool texture_uav_slot = textureSlotHasRangeKind(
+                    ctx, i, DescriptorRangePlan::Kind::UAV);
+                bool writable_msaa = texture_uav_slot &&
+                    (isTextureMSAAResourceKind(resource_kind) ||
+                     ctx.texture_store_sample_shader ||
+                     ctx.writable_msaa_texture_slots.count(i));
+                if (comparison_slot && srv_slot && !uav_slot &&
+                    (resource_kind == 1u || resource_kind == 2u ||
+                     resource_kind == 6u || resource_kind == 7u))
+                    os << "  " << depthTextureBindingType(resource_kind)
+                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
+                    os << "  " << textureBindingType(resource_kind, false, false, true)
+                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                else
+                    os << "  " << textureBindingType(
+                               resource_kind, texture_uav_slot, false,
+                               !texture_uav_slot, writable_msaa)
+                       << " tex" << i << " [[texture(" << i << ")]],\n";
+            } else if (comparison_slot && srv_slot && !uav_slot)
                 os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
             else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
                 os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
@@ -2937,9 +3084,28 @@ static std::string writableMSAASlice(const LowerContext &ctx,
 
 static MSLType typeForResourceHandle(const LowerContext &ctx,
                                      const ResourceHandleRecord &handle) {
-    if (handle.kind == DescriptorRangePlan::Kind::UAV &&
-        (handle.resource_kind == 3u || handle.resource_kind == 8u))
-        return {MSLTypeKind::RWTexture2DArray, 0, {}};
+    if (handle.kind == DescriptorRangePlan::Kind::UAV) {
+        // Writable MSAA textures use the existing flattened texture2d_array
+        // ABI.  The sample index is folded into the array slice by the
+        // intrinsic emitter.
+        if (isTextureMSAAResourceKind(handle.resource_kind))
+            return {MSLTypeKind::RWTexture2DArray, 0, {}};
+        if (isTexture3DResourceKind(handle.resource_kind))
+            return {MSLTypeKind::RWTexture3D, 0, {}};
+        if (isTextureArrayResourceKind(handle.resource_kind))
+            return {MSLTypeKind::RWTexture2DArray, 0, {}};
+        return typeForHandleKind(ctx, handle.kind);
+    }
+    if (handle.kind == DescriptorRangePlan::Kind::SRV) {
+        if (isTextureMSAAResourceKind(handle.resource_kind))
+            return {MSLTypeKind::Texture2DMS, 0, {}};
+        if (isTexture3DResourceKind(handle.resource_kind))
+            return {MSLTypeKind::Texture3D, 0, {}};
+        if (isTextureCubeResourceKind(handle.resource_kind))
+            return {MSLTypeKind::TextureCube, 0, {}};
+        if (handle.resource_kind == 6u || handle.resource_kind == 7u)
+            return {MSLTypeKind::Texture2DArray, 0, {}};
+    }
     return typeForHandleKind(ctx, handle.kind);
 }
 
@@ -2995,6 +3161,11 @@ static std::string materializeHandleName(const LowerContext &ctx,
     return std::string(prefix) + std::to_string(cappedBindingIndex(ctx, prefix, binding_index));
 }
 
+static uint32_t resourceKindForHandle(const LowerContext &ctx, uint32_t handle_id) {
+    auto it = ctx.resource_handles.find(handle_id);
+    return it == ctx.resource_handles.end() ? 0u : it->second.resource_kind;
+}
+
 static void recordDescriptorRange(BindingPlan &plan, DescriptorRangePlan range) {
     if (range.count == 0)
         range.count = 1;
@@ -3003,10 +3174,50 @@ static void recordDescriptorRange(BindingPlan &plan, DescriptorRangePlan range) 
             existing.register_space == range.register_space &&
             existing.lower_bound == range.lower_bound) {
             existing.count = std::max(existing.count, range.count);
+            if (existing.resource_kind == 0)
+                existing.resource_kind = range.resource_kind;
+            if (existing.element_stride == 0)
+                existing.element_stride = range.element_stride;
+            if (existing.sample_count <= 1)
+                existing.sample_count = range.sample_count;
             return;
         }
     }
     plan.ranges.push_back(range);
+}
+
+static const DxilResourceBinding *findResourceBinding(
+    const LLVMModule &module, uint32_t resource_class, uint32_t resource_id) {
+    for (const auto &binding : module.resource_bindings) {
+        if (binding.resource_class == resource_class &&
+            binding.resource_id == resource_id)
+            return &binding;
+    }
+    return nullptr;
+}
+
+static const DxilResourceBinding *findResourceBindingAtBinding(
+    const LLVMModule &module, uint32_t resource_class,
+    uint32_t register_space, uint32_t lower_bound) {
+    for (const auto &binding : module.resource_bindings) {
+        if (binding.resource_class == resource_class &&
+            binding.register_space == register_space &&
+            binding.lower_bound == lower_bound)
+            return &binding;
+    }
+    return nullptr;
+}
+
+static void applyResourceBindingMetadata(
+    const DxilResourceBinding *metadata, ResourceHandleRecord &record) {
+    if (!metadata)
+        return;
+    record.resource_class = metadata->resource_class;
+    record.register_space = metadata->register_space;
+    record.lower_bound = metadata->lower_bound;
+    record.resource_kind = metadata->resource_kind;
+    record.element_stride = metadata->element_stride;
+    record.sample_count = metadata->sample_count ? metadata->sample_count : 1;
 }
 
 static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
@@ -3020,7 +3231,8 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
     auto rememberHandle = [&](uint32_t result_id,
                               DescriptorRangePlan::Kind kind,
                               uint32_t lower_bound, uint32_t count,
-                              uint32_t binding_index = 0) {
+                              uint32_t binding_index = 0,
+                              const DxilResourceBinding *metadata = nullptr) {
         if (!result_id)
             return;
         handle_bindings[result_id] = {kind, lower_bound, count};
@@ -3028,6 +3240,7 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         record.kind = kind;
         record.lower_bound = lower_bound;
         record.binding_index = binding_index;
+        applyResourceBindingMetadata(metadata, record);
         ctx.resource_handles[result_id] = record;
     };
     auto markWritableMSAASlots = [&](uint32_t handle_id) {
@@ -3109,13 +3322,27 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
 
             if (intrinsic_id == DXOP_CreateHandle && fn_args.size() >= 3) {
                 uint32_t resource_class = literalFromValue(ctx, fn_args[0], 0);
+                uint32_t range_id = literalFromValue(ctx, fn_args[1], 0);
                 uint32_t index = literalFromValue(ctx, fn_args[2], 0);
                 uint32_t non_uniform_raw = fn_args.size() >= 4 ? literalFromValue(ctx, fn_args[3], 0) : 0;
                 if (non_uniform_raw > 1)
                     index = 0;
                 auto kind = descriptorKindForResourceClass(resource_class);
-                recordDescriptorRange(plan, {kind, 0, index, 1});
-                rememberHandle(result_id, kind, 0, 1, index);
+                const auto *metadata =
+                    findResourceBinding(ctx.mod, resource_class, range_id);
+                if (metadata) {
+                    recordDescriptorRange(
+                        plan, {kind, metadata->register_space,
+                               metadata->lower_bound, metadata->count,
+                               metadata->resource_kind,
+                               metadata->element_stride,
+                               metadata->sample_count});
+                    rememberHandle(result_id, kind, metadata->lower_bound,
+                                   metadata->count, index, metadata);
+                } else {
+                    recordDescriptorRange(plan, {kind, 0, index, 1});
+                    rememberHandle(result_id, kind, 0, 1, index);
+                }
             } else if (intrinsic_id == DXOP_CreateHandleFromBinding && fn_args.size() >= 1) {
                 std::string binding = resolveValue(ctx, fn_args[0]);
                 auto parts = parseAggregateLiteral(binding);
@@ -3128,8 +3355,21 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 if (upper_bound >= lower_bound)
                     count = upper_bound - lower_bound + 1;
                 auto kind = descriptorKindForResourceClass(resource_class);
-                recordDescriptorRange(plan, {kind, space, lower_bound, count});
-                rememberHandle(result_id, kind, lower_bound, count);
+                const auto *metadata = findResourceBindingAtBinding(
+                    ctx.mod, resource_class, space, lower_bound);
+                if (metadata) {
+                    recordDescriptorRange(
+                        plan, {kind, metadata->register_space,
+                               metadata->lower_bound, metadata->count,
+                               metadata->resource_kind,
+                               metadata->element_stride,
+                               metadata->sample_count});
+                    rememberHandle(result_id, kind, metadata->lower_bound,
+                                   metadata->count, 0, metadata);
+                } else {
+                    recordDescriptorRange(plan, {kind, space, lower_bound, count});
+                    rememberHandle(result_id, kind, lower_bound, count);
+                }
             } else if (intrinsic_id == DXOP_CreateHandleFromHeap && fn_args.size() >= 1) {
                 uint32_t heap_index = literalFromValue(ctx, fn_args[0], 0);
                 bool sampler = fn_args.size() >= 2 && literalFromValue(ctx, fn_args[1], 0) != 0;
@@ -3543,7 +3783,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
 
     auto recordHandle = [&](DescriptorRangePlan::Kind kind, uint32_t resource_class,
                             uint32_t lower_bound, uint32_t binding_index,
-                            uint32_t register_space = 0, bool non_uniform = false) -> std::string {
+                            uint32_t register_space = 0, bool non_uniform = false,
+                            const DxilResourceBinding *metadata = nullptr) -> std::string {
         ResourceHandleRecord handle;
         handle.kind = kind;
         handle.resource_class = resource_class;
@@ -3551,6 +3792,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         handle.lower_bound = lower_bound;
         handle.binding_index = binding_index;
         handle.non_uniform = non_uniform;
+        applyResourceBindingMetadata(metadata, handle);
         ctx.pending_handle = handle;
         return materializeHandleName(ctx, handle);
     };
@@ -3585,9 +3827,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         bool non_uniform = non_uniform_raw != 0;
         ctx.next_binding++;
-        (void)range_id;
+        const auto *metadata =
+            findResourceBinding(ctx.mod, resource_class, range_id);
         return recordHandle(descriptorKindForResourceClass(resource_class),
-                            resource_class, 0, index, 0, non_uniform);
+                            resource_class, metadata ? metadata->lower_bound : 0,
+                            index, metadata ? metadata->register_space : 0,
+                            non_uniform, metadata);
     }
     case DXOP_CreateHandleForLib: case DXOP_AnnotateHandle: {
         if (!args.empty()) {
@@ -3644,8 +3889,13 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (count != 0)
             index = std::min<uint32_t>(index, count - 1);
         bool non_uniform = args.size() >= 3 && literalArg(2, 0, "non uniform") != 0;
+        const auto *metadata = findResourceBindingAtBinding(
+            ctx.mod, resource_class, register_space, lower_bound);
         return recordHandle(descriptorKindForResourceClass(resource_class),
-                            resource_class, lower_bound, index, register_space, non_uniform);
+                            resource_class,
+                            metadata ? metadata->lower_bound : lower_bound,
+                            index, metadata ? metadata->register_space : register_space,
+                            non_uniform, metadata);
     }
     case DXOP_CreateHandleFromHeap: {
         uint32_t heap_index = literalArg(0, 0, "heap");
@@ -3838,110 +4088,237 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (args.size() < 3) return "float4(0)";
         auto handle = handleArg(0, "tex", "tex0");
         ctx.last_buffer_handle = handle;
-        auto cx = textureCoordComponent(ctx, valueArg(2, "0"), 0);
-        auto cy = textureCoordComponent(ctx, valueArg(3, "0"), 1);
-        if (ctx.compute_sample_cmp_shader) {
-            auto mip = ensureScalarIndex(numericArg(1, "0"));
-            return "float4(" + handle + ".read(uint2(" + cx + ", " + cy +
-                   "), (uint)(" + mip + ")))";
-        }
+        const uint32_t resource_kind = resourceKindForHandle(ctx, args[0]);
+        auto mip = ensureScalarIndex(numericArg(1, "0"));
+        auto c0 = textureCoordComponent(ctx, valueArg(2, "0"), 0);
+        auto c1 = textureCoordComponent(ctx, valueArg(3, "0"), 1);
+        auto c2 = textureCoordComponent(ctx, valueArg(4, "0"), 2);
+        // Writable MSAA resources retain the existing flattened array ABI;
+        // their DXIL sample operand occupies the mip slot.
         if (isWritableMSAAHandle(ctx, args[0])) {
             auto sample = ensureScalarIndex(numericArg(1, "0"));
             auto array_slice = isWritableMSAAArrayHandle(ctx, args[0])
                                    ? ensureScalarIndex(numericArg(4, "0"))
                                    : "0";
-            return handle + ".read(uint2(" + cx + ", " + cy +
+            return handle + ".read(uint2(" + c0 + ", " + c1 +
                    "), " + writableMSAASlice(ctx, args[0], sample,
                                                array_slice) + ")";
         }
-        return handle + ".read(uint2(" + cx + ", " + cy + "))";
+        if (ctx.compute_sample_cmp_shader) {
+            return "float4(" + handle + ".read(uint2(" + c0 + ", " + c1 +
+                   "), (uint)(" + mip + ")))";
+        }
+        switch (resource_kind) {
+        case 1u:
+            return handle + ".read((uint)(" + c0 + "), (uint)(" + mip + "))";
+        case 6u:
+            return handle + ".read((uint)(" + c0 + "), (uint)(" + c1 +
+                   "), (uint)(" + mip + "))";
+        case 2u:
+            return handle + ".read(uint2(" + c0 + ", " + c1 +
+                   "), (uint)(" + mip + "))";
+        case 7u:
+            return handle + ".read(uint2(" + c0 + ", " + c1 +
+                   "), (uint)(" + c2 + "), (uint)(" + mip + "))";
+        case 4u:
+            return handle + ".read(uint3(" + c0 + ", " + c1 + ", " + c2 +
+                   "), (uint)(" + mip + "))";
+        case 3u:
+            return handle + ".read(uint2(" + c0 + ", " + c1 +
+                   "), (uint)(" + mip + "))";
+        case 8u:
+            return handle + ".read(uint2(" + c0 + ", " + c1 +
+                   "), (uint)(" + c2 + "), (uint)(" + mip + "))";
+        default:
+            // Cube Load is not a valid HLSL operation in the shader models
+            // handled here.  Keep the old 2D fallback only for modules whose
+            // resource metadata did not identify a dimension.
+            if (resource_kind == 5u || resource_kind == 9u) {
+                ctx.unsupported_intrinsics++;
+                recordDiagnostic(ctx, "DXIL textureLoad is unsupported for cube resource kind=%u", resource_kind);
+                return "float4(0)";
+            }
+            return handle + ".read(uint2(" + c0 + ", " + c1 + "))";
+        }
     }
     case DXOP_TextureStore: case 225: {
         if (args.size() < 6) return "";
         auto handle = handleArg(0, "tex", "tex0");
-        auto cx = ensureScalarIndex(numericArg(1, "0"));
-        auto cy = ensureScalarIndex(numericArg(2, "0"));
+        const uint32_t resource_kind = resourceKindForHandle(ctx, args[0]);
+        auto c0 = ensureScalarIndex(numericArg(1, "0"));
+        auto c1 = ensureScalarIndex(numericArg(2, "0"));
+        auto c2 = ensureScalarIndex(numericArg(3, "0"));
         size_t vb = 4;
         std::string value = "float4(" + numericArg(vb, "0.0") + ", " + numericArg(vb+1, "0.0") +
                             ", " + numericArg(vb+2, "0.0") + ", " + numericArg(vb+3, "0.0") + ")";
         if (startsWith(handle, "buf"))
-            return "reinterpret_cast<device float4&>(" + handle + "[(((int)(" + cy + "))*4096 + ((int)(" + cx + "))*16)]) = " + value;
+            return "reinterpret_cast<device float4&>(" + handle + "[(((int)(" + c1 + "))*4096 + ((int)(" + c0 + "))*16)]) = " + value;
         if (intrinsic_id == DXOP_TextureStoreSample &&
             isWritableMSAAHandle(ctx, args[0])) {
             auto sample = ensureScalarIndex(numericArg(9, "0"));
             auto array_slice = isWritableMSAAArrayHandle(ctx, args[0])
-                                   ? ensureScalarIndex(numericArg(3, "0"))
+                                   ? c2
                                    : "0";
-            return handle + ".write(" + value + ", uint2((uint)(" + cx + "), (uint)(" + cy + ")), " +
+            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")), " +
                    writableMSAASlice(ctx, args[0], sample, array_slice) + ")";
         }
-        return handle + ".write(" + value + ", uint2((uint)(" + cx + "), (uint)(" + cy + ")))";
+        switch (resource_kind) {
+        case 1u:
+            return handle + ".write(" + value + ", (uint)(" + c0 + "))";
+        case 6u:
+            return handle + ".write(" + value + ", (uint)(" + c0 + "), (uint)(" + c1 + "))";
+        case 2u:
+            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")))";
+        case 7u:
+            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")), (uint)(" + c2 + "))";
+        case 4u:
+            return handle + ".write(" + value + ", uint3((uint)(" + c0 + "), (uint)(" + c1 + "), (uint)(" + c2 + ")))";
+        default:
+            if (resource_kind == 5u || resource_kind == 9u) {
+                ctx.unsupported_intrinsics++;
+                recordDiagnostic(ctx, "DXIL textureStore is unsupported for cube resource kind=%u", resource_kind);
+                return "";
+            }
+            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")))";
+        }
     }
     case DXOP_TextureSample: case DXOP_TextureSampleBias:
     case DXOP_TextureSampleLevel: case DXOP_TextureSampleGrad: {
         if (args.size() < 4) return "float4(0)";
         auto handle = handleArg(0, "tex", "tex0");
         auto samp = handleArg(1, "samp", "samp0");
-        auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
-        auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        const uint32_t resource_kind = resourceKindForHandle(ctx, args[0]);
+        auto c0 = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
+        auto c1 = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        auto c2 = sampleCoordComponent(ctx, valueArg(4, "0.0"), 2);
+        auto c3 = sampleCoordComponent(ctx, valueArg(5, "0.0"), 3);
         auto ox = ensureScalarIndex(numericArg(6, "0"));
         auto oy = ensureScalarIndex(numericArg(7, "0"));
-        auto coord = "float2(" + cx + ", " + cy + ")";
+        auto oz = ensureScalarIndex(numericArg(8, "0"));
+
+        std::string coord;
+        std::string array_index;
+        bool has_array_index = false;
+        bool has_offset = true;
+        bool is_3d_gradient = false;
+        switch (resource_kind) {
+        case 1u:
+            coord = "(" + c0 + ")";
+            break;
+        case 6u:
+            coord = "(" + c0 + ")";
+            array_index = "(uint)(" + c1 + ")";
+            has_array_index = true;
+            break;
+        case 2u:
+            coord = "float2(" + c0 + ", " + c1 + ")";
+            break;
+        case 7u:
+            coord = "float2(" + c0 + ", " + c1 + ")";
+            array_index = "(uint)(" + c2 + ")";
+            has_array_index = true;
+            break;
+        case 4u:
+            coord = "float3(" + c0 + ", " + c1 + ", " + c2 + ")";
+            is_3d_gradient = true;
+            break;
+        case 5u:
+            coord = "float3(" + c0 + ", " + c1 + ", " + c2 + ")";
+            has_offset = false;
+            is_3d_gradient = true;
+            break;
+        case 9u:
+            coord = "float3(" + c0 + ", " + c1 + ", " + c2 + ")";
+            array_index = "(uint)(" + c3 + ")";
+            has_array_index = true;
+            has_offset = false;
+            is_3d_gradient = true;
+            break;
+        case 3u:
+        case 8u:
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL texture sample is unsupported for multisample resource kind=%u", resource_kind);
+            return "float4(0)";
+        default:
+            coord = "float2(" + c0 + ", " + c1 + ")";
+            break;
+        }
+
+        std::string call = handle + ".sample(" + samp + ", " + coord;
+        if (has_array_index)
+            call += ", " + array_index;
         if (intrinsic_id == DXOP_TextureSampleLevel) {
-            auto lod = numericArg(9, "0.0");
-            return handle + ".sample(" + samp + ", " + coord +
-                   ", level((float)(" + lod + ")), int2(" + ox + ", " + oy + "))";
+            call += ", level((float)(" + numericArg(9, "0.0") + "))";
+        } else if (intrinsic_id == DXOP_TextureSampleBias) {
+            call += ", bias((float)(" + numericArg(9, "0.0") + "))";
+        } else if (intrinsic_id == DXOP_TextureSampleGrad) {
+            if (is_3d_gradient) {
+                call += ", gradient3d(float3(" + numericArg(9, "0.0") + ", " +
+                       numericArg(10, "0.0") + ", " + numericArg(11, "0.0") +
+                       "), float3(" + numericArg(12, "0.0") + ", " +
+                       numericArg(13, "0.0") + ", " + numericArg(14, "0.0") + "))";
+            } else {
+                call += ", gradient2d(float2(" + numericArg(9, "0.0") + ", " +
+                       numericArg(10, "0.0") + "), float2(" +
+                       numericArg(12, "0.0") + ", " + numericArg(13, "0.0") + "))";
+            }
         }
-        if (intrinsic_id == DXOP_TextureSampleBias) {
-            auto bias = numericArg(9, "0.0");
-            return handle + ".sample(" + samp + ", " + coord +
-                   ", bias((float)(" + bias + ")), int2(" + ox + ", " + oy + "))";
+        if (has_offset) {
+            if (resource_kind == 1u || resource_kind == 6u)
+                call += ", int(" + ox + ")";
+            else if (resource_kind == 4u)
+                call += ", int3(" + ox + ", " + oy + ", " + oz + ")";
+            else if (resource_kind == 0u)
+                call += ", int2(" + ox + ", " + oy + ")";
+            else
+                call += ", int2(" + ox + ", " + oy + ")";
         }
-        if (intrinsic_id == DXOP_TextureSampleGrad) {
-            auto ddx = "float2(" + numericArg(9, "0.0") + ", " +
-                       numericArg(10, "0.0") + ")";
-            auto ddy = "float2(" + numericArg(12, "0.0") + ", " +
-                       numericArg(13, "0.0") + ")";
-            return handle + ".sample(" + samp + ", " + coord +
-                   ", gradient2d(" + ddx + ", " + ddy + "), int2(" +
-                   ox + ", " + oy + "))";
-        }
-        return handle + ".sample(" + samp + ", " + coord + ", int2(" + ox +
-               ", " + oy + "))";
+        return call + ")";
     }
     case DXOP_TextureGather: case DXOP_TextureGatherCmp: case 223: {
         if (args.size() < 4) return "float4(0)";
         auto handle = handleArg(0, "tex", "tex0");
         auto samp = handleArg(1, "samp", "samp0");
+        const uint32_t resource_kind = resourceKindForHandle(ctx, args[0]);
         auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
         auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        auto c2 = sampleCoordComponent(ctx, valueArg(4, "0.0"), 2);
         auto ox = ensureScalarIndex(numericArg(6, "0"));
         auto oy = ensureScalarIndex(numericArg(7, "0"));
+        if (resource_kind != 0u && resource_kind != 2u && resource_kind != 7u) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL texture gather is unsupported for resource kind=%u", resource_kind);
+            return "float4(0)";
+        }
+        const bool array_texture = resource_kind == 7u;
+        const std::string coord = "float2(" + cx + ", " + cy + ")";
+        const std::string array_suffix = array_texture ? ", (uint)(" + c2 + ")" : "";
         if (intrinsic_id == DXOP_TextureGatherCmp) {
             auto compare = numericArg(9, "0.0");
             if (ctx.shader.kind == DxilShaderKind::Compute) {
-                auto sample = "((" + handle + ".read(uint2((uint)(" + cx +
-                               "), (uint)(" + cy + "))) >= (float)(" +
-                               compare + ")) ? 1.0f : 0.0f)";
-                return sample;
+                auto sample = handle + ".read(uint2((uint)(" + cx +
+                               "), (uint)(" + cy + "))" + array_suffix + ")";
+                return "((" + sample + " >= (float)(" + compare + ")) ? 1.0f : 0.0f)";
             }
-            return handle + ".gather_compare(" + samp + ", float2(" + cx +
-                   ", " + cy + "), (float)(" + compare + "), int2(" + ox +
+            return handle + ".gather_compare(" + samp + ", " + coord +
+                   array_suffix + ", (float)(" + compare + "), int2(" + ox +
                    ", " + oy + "))";
         }
         if (intrinsic_id == DXOP_TextureGatherRaw || intrinsic_id == 223) {
-            return handle + ".gather(" + samp + ", float2(" + cx + ", " +
-                   cy + "), int2(" + ox + ", " + oy + "), component::x)";
+            return handle + ".gather(" + samp + ", " + coord + array_suffix +
+                   ", int2(" + ox + ", " + oy + "), component::x)";
         }
         uint32_t ch = args.size() > 8 ? literalArg(8, 0, "ch") : 0;
         if (ctx.shader.kind == DxilShaderKind::Compute) {
             auto texel = handle + ".read(uint2(" +
                          textureCoordComponent(ctx, valueArg(2, "0"), 0) + ", " +
-                         textureCoordComponent(ctx, valueArg(3, "0"), 1) + "))";
+                         textureCoordComponent(ctx, valueArg(3, "0"), 1) + ")" +
+                         (array_texture ? ", (uint)(" +
+                              textureCoordComponent(ctx, valueArg(4, "0"), 2) + ")"
+                                         : "") + ")";
             return "float4((" + texel + ")." + componentName(ch) + ")";
         }
-        auto sample = handle + ".sample(" + samp + ", float2(" + cx + ", " +
-                       cy + "))";
+        auto sample = handle + ".sample(" + samp + ", " + coord + array_suffix + ")";
         return "float4((" + sample + ")." + componentName(ch) + ")";
     }
     case 8:
@@ -3966,44 +4343,87 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (args.size() < 10) return "0.0";
         auto handle = handleArg(0, "tex", "tex0");
         auto samp = handleArg(1, "samp", "samp0");
-        auto cx = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
-        auto cy = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        const uint32_t resource_kind = resourceKindForHandle(ctx, args[0]);
+        auto c0 = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
+        auto c1 = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        auto c2 = sampleCoordComponent(ctx, valueArg(4, "0.0"), 2);
+        auto c3 = sampleCoordComponent(ctx, valueArg(5, "0.0"), 3);
         auto cmp = valueArg(9, "0.0");
         auto ox = ensureScalarIndex(numericArg(6, "0"));
         auto oy = ensureScalarIndex(numericArg(7, "0"));
+        if (resource_kind != 0u && resource_kind != 1u && resource_kind != 2u &&
+            resource_kind != 5u && resource_kind != 6u && resource_kind != 7u &&
+            resource_kind != 9u) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL comparison sample is unsupported for resource kind=%u", resource_kind);
+            return "0.0";
+        }
+
+        std::string coord;
+        std::string array_suffix;
+        bool has_offset = true;
+        switch (resource_kind) {
+        case 1u:
+            coord = "(" + c0 + ")";
+            has_offset = true;
+            break;
+        case 6u:
+            coord = "(" + c0 + ")";
+            array_suffix = ", (uint)(" + c1 + ")";
+            break;
+        case 2u:
+            coord = "float2(" + c0 + ", " + c1 + ")";
+            break;
+        case 7u:
+            coord = "float2(" + c0 + ", " + c1 + ")";
+            array_suffix = ", (uint)(" + c2 + ")";
+            break;
+        case 5u:
+            coord = "float3(" + c0 + ", " + c1 + ", " + c2 + ")";
+            has_offset = false;
+            break;
+        case 9u:
+            coord = "float3(" + c0 + ", " + c1 + ", " + c2 + ")";
+            array_suffix = ", (uint)(" + c3 + ")";
+            has_offset = false;
+            break;
+        default:
+            coord = "float2(" + c0 + ", " + c1 + ")";
+            break;
+        }
         if (ctx.shader.kind == DxilShaderKind::Compute) {
-            std::string sample = handle + ".read(uint2((uint)(" + cx +
-                                  "), (uint)(" + cy + "))";
-            if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224)
-                sample += ", (uint)(" + numericArg(10, "0") + ")";
-            sample += ")";
+            std::string sample;
+            if (resource_kind == 1u)
+                sample = handle + ".read((uint)(" + c0 + "), (uint)(" + numericArg(10, "0") + "))";
+            else if (resource_kind == 6u)
+                sample = handle + ".read((uint)(" + c0 + "), (uint)(" + c1 + "), (uint)(" + numericArg(10, "0") + "))";
+            else
+                sample = handle + ".read(uint2((uint)(" + c0 + "), (uint)(" + c1 + "))" +
+                        (resource_kind == 7u ? ", (uint)(" + c2 + ")" : "") +
+                        ((intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224)
+                             ? ", (uint)(" + numericArg(10, "0") + ")" : "") + ")";
             return "(((float)(" + cmp + ") <= " + sample + ") ? 1.0f : 0.0f)";
         }
+        std::string call = handle + ".sample_compare(" + samp + ", " + coord + array_suffix +
+                          ", (float)(" + cmp + ")";
         if (intrinsic_id == DXOP_TextureSampleCmpGrad) {
-            auto ddx = "float2(" + numericArg(10, "0.0") + ", " + numericArg(11, "0.0") + ")";
-            auto ddy = "float2(" + numericArg(13, "0.0") + ", " + numericArg(14, "0.0") + ")";
-            return handle + ".sample_compare(" + samp + ", float2(" + cx +
-                   ", " + cy + "), (float)(" + cmp + "), gradient2d(" + ddx +
-                   ", " + ddy + "), int2(" + ox + ", " + oy + "))";
+            call += ", gradient2d(float2(" + numericArg(10, "0.0") + ", " +
+                    numericArg(11, "0.0") + "), float2(" + numericArg(13, "0.0") +
+                    ", " + numericArg(14, "0.0") + "))";
+        } else if (intrinsic_id == DXOP_TextureSampleCmpBias) {
+            call += ", bias((float)(" + numericArg(10, "0.0") + "))";
+        } else if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224) {
+            call += ", level((float)(" + numericArg(10, "0.0") + "))";
+        } else if (intrinsic_id == DXOP_TextureSampleCmpLevelZero) {
+            call += ", level(0.0f)";
         }
-        if (intrinsic_id == DXOP_TextureSampleCmpBias) {
-            auto bias = numericArg(10, "0.0");
-            return handle + ".sample_compare(" + samp + ", float2(" + cx +
-                   ", " + cy + "), (float)(" + cmp + "), bias((float)(" +
-                   bias + ")), int2(" + ox + ", " + oy + "))";
+        if (has_offset) {
+            if (resource_kind == 1u || resource_kind == 6u)
+                call += ", int(" + ox + ")";
+            else
+                call += ", int2(" + ox + ", " + oy + ")";
         }
-        if (intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224) {
-            auto lod = numericArg(10, "0.0");
-            return handle + ".sample_compare(" + samp + ", float2(" + cx +
-                   ", " + cy + "), (float)(" + cmp + "), level((float)(" +
-                   lod + ")), int2(" + ox + ", " + oy + "))";
-        }
-        if (intrinsic_id == DXOP_TextureSampleCmpLevelZero)
-            return handle + ".sample_compare(" + samp + ", float2(" + cx +
-                   ", " + cy + "), (float)(" + cmp + "), level(0.0f), int2(" +
-                   ox + ", " + oy + "))";
-        return handle + ".sample_compare(" + samp + ", float2(" + cx + ", " +
-               cy + "), (float)(" + cmp + "), int2(" + ox + ", " + oy + "))";
+        return call + ")";
     }
     case DXOP_BufferUpdateCounter:
         ctx.unsupported_intrinsics++;
@@ -4013,7 +4433,24 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return "true";
     case 72: {
         auto handle = handleArg(0, "tex", "tex0");
-        return "uint4(" + handle + ".get_width(), " + handle + ".get_height(), 1, 1)";
+        const uint32_t resource_kind = resourceKindForHandle(ctx, args.empty() ? 0u : args[0]);
+        auto mip = args.size() > 1 ? ensureScalarIndex(numericArg(1, "0")) : "0";
+        std::string width = handle + ".get_width((uint)(" + mip + "))";
+        std::string height = "1u";
+        std::string depth_or_array = "1u";
+        std::string mip_count = handle + ".get_num_mip_levels()";
+        if (resource_kind == 2u || resource_kind == 7u ||
+            resource_kind == 3u || resource_kind == 8u ||
+            resource_kind == 5u || resource_kind == 9u)
+            height = handle + ".get_height((uint)(" + mip + "))";
+        if (resource_kind == 4u)
+            depth_or_array = handle + ".get_depth((uint)(" + mip + "))";
+        else if (isTextureArrayResourceKind(resource_kind))
+            depth_or_array = handle + ".get_array_size()";
+        if (resource_kind == 3u || resource_kind == 8u)
+            mip_count = handle + ".get_num_samples()";
+        return "uint4(" + width + ", " + height + ", " + depth_or_array + ", " +
+               mip_count + ")";
     }
     case 83: case 85: return "dfdx(" + valueArg(0, "0.0") + ")";
     case 84: case 86: return "dfdy(" + valueArg(0, "0.0") + ")";

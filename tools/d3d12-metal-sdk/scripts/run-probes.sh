@@ -27,6 +27,8 @@ RUN_QUEUES=1
 RUN_DESCRIPTORS=1
 RUN_SHADERS=1
 RUN_DXIL_SEMANTICS=1
+RUN_TEXTURE_DIMENSIONS=0
+RUN_TEXTURE_DIMENSIONS_ONLY=0
 RUN_SHADER_CORPUS=1
 RUN_SM66_CAPABILITIES=1
 RUN_WRITABLE_MSAA=1
@@ -113,6 +115,9 @@ Options:
   --no-shaders          Skip probe_shaders.
   --dxil-semantics      Run the DXIL semantic opcode-group probe.
   --semantic-only       Run only the DXIL semantic opcode-group probe.
+  --texture-dimensions  Run the DXIL 1D/array/3D/cube/MSAA texture matrix.
+  --texture-dimensions-only
+                        Run only the DXIL texture-dimension matrix.
   --no-shader-corpus    Skip the synthetic shader corpus probe.
   --shader-corpus-only  Run only the synthetic shader corpus probe.
   --no-sm66-capabilities
@@ -578,6 +583,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-shader-corpus)
       RUN_SHADER_CORPUS=0
+      shift
+      ;;
+    --texture-dimensions)
+      RUN_TEXTURE_DIMENSIONS=1
+      shift
+      ;;
+    --texture-dimensions-only)
+      RUN_TEXTURE_DIMENSIONS_ONLY=1
       shift
       ;;
     --shader-corpus-only)
@@ -1084,6 +1097,39 @@ if [[ "$RUN_VRS_ONLY" == "1" ]]; then
   RUN_FULL_STRESS=0
 fi
 
+if [[ "$RUN_TEXTURE_DIMENSIONS_ONLY" == "1" ]]; then
+  RUN_LEGACY_REGRESSION=0
+  RUN_LOADER=0
+  RUN_AGILITY=0
+  RUN_CAPS=0
+  RUN_FEATURE_LEVELS=0
+  RUN_OBJECT_CONTRACTS=0
+  RUN_DXGI=0
+  RUN_RESOURCES=0
+  RUN_QUEUES=0
+  RUN_DESCRIPTORS=0
+  RUN_SHADERS=0
+  RUN_DXIL_SEMANTICS=0
+  RUN_SHADER_CORPUS=0
+  RUN_SM66_CAPABILITIES=0
+  RUN_WRITABLE_MSAA=0
+  RUN_VRS=0
+  RUN_SAMPLER_FEEDBACK=0
+  RUN_WAVE_OPS=0
+  RUN_REFLECTION_ABI=0
+  RUN_GRAPHICS_PSO=0
+  RUN_COMPUTE_PSO=0
+  RUN_COMMAND_REPLAY=0
+  RUN_BARRIERS_RENDER_PASS=0
+  RUN_RESOURCE_VIEWS_FORMATS=0
+  RUN_RENDER_HEADLESS=0
+  RUN_MINI=0
+  RUN_WINEMETAL_ABI=0
+  RUN_PRESENT_WINDOWED=0
+  RUN_FULL_STRESS=0
+  RUN_TEXTURE_DIMENSIONS=1
+fi
+
 if [[ "$PROFILE" == "metalsharp" ]]; then
   WINE_BIN="${WINE_BIN:-$HOME/.metalsharp/runtime/wine/bin/wine}"
   if [[ "$WINE_BIN" == "wine" && -x "$HOME/.metalsharp/runtime/wine/bin/wine" ]]; then
@@ -1153,6 +1199,7 @@ QUEUES_PROBE_EXE="$SDK_DIR/out/bin/probe_queues.exe"
 DESCRIPTORS_PROBE_EXE="$SDK_DIR/out/bin/probe_descriptors.exe"
 SHADERS_PROBE_EXE="$SDK_DIR/out/bin/probe_shaders.exe"
 DXIL_SEMANTICS_PROBE_EXE="$SDK_DIR/out/bin/probe_dxil_semantics.exe"
+TEXTURE_DIMENSIONS_PROBE_EXE="$SDK_DIR/out/bin/probe_texture_dimensions.exe"
 SHADER_CORPUS_PROBE_EXE="$SDK_DIR/out/bin/probe_shader_corpus.exe"
 SM66_CAPABILITIES_PROBE_EXE="$SDK_DIR/out/bin/probe_sm66_capabilities.exe"
 WRITABLE_MSAA_PROBE_EXE="$SDK_DIR/out/bin/probe_writable_msaa.exe"
@@ -1210,7 +1257,7 @@ if [[ "$WINDOWS_DIR" == *"/gptk/"* || "$WINDOWS_DIR" == *"/lib/gptk/"* ]]; then
 fi
 
 NEED_BUILD=0
-if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$TEXTURE_DIMENSIONS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
 
@@ -1285,6 +1332,7 @@ SHADERS_RESULT_FILE="$RESULTS_DIR/probe-shaders-${PROFILE}.json"
 SHADERS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-shaders-warmup-${PROFILE}.json"
 DXIL_SEMANTICS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-dxil-semantics-warmup-${PROFILE}.json"
 DXIL_SEMANTICS_RESULT_FILE="$RESULTS_DIR/probe-dxil-semantics-${PROFILE}.json"
+TEXTURE_DIMENSIONS_RESULT_FILE="$RESULTS_DIR/probe-texture-dimensions-${PROFILE}.json"
 SHADER_CORPUS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-warmup-${PROFILE}.json"
 SHADER_CORPUS_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-${PROFILE}.json"
 DXIL_LOWERING_AUDIT_RESULT_FILE="$RESULTS_DIR/dxil-lowering-audit-${PROFILE}.json"
@@ -2395,6 +2443,25 @@ HLSL_TEXTURE
   convert_dxil_shader_cache "$SHADER_CACHE_DIR"
 }
 
+prepare_texture_dimension_probes() {
+  local source_hlsl="$SDK_DIR/probes/probe_texture_dimensions.hlsl"
+  local hlsl="$SDK_DIR/out/bin/probe_texture_dimensions.hlsl"
+  cp "$source_hlsl" "$hlsl"
+  (
+    cd "$SDK_DIR/out/bin"
+    for entry in \
+      cs_texture_1d cs_texture_1d_array cs_texture_2d cs_texture_2d_array \
+      cs_texture_3d cs_texture_cube cs_texture_cube_array cs_texture_2d_ms \
+      cs_texture_2d_ms_array cs_store_1d cs_store_1d_array cs_store_2d \
+      cs_store_2d_array cs_store_3d; do
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E "$entry" -T cs_6_0 -HV 2021 \
+        -Fo "${entry}.cso" probe_texture_dimensions.hlsl >/dev/null
+    done
+  )
+}
+
 SOURCE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
 SOURCE_TREE_SHA256="$(python3 - "$ROOT_DIR" <<'PY'
 import hashlib
@@ -2722,6 +2789,22 @@ if [[ "$RUN_DXIL_SEMANTICS" == "1" ]]; then
   )
   echo "$DXIL_SEMANTICS_WARMUP_RESULT_FILE"
   echo "$DXIL_SEMANTICS_RESULT_FILE"
+fi
+
+if [[ "$RUN_TEXTURE_DIMENSIONS" == "1" ]]; then
+  prepare_texture_dimension_probes
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLPATH="$PROBE_WINEDLLPATH" \
+    WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+    DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+    DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+    DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+    D3D12_METAL_SDK_PROFILE="$PROFILE" \
+    "$WINE_BIN" "$TEXTURE_DIMENSIONS_PROBE_EXE" > "$TEXTURE_DIMENSIONS_RESULT_FILE"
+  )
+  echo "$TEXTURE_DIMENSIONS_RESULT_FILE"
 fi
 
 if [[ "$RUN_SHADER_CORPUS" == "1" ]]; then

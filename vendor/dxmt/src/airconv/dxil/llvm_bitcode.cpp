@@ -117,11 +117,16 @@ static constexpr uint32_t kBlockID_Constants = 11;
 static constexpr uint32_t kBlockID_Metadata = 15;
 static constexpr uint32_t kBlockID_MetadataAttachment = 16;
 
-static constexpr uint32_t kMetadataCode_String = 3;
-static constexpr uint32_t kMetadataCode_Value = 5;
+// DXIL uses the LLVM 3.7 metadata record numbering.  In particular,
+// VALUE/NODE/NAMED_NODE are 2/3/10; using the newer internal numbering here
+// silently drops all resource metadata while still allowing the module to
+// parse.
+static constexpr uint32_t kMetadataCode_String = 1;
+static constexpr uint32_t kMetadataCode_Value = 2;
+static constexpr uint32_t kMetadataCode_Node = 3;
+static constexpr uint32_t kMetadataCode_Name = 4;
 static constexpr uint32_t kMetadataCode_Kind = 6;
-static constexpr uint32_t kMetadataCode_Node = 1;
-static constexpr uint32_t kMetadataCode_NamedNode = 13;
+static constexpr uint32_t kMetadataCode_NamedNode = 10;
 
 static constexpr uint32_t kModuleCode_Version = 1;
 static constexpr uint32_t kTypeCode_Void = 2;
@@ -334,9 +339,24 @@ struct MetadataNode {
   std::vector<uint32_t> operands;
 };
 
+// Metadata references use two related ID spaces in the LLVM 3.7 bitcode
+// format.  Every STRING, VALUE, and NODE record receives a record ID, while
+// NODE operands are encoded as record_id + 1 (zero is null).  Named metadata
+// operands use the unshifted record ID.  Keep that unified record stream so
+// resource tuples can be resolved without guessing from the printable module.
+struct MetadataRecord {
+  enum class Kind { String, Value, Node } kind = Kind::Node;
+  std::string string_value;
+  uint32_t type_id = 0;
+  uint64_t value_id = 0;
+  std::vector<uint32_t> operands;
+};
+
 struct MetadataState {
   std::vector<MetadataValue> values;
   std::vector<MetadataNode> nodes;
+  std::vector<MetadataRecord> records;
+  std::unordered_map<std::string, std::vector<uint32_t>> named_nodes;
   std::unordered_map<std::string, uint32_t> kind_map;
   uint32_t numthreads_kind = (uint32_t)-1;
   bool parsed = false;
@@ -1547,6 +1567,7 @@ static bool parseMetadataBlock(LLVMModule &module, BitstreamReader &reader,
   if (!abbrevs.empty())
     cur_abbrevs = abbrevs;
 
+  std::string pending_named_metadata;
   while (!reader.atEnd() && reader.tell() < end_bit) {
     uint32_t code = reader.read(abbrev_len);
     if (code == kEndBlock) {
@@ -1563,6 +1584,32 @@ static bool parseMetadataBlock(LLVMModule &module, BitstreamReader &reader,
       continue;
     }
 
+    // LLVM 3.7 emits STRING and NAME using the two block-local
+    // abbreviations installed by BLOCKINFO (IDs 4 and 5).  Abbreviated
+    // records do not carry their record code in readRecord(), so handle them
+    // before interpreting the unabbreviated record vector below.
+    if (code == kMetadataCode_Node + 1) {
+      auto string_ops = readRecord(reader, code, cur_abbrevs);
+      MetadataRecord record;
+      record.kind = MetadataRecord::Kind::String;
+      size_t first = !string_ops.empty() &&
+                             string_ops.front() == kMetadataCode_String
+                         ? 1
+                         : 0;
+      record.string_value = recordString(string_ops, first);
+      md_state.records.push_back(std::move(record));
+      continue;
+    }
+    if (code == kMetadataCode_Name + 1) {
+      auto name_ops = readRecord(reader, code, cur_abbrevs);
+      size_t first = !name_ops.empty() &&
+                             name_ops.front() == kMetadataCode_Name
+                         ? 1
+                         : 0;
+      pending_named_metadata = recordString(name_ops, first);
+      continue;
+    }
+
     auto ops = readRecord(reader, code, cur_abbrevs);
     if (ops.empty())
       continue;
@@ -1574,19 +1621,43 @@ static bool parseMetadataBlock(LLVMModule &module, BitstreamReader &reader,
       uint32_t kind_id = (uint32_t)ops[1];
       md_state.kind_map[kind_name] = kind_id;
       DXTRACE("DXIL metadata kind: id=%u name=%s", kind_id, kind_name.c_str());
+    } else if (rec_code == kMetadataCode_String && ops.size() > 1) {
+      MetadataRecord record;
+      record.kind = MetadataRecord::Kind::String;
+      record.string_value = recordString(ops, 1);
+      md_state.records.push_back(std::move(record));
+    } else if (rec_code == kMetadataCode_Name && ops.size() > 1) {
+      pending_named_metadata = recordString(ops, 1);
     } else if (rec_code == kMetadataCode_Value && ops.size() > 2) {
       MetadataValue mv;
       mv.type_id = (uint32_t)ops[1];
       mv.value = ops[2];
       md_state.values.push_back(mv);
+
+      MetadataRecord record;
+      record.kind = MetadataRecord::Kind::Value;
+      record.type_id = mv.type_id;
+      record.value_id = mv.value;
+      md_state.records.push_back(std::move(record));
     } else if (rec_code == kMetadataCode_Node) {
       MetadataNode node;
+      MetadataRecord record;
+      record.kind = MetadataRecord::Kind::Node;
       for (size_t i = 1; i < ops.size(); i++) {
         uint32_t ref = (uint32_t)ops[i];
-        if (ref != (uint32_t)-1)
-          node.operands.push_back(ref);
+        node.operands.push_back(ref);
+        record.operands.push_back(ref);
       }
-      md_state.nodes.push_back(node);
+      md_state.nodes.push_back(std::move(node));
+      md_state.records.push_back(std::move(record));
+    } else if (rec_code == kMetadataCode_NamedNode) {
+      if (!pending_named_metadata.empty() && ops.size() > 1) {
+        auto &refs = md_state.named_nodes[pending_named_metadata];
+        refs.insert(refs.end(), ops.begin() + 1, ops.end());
+        DXTRACE("DXIL named metadata: name=%s refs=%zu",
+                pending_named_metadata.c_str(), refs.size());
+      }
+      pending_named_metadata.clear();
     }
   }
 
@@ -1600,6 +1671,168 @@ static bool parseMetadataBlock(LLVMModule &module, BitstreamReader &reader,
 
   md_state.parsed = true;
   return true;
+}
+
+static const MetadataRecord *metadataNodeOperand(
+    const MetadataState &md_state, const MetadataRecord &node,
+    size_t operand_index) {
+  if (node.kind != MetadataRecord::Kind::Node ||
+      operand_index >= node.operands.size())
+    return nullptr;
+  uint32_t encoded = node.operands[operand_index];
+  if (encoded == 0 || encoded == UINT32_MAX)
+    return nullptr;
+  uint64_t record_id = static_cast<uint64_t>(encoded) - 1;
+  if (record_id >= md_state.records.size())
+    return nullptr;
+  return &md_state.records[static_cast<size_t>(record_id)];
+}
+
+static const MetadataRecord *metadataNamedRecord(
+    const MetadataState &md_state, uint32_t record_id) {
+  if (record_id >= md_state.records.size())
+    return nullptr;
+  return &md_state.records[record_id];
+}
+
+static bool parseMetadataInteger(const std::string &text, uint32_t &value) {
+  if (text.empty())
+    return false;
+  char *end = nullptr;
+  long long parsed = std::strtoll(text.c_str(), &end, 10);
+  if (!end || *end != '\0')
+    return false;
+  value = static_cast<uint32_t>(parsed);
+  return true;
+}
+
+static bool resolveMetadataInteger(const LLVMModule &module,
+                                   const MetadataRecord *record,
+                                   uint32_t &value) {
+  if (!record || record->kind != MetadataRecord::Kind::Value)
+    return false;
+  const LLVMValue *constant =
+      findConstantById(module, static_cast<uint32_t>(record->value_id));
+  if (!constant || constant->constant_data.empty())
+    return false;
+  return parseMetadataInteger(constant->constant_data, value);
+}
+
+static bool resolveMetadataTags(const LLVMModule &module,
+                               const MetadataState &md_state,
+                               const MetadataRecord *tags,
+                               uint32_t &element_stride) {
+  if (!tags || tags->kind != MetadataRecord::Kind::Node)
+    return false;
+  for (size_t i = 0; i + 1 < tags->operands.size(); i += 2) {
+    uint32_t tag = 0;
+    uint32_t candidate = 0;
+    if (!resolveMetadataInteger(module,
+                                metadataNodeOperand(md_state, *tags, i), tag) ||
+        !resolveMetadataInteger(module,
+                                metadataNodeOperand(md_state, *tags, i + 1),
+                                candidate))
+      continue;
+    // DXIL tag 1 is the structured-buffer element stride.  Tag 0 is an
+    // element type identifier and is not a byte stride.
+    if (tag == 1) {
+      element_stride = candidate;
+      return true;
+    }
+  }
+  return false;
+}
+
+static void recoverResourcesFromMetadata(LLVMModule &module,
+                                          const MetadataState &md_state) {
+  module.resource_bindings.clear();
+  auto named = md_state.named_nodes.find("dx.resources");
+  if (named == md_state.named_nodes.end() || named->second.empty())
+    return;
+
+  const MetadataRecord *root =
+      metadataNamedRecord(md_state, named->second.front());
+  if (!root || root->kind != MetadataRecord::Kind::Node)
+    return;
+
+  // The four dx.resources lists are ordered SRV, UAV, CBV, and Sampler.
+  for (uint32_t resource_class = 0; resource_class < 4; ++resource_class) {
+    const MetadataRecord *list =
+        metadataNodeOperand(md_state, *root, resource_class);
+    if (!list || list->kind != MetadataRecord::Kind::Node)
+      continue;
+
+    for (uint32_t encoded_record : list->operands) {
+      if (encoded_record == 0 || encoded_record == UINT32_MAX)
+        continue;
+      const MetadataRecord *resource = metadataNamedRecord(
+          md_state, static_cast<uint32_t>(encoded_record - 1));
+      if (!resource || resource->kind != MetadataRecord::Kind::Node ||
+          resource->operands.size() < 6)
+        continue;
+
+      uint32_t resource_id = 0;
+      uint32_t register_space = 0;
+      uint32_t lower_bound = 0;
+      uint32_t count = 1;
+      if (!resolveMetadataInteger(
+              module, metadataNodeOperand(md_state, *resource, 0),
+              resource_id) ||
+          !resolveMetadataInteger(
+              module, metadataNodeOperand(md_state, *resource, 3),
+              register_space) ||
+          !resolveMetadataInteger(
+              module, metadataNodeOperand(md_state, *resource, 4),
+              lower_bound) ||
+          !resolveMetadataInteger(
+              module, metadataNodeOperand(md_state, *resource, 5), count))
+        continue;
+
+      DxilResourceBinding binding;
+      binding.resource_class = resource_class;
+      binding.resource_id = resource_id;
+      binding.register_space = register_space;
+      binding.lower_bound = lower_bound;
+      binding.count = count ? count : 1;
+
+      if (resource_class == 0) { // SRV
+        resolveMetadataInteger(
+            module, metadataNodeOperand(md_state, *resource, 6),
+            binding.resource_kind);
+        uint32_t sample_count = 1;
+        if (resolveMetadataInteger(
+                module, metadataNodeOperand(md_state, *resource, 7),
+                sample_count) && sample_count != 0)
+          binding.sample_count = sample_count;
+        resolveMetadataTags(
+            module, md_state, metadataNodeOperand(md_state, *resource, 8),
+            binding.element_stride);
+      } else if (resource_class == 1) { // UAV
+        resolveMetadataInteger(
+            module, metadataNodeOperand(md_state, *resource, 6),
+            binding.resource_kind);
+        uint32_t flag = 0;
+        if (resolveMetadataInteger(
+                module, metadataNodeOperand(md_state, *resource, 7), flag))
+          binding.globally_coherent = flag != 0;
+        if (resolveMetadataInteger(
+                module, metadataNodeOperand(md_state, *resource, 8), flag))
+          binding.has_counter = flag != 0;
+        if (resolveMetadataInteger(
+                module, metadataNodeOperand(md_state, *resource, 9), flag))
+          binding.rasterizer_ordered = flag != 0;
+        resolveMetadataTags(
+            module, md_state, metadataNodeOperand(md_state, *resource, 10),
+            binding.element_stride);
+      } else if (resource_class == 2) { // CBV
+        binding.resource_kind = 13; // DXIL ResourceKind::CBuffer.
+      } else { // Sampler
+        binding.resource_kind = 14; // DXIL ResourceKind::Sampler.
+      }
+
+      module.resource_bindings.push_back(binding);
+    }
+  }
 }
 
 static void resolveNumthreadsFromAttachment(
@@ -1953,6 +2186,7 @@ std::optional<LLVMModule> BitcodeReader::parse(const uint8_t *data, uint32_t siz
   }
 
   recoverNumthreadsFromEntryPointMetadata(module, md_state);
+  recoverResourcesFromMetadata(module, md_state);
 
   return module;
 }

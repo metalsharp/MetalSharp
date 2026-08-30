@@ -58,6 +58,14 @@
   diagnostic and reject PSO creation rather than succeeding with fake values.
   Unknown/non-DXIL call sites likewise reject instead of becoming zero-valued
   temporaries until helper-function lowering is implemented.
+- The LLVM 3.7 DXIL metadata reader now resolves the named `!dx.resources`
+  graph into class, register-space, range, resource-kind, structured stride,
+  sample-count, and UAV-flag records. The typed lowerer uses those records for
+  dimension-aware MSL declarations and coordinates. The source-staged texture
+  matrix passes exact readback for 1D, 1D-array, 2D, 2D-array, 3D, cube,
+  cube-array, and 2D-MS resources, plus UAV stores for 1D, 1D-array, 2D,
+  2D-array, and 3D; the D3D12 MSAA SRV view path now preserves the multisample
+  Metal texture type instead of creating an incompatible 2D view.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
@@ -90,6 +98,12 @@ METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
 METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh --shader-corpus-only
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-source-probes.sh \
+    --texture-dimensions-only
 ```
 
 The latest isolated semantic result passed with these exact lanes. It was
@@ -123,18 +137,22 @@ complete cache set.
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
 closed semantic, WaveOps (including active/prefix bit counts), diagnostic,
-atomic/special-float, binding-baseline, and focused lowering-report-audit rows
-while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
-row open.
+atomic/special-float, binding-baseline, resource-metadata/texture-dimension,
+and focused lowering-report-audit rows while keeping the exhaustive
+SM5.x–SM6.9 opcode/stage/resource/cache/session row open. The latest isolated
+texture-dimension result is profile
+`phase5-texture-dimensions-source-coordinates`: 14/14 cases passed with
+exact dimension-specific readback (64/96 values for distinct slices/faces) and
+no offline converter.
 
 ## Remaining Phase 5 work
 
 The complete exit gate is not claimed. The stable corpus still needs positive
 and negative behavior evidence for every declared DXIL opcode/intrinsic,
-control-flow and aggregate shape, graphics stage, texture dimension and
-sampling form, typed/raw/structured/counter resource, cache/compiler-session
-path, and all legal SM5.x–SM6.9 operations. Append/consume UAV counters and
-other explicitly limited providers remain fail-closed until their exact
-readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
+control-flow and aggregate shape, graphics stage, remaining texture sampling
+forms, typed/raw/structured/counter resource, cache/compiler-session path, and
+all legal SM5.x–SM6.9 operations. Append/consume UAV counters and other
+explicitly limited providers remain fail-closed until their exact readback
+matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.

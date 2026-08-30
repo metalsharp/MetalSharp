@@ -132,11 +132,28 @@ struct LLVMGlobal {
   bool is_constant = false;
 };
 
+struct DxilResourceBinding {
+  // DXIL resource classes match the class argument to createHandle:
+  // SRV=0, UAV=1, CBV=2, Sampler=3.
+  uint32_t resource_class = 0;
+  uint32_t resource_id = 0;
+  uint32_t register_space = 0;
+  uint32_t lower_bound = 0;
+  uint32_t count = 1;
+  uint32_t resource_kind = 0;
+  uint32_t element_stride = 0;
+  uint32_t sample_count = 1;
+  bool globally_coherent = false;
+  bool has_counter = false;
+  bool rasterizer_ordered = false;
+};
+
 struct LLVMModule {
   std::vector<LLVMType> types;
   std::vector<LLVMValue> constants;
   std::vector<LLVMFunction> functions;
   std::vector<LLVMGlobal> globals;
+  std::vector<DxilResourceBinding> resource_bindings;
   std::unordered_map<std::string, size_t> function_map;
   std::string source_filename;
   std::string target_triple;
