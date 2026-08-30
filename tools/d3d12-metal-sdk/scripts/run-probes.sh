@@ -1287,6 +1287,7 @@ DXIL_SEMANTICS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-dxil-semantics-warmup-${PR
 DXIL_SEMANTICS_RESULT_FILE="$RESULTS_DIR/probe-dxil-semantics-${PROFILE}.json"
 SHADER_CORPUS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-warmup-${PROFILE}.json"
 SHADER_CORPUS_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-${PROFILE}.json"
+DXIL_LOWERING_AUDIT_RESULT_FILE="$RESULTS_DIR/dxil-lowering-audit-${PROFILE}.json"
 SM66_CAPABILITIES_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-warmup-${PROFILE}.json"
 SM66_CAPABILITIES_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-${PROFILE}.json"
 WRITABLE_MSAA_RESULT_FILE="$RESULTS_DIR/probe-writable-msaa-${PROFILE}.json"
@@ -2201,6 +2202,34 @@ void cs_sm69(uint3 id : SV_DispatchThreadID) {
 }
 HLSL_SM69
 
+  local texture_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_texture_ops.hlsl"
+  cat > "$texture_hlsl" <<'HLSL_TEXTURE'
+Texture2D<float4> tex : register(t0);
+SamplerState smp : register(s0);
+RWByteAddressBuffer outbuf : register(u0);
+
+[numthreads(4, 1, 1)]
+void cs_texture_ops(uint3 id : SV_DispatchThreadID) {
+  float2 uv = float2(0.5, 0.5);
+  float4 loaded = tex.Load(int3(1, 1, 0));
+  float4 sampled = tex.SampleLevel(smp, uv, 0.0);
+  float4 gradient = tex.SampleGrad(smp, uv, float2(0.0, 0.0), float2(0.0, 0.0));
+  float4 biased = tex.SampleBias(smp, uv, 0.0);
+  float4 gathered = tex.GatherRed(smp, uv);
+  uint width = 0;
+  uint height = 0;
+  tex.GetDimensions(width, height);
+  if (id.x == 0) {
+    outbuf.Store(0, uint(loaded.r * 255.0 + 0.5));
+    outbuf.Store(4, uint(sampled.r * 255.0 + 0.5));
+    outbuf.Store(8, uint(gradient.r * 255.0 + 0.5));
+    outbuf.Store(12, uint(biased.r * 255.0 + 0.5));
+    outbuf.Store(16, uint(gathered.x * 255.0 + 0.5));
+    outbuf.Store(20, width + height * 16);
+  }
+}
+HLSL_TEXTURE
+
   (
     cd "$SDK_DIR/out/bin"
     WINEPREFIX="$WINE_PREFIX" \
@@ -2231,6 +2260,10 @@ HLSL_SM69
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \
       -Fo probe_dxil_semantic_sm69.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_texture_ops -T cs_6_9 -HV 2021 \
+      -Fo probe_dxil_semantic_texture_ops.cso probe_dxil_semantic_texture_ops.hlsl >/dev/null
   )
 
   mkdir -p "$SHADER_CACHE_DIR"
@@ -2605,6 +2638,14 @@ if [[ "$RUN_SHADER_CORPUS" == "1" ]]; then
   )
   echo "$SHADER_CORPUS_WARMUP_RESULT_FILE"
   echo "$SHADER_CORPUS_RESULT_FILE"
+fi
+
+if [[ "$RUN_SHADERS" == "1" || "$RUN_DXIL_SEMANTICS" == "1" ||
+      "$RUN_SHADER_CORPUS" == "1" ]]; then
+  python3 "$SDK_DIR/scripts/validate-dxil-lowering.py" \
+    --corpus "$SHADER_CACHE_DIR" \
+    --json-out "$DXIL_LOWERING_AUDIT_RESULT_FILE"
+  echo "$DXIL_LOWERING_AUDIT_RESULT_FILE"
 fi
 
 if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then

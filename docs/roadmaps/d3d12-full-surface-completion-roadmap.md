@@ -1377,3 +1377,16 @@ whether the scoped FL12_2 gate is green.
   evidence manifest. The source-staged command probe now records direct and
   ExecuteIndirect DISPATCH_RAYS and DISPATCH_MESH commands with exact UAV and
   raster readbacks; broader provider breadth remains assigned to later phases.
+
+### 2026-08-29 — Phase 5 shader compiler checkpoint
+
+- Added exact source-staged SM6.7, SM6.8, and SM6.9 semantic readbacks,
+  including a pinned `float16_t` conversion lane, and a 4x4 texture
+  Load/SampleLevel/SampleGrad/SampleBias/GatherRed/GetDimensions matrix.
+- Extended the pinned DXC compile/link corpus through `cs_6_9` and added a
+  fail-closed `shader/unsupported_semantics` boundary so nonzero lowering
+  counters cannot become successful placeholder PSOs.
+- Added the Phase 5 shader proof, lowering-report audit, and fail-closed
+  `phase5-shader-coverage.json` manifest. Focused semantic, WaveOps,
+  diagnostic, and binding-baseline rows are closed; the exhaustive
+  SM5.x–SM6.9 opcode/stage/resource/cache/session row remains open.

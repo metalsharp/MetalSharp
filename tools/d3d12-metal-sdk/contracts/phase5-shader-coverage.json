@@ -59,6 +59,15 @@
       "remaining": "Append/consume UAV counters remain explicitly unsupported and require a dedicated provider and readback matrix."
     },
     {
+      "id": "lowering-report-unsupported-placeholder-audit",
+      "status": "closed",
+      "result": "dxil-lowering-audit",
+      "checks": [
+        ["pass"]
+      ],
+      "remaining": "The audit covers reports emitted by the focused invocation; it is not an exhaustive title corpus."
+    },
+    {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "open",
       "result": "probe-shader-corpus",

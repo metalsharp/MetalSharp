@@ -125,10 +125,15 @@
       "proves": "Captured DXBC/DXIL blobs replay through the converter and produce reusable shader artifacts."
     },
     {
+      "id": "dxil-lowering-report-audit",
+      "command": "python3 tools/d3d12-metal-sdk/scripts/validate-dxil-lowering.py --corpus <shader-cache>",
+      "proves": "Focused DXIL reports have zero unsupported intrinsic/opcode counts and no generated unhandled/skipped lowering markers."
+    },
+    {
       "id": "m12-render-check",
       "command": "tools/ci/m12-check.sh",
       "proves": "A live DX12 render path can create PSOs, bind shaders, draw indexed geometry, present, and read back expected pixels."
-    },
+    }
     {
       "id": "m12-stress-game",
       "command": "tools/d3d12-metal-sdk/scripts/m12-dev.sh stress-game",
