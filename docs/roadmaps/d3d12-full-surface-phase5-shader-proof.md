@@ -117,7 +117,8 @@
   through the direct-buffer ABI. Scalar and two-component structured loads
   retain their vector result type until DXIL extraction; the aggregate lane
   returns exact `[303,703,303,703]` while preserving stride-eight element
-  addressing. Writable arrays now retain their bounded dynamic UAV pointer:
+  addressing, and a nested `{uint2 lo; uint2 hi;}` descriptor array preserves
+  stride-sixteen field extraction as exact `[103,203,303,403]`. Writable arrays now retain their bounded dynamic UAV pointer:
   two-entry raw stores return exact `[503,504,505,506]`, four-entry raw stores
   select descriptor three and return `[803,804,805,806]`; directly indexed
   `ResourceDescriptorHeap` writes select entry three as `[903,904,905,906]`
@@ -272,7 +273,8 @@ zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
 Metal validation assertion. The latest SM6.6/6.7 profile
 `phase5-rwdyn2` additionally returns exact `[103,203,303,403]` from both raw
 and scalar-structured dynamically indexed SRV arrays,
-`[303,703,303,703]` from the `uint2` aggregate lane, and
+`[303,703,303,703]` from the `uint2` aggregate lane,
+`[103,203,303,403]` from nested stride-sixteen `uint2` pairs, and
 `[503,504,505,506]` from a dynamically selected two-entry writable raw
 buffer, `[803,804,805,806]` from descriptor three of a four-entry array,
 `[903,904,905,906]` from directly indexed writable heap entry three and
