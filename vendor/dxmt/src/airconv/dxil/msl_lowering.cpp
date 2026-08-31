@@ -4803,7 +4803,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             coord = "float2(" + c0 + ", " + c1 + ")";
             break;
         }
-        if (ctx.shader.kind == DxilShaderKind::Compute) {
+        if (ctx.shader.kind == DxilShaderKind::Compute &&
+            resource_kind != 0u && resource_kind != 2u &&
+            resource_kind != 7u) {
             std::string sample;
             if (resource_kind == 1u)
                 sample = handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" + numericArg(10, "0") + "))";
