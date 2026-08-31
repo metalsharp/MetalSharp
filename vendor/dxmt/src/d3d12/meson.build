@@ -17,6 +17,7 @@ d3d12_src = [
   'd3d12_shared_resource.cpp',
   'd3d12_root_signature.cpp',
   'd3d12_shader_compiler.cpp',
+  'd3d12_compiler_plugin.cpp',
   'd3d12_swapchain.cpp',
   '../airconv/dxil/dxil_container.cpp',
   '../airconv/dxil/dxil_ir.cpp',
