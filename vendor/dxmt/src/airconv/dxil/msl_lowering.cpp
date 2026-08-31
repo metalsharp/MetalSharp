@@ -98,6 +98,8 @@ enum DXIntrinsicOpcode {
   DXOP_TextureSampleCmpBias = 255,
   DXOP_TextureGatherCmp = 74,
   DXOP_TextureGatherRaw = 223,
+  DXOP_Unpack4x8 = 219,
+  DXOP_Pack4x8 = 220,
   DXOP_WriteSamplerFeedback = 174,
   DXOP_WriteSamplerFeedbackBias = 175,
   DXOP_WriteSamplerFeedbackLevel = 176,
@@ -378,6 +380,8 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
     if (strncmp(s, "renderTargetGetSamplePosition", 29) == 0) return 76;
     if (strncmp(s, "renderTargetGetSampleCount", 26) == 0) return 77;
+    if (strncmp(s, "unpack4x8.", 10) == 0) return DXOP_Unpack4x8;
+    if (strncmp(s, "pack4x8.", 8) == 0) return DXOP_Pack4x8;
     return 0;
 }
 
@@ -406,6 +410,8 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_TextureStore:
     case DXOP_TextureGather:
     case DXOP_TextureStoreSample:
+    case DXOP_Unpack4x8:
+    case DXOP_Pack4x8:
     case DXOP_BufferLoad:
     case DXOP_BufferStore:
     case DXOP_RawBufferLoad:
@@ -4237,7 +4243,13 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_TextureGatherCmp:
         return {MSLTypeKind::Float4, 0, {}};
     case DXOP_TextureGatherRaw:
-        return {MSLTypeKind::UInt4, 0, {}};
+        return {MSLTypeKind::UInt4, 0, {} };
+    case DXOP_Unpack4x8:
+        return !args.empty() && literalFromValue(ctx, args[0], 0) == 1u
+                   ? MSLType{MSLTypeKind::Int4, 0, {}}
+                   : MSLType{MSLTypeKind::UInt4, 0, {}};
+    case DXOP_Pack4x8:
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_RawBufferLoad:
     case 303:
     case 1025:
@@ -5937,6 +5949,36 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case 80: return "threadgroup_barrier(mem_flags::mem_threadgroup)";
     case DXOP_Discard:
         return "discard_fragment()";
+    case DXOP_Unpack4x8: {
+        if (args.size() < 2) return "uint4(0)";
+        const bool signed_mode = literalArg(0, 0, "unpack mode") == 1u;
+        const std::string packed = "uint(" + numericArg(1, "0") + ")";
+        std::string values;
+        for (unsigned i = 0; i < 4; ++i) {
+            if (i) values += ", ";
+            const std::string shift = std::to_string(i * 8) + "u";
+            if (signed_mode)
+                values += "(int(int((" + packed + " >> " + shift + ") & 0xffu) << 24) >> 24)";
+            else
+                values += "(" + packed + " >> " + shift + ") & 0xffu";
+        }
+        return (signed_mode ? "int4(" : "uint4(") + values + ")";
+    }
+    case DXOP_Pack4x8: {
+        if (args.size() < 5) return "0u";
+        const uint32_t mode = literalArg(0, 0, "pack mode");
+        std::string packed = "0u";
+        for (unsigned i = 0; i < 4; ++i) {
+            std::string value = numericArg(i + 1, "0");
+            if (mode == 1u)
+                value = "min(max(uint(" + value + "), 0u), 255u)";
+            else if (mode == 2u)
+                value = "uint(min(max(int(" + value + "), -128), 127))";
+            packed += " | ((uint(" + value + ") & 0xffu) << " +
+                      std::to_string(i * 8) + "u)";
+        }
+        return packed;
+    }
     case DXOP_Unary: {
         if (args.size() < 2) return "0";
         uint32_t op = literalArg(0, 0xFFFFFFFFu, "unary");

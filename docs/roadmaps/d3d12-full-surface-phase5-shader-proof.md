@@ -321,7 +321,9 @@ multiply/divide, ordered comparisons including NaN, float32 round-trips,
 integer conversions, float-to-binary64 widening, FAbs, FMin/FMax, and
 special-value predicates. Direct FRem lowering is implemented through the
 software remainder helper; DXC's HLSL `fmod` overload is float-only and
-remains explicitly outside this binary64 proof.
+remains explicitly outside this binary64 proof. The same source-staged run
+also passes `pack_u8`/`pack_s8` truncation, unsigned/signed clamp, and all
+four signed/unsigned 32-bit and 16-bit unpack lanes with exact packed bytes.
 Its generated DXIL reports pass the unsupported/placeholder audit, and no
 generated MSL contains `float64_t` or `double`. Broader binary64 operation
 combinations remain in the exhaustive row.
