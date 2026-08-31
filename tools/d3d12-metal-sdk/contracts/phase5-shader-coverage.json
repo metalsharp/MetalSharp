@@ -89,6 +89,15 @@
       "remaining": "The source-staged 2x2 matrix construction, row extraction, vector-matrix multiply, and aggregate arithmetic return exact [17,27,37,47]. Broader matrix dimensions, matrix memory layouts, conversions, and helper-function boundaries remain in the exhaustive row."
     },
     {
+      "id": "dxil-source-helper-aggregate-runtime",
+      "status": "closed",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "A source chain of three noinline-marked helpers built with -Od returns exact [42,66,98,138] after DXC entry-point optimization. Preserved DXIL library calls, exported helpers, recursion rejection, and broader parameter/result shapes remain in the exhaustive row."
+    },
+    {
       "id": "dxil-native16-arithmetic-runtime",
       "status": "closed",
       "result": "probe-dxil-semantics",

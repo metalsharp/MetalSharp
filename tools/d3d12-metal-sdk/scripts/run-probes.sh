@@ -2331,6 +2331,27 @@ void cs_vector_shuffle(uint3 id : SV_DispatchThreadID) {
 
 groupshared uint g_counter;
 
+[noinline]
+uint helper_leaf(uint value) {
+  return value * value + 3u;
+}
+
+[noinline]
+uint4 helper_vector(uint base) {
+  return uint4(helper_leaf(base), helper_leaf(base + 1u),
+               helper_leaf(base + 2u), helper_leaf(base + 3u));
+}
+
+[noinline]
+uint helper_reduce(uint4 value) {
+  return value.x + value.y + value.z + value.w;
+}
+
+[numthreads(4, 1, 1)]
+void cs_helper_aggregate(uint3 id : SV_DispatchThreadID) {
+  outbuf.Store(id.x * 4, helper_reduce(helper_vector(id.x + 1u)));
+}
+
 [numthreads(4, 1, 1)]
 void cs_matrix_aggregate(uint3 id : SV_DispatchThreadID) {
   float2x2 transform;
@@ -2511,6 +2532,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_matrix_aggregate -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_matrix_aggregate.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_helper_aggregate -T cs_6_0 -HV 2021 -Od \
+      -Fo probe_dxil_semantic_helper_aggregate.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_atomics_ids -T cs_6_0 -HV 2021 \
