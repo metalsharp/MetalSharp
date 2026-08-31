@@ -734,24 +734,58 @@ public:
 
   HRESULT STDMETHODCALLTYPE StoreStateObjectDesc(
       const void *key, UINT key_size, UINT version,
-      const D3D12_STATE_OBJECT_DESC *desc, const void *, UINT) override {
-    if (!key || !key_size || !desc)
+      const D3D12_STATE_OBJECT_DESC *desc, const void *parent_key,
+      UINT parent_key_size) override {
+    if (!key || !key_size || !desc || (parent_key_size && !parent_key))
       return E_INVALIDARG;
+    if (desc->NumSubobjects || desc->pSubobjects) {
+      TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
+                   "version=%u subobjects=%u -> E_NOTIMPL",
+                   key_size, version, desc->NumSubobjects);
+      return E_NOTIMPL;
+    }
+
+    StateObjectDescEntry entry;
+    entry.version = version;
+    entry.type = desc->Type;
+    if (parent_key_size) {
+      const auto *parent = static_cast<const uint8_t *>(parent_key);
+      entry.parent_key.assign(parent, parent + parent_key_size);
+    }
+    m_state_object_descs[MakeKey(key, key_size)] = std::move(entry);
     TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
-                 "version=%u subobjects=%u -> E_NOTIMPL",
-                 key_size, version, desc->NumSubobjects);
-    return E_NOTIMPL;
+                 "version=%u type=%u parent_key_size=%u",
+                 key_size, version, static_cast<UINT>(desc->Type),
+                 parent_key_size);
+    return S_OK;
   }
 
-  HRESULT STDMETHODCALLTYPE FindStateObjectDesc(const void *key, UINT key_size,
-                                                D3D12StateObjectFuncCompat,
-                                                void *) override {
-    TraceAgility("StateObjectDatabase::FindStateObjectDesc key_size=%u -> "
-                 "E_NOTIMPL",
-                 key_size);
+  HRESULT STDMETHODCALLTYPE FindStateObjectDesc(
+      const void *key, UINT key_size, D3D12StateObjectFuncCompat callback,
+      void *context) override {
     if (!key || !key_size)
       return E_INVALIDARG;
-    return E_NOTIMPL;
+    if (!callback)
+      return E_POINTER;
+    auto key_bytes = MakeKey(key, key_size);
+    auto entry = m_state_object_descs.find(key_bytes);
+    if (entry == m_state_object_descs.end())
+      return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+
+    D3D12_STATE_OBJECT_DESC desc = {};
+    desc.Type = entry->second.type;
+    callback(entry->first.data(), static_cast<UINT>(entry->first.size()),
+             entry->second.version, &desc,
+             entry->second.parent_key.empty()
+                 ? nullptr
+                 : entry->second.parent_key.data(),
+             static_cast<UINT>(entry->second.parent_key.size()), context);
+    TraceAgility("StateObjectDatabase::FindStateObjectDesc key_size=%u -> "
+                 "hit version=%u type=%u parent_key_size=%zu",
+                 key_size, entry->second.version,
+                 static_cast<UINT>(entry->second.type),
+                 entry->second.parent_key.size());
+    return S_OK;
   }
 
   HRESULT STDMETHODCALLTYPE FindObjectVersion(const void *key, UINT key_size,
@@ -764,6 +798,11 @@ public:
       *version = pipeline->second.version;
       return S_OK;
     }
+    auto state_object = m_state_object_descs.find(key_bytes);
+    if (state_object != m_state_object_descs.end()) {
+      *version = state_object->second.version;
+      return S_OK;
+    }
     return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
   }
 
@@ -771,6 +810,12 @@ private:
   struct PipelineDescEntry {
     UINT version = 0;
     std::vector<uint8_t> stream;
+  };
+
+  struct StateObjectDescEntry {
+    UINT version = 0;
+    D3D12_STATE_OBJECT_TYPE type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    std::vector<uint8_t> parent_key;
   };
 
   static std::vector<uint8_t> MakeKey(const void *key, UINT key_size) {
@@ -782,6 +827,7 @@ private:
   bool m_has_application_desc = false;
   D3D12ApplicationDescCompat m_application_desc = {};
   std::map<std::vector<uint8_t>, PipelineDescEntry> m_pipeline_descs;
+  std::map<std::vector<uint8_t>, StateObjectDescEntry> m_state_object_descs;
 };
 
 class MTLD3D12StateObjectDatabaseFactory final

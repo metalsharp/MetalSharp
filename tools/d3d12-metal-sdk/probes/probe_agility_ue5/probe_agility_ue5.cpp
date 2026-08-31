@@ -134,6 +134,30 @@ static void STDMETHODCALLTYPE pipeline_state_callback(const void*, UINT, UINT ve
     state->size = desc ? desc->SizeInBytes : 0;
 }
 
+struct StateObjectCallbackState {
+    bool called = false;
+    UINT version = 0;
+    D3D12_STATE_OBJECT_TYPE type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    UINT subobject_count = UINT_MAX;
+    std::array<uint8_t, 4> parent_key = {};
+    UINT parent_key_size = 0;
+};
+
+static void STDMETHODCALLTYPE state_object_callback(
+    const void*, UINT, UINT version, const D3D12_STATE_OBJECT_DESC* desc,
+    const void* parent_key, UINT parent_key_size, void* context) {
+    auto* state = static_cast<StateObjectCallbackState*>(context);
+    if (!state)
+        return;
+    state->called = true;
+    state->version = version;
+    state->type = desc ? desc->Type : D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    state->subobject_count = desc ? desc->NumSubobjects : UINT_MAX;
+    state->parent_key_size = parent_key_size;
+    if (parent_key && parent_key_size == state->parent_key.size())
+        std::memcpy(state->parent_key.data(), parent_key, parent_key_size);
+}
+
 static std::string json_escape(const std::string& input) {
     std::string out;
     out.reserve(input.size() + 8);
@@ -457,12 +481,37 @@ int main() {
         database
             ? database->FindObjectVersion(pso_key.data(), static_cast<UINT>(pso_key.size()), &found_pipeline_version)
             : E_NOINTERFACE;
+    D3D12_STATE_OBJECT_DESC state_desc = {};
+    state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
+    std::array<uint8_t, 4> state_parent_key = {0x70, 0x61, 0x72, 0x00};
+    HRESULT store_state_object_hr =
+        database ? database->StoreStateObjectDesc(
+                       state_key.data(), static_cast<UINT>(state_key.size()), 11,
+                       &state_desc, state_parent_key.data(),
+                       static_cast<UINT>(state_parent_key.size()))
+                 : E_NOINTERFACE;
+    StateObjectCallbackState state_callback = {};
+    HRESULT find_state_object_hr =
+        database ? database->FindStateObjectDesc(
+                       state_key.data(), static_cast<UINT>(state_key.size()),
+                       state_object_callback, &state_callback)
+                 : E_NOINTERFACE;
+    UINT found_state_version = 0;
+    HRESULT find_state_version_hr =
+        database ? database->FindObjectVersion(
+                       state_key.data(), static_cast<UINT>(state_key.size()),
+                       &found_state_version)
+                 : E_NOINTERFACE;
+    D3D12_STATE_SUBOBJECT unsupported_subobject = {};
+    unsupported_subobject.Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
     D3D12_STATE_OBJECT_DESC unsupported_state_desc = {};
     unsupported_state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
-    std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
-    HRESULT store_state_object_hr =
-        database ? database->StoreStateObjectDesc(state_key.data(), static_cast<UINT>(state_key.size()), 1,
-                                                  &unsupported_state_desc, nullptr, 0)
+    unsupported_state_desc.NumSubobjects = 1;
+    unsupported_state_desc.pSubobjects = &unsupported_subobject;
+    HRESULT store_unsupported_state_object_hr =
+        database ? database->StoreStateObjectDesc(
+                       "bad", 3, 1, &unsupported_state_desc, nullptr, 0)
                  : E_NOINTERFACE;
 
     bool d3d12_expected_path = expected_windows.empty() || contains_ascii_ci(modules[4].path, expected_windows);
@@ -483,7 +532,15 @@ int main() {
         SUCCEEDED(get_database_factory_hr) && SUCCEEDED(create_database_hr) && SUCCEEDED(store_pipeline_desc_hr) &&
         SUCCEEDED(find_pipeline_desc_hr) && pipeline_callback.called && pipeline_callback.version == 7 &&
         pipeline_callback.size == sizeof(pipeline_stream) && SUCCEEDED(find_pipeline_version_hr) &&
-        found_pipeline_version == 7 && FAILED(store_state_object_hr);
+        found_pipeline_version == 7 && SUCCEEDED(store_state_object_hr) &&
+        SUCCEEDED(find_state_object_hr) && state_callback.called &&
+        state_callback.version == 11 &&
+        state_callback.type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
+        state_callback.subobject_count == 0 &&
+        state_callback.parent_key_size == state_parent_key.size() &&
+        state_callback.parent_key == state_parent_key &&
+        SUCCEEDED(find_state_version_hr) && found_state_version == 11 &&
+        store_unsupported_state_object_hr == E_NOTIMPL;
     bool pass = modules[0].loaded && modules[1].loaded && modules[4].loaded && modules[4].has_required_symbol &&
                 payload_version_matches && d3d12_expected_path && SUCCEEDED(create_hr) && device != nullptr &&
                 interfaces[0].supported && device_configuration_ok && shader_cache_ok && pipeline_desc_cache_ok;
@@ -533,12 +590,22 @@ int main() {
     print_hr_field("find_pipeline_state_desc", find_pipeline_desc_hr);
     print_hr_field("find_pipeline_version", find_pipeline_version_hr);
     print_hr_field("store_state_object_desc", store_state_object_hr);
+    print_hr_field("find_state_object_desc", find_state_object_hr);
+    print_hr_field("find_state_object_version", find_state_version_hr);
+    print_hr_field("store_unsupported_state_object_desc", store_unsupported_state_object_hr);
     std::printf("    \"pipeline_callback_called\": %s,\n", pipeline_callback.called ? "true" : "false");
     std::printf("    \"pipeline_callback_version\": %u,\n", pipeline_callback.version);
     std::printf("    \"pipeline_callback_size\": %llu,\n", static_cast<unsigned long long>(pipeline_callback.size));
+    std::printf("    \"state_object_callback_called\": %s,\n", state_callback.called ? "true" : "false");
+    std::printf("    \"state_object_callback_version\": %u,\n", state_callback.version);
+    std::printf("    \"state_object_callback_subobject_count\": %u,\n", state_callback.subobject_count);
+    std::printf("    \"state_object_parent_key_size\": %u,\n", state_callback.parent_key_size);
     std::printf("    \"shader_cache_verified\": %s,\n", shader_cache_ok ? "true" : "false");
     std::printf("    \"pipeline_desc_cache_verified\": %s,\n", pipeline_desc_cache_ok ? "true" : "false");
-    std::printf("    \"unsupported_state_object_rejected\": %s\n", FAILED(store_state_object_hr) ? "true" : "false");
+    std::printf("    \"state_object_desc_cache_verified\": %s,\n",
+                state_callback.called && found_state_version == 11 ? "true" : "false");
+    std::printf("    \"unsupported_state_object_rejected\": %s\n",
+                store_unsupported_state_object_hr == E_NOTIMPL ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"modules\": {\n");
     for (size_t i = 0; i < modules.size(); ++i)
