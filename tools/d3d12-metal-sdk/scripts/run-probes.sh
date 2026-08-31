@@ -2426,6 +2426,16 @@ void cs_sm69(uint3 id : SV_DispatchThreadID) {
   float16_t value = float16_t(69.0) + float16_t(id.x) * float16_t(1.5);
   outbuf.Store(id.x * 4, uint(value));
 }
+
+[numthreads(4, 1, 1)]
+void cs_sm69_native16(uint3 id : SV_DispatchThreadID) {
+  uint16_t unsigned_value = uint16_t(65000u) + uint16_t(id.x * 3u);
+  int16_t signed_value = int16_t(-120) + int16_t(id.x * 7u);
+  float16_t float_value = float16_t(2.5) + float16_t(id.x) * float16_t(0.5);
+  uint result = uint(unsigned_value) + uint(signed_value + int16_t(200)) +
+                uint(float_value * float16_t(2.0));
+  outbuf.Store(id.x * 4, result);
+}
 HLSL_SM69
 
   local texture_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_texture_ops.hlsl"
@@ -2533,6 +2543,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \
       -Fo probe_dxil_semantic_sm69.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_native16 -T cs_6_9 -HV 2021 -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_native16.cso probe_dxil_semantic_sm69.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_texture_ops -T cs_6_9 -HV 2021 \

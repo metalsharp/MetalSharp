@@ -106,9 +106,10 @@
   of `firstbitlow`/`firstbithigh`. The LLVM type reader now resolves vector
   element references from `type_refs` and rejects unsupported array values
   without recursive type resolution. The source-staged semantic run continues
-  to match `math_bits`, `math_intrinsics`, and all 21 semantic lanes, including
-  the four-lane vector aggregate shuffle and exact matrix aggregate arithmetic
-  `[17,27,37,47]`.
+  to match `math_bits`, `math_intrinsics`, and all 22 semantic lanes, including
+  the four-lane vector aggregate shuffle, exact matrix aggregate arithmetic
+  `[17,27,37,47]`, and signed/unsigned/float native-16 arithmetic
+  `[65085,65096,65107,65118]`.
 - Bounded descriptor indexing selects both `ByteAddressBuffer[2]` and
   `StructuredBuffer<uint>[2]` resources through generated direct-buffer
   helpers. Scalar structured loads retain their vector result type until DXIL
@@ -259,8 +260,7 @@ PSO probe, including exact append and consume data plus external counter
 readback. Profile `phase5-graphics-counter1` additionally passes exact vertex-
 and pixel-stage append cases. Profile `phase5-counter-corpus-negative` passes the shader corpus
 with `append_counter_link=true` and rejects a two-counter shader with exact
-`0x80004005`; `phase5-matrix-aggregate1` preserves all 21
-semantic lanes with zero mismatches.
+`0x80004005`; `phase5-native16-1` preserves all 22 semantic lanes with zero mismatches.
 
 ## Remaining Phase 5 work
 
