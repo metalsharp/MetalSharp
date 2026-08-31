@@ -89,6 +89,15 @@
       "remaining": "The source-staged 2x2 matrix construction, row extraction, vector-matrix multiply, and aggregate arithmetic return exact [17,27,37,47]. Broader matrix dimensions, matrix memory layouts, conversions, and helper-function boundaries remain in the exhaustive row."
     },
     {
+      "id": "dxil-native16-arithmetic-runtime",
+      "status": "closed",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The SM6.9 source-staged lane combines uint16_t, int16_t, and float16_t arithmetic and conversions with exact [65085,65096,65107,65118] readback. Broader native-16 resource, atomic, matrix, and graphics-stage combinations remain in the exhaustive row."
+    },
+    {
       "id": "dxil-double-arithmetic-runtime",
       "status": "closed",
       "result": "probe-dxil-semantics",

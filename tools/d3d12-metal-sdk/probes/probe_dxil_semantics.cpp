@@ -741,6 +741,8 @@ int main() {
          {37}, "double_arithmetic"},
         {"sm69_integer_float_mix", "probe_dxil_semantic_sm69.cso", {}, {69, 70, 72, 73},
          "sm69_integer_float16_conversion"},
+        {"sm69_native16_arithmetic", "probe_dxil_semantic_sm69_native16.cso", {},
+         {65085, 65096, 65107, 65118}, "sm69_native16_arithmetic"},
         {"texture_sampling_forms", "probe_dxil_semantic_texture_ops.cso", {},
          {64, 64, 64, 64, 64, 68},
          "texture_load_sample_gather_grad_bias_dimensions", true},
