@@ -193,6 +193,28 @@ static bool reflection_has_binding(const std::string& text, const char* type_a, 
     }
 }
 
+static bool manifest_has_binding(const std::string& text, const char* kind,
+                                 unsigned slot, unsigned space) {
+    size_t cursor = 0;
+    while (true) {
+        const size_t line_start = text.find("// range kind=", cursor);
+        if (line_start == std::string::npos)
+            return false;
+        const size_t line_end = text.find('\n', line_start);
+        const std::string line = text.substr(
+            line_start, line_end == std::string::npos ? std::string::npos
+                                                       : line_end - line_start);
+        unsigned line_space = 0, lower = 0, count = 0;
+        char line_kind[32] = {};
+        if (std::sscanf(line.c_str(), "// range kind=%31s space=%u lower=%u count=%u",
+                        line_kind, &line_space, &lower, &count) == 4 &&
+            std::strcmp(line_kind, kind) == 0 && line_space == space &&
+            slot >= lower && slot - lower < count)
+            return true;
+        cursor = line_end == std::string::npos ? text.size() : line_end + 1;
+    }
+}
+
 struct ReflectionScan {
     bool found = false;
     bool cbv_b0 = false;
@@ -215,24 +237,44 @@ static ReflectionScan scan_reflection_cache(const std::string& cache_path) {
         return scan;
 
     std::string base = glob.substr(0, glob.size() - std::strlen("*.json"));
+    FindClose(find);
+    find = FindFirstFileA((base + "*").c_str(), &data);
+    if (find == INVALID_HANDLE_VALUE)
+        return scan;
     do {
         if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
             continue;
         std::string path = base + data.cFileName;
         std::string text = read_text_file(path);
-        if (!contains(text, "\"EntryPoint\"") || !contains(text, "cs_reflect") ||
-            !contains(text, "\"TopLevelArgumentBuffer\""))
+        const size_t extension = path.rfind('.');
+        const bool native_msl_manifest =
+            extension != std::string::npos && path.substr(extension) == ".msl" &&
+            contains(text, "metalsharp.binding_manifest.v1") &&
+            contains(text, "kernel void cs_main");
+        const bool msc_reflection =
+            extension != std::string::npos && path.substr(extension) == ".json" &&
+            contains(text, "\"EntryPoint\"") && contains(text, "cs_reflect") &&
+            contains(text, "\"TopLevelArgumentBuffer\"");
+        if (!native_msl_manifest && !msc_reflection)
             continue;
 
         scan.found = true;
         scan.path = path;
-        scan.cbv_b0 =
-            reflection_has_binding(text, "\"Type\":\"ConstantBuffer\"", "\"Type\": \"ConstantBuffer\"", 0, 0) ||
-            reflection_has_binding(text, "\"Type\":\"CBV\"", "\"Type\": \"CBV\"", 0, 0);
-        scan.srv_t0 = reflection_has_binding(text, "\"Type\":\"SRV\"", "\"Type\": \"SRV\"", 0, 0);
-        scan.srv_t1 = reflection_has_binding(text, "\"Type\":\"SRV\"", "\"Type\": \"SRV\"", 1, 0);
-        scan.uav_u0 = reflection_has_binding(text, "\"Type\":\"UAV\"", "\"Type\": \"UAV\"", 0, 0);
-        scan.sampler_s0 = reflection_has_binding(text, "\"Type\":\"Sampler\"", "\"Type\": \"Sampler\"", 0, 0);
+        if (native_msl_manifest) {
+            scan.cbv_b0 = manifest_has_binding(text, "cbv", 0, 0);
+            scan.srv_t0 = manifest_has_binding(text, "srv", 0, 0);
+            scan.srv_t1 = manifest_has_binding(text, "srv", 1, 0);
+            scan.uav_u0 = manifest_has_binding(text, "uav", 0, 0);
+            scan.sampler_s0 = manifest_has_binding(text, "sampler", 0, 0);
+        } else {
+            scan.cbv_b0 =
+                reflection_has_binding(text, "\"Type\":\"ConstantBuffer\"", "\"Type\": \"ConstantBuffer\"", 0, 0) ||
+                reflection_has_binding(text, "\"Type\":\"CBV\"", "\"Type\": \"CBV\"", 0, 0);
+            scan.srv_t0 = reflection_has_binding(text, "\"Type\":\"SRV\"", "\"Type\": \"SRV\"", 0, 0);
+            scan.srv_t1 = reflection_has_binding(text, "\"Type\":\"SRV\"", "\"Type\": \"SRV\"", 1, 0);
+            scan.uav_u0 = reflection_has_binding(text, "\"Type\":\"UAV\"", "\"Type\": \"UAV\"", 0, 0);
+            scan.sampler_s0 = reflection_has_binding(text, "\"Type\":\"Sampler\"", "\"Type\": \"Sampler\"", 0, 0);
+        }
         if (scan.cbv_b0 && scan.srv_t0 && scan.srv_t1 && scan.uav_u0 && scan.sampler_s0)
             break;
     } while (FindNextFileA(find, &data));
