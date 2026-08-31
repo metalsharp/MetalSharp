@@ -236,6 +236,7 @@ build_mini_probe 12 subnautica_geometry_dxil_replay
 build_mini_probe 13 dxil_texture_color_output
 build_mini_probe 14 compute_first_use_dispatch
 build_mini_probe 15 dxr_acceleration_structures
+build_mini_probe 16 tessellation_shader_pso
 
 echo "$OUT_DIR/probe_loader.exe"
 echo "$OUT_DIR/probe_agility_ue5.exe"
