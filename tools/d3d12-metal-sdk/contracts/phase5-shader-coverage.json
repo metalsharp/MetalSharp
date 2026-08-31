@@ -255,7 +255,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; the expanded typed-family row covers signed, writable, normalized, packed 10/11-bit, scalar 64-bit, and writable MSAA 2/4/8-sample texture breadth with exact resolve readback, while broader multisample typed combinations remain exhaustive work."
+      "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; the expanded typed-family row covers signed, writable, normalized, packed 10/11-bit, scalar 64-bit, writable MSAA 2/4/8-sample texture breadth with exact resolve readback, and pixel-stage GetRenderTargetSamplePosition/GetRenderTargetSampleCount lowering with custom sample positions, while broader multisample typed combinations remain exhaustive work."
     },
     {
       "id": "dxil-resource-signed-and-writable-r32-runtime",

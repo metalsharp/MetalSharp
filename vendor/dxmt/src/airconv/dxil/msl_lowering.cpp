@@ -416,6 +416,9 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_TextureStore:
     case DXOP_TextureGather:
     case DXOP_TextureStoreSample:
+    case 75:
+    case 76:
+    case 77:
     case DXOP_Unpack4x8:
     case DXOP_Pack4x8:
     case DXOP_VectorReduceAnd:
@@ -4253,6 +4256,11 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::Float4, 0, {}};
     case DXOP_TextureGatherRaw:
         return {MSLTypeKind::UInt4, 0, {} };
+    case 75:
+    case 76:
+        return {MSLTypeKind::Float2, 0, {}};
+    case 77:
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_Unpack4x8:
         return !args.empty() && literalFromValue(ctx, args[0], 0) == 1u
                    ? MSLType{MSLTypeKind::Int4, 0, {}}
@@ -5946,16 +5954,27 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                "), (uint)(" + new_value + "))";
     }
     case 75:
-    case 76:
+    case 76: {
+        if (ctx.shader.kind != DxilShaderKind::Pixel) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL sample-position intrinsic requires a pixel shader");
+            return "float2(0.5)";
+        }
+        const size_t index_arg = intrinsic_id == 75 ? 1u : 0u;
+        return "get_sample_position((uint)(" + numericArg(index_arg, "0") + "))";
+    }
+    case 77:
+        if (ctx.shader.kind != DxilShaderKind::Pixel) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL render-target sample-count intrinsic requires a pixel shader");
+            return "1u";
+        }
+        return "get_num_samples()";
     case 97:
     case 98:
         ctx.unsupported_intrinsics++;
-        recordDiagnostic(ctx, "DXIL multisample/sample-position intrinsic is unsupported; rejecting shader");
-        return "0.5";
-    case 77:
-        ctx.unsupported_intrinsics++;
-        recordDiagnostic(ctx, "DXIL render-target sample-count intrinsic is unsupported; rejecting shader");
-        return "1";
+        recordDiagnostic(ctx, "DXIL geometry stream intrinsic requires geometry-stage lowering");
+        return "0";
     case 109:
         ctx.unsupported_intrinsics++;
         recordDiagnostic(ctx, "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
@@ -6238,9 +6257,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return "static_cast<uint>(as_type<ushort>(half(" + numericArg(0, "0.0") + ")))";
     case DXOP_LegacyF16ToF32:
         return "static_cast<float>(as_type<half>(ushort(" + numericArg(0, "0") + ")))";
-    case DXOP_LegacyDoubleToFloat: return "static_cast<float>(" + numericArg(0, "0.0") + ")";
-    case DXOP_LegacyDoubleToSInt32: return "static_cast<int>(" + numericArg(0, "0.0") + ")";
-    case DXOP_LegacyDoubleToUInt32: return "static_cast<uint>(" + numericArg(0, "0.0") + ")";
+    case DXOP_LegacyDoubleToFloat:
+        return "m12_f64_to_float(ulong(" + doubleArg(0, "0") + "))";
+    case DXOP_LegacyDoubleToSInt32:
+        return "m12_f64_to_sint(ulong(" + doubleArg(0, "0") + "))";
+    case DXOP_LegacyDoubleToUInt32:
+        return "m12_f64_to_uint(ulong(" + doubleArg(0, "0") + "))";
     case DXOP_WaveReadLaneFirst: return "simd_broadcast_first(" + numericArg(0, "0") + ")";
     case DXOP_WaveReadLaneAt: return "simd_broadcast(" + numericArg(0, "0") + ", (uint)(" + numericArg(1, "0") + "))";
     case DXOP_WaveIsFirstLane: return "(simd_lane == 0u)";
