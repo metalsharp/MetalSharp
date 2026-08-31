@@ -17,6 +17,15 @@
       "remaining": "This row proves the pinned DXC target progression and PSO linking for the synthetic corpus; it does not claim exhaustive opcode or stage coverage."
     },
     {
+      "id": "sm50-geometry-stage-exact-runtime",
+      "status": "closed",
+      "result": "probe-mini-geometry_shader_pso",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The SM5.0 vertex/geometry/pixel chain returns exactly 1,352 nonzero pixels and center pixel 0xff407e81. Broader geometry topology, resource, stream-output, adjacency, and multi-stage combinations remain in the exhaustive row."
+    },
+    {
       "id": "typed-dxil-runtime-readback-sm60-sm69",
       "status": "closed",
       "result": "probe-dxil-semantics",
