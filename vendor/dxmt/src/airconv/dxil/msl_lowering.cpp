@@ -4201,9 +4201,30 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_CreateHandleFromHeap: {
         uint32_t heap_index = literalArg(0, 0, "heap");
         bool sampler = args.size() >= 2 && literalArg(1, 0, "samp") != 0;
-        return recordHandle(sampler ? DescriptorRangePlan::Kind::Sampler
-                                    : DescriptorRangePlan::Kind::SRV,
-                            sampler ? 3 : 0, heap_index, 0);
+        std::string dynamic_index;
+        if (!args.empty()) {
+            const std::string text = valueArg(0, "0");
+            uint32_t literal = 0;
+            if (!parseUnsignedLiteral(text, literal)) {
+                dynamic_index = text;
+                heap_index = 0;
+            }
+        }
+        std::string handle = recordHandle(
+            sampler ? DescriptorRangePlan::Kind::Sampler
+                    : DescriptorRangePlan::Kind::SRV,
+            sampler ? 3 : 0, heap_index, 0, 0, false, nullptr,
+            dynamic_index);
+        if (!dynamic_index.empty() && !sampler) {
+            // Directly indexed resource heaps use the bounded direct-buffer
+            // ABI for raw/structured buffer descriptors. Preserve the heap
+            // index until AnnotateHandle identifies SRV versus UAV instead of
+            // collapsing every dynamic heap access to descriptor zero.
+            ctx.pending_handle->binding_count = std::min<uint32_t>(
+                8u, ctx.binding_plan.direct_buffer_count);
+            handle = materializeHandleName(ctx, *ctx.pending_handle);
+        }
+        return handle;
     }
     case DXOP_ThreadId: {
         ctx.uses_thread_id = true;
