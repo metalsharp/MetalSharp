@@ -185,6 +185,13 @@ struct StateObjectCallbackState {
     UINT max_attribute_size = 0;
     UINT max_recursion_depth = 0;
     UINT pipeline_flags = 0;
+    bool dxil_library_present = false;
+    UINT dxil_library_size = 0;
+    UINT dxil_first_byte = 0;
+    UINT dxil_export_count = 0;
+    std::wstring dxil_first_export;
+    std::wstring dxil_first_rename;
+    UINT dxil_first_export_flags = 0;
     std::array<uint8_t, 4> parent_key = {};
     UINT parent_key_size = 0;
 };
@@ -234,6 +241,34 @@ static void STDMETHODCALLTYPE state_object_callback(
                         subobject.pDesc);
                 state->max_recursion_depth = config->MaxTraceRecursionDepth;
                 state->pipeline_flags = static_cast<UINT>(config->Flags);
+                break;
+            }
+            case D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY: {
+                const auto* library =
+                    static_cast<const D3D12_DXIL_LIBRARY_DESC*>(
+                        subobject.pDesc);
+                state->dxil_library_present = library != nullptr;
+                if (library) {
+                    state->dxil_library_size =
+                        static_cast<UINT>(library->DXILLibrary.BytecodeLength);
+                    if (library->DXILLibrary.pShaderBytecode &&
+                        library->DXILLibrary.BytecodeLength)
+                        state->dxil_first_byte = static_cast<const uint8_t*>(
+                            library->DXILLibrary.pShaderBytecode)[0];
+                    state->dxil_export_count = library->NumExports;
+                    if (library->NumExports && library->pExports) {
+                        state->dxil_first_export =
+                            library->pExports[0].Name
+                                ? library->pExports[0].Name
+                                : L"";
+                        state->dxil_first_rename =
+                            library->pExports[0].ExportToRename
+                                ? library->pExports[0].ExportToRename
+                                : L"";
+                        state->dxil_first_export_flags =
+                            static_cast<UINT>(library->pExports[0].Flags);
+                    }
+                }
                 break;
             }
             default:
@@ -600,7 +635,18 @@ int main() {
     D3D12_RAYTRACING_PIPELINE_CONFIG1 state_pipeline_config1 = {};
     state_pipeline_config1.MaxTraceRecursionDepth = 3;
     state_pipeline_config1.Flags = D3D12_RAYTRACING_PIPELINE_FLAG_SKIP_TRIANGLES;
-    D3D12_STATE_SUBOBJECT state_subobjects[5] = {};
+    std::array<uint8_t, 8> state_dxil_bytes =
+        {0x44, 0x58, 0x49, 0x4c, 0x01, 0x00, 0x00, 0x00};
+    D3D12_EXPORT_DESC state_export = {};
+    state_export.Name = L"RayGen";
+    state_export.ExportToRename = L"RayGenRenamed";
+    state_export.Flags = D3D12_EXPORT_FLAG_NONE;
+    D3D12_DXIL_LIBRARY_DESC state_library = {};
+    state_library.DXILLibrary.pShaderBytecode = state_dxil_bytes.data();
+    state_library.DXILLibrary.BytecodeLength = state_dxil_bytes.size();
+    state_library.NumExports = 1;
+    state_library.pExports = &state_export;
+    D3D12_STATE_SUBOBJECT state_subobjects[6] = {};
     state_subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
     state_subobjects[0].pDesc = &state_config;
     state_subobjects[1].Type = D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK;
@@ -611,9 +657,11 @@ int main() {
     state_subobjects[3].pDesc = &state_pipeline_config;
     state_subobjects[4].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1;
     state_subobjects[4].pDesc = &state_pipeline_config1;
+    state_subobjects[5].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+    state_subobjects[5].pDesc = &state_library;
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
-    state_desc.NumSubobjects = 5;
+    state_desc.NumSubobjects = 6;
     state_desc.pSubobjects = state_subobjects;
     std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
     std::array<uint8_t, 4> state_parent_key = {0x70, 0x61, 0x72, 0x00};
@@ -623,6 +671,7 @@ int main() {
                        &state_desc, state_parent_key.data(),
                        static_cast<UINT>(state_parent_key.size()))
                  : E_NOINTERFACE;
+    state_dxil_bytes[0] = 0;
     StateObjectCallbackState state_callback = {};
     HRESULT find_state_object_hr =
         database ? database->FindStateObjectDesc(
@@ -635,8 +684,10 @@ int main() {
                        state_key.data(), static_cast<UINT>(state_key.size()),
                        &found_state_version)
                  : E_NOINTERFACE;
+    D3D12_NODE_MASK unsupported_payload = {};
     D3D12_STATE_SUBOBJECT unsupported_subobject = {};
-    unsupported_subobject.Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+    unsupported_subobject.Type = static_cast<D3D12_STATE_SUBOBJECT_TYPE>(0x7f);
+    unsupported_subobject.pDesc = &unsupported_payload;
     D3D12_STATE_OBJECT_DESC unsupported_state_desc = {};
     unsupported_state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
     unsupported_state_desc.NumSubobjects = 1;
@@ -742,7 +793,7 @@ int main() {
         SUCCEEDED(find_state_object_hr) && state_callback.called &&
         state_callback.version == 11 &&
         state_callback.type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-        state_callback.subobject_count == 5 &&
+        state_callback.subobject_count == 6 &&
         state_callback.first_subobject_type ==
             D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG &&
         state_callback.config_flags == state_config.Flags &&
@@ -754,6 +805,13 @@ int main() {
         state_callback.max_recursion_depth ==
             state_pipeline_config1.MaxTraceRecursionDepth &&
         state_callback.pipeline_flags == static_cast<UINT>(state_pipeline_config1.Flags) &&
+        state_callback.dxil_library_present &&
+        state_callback.dxil_library_size == state_dxil_bytes.size() &&
+        state_callback.dxil_first_byte == 0x44 &&
+        state_callback.dxil_export_count == 1 &&
+        state_callback.dxil_first_export == L"RayGen" &&
+        state_callback.dxil_first_rename == L"RayGenRenamed" &&
+        state_callback.dxil_first_export_flags == 0 &&
         state_callback.parent_key_size == state_parent_key.size() &&
         state_callback.parent_key == state_parent_key &&
         SUCCEEDED(find_state_version_hr) && found_state_version == 11 &&
@@ -770,7 +828,7 @@ int main() {
         reopened_pipeline_callback.size == sizeof(pipeline_stream) &&
         SUCCEEDED(reopened_state_hr) && reopened_state_callback.called &&
         reopened_state_callback.version == 11 &&
-        reopened_state_callback.subobject_count == 5 &&
+        reopened_state_callback.subobject_count == 6 &&
         reopened_state_callback.config_flags == state_config.Flags &&
         reopened_state_callback.node_mask == state_node_mask.NodeMask &&
         reopened_state_callback.max_payload_size ==
@@ -780,6 +838,13 @@ int main() {
         reopened_state_callback.max_recursion_depth ==
             state_pipeline_config1.MaxTraceRecursionDepth &&
         reopened_state_callback.pipeline_flags == static_cast<UINT>(state_pipeline_config1.Flags) &&
+        reopened_state_callback.dxil_library_present &&
+        reopened_state_callback.dxil_library_size == state_dxil_bytes.size() &&
+        reopened_state_callback.dxil_first_byte == 0x44 &&
+        reopened_state_callback.dxil_export_count == 1 &&
+        reopened_state_callback.dxil_first_export == L"RayGen" &&
+        reopened_state_callback.dxil_first_rename == L"RayGenRenamed" &&
+        reopened_state_callback.dxil_first_export_flags == 0 &&
         reopened_state_callback.parent_key == state_parent_key &&
         SUCCEEDED(readonly_database_hr) && readonly_store_hr == E_ACCESSDENIED &&
         malformed_write_ok && malformed_database_hr ==
@@ -877,6 +942,14 @@ int main() {
                 state_callback.max_recursion_depth);
     std::printf("    \"state_object_callback_pipeline_flags\": %u,\n",
                 state_callback.pipeline_flags);
+    std::printf("    \"state_object_callback_dxil_library_size\": %u,\n",
+                state_callback.dxil_library_size);
+    std::printf("    \"state_object_callback_dxil_first_byte\": %u,\n",
+                state_callback.dxil_first_byte);
+    std::printf("    \"state_object_callback_dxil_export_count\": %u,\n",
+                state_callback.dxil_export_count);
+    std::printf("    \"state_object_callback_dxil_first_export_flags\": %u,\n",
+                state_callback.dxil_first_export_flags);
     std::printf("    \"state_object_parent_key_size\": %u,\n", state_callback.parent_key_size);
     std::printf("    \"state_object_file_persistence_verified\": %s,\n",
                 (SUCCEEDED(reopen_database_hr) && SUCCEEDED(reopened_application_hr) &&
