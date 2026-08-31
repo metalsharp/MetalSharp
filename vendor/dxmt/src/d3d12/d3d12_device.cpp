@@ -5441,9 +5441,14 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateShaderResourceView(
           d->resource = nullptr;
         } else if (resource_desc.Format == DXGI_FORMAT_D32_FLOAT &&
                    desc->Format == DXGI_FORMAT_R32_FLOAT) {
-          // Metal comparison sampling requires the underlying Depth32 texture,
-          // not an R32Float color view of the same storage.
-          d->metal_texture_gpu_id = 0;
+          // Metal comparison sampling requires a Depth32 view rather than an
+          // R32Float color reinterpretation.  Materialize the requested view
+          // type so array-backed cube SRVs do not bind the underlying 2D-array
+          // object to a depthcube shader parameter.
+          CreateDescriptorTextureView(
+              d, dxmt_res, resource_desc.Format,
+              TextureTypeForSrvView(*desc, resource_desc), mip_start,
+              mip_count, slice_start, slice_count);
         } else {
           CreateDescriptorTextureView(
               d, dxmt_res, desc->Format,

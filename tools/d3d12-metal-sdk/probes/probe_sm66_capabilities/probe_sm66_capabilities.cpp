@@ -231,7 +231,7 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     ranges[0].BaseShaderRegister = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[1].NumDescriptors = 5;
+    ranges[1].NumDescriptors = 8;
     ranges[1].BaseShaderRegister = 0;
     ranges[1].OffsetInDescriptorsFromTableStart = 0;
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
@@ -286,6 +286,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     ID3D12Resource* texture = nullptr;
     ID3D12Resource* raw_texture = nullptr;
     ID3D12Resource* comparison_texture = nullptr;
+    ID3D12Resource* comparison_array_texture = nullptr;
     ID3D12Resource* texture_upload = nullptr;
     ID3D12Device10* device10 = nullptr;
 
@@ -300,7 +301,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heap_desc.NumDescriptors = 6;
+        heap_desc.NumDescriptors = 9;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&resource_heap));
     }
@@ -419,6 +420,29 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     }
 
     if (SUCCEEDED(hr)) {
+        D3D12_RESOURCE_DESC comparison_array_desc = {};
+        comparison_array_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        comparison_array_desc.Width = 4;
+        comparison_array_desc.Height = 1;
+        comparison_array_desc.DepthOrArraySize = 6;
+        comparison_array_desc.MipLevels = 1;
+        comparison_array_desc.Format = DXGI_FORMAT_D32_FLOAT;
+        comparison_array_desc.SampleDesc.Count = 1;
+        comparison_array_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        comparison_array_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &comparison_array_desc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr,
+            IID_PPV_ARGS(&comparison_array_texture));
+        const float depth_values[] = {0.75f, 0.75f, 0.75f, 0.75f};
+        for (UINT slice = 0; SUCCEEDED(hr) && slice < 6; ++slice)
+            hr = comparison_array_texture->WriteToSubresource(
+                slice, nullptr, depth_values, sizeof(depth_values),
+                sizeof(depth_values));
+    }
+
+    if (SUCCEEDED(hr)) {
         const UINT resource_stride = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_CPU_DESCRIPTOR_HANDLE cpu = resource_heap->GetCPUDescriptorHandleForHeapStart();
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
@@ -454,6 +478,23 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         srv.Format = DXGI_FORMAT_R32_FLOAT;
         srv.Texture2D.MipLevels = 2;
         device->CreateShaderResourceView(comparison_texture, &srv, cpu);
+        cpu.ptr += resource_stride;
+        srv = {};
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Format = DXGI_FORMAT_R32_FLOAT;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+        srv.Texture2DArray.MipLevels = 1;
+        srv.Texture2DArray.ArraySize = 6;
+        device->CreateShaderResourceView(comparison_array_texture, &srv, cpu);
+        cpu.ptr += resource_stride;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+        srv.TextureCube.MipLevels = 1;
+        device->CreateShaderResourceView(comparison_array_texture, &srv, cpu);
+        cpu.ptr += resource_stride;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBEARRAY;
+        srv.TextureCubeArray.MipLevels = 1;
+        srv.TextureCubeArray.NumCubes = 1;
+        device->CreateShaderResourceView(comparison_array_texture, &srv, cpu);
 
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
         dsv.Format = DXGI_FORMAT_D32_FLOAT;
@@ -506,10 +547,14 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         texture_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         D3D12_RESOURCE_BARRIER raw_texture_barrier = texture_barrier;
         raw_texture_barrier.Transition.pResource = raw_texture;
-        D3D12_RESOURCE_BARRIER texture_barriers[] = {texture_barrier, raw_texture_barrier, raw_texture_barrier};
+        D3D12_RESOURCE_BARRIER texture_barriers[] = {
+            texture_barrier, raw_texture_barrier, raw_texture_barrier,
+            raw_texture_barrier};
         texture_barriers[2].Transition.pResource = comparison_texture;
         texture_barriers[2].Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
-        list->ResourceBarrier(3, texture_barriers);
+        texture_barriers[3].Transition.pResource = comparison_array_texture;
+        texture_barriers[3].Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+        list->ResourceBarrier(4, texture_barriers);
 
         ID3D12DescriptorHeap* heaps[] = {resource_heap, sampler_heap};
         list->SetDescriptorHeaps(2, heaps);
@@ -639,6 +684,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                     result.expected[16] = result.observed[16];
             } else if (std::strcmp(audit_case.name, "quad_vote_sm67") == 0) {
                 std::fill(result.expected, result.expected + 32, 3u);
+            } else if (std::strcmp(audit_case.name, "sample_cmp_dimensions") == 0) {
+                const uint32_t expected[] = {
+                    0x3f800000u, 0x3f800000u, 0x3f800000u, 0x40400000u};
+                std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "raw_gather_sm67") == 0) {
                 std::fill(result.expected, result.expected + 4, 0x281e140au);
             } else if (std::strcmp(audit_case.name, "typed_texture_load_sm67") == 0) {
@@ -694,6 +743,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         result.detail = "runtime dispatch or readback failed";
 
     safe_release(texture_upload);
+    safe_release(comparison_array_texture);
     safe_release(comparison_texture);
     safe_release(raw_texture);
     safe_release(texture);
@@ -776,6 +826,9 @@ StructuredBuffer<uint> structured_inputs[2] : register(t0);
 Texture2D<float4> tex : register(t2);
 Texture2D<uint> raw_tex : register(t3);
 Texture2D<float> comparison_tex : register(t4);
+Texture2DArray<float> comparison_array_tex : register(t5);
+TextureCube<float> comparison_cube_tex : register(t6);
+TextureCubeArray<float> comparison_cube_array_tex : register(t7);
 SamplerState smp : register(s0);
 SamplerComparisonState comparison_smp : register(s1);
 SamplerComparisonState comparison_linear_smp : register(s2);
@@ -1020,6 +1073,20 @@ void cs_static_offsets_sm67(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_sample_cmp_dimensions() {
+  float array_value = comparison_array_tex.SampleCmpLevelZero(
+      comparison_smp, float3(0.5, 0.5, 1.0), 0.5);
+  float cube_value = comparison_cube_tex.SampleCmpLevelZero(
+      comparison_smp, float3(1.0, 0.0, 0.0), 0.5);
+  float cube_array_value = comparison_cube_array_tex.SampleCmpLevelZero(
+      comparison_smp, float4(1.0, 0.0, 0.0, 0.0), 0.5);
+  outbuf.Store(0, asuint(array_value));
+  outbuf.Store(4, asuint(cube_value));
+  outbuf.Store(8, asuint(cube_array_value));
+  outbuf.Store(12, asuint(array_value + cube_value + cube_array_value));
+}
+
+[numthreads(1, 1, 1)]
 void cs_raw_gather_sm67(uint3 id : SV_DispatchThreadID) {
   uint4 gathered = raw_tex.GatherRaw(smp, float2(0.5, 0.5));
   outbuf.Store4(0, gathered);
@@ -1169,6 +1236,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"sample_cmp_filter_sm67", "cs_sample_cmp_filter_sm67", "cs_6_7", "sm67_sample_cmp_filter", true},
         {"sample_cmp_grad_sm68", "cs_sample_cmp_grad_sm68", "cs_6_8", "sm68_sample_cmp_gradient", true},
         {"sample_cmp_bias_sm68", "cs_sample_cmp_bias_sm68", "cs_6_8", "sm68_sample_cmp_bias", true},
+        {"sample_cmp_dimensions", "cs_sample_cmp_dimensions", "cs_6_7", "sample_cmp_array_cube", true},
         {"quad_vote_sm67", "cs_quad_vote_sm67", "cs_6_7", "sm67_quad_vote", true},
     };
 
