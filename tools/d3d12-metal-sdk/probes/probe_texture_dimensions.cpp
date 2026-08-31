@@ -122,6 +122,17 @@ enum class TypedData {
     R64SInt,
 };
 
+enum class SamplerAddress {
+    Clamp,
+    Wrap,
+    Mirror,
+    Border,
+    BorderOpaqueBlack,
+    BorderTransparentBlack,
+    BorderUnsupported,
+    MirrorOnce,
+};
+
 struct ShapeInfo {
     const char* name;
     const char* shader;
@@ -135,6 +146,8 @@ struct ShapeInfo {
     uint32_t expected_high = 0;
     uint16_t mip_levels = 1;
     bool sample_pattern = false;
+    SamplerAddress sampler_address = SamplerAddress::Clamp;
+    bool expect_rejection = false;
 };
 
 static const ShapeInfo kReadCases[] = {
@@ -146,6 +159,25 @@ static const ShapeInfo kReadCases[] = {
      96, 131586, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2},
     {"texture1d_advanced", "cs_texture_1d_advanced.cso", TextureShape::Texture1D, false, false,
      0x14323232, 131074, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true},
+    {"texture1d_address_clamp", "cs_texture_1d_address.cso", TextureShape::Texture1D, false, false,
+     0x0a28280a, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::Clamp},
+    {"texture1d_address_wrap", "cs_texture_1d_address.cso", TextureShape::Texture1D, false, false,
+     0x280a0a28, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::Wrap},
+    {"texture1d_address_mirror", "cs_texture_1d_address.cso", TextureShape::Texture1D, false, false,
+     0x0a0a280a, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::Mirror},
+    {"texture1d_address_border", "cs_texture_1d_address.cso", TextureShape::Texture1D, false, false,
+     0xffffffff, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::Border},
+    {"texture1d_border_opaque_white", "cs_texture_1d_border.cso", TextureShape::Texture1D, false, false,
+     0xffffffff, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::Border},
+    {"texture1d_border_opaque_black", "cs_texture_1d_border.cso", TextureShape::Texture1D, false, false,
+     0xff000000, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::BorderOpaqueBlack},
+    {"texture1d_border_transparent_black", "cs_texture_1d_border.cso", TextureShape::Texture1D, false, false,
+     0x00000000, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::BorderTransparentBlack},
+    {"texture1d_border_unsupported", "cs_texture_1d_border.cso", TextureShape::Texture1D, false, false,
+     0xdeadbeef, 0xdeadbeef, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true,
+     SamplerAddress::BorderUnsupported, true},
+    {"texture1d_address_mirror_once", "cs_texture_1d_address.cso", TextureShape::Texture1D, false, false,
+     0x2828280a, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::MirrorOnce},
     {"texture2d", "cs_texture_2d.cso", TextureShape::Texture2D, false, false, 64, 1028},
     {"texture2d_array", "cs_texture_2d_array.cso", TextureShape::Texture2DArray, false, true, 96, 132100},
     {"texture3d", "cs_texture_3d.cso", TextureShape::Texture3D, false, false, 96, 263172},
@@ -742,6 +774,11 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
         hr = device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
                                              D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
                                              IID_PPV_ARGS(&output));
+        if (SUCCEEDED(hr) && info.expect_rejection) {
+            const uint32_t sentinel[2] = {0xdeadbeef, 0xdeadbeef};
+            hr = output->WriteToSubresource(0, nullptr, sentinel,
+                                            sizeof(sentinel), sizeof(sentinel));
+        }
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES heap = heap_props(D3D12_HEAP_TYPE_READBACK);
@@ -764,7 +801,40 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
         device->CreateShaderResourceView(texture, &srv, offset_cpu(cpu, inc, 1));
         D3D12_SAMPLER_DESC sampler = {};
         sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        switch (info.sampler_address) {
+        case SamplerAddress::Wrap:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+            break;
+        case SamplerAddress::Mirror:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
+            break;
+        case SamplerAddress::Border:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            sampler.BorderColor[0] = 1.0f;
+            sampler.BorderColor[1] = 1.0f;
+            sampler.BorderColor[2] = 1.0f;
+            sampler.BorderColor[3] = 1.0f;
+            break;
+        case SamplerAddress::BorderOpaqueBlack:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            sampler.BorderColor[3] = 1.0f;
+            break;
+        case SamplerAddress::BorderTransparentBlack:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            break;
+        case SamplerAddress::BorderUnsupported:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+            sampler.BorderColor[0] = 1.0f;
+            sampler.BorderColor[3] = 1.0f;
+            break;
+        case SamplerAddress::MirrorOnce:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE;
+            break;
+        case SamplerAddress::Clamp:
+        default:
+            sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+            break;
+        }
         sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler.MinLOD = 0.0f;
@@ -826,9 +896,11 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
     result.pass = SUCCEEDED(hr) && result.actual == result.expected &&
                   result.actual_high == result.expected_high &&
                   result.dimensions_actual == result.dimensions_expected;
-    result.detail = result.pass ? "dimension-aware DXIL texture read and GetDimensions matched exact readback"
-                                : errors.empty() ? "texture dimension readback failed"
-                                                 : errors;
+    result.detail = result.pass
+                        ? info.expect_rejection
+                              ? "unsupported sampler remained fail-closed with the exact output sentinel"
+                              : "dimension-aware DXIL texture read and GetDimensions matched exact readback"
+                        : errors.empty() ? "texture dimension readback failed" : errors;
     safe_release(readback); safe_release(output); safe_release(upload); safe_release(texture);
     safe_release(sampler_heap); safe_release(resource_heap); safe_release(list);
     safe_release(allocator); safe_release(queue); safe_release(pso); safe_release(root);

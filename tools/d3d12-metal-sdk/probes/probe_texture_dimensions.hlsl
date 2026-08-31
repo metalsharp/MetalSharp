@@ -61,6 +61,28 @@ void cs_texture_1d_array_mip(uint3 id : SV_DispatchThreadID) {
   output[1] = w | (elements << 8) | (levels << 16);
 }
 
+[numthreads(1,1,1)]
+void cs_texture_1d_border(uint3 id : SV_DispatchThreadID) {
+  float4 value = tex1.SampleLevel(samp, -0.125, 0.0);
+  uint4 rgba = uint4(value * 255.0 + 0.5);
+  output[0] = rgba.x | (rgba.y << 8) | (rgba.z << 16) | (rgba.w << 24);
+  uint w;
+  tex1.GetDimensions(w);
+  output[1] = w;
+}
+
+[numthreads(1,1,1)]
+void cs_texture_1d_address(uint3 id : SV_DispatchThreadID) {
+  uint a = uint(tex1.SampleLevel(samp, -0.125, 0.0).r * 255.0 + 0.5);
+  uint b = uint(tex1.SampleLevel(samp, 1.125, 0.0).r * 255.0 + 0.5);
+  uint c = uint(tex1.SampleLevel(samp, 2.125, 0.0).r * 255.0 + 0.5);
+  uint d = uint(tex1.SampleLevel(samp, -2.125, 0.0).r * 255.0 + 0.5);
+  output[0] = a | (b << 8) | (c << 16) | (d << 24);
+  uint w;
+  tex1.GetDimensions(w);
+  output[1] = w;
+}
+
 [numthreads(4,1,1)]
 void cs_texture_1d_advanced(uint3 id : SV_DispatchThreadID) {
   uint level_value = uint(tex1.SampleLevel(samp, 0.25, 1.0).r * 255.0 + 0.5);
