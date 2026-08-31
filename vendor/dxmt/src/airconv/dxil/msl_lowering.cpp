@@ -4706,25 +4706,59 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")), " +
                    writableMSAASlice(ctx, args[0], sample, array_slice) + ")";
         }
-        switch (resource_kind) {
-        case 1u:
-            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), 0u))";
-        case 6u:
-            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), 0u), (uint)(" + c1 + "))";
-        case 2u:
-            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")))";
-        case 7u:
-            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")), (uint)(" + c2 + "))";
-        case 4u:
-            return handle + ".write(" + value + ", uint3((uint)(" + c0 + "), (uint)(" + c1 + "), (uint)(" + c2 + ")))";
-        default:
-            if (resource_kind == 5u || resource_kind == 9u) {
-                ctx.unsupported_intrinsics++;
-                recordDiagnostic(ctx, "DXIL textureStore is unsupported for cube resource kind=%u", resource_kind);
-                return "";
+        auto texture_write = [&](const std::string &texture) {
+            switch (resource_kind) {
+            case 1u:
+                return texture + ".write(" + value + ", uint2((uint)(" + c0 + "), 0u))";
+            case 6u:
+                return texture + ".write(" + value + ", uint2((uint)(" + c0 + "), 0u), (uint)(" + c1 + "))";
+            case 2u:
+                return texture + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")))";
+            case 7u:
+                return texture + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")), (uint)(" + c2 + "))";
+            case 4u:
+                return texture + ".write(" + value + ", uint3((uint)(" + c0 + "), (uint)(" + c1 + "), (uint)(" + c2 + ")))";
+            default:
+                return texture + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")))";
             }
-            return handle + ".write(" + value + ", uint2((uint)(" + c0 + "), (uint)(" + c1 + ")))";
+        };
+        auto dynamic_handle = ctx.resource_handles.find(args[0]);
+        if (dynamic_handle != ctx.resource_handles.end() &&
+            !dynamic_handle->second.dynamic_index.empty() &&
+            dynamic_handle->second.binding_count > 1) {
+            const uint32_t base = dynamic_handle->second.lower_bound;
+            const uint32_t count = std::min<uint32_t>(
+                dynamic_handle->second.binding_count,
+                ctx.binding_plan.direct_texture_count > base
+                    ? ctx.binding_plan.direct_texture_count - base
+                    : 0);
+            if (count > 1) {
+                std::ostringstream selected;
+                for (uint32_t i = 0; i < count; ++i) {
+                    if (i == 0)
+                        selected << "if (uint("
+                                 << dynamic_handle->second.dynamic_index
+                                 << ") == " << (base + i) << "u) ";
+                    else if (i + 1 < count)
+                        selected << ";\n  else if (uint("
+                                 << dynamic_handle->second.dynamic_index
+                                 << ") == " << (base + i) << "u) ";
+                    else
+                        selected << ";\n  else ";
+                    selected << texture_write(
+                        "tex" + std::to_string(base + i));
+                }
+                return selected.str();
+            }
         }
+        if (resource_kind == 5u || resource_kind == 9u) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL textureStore is unsupported for cube resource kind=%u",
+                             resource_kind);
+            return "";
+        }
+        return texture_write(handle);
     }
     case DXOP_TextureSample: case DXOP_TextureSampleBias:
     case DXOP_TextureSampleLevel: case DXOP_TextureSampleGrad: {

@@ -288,6 +288,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     ID3D12Resource* input1 = nullptr;
     ID3D12Resource* texture = nullptr;
     ID3D12Resource* texture_alt = nullptr;
+    ID3D12Resource* rw_texture0 = nullptr;
+    ID3D12Resource* rw_texture1 = nullptr;
     ID3D12Resource* raw_texture = nullptr;
     ID3D12Resource* comparison_texture = nullptr;
     ID3D12Resource* comparison_array_texture = nullptr;
@@ -354,7 +356,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
                            &dynamic_output);
     if (SUCCEEDED(hr))
-        hr = create_buffer(128, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST,
+        hr = create_buffer(256, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST,
                            nullptr, &readback);
     if (SUCCEEDED(hr))
         hr = create_buffer(sizeof(input0_data), D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_FLAG_NONE,
@@ -394,6 +396,20 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                 IID_PPV_ARGS(&texture_alt));
         }
+        if (SUCCEEDED(hr)) {
+            texture_desc.Width = 4;
+            texture_desc.Format = DXGI_FORMAT_R32_FLOAT;
+            texture_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            hr = device->CreateCommittedResource(
+                &props, D3D12_HEAP_FLAG_NONE, &texture_desc,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                IID_PPV_ARGS(&rw_texture0));
+        }
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommittedResource(
+                &props, D3D12_HEAP_FLAG_NONE, &texture_desc,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                IID_PPV_ARGS(&rw_texture1));
     }
     if (SUCCEEDED(hr)) {
         uint8_t upload_data[768] = {};
@@ -487,10 +503,25 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
         cpu.ptr += resource_stride;
         device->CreateUnorderedAccessView(dynamic_output, nullptr, &uav, cpu);
+        const bool direct_texture_store_case =
+            std::strcmp(audit_case.name,
+                        "texture_store_direct_heap_descriptor_indexing") == 0;
         cpu.ptr += resource_stride;
-        device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
-        cpu.ptr += resource_stride;
-        device->CreateUnorderedAccessView(dynamic_output, nullptr, &uav, cpu);
+        if (direct_texture_store_case) {
+            D3D12_UNORDERED_ACCESS_VIEW_DESC texture_uav = {};
+            texture_uav.Format = DXGI_FORMAT_R32_FLOAT;
+            texture_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            device->CreateUnorderedAccessView(rw_texture0, nullptr,
+                                              &texture_uav, cpu);
+            cpu.ptr += resource_stride;
+            device->CreateUnorderedAccessView(rw_texture1, nullptr,
+                                              &texture_uav, cpu);
+        } else {
+            device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
+            cpu.ptr += resource_stride;
+            device->CreateUnorderedAccessView(dynamic_output, nullptr, &uav,
+                                              cpu);
+        }
 
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -660,6 +691,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
 
         D3D12_RESOURCE_BARRIER output_barriers[2] = {};
         output_barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        const bool texture_store_case =
+            std::strcmp(audit_case.name,
+                        "texture_store_direct_heap_descriptor_indexing") == 0;
         const bool dynamic_write_case =
             std::strcmp(audit_case.name, "rw_descriptor_indexing") == 0 ||
             std::strcmp(audit_case.name, "rw_descriptor_indexing4") == 0 ||
@@ -667,8 +701,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                         "rw_direct_heap_descriptor_indexing") == 0 ||
             std::strcmp(audit_case.name,
                         "rw_structured_descriptor_indexing") == 0;
-        ID3D12Resource* case_output =
-            dynamic_write_case ? dynamic_output : output;
+        ID3D12Resource* case_output = texture_store_case
+                                          ? rw_texture1
+                                          : (dynamic_write_case
+                                                 ? dynamic_output
+                                                 : output);
         output_barriers[0].UAV.pResource = case_output;
         output_barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         output_barriers[1].Transition.pResource = case_output;
@@ -676,7 +713,23 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         output_barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         output_barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
         list->ResourceBarrier(2, output_barriers);
-        list->CopyResource(readback, case_output);
+        if (texture_store_case) {
+            D3D12_TEXTURE_COPY_LOCATION src_texture = {};
+            src_texture.pResource = rw_texture1;
+            src_texture.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION dst_buffer = {};
+            dst_buffer.pResource = readback;
+            dst_buffer.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst_buffer.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+            dst_buffer.PlacedFootprint.Footprint.Width = 4;
+            dst_buffer.PlacedFootprint.Footprint.Height = 1;
+            dst_buffer.PlacedFootprint.Footprint.Depth = 1;
+            dst_buffer.PlacedFootprint.Footprint.RowPitch = 256;
+            list->CopyTextureRegion(&dst_buffer, 0, 0, 0, &src_texture,
+                                    nullptr);
+        } else {
+            list->CopyResource(readback, case_output);
+        }
         hr = execute_and_wait(device, queue, list);
     }
 
@@ -749,6 +802,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name,
                                    "sampler_direct_heap_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {15, 15, 15, 15};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "texture_store_direct_heap_descriptor_indexing") == 0) {
+                const uint32_t expected[] = {0x447ac000, 0x447b0000,
+                                             0x447b4000, 0x447b8000};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "rw_structured_descriptor_indexing") == 0) {
@@ -885,6 +943,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     safe_release(comparison_array_texture);
     safe_release(comparison_texture);
     safe_release(raw_texture);
+    safe_release(rw_texture1);
+    safe_release(rw_texture0);
     safe_release(texture_alt);
     safe_release(texture);
     safe_release(device10);
@@ -1224,6 +1284,13 @@ void cs_texture_sample_direct_heap_descriptor_indexing(
 }
 
 [numthreads(4, 1, 1)]
+void cs_texture_store_direct_heap_descriptor_indexing(
+    uint3 id : SV_DispatchThreadID) {
+  RWTexture2D<float> selected = ResourceDescriptorHeap[2u + (selector & 1u)];
+  selected[uint2(id.x, 0)] = float(1000u + id.x + addend);
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1438,6 +1505,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"texture_direct_heap_descriptor_indexing", "cs_texture_direct_heap_descriptor_indexing", "cs_6_6", "texture_direct_heap_descriptor_indexing", true},
         {"sampler_direct_heap_descriptor_indexing", "cs_sampler_direct_heap_descriptor_indexing", "cs_6_6", "sampler_direct_heap_descriptor_indexing", true},
         {"texture_sample_direct_heap_descriptor_indexing", "cs_texture_sample_direct_heap_descriptor_indexing", "cs_6_6", "texture_sample_direct_heap_descriptor_indexing", true},
+        {"texture_store_direct_heap_descriptor_indexing", "cs_texture_store_direct_heap_descriptor_indexing", "cs_6_6", "texture_store_direct_heap_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
