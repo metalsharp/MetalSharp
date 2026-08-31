@@ -100,6 +100,9 @@ enum DXIntrinsicOpcode {
   DXOP_TextureGatherRaw = 223,
   DXOP_Unpack4x8 = 219,
   DXOP_Pack4x8 = 220,
+  DXOP_VectorReduceAnd = 309,
+  DXOP_VectorReduceOr = 310,
+  DXOP_FDot = 311,
   DXOP_WriteSamplerFeedback = 174,
   DXOP_WriteSamplerFeedbackBias = 175,
   DXOP_WriteSamplerFeedbackLevel = 176,
@@ -382,6 +385,9 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "renderTargetGetSampleCount", 26) == 0) return 77;
     if (strncmp(s, "unpack4x8.", 10) == 0) return DXOP_Unpack4x8;
     if (strncmp(s, "pack4x8.", 8) == 0) return DXOP_Pack4x8;
+    if (strncmp(s, "vectorReduceAnd.", 17) == 0) return DXOP_VectorReduceAnd;
+    if (strncmp(s, "vectorReduceOr.", 16) == 0) return DXOP_VectorReduceOr;
+    if (strncmp(s, "fDot.", 5) == 0) return DXOP_FDot;
     return 0;
 }
 
@@ -412,6 +418,9 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_TextureStoreSample:
     case DXOP_Unpack4x8:
     case DXOP_Pack4x8:
+    case DXOP_VectorReduceAnd:
+    case DXOP_VectorReduceOr:
+    case DXOP_FDot:
     case DXOP_BufferLoad:
     case DXOP_BufferStore:
     case DXOP_RawBufferLoad:
@@ -4250,6 +4259,11 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
                    : MSLType{MSLTypeKind::UInt4, 0, {}};
     case DXOP_Pack4x8:
         return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_VectorReduceAnd:
+    case DXOP_VectorReduceOr:
+        return {MSLTypeKind::Bool, 0, {}};
+    case DXOP_FDot:
+        return {MSLTypeKind::Float, 0, {}};
     case DXOP_RawBufferLoad:
     case 303:
     case 1025:
@@ -5978,6 +5992,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                       std::to_string(i * 8) + "u)";
         }
         return packed;
+    }
+    case DXOP_VectorReduceAnd:
+    case DXOP_VectorReduceOr: {
+        if (args.empty()) return "false";
+        const std::string value = valueArg(0, "0");
+        const std::string predicate = "(" + value + " != 0)";
+        return intrinsic_id == DXOP_VectorReduceAnd
+                   ? "all(" + predicate + ")"
+                   : "any(" + predicate + ")";
     }
     case DXOP_Unary: {
         if (args.size() < 2) return "0";
