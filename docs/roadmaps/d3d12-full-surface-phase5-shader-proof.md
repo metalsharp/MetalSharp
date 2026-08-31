@@ -101,14 +101,16 @@
   unsigned 64-bit texture accesses over R32G32_UINT preserve both 32-bit
   halves for reads and writes. The D3D12 MSAA SRV view path now preserves the
   multisample Metal texture type instead of creating an incompatible 2D view.
-  Profile `phase5-msaa-samplepos5` independently passes writable 2/4/8-sample
-  and array stores/loads/resolves, exact resolve values `152.625`, `251.5`,
-  `600.5`, `628.5`, and `98`, plus graphics-stage sample position/count
-  readback encoded as `0xffbfffbf` (sample position `(0.25,0.25)`, count `4`)
-  and programmable sample-position options. The shader lowering now maps
-  pixel-stage `GetRenderTargetSamplePosition` to Metal `get_sample_position`
-  and `GetRenderTargetSampleCount` to `get_num_samples`; non-pixel use remains
-  fail-closed.
+  Profile `phase5-msaa-sampleinputs3` independently passes writable 2/4/8-sample
+  and array stores/loads/resolves, exact resolve values `152.75`, `251.5`,
+  `600.5`, `628.5`, and `98`, plus custom pixel sample position/count,
+  `SV_SampleIndex`, and `SV_Coverage` readback encoded as `0xffdd00bf`
+  (sample position `(0.25,0.25)`, sample index `0`, coverage mask `0xdd`,
+  render-target sample count `4`) and programmable sample-position options.
+  The shader lowering maps pixel-stage `GetRenderTargetSamplePosition` to
+  Metal `get_sample_position`, `GetRenderTargetSampleCount` to
+  `get_num_samples`, `SampleIndex` to `[[sample_id]]`, and `Coverage` to
+  `[[sample_mask]]`; non-pixel use and `InnerCoverage` remain fail-closed.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The

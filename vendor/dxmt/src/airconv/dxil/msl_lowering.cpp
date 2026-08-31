@@ -103,6 +103,9 @@ enum DXIntrinsicOpcode {
   DXOP_VectorReduceAnd = 309,
   DXOP_VectorReduceOr = 310,
   DXOP_FDot = 311,
+  DXOP_SampleIndex = 90,
+  DXOP_Coverage = 91,
+  DXOP_InnerCoverage = 92,
   DXOP_WriteSamplerFeedback = 174,
   DXOP_WriteSamplerFeedbackBias = 175,
   DXOP_WriteSamplerFeedbackLevel = 176,
@@ -388,6 +391,9 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "vectorReduceAnd.", 17) == 0) return DXOP_VectorReduceAnd;
     if (strncmp(s, "vectorReduceOr.", 16) == 0) return DXOP_VectorReduceOr;
     if (strncmp(s, "fDot.", 5) == 0) return DXOP_FDot;
+    if (strncmp(s, "sampleIndex", 11) == 0) return DXOP_SampleIndex;
+    if (strncmp(s, "coverage", 8) == 0) return DXOP_Coverage;
+    if (strncmp(s, "innerCoverage", 13) == 0) return DXOP_InnerCoverage;
     return 0;
 }
 
@@ -424,6 +430,9 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_VectorReduceAnd:
     case DXOP_VectorReduceOr:
     case DXOP_FDot:
+    case DXOP_SampleIndex:
+    case DXOP_Coverage:
+    case DXOP_InnerCoverage:
     case DXOP_BufferLoad:
     case DXOP_BufferStore:
     case DXOP_RawBufferLoad:
@@ -709,6 +718,8 @@ struct LowerContext {
     bool uses_atomic64_emulation = false;
     bool uses_group_atomic64_emulation = false;
     bool uses_double_emulation = false;
+    bool uses_sample_index = false;
+    bool uses_coverage = false;
     bool uses_sampler_feedback = false;
 };
 
@@ -1816,6 +1827,10 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
         os << "fragment float4 ps_main(\n";
         os << "  input_v in [[stage_in]],\n";
+        if (ctx.uses_sample_index)
+            os << "  uint m12_sample_id [[sample_id]],\n";
+        if (ctx.uses_coverage)
+            os << "  uint m12_coverage [[sample_mask]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
             os << "  device char* buf" << i << " [[buffer(" << i << ")]],\n";
         if (ctx.options.conservative_rasterization)
@@ -4273,6 +4288,10 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::Bool, 0, {}};
     case DXOP_FDot:
         return {MSLTypeKind::Float, 0, {}};
+    case DXOP_SampleIndex:
+    case DXOP_Coverage:
+    case DXOP_InnerCoverage:
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_RawBufferLoad:
     case 303:
     case 1025:
@@ -6018,6 +6037,24 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "1u";
         }
         return "get_num_samples()";
+    case DXOP_SampleIndex:
+        if (ctx.shader.kind != DxilShaderKind::Pixel) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL sample-index intrinsic requires a pixel shader");
+            return "0u";
+        }
+        return "m12_sample_id";
+    case DXOP_Coverage:
+        if (ctx.shader.kind != DxilShaderKind::Pixel) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL coverage intrinsic requires a pixel shader");
+            return "0u";
+        }
+        return "m12_coverage";
+    case DXOP_InnerCoverage:
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(ctx, "DXIL inner-coverage intrinsic has no Metal equivalent");
+        return "0u";
     case 97:
     case 98:
         ctx.unsupported_intrinsics++;
@@ -8201,6 +8238,23 @@ std::optional<TypedMSLShader> MSLLowering::lower(
     }
     if (module_has_double)
         ctx.uses_double_emulation = true;
+
+    if (shader.kind == DxilShaderKind::Pixel) {
+        for (const auto &block : fn.blocks) {
+            for (const auto &inst : block.instructions) {
+                if (inst.opcode != LLVMInstruction::Call || inst.operands.empty())
+                    continue;
+                auto decl = ctx.function_decls.find(inst.operands[0]);
+                if (decl == ctx.function_decls.end())
+                    continue;
+                const uint32_t intrinsic = intrinsicIdFromCalleeName(decl->second);
+                if (intrinsic == DXOP_SampleIndex)
+                    ctx.uses_sample_index = true;
+                else if (intrinsic == DXOP_Coverage)
+                    ctx.uses_coverage = true;
+            }
+        }
+    }
 
     analyzeBindingPlan(ctx, fn);
     analyzeVertexInputs(ctx, fn);
