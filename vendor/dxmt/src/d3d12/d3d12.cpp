@@ -14,8 +14,11 @@
 #include <exception>
 #include <vector>
 #include <cstring>
+#include <cstdint>
 #include <map>
 #include <mutex>
+#include <string>
+#include <utility>
 
 namespace {
 
@@ -638,9 +641,170 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SDKConfiguration::CreateDeviceFactory(
   return hr;
 }
 
+constexpr uint32_t kStateDatabaseMagic = 0x31424453u; // SDB1
+constexpr uint32_t kStateDatabaseVersion = 1u;
+constexpr size_t kStateDatabaseMaxBytes = 16u * 1024u * 1024u;
+constexpr uint32_t kStateDatabaseMaxEntries = 4096u;
+constexpr uint32_t kStateDatabaseMaxKeyBytes = 4096u;
+constexpr uint32_t kStateDatabaseMaxStringChars = 1u * 1024u * 1024u;
+
+static void AppendStateDatabaseU32(std::vector<uint8_t> &data, uint32_t value) {
+  data.push_back(static_cast<uint8_t>(value));
+  data.push_back(static_cast<uint8_t>(value >> 8));
+  data.push_back(static_cast<uint8_t>(value >> 16));
+  data.push_back(static_cast<uint8_t>(value >> 24));
+}
+
+static void AppendStateDatabaseU64(std::vector<uint8_t> &data, uint64_t value) {
+  AppendStateDatabaseU32(data, static_cast<uint32_t>(value));
+  AppendStateDatabaseU32(data, static_cast<uint32_t>(value >> 32));
+}
+
+static void AppendStateDatabaseBytes(std::vector<uint8_t> &data,
+                                     const void *bytes, size_t size) {
+  const auto *begin = static_cast<const uint8_t *>(bytes);
+  data.insert(data.end(), begin, begin + size);
+}
+
+static void AppendStateDatabaseString(std::vector<uint8_t> &data,
+                                      const std::wstring &value) {
+  AppendStateDatabaseU32(data, static_cast<uint32_t>(value.size()));
+  AppendStateDatabaseBytes(data, value.data(), value.size() * sizeof(wchar_t));
+}
+
+static bool ReadStateDatabaseU32(const std::vector<uint8_t> &data, size_t &offset,
+                                 uint32_t &value) {
+  if (offset > data.size() || data.size() - offset < sizeof(uint32_t))
+    return false;
+  value = static_cast<uint32_t>(data[offset]) |
+          (static_cast<uint32_t>(data[offset + 1]) << 8) |
+          (static_cast<uint32_t>(data[offset + 2]) << 16) |
+          (static_cast<uint32_t>(data[offset + 3]) << 24);
+  offset += sizeof(uint32_t);
+  return true;
+}
+
+static bool ReadStateDatabaseU64(const std::vector<uint8_t> &data, size_t &offset,
+                                 uint64_t &value) {
+  uint32_t low = 0, high = 0;
+  if (!ReadStateDatabaseU32(data, offset, low) ||
+      !ReadStateDatabaseU32(data, offset, high))
+    return false;
+  value = static_cast<uint64_t>(low) | (static_cast<uint64_t>(high) << 32);
+  return true;
+}
+
+static bool ReadStateDatabaseBytes(const std::vector<uint8_t> &data,
+                                   size_t &offset, void *destination,
+                                   size_t size) {
+  if (offset > data.size() || data.size() - offset < size)
+    return false;
+  if (size)
+    memcpy(destination, data.data() + offset, size);
+  offset += size;
+  return true;
+}
+
+static bool ReadStateDatabaseString(const std::vector<uint8_t> &data,
+                                    size_t &offset, std::wstring &value) {
+  uint32_t chars = 0;
+  if (!ReadStateDatabaseU32(data, offset, chars) ||
+      chars > kStateDatabaseMaxStringChars || offset > data.size() ||
+      static_cast<size_t>(chars) >
+          (data.size() - offset) / sizeof(wchar_t))
+    return false;
+  value.resize(chars);
+  return ReadStateDatabaseBytes(data, offset, value.data(),
+                                static_cast<size_t>(chars) * sizeof(wchar_t));
+}
+
+static HRESULT ReadStateDatabaseFile(LPCWSTR path, std::vector<uint8_t> &data) {
+  if (!path || !*path)
+    return E_INVALIDARG;
+  HANDLE file = CreateFileW(path, GENERIC_READ,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    const DWORD error = GetLastError();
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+      return S_FALSE;
+    return HRESULT_FROM_WIN32(error);
+  }
+  LARGE_INTEGER size = {};
+  if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 ||
+      static_cast<uint64_t>(size.QuadPart) > kStateDatabaseMaxBytes) {
+    CloseHandle(file);
+    return HRESULT_FROM_WIN32(ERROR_BAD_FORMAT);
+  }
+  data.resize(static_cast<size_t>(size.QuadPart));
+  size_t offset = 0;
+  while (offset < data.size()) {
+    DWORD chunk = 0;
+    const DWORD request = static_cast<DWORD>(std::min<size_t>(
+        data.size() - offset, static_cast<size_t>(0x40000000u)));
+    if (!ReadFile(file, data.data() + offset, request, &chunk, nullptr) ||
+        chunk == 0) {
+      const DWORD error = GetLastError();
+      CloseHandle(file);
+      return HRESULT_FROM_WIN32(error ? error : ERROR_READ_FAULT);
+    }
+    offset += chunk;
+  }
+  CloseHandle(file);
+  return S_OK;
+}
+
+static HRESULT WriteStateDatabaseFile(LPCWSTR path,
+                                      const std::vector<uint8_t> &data) {
+  if (!path || !*path || data.empty() || data.size() > kStateDatabaseMaxBytes)
+    return E_INVALIDARG;
+  std::wstring temporary(path);
+  temporary += L".tmp";
+  HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE)
+    return HRESULT_FROM_WIN32(GetLastError());
+  size_t offset = 0;
+  HRESULT result = S_OK;
+  while (offset < data.size()) {
+    DWORD chunk = 0;
+    const DWORD request = static_cast<DWORD>(std::min<size_t>(
+        data.size() - offset, static_cast<size_t>(0x40000000u)));
+    if (!WriteFile(file, data.data() + offset, request, &chunk, nullptr) ||
+        chunk == 0) {
+      result = HRESULT_FROM_WIN32(GetLastError());
+      break;
+    }
+    offset += chunk;
+  }
+  if (SUCCEEDED(result) && !FlushFileBuffers(file))
+    result = HRESULT_FROM_WIN32(GetLastError());
+  CloseHandle(file);
+  if (FAILED(result)) {
+    DeleteFileW(temporary.c_str());
+    return result;
+  }
+  if (!MoveFileExW(temporary.c_str(), path,
+                   MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    result = HRESULT_FROM_WIN32(GetLastError());
+    DeleteFileW(temporary.c_str());
+  }
+  return result;
+}
+
 class MTLD3D12StateObjectDatabase final
     : public ID3D12StateObjectDatabaseCompat {
 public:
+  HRESULT Initialize(LPCWSTR database_file,
+                     D3D12StateObjectDatabaseFlagsCompat flags) {
+    if (!database_file || !*database_file ||
+        (flags & ~D3D12StateObjectDatabaseFlagReadOnly))
+      return E_INVALIDARG;
+    m_file_path = database_file;
+    m_read_only = (flags & D3D12StateObjectDatabaseFlagReadOnly) != 0;
+    return Load();
+  }
+
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
     if (!ppv)
       return E_POINTER;
@@ -666,6 +830,8 @@ public:
       const D3D12ApplicationDescCompat *application_desc) override {
     if (!application_desc)
       return E_INVALIDARG;
+    if (m_read_only)
+      return E_ACCESSDENIED;
     m_application_desc = *application_desc;
     CopyApplicationString(application_desc->pExeFilename, m_exe_filename,
                           m_application_desc.pExeFilename);
@@ -679,7 +845,7 @@ public:
                                           : L"(null)",
                  m_application_desc.pEngineName ? m_application_desc.pEngineName
                                                 : L"(null)");
-    return S_OK;
+    return Persist();
   }
 
   HRESULT STDMETHODCALLTYPE GetApplicationDesc(
@@ -698,6 +864,11 @@ public:
     if (!key || !key_size || !desc || !desc->pPipelineStateSubobjectStream ||
         !desc->SizeInBytes)
       return E_INVALIDARG;
+    if (m_read_only)
+      return E_ACCESSDENIED;
+    if (key_size > kStateDatabaseMaxKeyBytes ||
+        desc->SizeInBytes > kStateDatabaseMaxBytes)
+      return E_INVALIDARG;
     auto key_bytes = MakeKey(key, key_size);
     auto &entry = m_pipeline_descs[key_bytes];
     entry.version = version;
@@ -707,7 +878,7 @@ public:
     TraceAgility("StateObjectDatabase::StorePipelineStateDesc key_size=%u "
                  "version=%u bytes=%zu",
                  key_size, version, desc->SizeInBytes);
-    return S_OK;
+    return Persist();
   }
 
   HRESULT STDMETHODCALLTYPE FindPipelineStateDesc(
@@ -744,6 +915,12 @@ public:
       UINT parent_key_size) override {
     if (!key || !key_size || !desc || (parent_key_size && !parent_key))
       return E_INVALIDARG;
+    if (m_read_only)
+      return E_ACCESSDENIED;
+    if (key_size > kStateDatabaseMaxKeyBytes ||
+        parent_key_size > kStateDatabaseMaxKeyBytes ||
+        desc->NumSubobjects > 64u)
+      return E_INVALIDARG;
     if (desc->NumSubobjects && !desc->pSubobjects)
       return E_INVALIDARG;
 
@@ -778,7 +955,7 @@ public:
                  "version=%u type=%u subobjects=%u parent_key_size=%u",
                  key_size, version, static_cast<UINT>(desc->Type),
                  desc->NumSubobjects, parent_key_size);
-    return S_OK;
+    return Persist();
   }
 
   HRESULT STDMETHODCALLTYPE FindStateObjectDesc(
@@ -885,12 +1062,189 @@ private:
     }
   }
 
+  std::vector<uint8_t> Serialize() const {
+    std::vector<uint8_t> data;
+    data.reserve(1024);
+    AppendStateDatabaseU32(data, kStateDatabaseMagic);
+    AppendStateDatabaseU32(data, kStateDatabaseVersion);
+    AppendStateDatabaseU32(data, m_has_application_desc ? 1u : 0u);
+    if (m_has_application_desc) {
+      AppendStateDatabaseString(data, m_exe_filename);
+      AppendStateDatabaseString(data, m_application_name);
+      AppendStateDatabaseU64(data, m_application_desc.Version.Version);
+      AppendStateDatabaseString(data, m_engine_name);
+      AppendStateDatabaseU64(data, m_application_desc.EngineVersion.Version);
+    }
+    AppendStateDatabaseU32(data, static_cast<uint32_t>(m_pipeline_descs.size()));
+    for (const auto &item : m_pipeline_descs) {
+      AppendStateDatabaseU32(data, static_cast<uint32_t>(item.first.size()));
+      AppendStateDatabaseBytes(data, item.first.data(), item.first.size());
+      AppendStateDatabaseU32(data, item.second.version);
+      AppendStateDatabaseU32(data, static_cast<uint32_t>(item.second.stream.size()));
+      AppendStateDatabaseBytes(data, item.second.stream.data(),
+                               item.second.stream.size());
+    }
+    AppendStateDatabaseU32(data,
+                           static_cast<uint32_t>(m_state_object_descs.size()));
+    for (const auto &item : m_state_object_descs) {
+      AppendStateDatabaseU32(data, static_cast<uint32_t>(item.first.size()));
+      AppendStateDatabaseBytes(data, item.first.data(), item.first.size());
+      AppendStateDatabaseU32(data, item.second.version);
+      AppendStateDatabaseU32(data, static_cast<uint32_t>(item.second.type));
+      AppendStateDatabaseU32(
+          data, static_cast<uint32_t>(item.second.subobjects.size()));
+      for (const auto &subobject : item.second.subobjects) {
+        AppendStateDatabaseU32(data, static_cast<uint32_t>(subobject.type));
+        AppendStateDatabaseU32(data, static_cast<uint32_t>(subobject.desc.size()));
+        AppendStateDatabaseBytes(data, subobject.desc.data(),
+                                 subobject.desc.size());
+      }
+      AppendStateDatabaseU32(data,
+                             static_cast<uint32_t>(item.second.parent_key.size()));
+      AppendStateDatabaseBytes(data, item.second.parent_key.data(),
+                               item.second.parent_key.size());
+    }
+    return data;
+  }
+
+  HRESULT Persist() const {
+    if (m_file_path.empty())
+      return S_OK;
+    return WriteStateDatabaseFile(m_file_path.c_str(), Serialize());
+  }
+
+  HRESULT Load() {
+    std::vector<uint8_t> data;
+    HRESULT result = ReadStateDatabaseFile(m_file_path.c_str(), data);
+    if (result == S_FALSE)
+      return S_OK;
+    if (FAILED(result))
+      return result;
+    size_t offset = 0;
+    uint32_t magic = 0, format_version = 0, application_present = 0;
+    auto invalid = [] { return HRESULT_FROM_WIN32(ERROR_BAD_FORMAT); };
+    if (!ReadStateDatabaseU32(data, offset, magic) ||
+        !ReadStateDatabaseU32(data, offset, format_version) ||
+        magic != kStateDatabaseMagic || format_version != kStateDatabaseVersion ||
+        !ReadStateDatabaseU32(data, offset, application_present) ||
+        application_present > 1u)
+      return invalid();
+
+    m_application_desc = {};
+    m_exe_filename.clear();
+    m_application_name.clear();
+    m_engine_name.clear();
+    m_has_application_desc = application_present != 0;
+    if (m_has_application_desc) {
+      uint64_t version = 0, engine_version = 0;
+      if (!ReadStateDatabaseString(data, offset, m_exe_filename) ||
+          !ReadStateDatabaseString(data, offset, m_application_name) ||
+          !ReadStateDatabaseU64(data, offset, version) ||
+          !ReadStateDatabaseString(data, offset, m_engine_name) ||
+          !ReadStateDatabaseU64(data, offset, engine_version))
+        return invalid();
+      m_application_desc.pExeFilename =
+          m_exe_filename.empty() ? nullptr : m_exe_filename.c_str();
+      m_application_desc.pName =
+          m_application_name.empty() ? nullptr : m_application_name.c_str();
+      m_application_desc.Version.Version = version;
+      m_application_desc.pEngineName =
+          m_engine_name.empty() ? nullptr : m_engine_name.c_str();
+      m_application_desc.EngineVersion.Version = engine_version;
+    }
+
+    m_pipeline_descs.clear();
+    m_state_object_descs.clear();
+    uint32_t pipeline_count = 0;
+    if (!ReadStateDatabaseU32(data, offset, pipeline_count) ||
+        pipeline_count > kStateDatabaseMaxEntries)
+      return invalid();
+    for (uint32_t i = 0; i < pipeline_count; ++i) {
+      uint32_t key_size = 0, version = 0, stream_size = 0;
+      if (!ReadStateDatabaseU32(data, offset, key_size) || key_size == 0 ||
+          key_size > kStateDatabaseMaxKeyBytes ||
+          offset > data.size() || data.size() - offset < key_size)
+        return invalid();
+      std::vector<uint8_t> key(key_size);
+      if (!ReadStateDatabaseBytes(data, offset, key.data(), key.size()) ||
+          !ReadStateDatabaseU32(data, offset, version) ||
+          !ReadStateDatabaseU32(data, offset, stream_size) || stream_size == 0 ||
+          stream_size > kStateDatabaseMaxBytes || offset > data.size() ||
+          data.size() - offset < stream_size)
+        return invalid();
+      PipelineDescEntry entry;
+      entry.version = version;
+      entry.stream.resize(stream_size);
+      if (!ReadStateDatabaseBytes(data, offset, entry.stream.data(),
+                                  entry.stream.size()))
+        return invalid();
+      m_pipeline_descs.emplace(std::move(key), std::move(entry));
+    }
+
+    uint32_t state_count = 0;
+    if (!ReadStateDatabaseU32(data, offset, state_count) ||
+        state_count > kStateDatabaseMaxEntries)
+      return invalid();
+    for (uint32_t i = 0; i < state_count; ++i) {
+      uint32_t key_size = 0, version = 0, type = 0, subobject_count = 0;
+      if (!ReadStateDatabaseU32(data, offset, key_size) || key_size == 0 ||
+          key_size > kStateDatabaseMaxKeyBytes || offset > data.size() ||
+          data.size() - offset < key_size)
+        return invalid();
+      std::vector<uint8_t> key(key_size);
+      if (!ReadStateDatabaseBytes(data, offset, key.data(), key.size()) ||
+          !ReadStateDatabaseU32(data, offset, version) ||
+          !ReadStateDatabaseU32(data, offset, type) ||
+          !ReadStateDatabaseU32(data, offset, subobject_count) ||
+          subobject_count > 64u)
+        return invalid();
+      StateObjectDescEntry entry;
+      entry.version = version;
+      entry.type = static_cast<D3D12_STATE_OBJECT_TYPE>(type);
+      entry.subobjects.reserve(subobject_count);
+      for (uint32_t sub = 0; sub < subobject_count; ++sub) {
+        uint32_t subobject_type = 0, desc_size = 0;
+        if (!ReadStateDatabaseU32(data, offset, subobject_type) ||
+            !ReadStateDatabaseU32(data, offset, desc_size) ||
+            desc_size != StateSubobjectDescSize(
+                             static_cast<D3D12_STATE_SUBOBJECT_TYPE>(subobject_type)) ||
+            offset > data.size() || data.size() - offset < desc_size)
+          return invalid();
+        StateObjectSubobjectEntry stored;
+        stored.type = static_cast<D3D12_STATE_SUBOBJECT_TYPE>(subobject_type);
+        stored.desc.resize(desc_size);
+        if (!ReadStateDatabaseBytes(data, offset, stored.desc.data(),
+                                    stored.desc.size()))
+          return invalid();
+        entry.subobjects.push_back(std::move(stored));
+      }
+      uint32_t parent_size = 0;
+      if (!ReadStateDatabaseU32(data, offset, parent_size) ||
+          parent_size > kStateDatabaseMaxKeyBytes || offset > data.size() ||
+          data.size() - offset < parent_size)
+        return invalid();
+      entry.parent_key.resize(parent_size);
+      if (!ReadStateDatabaseBytes(data, offset, entry.parent_key.data(),
+                                  entry.parent_key.size()))
+        return invalid();
+      m_state_object_descs.emplace(std::move(key), std::move(entry));
+    }
+    if (offset != data.size())
+      return invalid();
+    TraceAgility("StateObjectDatabase::Load file=%ls pipelines=%zu states=%zu",
+                 m_file_path.c_str(), m_pipeline_descs.size(),
+                 m_state_object_descs.size());
+    return S_OK;
+  }
+
   static std::vector<uint8_t> MakeKey(const void *key, UINT key_size) {
     auto *bytes = static_cast<const uint8_t *>(key);
     return std::vector<uint8_t>(bytes, bytes + key_size);
   }
 
   std::atomic<ULONG> m_ref = {1};
+  std::wstring m_file_path;
+  bool m_read_only = false;
   bool m_has_application_desc = false;
   D3D12ApplicationDescCompat m_application_desc = {};
   std::wstring m_exe_filename;
@@ -935,8 +1289,13 @@ public:
         "file=%ls flags=0x%x riid=%s",
         database_file ? database_file : L"(null)", flags,
         dxmt::str::format(riid).c_str());
+    if (!database_file || !*database_file ||
+        (flags & ~D3D12StateObjectDatabaseFlagReadOnly))
+      return E_INVALIDARG;
     auto *database = new MTLD3D12StateObjectDatabase();
-    HRESULT hr = database->QueryInterface(riid, state_object_database);
+    HRESULT hr = database->Initialize(database_file, flags);
+    if (SUCCEEDED(hr))
+      hr = database->QueryInterface(riid, state_object_database);
     database->Release();
     return hr;
   }
