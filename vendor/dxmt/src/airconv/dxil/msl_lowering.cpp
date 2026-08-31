@@ -663,6 +663,7 @@ struct LowerContext {
     std::set<uint32_t> writable_msaa_texture_slots;
     bool sample_cmp_shader = false;
     bool compute_sample_cmp_shader = false;
+    std::set<uint32_t> comparison_texture_slots;
     bool compute_texture_sample_shader = false;
     bool uses_atomic64_emulation = false;
     bool uses_group_atomic64_emulation = false;
@@ -1356,16 +1357,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             bool raw_gather_slot = false;
             bool srv_slot = false;
             bool uav_slot = false;
-            if (ctx.compute_sample_cmp_shader) {
-                for (const auto &range : ctx.binding_plan.ranges) {
-                    if (range.kind == DescriptorRangePlan::Kind::SRV &&
-                        i >= range.lower_bound &&
-                        i < range.lower_bound + range.count) {
-                        comparison_slot = true;
-                        break;
-                    }
-                }
-            }
+            if (ctx.compute_sample_cmp_shader)
+                comparison_slot = ctx.comparison_texture_slots.count(i) != 0;
             if (ctx.compute_raw_gather_shader) {
                 for (const auto &range : ctx.binding_plan.ranges) {
                     if (range.kind == DescriptorRangePlan::Kind::SRV &&
@@ -1497,7 +1490,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         if (ctx.options.conservative_rasterization)
             os << "  constant m12_conservative_data& m12_conservative [[buffer(26)]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
-            bool comparison_slot = ctx.sample_cmp_shader;
+            bool comparison_slot =
+                ctx.sample_cmp_shader &&
+                ctx.comparison_texture_slots.count(i) != 0;
             bool srv_slot = false;
             bool uav_slot = false;
             for (const auto &range : ctx.binding_plan.ranges) {
@@ -3597,6 +3592,22 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                              (resource_kind & 0xffu) == 8u))
                             markWritableMSAASlots(fn_args[0]);
                     }
+                }
+            }
+            if ((intrinsic_id == DXOP_TextureSampleCmp ||
+                 intrinsic_id == DXOP_TextureSampleCmpLevelZero ||
+                 intrinsic_id == DXOP_TextureSampleCmpLevel ||
+                 intrinsic_id == DXOP_TextureSampleCmpGrad ||
+                 intrinsic_id == DXOP_TextureSampleCmpBias ||
+                 intrinsic_id == DXOP_TextureGatherCmp) &&
+                !fn_args.empty()) {
+                auto comparison_handle = handle_bindings.find(fn_args[0]);
+                if (comparison_handle != handle_bindings.end()) {
+                    const uint32_t count =
+                        std::min<uint32_t>(comparison_handle->second.count, 16);
+                    for (uint32_t i = 0; i < count; ++i)
+                        ctx.comparison_texture_slots.insert(
+                            comparison_handle->second.lower_bound + i);
                 }
             }
             if (producesValue(inst))

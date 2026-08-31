@@ -458,6 +458,54 @@ static HRESULT create_root_signature(ID3D12Device* device, bool read,
     return hr;
 }
 
+static HRESULT create_graphics_texture_root_signature(
+    ID3D12Device* device, ID3D12RootSignature** root, std::string& errors) {
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    auto serialize = load_proc<D3D12SerializeRootSignatureFn>(
+        d3d12, "D3D12SerializeRootSignature");
+    if (!serialize)
+        return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+
+    D3D12_DESCRIPTOR_RANGE ranges[2] = {};
+    ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    ranges[0].NumDescriptors = 2;
+    ranges[0].BaseShaderRegister = 0;
+    ranges[0].OffsetInDescriptorsFromTableStart =
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    ranges[1].NumDescriptors = 2;
+    ranges[1].BaseShaderRegister = 0;
+    ranges[1].OffsetInDescriptorsFromTableStart =
+        D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_ROOT_PARAMETER params[2] = {};
+    for (UINT i = 0; i < 2; ++i) {
+        params[i].ParameterType =
+            D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[i].DescriptorTable.NumDescriptorRanges = 1;
+        params[i].DescriptorTable.pDescriptorRanges = &ranges[i];
+        params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    }
+    D3D12_ROOT_SIGNATURE_DESC desc = {};
+    desc.NumParameters = 2;
+    desc.pParameters = params;
+    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    ID3DBlob* blob = nullptr;
+    ID3DBlob* error_blob = nullptr;
+    HRESULT hr = serialize(&desc, D3D_ROOT_SIGNATURE_VERSION_1_0, &blob,
+                           &error_blob);
+    if (error_blob) {
+        errors.assign(static_cast<const char*>(error_blob->GetBufferPointer()),
+                      error_blob->GetBufferSize());
+        error_blob->Release();
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, blob->GetBufferPointer(),
+                                         blob->GetBufferSize(),
+                                         IID_PPV_ARGS(root));
+    safe_release(blob);
+    return hr;
+}
+
 static HRESULT create_queue(ID3D12Device* device, D3D12_COMMAND_LIST_TYPE type,
                             ID3D12CommandQueue** queue) {
     D3D12_COMMAND_QUEUE_DESC desc = {};
@@ -1128,6 +1176,7 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
     float expected_lod = 1.0f;
     std::memcpy(&result.expected, &expected_lod, sizeof(expected_lod));
     result.expected_high = result.expected;
+    result.dimensions_expected = result.expected;
 
     std::vector<uint8_t> vertex_shader;
     std::vector<uint8_t> pixel_shader;
@@ -1148,10 +1197,12 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
     ID3D12DescriptorHeap* sampler_heap = nullptr;
     ID3D12DescriptorHeap* rtv_heap = nullptr;
     ID3D12Resource* texture = nullptr;
+    ID3D12Resource* comparison_texture = nullptr;
     ID3D12Resource* target = nullptr;
     ID3D12Resource* readback = nullptr;
     std::string errors;
-    HRESULT hr = create_root_signature(device, true, &root, errors);
+    HRESULT hr =
+        create_graphics_texture_root_signature(device, &root, errors);
     if (SUCCEEDED(hr)) {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
         desc.pRootSignature = root;
@@ -1185,7 +1236,7 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC desc = {};
         desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        desc.NumDescriptors = 1;
+        desc.NumDescriptors = 2;
         desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&desc,
                                            IID_PPV_ARGS(&resource_heap));
@@ -1193,7 +1244,7 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC desc = {};
         desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-        desc.NumDescriptors = 1;
+        desc.NumDescriptors = 2;
         desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&desc,
                                            IID_PPV_ARGS(&sampler_heap));
@@ -1212,6 +1263,28 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
             &props, D3D12_HEAP_FLAG_NONE, &desc,
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr,
             IID_PPV_ARGS(&texture));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = 4;
+        desc.Height = 1;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_D32_FLOAT;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        D3D12_HEAP_PROPERTIES props = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        hr = device->CreateCommittedResource(
+            &props, D3D12_HEAP_FLAG_NONE, &desc,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr,
+            IID_PPV_ARGS(&comparison_texture));
+        if (SUCCEEDED(hr)) {
+            const float depth[] = {0.25f, 0.25f, 0.75f, 0.75f};
+            hr = comparison_texture->WriteToSubresource(
+                0, nullptr, depth, sizeof(depth), sizeof(depth));
+        }
     }
     D3D12_RESOURCE_DESC target_desc = {};
     target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1248,8 +1321,19 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
         make_srv_desc(TextureShape::Texture1D, srv,
                       DXGI_FORMAT_R8G8B8A8_UNORM, 2);
+        const UINT resource_increment = device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_CPU_DESCRIPTOR_HANDLE resource_cpu =
+            resource_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateShaderResourceView(texture, &srv, resource_cpu);
+        srv = {};
+        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srv.Format = DXGI_FORMAT_R32_FLOAT;
+        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srv.Texture2D.MipLevels = 1;
         device->CreateShaderResourceView(
-            texture, &srv, resource_heap->GetCPUDescriptorHandleForHeapStart());
+            comparison_texture, &srv,
+            offset_cpu(resource_cpu, resource_increment, 1));
         D3D12_SAMPLER_DESC sampler = {};
         sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
         sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
@@ -1258,8 +1342,15 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
         sampler.MaxLOD = D3D12_FLOAT32_MAX;
         sampler.MaxAnisotropy = 1;
         sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        const UINT sampler_increment = device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+        D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu =
+            sampler_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateSampler(&sampler, sampler_cpu);
+        sampler.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
+        sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
         device->CreateSampler(
-            &sampler, sampler_heap->GetCPUDescriptorHandleForHeapStart());
+            &sampler, offset_cpu(sampler_cpu, sampler_increment, 1));
         device->CreateRenderTargetView(
             target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
 
@@ -1276,9 +1367,9 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
         list->SetDescriptorHeaps(2, heaps);
         list->SetGraphicsRootSignature(root);
         list->SetGraphicsRootDescriptorTable(
-            1, resource_heap->GetGPUDescriptorHandleForHeapStart());
+            0, resource_heap->GetGPUDescriptorHandleForHeapStart());
         list->SetGraphicsRootDescriptorTable(
-            2, sampler_heap->GetGPUDescriptorHandleForHeapStart());
+            1, sampler_heap->GetGPUDescriptorHandleForHeapStart());
         list->SetPipelineState(pso);
         list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         list->DrawInstanced(3, 1, 0, 0);
@@ -1306,18 +1397,23 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
             std::memcpy(&result.actual_high,
                         mapped + footprint.Offset + sizeof(uint32_t),
                         sizeof(result.actual_high));
+            std::memcpy(&result.dimensions_actual,
+                        mapped + footprint.Offset + 2 * sizeof(uint32_t),
+                        sizeof(result.dimensions_actual));
             readback->Unmap(0, nullptr);
         }
     }
     result.hr = hr;
     result.pass = SUCCEEDED(hr) && result.actual == result.expected &&
-                  result.actual_high == result.expected_high;
+                  result.actual_high == result.expected_high &&
+                  result.dimensions_actual == result.dimensions_expected;
     result.detail = result.pass
-                        ? "pixel-stage clamped and unclamped texture LOD matched exact float readback"
-                        : errors.empty() ? "pixel-stage texture LOD readback failed"
+                        ? "pixel-stage LOD and depth comparison sampling matched exact float readback"
+                        : errors.empty() ? "pixel-stage texture sampling readback failed"
                                          : errors;
     safe_release(readback);
     safe_release(target);
+    safe_release(comparison_texture);
     safe_release(texture);
     safe_release(rtv_heap);
     safe_release(sampler_heap);
