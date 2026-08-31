@@ -45,6 +45,7 @@ struct D3D12Descriptor {
   ID3D12Resource *resource_uav_counter = nullptr;
   ID3D12Resource *sampler_feedback_target = nullptr;
   bool is_sampler_feedback = false;
+  bool invalid_sampler = false;
 };
 
 class MTLD3D12DescriptorHeap : public ID3D12DescriptorHeap {

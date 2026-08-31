@@ -5600,6 +5600,7 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
   auto *d = reinterpret_cast<D3D12Descriptor *>(descriptor.ptr);
   if (d && desc) {
     d->sampler = *desc;
+    d->invalid_sampler = false;
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
     d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
 
@@ -5681,6 +5682,40 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
     info.lod_min_clamp = desc->MinLOD;
     info.lod_max_clamp = desc->MaxLOD;
     info.normalized_coords = true;
+    const bool uses_border =
+        desc->AddressU == D3D12_TEXTURE_ADDRESS_MODE_BORDER ||
+        desc->AddressV == D3D12_TEXTURE_ADDRESS_MODE_BORDER ||
+        desc->AddressW == D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+    if (desc->BorderColor[0] == 1.0f && desc->BorderColor[1] == 1.0f &&
+        desc->BorderColor[2] == 1.0f && desc->BorderColor[3] == 1.0f) {
+      info.border_color = WMTSamplerBorderColorOpaqueWhite;
+    } else if (desc->BorderColor[0] == 0.0f &&
+               desc->BorderColor[1] == 0.0f &&
+               desc->BorderColor[2] == 0.0f &&
+               desc->BorderColor[3] == 1.0f) {
+      info.border_color = WMTSamplerBorderColorOpaqueBlack;
+    } else if (desc->BorderColor[0] == 0.0f &&
+               desc->BorderColor[1] == 0.0f &&
+               desc->BorderColor[2] == 0.0f &&
+               desc->BorderColor[3] == 0.0f) {
+      info.border_color = WMTSamplerBorderColorTransparentBlack;
+    } else if (uses_border) {
+      // Metal exposes only the three D3D static-border-color values. Leave the
+      // descriptor unbound rather than silently substituting the wrong color.
+      TRACE("CreateSampler rejected unrepresentable border color {%g,%g,%g,%g}",
+            desc->BorderColor[0], desc->BorderColor[1], desc->BorderColor[2],
+            desc->BorderColor[3]);
+      d->invalid_sampler = true;
+      d->metal_sampler = {};
+      d->metal_sampler_cube = {};
+      d->metal_sampler_gpu_id = 0;
+      d->metal_sampler_cube_gpu_id = 0;
+      UpdateDescriptorTableMirror(this, d);
+      return;
+    } else {
+      // BorderColor is ignored when no axis uses the border address mode.
+      info.border_color = WMTSamplerBorderColorTransparentBlack;
+    }
     info.support_argument_buffers = true;
     if (D3D12_DECODE_IS_COMPARISON_FILTER(desc->Filter)) {
       if (desc->ComparisonFunc >= D3D12_COMPARISON_FUNC_LESS &&

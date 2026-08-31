@@ -2360,6 +2360,8 @@ struct ReplayState {
   uint64_t gs_cbv_table_buf_offset = 0;
   WMT::Reference<WMT::Buffer> comp_arg_buf;
   uint64_t comp_arg_buf_offset = 0;
+  bool comp_invalid_sampler = false;
+  bool graphics_invalid_sampler = false;
   WMT::Reference<WMT::Buffer> comp_cbv_table_buf;
   uint64_t comp_cbv_table_buf_offset = 0;
   WMT::Reference<WMT::Buffer> root_constants_mtl_buf;
@@ -3568,6 +3570,14 @@ struct ReplayState {
             }
           }
         } else if (arg.Type == SM50BindingType::Sampler) {
+          if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
+              desc->invalid_sampler) {
+            graphics_invalid_sampler = true;
+            QTRACE("BuildArgBuf: rejected invalid sampler root=%u "
+                   "desc_off=%u offset=%u",
+                   root_idx, descriptor_offset, arg.StructurePtrOffset);
+            continue;
+          }
           QTRACE("BuildArgBuf: Sampler root=%u desc_off=%u desc_type=%u "
                  "gpu_id=0x%llx offset=%u",
                  root_idx, descriptor_offset, desc->type,
@@ -4286,6 +4296,14 @@ struct ReplayState {
             }
           }
         } else if (arg.Type == SM50BindingType::Sampler) {
+          if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
+              desc->invalid_sampler) {
+            graphics_invalid_sampler = true;
+            QTRACE("BuildVertexArgBuf: rejected invalid sampler root=%u "
+                   "desc_off=%u offset=%u",
+                   root_idx, descriptor_offset, arg.StructurePtrOffset);
+            continue;
+          }
           QTRACE("BuildVertexArgBuf: Sampler root=%u desc_off=%u desc_type=%u "
                  "gpu_id=0x%llx offset=%u",
                  root_idx, descriptor_offset, desc->type,
@@ -4683,9 +4701,18 @@ struct ReplayState {
                                      WMTRenderStageMesh);
             RetainMTLObjectForCompletion(tex);
           }
-        } else if (arg.Type == SM50BindingType::Sampler &&
-                   desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
-                   desc->metal_sampler_gpu_id) {
+        } else if (arg.Type == SM50BindingType::Sampler) {
+          if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
+              desc->invalid_sampler) {
+            graphics_invalid_sampler = true;
+            QTRACE("BuildGeometryArgBuf: rejected invalid sampler root=%u "
+                   "desc_off=%u offset=%u",
+                   root_idx, descriptor_offset, arg.StructurePtrOffset);
+            continue;
+          }
+          if (desc->type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER ||
+              !desc->metal_sampler_gpu_id)
+            continue;
           if (msc_linear_abi) {
             WriteMSCLinearSamplerArgument(
                 gs_arg_buf_data, arg, desc->metal_sampler_gpu_id,
@@ -5362,6 +5389,7 @@ struct ReplayState {
   }
 
   uint32_t BuildComputeArgumentBuffer(MTLD3D12Device *device) {
+    comp_invalid_sampler = false;
     if (!pso || pso->GetCSArguments().empty())
       return 0;
 
@@ -5530,6 +5558,14 @@ struct ReplayState {
           continue;
 
         if (arg.Type == SM50BindingType::Sampler) {
+          if (desc->type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER &&
+              desc->invalid_sampler) {
+            comp_invalid_sampler = true;
+            QTRACE("BuildComputeArgBuf: rejected invalid sampler root=%u "
+                   "desc_off=%u offset=%u",
+                   root_idx, descriptor_offset, arg.StructurePtrOffset);
+            continue;
+          }
           QTRACE("BuildComputeArgBuf: Sampler root=%u desc_off=%u desc_type=%u "
                  "gpu_id=0x%llx offset=%u",
                  root_idx, descriptor_offset, desc->type,
@@ -6345,6 +6381,7 @@ struct ReplayState {
   }
 
   void ApplyRootBindings(MTLD3D12Device *device) {
+    graphics_invalid_sampler = false;
     if (!render_enc_open || !pso)
       return;
 
@@ -6465,6 +6502,12 @@ struct ReplayState {
         if (!desc)
           return;
         if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
+          if (desc->invalid_sampler) {
+            graphics_invalid_sampler = true;
+            QTRACE("ApplyRootBindings: rejected invalid table sampler s%u",
+                   shader_register);
+            return;
+          }
           if (shader_register < 4 && desc->metal_sampler.handle) {
             if (vis == D3D12_SHADER_VISIBILITY_ALL ||
                 vis == D3D12_SHADER_VISIBILITY_PIXEL)
@@ -7186,6 +7229,16 @@ struct ReplayState {
     if (render_enc_open)
       PrepareStreamOutputTarget(device);
     BindGeometryMeshBuffers();
+    RejectInvalidGraphicsSampler("draw");
+  }
+
+  bool RejectInvalidGraphicsSampler(const char *label) {
+    if (!graphics_invalid_sampler)
+      return false;
+    Logger::info(str::format("M12 ", label,
+                             " rejected invalid sampler pso=", (void *)pso));
+    CloseRenderEncoder();
+    return true;
   }
 
   template <typename Encode>
@@ -8464,6 +8517,7 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   uint64_t fallback_compute_buffer_slots = 0;
   uint64_t fallback_compute_texture_slots = 0;
   uint64_t fallback_compute_sampler_slots = 0;
+  bool compute_invalid_sampler = false;
 
   auto append_cmd = [&](void *data, size_t sz) -> wmtcmd_base * {
     if (cmd_ptr + sz > cmd_buf + sizeof(cmd_buf)) {
@@ -8581,6 +8635,12 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   }
 
   uint32_t comp_arg_qwords = st.BuildComputeArgumentBuffer(device);
+  if (st.comp_invalid_sampler) {
+    Logger::info(str::format(
+        "M12 compute dispatch rejected invalid sampler label=", trace_prefix,
+        " pso=", (void *)st.pso));
+    return;
+  }
   if (comp_arg_qwords > 0 && st.comp_arg_buf.handle) {
     uint32_t bind_index = st.BindIndexOrFallback(
         st.pso->GetCSReflection().ArgumentBufferBindIndex, st.kArgBufSlot);
@@ -8753,6 +8813,12 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
       if (!desc || !compute_uses_descriptor(range_type, shader_register))
         return;
       if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER) {
+        if (desc->invalid_sampler) {
+          compute_invalid_sampler = true;
+          QTRACE("%s: rejected invalid table sampler s%u", trace_prefix,
+                 shader_register);
+          return;
+        }
         if (shader_register < 4 && desc->metal_sampler.handle) {
           append_compute_setsampler(desc->metal_sampler.handle,
                                     shader_register);
@@ -8936,6 +9002,13 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
       QTRACE("%s: directly indexed resource heap bound descriptors=%u",
              trace_prefix, count);
     }
+  }
+
+  if (compute_invalid_sampler) {
+    Logger::info(str::format(
+        "M12 compute dispatch rejected invalid table sampler label=",
+        trace_prefix, " pso=", (void *)st.pso));
+    return;
   }
 
   int num_consts = 0, num_cbvs = 0, num_tables = 0;
@@ -11676,6 +11749,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.BuildConstantBufferTable(m_device);
         st.BuildArgumentBuffer(m_device);
         st.BindGeometryMeshBuffers();
+        if (st.RejectInvalidGraphicsSampler("dispatch mesh"))
+          break;
         st.BindDirectFragmentCompleteness(m_device, "dispatch_mesh");
         if (st.EncodeNativeMeshDispatch(cmd->x, cmd->y, cmd->z)) {
           const uint64_t group_count = uint64_t(cmd->x) * cmd->y * cmd->z;
@@ -11863,6 +11938,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           st.BuildVertexArgumentBuffer(m_device);
           st.BuildConstantBufferTable(m_device);
           st.BuildArgumentBuffer(m_device);
+          if (st.RejectInvalidGraphicsSampler("indirect draw"))
+            return;
           if (st.render_enc_open && st.arg_buf.handle) {
             uint32_t bind_index = st.BindIndexOrFallback(
                 st.pso->GetPSReflection().ArgumentBufferBindIndex,
@@ -11954,6 +12031,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               st.BuildVertexArgumentBuffer(m_device);
               st.BuildConstantBufferTable(m_device);
               st.BuildArgumentBuffer(m_device);
+              if (st.RejectInvalidGraphicsSampler("indirect indexed draw"))
+                return;
               if (st.render_enc_open && st.arg_buf.handle) {
                 uint32_t bind_index = st.BindIndexOrFallback(
                     st.pso->GetPSReflection().ArgumentBufferBindIndex,
@@ -12139,6 +12218,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 st.BuildConstantBufferTable(m_device);
                 st.BuildArgumentBuffer(m_device);
                 st.BindGeometryMeshBuffers();
+                if (st.RejectInvalidGraphicsSampler("indirect mesh dispatch"))
+                  break;
                 st.BindDirectFragmentCompleteness(
                     m_device, "execute_indirect_dispatch_mesh");
                 st.EncodeNativeMeshDispatch(args.ThreadGroupCountX,

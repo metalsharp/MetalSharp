@@ -173,7 +173,7 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-texture1d-advanced1`: 45/45 cases passed with exact
+`phase5-texture-address-final`: 54/54 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
 for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
 R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`,
@@ -191,6 +191,13 @@ coordinates and dimensions: mip-1 1D and 1D-array values are both `96`, with
 exact packed
 GetDimensions values `131074` and `131586`. The combined mip-level, bias,
 gradient, and static-offset lane returns packed exact value `0x14323232`.
+Clamp, wrap, mirror, border, and mirror-once address modes return distinct exact
+packed values, while transparent black, opaque black, and opaque white border
+colors return `0x00000000`, `0xff000000`, and `0xffffffff`. Dynamic sampler
+creation maps all three Metal-representable D3D border colors explicitly.
+An unrepresentable red border descriptor remains fail-closed: compute dispatch
+is rejected and preserves the exact two-word `0xdeadbeef` output sentinel;
+the render and mesh binding paths carry the same invalid-descriptor rejection.
 Resource profile
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
