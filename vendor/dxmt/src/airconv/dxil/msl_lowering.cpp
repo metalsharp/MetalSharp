@@ -613,6 +613,7 @@ struct ResourceHandleRecord {
     uint32_t element_stride = 0;
     uint32_t sample_count = 1;
     bool non_uniform = false;
+    bool direct_heap = false;
     std::string dynamic_index;
 };
 
@@ -920,7 +921,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     os << kMetalHeader;
     emitBindingManifest(ctx);
 
-    std::set<std::pair<uint32_t, uint32_t>> dynamic_buffer_ranges;
+    std::map<std::pair<uint32_t, uint32_t>, uint32_t>
+        dynamic_buffer_ranges;
     for (const auto &entry : ctx.resource_handles) {
         const auto &handle = entry.second;
         if (handle.kind != DescriptorRangePlan::Kind::SRV ||
@@ -932,9 +934,12 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         const uint32_t count = std::min<uint32_t>(
             handle.binding_count, ctx.binding_plan.direct_buffer_count - base);
         if (count > 1)
-            dynamic_buffer_ranges.insert({base, count});
+            dynamic_buffer_ranges[{base, count}] =
+                handle.direct_heap ? handle.lower_bound : 0u;
     }
-    for (const auto &[base, count] : dynamic_buffer_ranges) {
+    for (const auto &[range, index_base] : dynamic_buffer_ranges) {
+        const uint32_t base = range.first;
+        const uint32_t count = range.second;
         const std::string helper = "m12_dynamic_buffer_load_" +
                                    std::to_string(base) + "_" +
                                    std::to_string(count);
@@ -944,7 +949,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << ", device char* b" << (base + i);
         os << ") {\n";
         for (uint32_t i = 0; i < count; ++i)
-            os << "  if (index == " << i << "u) return reinterpret_cast<device uint4&>(b"
+            os << "  if (index == " << (index_base + i)
+               << "u) return reinterpret_cast<device uint4&>(b"
                << (base + i) << "[byte_offset]);\n";
         os << "  return uint4(0);\n";
         os << "}\n\n";
@@ -3405,6 +3411,7 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         uint32_t lower_bound = 0;
         uint32_t count = 1;
         std::string dynamic_index;
+        bool direct_heap = false;
     };
     std::unordered_map<uint32_t, HandleBinding> handle_bindings;
     auto rememberHandle = [&](uint32_t result_id,
@@ -3412,16 +3419,19 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                               uint32_t lower_bound, uint32_t count,
                               uint32_t binding_index = 0,
                               const DxilResourceBinding *metadata = nullptr,
-                              const std::string &dynamic_index = {}) {
+                              const std::string &dynamic_index = {},
+                              bool direct_heap = false) {
         if (!result_id)
             return;
-        handle_bindings[result_id] = {kind, lower_bound, count, dynamic_index};
+        handle_bindings[result_id] = {kind, lower_bound, count, dynamic_index,
+                                      direct_heap};
         ResourceHandleRecord record;
         record.kind = kind;
         record.lower_bound = lower_bound;
         record.binding_count = count ? count : 1;
         record.binding_index = binding_index;
         record.dynamic_index = dynamic_index;
+        record.direct_heap = direct_heap;
         applyResourceBindingMetadata(metadata, record);
         ctx.resource_handles[result_id] = record;
     };
@@ -3450,6 +3460,12 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         }
     };
     uint32_t value_counter = fn.instruction_start_value;
+    struct IndexRange {
+        bool known = false;
+        uint32_t lower = 0;
+        uint32_t upper = 0;
+    };
+    std::unordered_map<uint32_t, IndexRange> index_ranges;
 
     auto calleeName = [&](uint32_t callee) -> std::string {
         auto decl_it = ctx.function_decls.find(callee);
@@ -3478,12 +3494,54 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         uint32_t literal = 0;
         return parseUnsignedLiteral(text, literal) ? std::string() : text;
     };
+    auto indexRangeFor = [&](uint32_t value_id) {
+        auto known = index_ranges.find(value_id);
+        if (known != index_ranges.end())
+            return known->second;
+        uint32_t literal = 0;
+        if (parseUnsignedLiteral(valueText(value_id), literal))
+            return IndexRange{true, literal, literal};
+        return IndexRange{};
+    };
+    auto rememberIndexRange = [&](const LLVMInstruction &inst,
+                                  uint32_t result_id) {
+        if (!result_id || inst.operands.empty())
+            return;
+        const IndexRange lhs = indexRangeFor(inst.operands[0]);
+        IndexRange result;
+        if ((inst.opcode == LLVMInstruction::ZExt ||
+             inst.opcode == LLVMInstruction::Trunc) && lhs.known) {
+            result = lhs;
+        } else if (inst.operands.size() < 2) {
+            return;
+        } else if (inst.opcode == LLVMInstruction::And) {
+            const IndexRange rhs = indexRangeFor(inst.operands[1]);
+            if (lhs.known && lhs.lower == lhs.upper) {
+                result = {true, 0, lhs.upper};
+            } else if (rhs.known && rhs.lower == rhs.upper) {
+                result = {true, 0, rhs.upper};
+            }
+        } else if (inst.opcode == LLVMInstruction::Add && lhs.known) {
+            const IndexRange rhs = indexRangeFor(inst.operands[1]);
+            if (rhs.known) {
+                const uint64_t lower = uint64_t(lhs.lower) + rhs.lower;
+                const uint64_t upper = uint64_t(lhs.upper) + rhs.upper;
+                if (upper <= UINT32_MAX)
+                    result = {true, static_cast<uint32_t>(lower),
+                              static_cast<uint32_t>(upper)};
+            }
+        }
+        if (result.known)
+            index_ranges[result_id] = result;
+    };
 
     for (const auto &block : fn.blocks) {
         for (const auto &inst : block.instructions) {
             if (inst.opcode != LLVMInstruction::Call || inst.operands.size() < 2) {
-                if (producesValue(inst))
+                if (producesValue(inst)) {
+                    rememberIndexRange(inst, value_counter);
                     ++value_counter;
+                }
                 continue;
             }
 
@@ -3599,20 +3657,30 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                     !parseUnsignedLiteral(heap_value, literal_heap_index);
                 if (!dynamic_heap_index)
                     heap_index = literal_heap_index;
+                const IndexRange bounded_index = indexRangeFor(fn_args[0]);
+                const uint32_t limit =
+                    sampler ? std::min<uint32_t>(4u, plan.direct_sampler_count)
+                            : std::min<uint32_t>(8u, plan.direct_buffer_count);
+                const bool has_bounded_index =
+                    dynamic_heap_index && bounded_index.known &&
+                    bounded_index.lower <= bounded_index.upper &&
+                    bounded_index.upper < limit;
                 const uint32_t count =
                     dynamic_heap_index
-                        ? (sampler ? std::min<uint32_t>(
-                                         4u, plan.direct_sampler_count)
-                                   : std::min<uint32_t>(
-                                         8u, plan.direct_buffer_count))
+                        ? (has_bounded_index
+                               ? bounded_index.upper - bounded_index.lower + 1
+                               : limit)
                         : 1u;
-                const uint32_t lower_bound = dynamic_heap_index ? 0u : heap_index;
+                const uint32_t lower_bound =
+                    dynamic_heap_index
+                        ? (has_bounded_index ? bounded_index.lower : 0u)
+                        : heap_index;
                 const std::string dynamic_index =
                     dynamic_heap_index ? heap_value : std::string();
                 recordDescriptorRange(plan,
                                       {kind, 0, lower_bound, count});
                 rememberHandle(result_id, kind, lower_bound, count, 0,
-                               nullptr, dynamic_index);
+                               nullptr, dynamic_index, true);
             } else if (intrinsic_id == DXOP_AnnotateHandle &&
                        fn_args.size() >= 2) {
                 auto base = handle_bindings.find(fn_args[0]);
@@ -3620,19 +3688,45 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                     rememberHandle(result_id, base->second.kind,
                                    base->second.lower_bound,
                                    base->second.count, 0, nullptr,
-                                   base->second.dynamic_index);
+                                   base->second.dynamic_index,
+                                   base->second.direct_heap);
                     auto properties = parseAggregateLiteral(
                         resolveValue(ctx, fn_args[1]));
                     auto base_record = ctx.resource_handles.find(fn_args[0]);
                     if (base_record != ctx.resource_handles.end()) {
                         auto annotated = base_record->second;
-                        if (!properties.empty())
-                            parseUnsignedLiteral(properties[0],
-                                                 annotated.resource_kind);
+                        uint32_t property0 = 0;
+                        if (!properties.empty() &&
+                            parseUnsignedLiteral(properties[0], property0)) {
+                            annotated.resource_kind = property0 & 0xffu;
+                            if (property0 & 0x1000u) {
+                                annotated.kind = DescriptorRangePlan::Kind::UAV;
+                                annotated.resource_class = 1;
+                            } else if (annotated.kind !=
+                                       DescriptorRangePlan::Kind::Sampler) {
+                                annotated.kind = DescriptorRangePlan::Kind::SRV;
+                                annotated.resource_class = 0;
+                            }
+                        }
                         if (properties.size() > 1)
                             parseUnsignedLiteral(properties[1],
                                                  annotated.element_stride);
                         ctx.resource_handles[result_id] = annotated;
+                        auto annotated_binding = handle_bindings.find(result_id);
+                        if (annotated_binding != handle_bindings.end())
+                            annotated_binding->second.kind = annotated.kind;
+                        if (annotated.direct_heap) {
+                            for (auto &range : plan.ranges) {
+                                if (range.lower_bound != annotated.lower_bound ||
+                                    range.count != annotated.binding_count)
+                                    continue;
+                                range.kind = annotated.kind;
+                                range.resource_kind =
+                                    annotated.resource_kind;
+                                range.element_stride =
+                                    annotated.element_stride;
+                            }
+                        }
                     }
                     if (base->second.kind == DescriptorRangePlan::Kind::UAV) {
                         uint32_t resource_kind = 0;
@@ -4076,7 +4170,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                             uint32_t lower_bound, uint32_t binding_index,
                             uint32_t register_space = 0, bool non_uniform = false,
                             const DxilResourceBinding *metadata = nullptr,
-                            const std::string &dynamic_index = {}) -> std::string {
+                            const std::string &dynamic_index = {},
+                            bool direct_heap = false) -> std::string {
         ResourceHandleRecord handle;
         handle.kind = kind;
         handle.resource_class = resource_class;
@@ -4086,6 +4181,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         handle.binding_index = handle.binding_count <= 1 ? 0 : binding_index;
         handle.non_uniform = non_uniform;
         handle.dynamic_index = dynamic_index;
+        handle.direct_heap = direct_heap;
         applyResourceBindingMetadata(metadata, handle);
         ctx.pending_handle = handle;
         return materializeHandleName(ctx, handle);
@@ -4244,7 +4340,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             sampler ? DescriptorRangePlan::Kind::Sampler
                     : DescriptorRangePlan::Kind::SRV,
             sampler ? 3 : 0, heap_index, 0, 0, false, nullptr,
-            dynamic_index);
+            dynamic_index, true);
         if (!dynamic_index.empty()) {
             // Directly indexed heaps use bounded direct resource slots.
             // Preserve the dynamic index until the consuming operation can
@@ -5183,35 +5279,78 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 call += ", int2(" + ox + ", " + oy + ")";
         }
         call += ")";
+        auto dynamic_texture = ctx.resource_handles.find(args[0]);
         auto dynamic_sampler = ctx.resource_handles.find(args[1]);
-        if (dynamic_sampler != ctx.resource_handles.end() &&
+        const bool has_dynamic_texture =
+            dynamic_texture != ctx.resource_handles.end() &&
+            !dynamic_texture->second.dynamic_index.empty() &&
+            dynamic_texture->second.binding_count > 1;
+        const bool has_dynamic_sampler =
+            dynamic_sampler != ctx.resource_handles.end() &&
             !dynamic_sampler->second.dynamic_index.empty() &&
-            dynamic_sampler->second.binding_count > 1) {
+            dynamic_sampler->second.binding_count > 1;
+        auto call_for = [&](int texture_slot, int sampler_slot) {
+            std::string selected_call = call;
+            if (texture_slot >= 0) {
+                const size_t position = selected_call.find(handle);
+                if (position != std::string::npos)
+                    selected_call.replace(position, handle.size(),
+                                          "tex" +
+                                              std::to_string(texture_slot));
+            }
+            if (sampler_slot >= 0) {
+                const size_t position = selected_call.find(samp);
+                if (position != std::string::npos)
+                    selected_call.replace(position, samp.size(),
+                                          "samp" +
+                                              std::to_string(sampler_slot));
+            }
+            return selected_call;
+        };
+        auto select_sampler = [&](int texture_slot) {
+            if (!has_dynamic_sampler)
+                return call_for(texture_slot, -1);
             const uint32_t base = dynamic_sampler->second.lower_bound;
             const uint32_t count = std::min<uint32_t>(
                 dynamic_sampler->second.binding_count,
                 ctx.binding_plan.direct_sampler_count > base
                     ? ctx.binding_plan.direct_sampler_count - base
                     : 0);
-            auto with_sampler = [&](uint32_t slot) {
-                std::string selected_call = call;
-                const size_t position = selected_call.find(samp);
-                if (position != std::string::npos)
-                    selected_call.replace(position, samp.size(),
-                                          "samp" + std::to_string(slot));
-                return selected_call;
-            };
+            if (count <= 1)
+                return call_for(texture_slot, -1);
+            std::string selected =
+                call_for(texture_slot, static_cast<int>(base + count - 1));
+            for (uint32_t i = count - 1; i > 0; --i)
+                selected = "((uint(" + dynamic_sampler->second.dynamic_index +
+                           ") == " + std::to_string(base + i - 1) +
+                           "u) ? " +
+                           call_for(texture_slot,
+                                    static_cast<int>(base + i - 1)) +
+                           " : " + selected + ")";
+            return selected;
+        };
+        if (has_dynamic_texture) {
+            const uint32_t base = dynamic_texture->second.lower_bound;
+            const uint32_t count = std::min<uint32_t>(
+                dynamic_texture->second.binding_count,
+                ctx.binding_plan.direct_texture_count > base
+                    ? ctx.binding_plan.direct_texture_count - base
+                    : 0);
             if (count > 1) {
-                std::string selected = with_sampler(base + count - 1);
+                std::string selected =
+                    select_sampler(static_cast<int>(base + count - 1));
                 for (uint32_t i = count - 1; i > 0; --i)
                     selected = "((uint(" +
-                               dynamic_sampler->second.dynamic_index +
+                               dynamic_texture->second.dynamic_index +
                                ") == " + std::to_string(base + i - 1) +
-                               "u) ? " + with_sampler(base + i - 1) +
+                               "u) ? " +
+                               select_sampler(static_cast<int>(base + i - 1)) +
                                " : " + selected + ")";
                 return selected;
             }
         }
+        if (has_dynamic_sampler)
+            return select_sampler(-1);
         return call;
     }
     case DXOP_BufferUpdateCounter: {
@@ -6381,6 +6520,15 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 ctx.value_types[value_counter] = result_type;
             } else if (ctx.pending_handle.has_value()) {
                 ResourceHandleRecord handle = *ctx.pending_handle;
+                auto planned_handle = ctx.resource_handles.find(value_counter);
+                if (planned_handle != ctx.resource_handles.end() &&
+                    !planned_handle->second.dynamic_index.empty() &&
+                    !handle.dynamic_index.empty()) {
+                    handle.lower_bound = planned_handle->second.lower_bound;
+                    handle.binding_count =
+                        planned_handle->second.binding_count;
+                    handle.direct_heap = planned_handle->second.direct_heap;
+                }
                 ctx.resource_handles[value_counter] = handle;
                 ctx.value_table[value_counter] = materializeHandleName(ctx, handle);
                 ctx.value_types[value_counter] = typeForResourceHandle(ctx, handle);

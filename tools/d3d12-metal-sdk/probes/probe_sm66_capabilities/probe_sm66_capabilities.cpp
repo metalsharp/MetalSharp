@@ -473,11 +473,12 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             &props, D3D12_HEAP_FLAG_NONE, &comparison_array_desc,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr,
             IID_PPV_ARGS(&comparison_array_texture));
-        const float depth_values[] = {0.75f, 0.75f, 0.75f, 0.75f};
-        for (UINT slice = 0; SUCCEEDED(hr) && slice < 6; ++slice)
+        for (UINT slice = 0; SUCCEEDED(hr) && slice < 6; ++slice) {
+            const float depth_values[] = {0.75f, 0.75f, 0.75f, 0.75f};
             hr = comparison_array_texture->WriteToSubresource(
                 slice, nullptr, depth_values, sizeof(depth_values),
                 sizeof(depth_values));
+        }
     }
 
     if (SUCCEEDED(hr)) {
@@ -541,21 +542,40 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         srv.Texture2D.MipLevels = 1;
         device->CreateShaderResourceView(texture, &srv, cpu);
         cpu.ptr += resource_stride;
+        const bool direct_comparison_texture_case =
+            std::strcmp(audit_case.name,
+                        "comparison_texture_direct_heap_indexing") == 0 ||
+            std::strcmp(audit_case.name,
+                        "comparison_texture_direct_heap_indexing_base") == 0;
         const bool direct_texture_case =
             std::strcmp(audit_case.name,
                         "texture_direct_heap_descriptor_indexing") == 0 ||
             std::strcmp(audit_case.name,
                         "texture_sample_direct_heap_descriptor_indexing") == 0 ||
             std::strcmp(audit_case.name,
-                        "texture_gather_direct_heap_descriptor_indexing") == 0;
-        srv.Format = direct_texture_case ? DXGI_FORMAT_R8G8B8A8_UNORM
-                                         : DXGI_FORMAT_R32_UINT;
-        device->CreateShaderResourceView(
-            direct_texture_case ? texture_alt : raw_texture, &srv, cpu);
+                        "texture_gather_direct_heap_descriptor_indexing") == 0 ||
+            direct_comparison_texture_case;
+        if (direct_comparison_texture_case) {
+            srv.Format = DXGI_FORMAT_R32_FLOAT;
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Texture2D.MipLevels = 1;
+            srv.Texture2D.MostDetailedMip = 1;
+            device->CreateShaderResourceView(comparison_texture, &srv, cpu);
+        } else {
+            srv.Format = direct_texture_case ? DXGI_FORMAT_R8G8B8A8_UNORM
+                                             : DXGI_FORMAT_R32_UINT;
+            device->CreateShaderResourceView(
+                direct_texture_case ? texture_alt : raw_texture, &srv, cpu);
+        }
         cpu.ptr += resource_stride;
-        srv.Format = DXGI_FORMAT_R32_FLOAT;
-        srv.Texture2D.MipLevels = 2;
-        device->CreateShaderResourceView(comparison_texture, &srv, cpu);
+        if (direct_comparison_texture_case) {
+            srv.Texture2D.MostDetailedMip = 0;
+            device->CreateShaderResourceView(comparison_texture, &srv, cpu);
+        } else {
+            srv.Format = DXGI_FORMAT_R32_FLOAT;
+            srv.Texture2D.MipLevels = 2;
+            device->CreateShaderResourceView(comparison_texture, &srv, cpu);
+        }
         cpu.ptr += resource_stride;
         srv = {};
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -680,13 +700,16 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         gpu.ptr += 4 * resource_stride;
         list->SetComputeRootDescriptorTable(1, gpu);
         list->SetComputeRootDescriptorTable(2, sampler_heap->GetGPUDescriptorHandleForHeapStart());
-        const uint32_t constants[4] = {
-            (std::strcmp(audit_case.name, "rw_descriptor_indexing4") == 0 ||
-             std::strcmp(audit_case.name,
-                         "rw_direct_heap_descriptor_indexing") == 0)
-                ? 3u
-                : 1u,
-            3, 2, 0};
+        const bool wide_selector_case =
+            std::strcmp(audit_case.name, "rw_descriptor_indexing4") == 0 ||
+            std::strcmp(audit_case.name,
+                        "rw_direct_heap_descriptor_indexing") == 0;
+        const uint32_t selector_value =
+            std::strcmp(audit_case.name,
+                        "comparison_texture_direct_heap_indexing_base") == 0
+                ? 0u
+                : (wide_selector_case ? 3u : 1u);
+        const uint32_t constants[4] = {selector_value, 3, 2, 0};
         list->SetComputeRoot32BitConstants(3, 4, constants, 0);
         list->SetPipelineState(pso);
         list->Dispatch(1, 1, 1);
@@ -811,8 +834,14 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                                              0x828c8c82, 0x828c8c82};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
-                                   "comparison_sampler_direct_heap_indexing") == 0) {
+                                   "comparison_sampler_direct_heap_indexing") == 0 ||
+                       std::strcmp(audit_case.name,
+                                   "comparison_texture_direct_heap_indexing") == 0) {
                 const uint32_t expected[] = {1, 1, 1, 1};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "comparison_texture_direct_heap_indexing_base") == 0) {
+                const uint32_t expected[] = {0, 0, 0, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "texture_store_direct_heap_descriptor_indexing") == 0) {
@@ -1322,6 +1351,16 @@ void cs_comparison_sampler_direct_heap_indexing(
 }
 
 [numthreads(4, 1, 1)]
+void cs_comparison_texture_direct_heap_indexing(
+    uint3 id : SV_DispatchThreadID) {
+  Texture2D<float> selected =
+      ResourceDescriptorHeap[6u + (selector & 1u)];
+  float value = selected.SampleCmpLevelZero(comparison_smp,
+                                             float2(0.125, 0.5), 0.5);
+  outbuf.Store(id.x * 4, uint(value));
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1539,6 +1578,8 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"texture_store_direct_heap_descriptor_indexing", "cs_texture_store_direct_heap_descriptor_indexing", "cs_6_6", "texture_store_direct_heap_descriptor_indexing", true},
         {"texture_gather_direct_heap_descriptor_indexing", "cs_texture_gather_direct_heap_descriptor_indexing", "cs_6_6", "texture_gather_direct_heap_descriptor_indexing", true},
         {"comparison_sampler_direct_heap_indexing", "cs_comparison_sampler_direct_heap_indexing", "cs_6_6", "comparison_sampler_direct_heap_indexing", true},
+        {"comparison_texture_direct_heap_indexing_base", "cs_comparison_texture_direct_heap_indexing", "cs_6_6", "comparison_texture_direct_heap_indexing_base", true},
+        {"comparison_texture_direct_heap_indexing", "cs_comparison_texture_direct_heap_indexing", "cs_6_6", "comparison_texture_direct_heap_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
