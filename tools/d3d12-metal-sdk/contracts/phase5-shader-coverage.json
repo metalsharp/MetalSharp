@@ -209,7 +209,7 @@
         ["pass"],
         ["summary", "runtime_correctness_complete"]
       ],
-      "remaining": "Bounded ByteAddressBuffer[2] and StructuredBuffer<uint>[2] indexing both return exact [103,203,303,403], StructuredBuffer<uint2>[2] aggregate extraction with stride-eight addressing returns exact [303,703,303,703], RWByteAddressBuffer[2] writes exact [503,504,505,506], and RWStructuredBuffer<uint2>[2] writes exact [600,700,601,701,602,702,603,703] through the selected second UAV. Larger arrays, directly indexed heaps, and wider/nested structures remain in the exhaustive row."
+      "remaining": "Bounded ByteAddressBuffer[2] and StructuredBuffer<uint>[2] indexing both return exact [103,203,303,403], StructuredBuffer<uint2>[2] aggregate extraction with stride-eight addressing returns exact [303,703,303,703], RWByteAddressBuffer[2] writes exact [503,504,505,506], RWByteAddressBuffer[4] selects descriptor three and writes [803,804,805,806], and RWStructuredBuffer<uint2>[2] writes exact [600,700,601,701,602,702,603,703]. Arrays beyond four entries, directly indexed heaps, and wider/nested structures remain in the exhaustive row."
     },
     {
       "id": "lowering-report-unsupported-placeholder-audit",
