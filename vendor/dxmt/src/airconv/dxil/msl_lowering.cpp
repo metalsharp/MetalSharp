@@ -1127,6 +1127,84 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  if (exponent >= 1024) return (sign ? (1ul << 63) : 0ul) | (0x7fful << 52);\n";
         os << "  return (sign ? (1ul << 63) : 0ul) | (ulong(exponent + 1023) << 52) | (main & 0x000ffffffffffffful);\n";
         os << "}\n\n";
+        os << "static inline ulong m12_f64_sqrt(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special == 3u) return bits | 0x0008000000000000ul;\n";
+        os << "  if (p.special == 2u) return p.sign ? 0x7ff8000000000000ul : bits;\n";
+        os << "  if (p.special == 1u) return bits;\n";
+        os << "  if (p.sign) return 0x7ff8000000000000ul;\n";
+        os << "  int exponent = p.exponent;\n";
+        os << "  ulong significand = p.significand;\n";
+        os << "  if ((exponent & 1) != 0) { significand <<= 1; exponent -= 1; }\n";
+        os << "  ulong root = 0ul;\n";
+        os << "  ulong remainder = 0ul;\n";
+        os << "  bool top_odd = (significand & (1ul << 53)) != 0ul;\n";
+        os << "  uint first_digit = top_odd\n";
+        os << "      ? (uint(((significand >> 53) & 1ul) << 1) | uint((significand >> 52) & 1ul))\n";
+        os << "      : uint((significand >> 52) & 1ul);\n";
+        os << "  remainder = ulong(first_digit);\n";
+        os << "  root = 0ul;\n";
+        os << "  ulong trial = 1ul;\n";
+        os << "  if (remainder >= trial) { remainder -= trial; root = 1ul; }\n";
+        os << "  for (int high = 103; high >= 0; high -= 2) {\n";
+        os << "    uint digit = 0u;\n";
+        os << "    if (high >= 52) digit |= uint((significand >> uint(high - 52)) & 1ul) << 1;\n";
+        os << "    if (high - 1 >= 52) digit |= uint((significand >> uint(high - 53)) & 1ul);\n";
+        os << "    remainder = (remainder << 2) | ulong(digit);\n";
+        os << "    root <<= 1;\n";
+        os << "    trial = (root << 1) | 1ul;\n";
+        os << "    if (remainder >= trial) { remainder -= trial; root += 1ul; }\n";
+        os << "  }\n";
+        os << "  if (remainder > root) root += 1ul;\n";
+        os << "  if (root >= (1ul << 53)) { root >>= 1; exponent += 1; }\n";
+        os << "  return m12_f64_pack_rounded(false, exponent / 2, root, 0ul, 0u, false);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_trunc(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special != 0u || p.exponent >= 52) return bits;\n";
+        os << "  if (p.exponent < 0) return p.sign ? (1ul << 63) : 0ul;\n";
+        os << "  uint fractional_bits = uint(52 - p.exponent);\n";
+        os << "  ulong mask = (1ul << fractional_bits) - 1ul;\n";
+        os << "  return bits & ~(mask);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_floor(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special != 0u || p.exponent >= 52) return bits;\n";
+        os << "  ulong truncated = m12_f64_trunc(bits);\n";
+        os << "  if (!p.sign && truncated == bits) return bits;\n";
+        os << "  if (p.sign && truncated != bits) return m12_f64_add(truncated, 0xbff0000000000000ul);\n";
+        os << "  return truncated;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_ceil(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special != 0u || p.exponent >= 52) return bits;\n";
+        os << "  ulong truncated = m12_f64_trunc(bits);\n";
+        os << "  if (truncated == bits) return bits;\n";
+        os << "  if (p.sign) return truncated;\n";
+        os << "  return m12_f64_add(truncated, 0x3ff0000000000000ul);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_round_ne(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special != 0u || p.exponent >= 52) return bits;\n";
+        os << "  ulong truncated = m12_f64_trunc(bits);\n";
+        os << "  bool increment = false;\n";
+        os << "  if (p.exponent == -1) increment = p.significand > (1ul << 52);\n";
+        os << "  else if (p.exponent >= 0) {\n";
+        os << "    uint fractional_bits = uint(52 - p.exponent);\n";
+        os << "    ulong fraction_mask = (1ul << fractional_bits) - 1ul;\n";
+        os << "    ulong fraction = p.significand & fraction_mask;\n";
+        os << "    ulong halfway = 1ul << (fractional_bits - 1u);\n";
+        os << "    increment = fraction > halfway || (fraction == halfway && ((p.significand >> fractional_bits) & 1ul) != 0ul);\n";
+        os << "  }\n";
+        os << "  return increment ? m12_f64_add(truncated, p.sign ? 0xbff0000000000000ul : 0x3ff0000000000000ul) : truncated;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_frac(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special == 3u) return bits | 0x0008000000000000ul;\n";
+        os << "  if (p.special == 2u) return 0x7ff8000000000000ul;\n";
+        os << "  if (p.special == 1u) return 0ul;\n";
+        os << "  return m12_f64_add(bits, m12_f64_floor(bits) ^ (1ul << 63));\n";
+        os << "}\n\n";
         os << "static inline ulong m12_f64_mul(ulong a, ulong b) {\n";
         os << "  m12_f64_parts pa = m12_f64_unpack(a);\n";
         os << "  m12_f64_parts pb = m12_f64_unpack(b);\n";
@@ -6187,7 +6265,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto fx = "static_cast<float>(" + x + ")";
         if (double_op && op != DXILOP_FAbs && op != DXILOP_Saturate &&
             op != DXILOP_IsNaN && op != DXILOP_IsInf &&
-            op != DXILOP_IsFinite && op != DXILOP_IsNormal) {
+            op != DXILOP_IsFinite && op != DXILOP_IsNormal &&
+            op != DXILOP_Sqrt && op != DXILOP_Rsqrt) {
             ctx.unsupported_intrinsics++;
             recordDiagnostic(ctx,
                              "binary64 unary intrinsic requires software lowering op=%u",
@@ -6209,6 +6288,20 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return double_op ? "(((ulong(" + dx + ") >> 52) & 0x7fful) != 0x7fful)" : "isfinite(" + fx + ")";
         case DXILOP_IsNormal:
             return double_op ? "((((ulong(" + dx + ") >> 52) & 0x7fful) != 0ul) && (((ulong(" + dx + ") >> 52) & 0x7fful) != 0x7fful))" : "isnormal(" + fx + ")";
+        case DXILOP_Sqrt:
+            return double_op ? "m12_f64_sqrt(ulong(" + dx + "))" : "sqrt(" + fx + ")";
+        case DXILOP_Rsqrt:
+            return double_op ? "m12_f64_div(0x3ff0000000000000ul, m12_f64_sqrt(ulong(" + dx + ")))" : "rsqrt(" + fx + ")";
+        case DXILOP_Frc:
+            return double_op ? "m12_f64_frac(ulong(" + dx + "))" : "fract(" + fx + ")";
+        case DXILOP_Round_ne:
+            return double_op ? "m12_f64_round_ne(ulong(" + dx + "))" : "rint(" + fx + ")";
+        case DXILOP_Round_ni:
+            return double_op ? "m12_f64_floor(ulong(" + dx + "))" : "floor(" + fx + ")";
+        case DXILOP_Round_pi:
+            return double_op ? "m12_f64_ceil(ulong(" + dx + "))" : "ceil(" + fx + ")";
+        case DXILOP_Round_z:
+            return double_op ? "m12_f64_trunc(ulong(" + dx + "))" : "trunc(" + fx + ")";
         case DXILOP_Cos: return "cos(" + fx + ")";
         case DXILOP_Sin: return "sin(" + fx + ")";
         case DXILOP_Tan: return "tan(" + fx + ")";
@@ -6219,14 +6312,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         case DXILOP_Hsin: return "sinh(" + fx + ")";
         case DXILOP_Htan: return "tanh(" + fx + ")";
         case DXILOP_Exp: return "exp2(" + fx + ")";
-        case DXILOP_Frc: return "fract(" + fx + ")";
         case DXILOP_Log: return "log2(" + fx + ")";
-        case DXILOP_Sqrt: return "sqrt(" + fx + ")";
-        case DXILOP_Rsqrt: return "rsqrt(" + fx + ")";
-        case DXILOP_Round_ne: return "rint(" + fx + ")";
-        case DXILOP_Round_ni: return "floor(" + fx + ")";
-        case DXILOP_Round_pi: return "ceil(" + fx + ")";
-        case DXILOP_Round_z: return "trunc(" + fx + ")";
         case DXILOP_Bfrev: return "reverse_bits(" + x + ")";
         case DXILOP_Countbits: return "popcount(static_cast<uint>(" + x + "))";
         case DXILOP_FirstbitLo:

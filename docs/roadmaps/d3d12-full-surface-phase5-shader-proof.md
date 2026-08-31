@@ -201,6 +201,13 @@ METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh --semantic-only
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+  xcrun clang++ -std=c++17 -fobjc-arc \
+  tools/d3d12-metal-sdk/scripts/probe-metal-f64-emulation.mm \
+  -framework Foundation -framework Metal -o /tmp/probe-metal-f64-emulation
+/tmp/probe-metal-f64-emulation \
+  tools/d3d12-metal-sdk/results/shader-cache-phase5-f64unarycore3/afcf23dccd61b491.msl
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
 METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh --shader-corpus-only
 
@@ -362,8 +369,13 @@ source-staged run transfers an exact four-lane `[1,2,3,4]` aggregate through
 SM6.9 RawBufferVectorLoad/Store; the lowerer preserves the vector operand
 instead of repeating the extracted x lane.
 Its generated DXIL reports pass the unsupported/placeholder audit, and no
-generated MSL contains `float64_t` or `double`. Broader binary64 operation
-combinations remain in the exhaustive row.
+generated MSL contains `float64_t` or `double`. Supplemental source
+`tools/d3d12-metal-sdk/scripts/probe-metal-f64-emulation.mm` appends a test
+kernel to the generated no-converter MSL and executes 51 exact binary64
+helper outputs on the M4: sqrt/rsqrt, trunc/floor/ceil, round-to-nearest-even,
+frac, infinities, signed zero, and negative-domain behavior all match the
+host IEEE-754 bit oracle. Broader binary64 operation combinations remain in
+the exhaustive row.
 
 ## Remaining Phase 5 work
 
