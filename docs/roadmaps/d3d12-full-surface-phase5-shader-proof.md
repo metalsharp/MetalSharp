@@ -123,8 +123,9 @@
   `ResourceDescriptorHeap` write selects heap entry three and returns
   `[903,904,905,906]`, a directly indexed heap SRV selects entry five and
   returns `[103,203,303,403]`, a dynamically indexed texture heap selects
-  entry seven and loads exact `[100,110,120,130]`, a directly indexed sampler
-  heap selects linear sampler one and returns exact `[15,15,15,15]`, and
+  entry seven and returns exact `[100,110,120,130]` through both `Load` and
+  `SampleLevel`, a directly indexed sampler heap selects linear sampler one
+  and returns exact `[15,15,15,15]`, and
   stride-eight structured stores return
   `[600,700,601,701,602,702,603,703]` from the selected second resource
   instead of silently writing descriptor zero.
@@ -270,7 +271,7 @@ and scalar-structured dynamically indexed SRV arrays,
 buffer, `[803,804,805,806]` from descriptor three of a four-entry array,
 `[903,904,905,906]` from directly indexed writable heap entry three,
 `[103,203,303,403]` from readable heap entry five,
-`[100,110,120,130]` from texture heap entry seven,
+`[100,110,120,130]` from both loading and sampling texture heap entry seven,
 `[15,15,15,15]` from sampler heap entry one, plus
 `[600,700,601,701,602,702,603,703]` from the `uint2` structured counterpart. Profile `phase5-atomic-load-final` also passes every focused case,
 including atomic
