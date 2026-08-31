@@ -313,17 +313,18 @@ with `append_counter_link=true` and rejects a two-counter shader with exact
 `AppendStructuredBuffer` heap shader and proves the unsupported counter mapping
 fails closed at PSO creation with exact `0x80004005`; `phase5-helper2` preserves
 all earlier semantic lanes with zero mismatches. Profile `phase5-f64conv1`
-passes all 38 current semantic lanes, including exact double payload words
+passes all 40 current semantic lanes, including exact double payload words
 `[0x54442d18,0x400921fb]`, dynamic add/subtract result
 `[0x00000000,0x400a0000]`, and the complete 16-word binary64 addition matrix.
 The same profile passes ordinary and IEEE-754 matrices for binary64
 multiply/divide, ordered comparisons including NaN, float32 round-trips,
 integer conversions, float-to-binary64 widening, FAbs, FMin/FMax, and
-special-value predicates. Direct FRem lowering is implemented through the
-software remainder helper; DXC's HLSL `fmod` overload is float-only and
-remains explicitly outside this binary64 proof. The same source-staged run
-also passes `pack_u8`/`pack_s8` truncation, unsigned/signed clamp, and all
-four signed/unsigned 32-bit and 16-bit unpack lanes with exact packed bytes.
+special-value predicates, and fused binary64 multiply-add. Direct FRem
+lowering is implemented through the software remainder helper; DXC's HLSL
+`fmod` overload is float-only and remains explicitly outside this binary64
+proof. The same source-staged run also passes `pack_u8`/`pack_s8` truncation,
+unsigned/signed clamp, and all four signed/unsigned 32-bit and 16-bit unpack
+lanes with exact packed bytes.
 Its generated DXIL reports pass the unsupported/placeholder audit, and no
 generated MSL contains `float64_t` or `double`. Broader binary64 operation
 combinations remain in the exhaustive row.
