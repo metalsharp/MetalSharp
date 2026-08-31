@@ -642,7 +642,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SDKConfiguration::CreateDeviceFactory(
 }
 
 constexpr uint32_t kStateDatabaseMagic = 0x31424453u; // SDB1
-constexpr uint32_t kStateDatabaseVersion = 2u;
+constexpr uint32_t kStateDatabaseVersion = 3u;
 constexpr size_t kStateDatabaseMaxBytes = 16u * 1024u * 1024u;
 constexpr uint32_t kStateDatabaseMaxEntries = 4096u;
 constexpr uint32_t kStateDatabaseMaxKeyBytes = 4096u;
@@ -973,6 +973,24 @@ public:
           stored.hit_group_closest_hit = hit_group->ClosestHitShaderImport;
         if (hit_group->IntersectionShaderImport)
           stored.hit_group_intersection = hit_group->IntersectionShaderImport;
+      } else if (subobject.Type ==
+                 D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
+        const auto *association =
+            static_cast<const D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION *>(
+                subobject.pDesc);
+        if (!association->SubobjectToAssociate ||
+            association->NumExports > 64u ||
+            (association->NumExports && !association->pExports))
+          return E_INVALIDARG;
+        stored.dxil_association_target = association->SubobjectToAssociate;
+        stored.dxil_association_exports.reserve(association->NumExports);
+        for (UINT export_index = 0; export_index < association->NumExports;
+             ++export_index) {
+          if (!association->pExports[export_index])
+            return E_INVALIDARG;
+          stored.dxil_association_exports.emplace_back(
+              association->pExports[export_index]);
+        }
       } else {
         const size_t desc_size = StateSubobjectDescSize(subobject.Type);
         if (!desc_size) {
@@ -1015,10 +1033,14 @@ public:
     std::vector<D3D12_DXIL_LIBRARY_DESC> libraries;
     std::vector<std::vector<D3D12_EXPORT_DESC>> library_exports;
     std::vector<D3D12_HIT_GROUP_DESC> hit_groups;
+    std::vector<D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION> dxil_associations;
+    std::vector<std::vector<const WCHAR *>> association_exports;
     subobjects.reserve(entry->second.subobjects.size());
     libraries.reserve(entry->second.subobjects.size());
     library_exports.reserve(entry->second.subobjects.size());
     hit_groups.reserve(entry->second.subobjects.size());
+    dxil_associations.reserve(entry->second.subobjects.size());
+    association_exports.reserve(entry->second.subobjects.size());
     for (const auto &stored : entry->second.subobjects) {
       D3D12_STATE_SUBOBJECT subobject = {};
       subobject.Type = stored.type;
@@ -1064,6 +1086,21 @@ public:
                 ? nullptr
                 : stored.hit_group_intersection.c_str();
         subobject.pDesc = &hit_group;
+      } else if (stored.type ==
+                 D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
+        dxil_associations.emplace_back();
+        association_exports.emplace_back();
+        auto &association = dxil_associations.back();
+        auto &exports = association_exports.back();
+        exports.reserve(stored.dxil_association_exports.size());
+        association.SubobjectToAssociate =
+            stored.dxil_association_target.c_str();
+        association.NumExports =
+            static_cast<UINT>(stored.dxil_association_exports.size());
+        for (const auto &export_name : stored.dxil_association_exports)
+          exports.push_back(export_name.c_str());
+        association.pExports = exports.empty() ? nullptr : exports.data();
+        subobject.pDesc = &association;
       } else {
         subobject.pDesc = stored.desc.data();
       }
@@ -1127,6 +1164,8 @@ private:
     std::wstring hit_group_any_hit;
     std::wstring hit_group_closest_hit;
     std::wstring hit_group_intersection;
+    std::wstring dxil_association_target;
+    std::vector<std::wstring> dxil_association_exports;
   };
 
   struct StateObjectDescEntry {
@@ -1215,6 +1254,13 @@ private:
           AppendStateDatabaseString(data, subobject.hit_group_any_hit);
           AppendStateDatabaseString(data, subobject.hit_group_closest_hit);
           AppendStateDatabaseString(data, subobject.hit_group_intersection);
+        } else if (subobject.type ==
+                   D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
+          AppendStateDatabaseString(data, subobject.dxil_association_target);
+          AppendStateDatabaseU32(
+              data, static_cast<uint32_t>(subobject.dxil_association_exports.size()));
+          for (const auto &export_name : subobject.dxil_association_exports)
+            AppendStateDatabaseString(data, export_name);
         } else {
           AppendStateDatabaseU32(data,
                                  static_cast<uint32_t>(subobject.desc.size()));
@@ -1362,6 +1408,24 @@ private:
               !ReadStateDatabaseString(data, offset, stored.hit_group_intersection) ||
               stored.hit_group_export.empty())
             return invalid();
+        } else if (stored.type ==
+                   D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION) {
+          uint32_t export_count = 0;
+          if (!ReadStateDatabaseString(data, offset,
+                                       stored.dxil_association_target) ||
+              stored.dxil_association_target.empty() ||
+              !ReadStateDatabaseU32(data, offset, export_count) ||
+              export_count > 64u)
+            return invalid();
+          stored.dxil_association_exports.reserve(export_count);
+          for (uint32_t export_index = 0; export_index < export_count;
+               ++export_index) {
+            std::wstring export_name;
+            if (!ReadStateDatabaseString(data, offset, export_name) ||
+                export_name.empty())
+              return invalid();
+            stored.dxil_association_exports.push_back(std::move(export_name));
+          }
         } else {
           uint32_t desc_size = 0;
           if (!ReadStateDatabaseU32(data, offset, desc_size) ||
