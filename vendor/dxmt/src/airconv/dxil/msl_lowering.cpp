@@ -3302,12 +3302,14 @@ static std::string materializeHandleName(const LowerContext &ctx,
                                  ? directBufferBindingIndex(ctx, handle, target_prefix)
                                  : handle.lower_bound + handle.binding_index;
     if (target_prefix && std::strcmp(target_prefix, "buf") == 0 &&
-        handle.kind == DescriptorRangePlan::Kind::SRV &&
+        (handle.kind == DescriptorRangePlan::Kind::SRV ||
+         handle.kind == DescriptorRangePlan::Kind::UAV) &&
         !handle.dynamic_index.empty() && handle.binding_count > 1) {
         // The direct MSL ABI exposes one pointer per buffer slot rather than
-        // an argument-buffer array.  Preserve a dynamically indexed SRV
+        // an argument-buffer array. Preserve a dynamically indexed SRV/UAV
         // binding with a bounded pointer-select expression instead of
-        // collapsing it to element zero.
+        // collapsing it to element zero. Loads are subsequently expanded to
+        // typed helpers; stores can write through the selected device pointer.
         std::string selected = "buf" + std::to_string(cappedBindingIndex(
             ctx, prefix, binding_index + handle.binding_count - 1));
         for (uint32_t i = handle.binding_count - 1; i > 0; --i) {
