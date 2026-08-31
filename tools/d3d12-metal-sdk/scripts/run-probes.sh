@@ -2486,6 +2486,146 @@ void cs_double_add_matrix(uint3 id : SV_DispatchThreadID) {
     outbuf.Store(i * 8 + 4, split_high);
   }
 }
+
+[numthreads(1, 1, 1)]
+void cs_double_multiply(uint3 id : SV_DispatchThreadID) {
+  double lhs = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double rhs = asdouble(inbuf.Load(8), inbuf.Load(12));
+  double result = lhs * rhs;
+  uint low = 0;
+  uint high = 0;
+  asuint(result, low, high);
+  outbuf.Store(0, low);
+  outbuf.Store(4, high);
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_divide(uint3 id : SV_DispatchThreadID) {
+  double lhs = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double rhs = asdouble(inbuf.Load(8), inbuf.Load(12));
+  double result = lhs / rhs;
+  uint low = 0;
+  uint high = 0;
+  asuint(result, low, high);
+  outbuf.Store(0, low);
+  outbuf.Store(4, high);
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_remainder(uint3 id : SV_DispatchThreadID) {
+  double lhs = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double rhs = asdouble(inbuf.Load(8), inbuf.Load(12));
+  double result = fmod(lhs, rhs);
+  uint low = 0;
+  uint high = 0;
+  asuint(result, low, high);
+  outbuf.Store(0, low);
+  outbuf.Store(4, high);
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_compare(uint3 id : SV_DispatchThreadID) {
+  double lhs = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double rhs = asdouble(inbuf.Load(8), inbuf.Load(12));
+  outbuf.Store(0, lhs == rhs ? 1u : 0u);
+  outbuf.Store(4, lhs < rhs ? 1u : 0u);
+  outbuf.Store(8, lhs > rhs ? 1u : 0u);
+  outbuf.Store(12, lhs != rhs ? 1u : 0u);
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_multiply_matrix(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 8; ++i) {
+    uint input_offset = i * 16;
+    double lhs = asdouble(inbuf.Load(input_offset), inbuf.Load(input_offset + 4));
+    double rhs = asdouble(inbuf.Load(input_offset + 8), inbuf.Load(input_offset + 12));
+    uint low = 0;
+    uint high = 0;
+    asuint(lhs * rhs, low, high);
+    outbuf.Store(i * 8, low);
+    outbuf.Store(i * 8 + 4, high);
+  }
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_divide_matrix(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 8; ++i) {
+    uint input_offset = i * 16;
+    double lhs = asdouble(inbuf.Load(input_offset), inbuf.Load(input_offset + 4));
+    double rhs = asdouble(inbuf.Load(input_offset + 8), inbuf.Load(input_offset + 12));
+    uint low = 0;
+    uint high = 0;
+    asuint(lhs / rhs, low, high);
+    outbuf.Store(i * 8, low);
+    outbuf.Store(i * 8 + 4, high);
+  }
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_compare_matrix(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 6; ++i) {
+    uint input_offset = i * 16;
+    double lhs = asdouble(inbuf.Load(input_offset), inbuf.Load(input_offset + 4));
+    double rhs = asdouble(inbuf.Load(input_offset + 8), inbuf.Load(input_offset + 12));
+    outbuf.Store(i * 16, lhs == rhs ? 1u : 0u);
+    outbuf.Store(i * 16 + 4, lhs < rhs ? 1u : 0u);
+    outbuf.Store(i * 16 + 8, lhs > rhs ? 1u : 0u);
+    outbuf.Store(i * 16 + 12, lhs != rhs ? 1u : 0u);
+  }
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_float_conversion(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 6; ++i) {
+    uint input_offset = i * 8;
+    double source = asdouble(inbuf.Load(input_offset), inbuf.Load(input_offset + 4));
+    double roundtrip = (double)((float)source);
+    uint low = 0;
+    uint high = 0;
+    asuint(roundtrip, low, high);
+    outbuf.Store(i * 8, low);
+    outbuf.Store(i * 8 + 4, high);
+  }
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_integer_conversion(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 3; ++i) {
+    double source = asdouble(inbuf.Load(i * 8), inbuf.Load(i * 8 + 4));
+    uint unsigned_value = (uint)source;
+    int signed_value = (int)source;
+    uint unsigned_low = 0;
+    uint unsigned_high = 0;
+    uint signed_low = 0;
+    uint signed_high = 0;
+    asuint((double)unsigned_value, unsigned_low, unsigned_high);
+    asuint((double)signed_value, signed_low, signed_high);
+    outbuf.Store(i * 24, unsigned_value);
+    outbuf.Store(i * 24 + 4, asuint(signed_value));
+    outbuf.Store(i * 24 + 8, unsigned_low);
+    outbuf.Store(i * 24 + 12, unsigned_high);
+    outbuf.Store(i * 24 + 16, signed_low);
+    outbuf.Store(i * 24 + 20, signed_high);
+  }
+}
+
+[numthreads(1, 1, 1)]
+void cs_float_to_double(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 4; ++i) {
+    float source = asfloat(inbuf.Load(i * 4));
+    uint low = 0;
+    uint high = 0;
+    asuint((double)source, low, high);
+    outbuf.Store(i * 8, low);
+    outbuf.Store(i * 8 + 4, high);
+  }
+}
 HLSL_DOUBLE_BITCAST
 
   local sm69_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_sm69.hlsl"
@@ -2626,6 +2766,46 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_double_add_matrix -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_double_add_matrix.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_multiply -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_multiply.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_divide -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_divide.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_remainder -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_remainder.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_compare -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_compare.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_multiply_matrix -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_multiply_matrix.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_divide_matrix -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_divide_matrix.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_compare_matrix -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_compare_matrix.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_float_conversion -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_float_conversion.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_integer_conversion -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_integer_conversion.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_float_to_double -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_float_to_double.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \

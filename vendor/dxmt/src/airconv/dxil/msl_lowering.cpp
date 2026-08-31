@@ -1007,6 +1007,225 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  ulong encoded_exponent = exponent == 1u && (main & (1ul << 52)) == 0ul ? 0ul : ulong(exponent);\n";
         os << "  return (sign_a ? (1ul << 63) : 0ul) | (encoded_exponent << 52) | (main & frac_mask);\n";
         os << "}\n\n";
+        os << "struct m12_f64_parts { bool sign; int exponent; ulong significand; uint special; };\n";
+        os << "static inline m12_f64_parts m12_f64_unpack(ulong bits) {\n";
+        os << "  m12_f64_parts p;\n";
+        os << "  p.sign = (bits >> 63) != 0ul;\n";
+        os << "  uint exponent = uint((bits >> 52) & 0x7fful);\n";
+        os << "  ulong fraction = bits & 0x000ffffffffffffful;\n";
+        os << "  p.special = 0u;\n";
+        os << "  if (exponent == 0x7ffu) { p.special = fraction == 0ul ? 2u : 3u; p.exponent = 0; p.significand = fraction; return p; }\n";
+        os << "  if (exponent == 0u) {\n";
+        os << "    if (fraction == 0ul) { p.special = 1u; p.exponent = -1022; p.significand = 0ul; return p; }\n";
+        os << "    int shift = 0;\n";
+        os << "    while ((fraction & (1ul << 52)) == 0ul) { fraction <<= 1; shift += 1; }\n";
+        os << "    p.exponent = -1022 - shift;\n";
+        os << "    p.significand = fraction;\n";
+        os << "    return p;\n";
+        os << "  }\n";
+        os << "  p.exponent = int(exponent) - 1023;\n";
+        os << "  p.significand = fraction | (1ul << 52);\n";
+        os << "  return p;\n";
+        os << "}\n\n";
+        os << "static inline bool m12_f64_any_low128(ulong lo, ulong hi, uint count) {\n";
+        os << "  if (count == 0u) return false;\n";
+        os << "  if (count < 64u) return (lo & ((1ul << count) - 1ul)) != 0ul;\n";
+        os << "  if (count == 64u) return lo != 0ul;\n";
+        os << "  if (count < 128u) return lo != 0ul || (hi & ((1ul << (count - 64u)) - 1ul)) != 0ul;\n";
+        os << "  return lo != 0ul || hi != 0ul;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_bit128(ulong lo, ulong hi, uint index) {\n";
+        os << "  if (index < 64u) return (lo >> index) & 1ul;\n";
+        os << "  if (index < 128u) return (hi >> (index - 64u)) & 1ul;\n";
+        os << "  return 0ul;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_round128(ulong lo, ulong hi, uint shift, bool extra_sticky) {\n";
+        os << "  ulong main = 0ul;\n";
+        os << "  if (shift == 0u) main = lo;\n";
+        os << "  else if (shift < 64u) main = (hi << (64u - shift)) | (lo >> shift);\n";
+        os << "  else if (shift == 64u) main = hi;\n";
+        os << "  else if (shift < 128u) main = hi >> (shift - 64u);\n";
+        os << "  bool guard = shift != 0u && m12_f64_bit128(lo, hi, shift - 1u) != 0ul;\n";
+        os << "  bool sticky = extra_sticky || (shift > 1u && m12_f64_any_low128(lo, hi, shift - 1u));\n";
+        os << "  if (guard && (sticky || (main & 1ul) != 0ul)) main += 1ul;\n";
+        os << "  return main;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_pack_rounded(bool sign, int exponent, ulong lo, ulong hi, uint shift, bool extra_sticky) {\n";
+        os << "  if (exponent < -1022) {\n";
+        os << "    uint extra_shift = uint(-1022 - exponent);\n";
+        os << "    shift = shift > 128u - min(extra_shift, 128u) ? 128u : shift + extra_shift;\n";
+        os << "    ulong subnormal = m12_f64_round128(lo, hi, shift, extra_sticky);\n";
+        os << "    if (subnormal >= (1ul << 52)) return sign ? (1ul << 63) | (1ul << 52) : (1ul << 52);\n";
+        os << "    return (sign ? (1ul << 63) : 0ul) | subnormal;\n";
+        os << "  }\n";
+        os << "  ulong main = m12_f64_round128(lo, hi, shift, extra_sticky);\n";
+        os << "  if (main >= (1ul << 53)) { main >>= 1; exponent += 1; }\n";
+        os << "  if (exponent >= 1024) return (sign ? (1ul << 63) : 0ul) | (0x7fful << 52);\n";
+        os << "  return (sign ? (1ul << 63) : 0ul) | (ulong(exponent + 1023) << 52) | (main & 0x000ffffffffffffful);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_mul(ulong a, ulong b) {\n";
+        os << "  m12_f64_parts pa = m12_f64_unpack(a);\n";
+        os << "  m12_f64_parts pb = m12_f64_unpack(b);\n";
+        os << "  bool sign = pa.sign != pb.sign;\n";
+        os << "  if (pa.special == 3u || pb.special == 3u || (pa.special == 2u && pb.special == 1u) || (pa.special == 1u && pb.special == 2u)) return 0x7ff8000000000000ul;\n";
+        os << "  if (pa.special == 2u || pb.special == 2u) return (sign ? (1ul << 63) : 0ul) | (0x7fful << 52);\n";
+        os << "  if (pa.special == 1u || pb.special == 1u) return sign ? (1ul << 63) : 0ul;\n";
+        os << "  ulong a0 = pa.significand & 0xfffffffful;\n";
+        os << "  ulong a1 = pa.significand >> 32;\n";
+        os << "  ulong b0 = pb.significand & 0xfffffffful;\n";
+        os << "  ulong b1 = pb.significand >> 32;\n";
+        os << "  ulong p0 = a0 * b0;\n";
+        os << "  ulong p1 = a0 * b1 + a1 * b0;\n";
+        os << "  ulong p2 = a1 * b1;\n";
+        os << "  ulong lo = p0 + (p1 << 32);\n";
+        os << "  ulong hi = p2 + (p1 >> 32) + (lo < p0 ? 1ul : 0ul);\n";
+        os << "  bool top = (hi & (1ul << 41)) != 0ul;\n";
+        os << "  int exponent = pa.exponent + pb.exponent + (top ? 1 : 0);\n";
+        os << "  return m12_f64_pack_rounded(sign, exponent, lo, hi, top ? 53u : 52u, false);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_div_quotient(ulong numerator, ulong denominator, thread ulong &remainder) {\n";
+        os << "  ulong quotient = 0ul;\n";
+        os << "  ulong rem = 0ul;\n";
+        os << "  for (int bit = 52; bit >= 0; --bit) {\n";
+        os << "    rem = (rem << 1) | ((numerator >> uint(bit)) & 1ul);\n";
+        os << "    if (rem >= denominator) { rem -= denominator; quotient = (quotient << 1) | 1ul; } else quotient <<= 1;\n";
+        os << "  }\n";
+        os << "  for (uint bit = 0u; bit < 55u; ++bit) {\n";
+        os << "    rem <<= 1;\n";
+        os << "    if (rem >= denominator) { rem -= denominator; quotient = (quotient << 1) | 1ul; } else quotient <<= 1;\n";
+        os << "  }\n";
+        os << "  remainder = rem;\n";
+        os << "  return quotient;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_div(ulong a, ulong b) {\n";
+        os << "  m12_f64_parts pa = m12_f64_unpack(a);\n";
+        os << "  m12_f64_parts pb = m12_f64_unpack(b);\n";
+        os << "  bool sign = pa.sign != pb.sign;\n";
+        os << "  if (pa.special == 3u || pb.special == 3u || (pa.special == 2u && pb.special == 2u) || (pa.special == 1u && pb.special == 1u)) return 0x7ff8000000000000ul;\n";
+        os << "  if (pa.special == 2u) return (sign ? (1ul << 63) : 0ul) | (0x7fful << 52);\n";
+        os << "  if (pb.special == 2u) return sign ? (1ul << 63) : 0ul;\n";
+        os << "  if (pb.special == 1u) return (sign ? (1ul << 63) : 0ul) | (0x7fful << 52);\n";
+        os << "  if (pa.special == 1u) return sign ? (1ul << 63) : 0ul;\n";
+        os << "  thread ulong remainder = 0ul;\n";
+        os << "  ulong quotient = m12_f64_div_quotient(pa.significand, pb.significand, remainder);\n";
+        os << "  bool ratio_ge_one = pa.significand >= pb.significand;\n";
+        os << "  int exponent = pa.exponent - pb.exponent - (ratio_ge_one ? 0 : 1);\n";
+        os << "  return m12_f64_pack_rounded(sign, exponent, quotient, 0ul, ratio_ge_one ? 3u : 2u, remainder != 0ul);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_pack_scaled(bool sign, ulong significand, int scale) {\n";
+        os << "  if (significand == 0ul) return sign ? (1ul << 63) : 0ul;\n";
+        os << "  uint high_bit = 0u;\n";
+        os << "  ulong scan = significand;\n";
+        os << "  while (scan > 1ul) { scan >>= 1; high_bit += 1u; }\n";
+        os << "  int exponent = scale + int(high_bit);\n";
+        os << "  if (exponent >= -1022) {\n";
+        os << "    ulong main = significand << (52u - high_bit);\n";
+        os << "    return (sign ? (1ul << 63) : 0ul) | (ulong(exponent + 1023) << 52) | (main & 0x000ffffffffffffful);\n";
+        os << "  }\n";
+        os << "  int sub_shift = -(scale + 1074);\n";
+        os << "  ulong subnormal = sub_shift > 0 ? m12_f64_round128(significand, 0ul, uint(sub_shift), false) : significand << uint(-sub_shift);\n";
+        os << "  if (subnormal >= (1ul << 52)) return (sign ? (1ul << 63) : 0ul) | (1ul << 52);\n";
+        os << "  return (sign ? (1ul << 63) : 0ul) | subnormal;\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_from_float(float value) {\n";
+        os << "  uint bits = as_type<uint>(value);\n";
+        os << "  bool sign = (bits >> 31) != 0u;\n";
+        os << "  uint exponent = (bits >> 23) & 0xffu;\n";
+        os << "  ulong fraction = ulong(bits & 0x7fffffu);\n";
+        os << "  if (exponent == 0xffu) return (sign ? (1ul << 63) : 0ul) | (0x7fful << 52) | (fraction != 0ul ? 0x0008000000000000ul : 0ul) | (fraction << 29);\n";
+        os << "  if (exponent == 0u) return m12_f64_pack_scaled(sign, fraction, -149);\n";
+        os << "  int unbiased = int(exponent) - 127;\n";
+        os << "  ulong significand = (fraction | (1ul << 23)) << 29;\n";
+        os << "  return (sign ? (1ul << 63) : 0ul) | (ulong(unbiased + 1023) << 52) | (significand & 0x000ffffffffffffful);\n";
+        os << "}\n\n";
+        os << "static inline float m12_f64_to_float(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special == 1u) return as_type<float>(p.sign ? 0x80000000u : 0u);\n";
+        os << "  if (p.special == 2u) return as_type<float>((p.sign ? 0x80000000u : 0u) | 0x7f800000u);\n";
+        os << "  if (p.special == 3u) return as_type<float>((p.sign ? 0x80000000u : 0u) | 0x7fc00000u);\n";
+        os << "  int exponent = p.exponent;\n";
+        os << "  ulong significand;\n";
+        os << "  if (exponent >= -126) {\n";
+        os << "    significand = m12_f64_round128(p.significand, 0ul, 29u, false);\n";
+        os << "    if (significand >= (1ul << 24)) { significand >>= 1; exponent += 1; }\n";
+        os << "    if (exponent > 127) return as_type<float>((p.sign ? 0x80000000u : 0u) | 0x7f800000u);\n";
+        os << "    return as_type<float>((p.sign ? 0x80000000u : 0u) | (uint(exponent + 127) << 23) | (uint(significand) & 0x7fffffu));\n";
+        os << "  }\n";
+        os << "  int shift = -(exponent + 97);\n";
+        os << "  ulong subnormal = shift > 0 ? m12_f64_round128(p.significand, 0ul, uint(shift), false) : p.significand << uint(-shift);\n";
+        os << "  if (subnormal >= (1ul << 23)) return as_type<float>((p.sign ? 0x80000000u : 0u) | 0x00800000u);\n";
+        os << "  return as_type<float>((p.sign ? 0x80000000u : 0u) | uint(subnormal));\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_from_uint(ulong value) {\n";
+        os << "  if (value == 0ul) return 0ul;\n";
+        os << "  uint high_bit = 0u; ulong scan = value;\n";
+        os << "  while (scan > 1ul) { scan >>= 1; high_bit += 1u; }\n";
+        os << "  ulong significand = high_bit > 52u ? m12_f64_round128(value, 0ul, high_bit - 52u, false) : value << (52u - high_bit);\n";
+        os << "  int exponent = int(high_bit);\n";
+        os << "  if (significand >= (1ul << 53)) { significand >>= 1; exponent += 1; }\n";
+        os << "  return (ulong(exponent + 1023) << 52) | (significand & 0x000ffffffffffffful);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_from_sint(long value) {\n";
+        os << "  bool sign = value < 0;\n";
+        os << "  ulong magnitude = sign ? (~ulong(value) + 1ul) : ulong(value);\n";
+        os << "  return m12_f64_from_uint(magnitude) | (sign ? (1ul << 63) : 0ul);\n";
+        os << "}\n\n";
+        os << "static inline long m12_f64_to_slong(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special != 0u || p.exponent < 0) return 0;\n";
+        os << "  ulong magnitude = p.exponent >= 52 ? p.significand << uint(p.exponent - 52) : p.significand >> uint(52 - p.exponent);\n";
+        os << "  return p.sign ? -long(magnitude) : long(magnitude);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_to_ulong(ulong bits) {\n";
+        os << "  m12_f64_parts p = m12_f64_unpack(bits);\n";
+        os << "  if (p.special != 0u || p.sign || p.exponent < 0) return 0ul;\n";
+        os << "  return p.exponent >= 52 ? p.significand << uint(p.exponent - 52) : p.significand >> uint(52 - p.exponent);\n";
+        os << "}\n\n";
+        os << "static inline int m12_f64_to_sint(ulong bits) { return int(m12_f64_to_slong(bits)); }\n\n";
+        os << "static inline uint m12_f64_to_uint(ulong bits) { return uint(m12_f64_to_ulong(bits)); }\n\n";
+        os << "static inline ulong m12_f64_remainder(ulong a, ulong b) {\n";
+        os << "  m12_f64_parts pa = m12_f64_unpack(a);\n";
+        os << "  m12_f64_parts pb = m12_f64_unpack(b);\n";
+        os << "  if (pa.special == 3u || pb.special == 3u || pa.special == 2u || pb.special == 1u) return 0x7ff8000000000000ul;\n";
+        os << "  if (pa.special == 1u) return a;\n";
+        os << "  if (pa.exponent < pb.exponent || (pa.exponent == pb.exponent && pa.significand < pb.significand)) return a;\n";
+        os << "  ulong remainder = 0ul;\n";
+        os << "  for (int bit = 52; bit >= 0; --bit) {\n";
+        os << "    remainder = (remainder << 1) | ((pa.significand >> uint(bit)) & 1ul);\n";
+        os << "    if (remainder >= pb.significand) remainder -= pb.significand;\n";
+        os << "  }\n";
+        os << "  uint distance = uint(pa.exponent - pb.exponent);\n";
+        os << "  for (uint bit = 0u; bit < distance; ++bit) {\n";
+        os << "    remainder <<= 1;\n";
+        os << "    if (remainder >= pb.significand) remainder -= pb.significand;\n";
+        os << "  }\n";
+        os << "  return m12_f64_pack_scaled(pa.sign, remainder, pb.exponent - 52);\n";
+        os << "}\n\n";
+        os << "static inline bool m12_f64_cmp(ulong a, ulong b, uint predicate) {\n";
+        os << "  m12_f64_parts pa = m12_f64_unpack(a);\n";
+        os << "  m12_f64_parts pb = m12_f64_unpack(b);\n";
+        os << "  bool unordered = pa.special == 3u || pb.special == 3u;\n";
+        os << "  int comparison = 0;\n";
+        os << "  if (!unordered) {\n";
+        os << "    ulong ma = a & 0x7ffffffffffffffful;\n";
+        os << "    ulong mb = b & 0x7ffffffffffffffful;\n";
+        os << "    if (ma == 0ul && mb == 0ul) comparison = 0;\n";
+        os << "    else if (pa.sign != pb.sign) comparison = pa.sign ? -1 : 1;\n";
+        os << "    else if (ma == mb) comparison = 0;\n";
+        os << "    else comparison = (ma < mb ? -1 : 1) * (pa.sign ? -1 : 1);\n";
+        os << "  }\n";
+        os << "  switch (predicate) {\n";
+        os << "  case 0u: return false; case 1u: return !unordered && comparison == 0;\n";
+        os << "  case 2u: return !unordered && comparison > 0; case 3u: return !unordered && comparison >= 0;\n";
+        os << "  case 4u: return !unordered && comparison < 0; case 5u: return !unordered && comparison <= 0;\n";
+        os << "  case 6u: return !unordered && comparison != 0; case 7u: return !unordered;\n";
+        os << "  case 8u: return unordered; case 9u: return unordered || comparison == 0;\n";
+        os << "  case 10u: return unordered || comparison > 0; case 11u: return unordered || comparison >= 0;\n";
+        os << "  case 12u: return unordered || comparison < 0; case 13u: return unordered || comparison <= 0;\n";
+        os << "  case 14u: return unordered || comparison != 0; case 15u: return true;\n";
+        os << "  default: return false;\n";
+        os << "  }\n";
+        os << "}\n\n";
     }
 
     if (ctx.compute_wave_shader) {
@@ -6755,9 +6974,17 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 if (inst.opcode == LLVMInstruction::Sub)
                     rhs = "(ulong(" + rhs + ") ^ (1ul << 63))";
                 expr = "m12_f64_add(ulong(" + lhs + "), ulong(" + rhs + "))";
+            } else if (inst.opcode == LLVMInstruction::Mul) {
+                expr = "m12_f64_mul(ulong(" + lhs + "), ulong(" + rhs + "))";
+            } else if (inst.opcode == LLVMInstruction::UDiv ||
+                       inst.opcode == LLVMInstruction::SDiv) {
+                expr = "m12_f64_div(ulong(" + lhs + "), ulong(" + rhs + "))";
+            } else if (inst.opcode == LLVMInstruction::URem ||
+                       inst.opcode == LLVMInstruction::SRem) {
+                expr = "m12_f64_remainder(ulong(" + lhs + "), ulong(" + rhs + "))";
             } else {
                 ctx.unsupported_opcodes++;
-                recordDiagnostic(ctx, "binary64 multiply/divide/remainder requires software lowering");
+                recordDiagnostic(ctx, "unsupported binary64 integer opcode");
                 expr = "ulong(0)";
             }
         } else {
@@ -6974,17 +7201,20 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             std::string lhs = coerceOperand(inst.operands[0], result_type);
             std::string rhs = coerceOperand(inst.operands[1], result_type);
             if (result_type.kind == MSLTypeKind::Double) {
+                std::string expression;
                 if (inst.opcode == LLVMInstruction::FAdd ||
                     inst.opcode == LLVMInstruction::FSub) {
                     if (inst.opcode == LLVMInstruction::FSub)
                         rhs = "(ulong(" + rhs + ") ^ (1ul << 63))";
-                    emitTypedLine(result_type, result,
-                                  "m12_f64_add(ulong(" + lhs + "), ulong(" + rhs + "))");
+                    expression = "m12_f64_add(ulong(" + lhs + "), ulong(" + rhs + "))";
+                } else if (inst.opcode == LLVMInstruction::FMul) {
+                    expression = "m12_f64_mul(ulong(" + lhs + "), ulong(" + rhs + "))";
+                } else if (inst.opcode == LLVMInstruction::FDiv) {
+                    expression = "m12_f64_div(ulong(" + lhs + "), ulong(" + rhs + "))";
                 } else {
-                    ctx.unsupported_opcodes++;
-                    recordDiagnostic(ctx, "binary64 multiply/divide/remainder requires software lowering");
-                    emitTypedLine(result_type, result, "ulong(0)");
+                    expression = "m12_f64_remainder(ulong(" + lhs + "), ulong(" + rhs + "))";
                 }
+                emitTypedLine(result_type, result, expression);
                 ctx.value_table[value_counter] = result;
                 ctx.value_types[value_counter] = result_type;
                 value_counter++;
@@ -7076,11 +7306,27 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             if (!isUsableType(result_type))
                 result_type = {MSLTypeKind::Int, 0, {}};
             std::string dst_name = emitTypeName(result_type);
-            if (source_type.kind == MSLTypeKind::Double ||
-                result_type.kind == MSLTypeKind::Double) {
-                ctx.unsupported_opcodes++;
-                recordDiagnostic(ctx, "native binary64 conversion requires software lowering");
-                emitTypedLine(result_type, result, defaultForType(result_type));
+            if (source_type.kind == MSLTypeKind::Double) {
+                std::string converted;
+                if (result_type.kind == MSLTypeKind::Float)
+                    converted = "m12_f64_to_float(ulong(" + val + "))";
+                else if (result_type.kind == MSLTypeKind::Long)
+                    converted = "m12_f64_to_slong(ulong(" + val + "))";
+                else if (result_type.kind == MSLTypeKind::UInt)
+                    converted = "m12_f64_to_uint(ulong(" + val + "))";
+                else
+                    converted = "m12_f64_to_sint(ulong(" + val + "))";
+                emitTypedLine(result_type, result, converted);
+            } else if (result_type.kind == MSLTypeKind::Double) {
+                std::string converted;
+                if (source_type.kind == MSLTypeKind::Float ||
+                    source_type.kind == MSLTypeKind::Half)
+                    converted = "m12_f64_from_float(static_cast<float>(" + val + "))";
+                else if (inst.opcode == LLVMInstruction::UIToFP)
+                    converted = "m12_f64_from_uint(ulong(" + val + "))";
+                else
+                    converted = "m12_f64_from_sint(long(" + val + "))";
+                emitTypedLine(result_type, result, converted);
             } else if (isPointerType(source_type) || typeLooksResourceHandle(source_type) ||
                 exprLooksResourceHandle(val) || exprContainsRawResourceHandle(val))
                 emitTypedLine(result_type, result, defaultForType(result_type));
@@ -7152,10 +7398,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             auto rhs = coerceOperand(inst.operands[2], cmp_type);
             if (inst.opcode == LLVMInstruction::FCmp &&
                 cmp_type.kind == MSLTypeKind::Double) {
-                ctx.unsupported_opcodes++;
-                recordDiagnostic(ctx, "native binary64 comparison requires software lowering");
                 MSLType bool_type = {MSLTypeKind::Bool, 0, {}};
-                emitTypedLine(bool_type, result, "false");
+                emitTypedLine(bool_type, result,
+                              "m12_f64_cmp(ulong(" + lhs + "), ulong(" + rhs + "), " +
+                                  std::to_string(pred) + "u)");
                 ctx.value_table[value_counter] = result;
                 ctx.value_types[value_counter] = bool_type;
                 value_counter++;
@@ -7725,21 +7971,8 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             break;
         }
     }
-    if (module_has_double) {
-        for (const auto &block : fn.blocks) {
-            for (const auto &inst : block.instructions) {
-                if (inst.opcode == LLVMInstruction::FAdd ||
-                    inst.opcode == LLVMInstruction::FSub ||
-                    inst.opcode == LLVMInstruction::Add ||
-                    inst.opcode == LLVMInstruction::Sub) {
-                    ctx.uses_double_emulation = true;
-                    break;
-                }
-            }
-            if (ctx.uses_double_emulation)
-                break;
-        }
-    }
+    if (module_has_double)
+        ctx.uses_double_emulation = true;
 
     analyzeBindingPlan(ctx, fn);
     analyzeVertexInputs(ctx, fn);
