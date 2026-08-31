@@ -811,6 +811,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                                              0x828c8c82, 0x828c8c82};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
+                                   "comparison_sampler_direct_heap_indexing") == 0) {
+                const uint32_t expected[] = {1, 1, 1, 1};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
                                    "texture_store_direct_heap_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {0x447ac000, 0x447b0000,
                                              0x447b4000, 0x447b8000};
@@ -1309,6 +1313,15 @@ void cs_texture_gather_direct_heap_descriptor_indexing(
 }
 
 [numthreads(4, 1, 1)]
+void cs_comparison_sampler_direct_heap_indexing(
+    uint3 id : SV_DispatchThreadID) {
+  SamplerComparisonState selected = SamplerDescriptorHeap[selector & 1u];
+  float value = comparison_tex.SampleCmpLevelZero(
+      selected, float2(0.875, 0.5), 0.5);
+  outbuf.Store(id.x * 4, uint(value));
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1525,6 +1538,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"texture_sample_direct_heap_descriptor_indexing", "cs_texture_sample_direct_heap_descriptor_indexing", "cs_6_6", "texture_sample_direct_heap_descriptor_indexing", true},
         {"texture_store_direct_heap_descriptor_indexing", "cs_texture_store_direct_heap_descriptor_indexing", "cs_6_6", "texture_store_direct_heap_descriptor_indexing", true},
         {"texture_gather_direct_heap_descriptor_indexing", "cs_texture_gather_direct_heap_descriptor_indexing", "cs_6_6", "texture_gather_direct_heap_descriptor_indexing", true},
+        {"comparison_sampler_direct_heap_indexing", "cs_comparison_sampler_direct_heap_indexing", "cs_6_6", "comparison_sampler_direct_heap_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
