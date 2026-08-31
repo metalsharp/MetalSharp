@@ -227,7 +227,7 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
                                      ID3D12RootSignature** root, std::string& errors) {
     D3D12_DESCRIPTOR_RANGE ranges[3] = {};
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[0].NumDescriptors = 1;
+    ranges[0].NumDescriptors = 2;
     ranges[0].BaseShaderRegister = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -280,6 +280,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     ID3D12DescriptorHeap* sampler_heap = nullptr;
     ID3D12DescriptorHeap* dsv_heap = nullptr;
     ID3D12Resource* output = nullptr;
+    ID3D12Resource* dynamic_output = nullptr;
     ID3D12Resource* readback = nullptr;
     ID3D12Resource* input0 = nullptr;
     ID3D12Resource* input1 = nullptr;
@@ -301,7 +302,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        heap_desc.NumDescriptors = 9;
+        heap_desc.NumDescriptors = 10;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&resource_heap));
     }
@@ -344,6 +345,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     if (SUCCEEDED(hr))
         hr = create_buffer(128, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, &output);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(128, D3D12_HEAP_TYPE_DEFAULT,
+                           D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                           D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                           &dynamic_output);
     if (SUCCEEDED(hr))
         hr = create_buffer(128, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST,
                            nullptr, &readback);
@@ -453,6 +459,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         uav.Buffer.NumElements = typed_atomic64 ? 16 : 32;
         uav.Buffer.Flags = typed_atomic64 ? D3D12_BUFFER_UAV_FLAG_NONE : D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
+        cpu.ptr += resource_stride;
+        device->CreateUnorderedAccessView(dynamic_output, nullptr, &uav, cpu);
 
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
         srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -589,7 +597,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             list->ClearUnorderedAccessViewUint(gpu, resource_heap->GetCPUDescriptorHandleForHeapStart(), output, zero,
                                                0, nullptr);
         }
-        gpu.ptr += resource_stride;
+        gpu.ptr += 2 * resource_stride;
         list->SetComputeRootDescriptorTable(1, gpu);
         list->SetComputeRootDescriptorTable(2, sampler_heap->GetGPUDescriptorHandleForHeapStart());
         const uint32_t constants[4] = {1, 3, 2, 0};
@@ -599,14 +607,18 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
 
         D3D12_RESOURCE_BARRIER output_barriers[2] = {};
         output_barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-        output_barriers[0].UAV.pResource = output;
+        ID3D12Resource* case_output =
+            std::strcmp(audit_case.name, "rw_descriptor_indexing") == 0
+                ? dynamic_output
+                : output;
+        output_barriers[0].UAV.pResource = case_output;
         output_barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        output_barriers[1].Transition.pResource = output;
+        output_barriers[1].Transition.pResource = case_output;
         output_barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         output_barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         output_barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
         list->ResourceBarrier(2, output_barriers);
-        list->CopyResource(readback, output);
+        list->CopyResource(readback, case_output);
         hr = execute_and_wait(device, queue, list);
     }
 
@@ -653,6 +665,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name,
                                    "structured_uint2_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {303, 703, 303, 703};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "rw_descriptor_indexing") == 0) {
+                const uint32_t expected[] = {503, 504, 505, 506};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "int64_arithmetic") == 0) {
                 const uint32_t expected[] = {5, 11, 6, 21, 7, 31, 8, 41};
@@ -789,6 +805,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     safe_release(input1);
     safe_release(input0);
     safe_release(readback);
+    safe_release(dynamic_output);
     safe_release(output);
     safe_release(sampler_heap);
     safe_release(dsv_heap);
@@ -857,6 +874,7 @@ int main() {
     const char* hlsl_path = "Z:\\tmp\\dxmt_sm66_capabilities.hlsl";
     const char* hlsl = R"(
 RWByteAddressBuffer outbuf : register(u0);
+RWByteAddressBuffer dynamic_outputs[2] : register(u0);
 RWBuffer<uint64_t> typed_outbuf : register(u0);
 RWBuffer<int64_t> signed_typed_outbuf : register(u0);
 ByteAddressBuffer inputs[2] : register(t0);
@@ -1061,6 +1079,12 @@ void cs_structured_uint2_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
   uint descriptor_index = selector & 1u;
   uint2 value = structured_pair_inputs[descriptor_index][id.x & 1u];
   outbuf.Store(id.x * 4, value.x + value.y + addend);
+}
+
+[numthreads(4, 1, 1)]
+void cs_rw_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
+  uint descriptor_index = selector & 1u;
+  dynamic_outputs[descriptor_index].Store(id.x * 4, 500u + id.x + addend);
 }
 
 [numthreads(4, 1, 1)]
@@ -1270,6 +1294,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"descriptor_indexing", "cs_descriptor_indexing", "cs_6_6", "descriptor_indexing", true},
         {"structured_descriptor_indexing", "cs_structured_descriptor_indexing", "cs_6_6", "structured_resource_descriptor_indexing", true},
         {"structured_uint2_descriptor_indexing", "cs_structured_uint2_descriptor_indexing", "cs_6_6", "structured_uint2_resource_descriptor_indexing", true},
+        {"rw_descriptor_indexing", "cs_rw_descriptor_indexing", "cs_6_6", "writable_resource_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
