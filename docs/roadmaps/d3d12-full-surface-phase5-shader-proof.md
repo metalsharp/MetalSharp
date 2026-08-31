@@ -291,7 +291,10 @@ PSO probe, including exact append and consume data plus external counter
 readback. Profile `phase5-graphics-counter1` additionally passes exact vertex-
 and pixel-stage append cases. Profile `phase5-counter-corpus-negative` passes the shader corpus
 with `append_counter_link=true` and rejects a two-counter shader with exact
-`0x80004005`; `phase5-helper2` preserves all 23 semantic lanes with zero mismatches.
+`0x80004005`; `phase5-directcounter1` additionally compiles a directly indexed
+`AppendStructuredBuffer` heap shader and proves the unsupported counter mapping
+fails closed at PSO creation with exact `0x80004005`; `phase5-helper2` preserves
+all 23 semantic lanes with zero mismatches.
 
 ## Remaining Phase 5 work
 
@@ -299,9 +302,8 @@ The complete exit gate is not claimed. The stable corpus still needs positive
 and negative behavior evidence for every declared DXIL opcode/intrinsic,
 control-flow and aggregate shape, graphics stage, remaining texture sampling
 forms, typed/raw/structured/counter resource, cache/compiler-session path, and
-all legal SM5.x–SM6.9 operations. Multi-counter, directly indexed counter-heap,
-non-compute/vertex/pixel stages, and other explicitly limited providers remain
-fail-closed until their exact
+all legal SM5.x–SM6.9 operations. Multi-counter and non-compute/vertex/pixel
+stages remain fail-closed until their exact
 readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.

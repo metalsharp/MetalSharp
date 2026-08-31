@@ -1046,7 +1046,9 @@ static CaseResult run_case(ID3D12Device* device, ID3D12RootSignature* root, cons
     if (!result.compile_ok)
         result.detail = dxc_errors.empty() ? "DXC did not produce a DXIL blob" : dxc_errors;
     else if (!result.pso_created)
-        result.detail = "compiled to DXIL, but no linked compute PSO was created";
+        result.detail = audit_case.requires_runtime_proof
+                            ? "compiled to DXIL, but no linked compute PSO was created"
+                            : "compiled to DXIL and rejected the unsupported PSO as required";
     else if (audit_case.requires_runtime_proof && !result.runtime_executed)
         result.detail = "compiled and linked; runtime execution proof is still required before SM 6.6 can be reported";
     else if (!audit_case.requires_runtime_proof)
@@ -1360,6 +1362,13 @@ void cs_comparison_texture_direct_heap_indexing(
   outbuf.Store(id.x * 4, uint(value));
 }
 
+[numthreads(1, 1, 1)]
+void cs_counter_direct_heap_indexing(uint3 id : SV_DispatchThreadID) {
+  AppendStructuredBuffer<uint> selected =
+      ResourceDescriptorHeap[selector & 1u];
+  selected.Append(1200u + id.x);
+}
+
 [numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
@@ -1580,6 +1589,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"comparison_sampler_direct_heap_indexing", "cs_comparison_sampler_direct_heap_indexing", "cs_6_6", "comparison_sampler_direct_heap_indexing", true},
         {"comparison_texture_direct_heap_indexing_base", "cs_comparison_texture_direct_heap_indexing", "cs_6_6", "comparison_texture_direct_heap_indexing_base", true},
         {"comparison_texture_direct_heap_indexing", "cs_comparison_texture_direct_heap_indexing", "cs_6_6", "comparison_texture_direct_heap_indexing", true},
+        {"counter_direct_heap_indexing_rejected", "cs_counter_direct_heap_indexing", "cs_6_6", "counter_direct_heap_indexing_fail_closed", false},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
@@ -1632,11 +1642,19 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
     bool compiler_acceptance_complete = hlsl_written && !results.empty();
     bool pso_link_complete = compiler_acceptance_complete;
     bool runtime_complete = compiler_acceptance_complete;
-    for (const auto& result : results) {
+    for (size_t i = 0; i < results.size(); ++i) {
+        const auto& result = results[i];
+        const bool requires_runtime = audit_cases[i].requires_runtime_proof;
         compiler_acceptance_complete = compiler_acceptance_complete && result.compile_ok;
-        pso_link_complete = pso_link_complete && result.pso_created;
+        pso_link_complete =
+            pso_link_complete &&
+            (requires_runtime ? result.pso_created : !result.pso_created);
         runtime_complete =
-            runtime_complete && result.runtime_executed && result.readback_ok && result.mismatch_count == 0;
+            runtime_complete &&
+            (requires_runtime
+                 ? (result.runtime_executed && result.readback_ok &&
+                    result.mismatch_count == 0)
+                 : !result.runtime_executed);
     }
 
     auto atomic_case_passed = [&](const char* name) {
@@ -1658,9 +1676,15 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         atomic_case_passed("atomic64_descriptor_heap_add") && atomic_case_passed("atomic64_descriptor_heap_ops");
     bool sm66_reportable = entrypoints_ok && atomic64_conservative;
     bool sm67_reportable = entrypoints_ok && atomic64_conservative;
-    for (const auto& result : results) {
-        const bool case_passed = result.compile_ok && result.pso_created && result.runtime_executed &&
-                                 result.readback_ok && result.mismatch_count == 0;
+    for (size_t i = 0; i < results.size(); ++i) {
+        const auto& result = results[i];
+        const bool requires_runtime = audit_cases[i].requires_runtime_proof;
+        const bool case_passed =
+            result.compile_ok &&
+            (requires_runtime
+                 ? (result.pso_created && result.runtime_executed &&
+                    result.readback_ok && result.mismatch_count == 0)
+                 : !result.pso_created);
         if (result.target == "cs_6_6")
             sm66_reportable = sm66_reportable && case_passed;
         sm67_reportable = sm67_reportable && case_passed;
