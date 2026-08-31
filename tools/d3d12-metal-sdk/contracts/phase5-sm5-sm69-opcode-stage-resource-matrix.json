@@ -1,0 +1,6302 @@
+{
+  "schema": "metalsharp.d3d12-metal.sm5-sm69-opcode-stage-resource-matrix.v1",
+  "stable_surface": "SM5.x DXBC/AIR and SM6.0-SM6.9 DXIL",
+  "dxil_opcode_source": "pinned DXC DxilConstants.h (1.9 stable opcodes 0..311)",
+  "opcode_count": 312,
+  "required_opcode_count": 280,
+  "reserved_opcode_count": 32,
+  "behavior_status": "open",
+  "promotion_rule": "Every required row needs exact positive and invalid/negative evidence across its declared stage/resource scope; observed compilation alone is not execution proof.",
+  "opcodes": [
+    {
+      "id": 0,
+      "name": "TempRegLoad",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 1,
+      "name": "TempRegStore",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 2,
+      "name": "MinPrecXRegLoad",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 3,
+      "name": "MinPrecXRegStore",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 4,
+      "name": "LoadInput",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 5,
+      "name": "StoreOutput",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 6,
+      "name": "FAbs",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 7,
+      "name": "Saturate",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 8,
+      "name": "IsNaN",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 9,
+      "name": "IsInf",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 10,
+      "name": "IsFinite",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 11,
+      "name": "IsNormal",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 12,
+      "name": "Cos",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 13,
+      "name": "Sin",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 14,
+      "name": "Tan",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 15,
+      "name": "Acos",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 16,
+      "name": "Asin",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 17,
+      "name": "Atan",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 18,
+      "name": "Hcos",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 19,
+      "name": "Hsin",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 20,
+      "name": "Htan",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 21,
+      "name": "Exp",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 22,
+      "name": "Frc",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 23,
+      "name": "Log",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 24,
+      "name": "Sqrt",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 25,
+      "name": "Rsqrt",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 26,
+      "name": "Round_ne",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 27,
+      "name": "Round_ni",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 28,
+      "name": "Round_pi",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 29,
+      "name": "Round_z",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 30,
+      "name": "Bfrev",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 31,
+      "name": "Countbits",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 32,
+      "name": "FirstbitLo",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 33,
+      "name": "FirstbitHi",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 34,
+      "name": "FirstbitSHi",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 35,
+      "name": "FMax",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 36,
+      "name": "FMin",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 37,
+      "name": "IMax",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 38,
+      "name": "IMin",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 39,
+      "name": "UMax",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 40,
+      "name": "UMin",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 41,
+      "name": "IMul",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 42,
+      "name": "UMul",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 43,
+      "name": "UDiv",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 44,
+      "name": "UAddc",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 45,
+      "name": "USubb",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 46,
+      "name": "FMad",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 47,
+      "name": "Fma",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 48,
+      "name": "IMad",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 49,
+      "name": "UMad",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 50,
+      "name": "Msad",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 51,
+      "name": "Ibfe",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 52,
+      "name": "Ubfe",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 53,
+      "name": "Bfi",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 54,
+      "name": "Dot2",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 55,
+      "name": "Dot3",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 56,
+      "name": "Dot4",
+      "first_dxil": "1.0",
+      "category": "core",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:core_opcode_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 57,
+      "name": "CreateHandle",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-shader-corpus:resource_indexing"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 58,
+      "name": "CBufferLoad",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:buffer_load_store"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 59,
+      "name": "CBufferLoadLegacy",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:cbuffer_load"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 60,
+      "name": "Sample",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:texture_sampling_forms"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 61,
+      "name": "SampleBias",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 62,
+      "name": "SampleLevel",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:texture_sampling_forms"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 63,
+      "name": "SampleGrad",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:texture_sampling_forms"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 64,
+      "name": "SampleCmp",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 65,
+      "name": "SampleCmpLevelZero",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 66,
+      "name": "TextureLoad",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:resource_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 67,
+      "name": "TextureStore",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "raw",
+        "structured",
+        "typed",
+        "uav"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 68,
+      "name": "BufferLoad",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:buffer_load_store"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 69,
+      "name": "BufferStore",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "raw",
+        "structured",
+        "typed",
+        "uav"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:buffer_load_store"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 70,
+      "name": "BufferUpdateCounter",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "counter",
+        "uav"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-compute-pso:append_counter_runtime"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 71,
+      "name": "CheckAccessFullyMapped",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:buffer_load_store"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 72,
+      "name": "GetDimensions",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:get_dimensions"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 73,
+      "name": "TextureGather",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:texture_sampling_forms"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 74,
+      "name": "TextureGatherCmp",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:gather"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 75,
+      "name": "Texture2DMSGetSamplePosition",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "msaa"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 76,
+      "name": "RenderTargetGetSamplePosition",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "msaa"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 77,
+      "name": "RenderTargetGetSampleCount",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "msaa"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 78,
+      "name": "AtomicBinOp",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "raw",
+        "structured",
+        "typed",
+        "uav"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:atomic_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 79,
+      "name": "AtomicCompareExchange",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "raw",
+        "structured",
+        "typed",
+        "uav"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:atomic_uav"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 80,
+      "name": "Barrier",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:atomics_ids"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 81,
+      "name": "CalculateLOD",
+      "first_dxil": "1.0",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:calculate_lod"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 82,
+      "name": "Discard",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 83,
+      "name": "DerivCoarseX",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:derivatives"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 84,
+      "name": "DerivCoarseY",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:derivatives"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 85,
+      "name": "DerivFineX",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:derivatives"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 86,
+      "name": "DerivFineY",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:derivatives"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 87,
+      "name": "EvalSnapped",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 88,
+      "name": "EvalSampleIndex",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 89,
+      "name": "EvalCentroid",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 90,
+      "name": "SampleIndex",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 91,
+      "name": "Coverage",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 92,
+      "name": "InnerCoverage",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 93,
+      "name": "ThreadId",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "mesh",
+        "amplification",
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:atomics_ids"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 94,
+      "name": "GroupId",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "mesh",
+        "amplification",
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:atomics_ids"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 95,
+      "name": "ThreadIdInGroup",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "mesh",
+        "amplification",
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:atomics_ids"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 96,
+      "name": "FlattenedThreadIdInGroup",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "mesh",
+        "amplification",
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:atomics_ids"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 97,
+      "name": "EmitStream",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 98,
+      "name": "CutStream",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 99,
+      "name": "EmitThenCutStream",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 100,
+      "name": "GSInstanceID",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 101,
+      "name": "MakeDouble",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:double_bitcast"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 102,
+      "name": "SplitDouble",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:double_bitcast"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 103,
+      "name": "LoadOutputControlPoint",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 104,
+      "name": "LoadPatchConstant",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 105,
+      "name": "DomainLocation",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 106,
+      "name": "StorePatchConstant",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 107,
+      "name": "OutputControlPointID",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 108,
+      "name": "PrimitiveID",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "geometry",
+        "hull",
+        "domain"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 109,
+      "name": "CycleCounterLegacy",
+      "first_dxil": "1.0",
+      "category": "stage_system",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 110,
+      "name": "WaveIsFirstLane",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 111,
+      "name": "WaveGetLaneIndex",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 112,
+      "name": "WaveGetLaneCount",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 113,
+      "name": "WaveAnyTrue",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 114,
+      "name": "WaveAllTrue",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 115,
+      "name": "WaveActiveAllEqual",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 116,
+      "name": "WaveActiveBallot",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 117,
+      "name": "WaveReadLaneAt",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 118,
+      "name": "WaveReadLaneFirst",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 119,
+      "name": "WaveActiveOp",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 120,
+      "name": "WaveActiveBit",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 121,
+      "name": "WavePrefixOp",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 122,
+      "name": "QuadReadLaneAt",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:wave_quad"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 123,
+      "name": "QuadOp",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:wave_quad"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 124,
+      "name": "BitcastI16toF16",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:float16_conversion"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 125,
+      "name": "BitcastF16toI16",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:float16_conversion"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 126,
+      "name": "BitcastI32toF32",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:math_bits"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 127,
+      "name": "BitcastF32toI32",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:math_bits"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 128,
+      "name": "BitcastI64toF64",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:double_bitcast"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 129,
+      "name": "BitcastF64toI64",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:double_bitcast"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 130,
+      "name": "LegacyF32ToF16",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:float16_conversion"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 131,
+      "name": "LegacyF16ToF32",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:float16_conversion"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 132,
+      "name": "LegacyDoubleToFloat",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:double_float_roundtrip"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 133,
+      "name": "LegacyDoubleToSInt32",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:double_integer_conversions"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 134,
+      "name": "LegacyDoubleToUInt32",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:double_integer_conversions"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 135,
+      "name": "WaveAllBitCount",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:active_prefix_bit_count"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 136,
+      "name": "WavePrefixBitCount",
+      "first_dxil": "1.0",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:active_prefix_bit_count"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 137,
+      "name": "AttributeAtVertex",
+      "first_dxil": "1.1",
+      "category": "type_and_vector",
+      "stages": [
+        "pixel"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 138,
+      "name": "ViewID",
+      "first_dxil": "1.1",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 139,
+      "name": "RawBufferLoad",
+      "first_dxil": "1.2",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:raw_vector"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 140,
+      "name": "RawBufferStore",
+      "first_dxil": "1.2",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "raw",
+        "structured",
+        "typed",
+        "uav"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:raw_vector"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 141,
+      "name": "InstanceID",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 142,
+      "name": "InstanceIndex",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 143,
+      "name": "HitKind",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 144,
+      "name": "RayFlags",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 145,
+      "name": "DispatchRaysIndex",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 146,
+      "name": "DispatchRaysDimensions",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 147,
+      "name": "WorldRayOrigin",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 148,
+      "name": "WorldRayDirection",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 149,
+      "name": "ObjectRayOrigin",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 150,
+      "name": "ObjectRayDirection",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 151,
+      "name": "ObjectToWorld",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 152,
+      "name": "WorldToObject",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 153,
+      "name": "RayTMin",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 154,
+      "name": "RayTCurrent",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 155,
+      "name": "IgnoreHit",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 156,
+      "name": "AcceptHitAndEndSearch",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 157,
+      "name": "TraceRay",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 158,
+      "name": "ReportHit",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 159,
+      "name": "CallShader",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 160,
+      "name": "CreateHandleForLib",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 161,
+      "name": "PrimitiveIndex",
+      "first_dxil": "1.3",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 162,
+      "name": "Dot2AddHalf",
+      "first_dxil": "1.4",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:dot2add_half"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 163,
+      "name": "Dot4AddI8Packed",
+      "first_dxil": "1.4",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:dot4add_signed"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 164,
+      "name": "Dot4AddU8Packed",
+      "first_dxil": "1.4",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:dot4add_unsigned"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 165,
+      "name": "WaveMatch",
+      "first_dxil": "1.5",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_match"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 166,
+      "name": "WaveMultiPrefixOp",
+      "first_dxil": "1.5",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_multi_prefix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 167,
+      "name": "WaveMultiPrefixBitCount",
+      "first_dxil": "1.5",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:wave_multi_prefix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 168,
+      "name": "SetMeshOutputCounts",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "mesh"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 169,
+      "name": "EmitIndices",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "mesh"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 170,
+      "name": "GetMeshPayload",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "mesh"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 171,
+      "name": "StoreVertexOutput",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "mesh"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 172,
+      "name": "StorePrimitiveOutput",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "mesh"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 173,
+      "name": "DispatchMesh",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 174,
+      "name": "WriteSamplerFeedback",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "sampler_feedback"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sampler-feedback:feedback_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 175,
+      "name": "WriteSamplerFeedbackBias",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "sampler_feedback"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sampler-feedback:feedback_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 176,
+      "name": "WriteSamplerFeedbackLevel",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "sampler_feedback"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sampler-feedback:feedback_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 177,
+      "name": "WriteSamplerFeedbackGrad",
+      "first_dxil": "1.5",
+      "category": "mesh_and_feedback",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "sampler_feedback"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sampler-feedback:feedback_matrix"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 178,
+      "name": "AllocateRayQuery",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 179,
+      "name": "RayQuery_TraceRayInline",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 180,
+      "name": "RayQuery_Proceed",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 181,
+      "name": "RayQuery_Abort",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 182,
+      "name": "RayQuery_CommitNonOpaqueTriangleHit",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 183,
+      "name": "RayQuery_CommitProceduralPrimitiveHit",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 184,
+      "name": "RayQuery_CommittedStatus",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 185,
+      "name": "RayQuery_CandidateType",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 186,
+      "name": "RayQuery_CandidateObjectToWorld3x4",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 187,
+      "name": "RayQuery_CandidateWorldToObject3x4",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 188,
+      "name": "RayQuery_CommittedObjectToWorld3x4",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 189,
+      "name": "RayQuery_CommittedWorldToObject3x4",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 190,
+      "name": "RayQuery_CandidateProceduralPrimitiveNonOpaque",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 191,
+      "name": "RayQuery_CandidateTriangleFrontFace",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 192,
+      "name": "RayQuery_CommittedTriangleFrontFace",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 193,
+      "name": "RayQuery_CandidateTriangleBarycentrics",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 194,
+      "name": "RayQuery_CommittedTriangleBarycentrics",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 195,
+      "name": "RayQuery_RayFlags",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 196,
+      "name": "RayQuery_WorldRayOrigin",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 197,
+      "name": "RayQuery_WorldRayDirection",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 198,
+      "name": "RayQuery_RayTMin",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 199,
+      "name": "RayQuery_CandidateTriangleRayT",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 200,
+      "name": "RayQuery_CommittedRayT",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 201,
+      "name": "RayQuery_CandidateInstanceIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 202,
+      "name": "RayQuery_CandidateInstanceID",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 203,
+      "name": "RayQuery_CandidateGeometryIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 204,
+      "name": "RayQuery_CandidatePrimitiveIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 205,
+      "name": "RayQuery_CandidateObjectRayOrigin",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 206,
+      "name": "RayQuery_CandidateObjectRayDirection",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 207,
+      "name": "RayQuery_CommittedInstanceIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 208,
+      "name": "RayQuery_CommittedInstanceID",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 209,
+      "name": "RayQuery_CommittedGeometryIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 210,
+      "name": "RayQuery_CommittedPrimitiveIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 211,
+      "name": "RayQuery_CommittedObjectRayOrigin",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 212,
+      "name": "RayQuery_CommittedObjectRayDirection",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 213,
+      "name": "GeometryIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 214,
+      "name": "RayQuery_CandidateInstanceContributionToHitGroupIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 215,
+      "name": "RayQuery_CommittedInstanceContributionToHitGroupIndex",
+      "first_dxil": "1.5",
+      "category": "raytracing",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 216,
+      "name": "AnnotateHandle",
+      "first_dxil": "1.6",
+      "category": "other",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "descriptor_heap",
+        "resource_handle"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:resource_heap"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 217,
+      "name": "CreateHandleFromBinding",
+      "first_dxil": "1.6",
+      "category": "other",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "descriptor_heap",
+        "resource_handle"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:resource_heap"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 218,
+      "name": "CreateHandleFromHeap",
+      "first_dxil": "1.6",
+      "category": "other",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "descriptor_heap",
+        "resource_handle"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:resource_heap"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 219,
+      "name": "Unpack4x8",
+      "first_dxil": "1.6",
+      "category": "other",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:pack_unpack_8"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 220,
+      "name": "Pack4x8",
+      "first_dxil": "1.6",
+      "category": "other",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:pack_unpack_8"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 221,
+      "name": "IsHelperLane",
+      "first_dxil": "1.6",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-wave-ops:helper_lane"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 222,
+      "name": "QuadVote",
+      "first_dxil": "1.7",
+      "category": "wave_and_packed",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:wave_quad"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 223,
+      "name": "TextureGatherRaw",
+      "first_dxil": "1.7",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:raw_gather"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 224,
+      "name": "SampleCmpLevel",
+      "first_dxil": "1.7",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:sample_cmp_level"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 225,
+      "name": "TextureStoreSample",
+      "first_dxil": "1.7",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "counter",
+        "uav"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:texture_store_sample"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 226,
+      "name": "Reserved0",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 227,
+      "name": "Reserved1",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 228,
+      "name": "Reserved2",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 229,
+      "name": "Reserved3",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 230,
+      "name": "Reserved4",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 231,
+      "name": "Reserved5",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 232,
+      "name": "Reserved6",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 233,
+      "name": "Reserved7",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 234,
+      "name": "Reserved8",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 235,
+      "name": "Reserved9",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 236,
+      "name": "Reserved10",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 237,
+      "name": "Reserved11",
+      "first_dxil": "1.8",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 238,
+      "name": "AllocateNodeOutputRecords",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 239,
+      "name": "GetNodeRecordPtr",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 240,
+      "name": "IncrementOutputCount",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 241,
+      "name": "OutputComplete",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 242,
+      "name": "GetInputRecordCount",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 243,
+      "name": "FinishedCrossGroupSharing",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 244,
+      "name": "BarrierByMemoryType",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 245,
+      "name": "BarrierByMemoryHandle",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 246,
+      "name": "BarrierByNodeRecordHandle",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 247,
+      "name": "CreateNodeOutputHandle",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 248,
+      "name": "IndexNodeHandle",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 249,
+      "name": "AnnotateNodeHandle",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 250,
+      "name": "CreateNodeInputRecordHandle",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 251,
+      "name": "AnnotateNodeRecordHandle",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 252,
+      "name": "NodeOutputIsValid",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 253,
+      "name": "GetRemainingRecursionLevels",
+      "first_dxil": "1.8",
+      "category": "work_graph",
+      "stages": [
+        "node"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 254,
+      "name": "SampleCmpGrad",
+      "first_dxil": "1.8",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 255,
+      "name": "SampleCmpBias",
+      "first_dxil": "1.8",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "1d",
+        "1d_array",
+        "2d",
+        "2d_array",
+        "3d",
+        "cube",
+        "cube_array"
+      ],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 256,
+      "name": "StartVertexLocation",
+      "first_dxil": "1.8",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 257,
+      "name": "StartInstanceLocation",
+      "first_dxil": "1.8",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 258,
+      "name": "AllocateRayQuery2",
+      "first_dxil": "1.9",
+      "category": "raytracing",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 259,
+      "name": "ReservedA0",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 260,
+      "name": "ReservedA1",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 261,
+      "name": "ReservedA2",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 262,
+      "name": "HitObject_TraceRay",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 263,
+      "name": "HitObject_FromRayQuery",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 264,
+      "name": "HitObject_FromRayQueryWithAttrs",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 265,
+      "name": "HitObject_MakeMiss",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 266,
+      "name": "HitObject_MakeNop",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 267,
+      "name": "HitObject_Invoke",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 268,
+      "name": "MaybeReorderThread",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 269,
+      "name": "HitObject_IsMiss",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 270,
+      "name": "HitObject_IsHit",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 271,
+      "name": "HitObject_IsNop",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 272,
+      "name": "HitObject_RayFlags",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 273,
+      "name": "HitObject_RayTMin",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 274,
+      "name": "HitObject_RayTCurrent",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 275,
+      "name": "HitObject_WorldRayOrigin",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 276,
+      "name": "HitObject_WorldRayDirection",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 277,
+      "name": "HitObject_ObjectRayOrigin",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 278,
+      "name": "HitObject_ObjectRayDirection",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 279,
+      "name": "HitObject_ObjectToWorld3x4",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 280,
+      "name": "HitObject_WorldToObject3x4",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 281,
+      "name": "HitObject_GeometryIndex",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 282,
+      "name": "HitObject_InstanceIndex",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 283,
+      "name": "HitObject_InstanceID",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 284,
+      "name": "HitObject_PrimitiveIndex",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 285,
+      "name": "HitObject_HitKind",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 286,
+      "name": "HitObject_ShaderTableIndex",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 287,
+      "name": "HitObject_SetShaderTableIndex",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 288,
+      "name": "HitObject_LoadLocalRootTableConstant",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 289,
+      "name": "HitObject_Attributes",
+      "first_dxil": "1.9",
+      "category": "shader_execution_reordering",
+      "stages": [
+        "raytracing"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "open",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 290,
+      "name": "ReservedB28",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 291,
+      "name": "ReservedB29",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 292,
+      "name": "ReservedB30",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 293,
+      "name": "ReservedC0",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 294,
+      "name": "ReservedC1",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 295,
+      "name": "ReservedC2",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 296,
+      "name": "ReservedC3",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 297,
+      "name": "ReservedC4",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 298,
+      "name": "ReservedC5",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 299,
+      "name": "ReservedC6",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 300,
+      "name": "ReservedC7",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 301,
+      "name": "ReservedC8",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 302,
+      "name": "ReservedC9",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 303,
+      "name": "RawBufferVectorLoad",
+      "first_dxil": "1.9",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "typed",
+        "raw",
+        "structured",
+        "cbv",
+        "texture"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:raw_vector"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 304,
+      "name": "RawBufferVectorStore",
+      "first_dxil": "1.9",
+      "category": "resource",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [
+        "raw",
+        "structured",
+        "typed",
+        "uav"
+      ],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:raw_vector"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 305,
+      "name": "ReservedD0",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 306,
+      "name": "ReservedD1",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 307,
+      "name": "ReservedD2",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 308,
+      "name": "ReservedD3",
+      "first_dxil": "1.9",
+      "category": "reserved",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": false,
+      "status": "not_applicable",
+      "positive_evidence": [],
+      "negative_evidence": []
+    },
+    {
+      "id": 309,
+      "name": "VectorReduceAnd",
+      "first_dxil": "1.9",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:vector_reductions"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 310,
+      "name": "VectorReduceOr",
+      "first_dxil": "1.9",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:vector_reductions"
+      ],
+      "negative_evidence": []
+    },
+    {
+      "id": 311,
+      "name": "FDot",
+      "first_dxil": "1.9",
+      "category": "type_and_vector",
+      "stages": [
+        "compute",
+        "vertex",
+        "pixel",
+        "geometry",
+        "hull",
+        "domain",
+        "mesh",
+        "amplification"
+      ],
+      "resources": [],
+      "required": true,
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:sm69_fdot_wide"
+      ],
+      "negative_evidence": []
+    }
+  ],
+  "stage_matrix": [
+    {
+      "stage": "compute",
+      "positive_evidence": [
+        "probe-dxil-semantics",
+        "probe-shader-corpus"
+      ],
+      "negative_evidence": [
+        "probe-shaders:unsupported_semantics"
+      ],
+      "status": "observed"
+    },
+    {
+      "stage": "vertex",
+      "positive_evidence": [
+        "probe-shader-corpus:sm50_graphics_baseline"
+      ],
+      "negative_evidence": [],
+      "status": "observed"
+    },
+    {
+      "stage": "pixel",
+      "positive_evidence": [
+        "probe-shader-corpus:sm50_graphics_baseline",
+        "probe-writable-msaa"
+      ],
+      "negative_evidence": [],
+      "status": "observed"
+    },
+    {
+      "stage": "geometry",
+      "positive_evidence": [
+        "probe-shader-corpus:sm50_graphics_baseline"
+      ],
+      "negative_evidence": [],
+      "status": "observed"
+    },
+    {
+      "stage": "hull",
+      "positive_evidence": [
+        "probe-shader-corpus:sm50_tessellation_stage_matrix:compile"
+      ],
+      "negative_evidence": [
+        "probe-shader-corpus:sm50_tessellation_stage_matrix:provider"
+      ],
+      "status": "open"
+    },
+    {
+      "stage": "domain",
+      "positive_evidence": [
+        "probe-shader-corpus:sm50_tessellation_stage_matrix:compile"
+      ],
+      "negative_evidence": [
+        "probe-shader-corpus:sm50_tessellation_stage_matrix:provider"
+      ],
+      "status": "open"
+    },
+    {
+      "stage": "amplification",
+      "positive_evidence": [
+        "probe-mini-mesh-object-shader-pso"
+      ],
+      "negative_evidence": [],
+      "status": "open"
+    },
+    {
+      "stage": "mesh",
+      "positive_evidence": [
+        "probe-mini-mesh-object-shader-pso"
+      ],
+      "negative_evidence": [],
+      "status": "open"
+    },
+    {
+      "stage": "raytracing",
+      "positive_evidence": [
+        "probe-mini-dxr-acceleration-structures"
+      ],
+      "negative_evidence": [],
+      "status": "open"
+    },
+    {
+      "stage": "node",
+      "positive_evidence": [],
+      "negative_evidence": [],
+      "status": "open"
+    }
+  ],
+  "resource_matrix": [
+    {
+      "resource": "typed_buffer",
+      "positive_evidence": [
+        "probe-texture-dimensions",
+        "probe-dxil-semantics"
+      ],
+      "status": "observed"
+    },
+    {
+      "resource": "raw_buffer",
+      "positive_evidence": [
+        "probe-dxil-semantics:raw_vector"
+      ],
+      "status": "observed"
+    },
+    {
+      "resource": "structured_buffer",
+      "positive_evidence": [
+        "probe-sm66-capabilities:descriptor_indexing"
+      ],
+      "status": "observed"
+    },
+    {
+      "resource": "uav_counter",
+      "positive_evidence": [
+        "probe-compute-pso:append-consume"
+      ],
+      "negative_evidence": [
+        "probe-shader-corpus:two_counter_fail_closed"
+      ],
+      "status": "observed"
+    },
+    {
+      "resource": "texture_dimensions",
+      "positive_evidence": [
+        "probe-texture-dimensions:66-case-matrix"
+      ],
+      "status": "observed"
+    },
+    {
+      "resource": "msaa",
+      "positive_evidence": [
+        "probe-writable-msaa"
+      ],
+      "status": "observed"
+    },
+    {
+      "resource": "depth_comparison",
+      "positive_evidence": [
+        "probe-sm66-capabilities:comparison-dimensions"
+      ],
+      "status": "observed"
+    },
+    {
+      "resource": "cache_session",
+      "positive_evidence": [
+        "probe-object-contracts",
+        "probe-agility-ue5:compiler-cache-session"
+      ],
+      "negative_evidence": [
+        "probe-agility-ue5:compiler-object-E_NOTIMPL"
+      ],
+      "status": "observed"
+    }
+  ]
+}
