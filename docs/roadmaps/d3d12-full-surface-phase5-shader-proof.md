@@ -113,12 +113,14 @@
   `[65085,65096,65107,65118]`.
 - Bounded descriptor indexing selects `ByteAddressBuffer[2]`,
   `StructuredBuffer<uint>[2]`, `StructuredBuffer<uint2>[2]`, and
-  `RWByteAddressBuffer[2]` resources through the direct-buffer ABI. Scalar and
-  two-component structured loads retain their vector result type until DXIL
-  extraction; the aggregate lane returns exact `[303,703,303,703]` while
-  preserving stride-eight element addressing. Writable arrays now retain their
-  bounded dynamic UAV pointer and return exact `[503,504,505,506]` from the
-  selected second resource instead of silently writing descriptor zero.
+  `RWByteAddressBuffer[2]`, and `RWStructuredBuffer<uint2>[2]` resources
+  through the direct-buffer ABI. Scalar and two-component structured loads
+  retain their vector result type until DXIL extraction; the aggregate lane
+  returns exact `[303,703,303,703]` while preserving stride-eight element
+  addressing. Writable arrays now retain their bounded dynamic UAV pointer:
+  raw stores return exact `[503,504,505,506]`, and stride-eight structured
+  stores return `[600,700,601,701,602,702,603,703]` from the selected second
+  resource instead of silently writing descriptor zero.
 - The object-contract probe now exercises pipeline-library serialization plus
   memory and disk shader-cache sessions. It verifies serialized-size/header
   round-trip, malformed-blob rejection, missing-name rejection, descriptor,
@@ -257,7 +259,8 @@ Metal validation assertion. The latest SM6.6/6.7 profile
 `phase5-rwdyn2` additionally returns exact `[103,203,303,403]` from both raw
 and scalar-structured dynamically indexed SRV arrays,
 `[303,703,303,703]` from the `uint2` aggregate lane, and
-`[503,504,505,506]` from a dynamically selected writable buffer. Profile `phase5-atomic-load-final` also passes every focused case,
+`[503,504,505,506]` from a dynamically selected writable raw buffer, plus
+`[600,700,601,701,602,702,603,703]` from its `uint2` structured counterpart. Profile `phase5-atomic-load-final` also passes every focused case,
 including atomic
 barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
 and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to

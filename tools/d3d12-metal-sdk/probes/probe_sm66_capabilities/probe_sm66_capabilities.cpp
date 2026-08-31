@@ -454,10 +454,20 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
         const bool typed_atomic64 = std::strncmp(audit_case.name, "atomic64_typed_", 15) == 0 ||
                                     std::strncmp(audit_case.name, "atomic64_signed_typed_", 22) == 0;
-        uav.Format = typed_atomic64 ? DXGI_FORMAT_R32G32_UINT : DXGI_FORMAT_R32_TYPELESS;
+        const bool structured_dynamic =
+            std::strcmp(audit_case.name,
+                        "rw_structured_descriptor_indexing") == 0;
+        uav.Format = structured_dynamic
+                         ? DXGI_FORMAT_UNKNOWN
+                         : (typed_atomic64 ? DXGI_FORMAT_R32G32_UINT
+                                           : DXGI_FORMAT_R32_TYPELESS);
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.NumElements = typed_atomic64 ? 16 : 32;
-        uav.Buffer.Flags = typed_atomic64 ? D3D12_BUFFER_UAV_FLAG_NONE : D3D12_BUFFER_UAV_FLAG_RAW;
+        uav.Buffer.NumElements = typed_atomic64 ? 16 : (structured_dynamic ? 16 : 32);
+        uav.Buffer.StructureByteStride = structured_dynamic ? 8 : 0;
+        uav.Buffer.Flags =
+            (typed_atomic64 || structured_dynamic)
+                ? D3D12_BUFFER_UAV_FLAG_NONE
+                : D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(output, nullptr, &uav, cpu);
         cpu.ptr += resource_stride;
         device->CreateUnorderedAccessView(dynamic_output, nullptr, &uav, cpu);
@@ -607,10 +617,12 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
 
         D3D12_RESOURCE_BARRIER output_barriers[2] = {};
         output_barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        const bool dynamic_write_case =
+            std::strcmp(audit_case.name, "rw_descriptor_indexing") == 0 ||
+            std::strcmp(audit_case.name,
+                        "rw_structured_descriptor_indexing") == 0;
         ID3D12Resource* case_output =
-            std::strcmp(audit_case.name, "rw_descriptor_indexing") == 0
-                ? dynamic_output
-                : output;
+            dynamic_write_case ? dynamic_output : output;
         output_barriers[0].UAV.pResource = case_output;
         output_barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         output_barriers[1].Transition.pResource = case_output;
@@ -631,7 +643,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         if (SUCCEEDED(hr) && mapped) {
             result.readback_ok = true;
             result.value_count =
-                std::strcmp(audit_case.name, "int64_arithmetic") == 0
+                (std::strcmp(audit_case.name, "int64_arithmetic") == 0 ||
+                 std::strcmp(audit_case.name,
+                             "rw_structured_descriptor_indexing") == 0)
                     ? 8
                     : (std::strcmp(audit_case.name, "quad_vote_sm67") == 0
                            ? 32
@@ -669,6 +683,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name,
                                    "rw_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {503, 504, 505, 506};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "rw_structured_descriptor_indexing") == 0) {
+                const uint32_t expected[] = {600, 700, 601, 701,
+                                             602, 702, 603, 703};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "int64_arithmetic") == 0) {
                 const uint32_t expected[] = {5, 11, 6, 21, 7, 31, 8, 41};
@@ -875,6 +894,7 @@ int main() {
     const char* hlsl = R"(
 RWByteAddressBuffer outbuf : register(u0);
 RWByteAddressBuffer dynamic_outputs[2] : register(u0);
+RWStructuredBuffer<uint2> dynamic_structured_outputs[2] : register(u0);
 RWBuffer<uint64_t> typed_outbuf : register(u0);
 RWBuffer<int64_t> signed_typed_outbuf : register(u0);
 ByteAddressBuffer inputs[2] : register(t0);
@@ -1088,6 +1108,13 @@ void cs_rw_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4, 1, 1)]
+void cs_rw_structured_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
+  uint descriptor_index = selector & 1u;
+  dynamic_structured_outputs[descriptor_index][id.x] =
+      uint2(600u + id.x, 700u + id.x);
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1295,6 +1322,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"structured_descriptor_indexing", "cs_structured_descriptor_indexing", "cs_6_6", "structured_resource_descriptor_indexing", true},
         {"structured_uint2_descriptor_indexing", "cs_structured_uint2_descriptor_indexing", "cs_6_6", "structured_uint2_resource_descriptor_indexing", true},
         {"rw_descriptor_indexing", "cs_rw_descriptor_indexing", "cs_6_6", "writable_resource_descriptor_indexing", true},
+        {"rw_structured_descriptor_indexing", "cs_rw_structured_descriptor_indexing", "cs_6_6", "writable_structured_resource_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
