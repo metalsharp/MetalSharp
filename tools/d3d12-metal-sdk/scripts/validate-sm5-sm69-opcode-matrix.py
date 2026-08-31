@@ -274,22 +274,46 @@ def observed_opcodes(corpus: Path) -> Counter[int]:
     return observed
 
 
-def validate(matrix_path: Path, corpus: Path | None, strict: bool) -> int:
+def validate(matrix_path: Path, corpus: Path | None, strict: bool,
+             json_out: Path | None = None) -> int:
     document = json.loads(matrix_path.read_text(encoding="utf-8"))
     rows = document.get("opcodes", [])
     if len(rows) != 312 or [row.get("id") for row in rows] != list(range(312)):
         print("matrix is not a complete 0..311 opcode inventory", file=sys.stderr)
         return 2
-    if corpus is None:
-        open_rows = [row for row in rows if row.get("required") and row.get("status") == "open"]
-        print(f"opcode_rows={len(rows)} required={sum(bool(row.get('required')) for row in rows)} open={len(open_rows)}")
-        return 1 if strict and open_rows else 0
 
-    observed = observed_opcodes(corpus)
-    missing = [row for row in rows if row.get("required") and row["id"] not in observed]
-    print(f"opcode_rows={len(rows)} required={sum(bool(row.get('required')) for row in rows)} observed={len(observed)} missing={len(missing)}")
+    required = [row for row in rows if row.get("required")]
+    if corpus is None:
+        observed: Counter[int] = Counter()
+        missing = [row for row in required if row.get("status") == "open"]
+    else:
+        observed = observed_opcodes(corpus)
+        missing = [row for row in required if row["id"] not in observed]
+
+    result = {
+        "schema": "metalsharp.d3d12-metal.sm5-sm69-opcode-matrix-result.v1",
+        "matrix": str(matrix_path),
+        "corpus": str(corpus) if corpus is not None else None,
+        "opcode_rows": len(rows),
+        "required_rows": len(required),
+        "observed_rows": len(observed),
+        "missing_rows": len(missing),
+        "missing": [{"id": row["id"], "name": row["name"]} for row in missing],
+        "strict": strict,
+        "pass": not missing,
+    }
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+
+    if corpus is None:
+        print(f"opcode_rows={len(rows)} required={len(required)} open={len(missing)}")
+    else:
+        print(f"opcode_rows={len(rows)} required={len(required)} observed={len(observed)} missing={len(missing)}")
     if missing:
-        print("missing:", ", ".join(f"{row['id']}:{row['name']}" for row in missing))
+        limit = len(missing) if strict else min(len(missing), 20)
+        suffix = " ..." if limit < len(missing) else ""
+        print("missing:", ", ".join(f"{row['id']}:{row['name']}" for row in missing[:limit]) + suffix)
     return 1 if strict and missing else 0
 
 
@@ -299,6 +323,7 @@ def main() -> int:
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX)
     parser.add_argument("--write", action="store_true", help="Regenerate the JSON matrix from --header.")
     parser.add_argument("--corpus", type=Path, help="Directory containing generated *.module.txt reports.")
+    parser.add_argument("--json-out", type=Path, help="Write a machine-readable validation result.")
     parser.add_argument("--strict", action="store_true")
     args = parser.parse_args()
 
@@ -308,7 +333,7 @@ def main() -> int:
     if not args.matrix.is_file():
         print(f"matrix not found: {args.matrix}; use --write", file=sys.stderr)
         return 2
-    return validate(args.matrix, args.corpus, args.strict)
+    return validate(args.matrix, args.corpus, args.strict, args.json_out)
 
 
 if __name__ == "__main__":
