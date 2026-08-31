@@ -135,7 +135,9 @@
   `[17,27,37,47]`, a three-helper source aggregate chain returning
   `[42,66,98,138]` after validated DXC entry-point optimization, and
   signed/unsigned/float native-16 arithmetic
-  `[65085,65096,65107,65118]`.
+  `[65085,65096,65107,65118]`. The SM6.9 vectorized `FDot` opcode is also
+  lowered to a native MSL `dot` and returns exact float bits for the
+  four-component case.
 - Bounded descriptor indexing selects `ByteAddressBuffer[2]`,
   `StructuredBuffer<uint>[2]`, `StructuredBuffer<uint2>[2]`, and
   `RWByteAddressBuffer[2]`, and `RWStructuredBuffer<uint2>[2]` resources
@@ -388,7 +390,8 @@ lanes with exact packed bytes. SM6.9 vector `all`/`any` reductions likewise
 return exact `[1,1,0,1]` through DXIL VectorReduceAnd/Or. The same
 source-staged run transfers an exact four-lane `[1,2,3,4]` aggregate through
 SM6.9 RawBufferVectorLoad/Store; the lowerer preserves the vector operand
-instead of repeating the extracted x lane.
+instead of repeating the extracted x lane. The focused corpus also links an
+SM6.9 `FDot` case through the same no-converter path.
 Its generated DXIL reports pass the unsupported/placeholder audit, and no
 generated MSL contains `float64_t` or `double`. Supplemental source
 `tools/d3d12-metal-sdk/scripts/probe-metal-f64-emulation.mm` appends a test

@@ -735,6 +735,8 @@ int main() {
          "sm67_long_vector_and_int64"},
         {"sm68_vector_arithmetic", "probe_dxil_semantic_sm68.cso", {}, {68, 136, 204, 272},
          "sm68_vector_and_wide_arithmetic"},
+        {"sm69_fdot", "probe_dxil_semantic_fdot_sm69.cso", {},
+         {0x41a00000u}, "sm69_vectorized_fdot"},
         {"control_flow_aggregates", "probe_dxil_semantic_control_aggregate.cso", {},
          {120, 212, 328, 320}, "control_flow_and_aggregates"},
         {"loop_aggregate", "probe_dxil_semantic_loop_aggregate.cso", {},
