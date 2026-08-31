@@ -146,10 +146,13 @@
   The recreated stored compute pipeline dispatches and returns exact value 42.
   Profile `phase5-statedb1` additionally proves device-configuration and
   state-object-database factory routing, pipeline descriptor version `7`, and
-  zero-subobject collection descriptor version `11` with exact four-byte
-  parent-key callback round-trip; nonempty state-object subobjects reject with
-  exact `E_NOTIMPL`. Deep state-subobject cloning and file persistence remain
-  in the exhaustive row.
+  collection descriptor version `11` with four deeply copied fixed-size
+  subobjects: `STATE_OBJECT_CONFIG Flags=1`, node mask `3`, shader payload /
+  attribute sizes `32/8`, and pipeline recursion depth `2`, plus an exact
+  four-byte parent-key callback round-trip. These fixed-size payloads are
+  supported; pointer-rich DXIL-library subobjects reject
+  with exact `E_NOTIMPL`. Deep variable-payload cloning and file persistence
+  remain in the exhaustive row.
 
 ## Exact evidence
 

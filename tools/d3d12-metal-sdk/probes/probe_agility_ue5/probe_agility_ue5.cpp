@@ -139,6 +139,13 @@ struct StateObjectCallbackState {
     UINT version = 0;
     D3D12_STATE_OBJECT_TYPE type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
     UINT subobject_count = UINT_MAX;
+    D3D12_STATE_SUBOBJECT_TYPE first_subobject_type =
+        D3D12_STATE_SUBOBJECT_TYPE_MAX_VALID;
+    D3D12_STATE_OBJECT_FLAGS config_flags = D3D12_STATE_OBJECT_FLAG_NONE;
+    UINT node_mask = 0;
+    UINT max_payload_size = 0;
+    UINT max_attribute_size = 0;
+    UINT max_recursion_depth = 0;
     std::array<uint8_t, 4> parent_key = {};
     UINT parent_key_size = 0;
 };
@@ -153,6 +160,40 @@ static void STDMETHODCALLTYPE state_object_callback(
     state->version = version;
     state->type = desc ? desc->Type : D3D12_STATE_OBJECT_TYPE_COLLECTION;
     state->subobject_count = desc ? desc->NumSubobjects : UINT_MAX;
+    if (desc && desc->NumSubobjects && desc->pSubobjects) {
+        state->first_subobject_type = desc->pSubobjects[0].Type;
+        for (UINT i = 0; i < desc->NumSubobjects; ++i) {
+            const auto& subobject = desc->pSubobjects[i];
+            if (!subobject.pDesc)
+                continue;
+            switch (subobject.Type) {
+            case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
+                state->config_flags =
+                    static_cast<const D3D12_STATE_OBJECT_CONFIG*>(
+                        subobject.pDesc)->Flags;
+                break;
+            case D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK:
+                state->node_mask =
+                    static_cast<const D3D12_NODE_MASK*>(subobject.pDesc)->NodeMask;
+                break;
+            case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG: {
+                const auto* config =
+                    static_cast<const D3D12_RAYTRACING_SHADER_CONFIG*>(
+                        subobject.pDesc);
+                state->max_payload_size = config->MaxPayloadSizeInBytes;
+                state->max_attribute_size = config->MaxAttributeSizeInBytes;
+                break;
+            }
+            case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+                state->max_recursion_depth =
+                    static_cast<const D3D12_RAYTRACING_PIPELINE_CONFIG*>(
+                        subobject.pDesc)->MaxTraceRecursionDepth;
+                break;
+            default:
+                break;
+            }
+        }
+    }
     state->parent_key_size = parent_key_size;
     if (parent_key && parent_key_size == state->parent_key.size())
         std::memcpy(state->parent_key.data(), parent_key, parent_key_size);
@@ -481,8 +522,24 @@ int main() {
         database
             ? database->FindObjectVersion(pso_key.data(), static_cast<UINT>(pso_key.size()), &found_pipeline_version)
             : E_NOINTERFACE;
+    D3D12_STATE_OBJECT_CONFIG state_config = {};
+    state_config.Flags = D3D12_STATE_OBJECT_FLAG_ALLOW_LOCAL_DEPENDENCIES_ON_EXTERNAL_DEFINITIONS;
+    D3D12_NODE_MASK state_node_mask = {3};
+    D3D12_RAYTRACING_SHADER_CONFIG state_shader_config = {32, 8};
+    D3D12_RAYTRACING_PIPELINE_CONFIG state_pipeline_config = {2};
+    D3D12_STATE_SUBOBJECT state_subobjects[4] = {};
+    state_subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+    state_subobjects[0].pDesc = &state_config;
+    state_subobjects[1].Type = D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK;
+    state_subobjects[1].pDesc = &state_node_mask;
+    state_subobjects[2].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+    state_subobjects[2].pDesc = &state_shader_config;
+    state_subobjects[3].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+    state_subobjects[3].pDesc = &state_pipeline_config;
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    state_desc.NumSubobjects = 4;
+    state_desc.pSubobjects = state_subobjects;
     std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
     std::array<uint8_t, 4> state_parent_key = {0x70, 0x61, 0x72, 0x00};
     HRESULT store_state_object_hr =
@@ -536,7 +593,17 @@ int main() {
         SUCCEEDED(find_state_object_hr) && state_callback.called &&
         state_callback.version == 11 &&
         state_callback.type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-        state_callback.subobject_count == 0 &&
+        state_callback.subobject_count == 4 &&
+        state_callback.first_subobject_type ==
+            D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG &&
+        state_callback.config_flags == state_config.Flags &&
+        state_callback.node_mask == state_node_mask.NodeMask &&
+        state_callback.max_payload_size ==
+            state_shader_config.MaxPayloadSizeInBytes &&
+        state_callback.max_attribute_size ==
+            state_shader_config.MaxAttributeSizeInBytes &&
+        state_callback.max_recursion_depth ==
+            state_pipeline_config.MaxTraceRecursionDepth &&
         state_callback.parent_key_size == state_parent_key.size() &&
         state_callback.parent_key == state_parent_key &&
         SUCCEEDED(find_state_version_hr) && found_state_version == 11 &&
@@ -599,6 +666,18 @@ int main() {
     std::printf("    \"state_object_callback_called\": %s,\n", state_callback.called ? "true" : "false");
     std::printf("    \"state_object_callback_version\": %u,\n", state_callback.version);
     std::printf("    \"state_object_callback_subobject_count\": %u,\n", state_callback.subobject_count);
+    std::printf("    \"state_object_callback_first_subobject_type\": %u,\n",
+                static_cast<UINT>(state_callback.first_subobject_type));
+    std::printf("    \"state_object_callback_config_flags\": %u,\n",
+                static_cast<UINT>(state_callback.config_flags));
+    std::printf("    \"state_object_callback_node_mask\": %u,\n",
+                state_callback.node_mask);
+    std::printf("    \"state_object_callback_max_payload_size\": %u,\n",
+                state_callback.max_payload_size);
+    std::printf("    \"state_object_callback_max_attribute_size\": %u,\n",
+                state_callback.max_attribute_size);
+    std::printf("    \"state_object_callback_max_recursion_depth\": %u,\n",
+                state_callback.max_recursion_depth);
     std::printf("    \"state_object_parent_key_size\": %u,\n", state_callback.parent_key_size);
     std::printf("    \"shader_cache_verified\": %s,\n", shader_cache_ok ? "true" : "false");
     std::printf("    \"pipeline_desc_cache_verified\": %s,\n", pipeline_desc_cache_ok ? "true" : "false");
