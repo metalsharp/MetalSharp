@@ -2901,6 +2901,67 @@ void cs_sm69_long_vector_reduce(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_sm69_long_vector_unary(uint3 id : SV_DispatchThreadID) {
+  float seed = float(inbuf.Load(0));
+  vector<float, 8> a = vector<float, 8>(seed + 1.0f, seed + 2.0f,
+                                         seed + 3.0f, seed + 4.0f,
+                                         seed + 5.0f, seed + 6.0f,
+                                         seed + 7.0f, seed + 8.0f);
+  vector<float, 8> magnitude = abs(-a);
+  float total = magnitude[0] + magnitude[1] + magnitude[2] + magnitude[3] +
+                magnitude[4] + magnitude[5] + magnitude[6] + magnitude[7];
+  outbuf.Store(0, asuint(total));
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_minmax(uint3 id : SV_DispatchThreadID) {
+  uint seed = inbuf.Load(0);
+  vector<uint, 8> a = vector<uint, 8>(seed + 1u, seed + 2u, seed + 3u, seed + 4u,
+                                      seed + 5u, seed + 6u, seed + 7u, seed + 8u);
+  vector<uint, 8> b = vector<uint, 8>(8u, 7u, 6u, 5u, 4u, 3u, 2u, 1u);
+  vector<uint, 8> lo = min(a, b);
+  vector<uint, 8> hi = max(a, b);
+  uint total_lo = lo[0] + lo[1] + lo[2] + lo[3] + lo[4] + lo[5] + lo[6] + lo[7];
+  uint total_hi = hi[0] + hi[1] + hi[2] + hi[3] + hi[4] + hi[5] + hi[6] + hi[7];
+  outbuf.Store(0, total_lo);
+  outbuf.Store(4, total_hi);
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_tertiary(uint3 id : SV_DispatchThreadID) {
+  uint seed = inbuf.Load(0);
+  vector<uint, 8> a = vector<uint, 8>(seed + 1u, seed + 2u, seed + 3u, seed + 4u,
+                                      seed + 5u, seed + 6u, seed + 7u, seed + 8u);
+  vector<uint, 8> factor = vector<uint, 8>(2u, 2u, 2u, 2u, 2u, 2u, 2u, 2u);
+  vector<uint, 8> addend = vector<uint, 8>(1u, 1u, 1u, 1u, 1u, 1u, 1u, 1u);
+  vector<uint, 8> value = mad(a, factor, addend);
+  uint total = value[0] + value[1] + value[2] + value[3] +
+               value[4] + value[5] + value[6] + value[7];
+  outbuf.Store(0, total);
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_divide_shift(uint3 id : SV_DispatchThreadID) {
+  uint seed = inbuf.Load(0);
+  vector<uint, 8> a = vector<uint, 8>(seed + 1u, seed + 2u, seed + 3u, seed + 4u,
+                                      seed + 5u, seed + 6u, seed + 7u, seed + 8u);
+  vector<uint, 8> two = vector<uint, 8>(2u, 2u, 2u, 2u, 2u, 2u, 2u, 2u);
+  vector<uint, 8> three = vector<uint, 8>(3u, 3u, 3u, 3u, 3u, 3u, 3u, 3u);
+  vector<uint, 8> quotient = a / two;
+  vector<uint, 8> shifted = a << 1u;
+  vector<uint, 8> remainder = a % three;
+  uint sum_quotient = quotient[0] + quotient[1] + quotient[2] + quotient[3] +
+                       quotient[4] + quotient[5] + quotient[6] + quotient[7];
+  uint sum_shifted = shifted[0] + shifted[1] + shifted[2] + shifted[3] +
+                     shifted[4] + shifted[5] + shifted[6] + shifted[7];
+  uint sum_remainder = remainder[0] + remainder[1] + remainder[2] + remainder[3] +
+                       remainder[4] + remainder[5] + remainder[6] + remainder[7];
+  outbuf.Store(0, sum_quotient);
+  outbuf.Store(4, sum_shifted);
+  outbuf.Store(8, sum_remainder);
+}
+
+[numthreads(1, 1, 1)]
 void cs_sm69_long_vector_16(uint3 id : SV_DispatchThreadID) {
   vector<float, 16> a = vector<float, 16>(1.0f, 2.0f, 3.0f, 4.0f,
                                            5.0f, 6.0f, 7.0f, 8.0f,
@@ -3140,6 +3201,22 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_reduce -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
       -Fo probe_dxil_semantic_sm69_long_vector_reduce.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_unary -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_unary.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_minmax -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_minmax.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_tertiary -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_tertiary.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_divide_shift -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_divide_shift.cso probe_dxil_semantic_sm69.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_16 -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
