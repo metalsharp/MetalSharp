@@ -1,6 +1,8 @@
 SamplerState samp : register(s0);
+SamplerComparisonState comparison_samp : register(s1);
 
 Texture1D<float4> tex1 : register(t0);
+Texture2D<float> comparison_tex : register(t1);
 Texture1DArray<float4> tex1a : register(t0);
 Texture2D<float4> tex2 : register(t0);
 Texture2DArray<float4> tex2a : register(t0);
@@ -44,9 +46,13 @@ LODVertexOutput vs_texture_lod(uint vertex_id : SV_VertexID) {
 }
 
 float4 ps_texture_lod(LODVertexOutput input) : SV_Target0 {
+  float comparison = comparison_tex.SampleCmp(
+      comparison_samp, float2(0.5, 0.5), 0.5);
+  float comparison_level_zero = comparison_tex.SampleCmpLevelZero(
+      comparison_samp, float2(0.5, 0.5), 0.5);
   return float4(tex1.CalculateLevelOfDetail(samp, input.coordinate),
                 tex1.CalculateLevelOfDetailUnclamped(samp, input.coordinate),
-                0.0, 1.0);
+                comparison + comparison_level_zero, 1.0);
 }
 
 [numthreads(4,1,1)]
