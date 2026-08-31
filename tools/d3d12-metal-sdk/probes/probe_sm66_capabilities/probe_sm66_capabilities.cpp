@@ -655,6 +655,18 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name, "sample_cmp_filter_sm67") == 0) {
                 const uint32_t expected[] = {0, 128, 255, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "texture_gather_sm67") == 0) {
+                const uint32_t expected[] = {40, 50, 50, 40};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "texture_gather_offset_sm67") == 0) {
+                const uint32_t expected[] = {50, 60, 60, 50};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "texture_gather_cmp_sm67") == 0) {
+                const uint32_t expected[] = {0, 255, 255, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "texture_gather_cmp_offset_sm67") == 0) {
+                const uint32_t expected[] = {255, 255, 255, 255};
+                std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "sample_cmp_grad_sm68") == 0 ||
                        std::strcmp(audit_case.name, "sample_cmp_bias_sm68") == 0) {
                 const uint32_t expected[] = {1, 0, 0, 0};
@@ -1011,6 +1023,32 @@ void cs_typed_texture_load_sm67(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_texture_gather_sm67(uint3 id : SV_DispatchThreadID) {
+  float4 gathered = tex.GatherRed(smp, float2(0.5, 0.5));
+  outbuf.Store4(0, uint4(gathered * 255.0 + 0.5));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_gather_offset_sm67(uint3 id : SV_DispatchThreadID) {
+  float4 gathered = tex.GatherRed(smp, float2(0.5, 0.5), int2(1, 0));
+  outbuf.Store4(0, uint4(gathered * 255.0 + 0.5));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_gather_cmp_sm67(uint3 id : SV_DispatchThreadID) {
+  float4 gathered = comparison_tex.GatherCmp(
+      comparison_smp, float2(0.5, 0.5), 0.5);
+  outbuf.Store4(0, uint4(gathered * 255.0 + 0.5));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_gather_cmp_offset_sm67(uint3 id : SV_DispatchThreadID) {
+  float4 gathered = comparison_tex.GatherCmp(
+      comparison_smp, float2(0.5, 0.5), 0.5, int2(1, 0));
+  outbuf.Store4(0, uint4(gathered * 255.0 + 0.5));
+}
+
+[numthreads(1, 1, 1)]
 void cs_sample_cmp_level_sm67(uint3 id : SV_DispatchThreadID) {
   float load0 = comparison_tex.Load(int3(0, 0, 0));
   float load1 = comparison_tex.Load(int3(0, 0, 1));
@@ -1113,6 +1151,10 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"static_offsets_sm67", "cs_static_offsets_sm67", "cs_6_7", "sm67_static_texture_offsets", true},
         {"raw_gather_sm67", "cs_raw_gather_sm67", "cs_6_7", "sm67_raw_gather", true},
         {"typed_texture_load_sm67", "cs_typed_texture_load_sm67", "cs_6_7", "typed_texture_element_type", true},
+        {"texture_gather_sm67", "cs_texture_gather_sm67", "cs_6_7", "sm67_texture_gather", true},
+        {"texture_gather_offset_sm67", "cs_texture_gather_offset_sm67", "cs_6_7", "sm67_texture_gather_offset", true},
+        {"texture_gather_cmp_sm67", "cs_texture_gather_cmp_sm67", "cs_6_7", "sm67_texture_gather_cmp", true},
+        {"texture_gather_cmp_offset_sm67", "cs_texture_gather_cmp_offset_sm67", "cs_6_7", "sm67_texture_gather_cmp_offset", true},
         {"sample_cmp_level_sm67", "cs_sample_cmp_level_sm67", "cs_6_7", "sm67_sample_cmp_level", true},
         {"sample_cmp_filter_sm67", "cs_sample_cmp_filter_sm67", "cs_6_7", "sm67_sample_cmp_filter", true},
         {"sample_cmp_grad_sm68", "cs_sample_cmp_grad_sm68", "cs_6_8", "sm68_sample_cmp_gradient", true},
@@ -1167,6 +1209,10 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
     const bool sm67_breadth_complete =
         sm67_reportable && atomic_case_passed("programmable_offset_sm67") && atomic_case_passed("raw_gather_sm67") &&
         atomic_case_passed("typed_texture_load_sm67") && atomic_case_passed("static_offsets_sm67") &&
+        atomic_case_passed("texture_gather_sm67") &&
+        atomic_case_passed("texture_gather_offset_sm67") &&
+        atomic_case_passed("texture_gather_cmp_sm67") &&
+        atomic_case_passed("texture_gather_cmp_offset_sm67") &&
         atomic_case_passed("sample_cmp_level_sm67") &&
         atomic_case_passed("sample_cmp_filter_sm67") &&
         atomic_case_passed("quad_vote_sm67");
