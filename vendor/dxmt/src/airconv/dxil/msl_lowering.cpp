@@ -8336,22 +8336,52 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         ensureValueTable(value_counter);
         MSLType result_type = getTypeForInst(inst.type_id);
         if (inst.operands.size() >= 3) {
-            auto cond = coerceOperand(inst.operands[0], {MSLTypeKind::Bool, 0, {}});
+            const MSLType condition_type = operandType(inst.operands[0]);
             MSLType tv_type = operandType(inst.operands[1]);
             MSLType fv_type = operandType(inst.operands[2]);
             result_type = chooseBinaryType(result_type, tv_type, fv_type, MSLTypeKind::Int);
-            if (DXILIRBuilder::isVectorType(tv_type))
+            if (DXILIRBuilder::isVectorType(tv_type) ||
+                DXILIRBuilder::isLongVectorType(tv_type))
                 result_type = tv_type;
-            else if (DXILIRBuilder::isVectorType(fv_type))
+            else if (DXILIRBuilder::isVectorType(fv_type) ||
+                     DXILIRBuilder::isLongVectorType(fv_type))
                 result_type = fv_type;
             auto pre_it = ctx.predeclared_types.find(result);
             if (pre_it != ctx.predeclared_types.end() &&
                 (DXILIRBuilder::isFloatType(pre_it->second) || DXILIRBuilder::isIntType(pre_it->second)) &&
-                !DXILIRBuilder::isVectorType(pre_it->second))
+                !DXILIRBuilder::isVectorType(pre_it->second) &&
+                !DXILIRBuilder::isLongVectorType(pre_it->second))
                 result_type = pre_it->second;
-            auto tv = coerceOperand(inst.operands[1], result_type);
-            auto fv = coerceOperand(inst.operands[2], result_type);
-            emitTypedLine(result_type, result, "(" + cond + " ? " + tv + " : " + fv + ")");
+            if (DXILIRBuilder::isLongVectorType(condition_type) &&
+                DXILIRBuilder::isLongVectorType(result_type)) {
+                const std::string cond = getValue(inst.operands[0]);
+                const std::string true_value = getValue(inst.operands[1]);
+                const std::string false_value = getValue(inst.operands[2]);
+                const bool true_vector = DXILIRBuilder::isLongVectorType(tv_type) ||
+                                         startsWith(true_value, "array<");
+                const bool false_vector = DXILIRBuilder::isLongVectorType(fv_type) ||
+                                          startsWith(false_value, "array<");
+                std::string expression = emitTypeName(result_type) + "{{";
+                for (uint32_t i = 0; i < result_type.vector_width; ++i) {
+                    if (i)
+                        expression += ", ";
+                    const std::string tv = true_vector
+                                               ? true_value + "[" + std::to_string(i) + "]"
+                                               : true_value;
+                    const std::string fv = false_vector
+                                               ? false_value + "[" + std::to_string(i) + "]"
+                                               : false_value;
+                    expression += "(" + cond + "[" + std::to_string(i) + "] != 0 ? " +
+                                  tv + " : " + fv + ")";
+                }
+                expression += "}}";
+                emitTypedLine(result_type, result, expression);
+            } else {
+                auto cond = coerceOperand(inst.operands[0], {MSLTypeKind::Bool, 0, {}});
+                auto tv = coerceOperand(inst.operands[1], result_type);
+                auto fv = coerceOperand(inst.operands[2], result_type);
+                emitTypedLine(result_type, result, "(" + cond + " ? " + tv + " : " + fv + ")");
+            }
             ctx.value_table[value_counter] = result;
             ctx.value_types[value_counter] = result_type;
         }
