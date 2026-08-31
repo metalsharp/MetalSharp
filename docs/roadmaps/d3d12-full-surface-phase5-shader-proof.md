@@ -174,17 +174,18 @@
   (`256`), plus a deeply copied eight-byte `DXIL_LIBRARY` payload and one
   `RayGen` -> `RayGenRenamed` export, a procedural HIT_GROUP with all four
   shader-name strings, a `DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION` targeting
-  `HitGroup` and exporting `RayGen`, and an exact four-byte parent-key callback
+  `HitGroup` and exporting `RayGen`, a normal
+  `SUBOBJECT_TO_EXPORTS_ASSOCIATION` targeting the same HIT_GROUP with
+  caller-string mutation protection, and an exact four-byte parent-key callback
   round-trip. The application executable/name/
   engine/version descriptor also survives caller-string mutation through a
-  deep-copy callback round-trip. Profile `phase5-statehit2` reloads
+  deep-copy callback round-trip. Profile `phase5-stateassoc-normal2` reloads
   all three descriptor classes in a fresh database instance, rejects a
   read-only store with `E_ACCESSDENIED`, and rejects a malformed file with
   `ERROR_BAD_FORMAT`; the probe removes both disposable database files. These
   fixed-size payloads, DXIL library bytecode/exports, HIT_GROUP strings, and
-  DXIL subobject-association strings are supported; other pointer-rich
-  subobjects reject with exact `E_NOTIMPL`.
-  Their variable-payload cloning remains in the exhaustive row.
+  both subobject-association forms are supported; root-signature and
+  existing-collection pointer payloads reject with exact `E_NOTIMPL`.
 
 ## Exact evidence
 
