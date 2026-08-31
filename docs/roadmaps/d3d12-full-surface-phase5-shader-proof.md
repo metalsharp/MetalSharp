@@ -101,6 +101,10 @@
   unsigned 64-bit texture accesses over R32G32_UINT preserve both 32-bit
   halves for reads and writes. The D3D12 MSAA SRV view path now preserves the
   multisample Metal texture type instead of creating an incompatible 2D view.
+  Profile `phase5-msaa-next` independently passes writable 2/4/8-sample and
+  array stores/loads/resolves, exact resolve values `151.5`, `251.5`, `600.5`,
+  `628.5`, and `98`, plus graphics-stage MSAA color `0xff00ff00` and
+  programmable sample-position options.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
@@ -237,7 +241,9 @@ read values `64` or packed UINT `0x031e140a`, and exact writable bits R16_UNORM
 `0xc1e0500a`, R10G10B10A2_UNORM `0xc0000100`, and R11G11B10_FLOAT `0x340`.
 The signed/unsigned 64-bit cases preserve exact low/high pairs
 `{0x89abcdef,0x01234567}` and `{0x12345678,0xffffffff}` respectively on both
-load and store, with no offline converter. The height-one 2D backing gives
+load and store, with no offline converter. The focused writable-MSAA profile
+also passes exact 2/4/8-sample and array resolve readbacks, preserving this
+coverage outside the texture-dimension-only matrix. The height-one 2D backing gives
 1D shaders Metal's complete 2D sampling modifiers while retaining D3D12 1D
 coordinates and dimensions: mip-1 1D and 1D-array values are both `96`, with
 exact packed

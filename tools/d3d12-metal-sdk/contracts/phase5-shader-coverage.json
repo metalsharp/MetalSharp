@@ -255,7 +255,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; the expanded typed-family row covers signed, writable, normalized, packed 10/11-bit, and scalar 64-bit breadth while multisample writable forms remain exhaustive work."
+      "remaining": "The source-staged R32_UINT Texture2D<uint> Load/GetDimensions case proves metadata element type propagation into an integer Metal texture view; the expanded typed-family row covers signed, writable, normalized, packed 10/11-bit, scalar 64-bit, and writable MSAA 2/4/8-sample texture breadth with exact resolve readback, while broader multisample typed combinations remain exhaustive work."
     },
     {
       "id": "dxil-resource-signed-and-writable-r32-runtime",
@@ -273,7 +273,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "The 42-case source-staged matrix proves R32/R16/RG16/RGBA8 signed, unsigned, floating, and normalized access; packed R10G10B10A2 UINT/UNORM and R11G11B10 FLOAT; and scalar signed/unsigned 64-bit R32G32_UINT reads/writes with exact logical or storage-bit readback. Multisample writable families remain in the exhaustive row."
+      "remaining": "The 42-case source-staged matrix proves R32/R16/RG16/RGBA8 signed, unsigned, floating, and normalized access; packed R10G10B10A2 UINT/UNORM and R11G11B10 FLOAT; and scalar signed/unsigned 64-bit R32G32_UINT reads/writes with exact logical or storage-bit readback. The focused writable-MSAA source probe additionally proves 2/4/8-sample and array stores, loads, resolves, programmable sample-position options, and a graphics-stage MSAA path with exact values; broader multisample typed combinations remain in the exhaustive row."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
