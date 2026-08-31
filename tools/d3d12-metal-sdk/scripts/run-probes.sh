@@ -2647,6 +2647,41 @@ void cs_double_unary(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_double_unary_extended(uint3 id : SV_DispatchThreadID) {
+  double source = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double sqrt_value = sqrt(source);
+  double rsqrt_value = rsqrt(source);
+  double trunc_value = trunc(source);
+  double floor_value = floor(source);
+  double ceil_value = ceil(source);
+  double round_value = round(source);
+  double frac_value = frac(source);
+  uint low = 0;
+  uint high = 0;
+  asuint(sqrt_value, low, high);
+  outbuf.Store(0, low);
+  outbuf.Store(4, high);
+  asuint(rsqrt_value, low, high);
+  outbuf.Store(8, low);
+  outbuf.Store(12, high);
+  asuint(trunc_value, low, high);
+  outbuf.Store(16, low);
+  outbuf.Store(20, high);
+  asuint(floor_value, low, high);
+  outbuf.Store(24, low);
+  outbuf.Store(28, high);
+  asuint(ceil_value, low, high);
+  outbuf.Store(32, low);
+  outbuf.Store(36, high);
+  asuint(round_value, low, high);
+  outbuf.Store(40, low);
+  outbuf.Store(44, high);
+  asuint(frac_value, low, high);
+  outbuf.Store(48, low);
+  outbuf.Store(52, high);
+}
+
+[numthreads(1, 1, 1)]
 void cs_double_predicates(uint3 id : SV_DispatchThreadID) {
   [unroll]
   for (uint i = 0; i < 4; ++i) {
@@ -2902,6 +2937,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_double_unary -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_double_unary.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_unary_extended -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_unary_extended.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_double_predicates -T cs_6_0 -HV 2021 \
