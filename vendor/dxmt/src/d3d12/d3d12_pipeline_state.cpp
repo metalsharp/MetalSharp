@@ -1207,8 +1207,19 @@ void DumpDXILModuleSummary(const char *path,
             declaration->second.rfind("dx.op.", 0) != 0)
           continue;
         uint32_t dxil_opcode = 0;
-        if (scalar_constant(inst.operands[2], dxil_opcode))
+        if (scalar_constant(inst.operands[2], dxil_opcode)) {
           dxil_opcode_counts[static_cast<int>(dxil_opcode)]++;
+          const std::string &name = declaration->second;
+          const bool nested_opcode =
+              name.rfind("dx.op.unary.", 0) == 0 ||
+              name.rfind("dx.op.binary.", 0) == 0 ||
+              name.rfind("dx.op.tertiary.", 0) == 0;
+          if (nested_opcode && inst.operands.size() >= 4) {
+            uint32_t operation = 0;
+            if (scalar_constant(inst.operands[3], operation))
+              dxil_opcode_counts[static_cast<int>(operation)]++;
+          }
+        }
       }
     }
   }
