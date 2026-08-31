@@ -61,6 +61,17 @@ void cs_texture_1d_array_mip(uint3 id : SV_DispatchThreadID) {
   output[1] = w | (elements << 8) | (levels << 16);
 }
 
+[numthreads(4,1,1)]
+void cs_texture_1d_filter(uint3 id : SV_DispatchThreadID) {
+  uint mag_value = uint(tex1.SampleGrad(samp, 0.5, 0.125, 0.0).r * 255.0 + 0.5);
+  uint min_value = uint(tex1.SampleGrad(samp, 0.5, 0.5, 0.0).r * 255.0 + 0.5);
+  uint mip_value = uint(tex1.SampleLevel(samp, 0.5, 0.25).r * 255.0 + 0.5);
+  output[0] = mag_value | (min_value << 8) | (mip_value << 16);
+  uint w, levels;
+  tex1.GetDimensions(0, w, levels);
+  output[1] = w | (levels << 16);
+}
+
 [numthreads(1,1,1)]
 void cs_texture_1d_border(uint3 id : SV_DispatchThreadID) {
   float4 value = tex1.SampleLevel(samp, -0.125, 0.0);

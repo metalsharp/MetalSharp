@@ -5604,60 +5604,36 @@ void STDMETHODCALLTYPE MTLD3D12Device::CreateSampler(
     d->type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
     d->range_type = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
 
-    WMTSamplerInfo info = {};
-    switch (desc->Filter) {
-    case D3D12_FILTER_MIN_MAG_MIP_POINT:
-      info.min_filter = WMTSamplerMinMagFilterNearest;
-      info.mag_filter = WMTSamplerMinMagFilterNearest;
-      info.mip_filter = WMTSamplerMipFilterNearest;
-      break;
-    case D3D12_FILTER_MIN_MAG_POINT_MIP_LINEAR:
-      info.min_filter = WMTSamplerMinMagFilterNearest;
-      info.mag_filter = WMTSamplerMinMagFilterNearest;
-      info.mip_filter = WMTSamplerMipFilterLinear;
-      break;
-    case D3D12_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT:
-      info.min_filter = WMTSamplerMinMagFilterNearest;
-      info.mag_filter = WMTSamplerMinMagFilterLinear;
-      info.mip_filter = WMTSamplerMipFilterNearest;
-      break;
-    case D3D12_FILTER_MIN_POINT_MAG_MIP_LINEAR:
-      info.min_filter = WMTSamplerMinMagFilterNearest;
-      info.mag_filter = WMTSamplerMinMagFilterLinear;
-      info.mip_filter = WMTSamplerMipFilterLinear;
-      break;
-    case D3D12_FILTER_MIN_LINEAR_MAG_MIP_POINT:
-      info.min_filter = WMTSamplerMinMagFilterLinear;
-      info.mag_filter = WMTSamplerMinMagFilterNearest;
-      info.mip_filter = WMTSamplerMipFilterNearest;
-      break;
-    case D3D12_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR:
-      info.min_filter = WMTSamplerMinMagFilterLinear;
-      info.mag_filter = WMTSamplerMinMagFilterNearest;
-      info.mip_filter = WMTSamplerMipFilterLinear;
-      break;
-    case D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT:
-      info.min_filter = WMTSamplerMinMagFilterLinear;
-      info.mag_filter = WMTSamplerMinMagFilterLinear;
-      info.mip_filter = WMTSamplerMipFilterNearest;
-      break;
-    case D3D12_FILTER_MIN_MAG_MIP_LINEAR:
-      info.min_filter = WMTSamplerMinMagFilterLinear;
-      info.mag_filter = WMTSamplerMinMagFilterLinear;
-      info.mip_filter = WMTSamplerMipFilterLinear;
-      break;
-    case D3D12_FILTER_ANISOTROPIC:
-      info.min_filter = WMTSamplerMinMagFilterLinear;
-      info.mag_filter = WMTSamplerMinMagFilterLinear;
-      info.mip_filter = WMTSamplerMipFilterLinear;
-      info.max_anisotroy = desc->MaxAnisotropy;
-      break;
-    default:
-      info.min_filter = WMTSamplerMinMagFilterLinear;
-      info.mag_filter = WMTSamplerMinMagFilterLinear;
-      info.mip_filter = WMTSamplerMipFilterLinear;
-      break;
+    const D3D12_FILTER_REDUCTION_TYPE reduction =
+        D3D12_DECODE_FILTER_REDUCTION(desc->Filter);
+    if (reduction == D3D12_FILTER_REDUCTION_TYPE_MINIMUM ||
+        reduction == D3D12_FILTER_REDUCTION_TYPE_MAXIMUM) {
+      TRACE("CreateSampler rejected unsupported reduction filter=%u",
+            (unsigned)desc->Filter);
+      d->invalid_sampler = true;
+      d->metal_sampler = {};
+      d->metal_sampler_cube = {};
+      d->metal_sampler_gpu_id = 0;
+      d->metal_sampler_cube_gpu_id = 0;
+      UpdateDescriptorTableMirror(this, d);
+      return;
     }
+
+    WMTSamplerInfo info = {};
+    info.min_filter =
+        D3D12_DECODE_MIN_FILTER(desc->Filter) == D3D12_FILTER_TYPE_LINEAR
+            ? WMTSamplerMinMagFilterLinear
+            : WMTSamplerMinMagFilterNearest;
+    info.mag_filter =
+        D3D12_DECODE_MAG_FILTER(desc->Filter) == D3D12_FILTER_TYPE_LINEAR
+            ? WMTSamplerMinMagFilterLinear
+            : WMTSamplerMinMagFilterNearest;
+    info.mip_filter =
+        D3D12_DECODE_MIP_FILTER(desc->Filter) == D3D12_FILTER_TYPE_LINEAR
+            ? WMTSamplerMipFilterLinear
+            : WMTSamplerMipFilterNearest;
+    if (D3D12_DECODE_IS_ANISOTROPIC_FILTER(desc->Filter))
+      info.max_anisotroy = desc->MaxAnisotropy;
 
     auto map_addr =
         [](D3D12_TEXTURE_ADDRESS_MODE mode) -> WMTSamplerAddressMode {
