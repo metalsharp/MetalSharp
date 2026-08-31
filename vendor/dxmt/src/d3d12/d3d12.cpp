@@ -960,6 +960,19 @@ public:
           export_entry.flags = static_cast<UINT>(export_desc.Flags);
           stored.exports.push_back(std::move(export_entry));
         }
+      } else if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
+        const auto *hit_group =
+            static_cast<const D3D12_HIT_GROUP_DESC *>(subobject.pDesc);
+        if (!hit_group->HitGroupExport)
+          return E_INVALIDARG;
+        stored.hit_group_type = static_cast<UINT>(hit_group->Type);
+        stored.hit_group_export = hit_group->HitGroupExport;
+        if (hit_group->AnyHitShaderImport)
+          stored.hit_group_any_hit = hit_group->AnyHitShaderImport;
+        if (hit_group->ClosestHitShaderImport)
+          stored.hit_group_closest_hit = hit_group->ClosestHitShaderImport;
+        if (hit_group->IntersectionShaderImport)
+          stored.hit_group_intersection = hit_group->IntersectionShaderImport;
       } else {
         const size_t desc_size = StateSubobjectDescSize(subobject.Type);
         if (!desc_size) {
@@ -1001,9 +1014,11 @@ public:
     std::vector<D3D12_STATE_SUBOBJECT> subobjects;
     std::vector<D3D12_DXIL_LIBRARY_DESC> libraries;
     std::vector<std::vector<D3D12_EXPORT_DESC>> library_exports;
+    std::vector<D3D12_HIT_GROUP_DESC> hit_groups;
     subobjects.reserve(entry->second.subobjects.size());
     libraries.reserve(entry->second.subobjects.size());
     library_exports.reserve(entry->second.subobjects.size());
+    hit_groups.reserve(entry->second.subobjects.size());
     for (const auto &stored : entry->second.subobjects) {
       D3D12_STATE_SUBOBJECT subobject = {};
       subobject.Type = stored.type;
@@ -1030,6 +1045,25 @@ public:
         }
         library.pExports = exports.empty() ? nullptr : exports.data();
         subobject.pDesc = &library;
+      } else if (stored.type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
+        hit_groups.emplace_back();
+        auto &hit_group = hit_groups.back();
+        hit_group.HitGroupExport = stored.hit_group_export.c_str();
+        hit_group.Type = static_cast<D3D12_HIT_GROUP_TYPE>(
+            stored.hit_group_type);
+        hit_group.AnyHitShaderImport =
+            stored.hit_group_any_hit.empty()
+                ? nullptr
+                : stored.hit_group_any_hit.c_str();
+        hit_group.ClosestHitShaderImport =
+            stored.hit_group_closest_hit.empty()
+                ? nullptr
+                : stored.hit_group_closest_hit.c_str();
+        hit_group.IntersectionShaderImport =
+            stored.hit_group_intersection.empty()
+                ? nullptr
+                : stored.hit_group_intersection.c_str();
+        subobject.pDesc = &hit_group;
       } else {
         subobject.pDesc = stored.desc.data();
       }
@@ -1088,6 +1122,11 @@ private:
     std::vector<uint8_t> desc;
     std::vector<uint8_t> library;
     std::vector<StateObjectExportEntry> exports;
+    UINT hit_group_type = 0;
+    std::wstring hit_group_export;
+    std::wstring hit_group_any_hit;
+    std::wstring hit_group_closest_hit;
+    std::wstring hit_group_intersection;
   };
 
   struct StateObjectDescEntry {
@@ -1170,6 +1209,12 @@ private:
             AppendStateDatabaseString(data, export_entry.rename);
             AppendStateDatabaseU32(data, export_entry.flags);
           }
+        } else if (subobject.type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
+          AppendStateDatabaseU32(data, subobject.hit_group_type);
+          AppendStateDatabaseString(data, subobject.hit_group_export);
+          AppendStateDatabaseString(data, subobject.hit_group_any_hit);
+          AppendStateDatabaseString(data, subobject.hit_group_closest_hit);
+          AppendStateDatabaseString(data, subobject.hit_group_intersection);
         } else {
           AppendStateDatabaseU32(data,
                                  static_cast<uint32_t>(subobject.desc.size()));
@@ -1309,6 +1354,14 @@ private:
               return invalid();
             stored.exports.push_back(std::move(export_entry));
           }
+        } else if (stored.type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
+          if (!ReadStateDatabaseU32(data, offset, stored.hit_group_type) ||
+              !ReadStateDatabaseString(data, offset, stored.hit_group_export) ||
+              !ReadStateDatabaseString(data, offset, stored.hit_group_any_hit) ||
+              !ReadStateDatabaseString(data, offset, stored.hit_group_closest_hit) ||
+              !ReadStateDatabaseString(data, offset, stored.hit_group_intersection) ||
+              stored.hit_group_export.empty())
+            return invalid();
         } else {
           uint32_t desc_size = 0;
           if (!ReadStateDatabaseU32(data, offset, desc_size) ||
