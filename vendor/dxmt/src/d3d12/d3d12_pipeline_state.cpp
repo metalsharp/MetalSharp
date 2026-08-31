@@ -1164,12 +1164,52 @@ void DumpDXILModuleSummary(const char *path,
   size_t total_blocks = 0;
   size_t total_instructions = 0;
   std::map<int, size_t> opcode_counts;
+  std::map<int, size_t> dxil_opcode_counts;
+  std::map<uint32_t, std::string> declaration_names;
+  for (const auto &fn : module.functions)
+    if (fn.is_declaration)
+      declaration_names[fn.value_id] = fn.name;
+
+  auto scalar_constant = [&](uint32_t value_id, uint32_t &value) {
+    auto parse = [&](const std::vector<dxmt::dxil::LLVMValue> &values) {
+      for (const auto &constant : values) {
+        if (constant.id != value_id || constant.constant_data.empty())
+          continue;
+        char *end = nullptr;
+        unsigned long parsed = std::strtoul(constant.constant_data.c_str(),
+                                             &end, 10);
+        if (end && *end == '\0') {
+          value = static_cast<uint32_t>(parsed);
+          return true;
+        }
+      }
+      return false;
+    };
+    if (parse(module.constants))
+      return true;
+    for (const auto &fn : module.functions)
+      if (parse(fn.constants))
+        return true;
+    return false;
+  };
+
   for (const auto &fn : module.functions) {
     total_blocks += fn.blocks.size();
     for (const auto &block : fn.blocks) {
       total_instructions += block.instructions.size();
-      for (const auto &inst : block.instructions)
+      for (const auto &inst : block.instructions) {
         opcode_counts[(int)inst.opcode]++;
+        if (inst.opcode != dxmt::dxil::LLVMInstruction::Call ||
+            inst.operands.size() < 3)
+          continue;
+        auto declaration = declaration_names.find(inst.operands[0]);
+        if (declaration == declaration_names.end() ||
+            declaration->second.rfind("dx.op.", 0) != 0)
+          continue;
+        uint32_t dxil_opcode = 0;
+        if (scalar_constant(inst.operands[2], dxil_opcode))
+          dxil_opcode_counts[static_cast<int>(dxil_opcode)]++;
+      }
     }
   }
 
@@ -1190,6 +1230,9 @@ void DumpDXILModuleSummary(const char *path,
 
   fprintf(df, "\nopcodes:\n");
   for (const auto &entry : opcode_counts)
+    fprintf(df, "  opcode=%d count=%zu\n", entry.first, entry.second);
+  fprintf(df, "\ndxil_opcodes:\n");
+  for (const auto &entry : dxil_opcode_counts)
     fprintf(df, "  opcode=%d count=%zu\n", entry.first, entry.second);
 
   fclose(df);

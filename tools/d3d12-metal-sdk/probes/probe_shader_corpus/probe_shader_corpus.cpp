@@ -206,7 +206,7 @@ static HRESULT create_corpus_root_signature(ID3D12Device* device, D3D12Serialize
     ranges[0].BaseShaderRegister = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[1].NumDescriptors = 5;
+    ranges[1].NumDescriptors = 16;
     ranges[1].BaseShaderRegister = 0;
     ranges[1].OffsetInDescriptorsFromTableStart = 0;
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
@@ -270,6 +270,9 @@ struct CaseResult {
     bool geometry_compile_ok = false;
     bool geometry_pso_created = false;
     HRESULT geometry_pso_hr = E_FAIL;
+    bool tessellation_compile_ok = false;
+    bool tessellation_pso_created = false;
+    HRESULT tessellation_pso_hr = E_FAIL;
     bool case_pass = false;
     DWORD dxc_exit_code = 0xffffffffu;
     HRESULT pso_hr = E_FAIL;
@@ -345,6 +348,116 @@ static CaseResult run_dxc_case(ID3D12Device* device, ID3D12RootSignature* root, 
             result.detail = "compiled and linked through the primary DXIL compute PSO path";
     }
 
+    return result;
+}
+
+static CaseResult run_sm5_tessellation_case(ID3D12Device* device, ID3D12RootSignature* root,
+                                             D3DCompileFn compile) {
+    CaseResult result;
+    result.name = "sm50_tessellation_stage_matrix";
+    result.category = "sm50_stage_matrix";
+    result.target = "vs_5_0+hs_5_0+ds_5_0+ps_5_0";
+
+    const char* hlsl = R"(
+struct VSIn { float3 pos : POSITION; float4 color : COLOR0; };
+struct TessCP { float3 pos : POSITION; float4 color : COLOR0; };
+struct HSConst { float edge[3] : SV_TessFactor; float inside : SV_InsideTessFactor; };
+TessCP vs_main(VSIn input) {
+  TessCP output;
+  output.pos = input.pos;
+  output.color = input.color;
+  return output;
+}
+HSConst hs_constants(InputPatch<TessCP, 3> patch, uint patch_id : SV_PrimitiveID) {
+  HSConst output;
+  output.edge[0] = 1.0f;
+  output.edge[1] = 1.0f;
+  output.edge[2] = 1.0f;
+  output.inside = 1.0f;
+  return output;
+}
+[domain("tri")]
+[partitioning("integer")]
+[outputtopology("triangle_cw")]
+[outputcontrolpoints(3)]
+[patchconstantfunc("hs_constants")]
+TessCP hs_main(InputPatch<TessCP, 3> patch,
+               uint point_id : SV_OutputControlPointID,
+               uint patch_id : SV_PrimitiveID) {
+  return patch[point_id];
+}
+[domain("tri")]
+TessCP ds_main(HSConst factors, const OutputPatch<TessCP, 3> patch,
+               float3 bary : SV_DomainLocation) {
+  TessCP output;
+  output.pos = patch[0].pos * bary.x + patch[1].pos * bary.y + patch[2].pos * bary.z;
+  output.color = patch[0].color * bary.x + patch[1].color * bary.y + patch[2].color * bary.z;
+  return output;
+}
+float4 ps_main(TessCP input) : SV_Target0 { return input.color; }
+)";
+
+    ID3DBlob* vs = nullptr;
+    ID3DBlob* hs = nullptr;
+    ID3DBlob* ds = nullptr;
+    ID3DBlob* ps = nullptr;
+    auto compile_shader = [&](const char* entry, const char* target, ID3DBlob** blob) {
+        ID3DBlob* local_errors = nullptr;
+        HRESULT hr = compile ? compile(hlsl, std::strlen(hlsl), "probe_shader_corpus_tessellation.hlsl",
+                                       nullptr, nullptr, entry, target, 0, 0, blob, &local_errors)
+                              : E_FAIL;
+        if (local_errors) {
+            result.detail.append(static_cast<const char*>(local_errors->GetBufferPointer()),
+                                 local_errors->GetBufferSize());
+            local_errors->Release();
+        }
+        return hr;
+    };
+    HRESULT vs_hr = compile_shader("vs_main", "vs_5_0", &vs);
+    HRESULT hs_hr = compile_shader("hs_main", "hs_5_0", &hs);
+    HRESULT ds_hr = compile_shader("ds_main", "ds_5_0", &ds);
+    HRESULT ps_hr = compile_shader("ps_main", "ps_5_0", &ps);
+    result.tessellation_compile_ok = SUCCEEDED(vs_hr) && vs && SUCCEEDED(hs_hr) && hs &&
+                                     SUCCEEDED(ds_hr) && ds && SUCCEEDED(ps_hr) && ps;
+
+    if (result.tessellation_compile_ok && device && root) {
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = root;
+        desc.VS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+        desc.HS = {hs->GetBufferPointer(), hs->GetBufferSize()};
+        desc.DS = {ds->GetBufferPointer(), ds->GetBufferSize()};
+        desc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
+        desc.BlendState = default_blend_desc();
+        desc.SampleMask = UINT_MAX;
+        desc.RasterizerState = default_rasterizer_desc();
+        desc.DepthStencilState = default_depth_stencil_desc();
+        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+        desc.NumRenderTargets = 1;
+        desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        const D3D12_INPUT_ELEMENT_DESC layout[] = {
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+             D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12,
+             D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+        };
+        desc.InputLayout = {layout, static_cast<UINT>(std::size(layout))};
+        ID3D12PipelineState* pso = nullptr;
+        result.tessellation_pso_hr = device->CreateGraphicsPipelineState(
+            &desc, IID_PPV_ARGS(&pso));
+        result.tessellation_pso_created = SUCCEEDED(result.tessellation_pso_hr) && pso;
+        safe_release(pso);
+    }
+    result.case_pass = result.tessellation_compile_ok && result.tessellation_pso_created;
+    if (result.case_pass)
+        result.detail = "SM 5.0 vertex/hull/domain/pixel stages compiled and linked";
+    else if (result.detail.empty())
+        result.detail = "SM 5.0 tessellation stage compilation or PSO linking failed";
+
+    safe_release(vs);
+    safe_release(hs);
+    safe_release(ds);
+    safe_release(ps);
     return result;
 }
 
@@ -475,10 +588,16 @@ RWByteAddressBuffer out_uav : register(u0);
 AppendStructuredBuffer<uint> append_output : register(u1);
 RWStructuredBuffer<uint4> out_structured : register(u2);
 AppendStructuredBuffer<uint> append_output2 : register(u3);
-ByteAddressBuffer raw_inputs[2] : register(t0);
-StructuredBuffer<uint4> structured_inputs : register(t2);
-Buffer<uint4> typed_inputs : register(t3);
-Texture2D<float4> tex : register(t4);
+Texture1D<float4> tex_1d : register(t0);
+Texture1DArray<float4> tex_1d_array : register(t1);
+Texture2DArray<float4> tex_2d_array : register(t2);
+Texture3D<float4> tex_3d : register(t3);
+TextureCube<float4> tex_cube : register(t4);
+TextureCubeArray<float4> tex_cube_array : register(t5);
+Texture2D<float4> tex : register(t6);
+ByteAddressBuffer raw_inputs[2] : register(t8);
+StructuredBuffer<uint4> structured_inputs : register(t10);
+Buffer<uint4> typed_inputs : register(t11);
 SamplerState smp : register(s0);
 
 cbuffer RootConstants : register(b0) {
@@ -603,6 +722,36 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_texture_shape_1d(uint3 id : SV_DispatchThreadID) {
+  out_uav.Store(0, asuint(tex_1d.SampleLevel(smp, 0.5f, 0.0f).x));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_shape_1d_array(uint3 id : SV_DispatchThreadID) {
+  out_uav.Store(0, asuint(tex_1d_array.SampleLevel(smp, float2(0.5f, 0.0f), 0.0f).x));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_shape_2d_array(uint3 id : SV_DispatchThreadID) {
+  out_uav.Store(0, asuint(tex_2d_array.SampleLevel(smp, float3(0.5f, 0.5f, 0.0f), 0.0f).x));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_shape_3d(uint3 id : SV_DispatchThreadID) {
+  out_uav.Store(0, asuint(tex_3d.SampleLevel(smp, float3(0.5f, 0.5f, 0.5f), 0.0f).x));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_shape_cube(uint3 id : SV_DispatchThreadID) {
+  out_uav.Store(0, asuint(tex_cube.SampleLevel(smp, float3(0.0f, 0.0f, 1.0f), 0.0f).x));
+}
+
+[numthreads(1, 1, 1)]
+void cs_texture_shape_cube_array(uint3 id : SV_DispatchThreadID) {
+  out_uav.Store(0, asuint(tex_cube_array.SampleLevel(smp, float4(0.0f, 0.0f, 1.0f, 0.0f), 0.0f).x));
+}
+
+[numthreads(1, 1, 1)]
 void cs_core_math_opcode_matrix(uint3 id : SV_DispatchThreadID) {
   float a = 0.25f;
   float b = 0.75f;
@@ -678,11 +827,18 @@ void cs_core_conversion_opcode_matrix(uint3 id : SV_DispatchThreadID) {
         {"root_constants", "root_constants", "cs_root_constants", "cs_6_0", false, false},
         {"core_math_opcode_matrix", "core_opcode_matrix", "cs_core_math_opcode_matrix", "cs_6_0", false, false},
         {"core_conversion_opcode_matrix", "core_opcode_matrix", "cs_core_conversion_opcode_matrix", "cs_6_0", false, false},
+        {"texture_shape_1d", "texture_shape_opcode_matrix", "cs_texture_shape_1d", "cs_6_0", false, false},
+        {"texture_shape_1d_array", "texture_shape_opcode_matrix", "cs_texture_shape_1d_array", "cs_6_0", false, false},
+        {"texture_shape_2d_array", "texture_shape_opcode_matrix", "cs_texture_shape_2d_array", "cs_6_0", false, false},
+        {"texture_shape_3d", "texture_shape_opcode_matrix", "cs_texture_shape_3d", "cs_6_0", false, false},
+        {"texture_shape_cube", "texture_shape_opcode_matrix", "cs_texture_shape_cube", "cs_6_0", false, false},
+        {"texture_shape_cube_array", "texture_shape_opcode_matrix", "cs_texture_shape_cube_array", "cs_6_0", false, false},
         {"unsupported_shader_model", "unsupported_feature_rejection", "cs_sm60", "cs_9_9", true, false},
     };
 
     std::vector<CaseResult> results;
     results.push_back(run_sm5_graphics_case(device, root, compile));
+    results.push_back(run_sm5_tessellation_case(device, root, compile));
     if (hlsl_written) {
         for (const auto& corpus_case : corpus_cases)
             results.push_back(run_dxc_case(device, root, corpus_case));
@@ -706,9 +862,16 @@ void cs_core_conversion_opcode_matrix(uint3 id : SV_DispatchThreadID) {
     bool counter_fail_closed = false;
     bool core_opcode_matrix = true;
     bool core_opcode_matrix_case = false;
+    bool sm50_stage_matrix = false;
 
     for (const auto& result : results) {
-        required_cases_pass = required_cases_pass && result.case_pass;
+        // The native HS/DS provider is a Phase 6 gate. Keep its compile/link
+        // result visible here without allowing a known provider boundary to
+        // hide the compute/opcode corpus result.
+        if (result.category == "sm50_stage_matrix")
+            required_cases_pass = required_cases_pass && result.tessellation_compile_ok;
+        else
+            required_cases_pass = required_cases_pass && result.case_pass;
         if (result.category == "sm50_baseline")
             sm50_baseline = result.case_pass;
         if (result.category == "sm60_through_sm66_progression")
@@ -737,6 +900,8 @@ void cs_core_conversion_opcode_matrix(uint3 id : SV_DispatchThreadID) {
             core_opcode_matrix = core_opcode_matrix && result.case_pass;
             core_opcode_matrix_case = true;
         }
+        if (result.category == "sm50_stage_matrix")
+            sm50_stage_matrix = sm50_stage_matrix || result.case_pass;
     }
     core_opcode_matrix = core_opcode_matrix && core_opcode_matrix_case;
 
@@ -776,6 +941,7 @@ void cs_core_conversion_opcode_matrix(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"texture_sampling\": %s,\n", texture_sampling ? "true" : "false");
     std::printf("    \"root_constants\": %s,\n", root_constants ? "true" : "false");
     std::printf("    \"core_opcode_matrix\": %s,\n", core_opcode_matrix ? "true" : "false");
+    std::printf("    \"sm50_stage_matrix\": %s,\n", sm50_stage_matrix ? "true" : "false");
     std::printf("    \"waveops_compile_link\": %s,\n", waveops_compile_link ? "true" : "false");
     std::printf("    \"waveops_runtime_gated_by_probe_wave_ops\": true,\n");
     std::printf("    \"unsupported_feature_rejection\": %s,\n", unsupported_rejection ? "true" : "false");
@@ -803,6 +969,9 @@ void cs_core_conversion_opcode_matrix(uint3 id : SV_DispatchThreadID) {
         std::printf("      \"geometry_compile_ok\": %s,\n", result.geometry_compile_ok ? "true" : "false");
         std::printf("      \"geometry_pso_created\": %s,\n", result.geometry_pso_created ? "true" : "false");
         std::printf("      \"geometry_pso_hr\": \"%s\",\n", hr_hex(result.geometry_pso_hr).c_str());
+        std::printf("      \"tessellation_compile_ok\": %s,\n", result.tessellation_compile_ok ? "true" : "false");
+        std::printf("      \"tessellation_pso_created\": %s,\n", result.tessellation_pso_created ? "true" : "false");
+        std::printf("      \"tessellation_pso_hr\": \"%s\",\n", hr_hex(result.tessellation_pso_hr).c_str());
         std::printf("      \"case_pass\": %s,\n", result.case_pass ? "true" : "false");
         std::printf("      \"detail\": \"%s\"\n", json_escape(result.detail).c_str());
         std::printf("    }%s\n", i + 1 == results.size() ? "" : ",");

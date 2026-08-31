@@ -278,7 +278,13 @@ ID3D12Device9 shader-cache control boundary: application-managed disable and
 enable return `S_OK`, while zero-kind control returns `E_INVALIDARG` and the
 reported `cache_control_valid` flag is true. The same run reports nonzero
 SM5 cache artifacts (`vs_metallib`, `ps_metallib`, and `cs_metallib`) and a
-complete cache set.
+complete cache set. Profile `phase5-shape-corpus-final` passes 30 corpus
+cases and links compute shaders for logical 1D, 1D-array, 2D-array, 3D, cube,
+and cube-array sampled resources, in addition to the exact typed-resource
+readback probes. The same corpus records that SM5.0 hull/domain stages
+compile but the native HS/DS PSO remains explicitly unpromoted (`false`
+summary / `0x80004005` provider rejection), leaving that Phase 6 provider gap
+visible rather than treating compilation alone as execution proof.
 
 The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
