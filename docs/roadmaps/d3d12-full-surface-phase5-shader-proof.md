@@ -228,10 +228,11 @@ compute depth comparisons use native Metal `sample_compare` rather than an
 unfiltered read/compare approximation. Profile `phase5-gather-final` passes
 all SM6.6/6.7 lanes with exact comparison-level readback `[25,75,1,1]`, exact
 point/linear/static-offset filtering `[0,128,255,0]`, and exact value `1` for
-the newer comparison gradient/bias lanes. An opaque-white comparison border
-sample at an out-of-range coordinate returns exact `[1,0,0,0]` in profile
-`phase5-cmp-border1`, proving comparison address fallback remains native rather
-than being clamped. Profiles `phase5-cmp1da1` and `phase5-cmp-dims3` return exact logical
+the newer comparison gradient/bias lanes. Profile `phase5-cmp-address1` covers the complete comparison address matrix at
+controlled out-of-range coordinates: clamp `[0,1]`, opaque-white border
+`[1,1]`, wrap `[1,0]`, mirror `[0,1]`, and mirror-once `[0,1]`. These exact
+pairs prove comparison address modes remain native rather than collapsing to
+clamp. Profiles `phase5-cmp1da1` and `phase5-cmp-dims3` return exact logical
 1D/1D-array and native array/cube comparison evidence. The latter returns
 exact float bits
 `[0x3f800000,0x3f800000,0x3f800000,0x40400000]` for depth 2D-array, cube,
