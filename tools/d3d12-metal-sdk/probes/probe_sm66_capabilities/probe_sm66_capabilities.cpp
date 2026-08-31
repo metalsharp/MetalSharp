@@ -615,7 +615,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         list->SetComputeRootDescriptorTable(1, gpu);
         list->SetComputeRootDescriptorTable(2, sampler_heap->GetGPUDescriptorHandleForHeapStart());
         const uint32_t constants[4] = {
-            std::strcmp(audit_case.name, "rw_descriptor_indexing4") == 0
+            (std::strcmp(audit_case.name, "rw_descriptor_indexing4") == 0 ||
+             std::strcmp(audit_case.name,
+                         "rw_direct_heap_descriptor_indexing") == 0)
                 ? 3u
                 : 1u,
             3, 2, 0};
@@ -628,6 +630,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         const bool dynamic_write_case =
             std::strcmp(audit_case.name, "rw_descriptor_indexing") == 0 ||
             std::strcmp(audit_case.name, "rw_descriptor_indexing4") == 0 ||
+            std::strcmp(audit_case.name,
+                        "rw_direct_heap_descriptor_indexing") == 0 ||
             std::strcmp(audit_case.name,
                         "rw_structured_descriptor_indexing") == 0;
         ID3D12Resource* case_output =
@@ -696,6 +700,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name,
                                    "rw_descriptor_indexing4") == 0) {
                 const uint32_t expected[] = {803, 804, 805, 806};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "rw_direct_heap_descriptor_indexing") == 0) {
+                const uint32_t expected[] = {903, 904, 905, 906};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "rw_structured_descriptor_indexing") == 0) {
@@ -1135,6 +1143,12 @@ void cs_rw_descriptor_indexing4(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4, 1, 1)]
+void cs_rw_direct_heap_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
+  RWByteAddressBuffer selected = ResourceDescriptorHeap[selector & 3u];
+  selected.Store(id.x * 4, 900u + id.x + addend);
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1344,6 +1358,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"rw_descriptor_indexing", "cs_rw_descriptor_indexing", "cs_6_6", "writable_resource_descriptor_indexing", true},
         {"rw_structured_descriptor_indexing", "cs_rw_structured_descriptor_indexing", "cs_6_6", "writable_structured_resource_descriptor_indexing", true},
         {"rw_descriptor_indexing4", "cs_rw_descriptor_indexing4", "cs_6_6", "writable_resource_descriptor_indexing4", true},
+        {"rw_direct_heap_descriptor_indexing", "cs_rw_direct_heap_descriptor_indexing", "cs_6_6", "writable_direct_heap_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
