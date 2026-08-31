@@ -119,9 +119,10 @@
   returns exact `[303,703,303,703]` while preserving stride-eight element
   addressing. Writable arrays now retain their bounded dynamic UAV pointer:
   two-entry raw stores return exact `[503,504,505,506]`, four-entry raw stores
-  select descriptor three and return `[803,804,805,806]`, a directly indexed
-  `ResourceDescriptorHeap` write selects heap entry three and returns
-  `[903,904,905,906]`, a directly indexed heap SRV selects entry five and
+  select descriptor three and return `[803,804,805,806]`; directly indexed
+  `ResourceDescriptorHeap` writes select entry three as `[903,904,905,906]`
+  and entry seven across an eight-way bounded range as
+  `[1303,1304,1305,1306]`; a directly indexed heap SRV selects entry five and
   returns `[103,203,303,403]`, a dynamically indexed texture heap selects
   entry seven and returns exact `[100,110,120,130]` through both `Load` and
   `SampleLevel`, while `GatherRed` returns exact packed `0x828c8c82`;
@@ -274,7 +275,8 @@ and scalar-structured dynamically indexed SRV arrays,
 `[303,703,303,703]` from the `uint2` aggregate lane, and
 `[503,504,505,506]` from a dynamically selected two-entry writable raw
 buffer, `[803,804,805,806]` from descriptor three of a four-entry array,
-`[903,904,905,906]` from directly indexed writable heap entry three,
+`[903,904,905,906]` from directly indexed writable heap entry three and
+`[1303,1304,1305,1306]` from entry seven of an eight-way bounded heap range,
 `[103,203,303,403]` from readable heap entry five,
 `[100,110,120,130]` from loading and sampling texture heap entry seven plus
 packed gather `0x828c8c82`,

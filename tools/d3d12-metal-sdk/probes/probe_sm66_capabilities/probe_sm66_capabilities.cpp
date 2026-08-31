@@ -594,6 +594,25 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         srv.TextureCubeArray.NumCubes = 1;
         device->CreateShaderResourceView(comparison_array_texture, &srv, cpu);
 
+        const bool direct_uav8_case =
+            std::strcmp(audit_case.name,
+                        "rw_direct_heap_descriptor_indexing8") == 0;
+        if (direct_uav8_case) {
+            D3D12_UNORDERED_ACCESS_VIEW_DESC direct_uav = {};
+            direct_uav.Format = DXGI_FORMAT_R32_TYPELESS;
+            direct_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            direct_uav.Buffer.NumElements = 32;
+            direct_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+            D3D12_CPU_DESCRIPTOR_HANDLE direct_cpu =
+                resource_heap->GetCPUDescriptorHandleForHeapStart();
+            for (UINT index = 0; index < 8; ++index) {
+                device->CreateUnorderedAccessView(
+                    index == 7 ? dynamic_output : output, nullptr,
+                    &direct_uav, direct_cpu);
+                direct_cpu.ptr += resource_stride;
+            }
+        }
+
         D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
         dsv.Format = DXGI_FORMAT_D32_FLOAT;
         dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
@@ -708,7 +727,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             std::strcmp(audit_case.name,
                         "comparison_texture_direct_heap_indexing_base") == 0
                 ? 0u
-                : (wide_selector_case ? 3u : 1u);
+                : (std::strcmp(audit_case.name,
+                               "rw_direct_heap_descriptor_indexing8") == 0
+                       ? 7u
+                       : (wide_selector_case ? 3u : 1u));
         const uint32_t constants[4] = {selector_value, 3, 2, 0};
         list->SetComputeRoot32BitConstants(3, 4, constants, 0);
         list->SetPipelineState(pso);
@@ -724,6 +746,8 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             std::strcmp(audit_case.name, "rw_descriptor_indexing4") == 0 ||
             std::strcmp(audit_case.name,
                         "rw_direct_heap_descriptor_indexing") == 0 ||
+            std::strcmp(audit_case.name,
+                        "rw_direct_heap_descriptor_indexing8") == 0 ||
             std::strcmp(audit_case.name,
                         "rw_structured_descriptor_indexing") == 0;
         ID3D12Resource* case_output = texture_store_case
@@ -817,6 +841,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name,
                                    "rw_direct_heap_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {903, 904, 905, 906};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "rw_direct_heap_descriptor_indexing8") == 0) {
+                const uint32_t expected[] = {1303, 1304, 1305, 1306};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "texture_direct_heap_descriptor_indexing") == 0 ||
@@ -1296,6 +1324,12 @@ void cs_rw_direct_heap_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4, 1, 1)]
+void cs_rw_direct_heap_descriptor_indexing8(uint3 id : SV_DispatchThreadID) {
+  RWByteAddressBuffer selected = ResourceDescriptorHeap[selector & 7u];
+  selected.Store(id.x * 4, 1300u + id.x + addend);
+}
+
+[numthreads(4, 1, 1)]
 void cs_srv_direct_heap_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
   ByteAddressBuffer selected = ResourceDescriptorHeap[4u + (selector & 1u)];
   outbuf.Store(id.x * 4, selected.Load(id.x * 4) + addend);
@@ -1579,6 +1613,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"rw_structured_descriptor_indexing", "cs_rw_structured_descriptor_indexing", "cs_6_6", "writable_structured_resource_descriptor_indexing", true},
         {"rw_descriptor_indexing4", "cs_rw_descriptor_indexing4", "cs_6_6", "writable_resource_descriptor_indexing4", true},
         {"rw_direct_heap_descriptor_indexing", "cs_rw_direct_heap_descriptor_indexing", "cs_6_6", "writable_direct_heap_descriptor_indexing", true},
+        {"rw_direct_heap_descriptor_indexing8", "cs_rw_direct_heap_descriptor_indexing8", "cs_6_6", "writable_direct_heap_descriptor_indexing8", true},
         {"srv_direct_heap_descriptor_indexing", "cs_srv_direct_heap_descriptor_indexing", "cs_6_6", "readable_direct_heap_descriptor_indexing", true},
         {"texture_direct_heap_descriptor_indexing", "cs_texture_direct_heap_descriptor_indexing", "cs_6_6", "texture_direct_heap_descriptor_indexing", true},
         {"sampler_direct_heap_descriptor_indexing", "cs_sampler_direct_heap_descriptor_indexing", "cs_6_6", "sampler_direct_heap_descriptor_indexing", true},
