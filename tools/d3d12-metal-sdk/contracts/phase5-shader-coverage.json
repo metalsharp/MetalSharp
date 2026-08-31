@@ -113,7 +113,7 @@
       "checks": [
         ["ok"]
       ],
-      "remaining": "The source-staged lane proves the selected double arithmetic expression through exact integer readback. Runtime-input lanes preserve the exact IEEE-754 binary64 payload 0x400921fb54442d18 through DXIL makeDouble/splitDouble and integer/double bitcasts, execute software binary64 addition/subtraction, and match an eight-case exact-bit matrix covering signs, cancellation, subnormals, overflow, infinities/NaN, and round-to-nearest-even boundaries. Generated MSL contains no unsupported native double spelling. General binary64 multiply/divide/remainder, comparison, and conversion breadth remains in the exhaustive row."
+      "remaining": "The source-staged lane proves the selected double arithmetic expression through exact integer readback. Runtime-input lanes preserve the exact IEEE-754 binary64 payload 0x400921fb54442d18 through DXIL makeDouble/splitDouble and integer/double bitcasts, execute software binary64 addition/subtraction, multiplication, division, ordered/unordered comparisons, float/integer conversions, and match exact-bit matrices covering signs, cancellation, subnormals, overflow, infinities/NaN, and round-to-nearest-even boundaries. Generated MSL contains no unsupported native double spelling. Direct FRem lowering uses the software remainder helper; compiler-expanded HLSL fmod and broader binary64 operation combinations remain in the exhaustive row."
     },
     {
       "id": "wave-quad-runtime-matrix",
