@@ -672,6 +672,7 @@ struct LowerContext {
     std::vector<MSLType> value_types;
     std::vector<ValueRole> value_roles;
     std::unordered_map<uint32_t, std::string> buffer_origin;
+    std::unordered_map<uint32_t, uint32_t> vector_extract_origin;
     std::unordered_map<uint32_t, ResourceHandleRecord> resource_handles;
     std::optional<ResourceHandleRecord> pending_handle;
     std::string last_buffer_handle;
@@ -5024,13 +5025,42 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto handle = handleArg(0, "buf", "buf0");
         auto idx = ensureScalarIndex(numericArg(1, "0"));
         auto off = ensureScalarIndex(numericArg(2, "0"));
-        auto val = numericArg(3, "0");
+        auto val = valueArg(3, "0");
+        MSLType value_type = valueTypeOrUnknown(ctx, args[3]);
+        // DXC 1.9 represents the vector-store operand as an ExtractValue of
+        // the preceding RawBufferVectorLoad result. Recover that aggregate
+        // instead of repeating its x component across all four stores.
+        auto origin_it = ctx.vector_extract_origin.find(args[3]);
+        if (origin_it != ctx.vector_extract_origin.end() &&
+            origin_it->second < ctx.value_types.size() &&
+            DXILIRBuilder::isVectorType(ctx.value_types[origin_it->second])) {
+            val = emitValue(origin_it->second);
+            value_type = ctx.value_types[origin_it->second];
+        }
+        if (!DXILIRBuilder::isVectorType(value_type) &&
+            val.rfind("(v", 0) == 0) {
+            const size_t close = val.find(")", 2);
+            if (close != std::string::npos && val.substr(close) == ").x") {
+                uint32_t aggregate_id = 0;
+                if (parseEmittedValueName(val.substr(1, close - 1),
+                                          aggregate_id) &&
+                    aggregate_id < ctx.value_types.size() &&
+                    DXILIRBuilder::isVectorType(ctx.value_types[aggregate_id])) {
+                    val = emitValue(aggregate_id);
+                    value_type = ctx.value_types[aggregate_id];
+                }
+            }
+        }
         std::string base = "(((int)(" + idx + "))*4 + ((int)(" + off + ")))";
         std::ostringstream store;
         for (uint32_t i = 0; i < 4; i++) {
             if (i) store << ";\n  ";
+            std::string component =
+                DXILIRBuilder::isVectorType(value_type)
+                    ? componentAccess(val, i, value_type)
+                    : (i == 0 ? val : "0");
             store << "reinterpret_cast<device uint&>(" << handle << "[(" << base << ") + " << (i*4)
-                  << "]) = (uint)(" << val << ")";
+                  << "]) = (uint)(" << component << ")";
         }
         return store.str();
     }
@@ -7208,6 +7238,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 auto scalar = DXILIRBuilder::scalarType(agg_type);
                 emitTypedLine(scalar, result, expr);
                 result_type = scalar;
+                ctx.vector_extract_origin[value_counter] = inst.operands[0];
             } else if (agg_is_vector == false && agg_type.kind != MSLTypeKind::Unknown) {
                 emitTypedLine(result_type, result, agg);
             } else {
