@@ -251,13 +251,16 @@ GraphicsVSOut graphics_vs(GraphicsVSIn input) {
   return output;
 }
 float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
-  target.sample[0][uint2(0,0)] = float4(300.0, 0.0, 0.0, 1.0);
+  float2 sample_position = GetRenderTargetSamplePosition(0);
+  uint sample_count = GetRenderTargetSampleCount();
+  target.sample[0][uint2(0,0)] = float4(300.0 + sample_position.x + sample_position.y + sample_count, 0.0, 0.0, 1.0);
   target_array.sample[0][uint3(0,0,1)] = float4(400.0, 0.0, 0.0, 1.0);
   target_2.sample[0][uint2(0,0)] = float4(700.0, 0.0, 0.0, 1.0);
   target_8.sample[0][uint2(0,0)] = float4(800.0, 0.0, 0.0, 1.0);
   target_r8.sample[0][uint2(0,0)] =
       float4(192.0 / 255.0, 0.0, 0.0, 1.0);
-  return float4(0.0, 1.0, 0.0, 1.0);
+  return float4(sample_position.x + 0.5, (float)sample_count / 4.0,
+                sample_position.y + 0.5, 1.0);
 }
 )";
 
@@ -965,7 +968,7 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
             graphics_readback->Unmap(0, nullptr);
     }
 
-    const bool values_ok = values[0] == 300 && values[1] == 101 && values[2] == 102 && values[3] == 103 &&
+    const bool values_ok = values[0] == 304 && values[1] == 101 && values[2] == 102 && values[3] == 103 &&
                            values[4] == 400 && values[5] == 201 && values[6] == 202 && values[7] == 203 &&
                            values[8] == 700 && values[9] == 501 && values[10] == 800 && values[11] == 601 &&
                            values[12] == 602 && values[13] == 603 && values[14] == 604 && values[15] == 605 &&
@@ -1027,8 +1030,8 @@ float4 graphics_ps(GraphicsVSOut input) : SV_Target0 {
             resolve_r8_readback->Unmap(0, nullptr);
     }
 
-    const bool graphics_color_ok = graphics_color == 0xff00ff00u;
-    const bool resolve_value_ok = resolve_value == 151.5f;
+    const bool graphics_color_ok = graphics_color == 0xffbfffbfu;
+    const bool resolve_value_ok = resolve_value == 152.625f;
     const bool resolve_array_value_ok = resolve_array_value == 251.5f;
     const bool resolve_2_value_ok = resolve_2_value == 600.5f;
     const bool resolve_8_value_ok = resolve_8_value == 628.5f;
