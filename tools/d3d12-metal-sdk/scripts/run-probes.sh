@@ -1337,6 +1337,7 @@ TEXTURE_DIMENSIONS_RESULT_FILE="$RESULTS_DIR/probe-texture-dimensions-${PROFILE}
 SHADER_CORPUS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-warmup-${PROFILE}.json"
 SHADER_CORPUS_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-${PROFILE}.json"
 DXIL_LOWERING_AUDIT_RESULT_FILE="$RESULTS_DIR/dxil-lowering-audit-${PROFILE}.json"
+SM5_SM69_OPCODE_MATRIX_RESULT_FILE="$RESULTS_DIR/sm5-sm69-opcode-matrix-${PROFILE}.json"
 SM66_CAPABILITIES_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-warmup-${PROFILE}.json"
 SM66_CAPABILITIES_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-${PROFILE}.json"
 WRITABLE_MSAA_RESULT_FILE="$RESULTS_DIR/probe-writable-msaa-${PROFILE}.json"
@@ -3542,6 +3543,13 @@ if [[ "$RUN_SHADERS" == "1" || "$RUN_DXIL_SEMANTICS" == "1" ||
     --corpus "$SHADER_CACHE_DIR" \
     --json-out "$DXIL_LOWERING_AUDIT_RESULT_FILE"
   echo "$DXIL_LOWERING_AUDIT_RESULT_FILE"
+  if [[ "$RUN_SHADER_CORPUS" == "1" || "$RUN_DXIL_SEMANTICS" == "1" ]]; then
+    python3 "$SDK_DIR/scripts/validate-sm5-sm69-opcode-matrix.py" \
+      --matrix "$SDK_DIR/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json" \
+      --corpus "$SHADER_CACHE_DIR" \
+      --json-out "$SM5_SM69_OPCODE_MATRIX_RESULT_FILE"
+    echo "$SM5_SM69_OPCODE_MATRIX_RESULT_FILE"
+  fi
 fi
 
 if [[ "$RUN_SM66_CAPABILITIES" == "1" ]]; then
