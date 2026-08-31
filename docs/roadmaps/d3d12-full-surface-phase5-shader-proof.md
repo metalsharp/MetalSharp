@@ -143,9 +143,13 @@
   pointer-validation, and cross-session disk persistence semantics.
   `pipeline_library_serialization_pass`, `pipeline_library_recreation_pass`,
   `shader_cache_session_pass`, and `shader_cache_disk_session_pass` are true.
-  The recreated stored compute pipeline dispatches and returns exact value 42;
-  complete compiler-factory/state-database behavior remains in the exhaustive
-  row.
+  The recreated stored compute pipeline dispatches and returns exact value 42.
+  Profile `phase5-statedb1` additionally proves device-configuration and
+  state-object-database factory routing, pipeline descriptor version `7`, and
+  zero-subobject collection descriptor version `11` with exact four-byte
+  parent-key callback round-trip; nonempty state-object subobjects reject with
+  exact `E_NOTIMPL`. Deep state-subobject cloning and file persistence remain
+  in the exhaustive row.
 
 ## Exact evidence
 
