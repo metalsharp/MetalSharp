@@ -155,6 +155,27 @@ static bool parseUnsignedLiteral(const std::string &text, uint32_t &value) {
     return true;
 }
 
+static bool parseDoubleLiteralBits(const std::string &text, uint64_t &bits) {
+    if (text.empty()) return false;
+    char *end = nullptr;
+    double value = std::strtod(text.c_str(), &end);
+    if (!end || *end != '\0') return false;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return true;
+}
+
+static std::string formatDoubleBits(uint64_t bits) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "0x%016llxul",
+                  static_cast<unsigned long long>(bits));
+    return buffer;
+}
+
+static std::string doubleLiteralExpression(const std::string &text) {
+    uint64_t bits = 0;
+    return parseDoubleLiteralBits(text, bits) ? formatDoubleBits(bits) : text;
+}
+
 static bool parseEmittedValueName(const std::string &name, uint32_t &idx) {
     if (name.size() < 2 || name[0] != 'v') return false;
     return parseUnsignedLiteral(name.substr(1), idx);
@@ -4422,6 +4443,18 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return value;
     };
 
+    auto doubleArg = [&](size_t arg, const char *fallback) -> std::string {
+        std::string value = numericArg(arg, fallback);
+        if (arg >= args.size()) return fallback;
+        MSLType type = valueTypeOrUnknown(ctx, args[arg]);
+        auto pre_it = ctx.predeclared_types.find(value);
+        if (pre_it != ctx.predeclared_types.end())
+            type = pre_it->second;
+        if (type.kind == MSLTypeKind::Double)
+            return doubleLiteralExpression(value);
+        return "m12_f64_from_float(static_cast<float>(" + value + "))";
+    };
+
     auto handleArg = [&](size_t arg, const char *prefix, const char *fallback) -> std::string {
         if (arg >= args.size()) return fallback;
         uint32_t idx = args[arg];
@@ -5910,15 +5943,25 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         bool int_op = op == DXILOP_Bfrev || op == DXILOP_Countbits ||
                       op == DXILOP_FirstbitLo || op == DXILOP_FirstbitHi ||
                       op == DXILOP_FirstbitSHi;
+        const bool double_op = valueTypeOrUnknown(ctx, args[1]).kind == MSLTypeKind::Double;
         auto x = numericArg(1, int_op ? "0" : "0.0");
+        auto dx = double_op ? doubleArg(1, "0") : x;
         auto fx = "static_cast<float>(" + x + ")";
         switch (op) {
-        case DXILOP_FAbs: return "abs(" + fx + ")";
-        case DXILOP_Saturate: return "clamp(" + fx + ", 0.0, 1.0)";
-        case DXILOP_IsNaN: return "isnan(" + fx + ")";
-        case DXILOP_IsInf: return "isinf(" + fx + ")";
-        case DXILOP_IsFinite: return "isfinite(" + fx + ")";
-        case DXILOP_IsNormal: return "isnormal(" + fx + ")";
+        case DXILOP_FAbs:
+            return double_op ? "(ulong(" + dx + ") & 0x7ffffffffffffffful)" : "abs(" + fx + ")";
+        case DXILOP_Saturate:
+            if (double_op)
+                return "(m12_f64_cmp(ulong(" + dx + "), 0ul, 4u) ? 0ul : (m12_f64_cmp(ulong(" + dx + "), 0x3ff0000000000000ul, 2u) ? 0x3ff0000000000000ul : ulong(" + dx + ")))";
+            return "clamp(" + fx + ", 0.0, 1.0)";
+        case DXILOP_IsNaN:
+            return double_op ? "(((ulong(" + dx + ") >> 52) & 0x7fful) == 0x7fful && (ulong(" + dx + ") & 0x000ffffffffffffful) != 0ul)" : "isnan(" + fx + ")";
+        case DXILOP_IsInf:
+            return double_op ? "((ulong(" + dx + ") & 0x7ffffffffffffffful) == 0x7ff0000000000000ul)" : "isinf(" + fx + ")";
+        case DXILOP_IsFinite:
+            return double_op ? "(((ulong(" + dx + ") >> 52) & 0x7fful) != 0x7fful)" : "isfinite(" + fx + ")";
+        case DXILOP_IsNormal:
+            return double_op ? "((((ulong(" + dx + ") >> 52) & 0x7fful) != 0ul) && (((ulong(" + dx + ") >> 52) & 0x7fful) != 0x7fful))" : "isnormal(" + fx + ")";
         case DXILOP_Cos: return "cos(" + fx + ")";
         case DXILOP_Sin: return "sin(" + fx + ")";
         case DXILOP_Tan: return "tan(" + fx + ")";
@@ -5952,9 +5995,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (args.size() < 3) return "0";
         uint32_t op = literalArg(0, 0xFFFFFFFFu, "binary");
         auto a = numericArg(1, "0"), b = numericArg(2, "0");
+        const bool double_op = valueTypeOrUnknown(ctx, args[1]).kind == MSLTypeKind::Double ||
+                               valueTypeOrUnknown(ctx, args[2]).kind == MSLTypeKind::Double;
+        auto da = double_op ? doubleArg(1, "0") : a;
+        auto db = double_op ? doubleArg(2, "0") : b;
         switch (op) {
-        case DXILOP_FMax: return "max(static_cast<float>(" + a + "), static_cast<float>(" + b + "))";
-        case DXILOP_FMin: return "min(static_cast<float>(" + a + "), static_cast<float>(" + b + "))";
+        case DXILOP_FMax:
+            return double_op ? "(m12_f64_cmp(ulong(" + da + "), ulong(" + db + "), 3u) ? ulong(" + da + ") : ulong(" + db + "))" : "max(static_cast<float>(" + a + "), static_cast<float>(" + b + "))";
+        case DXILOP_FMin:
+            return double_op ? "(m12_f64_cmp(ulong(" + da + "), ulong(" + db + "), 4u) ? ulong(" + da + ") : ulong(" + db + "))" : "min(static_cast<float>(" + a + "), static_cast<float>(" + b + "))";
         case DXILOP_IMax: return "max(static_cast<int>(" + a + "), static_cast<int>(" + b + "))";
         case DXILOP_IMin: return "min(static_cast<int>(" + a + "), static_cast<int>(" + b + "))";
         case DXILOP_UMax: return "max((uint)(" + a + "), (uint)(" + b + "))";
@@ -5971,9 +6020,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (args.size() < 4) return "0";
         uint32_t op = literalArg(0, 0xFFFFFFFFu, "tertiary");
         auto a = numericArg(1, "0"), b = numericArg(2, "0"), c = numericArg(3, "0");
+        const bool double_op = valueTypeOrUnknown(ctx, args[1]).kind == MSLTypeKind::Double ||
+                               valueTypeOrUnknown(ctx, args[2]).kind == MSLTypeKind::Double ||
+                               valueTypeOrUnknown(ctx, args[3]).kind == MSLTypeKind::Double;
+        auto da = double_op ? doubleArg(1, "0") : a;
+        auto db = double_op ? doubleArg(2, "0") : b;
+        auto dc = double_op ? doubleArg(3, "0") : c;
         switch (op) {
         case DXILOP_FMad: case DXILOP_Fma:
-            return "fma(static_cast<float>(" + a + "), static_cast<float>(" + b +
+            return double_op ? "m12_f64_add(m12_f64_mul(ulong(" + da + "), ulong(" + db + ")), ulong(" + dc + "))" : "fma(static_cast<float>(" + a + "), static_cast<float>(" + b +
                    "), static_cast<float>(" + c + "))";
         case DXILOP_IMad: case DXILOP_UMad: return "((" + a + ") * (" + b + ") + (" + c + "))";
         case DXILOP_Msad: {
@@ -6568,6 +6623,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         auto pre_it = ctx.predeclared_types.find(value);
         if (!typeLooksResourceHandle(source) && pre_it != ctx.predeclared_types.end())
             source = pre_it->second;
+        if (target.kind == MSLTypeKind::Double &&
+            source.kind == MSLTypeKind::Double &&
+            !parseEmittedValueName(value, resolved_id))
+            return doubleLiteralExpression(value);
         if ((target.kind == MSLTypeKind::DeviceCharPtr ||
              target.kind == MSLTypeKind::ThreadgroupCharPtr) &&
             (startsWith(value, "tex") || startsWith(value, "samp")))
