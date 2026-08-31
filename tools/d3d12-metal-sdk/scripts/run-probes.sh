@@ -2659,6 +2659,19 @@ void cs_double_predicates(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_double_fma(uint3 id : SV_DispatchThreadID) {
+  double lhs = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double rhs = asdouble(inbuf.Load(8), inbuf.Load(12));
+  double addend = asdouble(inbuf.Load(16), inbuf.Load(20));
+  double result = fma(lhs, rhs, addend);
+  uint low = 0;
+  uint high = 0;
+  asuint(result, low, high);
+  outbuf.Store(0, low);
+  outbuf.Store(4, high);
+}
+
+[numthreads(1, 1, 1)]
 void cs_pack_unpack_8(uint3 id : SV_DispatchThreadID) {
   uint packed_u = pack_u8(uint4(1u, 258u, 65535u, 0xffffffffu));
   uint packed_s = pack_s8(int4(-1, 127, -128, 128));
@@ -2877,6 +2890,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_double_predicates -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_double_predicates.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_fma -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_fma.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_pack_unpack_8 -T cs_6_6 -HV 2021 \
