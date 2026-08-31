@@ -2657,6 +2657,38 @@ void cs_double_predicates(uint3 id : SV_DispatchThreadID) {
     outbuf.Store(i * 16 + 12, isnormal(source) ? 1u : 0u);
   }
 }
+
+[numthreads(1, 1, 1)]
+void cs_pack_unpack_8(uint3 id : SV_DispatchThreadID) {
+  uint packed_u = pack_u8(uint4(1u, 258u, 65535u, 0xffffffffu));
+  uint packed_s = pack_s8(int4(-1, 127, -128, 128));
+  uint packed_uc = pack_clamp_u8(int4(-1, 127, 256, 2));
+  uint packed_sc = pack_clamp_s8(int4(-200, -128, 127, 200));
+  uint4 unpack_u32 = unpack_u8u32(packed_u);
+  int4 unpack_s32 = unpack_s8s32(packed_s);
+  uint4 unpack_u16 = unpack_u8u16(packed_u);
+  int4 unpack_s16 = unpack_s8s16(packed_s);
+  outbuf.Store(0, packed_u);
+  outbuf.Store(4, packed_s);
+  outbuf.Store(8, packed_uc);
+  outbuf.Store(12, packed_sc);
+  outbuf.Store(16, unpack_u32.x);
+  outbuf.Store(20, unpack_u32.y);
+  outbuf.Store(24, unpack_u32.z);
+  outbuf.Store(28, unpack_u32.w);
+  outbuf.Store(32, asuint(unpack_s32.x));
+  outbuf.Store(36, asuint(unpack_s32.y));
+  outbuf.Store(40, asuint(unpack_s32.z));
+  outbuf.Store(44, asuint(unpack_s32.w));
+  outbuf.Store(48, uint(unpack_u16.x));
+  outbuf.Store(52, uint(unpack_u16.y));
+  outbuf.Store(56, uint(unpack_u16.z));
+  outbuf.Store(60, uint(unpack_u16.w));
+  outbuf.Store(64, asuint(int(unpack_s16.x)));
+  outbuf.Store(68, asuint(int(unpack_s16.y)));
+  outbuf.Store(72, asuint(int(unpack_s16.z)));
+  outbuf.Store(76, asuint(int(unpack_s16.w)));
+}
 HLSL_DOUBLE_BITCAST
 
   local sm69_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_sm69.hlsl"
@@ -2845,6 +2877,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_double_predicates -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_double_predicates.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_pack_unpack_8 -T cs_6_6 -HV 2021 \
+      -Fo probe_dxil_semantic_pack_unpack_8.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \
