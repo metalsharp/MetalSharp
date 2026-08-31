@@ -134,6 +134,29 @@ struct ID3D12StateObjectDatabaseFactoryCompat : public IUnknown {
                                                                         void** state_object_database) = 0;
 };
 
+// Agility 1.619 state-database-only descriptor forms are not present in the
+// vendored legacy header. Their values and layouts are defined by the stable
+// State Object Database contract.
+static constexpr UINT kGlobalSerializedRootSignatureType = 31u;
+static constexpr UINT kLocalSerializedRootSignatureType = 32u;
+static constexpr UINT kExistingCollectionByKeyType = 36u;
+struct SerializedRootSignatureDescCompat {
+    const void* pSerializedBlob;
+    SIZE_T SerializedBlobSizeInBytes;
+};
+struct GlobalSerializedRootSignatureCompat {
+    SerializedRootSignatureDescCompat Desc;
+};
+struct LocalSerializedRootSignatureCompat {
+    SerializedRootSignatureDescCompat Desc;
+};
+struct ExistingCollectionByKeyDescCompat {
+    const void* pKey;
+    UINT KeySize;
+    UINT NumExports;
+    const D3D12_EXPORT_DESC* pExports;
+};
+
 struct ApplicationCallbackState {
     bool called = false;
     std::wstring exe;
@@ -206,6 +229,16 @@ struct StateObjectCallbackState {
     UINT subobject_association_target_type = D3D12_STATE_SUBOBJECT_TYPE_MAX_VALID;
     UINT subobject_association_export_count = 0;
     std::wstring subobject_association_first_export;
+    bool serialized_root_signature_present = false;
+    UINT serialized_root_signature_type_mask = 0;
+    SIZE_T serialized_root_signature_size = 0;
+    UINT serialized_root_signature_first_byte = 0;
+    bool existing_collection_by_key_present = false;
+    UINT existing_collection_by_key_size = 0;
+    UINT existing_collection_by_key_first_byte = 0;
+    UINT existing_collection_by_key_export_count = 0;
+    std::wstring existing_collection_by_key_first_export;
+    std::wstring existing_collection_by_key_first_rename;
     std::array<uint8_t, 4> parent_key = {};
     UINT parent_key_size = 0;
 };
@@ -226,7 +259,51 @@ static void STDMETHODCALLTYPE state_object_callback(
             const auto& subobject = desc->pSubobjects[i];
             if (!subobject.pDesc)
                 continue;
-            switch (subobject.Type) {
+            if (static_cast<UINT>(subobject.Type) ==
+                kGlobalSerializedRootSignatureType ||
+                static_cast<UINT>(subobject.Type) ==
+                kLocalSerializedRootSignatureType) {
+                const auto* serialized =
+                    static_cast<const GlobalSerializedRootSignatureCompat*>(
+                        subobject.pDesc);
+                state->serialized_root_signature_present =
+                    serialized->Desc.pSerializedBlob != nullptr;
+                state->serialized_root_signature_type_mask |=
+                    static_cast<UINT>(subobject.Type) ==
+                            kGlobalSerializedRootSignatureType
+                        ? 1u
+                        : 2u;
+                state->serialized_root_signature_size =
+                    serialized->Desc.SerializedBlobSizeInBytes;
+                if (serialized->Desc.pSerializedBlob &&
+                    serialized->Desc.SerializedBlobSizeInBytes)
+                    state->serialized_root_signature_first_byte =
+                        static_cast<const uint8_t*>(
+                            serialized->Desc.pSerializedBlob)[0];
+            } else if (static_cast<UINT>(subobject.Type) ==
+                       kExistingCollectionByKeyType) {
+                const auto* collection =
+                    static_cast<const ExistingCollectionByKeyDescCompat*>(
+                        subobject.pDesc);
+                state->existing_collection_by_key_present =
+                    collection->pKey != nullptr;
+                state->existing_collection_by_key_size = collection->KeySize;
+                if (collection->pKey && collection->KeySize)
+                    state->existing_collection_by_key_first_byte =
+                        static_cast<const uint8_t*>(collection->pKey)[0];
+                state->existing_collection_by_key_export_count =
+                    collection->NumExports;
+                if (collection->NumExports && collection->pExports) {
+                    state->existing_collection_by_key_first_export =
+                        collection->pExports[0].Name
+                            ? collection->pExports[0].Name
+                            : L"";
+                    state->existing_collection_by_key_first_rename =
+                        collection->pExports[0].ExportToRename
+                            ? collection->pExports[0].ExportToRename
+                            : L"";
+                }
+            } else switch (subobject.Type) {
             case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
                 state->config_flags =
                     static_cast<const D3D12_STATE_OBJECT_CONFIG*>(
@@ -718,7 +795,34 @@ int main() {
     state_library.DXILLibrary.BytecodeLength = state_dxil_bytes.size();
     state_library.NumExports = 1;
     state_library.pExports = &state_export;
-    D3D12_STATE_SUBOBJECT state_subobjects[9] = {};
+    std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
+    std::array<uint8_t, 4> state_parent_key = {0x70, 0x61, 0x72, 0x00};
+    const auto expected_state_parent_key = state_parent_key;
+    const auto expected_root_signature_first_byte =
+        static_cast<const uint8_t*>(root_blob->GetBufferPointer())[0];
+    GlobalSerializedRootSignatureCompat global_serialized_root = {};
+    global_serialized_root.Desc.pSerializedBlob =
+        root_blob ? root_blob->GetBufferPointer() : nullptr;
+    global_serialized_root.Desc.SerializedBlobSizeInBytes =
+        root_blob ? root_blob->GetBufferSize() : 0;
+    LocalSerializedRootSignatureCompat local_serialized_root = {};
+    local_serialized_root.Desc.pSerializedBlob =
+        root_blob ? root_blob->GetBufferPointer() : nullptr;
+    local_serialized_root.Desc.SerializedBlobSizeInBytes =
+        root_blob ? root_blob->GetBufferSize() : 0;
+    wchar_t by_key_export_name[] = L"ByKeyExport";
+    wchar_t by_key_export_rename[] = L"ByKeyRenamed";
+    D3D12_EXPORT_DESC by_key_export = {};
+    by_key_export.Name = by_key_export_name;
+    by_key_export.ExportToRename = by_key_export_rename;
+    by_key_export.Flags = D3D12_EXPORT_FLAG_NONE;
+    ExistingCollectionByKeyDescCompat existing_collection_by_key = {};
+    existing_collection_by_key.pKey = state_parent_key.data();
+    existing_collection_by_key.KeySize =
+        static_cast<UINT>(state_parent_key.size());
+    existing_collection_by_key.NumExports = 1;
+    existing_collection_by_key.pExports = &by_key_export;
+    D3D12_STATE_SUBOBJECT state_subobjects[12] = {};
     state_subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
     state_subobjects[0].pDesc = &state_config;
     state_subobjects[1].Type = D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK;
@@ -763,12 +867,19 @@ int main() {
     state_subobjects[8].Type =
         D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
     state_subobjects[8].pDesc = &subobject_association;
+    state_subobjects[9].Type = static_cast<D3D12_STATE_SUBOBJECT_TYPE>(
+        kGlobalSerializedRootSignatureType);
+    state_subobjects[9].pDesc = &global_serialized_root;
+    state_subobjects[10].Type = static_cast<D3D12_STATE_SUBOBJECT_TYPE>(
+        kLocalSerializedRootSignatureType);
+    state_subobjects[10].pDesc = &local_serialized_root;
+    state_subobjects[11].Type = static_cast<D3D12_STATE_SUBOBJECT_TYPE>(
+        kExistingCollectionByKeyType);
+    state_subobjects[11].pDesc = &existing_collection_by_key;
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
-    state_desc.NumSubobjects = 9;
+    state_desc.NumSubobjects = 12;
     state_desc.pSubobjects = state_subobjects;
-    std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
-    std::array<uint8_t, 4> state_parent_key = {0x70, 0x61, 0x72, 0x00};
     HRESULT store_state_object_hr =
         database ? database->StoreStateObjectDesc(
                        state_key.data(), static_cast<UINT>(state_key.size()), 11,
@@ -776,6 +887,10 @@ int main() {
                        static_cast<UINT>(state_parent_key.size()))
                  : E_NOINTERFACE;
     state_dxil_bytes[0] = 0;
+    static_cast<uint8_t*>(root_blob->GetBufferPointer())[0] = 0xff;
+    state_parent_key[0] = 0xee;
+    by_key_export_name[0] = L'X';
+    by_key_export_rename[0] = L'Y';
     hit_group_export[0] = L'X';
     hit_group_any_hit[0] = L'Y';
     hit_group_closest_hit[0] = L'Z';
@@ -904,7 +1019,7 @@ int main() {
         SUCCEEDED(find_state_object_hr) && state_callback.called &&
         state_callback.version == 11 &&
         state_callback.type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-        state_callback.subobject_count == 9 &&
+        state_callback.subobject_count == 12 &&
         state_callback.first_subobject_type ==
             D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG &&
         state_callback.config_flags == state_config.Flags &&
@@ -938,8 +1053,24 @@ int main() {
             D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
         state_callback.subobject_association_export_count == 1 &&
         state_callback.subobject_association_first_export == L"RayGen" &&
-        state_callback.parent_key_size == state_parent_key.size() &&
-        state_callback.parent_key == state_parent_key &&
+        state_callback.serialized_root_signature_present &&
+        state_callback.serialized_root_signature_type_mask == 3 &&
+        state_callback.serialized_root_signature_size ==
+            root_blob->GetBufferSize() &&
+        state_callback.serialized_root_signature_first_byte ==
+            expected_root_signature_first_byte &&
+        state_callback.existing_collection_by_key_present &&
+        state_callback.existing_collection_by_key_size ==
+            expected_state_parent_key.size() &&
+        state_callback.existing_collection_by_key_first_byte ==
+            expected_state_parent_key[0] &&
+        state_callback.existing_collection_by_key_export_count == 1 &&
+        state_callback.existing_collection_by_key_first_export ==
+            L"ByKeyExport" &&
+        state_callback.existing_collection_by_key_first_rename ==
+            L"ByKeyRenamed" &&
+        state_callback.parent_key_size == expected_state_parent_key.size() &&
+        state_callback.parent_key == expected_state_parent_key &&
         SUCCEEDED(find_state_version_hr) && found_state_version == 11 &&
         store_unsupported_state_object_hr == E_NOTIMPL &&
         SUCCEEDED(reopen_database_hr) && SUCCEEDED(reopened_application_hr) &&
@@ -954,7 +1085,7 @@ int main() {
         reopened_pipeline_callback.size == sizeof(pipeline_stream) &&
         SUCCEEDED(reopened_state_hr) && reopened_state_callback.called &&
         reopened_state_callback.version == 11 &&
-        reopened_state_callback.subobject_count == 9 &&
+        reopened_state_callback.subobject_count == 12 &&
         reopened_state_callback.config_flags == state_config.Flags &&
         reopened_state_callback.node_mask == state_node_mask.NodeMask &&
         reopened_state_callback.max_payload_size ==
@@ -986,7 +1117,23 @@ int main() {
             D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
         reopened_state_callback.subobject_association_export_count == 1 &&
         reopened_state_callback.subobject_association_first_export == L"RayGen" &&
-        reopened_state_callback.parent_key == state_parent_key &&
+        reopened_state_callback.serialized_root_signature_present &&
+        reopened_state_callback.serialized_root_signature_type_mask == 3 &&
+        reopened_state_callback.serialized_root_signature_size ==
+            root_blob->GetBufferSize() &&
+        reopened_state_callback.serialized_root_signature_first_byte ==
+            expected_root_signature_first_byte &&
+        reopened_state_callback.existing_collection_by_key_present &&
+        reopened_state_callback.existing_collection_by_key_size ==
+            expected_state_parent_key.size() &&
+        reopened_state_callback.existing_collection_by_key_first_byte ==
+            expected_state_parent_key[0] &&
+        reopened_state_callback.existing_collection_by_key_export_count == 1 &&
+        reopened_state_callback.existing_collection_by_key_first_export ==
+            L"ByKeyExport" &&
+        reopened_state_callback.existing_collection_by_key_first_rename ==
+            L"ByKeyRenamed" &&
+        reopened_state_callback.parent_key == expected_state_parent_key &&
         SUCCEEDED(readonly_database_hr) && readonly_store_hr == E_ACCESSDENIED &&
         malformed_write_ok && malformed_database_hr ==
             HRESULT_FROM_WIN32(ERROR_BAD_FORMAT) && malformed_database == nullptr;
@@ -1097,6 +1244,19 @@ int main() {
                 state_callback.dxil_association_export_count);
     std::printf("    \"state_object_callback_subobject_association_target_type\": %u,\n",
                 state_callback.subobject_association_target_type);
+    std::printf("    \"state_object_serialized_root_signature_type_mask\": %u,\n",
+                state_callback.serialized_root_signature_type_mask);
+    std::printf("    \"state_object_serialized_root_signature_size\": %llu,\n",
+                static_cast<unsigned long long>(state_callback.serialized_root_signature_size));
+    std::printf("    \"state_object_serialized_root_signature_first_byte\": %u,\n",
+                state_callback.serialized_root_signature_first_byte);
+    std::printf("    \"state_object_existing_collection_by_key_size\": %u,\n",
+                state_callback.existing_collection_by_key_size);
+    std::printf("    \"state_object_existing_collection_by_key_export_count\": %u,\n",
+                state_callback.existing_collection_by_key_export_count);
+    std::printf("    \"state_object_existing_collection_by_key_first_export\": \"%s\",\n",
+                json_escape(std::string(state_callback.existing_collection_by_key_first_export.begin(),
+                                        state_callback.existing_collection_by_key_first_export.end())).c_str());
     std::printf("    \"state_object_parent_key_size\": %u,\n", state_callback.parent_key_size);
     std::printf("    \"state_object_file_persistence_verified\": %s,\n",
                 (SUCCEEDED(reopen_database_hr) && SUCCEEDED(reopened_application_hr) &&
