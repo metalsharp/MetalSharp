@@ -198,9 +198,10 @@ gradient, and static-offset lane returns packed exact value `0x14323232`.
 A pixel-stage derivative lane returns exact float bits `0x3f800000` for both
 clamped and unclamped `CalculateLevelOfDetail`, proving the logical 1D-to-Metal
 2D coordinate adaptation without relying on undefined compute derivatives.
-The same draw binds a regular sampled texture and a depth-comparison texture
-simultaneously; implicit and level-zero PCF sum to exact `1.0f`, proving
-per-slot depth typing and graphics-stage comparison sampling.
+The same draw binds a regular sampled texture plus 2D, logical 1D, and logical
+1D-array depth-comparison textures simultaneously. Implicit and level-zero PCF
+across those views sum to exact `3.0f` (`0x40400000`), proving per-slot depth
+typing, height-one depth backing, and graphics-stage comparison sampling.
 Clamp, wrap, mirror, border, and mirror-once address modes return distinct exact
 packed values, while transparent black, opaque black, and opaque white border
 colors return `0x00000000`, `0xff000000`, and `0xffffffff`. Dynamic sampler
@@ -217,8 +218,9 @@ compute depth comparisons use native Metal `sample_compare` rather than an
 unfiltered read/compare approximation. Profile `phase5-gather-final` passes
 all SM6.6/6.7 lanes with exact comparison-level readback `[25,75,1,1]`, exact
 point/linear/static-offset filtering `[0,128,255,0]`, and exact value `1` for
-the newer comparison gradient/bias lanes. Profile `phase5-cmp-dims3`
-additionally returns exact float bits
+the newer comparison gradient/bias lanes. Profiles `phase5-cmp1da1` and `phase5-cmp-dims3` return exact logical
+1D/1D-array and native array/cube comparison evidence. The latter returns
+exact float bits
 `[0x3f800000,0x3f800000,0x3f800000,0x40400000]` for depth 2D-array, cube,
 cube-array, and their sum. Depth SRVs now materialize Depth32 Metal views with
 the requested array/cube type instead of binding an incompatible underlying

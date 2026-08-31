@@ -3,6 +3,8 @@ SamplerComparisonState comparison_samp : register(s1);
 
 Texture1D<float4> tex1 : register(t0);
 Texture2D<float> comparison_tex : register(t1);
+Texture1D<float> comparison_tex1d : register(t2);
+Texture1DArray<float> comparison_tex1d_array : register(t3);
 Texture1DArray<float4> tex1a : register(t0);
 Texture2D<float4> tex2 : register(t0);
 Texture2DArray<float4> tex2a : register(t0);
@@ -50,9 +52,15 @@ float4 ps_texture_lod(LODVertexOutput input) : SV_Target0 {
       comparison_samp, float2(0.5, 0.5), 0.5);
   float comparison_level_zero = comparison_tex.SampleCmpLevelZero(
       comparison_samp, float2(0.5, 0.5), 0.5);
+  float comparison_1d = comparison_tex1d.SampleCmpLevelZero(
+      comparison_samp, 0.5, 0.5);
+  float comparison_1d_array = comparison_tex1d_array.SampleCmpLevelZero(
+      comparison_samp, float2(0.5, 1.0), 0.5);
   return float4(tex1.CalculateLevelOfDetail(samp, input.coordinate),
                 tex1.CalculateLevelOfDetailUnclamped(samp, input.coordinate),
-                comparison + comparison_level_zero, 1.0);
+                comparison + comparison_level_zero + comparison_1d +
+                    comparison_1d_array,
+                1.0);
 }
 
 [numthreads(4,1,1)]
