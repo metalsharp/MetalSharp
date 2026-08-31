@@ -192,6 +192,12 @@ struct StateObjectCallbackState {
     std::wstring dxil_first_export;
     std::wstring dxil_first_rename;
     UINT dxil_first_export_flags = 0;
+    bool hit_group_present = false;
+    UINT hit_group_type = 0;
+    std::wstring hit_group_export;
+    std::wstring hit_group_any_hit;
+    std::wstring hit_group_closest_hit;
+    std::wstring hit_group_intersection;
     std::array<uint8_t, 4> parent_key = {};
     UINT parent_key_size = 0;
 };
@@ -268,6 +274,28 @@ static void STDMETHODCALLTYPE state_object_callback(
                         state->dxil_first_export_flags =
                             static_cast<UINT>(library->pExports[0].Flags);
                     }
+                }
+                break;
+            }
+            case D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP: {
+                const auto* hit_group =
+                    static_cast<const D3D12_HIT_GROUP_DESC*>(subobject.pDesc);
+                state->hit_group_present = hit_group != nullptr;
+                if (hit_group) {
+                    state->hit_group_type = static_cast<UINT>(hit_group->Type);
+                    state->hit_group_export =
+                        hit_group->HitGroupExport ? hit_group->HitGroupExport : L"";
+                    state->hit_group_any_hit = hit_group->AnyHitShaderImport
+                                                   ? hit_group->AnyHitShaderImport
+                                                   : L"";
+                    state->hit_group_closest_hit =
+                        hit_group->ClosestHitShaderImport
+                            ? hit_group->ClosestHitShaderImport
+                            : L"";
+                    state->hit_group_intersection =
+                        hit_group->IntersectionShaderImport
+                            ? hit_group->IntersectionShaderImport
+                            : L"";
                 }
                 break;
             }
@@ -646,7 +674,7 @@ int main() {
     state_library.DXILLibrary.BytecodeLength = state_dxil_bytes.size();
     state_library.NumExports = 1;
     state_library.pExports = &state_export;
-    D3D12_STATE_SUBOBJECT state_subobjects[6] = {};
+    D3D12_STATE_SUBOBJECT state_subobjects[7] = {};
     state_subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
     state_subobjects[0].pDesc = &state_config;
     state_subobjects[1].Type = D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK;
@@ -659,9 +687,21 @@ int main() {
     state_subobjects[4].pDesc = &state_pipeline_config1;
     state_subobjects[5].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
     state_subobjects[5].pDesc = &state_library;
+    wchar_t hit_group_export[] = L"HitGroup";
+    wchar_t hit_group_any_hit[] = L"AnyHit";
+    wchar_t hit_group_closest_hit[] = L"ClosestHit";
+    wchar_t hit_group_intersection[] = L"Intersection";
+    D3D12_HIT_GROUP_DESC hit_group = {};
+    hit_group.HitGroupExport = hit_group_export;
+    hit_group.Type = D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE;
+    hit_group.AnyHitShaderImport = hit_group_any_hit;
+    hit_group.ClosestHitShaderImport = hit_group_closest_hit;
+    hit_group.IntersectionShaderImport = hit_group_intersection;
+    state_subobjects[6].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+    state_subobjects[6].pDesc = &hit_group;
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
-    state_desc.NumSubobjects = 6;
+    state_desc.NumSubobjects = 7;
     state_desc.pSubobjects = state_subobjects;
     std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
     std::array<uint8_t, 4> state_parent_key = {0x70, 0x61, 0x72, 0x00};
@@ -672,6 +712,10 @@ int main() {
                        static_cast<UINT>(state_parent_key.size()))
                  : E_NOINTERFACE;
     state_dxil_bytes[0] = 0;
+    hit_group_export[0] = L'X';
+    hit_group_any_hit[0] = L'Y';
+    hit_group_closest_hit[0] = L'Z';
+    hit_group_intersection[0] = L'W';
     StateObjectCallbackState state_callback = {};
     HRESULT find_state_object_hr =
         database ? database->FindStateObjectDesc(
@@ -793,7 +837,7 @@ int main() {
         SUCCEEDED(find_state_object_hr) && state_callback.called &&
         state_callback.version == 11 &&
         state_callback.type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-        state_callback.subobject_count == 6 &&
+        state_callback.subobject_count == 7 &&
         state_callback.first_subobject_type ==
             D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG &&
         state_callback.config_flags == state_config.Flags &&
@@ -812,6 +856,12 @@ int main() {
         state_callback.dxil_first_export == L"RayGen" &&
         state_callback.dxil_first_rename == L"RayGenRenamed" &&
         state_callback.dxil_first_export_flags == 0 &&
+        state_callback.hit_group_present &&
+        state_callback.hit_group_type == D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE &&
+        state_callback.hit_group_export == L"HitGroup" &&
+        state_callback.hit_group_any_hit == L"AnyHit" &&
+        state_callback.hit_group_closest_hit == L"ClosestHit" &&
+        state_callback.hit_group_intersection == L"Intersection" &&
         state_callback.parent_key_size == state_parent_key.size() &&
         state_callback.parent_key == state_parent_key &&
         SUCCEEDED(find_state_version_hr) && found_state_version == 11 &&
@@ -828,7 +878,7 @@ int main() {
         reopened_pipeline_callback.size == sizeof(pipeline_stream) &&
         SUCCEEDED(reopened_state_hr) && reopened_state_callback.called &&
         reopened_state_callback.version == 11 &&
-        reopened_state_callback.subobject_count == 6 &&
+        reopened_state_callback.subobject_count == 7 &&
         reopened_state_callback.config_flags == state_config.Flags &&
         reopened_state_callback.node_mask == state_node_mask.NodeMask &&
         reopened_state_callback.max_payload_size ==
@@ -845,6 +895,12 @@ int main() {
         reopened_state_callback.dxil_first_export == L"RayGen" &&
         reopened_state_callback.dxil_first_rename == L"RayGenRenamed" &&
         reopened_state_callback.dxil_first_export_flags == 0 &&
+        reopened_state_callback.hit_group_present &&
+        reopened_state_callback.hit_group_type == D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE &&
+        reopened_state_callback.hit_group_export == L"HitGroup" &&
+        reopened_state_callback.hit_group_any_hit == L"AnyHit" &&
+        reopened_state_callback.hit_group_closest_hit == L"ClosestHit" &&
+        reopened_state_callback.hit_group_intersection == L"Intersection" &&
         reopened_state_callback.parent_key == state_parent_key &&
         SUCCEEDED(readonly_database_hr) && readonly_store_hr == E_ACCESSDENIED &&
         malformed_write_ok && malformed_database_hr ==
@@ -950,6 +1006,8 @@ int main() {
                 state_callback.dxil_export_count);
     std::printf("    \"state_object_callback_dxil_first_export_flags\": %u,\n",
                 state_callback.dxil_first_export_flags);
+    std::printf("    \"state_object_callback_hit_group_type\": %u,\n",
+                state_callback.hit_group_type);
     std::printf("    \"state_object_parent_key_size\": %u,\n", state_callback.parent_key_size);
     std::printf("    \"state_object_file_persistence_verified\": %s,\n",
                 (SUCCEEDED(reopen_database_hr) && SUCCEEDED(reopened_application_hr) &&
