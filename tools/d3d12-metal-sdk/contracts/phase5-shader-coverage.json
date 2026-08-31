@@ -95,7 +95,7 @@
       "checks": [
         ["ok"]
       ],
-      "remaining": "A source chain of three noinline-marked helpers built with -Od returns exact [42,66,98,138] after DXC entry-point optimization. Preserved DXIL library calls, exported helpers, recursion rejection, and broader parameter/result shapes remain in the exhaustive row."
+      "remaining": "A source chain of three helper functions returns exact [42,66,98,138] after validated DXC entry-point optimization. Preserved DXIL library calls, exported helpers, recursion rejection, and broader parameter/result shapes remain in the exhaustive row."
     },
     {
       "id": "dxil-native16-arithmetic-runtime",
@@ -113,7 +113,7 @@
       "checks": [
         ["ok"]
       ],
-      "remaining": "The source-staged lane proves the selected double arithmetic expression through exact integer readback; broader double precision, make/split, bitcast, and capability semantics remain in the exhaustive row."
+      "remaining": "The source-staged lane proves the selected double arithmetic expression through exact integer readback. Runtime-input lanes preserve the exact IEEE-754 binary64 payload 0x400921fb54442d18 through DXIL makeDouble/splitDouble and integer/double bitcasts, execute software binary64 addition/subtraction, and match an eight-case exact-bit matrix covering signs, cancellation, subnormals, overflow, infinities/NaN, and round-to-nearest-even boundaries. Generated MSL contains no unsupported native double spelling. General binary64 multiply/divide/remainder, comparison, and conversion breadth remains in the exhaustive row."
     },
     {
       "id": "wave-quad-runtime-matrix",
