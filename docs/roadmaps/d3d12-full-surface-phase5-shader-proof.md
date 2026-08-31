@@ -159,14 +159,15 @@
   `pipeline_library_serialization_pass`, `pipeline_library_recreation_pass`,
   `shader_cache_session_pass`, and `shader_cache_disk_session_pass` are true.
   The recreated stored compute pipeline dispatches and returns exact value 42.
-  Profile `phase5-statedb-malformed` additionally proves device-configuration and
+  Profile `phase5-config1` additionally proves device-configuration and
   state-object-database factory routing, pipeline descriptor version `7`, and
-  collection descriptor version `11` with four deeply copied fixed-size
+  collection descriptor version `11` with five deeply copied fixed-size
   subobjects: `STATE_OBJECT_CONFIG Flags=1`, node mask `3`, shader payload /
-  attribute sizes `32/8`, and pipeline recursion depth `2`, plus an exact
-  four-byte parent-key callback round-trip. The application executable/name/
+  attribute sizes `32/8`, pipeline recursion depth `2`, and
+  `RAYTRACING_PIPELINE_CONFIG1` recursion depth `3` / flags `SKIP_TRIANGLES`
+  (`256`), plus an exact four-byte parent-key callback round-trip. The application executable/name/
   engine/version descriptor also survives caller-string mutation through a
-  deep-copy callback round-trip. Profile `phase5-statedb-malformed` reloads
+  deep-copy callback round-trip. Profile `phase5-config1` reloads
   all three descriptor classes in a fresh database instance, rejects a
   read-only store with `E_ACCESSDENIED`, and rejects a malformed file with
   `ERROR_BAD_FORMAT`; the probe removes both disposable database files. These
