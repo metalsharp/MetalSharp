@@ -398,7 +398,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         }
         if (SUCCEEDED(hr)) {
             texture_desc.Width = 4;
-            texture_desc.Format = DXGI_FORMAT_R32_FLOAT;
+            texture_desc.Format = DXGI_FORMAT_R32_UINT;
             texture_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
             hr = device->CreateCommittedResource(
                 &props, D3D12_HEAP_FLAG_NONE, &texture_desc,
@@ -510,7 +510,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         cpu.ptr += resource_stride;
         if (direct_texture_store_case) {
             D3D12_UNORDERED_ACCESS_VIEW_DESC texture_uav = {};
-            texture_uav.Format = DXGI_FORMAT_R32_FLOAT;
+            texture_uav.Format = DXGI_FORMAT_R32_UINT;
             texture_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
             device->CreateUnorderedAccessView(rw_texture0, nullptr,
                                               &texture_uav, cpu);
@@ -745,7 +745,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             D3D12_TEXTURE_COPY_LOCATION dst_buffer = {};
             dst_buffer.pResource = readback;
             dst_buffer.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            dst_buffer.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_FLOAT;
+            dst_buffer.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R32_UINT;
             dst_buffer.PlacedFootprint.Footprint.Width = 4;
             dst_buffer.PlacedFootprint.Footprint.Height = 1;
             dst_buffer.PlacedFootprint.Footprint.Depth = 1;
@@ -845,8 +845,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "texture_store_direct_heap_descriptor_indexing") == 0) {
-                const uint32_t expected[] = {0x447ac000, 0x447b0000,
-                                             0x447b4000, 0x447b8000};
+                const uint32_t expected[] = {1003, 1004, 1005, 1006};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "rw_structured_descriptor_indexing") == 0) {
@@ -1328,8 +1327,8 @@ void cs_texture_sample_direct_heap_descriptor_indexing(
 [numthreads(4, 1, 1)]
 void cs_texture_store_direct_heap_descriptor_indexing(
     uint3 id : SV_DispatchThreadID) {
-  RWTexture2D<float> selected = ResourceDescriptorHeap[2u + (selector & 1u)];
-  selected[uint2(id.x, 0)] = float(1000u + id.x + addend);
+  RWTexture2D<uint> selected = ResourceDescriptorHeap[2u + (selector & 1u)];
+  selected[uint2(id.x, 0)] = 1000u + id.x + addend;
 }
 
 [numthreads(4, 1, 1)]
