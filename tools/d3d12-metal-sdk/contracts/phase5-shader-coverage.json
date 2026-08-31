@@ -80,6 +80,15 @@
       "remaining": "The source-staged vector lane proves a four-component shuffle and aggregate arithmetic across four dispatch lanes; broader vector comparisons, inserts, matrices, and aggregate memory forms remain in the exhaustive row."
     },
     {
+      "id": "dxil-matrix-aggregate-runtime",
+      "status": "closed",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The source-staged 2x2 matrix construction, row extraction, vector-matrix multiply, and aggregate arithmetic return exact [17,27,37,47]. Broader matrix dimensions, matrix memory layouts, conversions, and helper-function boundaries remain in the exhaustive row."
+    },
+    {
       "id": "dxil-double-arithmetic-runtime",
       "status": "closed",
       "result": "probe-dxil-semantics",
