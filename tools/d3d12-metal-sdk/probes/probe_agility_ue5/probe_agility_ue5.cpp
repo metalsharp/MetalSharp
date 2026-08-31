@@ -202,6 +202,10 @@ struct StateObjectCallbackState {
     std::wstring dxil_association_target;
     UINT dxil_association_export_count = 0;
     std::wstring dxil_association_first_export;
+    bool subobject_association_present = false;
+    UINT subobject_association_target_type = D3D12_STATE_SUBOBJECT_TYPE_MAX_VALID;
+    UINT subobject_association_export_count = 0;
+    std::wstring subobject_association_first_export;
     std::array<uint8_t, 4> parent_key = {};
     UINT parent_key_size = 0;
 };
@@ -316,6 +320,25 @@ static void STDMETHODCALLTYPE state_object_callback(
                     state->dxil_association_export_count = association->NumExports;
                     if (association->NumExports && association->pExports)
                         state->dxil_association_first_export =
+                            association->pExports[0] ? association->pExports[0] : L"";
+                }
+                break;
+            }
+            case D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION: {
+                const auto* association =
+                    static_cast<const D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION*>(
+                        subobject.pDesc);
+                state->subobject_association_present = association != nullptr;
+                if (association) {
+                    state->subobject_association_target_type =
+                        association->pSubobjectToAssociate
+                            ? static_cast<UINT>(
+                                  association->pSubobjectToAssociate->Type)
+                            : static_cast<UINT>(D3D12_STATE_SUBOBJECT_TYPE_MAX_VALID);
+                    state->subobject_association_export_count =
+                        association->NumExports;
+                    if (association->NumExports && association->pExports)
+                        state->subobject_association_first_export =
                             association->pExports[0] ? association->pExports[0] : L"";
                 }
                 break;
@@ -695,7 +718,7 @@ int main() {
     state_library.DXILLibrary.BytecodeLength = state_dxil_bytes.size();
     state_library.NumExports = 1;
     state_library.pExports = &state_export;
-    D3D12_STATE_SUBOBJECT state_subobjects[8] = {};
+    D3D12_STATE_SUBOBJECT state_subobjects[9] = {};
     state_subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
     state_subobjects[0].pDesc = &state_config;
     state_subobjects[1].Type = D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK;
@@ -730,9 +753,19 @@ int main() {
     state_subobjects[7].Type =
         D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
     state_subobjects[7].pDesc = &association;
+    wchar_t subobject_association_export_name[] = L"RayGen";
+    const wchar_t* subobject_association_exports[] = {
+        subobject_association_export_name};
+    D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION subobject_association = {};
+    subobject_association.pSubobjectToAssociate = &state_subobjects[6];
+    subobject_association.NumExports = 1;
+    subobject_association.pExports = subobject_association_exports;
+    state_subobjects[8].Type =
+        D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+    state_subobjects[8].pDesc = &subobject_association;
     D3D12_STATE_OBJECT_DESC state_desc = {};
     state_desc.Type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
-    state_desc.NumSubobjects = 8;
+    state_desc.NumSubobjects = 9;
     state_desc.pSubobjects = state_subobjects;
     std::array<uint8_t, 4> state_key = {0x73, 0x6f, 0x31, 0x00};
     std::array<uint8_t, 4> state_parent_key = {0x70, 0x61, 0x72, 0x00};
@@ -749,6 +782,7 @@ int main() {
     hit_group_intersection[0] = L'W';
     association_target[0] = L'X';
     association_export_name[0] = L'Y';
+    subobject_association_export_name[0] = L'Z';
     StateObjectCallbackState state_callback = {};
     HRESULT find_state_object_hr =
         database ? database->FindStateObjectDesc(
@@ -870,7 +904,7 @@ int main() {
         SUCCEEDED(find_state_object_hr) && state_callback.called &&
         state_callback.version == 11 &&
         state_callback.type == D3D12_STATE_OBJECT_TYPE_COLLECTION &&
-        state_callback.subobject_count == 8 &&
+        state_callback.subobject_count == 9 &&
         state_callback.first_subobject_type ==
             D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG &&
         state_callback.config_flags == state_config.Flags &&
@@ -899,6 +933,11 @@ int main() {
         state_callback.dxil_association_target == L"HitGroup" &&
         state_callback.dxil_association_export_count == 1 &&
         state_callback.dxil_association_first_export == L"RayGen" &&
+        state_callback.subobject_association_present &&
+        state_callback.subobject_association_target_type ==
+            D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
+        state_callback.subobject_association_export_count == 1 &&
+        state_callback.subobject_association_first_export == L"RayGen" &&
         state_callback.parent_key_size == state_parent_key.size() &&
         state_callback.parent_key == state_parent_key &&
         SUCCEEDED(find_state_version_hr) && found_state_version == 11 &&
@@ -915,7 +954,7 @@ int main() {
         reopened_pipeline_callback.size == sizeof(pipeline_stream) &&
         SUCCEEDED(reopened_state_hr) && reopened_state_callback.called &&
         reopened_state_callback.version == 11 &&
-        reopened_state_callback.subobject_count == 8 &&
+        reopened_state_callback.subobject_count == 9 &&
         reopened_state_callback.config_flags == state_config.Flags &&
         reopened_state_callback.node_mask == state_node_mask.NodeMask &&
         reopened_state_callback.max_payload_size ==
@@ -942,6 +981,11 @@ int main() {
         reopened_state_callback.dxil_association_target == L"HitGroup" &&
         reopened_state_callback.dxil_association_export_count == 1 &&
         reopened_state_callback.dxil_association_first_export == L"RayGen" &&
+        reopened_state_callback.subobject_association_present &&
+        reopened_state_callback.subobject_association_target_type ==
+            D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP &&
+        reopened_state_callback.subobject_association_export_count == 1 &&
+        reopened_state_callback.subobject_association_first_export == L"RayGen" &&
         reopened_state_callback.parent_key == state_parent_key &&
         SUCCEEDED(readonly_database_hr) && readonly_store_hr == E_ACCESSDENIED &&
         malformed_write_ok && malformed_database_hr ==
@@ -1051,6 +1095,8 @@ int main() {
                 state_callback.hit_group_type);
     std::printf("    \"state_object_callback_dxil_association_export_count\": %u,\n",
                 state_callback.dxil_association_export_count);
+    std::printf("    \"state_object_callback_subobject_association_target_type\": %u,\n",
+                state_callback.subobject_association_target_type);
     std::printf("    \"state_object_parent_key_size\": %u,\n", state_callback.parent_key_size);
     std::printf("    \"state_object_file_persistence_verified\": %s,\n",
                 (SUCCEEDED(reopen_database_hr) && SUCCEEDED(reopened_application_hr) &&
