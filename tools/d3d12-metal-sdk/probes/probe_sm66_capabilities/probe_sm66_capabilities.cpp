@@ -235,7 +235,7 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     ranges[1].BaseShaderRegister = 0;
     ranges[1].OffsetInDescriptorsFromTableStart = 0;
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-    ranges[2].NumDescriptors = 3;
+    ranges[2].NumDescriptors = 4;
     ranges[2].BaseShaderRegister = 0;
     ranges[2].OffsetInDescriptorsFromTableStart = 0;
 
@@ -308,7 +308,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-        heap_desc.NumDescriptors = 3;
+        heap_desc.NumDescriptors = 4;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&sampler_heap));
     }
@@ -523,6 +523,20 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         comparison_linear_sampler.ptr +=
             device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
         device->CreateSampler(&sampler, comparison_linear_sampler);
+        sampler.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
+        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler.BorderColor[0] = 1.0f;
+        sampler.BorderColor[1] = 1.0f;
+        sampler.BorderColor[2] = 1.0f;
+        sampler.BorderColor[3] = 1.0f;
+        D3D12_CPU_DESCRIPTOR_HANDLE comparison_border_sampler =
+            comparison_linear_sampler;
+        comparison_border_sampler.ptr +=
+            device->GetDescriptorHandleIncrementSize(
+                D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+        device->CreateSampler(&sampler, comparison_border_sampler);
 
         D3D12_TEXTURE_COPY_LOCATION dst = {};
         dst.pResource = texture;
@@ -684,6 +698,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                     result.expected[16] = result.observed[16];
             } else if (std::strcmp(audit_case.name, "quad_vote_sm67") == 0) {
                 std::fill(result.expected, result.expected + 32, 3u);
+            } else if (std::strcmp(audit_case.name, "sample_cmp_border_sm67") == 0) {
+                const uint32_t expected[] = {1, 0, 0, 0};
+                std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "sample_cmp_dimensions") == 0) {
                 const uint32_t expected[] = {
                     0x3f800000u, 0x3f800000u, 0x3f800000u, 0x40400000u};
@@ -832,6 +849,7 @@ TextureCubeArray<float> comparison_cube_array_tex : register(t7);
 SamplerState smp : register(s0);
 SamplerComparisonState comparison_smp : register(s1);
 SamplerComparisonState comparison_linear_smp : register(s2);
+SamplerComparisonState comparison_border_smp : register(s3);
 
 cbuffer RootConstants : register(b0) {
   uint selector;
@@ -1150,6 +1168,13 @@ void cs_sample_cmp_filter_sm67(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_sample_cmp_border_sm67() {
+  float border_value = comparison_tex.SampleCmpLevelZero(
+      comparison_border_smp, float2(-0.25, 0.5), 0.5);
+  outbuf.Store(0, (uint)border_value);
+}
+
+[numthreads(1, 1, 1)]
 void cs_sample_cmp_grad_sm68(uint3 id : SV_DispatchThreadID) {
   float value = comparison_tex.SampleCmpGrad(
       comparison_smp, float2(0.5, 0.5), 0.5,
@@ -1234,6 +1259,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"texture_gather_cmp_offset_sm67", "cs_texture_gather_cmp_offset_sm67", "cs_6_7", "sm67_texture_gather_cmp_offset", true},
         {"sample_cmp_level_sm67", "cs_sample_cmp_level_sm67", "cs_6_7", "sm67_sample_cmp_level", true},
         {"sample_cmp_filter_sm67", "cs_sample_cmp_filter_sm67", "cs_6_7", "sm67_sample_cmp_filter", true},
+        {"sample_cmp_border_sm67", "cs_sample_cmp_border_sm67", "cs_6_7", "sm67_sample_cmp_border", true},
         {"sample_cmp_grad_sm68", "cs_sample_cmp_grad_sm68", "cs_6_8", "sm68_sample_cmp_gradient", true},
         {"sample_cmp_bias_sm68", "cs_sample_cmp_bias_sm68", "cs_6_8", "sm68_sample_cmp_bias", true},
         {"sample_cmp_dimensions", "cs_sample_cmp_dimensions", "cs_6_7", "sample_cmp_array_cube", true},
