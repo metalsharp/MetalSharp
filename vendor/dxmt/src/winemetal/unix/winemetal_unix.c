@@ -184,6 +184,10 @@ winemetal_render_command_name(uint16_t type) {
     return "SetMeshSamplerState";
   case WMTRenderCommandSetObjectSamplerState:
     return "SetObjectSamplerState";
+  case WMTRenderCommandSetVertexTexture:
+    return "SetVertexTexture";
+  case WMTRenderCommandSetVertexSamplerState:
+    return "SetVertexSamplerState";
   default:
     return "Unknown";
   }
@@ -229,6 +233,7 @@ winemetal_log_render_command(
     fprintf(dl, " offset=%llu index=%u", (unsigned long long)body->offset, body->index);
     break;
   }
+  case WMTRenderCommandSetVertexTexture:
   case WMTRenderCommandSetFragmentTexture: {
     const struct wmtcmd_render_settexture *body = (const struct wmtcmd_render_settexture *)cmd;
     fprintf(dl, " texture=%p index=%u", (void *)body->texture, body->index);
@@ -2186,9 +2191,19 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
         [encoder setFragmentBytes:body->bytes.ptr length:body->length atIndex:body->index];
         break;
       }
+      case WMTRenderCommandSetVertexTexture: {
+        struct wmtcmd_render_settexture *body = (struct wmtcmd_render_settexture *)next;
+        [encoder setVertexTexture:(id<MTLTexture>)body->texture atIndex:body->index];
+        break;
+      }
       case WMTRenderCommandSetFragmentTexture: {
         struct wmtcmd_render_settexture *body = (struct wmtcmd_render_settexture *)next;
         [encoder setFragmentTexture:(id<MTLTexture>)body->texture atIndex:body->index];
+        break;
+      }
+      case WMTRenderCommandSetVertexSamplerState: {
+        struct wmtcmd_render_setsamplerstate *body = (struct wmtcmd_render_setsamplerstate *)next;
+        [encoder setVertexSamplerState:(id<MTLSamplerState>)body->sampler atIndex:body->index];
         break;
       }
       case WMTRenderCommandSetFragmentSamplerState: {

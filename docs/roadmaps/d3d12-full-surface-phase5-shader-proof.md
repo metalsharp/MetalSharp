@@ -208,10 +208,12 @@ gradient, and static-offset lane returns packed exact value `0x14323232`.
 A pixel-stage derivative lane returns exact float bits `0x3f800000` for both
 clamped and unclamped `CalculateLevelOfDetail`, proving the logical 1D-to-Metal
 2D coordinate adaptation without relying on undefined compute derivatives.
-The same draw binds a regular sampled texture plus 2D, logical 1D, and logical
-1D-array depth-comparison textures simultaneously. Implicit and level-zero PCF
-across those views sum to exact `3.0f` (`0x40400000`), proving per-slot depth
-typing, height-one depth backing, and graphics-stage comparison sampling.
+Profile `phase5-vs-cmp4` binds a regular sampled texture plus 2D, logical 1D,
+and logical 1D-array depth-comparison textures simultaneously. Vertex- and
+pixel-stage level-zero/implicit PCF across those views sum to exact `4.0f`
+(`0x40800000`). Vertex textures and samplers are now carried through the
+WineMetal render-command bridge, while per-slot depth typing preserves mixed
+regular/depth declarations and height-one backing.
 Clamp, wrap, mirror, border, and mirror-once address modes return distinct exact
 packed values, while transparent black, opaque black, and opaque white border
 colors return `0x00000000`, `0xff000000`, and `0xffffffff`. Dynamic sampler

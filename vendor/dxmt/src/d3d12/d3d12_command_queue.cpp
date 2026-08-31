@@ -3012,6 +3012,15 @@ struct ReplayState {
     return ok;
   }
 
+  bool SetVertexTextureTracked(WMT::Texture texture, uint32_t slot) {
+    if (slot > 0xffu)
+      return false;
+    bool ok = render_enc.setVertexTexture(texture, (uint8_t)slot);
+    if (ok)
+      RetainMTLObjectForCompletion(texture);
+    return ok;
+  }
+
   bool SetFragmentTextureTracked(WMT::Texture texture, uint32_t slot,
                                  bool fallback = false) {
     if (slot > 0xffu)
@@ -3021,6 +3030,15 @@ struct ReplayState {
       MarkFragmentTextureBound(slot, fallback);
       RetainMTLObjectForCompletion(texture);
     }
+    return ok;
+  }
+
+  bool SetVertexSamplerTracked(WMT::SamplerState sampler, uint32_t slot) {
+    if (slot > 0xffu || !sampler.handle)
+      return false;
+    bool ok = render_enc.setVertexSamplerState(sampler, slot);
+    if (ok)
+      RetainMTLObjectForCompletion(sampler);
     return ok;
   }
 
@@ -6510,6 +6528,9 @@ struct ReplayState {
           }
           if (shader_register < 4 && desc->metal_sampler.handle) {
             if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+                vis == D3D12_SHADER_VISIBILITY_VERTEX)
+              SetVertexSamplerTracked(desc->metal_sampler, shader_register);
+            if (vis == D3D12_SHADER_VISIBILITY_ALL ||
                 vis == D3D12_SHADER_VISIBILITY_PIXEL)
               SetFragmentSamplerTracked(desc->metal_sampler, shader_register);
             if (UsesGeometryMeshPipeline()) {
@@ -6648,6 +6669,9 @@ struct ReplayState {
         } else if (auto tex = DescriptorTexture(desc, res);
                    tex.handle &&
                    range_type != D3D12_DESCRIPTOR_RANGE_TYPE_CBV) {
+          if (vis == D3D12_SHADER_VISIBILITY_ALL ||
+              vis == D3D12_SHADER_VISIBILITY_VERTEX)
+            SetVertexTextureTracked(tex, shader_register);
           if (vis == D3D12_SHADER_VISIBILITY_ALL ||
               vis == D3D12_SHADER_VISIBILITY_PIXEL)
             SetFragmentTextureTracked(tex, shader_register);

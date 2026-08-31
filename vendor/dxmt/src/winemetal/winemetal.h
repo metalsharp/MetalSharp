@@ -1583,6 +1583,8 @@ enum WMTRenderCommandType : uint16_t {
   WMTRenderCommandSetObjectTexture,
   WMTRenderCommandSetMeshSamplerState,
   WMTRenderCommandSetObjectSamplerState,
+  WMTRenderCommandSetVertexTexture,
+  WMTRenderCommandSetVertexSamplerState,
 };
 
 struct wmtcmd_render_nop {
