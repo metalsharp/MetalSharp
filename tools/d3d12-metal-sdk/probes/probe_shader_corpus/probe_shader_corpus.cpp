@@ -540,6 +540,13 @@ void cs_sm69(uint3 id : SV_DispatchThreadID) {
   out_uav.Store(id.x * 4, uint(value));
 }
 
+[numthreads(1, 1, 1)]
+void cs_fdot_sm69(uint3 id : SV_DispatchThreadID) {
+  float4 a = float4(1.0f, 2.0f, 3.0f, 4.0f);
+  float4 b = float4(4.0f, 3.0f, 2.0f, 1.0f);
+  out_uav.Store(0, asuint(dot(a, b)));
+}
+
 [numthreads(4, 1, 1)]
 void cs_resource_indexing(uint3 id : SV_DispatchThreadID) {
   uint index = selector & 1u;
@@ -611,6 +618,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
         {"sm67_vector_int64", "sm67_through_sm69_progression", "cs_sm67", "cs_6_7", false, false},
         {"sm68_vector_arithmetic", "sm67_through_sm69_progression", "cs_sm68", "cs_6_8", false, false},
         {"sm69_integer_float_mix", "sm67_through_sm69_progression", "cs_sm69", "cs_6_9", false, false},
+        {"sm69_fdot", "sm67_through_sm69_progression", "cs_fdot_sm69", "cs_6_9", false, false},
         {"resource_indexing", "resource_indexing", "cs_resource_indexing", "cs_6_0", false, false},
         {"append_counter_link", "append_counter_link", "cs_append_counter", "cs_6_0", false, false},
         {"two_counter_fail_closed", "counter_fail_closed", "cs_two_append_counters", "cs_6_0", false, false, true},

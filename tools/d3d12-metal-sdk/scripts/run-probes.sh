@@ -2398,6 +2398,13 @@ void cs_sm68(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(id.x * 4, uint(wide));
 }
 
+[numthreads(1, 1, 1)]
+void cs_fdot_sm69(uint3 id : SV_DispatchThreadID) {
+  float4 a = float4(1.0f, 2.0f, 3.0f, 4.0f);
+  float4 b = float4(4.0f, 3.0f, 2.0f, 1.0f);
+  outbuf.Store(0, asuint(dot(a, b)));
+}
+
 [numthreads(4, 1, 1)]
 void cs_control_aggregate(uint3 id : SV_DispatchThreadID) {
   uint4 lanes = uint4(id.x + 1u, id.x + 2u, id.x + 3u, id.x + 4u);
@@ -2869,6 +2876,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm68 -T cs_6_8 -HV 2021 \
       -Fo probe_dxil_semantic_sm68.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_fdot_sm69 -T cs_6_9 -HV 2021 \
+      -Fo probe_dxil_semantic_fdot_sm69.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_control_aggregate -T cs_6_0 -HV 2021 \

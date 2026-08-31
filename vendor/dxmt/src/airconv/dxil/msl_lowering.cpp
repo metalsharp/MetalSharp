@@ -4594,6 +4594,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return fallback;
     };
 
+    auto vectorArg = [&](size_t arg, const char *fallback) -> std::string {
+        if (arg >= args.size()) return fallback;
+        std::string value = resolveValue(ctx, args[arg]);
+        if (value.empty() || startsWith(value, "dx.") ||
+            exprLooksResourceHandle(value) || exprContainsPointerSyntax(value))
+            return fallback;
+        return value;
+    };
+
     auto numericArg = [&](size_t arg, const char *fallback) -> std::string {
         if (arg >= args.size()) return fallback;
         uint32_t idx = args[arg];
@@ -6402,6 +6411,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return result;
         }
         return "((" + numericArg(0,"0.0") + ")*(" + numericArg(3,"0.0") + ") + (" + numericArg(1,"0.0") + ")*(" + numericArg(4,"0.0") + ") + (" + numericArg(2,"0.0") + ")*(" + numericArg(5,"0.0") + "))";
+    }
+    case DXOP_FDot: {
+        if (args.size() < 2) return "0.0f";
+        return "dot(" + vectorArg(0, "float2(0.0f)") + ", " +
+               vectorArg(1, "float2(0.0f)") + ")";
     }
     case DXOP_Dot4: {
         if (args.size() < 8) return "0.0";
