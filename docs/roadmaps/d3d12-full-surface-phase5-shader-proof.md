@@ -165,15 +165,17 @@
   subobjects: `STATE_OBJECT_CONFIG Flags=1`, node mask `3`, shader payload /
   attribute sizes `32/8`, pipeline recursion depth `2`, and
   `RAYTRACING_PIPELINE_CONFIG1` recursion depth `3` / flags `SKIP_TRIANGLES`
-  (`256`), plus an exact four-byte parent-key callback round-trip. The application executable/name/
+  (`256`), plus a deeply copied eight-byte `DXIL_LIBRARY` payload and one
+  `RayGen` -> `RayGenRenamed` export, and an exact four-byte parent-key callback
+  round-trip. The application executable/name/
   engine/version descriptor also survives caller-string mutation through a
   deep-copy callback round-trip. Profile `phase5-config1` reloads
   all three descriptor classes in a fresh database instance, rejects a
   read-only store with `E_ACCESSDENIED`, and rejects a malformed file with
   `ERROR_BAD_FORMAT`; the probe removes both disposable database files. These
-  fixed-size payloads are supported; pointer-rich DXIL-library subobjects
-  reject with exact `E_NOTIMPL`. Deep variable-payload cloning remains in the
-  exhaustive row.
+  fixed-size payloads and DXIL library bytecode/exports are supported; other
+  pointer-rich subobjects reject with exact `E_NOTIMPL`. Their variable-payload
+  cloning remains in the exhaustive row.
 
 ## Exact evidence
 

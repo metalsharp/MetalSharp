@@ -642,7 +642,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SDKConfiguration::CreateDeviceFactory(
 }
 
 constexpr uint32_t kStateDatabaseMagic = 0x31424453u; // SDB1
-constexpr uint32_t kStateDatabaseVersion = 1u;
+constexpr uint32_t kStateDatabaseVersion = 2u;
 constexpr size_t kStateDatabaseMaxBytes = 16u * 1024u * 1024u;
 constexpr uint32_t kStateDatabaseMaxEntries = 4096u;
 constexpr uint32_t kStateDatabaseMaxKeyBytes = 4096u;
@@ -930,20 +930,48 @@ public:
     entry.subobjects.reserve(desc->NumSubobjects);
     for (UINT i = 0; i < desc->NumSubobjects; ++i) {
       const auto &subobject = desc->pSubobjects[i];
-      const size_t desc_size = StateSubobjectDescSize(subobject.Type);
-      if (!desc_size) {
-        TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
-                     "version=%u subobject=%u type=%u -> E_NOTIMPL",
-                     key_size, version, i,
-                     static_cast<UINT>(subobject.Type));
-        return E_NOTIMPL;
-      }
       if (!subobject.pDesc)
         return E_INVALIDARG;
       StateObjectSubobjectEntry stored;
       stored.type = subobject.Type;
-      const auto *bytes = static_cast<const uint8_t *>(subobject.pDesc);
-      stored.desc.assign(bytes, bytes + desc_size);
+      if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
+        const auto *library =
+            static_cast<const D3D12_DXIL_LIBRARY_DESC *>(subobject.pDesc);
+        if (!library->DXILLibrary.pShaderBytecode ||
+            !library->DXILLibrary.BytecodeLength ||
+            library->DXILLibrary.BytecodeLength > kStateDatabaseMaxBytes ||
+            library->NumExports > 64u ||
+            (library->NumExports && !library->pExports))
+          return E_INVALIDARG;
+        const auto *bytes = static_cast<const uint8_t *>(
+            library->DXILLibrary.pShaderBytecode);
+        stored.library.assign(
+            bytes, bytes + library->DXILLibrary.BytecodeLength);
+        stored.exports.reserve(library->NumExports);
+        for (UINT export_index = 0; export_index < library->NumExports;
+             ++export_index) {
+          const auto &export_desc = library->pExports[export_index];
+          if (!export_desc.Name)
+            return E_INVALIDARG;
+          StateObjectExportEntry export_entry;
+          export_entry.name = export_desc.Name;
+          if (export_desc.ExportToRename)
+            export_entry.rename = export_desc.ExportToRename;
+          export_entry.flags = static_cast<UINT>(export_desc.Flags);
+          stored.exports.push_back(std::move(export_entry));
+        }
+      } else {
+        const size_t desc_size = StateSubobjectDescSize(subobject.Type);
+        if (!desc_size) {
+          TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
+                       "version=%u subobject=%u type=%u -> E_NOTIMPL",
+                       key_size, version, i,
+                       static_cast<UINT>(subobject.Type));
+          return E_NOTIMPL;
+        }
+        const auto *bytes = static_cast<const uint8_t *>(subobject.pDesc);
+        stored.desc.assign(bytes, bytes + desc_size);
+      }
       entry.subobjects.push_back(std::move(stored));
     }
     if (parent_key_size) {
@@ -971,11 +999,40 @@ public:
       return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 
     std::vector<D3D12_STATE_SUBOBJECT> subobjects;
+    std::vector<D3D12_DXIL_LIBRARY_DESC> libraries;
+    std::vector<std::vector<D3D12_EXPORT_DESC>> library_exports;
     subobjects.reserve(entry->second.subobjects.size());
+    libraries.reserve(entry->second.subobjects.size());
+    library_exports.reserve(entry->second.subobjects.size());
     for (const auto &stored : entry->second.subobjects) {
       D3D12_STATE_SUBOBJECT subobject = {};
       subobject.Type = stored.type;
-      subobject.pDesc = stored.desc.data();
+      if (stored.type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
+        libraries.emplace_back();
+        library_exports.emplace_back();
+        auto &library = libraries.back();
+        auto &exports = library_exports.back();
+        exports.reserve(stored.exports.size());
+        library.DXILLibrary.pShaderBytecode = stored.library.data();
+        library.DXILLibrary.BytecodeLength = stored.library.size();
+        library.NumExports = static_cast<UINT>(stored.exports.size());
+        for (const auto &stored_export : stored.exports) {
+          D3D12_EXPORT_DESC export_desc = {};
+          export_desc.Name = stored_export.name.empty()
+                                ? nullptr
+                                : stored_export.name.c_str();
+          export_desc.ExportToRename = stored_export.rename.empty()
+                                           ? nullptr
+                                           : stored_export.rename.c_str();
+          export_desc.Flags = static_cast<D3D12_EXPORT_FLAGS>(
+              stored_export.flags);
+          exports.push_back(export_desc);
+        }
+        library.pExports = exports.empty() ? nullptr : exports.data();
+        subobject.pDesc = &library;
+      } else {
+        subobject.pDesc = stored.desc.data();
+      }
       subobjects.push_back(subobject);
     }
     D3D12_STATE_OBJECT_DESC desc = {};
@@ -1020,9 +1077,17 @@ private:
     std::vector<uint8_t> stream;
   };
 
+  struct StateObjectExportEntry {
+    std::wstring name;
+    std::wstring rename;
+    UINT flags = 0;
+  };
+
   struct StateObjectSubobjectEntry {
     D3D12_STATE_SUBOBJECT_TYPE type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
     std::vector<uint8_t> desc;
+    std::vector<uint8_t> library;
+    std::vector<StateObjectExportEntry> exports;
   };
 
   struct StateObjectDescEntry {
@@ -1093,9 +1158,24 @@ private:
           data, static_cast<uint32_t>(item.second.subobjects.size()));
       for (const auto &subobject : item.second.subobjects) {
         AppendStateDatabaseU32(data, static_cast<uint32_t>(subobject.type));
-        AppendStateDatabaseU32(data, static_cast<uint32_t>(subobject.desc.size()));
-        AppendStateDatabaseBytes(data, subobject.desc.data(),
-                                 subobject.desc.size());
+        if (subobject.type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
+          AppendStateDatabaseU32(data,
+                                 static_cast<uint32_t>(subobject.library.size()));
+          AppendStateDatabaseBytes(data, subobject.library.data(),
+                                   subobject.library.size());
+          AppendStateDatabaseU32(
+              data, static_cast<uint32_t>(subobject.exports.size()));
+          for (const auto &export_entry : subobject.exports) {
+            AppendStateDatabaseString(data, export_entry.name);
+            AppendStateDatabaseString(data, export_entry.rename);
+            AppendStateDatabaseU32(data, export_entry.flags);
+          }
+        } else {
+          AppendStateDatabaseU32(data,
+                                 static_cast<uint32_t>(subobject.desc.size()));
+          AppendStateDatabaseBytes(data, subobject.desc.data(),
+                                   subobject.desc.size());
+        }
       }
       AppendStateDatabaseU32(data,
                              static_cast<uint32_t>(item.second.parent_key.size()));
@@ -1201,19 +1281,45 @@ private:
       entry.type = static_cast<D3D12_STATE_OBJECT_TYPE>(type);
       entry.subobjects.reserve(subobject_count);
       for (uint32_t sub = 0; sub < subobject_count; ++sub) {
-        uint32_t subobject_type = 0, desc_size = 0;
-        if (!ReadStateDatabaseU32(data, offset, subobject_type) ||
-            !ReadStateDatabaseU32(data, offset, desc_size) ||
-            desc_size != StateSubobjectDescSize(
-                             static_cast<D3D12_STATE_SUBOBJECT_TYPE>(subobject_type)) ||
-            offset > data.size() || data.size() - offset < desc_size)
+        uint32_t subobject_type = 0;
+        if (!ReadStateDatabaseU32(data, offset, subobject_type))
           return invalid();
         StateObjectSubobjectEntry stored;
         stored.type = static_cast<D3D12_STATE_SUBOBJECT_TYPE>(subobject_type);
-        stored.desc.resize(desc_size);
-        if (!ReadStateDatabaseBytes(data, offset, stored.desc.data(),
-                                    stored.desc.size()))
-          return invalid();
+        if (stored.type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY) {
+          uint32_t library_size = 0, export_count = 0;
+          if (!ReadStateDatabaseU32(data, offset, library_size) ||
+              library_size == 0 || library_size > kStateDatabaseMaxBytes ||
+              offset > data.size() || data.size() - offset < library_size)
+            return invalid();
+          stored.library.resize(library_size);
+          if (!ReadStateDatabaseBytes(data, offset, stored.library.data(),
+                                      stored.library.size()) ||
+              !ReadStateDatabaseU32(data, offset, export_count) ||
+              export_count > 64u)
+            return invalid();
+          stored.exports.reserve(export_count);
+          for (uint32_t export_index = 0; export_index < export_count;
+               ++export_index) {
+            StateObjectExportEntry export_entry;
+            if (!ReadStateDatabaseString(data, offset, export_entry.name) ||
+                !ReadStateDatabaseString(data, offset, export_entry.rename) ||
+                !ReadStateDatabaseU32(data, offset, export_entry.flags) ||
+                export_entry.name.empty())
+              return invalid();
+            stored.exports.push_back(std::move(export_entry));
+          }
+        } else {
+          uint32_t desc_size = 0;
+          if (!ReadStateDatabaseU32(data, offset, desc_size) ||
+              desc_size != StateSubobjectDescSize(stored.type) ||
+              offset > data.size() || data.size() - offset < desc_size)
+            return invalid();
+          stored.desc.resize(desc_size);
+          if (!ReadStateDatabaseBytes(data, offset, stored.desc.data(),
+                                      stored.desc.size()))
+            return invalid();
+        }
         entry.subobjects.push_back(std::move(stored));
       }
       uint32_t parent_size = 0;
