@@ -133,6 +133,20 @@ enum class SamplerAddress {
     MirrorOnce,
 };
 
+enum class SamplerFilter {
+    MinMagMipPoint,
+    MinMagPointMipLinear,
+    MinPointMagLinearMipPoint,
+    MinPointMagMipLinear,
+    MinLinearMagMipPoint,
+    MinLinearMagPointMipLinear,
+    MinMagLinearMipPoint,
+    MinMagMipLinear,
+    Anisotropic,
+    Minimum,
+    Maximum,
+};
+
 struct ShapeInfo {
     const char* name;
     const char* shader;
@@ -148,6 +162,7 @@ struct ShapeInfo {
     bool sample_pattern = false;
     SamplerAddress sampler_address = SamplerAddress::Clamp;
     bool expect_rejection = false;
+    SamplerFilter sampler_filter = SamplerFilter::MinMagMipPoint;
 };
 
 static const ShapeInfo kReadCases[] = {
@@ -159,6 +174,39 @@ static const ShapeInfo kReadCases[] = {
      96, 131586, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2},
     {"texture1d_advanced", "cs_texture_1d_advanced.cso", TextureShape::Texture1D, false, false,
      0x14323232, 131074, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true},
+    {"texture1d_filter_point", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x1e3c1e, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinMagMipPoint},
+    {"texture1d_filter_point_mip_linear", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x263c1e, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinMagPointMipLinear},
+    {"texture1d_filter_min_point_mag_linear_mip_point", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x1e3c19, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinPointMagLinearMipPoint},
+    {"texture1d_filter_min_point_mag_linear_mip_linear", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x263c19, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinPointMagMipLinear},
+    {"texture1d_filter_min_linear_mag_point_mip_point", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x19371e, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinLinearMagMipPoint},
+    {"texture1d_filter_min_linear_mag_point_mip_linear", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x21371e, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinLinearMagPointMipLinear},
+    {"texture1d_filter_linear_mip_point", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x193719, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinMagLinearMipPoint},
+    {"texture1d_filter_linear_mip_linear", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x213719, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::MinMagMipLinear},
+    {"texture1d_filter_anisotropic", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0x211919, 131076, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, false, SamplerFilter::Anisotropic},
+    {"texture1d_filter_minimum_rejected", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0xdeadbeef, 0xdeadbeef, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, true, SamplerFilter::Minimum},
+    {"texture1d_filter_maximum_rejected", "cs_texture_1d_filter.cso", TextureShape::Texture1D, false, false,
+     0xdeadbeef, 0xdeadbeef, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 2, true,
+     SamplerAddress::Clamp, true, SamplerFilter::Maximum},
     {"texture1d_address_clamp", "cs_texture_1d_address.cso", TextureShape::Texture1D, false, false,
      0x0a28280a, 4, DXGI_FORMAT_R8G8B8A8_UNORM, TypedData::None, 0, 1, true, SamplerAddress::Clamp},
     {"texture1d_address_wrap", "cs_texture_1d_address.cso", TextureShape::Texture1D, false, false,
@@ -800,7 +848,42 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
         make_srv_desc(info.shape, srv, info.format, info.mip_levels);
         device->CreateShaderResourceView(texture, &srv, offset_cpu(cpu, inc, 1));
         D3D12_SAMPLER_DESC sampler = {};
-        sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        switch (info.sampler_filter) {
+        case SamplerFilter::MinMagPointMipLinear:
+            sampler.Filter = D3D12_FILTER_MIN_MAG_POINT_MIP_LINEAR;
+            break;
+        case SamplerFilter::MinPointMagLinearMipPoint:
+            sampler.Filter = D3D12_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT;
+            break;
+        case SamplerFilter::MinPointMagMipLinear:
+            sampler.Filter = D3D12_FILTER_MIN_POINT_MAG_MIP_LINEAR;
+            break;
+        case SamplerFilter::MinLinearMagMipPoint:
+            sampler.Filter = D3D12_FILTER_MIN_LINEAR_MAG_MIP_POINT;
+            break;
+        case SamplerFilter::MinLinearMagPointMipLinear:
+            sampler.Filter = D3D12_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR;
+            break;
+        case SamplerFilter::MinMagLinearMipPoint:
+            sampler.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+            break;
+        case SamplerFilter::MinMagMipLinear:
+            sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+            break;
+        case SamplerFilter::Anisotropic:
+            sampler.Filter = D3D12_FILTER_ANISOTROPIC;
+            break;
+        case SamplerFilter::Minimum:
+            sampler.Filter = D3D12_FILTER_MINIMUM_MIN_MAG_MIP_POINT;
+            break;
+        case SamplerFilter::Maximum:
+            sampler.Filter = D3D12_FILTER_MAXIMUM_MIN_MAG_MIP_POINT;
+            break;
+        case SamplerFilter::MinMagMipPoint:
+        default:
+            sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+            break;
+        }
         switch (info.sampler_address) {
         case SamplerAddress::Wrap:
             sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
@@ -839,7 +922,8 @@ static CaseResult run_read_case(ID3D12Device* device, const ShapeInfo& info) {
         sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler.MinLOD = 0.0f;
         sampler.MaxLOD = D3D12_FLOAT32_MAX;
-        sampler.MaxAnisotropy = 1;
+        sampler.MaxAnisotropy =
+            info.sampler_filter == SamplerFilter::Anisotropic ? 16 : 1;
         sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
         device->CreateSampler(&sampler, sampler_heap->GetCPUDescriptorHandleForHeapStart());
         for (UINT subresource = 0; subresource < subresources; ++subresource) {

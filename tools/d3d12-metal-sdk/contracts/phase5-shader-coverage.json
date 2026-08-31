@@ -181,7 +181,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "Mip-1 scalar/array 1D sampling and GetDimensions pass over height-one Metal 2D backing; a combined level/bias/gradient/static-offset lane returns 0x14323232; clamp/wrap/mirror/border/mirror-once and the three Metal-representable border colors return exact values; an unrepresentable dynamic border remains fail-closed with the exact 0xdeadbeef sentinel; and the resource matrix creates a five-mip 1D array without a Metal assertion. Broader filter combinations remain in the exhaustive row."
+      "remaining": "Mip-1 scalar/array 1D sampling and GetDimensions pass over height-one Metal 2D backing; a combined level/bias/gradient/static-offset lane returns 0x14323232; all standard min/mag/mip and anisotropic filters return exact values; clamp/wrap/mirror/border/mirror-once and the three Metal-representable border colors return exact values; unrepresentable dynamic-border and min/max reduction samplers remain fail-closed with the exact 0xdeadbeef sentinel; and the resource matrix creates a five-mip 1D array without a Metal assertion. Full depth-comparison filtering remains in the exhaustive row."
     },
     {
       "id": "dxil-resource-element-type-runtime",

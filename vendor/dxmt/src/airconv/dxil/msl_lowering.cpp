@@ -4814,7 +4814,13 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                         (resource_kind == 7u ? ", (uint)(" + c2 + ")" : "") +
                         ((intrinsic_id == DXOP_TextureSampleCmpLevel || intrinsic_id == 224)
                              ? ", (uint)(" + numericArg(10, "0") + ")" : "") + ")";
-            return "(((float)(" + cmp + ") <= " + sample + ") ? 1.0f : 0.0f)";
+            const std::string sampled_value =
+                resource_kind == 0u || resource_kind == 2u ||
+                        resource_kind == 7u
+                    ? sample
+                    : "(" + sample + ").x";
+            return "(((float)(" + cmp + ") <= " + sampled_value +
+                   ") ? 1.0f : 0.0f)";
         }
         std::string call = handle + ".sample_compare(" + samp + ", " + coord + array_suffix +
                           ", (float)(" + cmp + ")";

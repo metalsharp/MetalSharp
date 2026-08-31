@@ -173,7 +173,7 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-texture-address-final`: 54/54 cases passed with exact
+`phase5-texture-filter-final`: 65/65 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
 for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
 R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`,
@@ -198,7 +198,16 @@ creation maps all three Metal-representable D3D border colors explicitly.
 An unrepresentable red border descriptor remains fail-closed: compute dispatch
 is rejected and preserves the exact two-word `0xdeadbeef` output sentinel;
 the render and mesh binding paths carry the same invalid-descriptor rejection.
-Resource profile
+All eight point/linear min/mag/mip permutations plus anisotropic filtering
+return distinct exact packed values from controlled magnification,
+minification, and fractional-LOD samples. Minimum and maximum reduction
+samplers, which Metal cannot represent, preserve the same exact sentinel
+instead of silently becoming linear filters. Comparison filter bitfields now
+retain their encoded min/mag/mip modes; full depth-comparison filtering remains
+in the exhaustive matrix. Profile `phase5-filter-sm66-regression2` passes all
+SM6.6/6.7 lanes after depth-sample comparison scalar handling, including exact
+comparison-level readback `[25,75,0,1]` and zero mismatches for the newer
+comparison gradient/bias lanes. Resource profile
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
 Metal validation assertion. The latest SM6.6/6.7 profile
