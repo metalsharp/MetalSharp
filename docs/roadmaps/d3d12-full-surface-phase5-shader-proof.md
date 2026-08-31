@@ -332,8 +332,8 @@ with `append_counter_link=true` and rejects a two-counter shader with exact
 `0x80004005`; `phase5-directcounter1` additionally compiles a directly indexed
 `AppendStructuredBuffer` heap shader and proves the unsupported counter mapping
 fails closed at PSO creation with exact `0x80004005`; `phase5-helper2` preserves
-all earlier semantic lanes with zero mismatches. Profile `phase5-f64conv1`
-passes all 41 current semantic lanes, including exact double payload words
+all earlier semantic lanes with zero mismatches. Profile `phase5-rawvec4`
+passes all 42 current semantic lanes, including exact double payload words
 `[0x54442d18,0x400921fb]`, dynamic add/subtract result
 `[0x00000000,0x400a0000]`, and the complete 16-word binary64 addition matrix.
 The same profile passes ordinary and IEEE-754 matrices for binary64
@@ -345,7 +345,10 @@ lowering is implemented through the software remainder helper; DXC's HLSL
 proof. The same source-staged run also passes `pack_u8`/`pack_s8` truncation,
 unsigned/signed clamp, and all four signed/unsigned 32-bit and 16-bit unpack
 lanes with exact packed bytes. SM6.9 vector `all`/`any` reductions likewise
-return exact `[1,1,0,1]` through DXIL VectorReduceAnd/Or.
+return exact `[1,1,0,1]` through DXIL VectorReduceAnd/Or. The same
+source-staged run transfers an exact four-lane `[1,2,3,4]` aggregate through
+SM6.9 RawBufferVectorLoad/Store; the lowerer preserves the vector operand
+instead of repeating the extracted x lane.
 Its generated DXIL reports pass the unsupported/placeholder audit, and no
 generated MSL contains `float64_t` or `double`. Broader binary64 operation
 combinations remain in the exhaustive row.

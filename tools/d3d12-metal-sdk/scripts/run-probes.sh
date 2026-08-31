@@ -2672,6 +2672,12 @@ void cs_double_fma(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_raw_vector(uint3 id : SV_DispatchThreadID) {
+  uint4 values = inbuf.Load4(0);
+  outbuf.Store4(0, values);
+}
+
+[numthreads(1, 1, 1)]
 void cs_vector_reductions(uint3 id : SV_DispatchThreadID) {
   uint4 all_true = uint4(1u, 2u, 3u, 4u);
   uint4 mixed = uint4(0u, 2u, 0u, 4u);
@@ -2912,6 +2918,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_vector_reductions -T cs_6_9 -HV 2021 \
       -Fo probe_dxil_semantic_vector_reductions.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_raw_vector -T cs_6_9 -HV 2021 \
+      -Fo probe_dxil_semantic_raw_vector.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \

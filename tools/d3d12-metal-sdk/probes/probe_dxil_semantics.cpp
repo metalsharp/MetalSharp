@@ -856,6 +856,8 @@ int main() {
           0xffffff80u, 0xffffff80u}, "pack_unpack_8"},
         {"vector_reductions", "probe_dxil_semantic_vector_reductions.cso", {},
          {1u, 1u, 0u, 1u}, "vector_reduce_and_or"},
+        {"raw_vector", "probe_dxil_semantic_raw_vector.cso",
+         {1u, 2u, 3u, 4u}, {1u, 2u, 3u, 4u}, "raw_vector_load_store"},
         {"sm69_integer_float_mix", "probe_dxil_semantic_sm69.cso", {}, {69, 70, 72, 73},
          "sm69_integer_float16_conversion"},
         {"sm69_native16_arithmetic", "probe_dxil_semantic_sm69_native16.cso", {},
