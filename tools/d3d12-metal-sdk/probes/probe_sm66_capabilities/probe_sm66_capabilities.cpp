@@ -650,6 +650,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                        std::strcmp(audit_case.name, "structured_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {103, 203, 303, 403};
                 std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "structured_uint2_descriptor_indexing") == 0) {
+                const uint32_t expected[] = {303, 703, 303, 703};
+                std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "int64_arithmetic") == 0) {
                 const uint32_t expected[] = {5, 11, 6, 21, 7, 31, 8, 41};
                 std::memcpy(result.expected, expected, sizeof(expected));
@@ -857,6 +861,7 @@ RWBuffer<uint64_t> typed_outbuf : register(u0);
 RWBuffer<int64_t> signed_typed_outbuf : register(u0);
 ByteAddressBuffer inputs[2] : register(t0);
 StructuredBuffer<uint> structured_inputs[2] : register(t0);
+StructuredBuffer<uint2> structured_pair_inputs[2] : register(t0);
 Texture2D<float4> tex : register(t2);
 Texture2D<uint> raw_tex : register(t3);
 Texture2D<float> comparison_tex : register(t4);
@@ -1049,6 +1054,13 @@ void cs_structured_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
   uint descriptor_index = selector & 1u;
   outbuf.Store(id.x * 4,
                structured_inputs[descriptor_index][id.x] + addend);
+}
+
+[numthreads(4, 1, 1)]
+void cs_structured_uint2_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
+  uint descriptor_index = selector & 1u;
+  uint2 value = structured_pair_inputs[descriptor_index][id.x & 1u];
+  outbuf.Store(id.x * 4, value.x + value.y + addend);
 }
 
 [numthreads(4, 1, 1)]
@@ -1257,6 +1269,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"root_constants_uav", "cs_root_constants", "cs_6_6", "root_constants_cbv_srv_uav_tables", true},
         {"descriptor_indexing", "cs_descriptor_indexing", "cs_6_6", "descriptor_indexing", true},
         {"structured_descriptor_indexing", "cs_structured_descriptor_indexing", "cs_6_6", "structured_resource_descriptor_indexing", true},
+        {"structured_uint2_descriptor_indexing", "cs_structured_uint2_descriptor_indexing", "cs_6_6", "structured_uint2_resource_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
