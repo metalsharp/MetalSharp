@@ -2626,6 +2626,37 @@ void cs_float_to_double(uint3 id : SV_DispatchThreadID) {
     outbuf.Store(i * 8 + 4, high);
   }
 }
+
+[numthreads(1, 1, 1)]
+void cs_double_unary(uint3 id : SV_DispatchThreadID) {
+  double source = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double absolute = abs(source);
+  double minimum = min(source, 2.0);
+  double maximum = max(source, -2.0);
+  uint low = 0;
+  uint high = 0;
+  asuint(absolute, low, high);
+  outbuf.Store(0, low);
+  outbuf.Store(4, high);
+  asuint(minimum, low, high);
+  outbuf.Store(8, low);
+  outbuf.Store(12, high);
+  asuint(maximum, low, high);
+  outbuf.Store(16, low);
+  outbuf.Store(20, high);
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_predicates(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 4; ++i) {
+    double source = asdouble(inbuf.Load(i * 8), inbuf.Load(i * 8 + 4));
+    outbuf.Store(i * 16, isnan(source) ? 1u : 0u);
+    outbuf.Store(i * 16 + 4, isinf(source) ? 1u : 0u);
+    outbuf.Store(i * 16 + 8, isfinite(source) ? 1u : 0u);
+    outbuf.Store(i * 16 + 12, isnormal(source) ? 1u : 0u);
+  }
+}
 HLSL_DOUBLE_BITCAST
 
   local sm69_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_sm69.hlsl"
@@ -2806,6 +2837,14 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_float_to_double -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_float_to_double.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_unary -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_unary.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_predicates -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_predicates.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \
