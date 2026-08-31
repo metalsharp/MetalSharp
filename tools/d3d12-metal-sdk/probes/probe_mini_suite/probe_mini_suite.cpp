@@ -983,6 +983,7 @@ static ProbeResult probe_geometry_shader_pso() {
     }
 
     uint64_t nonzero_pixels = 0;
+    uint32_t center_pixel = 0;
     if (SUCCEEDED(hr)) {
         uint8_t* mapped = nullptr;
         D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
@@ -992,6 +993,8 @@ static ProbeResult probe_geometry_shader_pso() {
                 const uint32_t* row = reinterpret_cast<const uint32_t*>(mapped + footprint.Footprint.RowPitch * y);
                 for (UINT x = 0; x < 64; x++)
                     nonzero_pixels += row[x] != 0;
+                if (y == 32)
+                    center_pixel = row[32];
             }
             readback->Unmap(0, nullptr);
         }
@@ -1007,11 +1010,20 @@ static ProbeResult probe_geometry_shader_pso() {
     safe_release(pso);
     safe_release(root);
     safe_release(device);
-    bool verified = SUCCEEDED(hr) && nonzero_pixels > 0;
+    constexpr uint64_t expected_nonzero_pixels = 1352;
+    constexpr uint32_t expected_center_pixel = 0xff407e81u;
+    bool verified = SUCCEEDED(hr) &&
+                    nonzero_pixels == expected_nonzero_pixels &&
+                    center_pixel == expected_center_pixel;
     return {verified, verified ? S_OK : hr,
-            verified ? "geometry shader object/mesh emulation rendered and passed readback"
-                     : (detail.empty() ? "geometry shader render readback stayed empty" : detail),
-            "\"nonzero_pixels\":" + std::to_string(nonzero_pixels)};
+            verified ? "geometry shader object/mesh emulation matched exact raster readback"
+                     : (detail.empty() ? "geometry shader exact raster readback mismatch" : detail),
+            "\"nonzero_pixels\":" + std::to_string(nonzero_pixels) +
+                ",\"expected_nonzero_pixels\":" +
+                std::to_string(expected_nonzero_pixels) +
+                ",\"center_pixel\":" + std::to_string(center_pixel) +
+                ",\"expected_center_pixel\":" +
+                std::to_string(expected_center_pixel)};
 }
 
 static ProbeResult probe_subnautica_geometry_dxil_replay() {
