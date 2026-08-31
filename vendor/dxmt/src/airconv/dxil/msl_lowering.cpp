@@ -1902,6 +1902,18 @@ static bool exprLooksSideEffectOnly(const std::string &value) {
            startsWith(stripEnclosingParens(value), "result.");
 }
 
+static bool exprContainsAssignment(const std::string &value) {
+    for (size_t pos = value.find('='); pos != std::string::npos;
+         pos = value.find('=', pos + 1)) {
+        const char previous = pos == 0 ? '\0' : value[pos - 1];
+        const char next = pos + 1 < value.size() ? value[pos + 1] : '\0';
+        if (previous != '=' && previous != '!' && previous != '<' &&
+            previous != '>' && next != '=')
+            return true;
+    }
+    return false;
+}
+
 static bool exprLooksScalarMathCall(const std::string &value) {
     std::string stripped = stripEnclosingParens(value);
     static const char *math_calls[] = {
@@ -4587,39 +4599,78 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             return "float4(" + handle + ".read(uint2(" + c0 + ", " + c1 +
                    "), (uint)(" + mip + ")))";
         }
-        switch (resource_kind) {
-        case 1u:
-            return handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" +
-                   mip + "))";
-        case 6u:
-            return handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" +
-                   c1 + "), (uint)(" + mip + "))";
-        case 2u:
-            return handle + ".read(uint2(" + c0 + ", " + c1 +
-                   "), (uint)(" + mip + "))";
-        case 7u:
-            return handle + ".read(uint2(" + c0 + ", " + c1 +
-                   "), (uint)(" + c2 + "), (uint)(" + mip + "))";
-        case 4u:
-            return handle + ".read(uint3(" + c0 + ", " + c1 + ", " + c2 +
-                   "), (uint)(" + mip + "))";
-        case 3u:
-            return handle + ".read(uint2(" + c0 + ", " + c1 +
-                   "), (uint)(" + mip + "))";
-        case 8u:
-            return handle + ".read(uint2(" + c0 + ", " + c1 +
-                   "), (uint)(" + c2 + "), (uint)(" + mip + "))";
-        default:
-            // Cube Load is not a valid HLSL operation in the shader models
-            // handled here.  Keep the old 2D fallback only for modules whose
-            // resource metadata did not identify a dimension.
-            if (resource_kind == 5u || resource_kind == 9u) {
-                ctx.unsupported_intrinsics++;
-                recordDiagnostic(ctx, "DXIL textureLoad is unsupported for cube resource kind=%u", resource_kind);
-                return "float4(0)";
+        auto texture_read = [&](const std::string &texture) {
+            switch (resource_kind) {
+            case 1u:
+                return texture + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" +
+                       mip + "))";
+            case 6u:
+                return texture + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" +
+                       c1 + "), (uint)(" + mip + "))";
+            case 2u:
+                return texture + ".read(uint2(" + c0 + ", " + c1 +
+                       "), (uint)(" + mip + "))";
+            case 7u:
+                return texture + ".read(uint2(" + c0 + ", " + c1 +
+                       "), (uint)(" + c2 + "), (uint)(" + mip + "))";
+            case 4u:
+                return texture + ".read(uint3(" + c0 + ", " + c1 + ", " + c2 +
+                       "), (uint)(" + mip + "))";
+            case 3u:
+                return texture + ".read(uint2(" + c0 + ", " + c1 +
+                       "), (uint)(" + mip + "))";
+            case 8u:
+                return texture + ".read(uint2(" + c0 + ", " + c1 +
+                       "), (uint)(" + c2 + "), (uint)(" + mip + "))";
+            default:
+                return texture + ".read(uint2(" + c0 + ", " + c1 + "))";
             }
-            return handle + ".read(uint2(" + c0 + ", " + c1 + "))";
+        };
+        // A directly indexed texture heap cannot materialize a Metal texture
+        // object through a pointer ternary. Select between complete read
+        // expressions instead, bounded by the direct texture ABI.
+        auto dynamic_handle = ctx.resource_handles.find(args[0]);
+        if (dynamic_handle != ctx.resource_handles.end() &&
+            !dynamic_handle->second.dynamic_index.empty() &&
+            dynamic_handle->second.binding_count > 1) {
+            const uint32_t base = dynamic_handle->second.lower_bound;
+            const uint32_t count = std::min<uint32_t>(
+                dynamic_handle->second.binding_count,
+                ctx.binding_plan.direct_texture_count > base
+                    ? ctx.binding_plan.direct_texture_count - base
+                    : 0);
+            if (count > 1) {
+                std::string selected = texture_read(
+                    "tex" + std::to_string(base + count - 1));
+                for (uint32_t i = count - 1; i > 0; --i) {
+                    selected = "((uint(" +
+                               dynamic_handle->second.dynamic_index + ") == " +
+                               std::to_string(base + i - 1) + "u) ? " +
+                               texture_read("tex" +
+                                            std::to_string(base + i - 1)) +
+                               " : " + selected + ")";
+                }
+                const uint32_t element_type =
+                    resourceElementTypeForHandle(ctx, args[0]);
+                const char *result_type =
+                    isIntegerResourceElementType(element_type)
+                        ? (isSignedResourceElementType(element_type) ? "int4"
+                                                                    : "uint4")
+                        : "float4";
+                return std::string(result_type) + "(" + selected + ")";
+            }
         }
+        // Cube Load is not a valid HLSL operation in the shader models
+        // handled here. Keep the old 2D fallback only for modules whose
+        // resource metadata did not identify a dimension.
+        if (resource_kind == 5u || resource_kind == 9u) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL textureLoad is unsupported for cube resource kind=%u",
+                             resource_kind);
+            return "float4(0)";
+        }
+        return texture_read(handle);
     }
     case DXOP_TextureStore: case 225: {
         if (args.size() < 6) return "";
@@ -6128,7 +6179,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 }
                 ctx.value_table[value_counter] = result;
                 ctx.value_types[value_counter] = fallback_type;
-            } else if (translated.find('=') == std::string::npos) {
+            } else if (!exprContainsAssignment(translated)) {
                 if (!translated.empty() && translated[0] != ' ') {
                     const bool bare_handle =
                         translated.find('.') == std::string::npos &&
