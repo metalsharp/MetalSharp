@@ -130,14 +130,21 @@
   of `firstbitlow`/`firstbithigh`. The LLVM type reader now resolves vector
   element references from `type_refs` and rejects unsupported array values
   without recursive type resolution. The source-staged semantic run continues
-  to match `math_bits`, `math_intrinsics`, and all 23 semantic lanes, including
+  to match `math_bits`, `math_intrinsics`, and all 51 semantic lanes, including
   the four-lane vector aggregate shuffle, exact matrix aggregate arithmetic
   `[17,27,37,47]`, a three-helper source aggregate chain returning
   `[42,66,98,138]` after validated DXC entry-point optimization, and
   signed/unsigned/float native-16 arithmetic
   `[65085,65096,65107,65118]`. The SM6.9 vectorized `FDot` opcode is also
   lowered to a native MSL `dot` and returns exact float bits for the
-  four-component case.
+  four-component case. Profile `phase5-long-vector-16` passes 51/51
+  semantic lanes: the core opcode lane returns 36 exact float/int/bitwise
+  results, while SM6.9 eight- and sixteen-component float/uint vectors
+  preserve exact FDot, add, xor, dynamic construction, and element-addressing
+  readbacks (`120.0f`, `72.0f`, `40`, `80`, `156.0f`, and `816.0f`
+  respectively). The compact
+  LLVM INSERTELT record form is decoded as three value operands, and private
+  vector scratch GEPs scale 32-bit lanes by four bytes.
 - Bounded descriptor indexing selects `ByteAddressBuffer[2]`,
   `StructuredBuffer<uint>[2]`, `StructuredBuffer<uint2>[2]`, and
   `RWByteAddressBuffer[2]`, and `RWStructuredBuffer<uint2>[2]` resources

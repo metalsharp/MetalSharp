@@ -2246,6 +2246,54 @@ void cs_math_extended(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_core_opcode_matrix(uint3 id : SV_DispatchThreadID) {
+  float neg = -2.25f;
+  float pos = 3.5f;
+  float2 a2 = float2(1.0f, 2.0f);
+  float2 b2 = float2(3.0f, 4.0f);
+  float3 a3 = float3(1.0f, 2.0f, 3.0f);
+  float3 b3 = float3(3.0f, 2.0f, 1.0f);
+  float4 a4 = float4(1.0f, 2.0f, 3.0f, 4.0f);
+  float4 b4 = float4(4.0f, 3.0f, 2.0f, 1.0f);
+  outbuf.Store(0, asuint(abs(neg)));
+  outbuf.Store(4, asuint(saturate(neg)));
+  outbuf.Store(8, asuint(cos(0.0f)));
+  outbuf.Store(12, asuint(sin(0.0f)));
+  outbuf.Store(16, asuint(tan(0.0f)));
+  outbuf.Store(20, asuint(acos(1.0f)));
+  outbuf.Store(24, asuint(asin(0.0f)));
+  outbuf.Store(28, asuint(atan(0.0f)));
+  outbuf.Store(32, asuint(cosh(0.0f)));
+  outbuf.Store(36, asuint(sinh(0.0f)));
+  outbuf.Store(40, asuint(tanh(0.0f)));
+  outbuf.Store(44, asuint(exp2(3.0f)));
+  outbuf.Store(48, asuint(frac(2.75f)));
+  outbuf.Store(52, asuint(log2(8.0f)));
+  outbuf.Store(56, asuint(sqrt(9.0f)));
+  outbuf.Store(60, asuint(rsqrt(4.0f)));
+  outbuf.Store(64, uint(round(2.25f)));
+  outbuf.Store(68, uint(floor(2.75f)));
+  outbuf.Store(72, uint(ceil(2.25f)));
+  outbuf.Store(76, asuint(int(trunc(neg))));
+  outbuf.Store(80, asuint(max(neg, pos)));
+  outbuf.Store(84, asuint(min(neg, pos)));
+  outbuf.Store(88, uint(max(-2, 3)));
+  outbuf.Store(92, uint(min(-2, 3)));
+  outbuf.Store(96, max(7u, 3u));
+  outbuf.Store(100, min(7u, 3u));
+  outbuf.Store(104, 13u / 3u);
+  outbuf.Store(108, mad(2u, 3u, 4u));
+  outbuf.Store(112, asuint(mad(2.0f, 3.0f, 4.0f)));
+  outbuf.Store(116, asuint(dot(a2, b2)));
+  outbuf.Store(120, asuint(dot(a3, b3)));
+  outbuf.Store(124, asuint(dot(a4, b4)));
+  outbuf.Store(128, reversebits(1u));
+  outbuf.Store(132, countbits(0xf0f0u));
+  outbuf.Store(136, uint(firstbitlow(0x10u)));
+  outbuf.Store(140, uint(firstbithigh(0x10u)));
+}
+
+[numthreads(1, 1, 1)]
 void cs_dot4add_unsigned(uint3 id : SV_DispatchThreadID) {
   uint value = dot4add_u8packed(0x01020304u, 0x04030201u, inbuf.Load(0));
   outbuf.Store(0, value);
@@ -2765,6 +2813,7 @@ HLSL_DOUBLE_BITCAST
   local sm69_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_sm69.hlsl"
   cat > "$sm69_hlsl" <<'HLSL_SM69'
 RWByteAddressBuffer outbuf : register(u0);
+ByteAddressBuffer inbuf : register(t0);
 
 [numthreads(4, 1, 1)]
 void cs_sm69(uint3 id : SV_DispatchThreadID) {
@@ -2780,6 +2829,74 @@ void cs_sm69_native16(uint3 id : SV_DispatchThreadID) {
   uint result = uint(unsigned_value) + uint(signed_value + int16_t(200)) +
                 uint(float_value * float16_t(2.0));
   outbuf.Store(id.x * 4, result);
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_fdot_wide(uint3 id : SV_DispatchThreadID) {
+  vector<float, 8> a = vector<float, 8>(1.0f, 2.0f, 3.0f, 4.0f,
+                                         5.0f, 6.0f, 7.0f, 8.0f);
+  vector<float, 8> b = vector<float, 8>(8.0f, 7.0f, 6.0f, 5.0f,
+                                         4.0f, 3.0f, 2.0f, 1.0f);
+  outbuf.Store(0, asuint(dot(a, b)));
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_arithmetic(uint3 id : SV_DispatchThreadID) {
+  vector<float, 8> a = vector<float, 8>(1.0f, 2.0f, 3.0f, 4.0f,
+                                         5.0f, 6.0f, 7.0f, 8.0f);
+  vector<float, 8> b = vector<float, 8>(8.0f, 7.0f, 6.0f, 5.0f,
+                                         4.0f, 3.0f, 2.0f, 1.0f);
+  vector<float, 8> sum = a + b;
+  float total = sum[0] + sum[1] + sum[2] + sum[3] +
+                sum[4] + sum[5] + sum[6] + sum[7];
+  outbuf.Store(0, asuint(total));
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_integer(uint3 id : SV_DispatchThreadID) {
+  vector<uint, 8> a = vector<uint, 8>(1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u);
+  vector<uint, 8> b = vector<uint, 8>(8u, 7u, 6u, 5u, 4u, 3u, 2u, 1u);
+  vector<uint, 8> mixed = a ^ b;
+  uint total = mixed[0] + mixed[1] + mixed[2] + mixed[3] +
+               mixed[4] + mixed[5] + mixed[6] + mixed[7];
+  outbuf.Store(0, total);
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_dynamic(uint3 id : SV_DispatchThreadID) {
+  uint seed = inbuf.Load(0);
+  vector<uint, 8> a = vector<uint, 8>(seed + 1u, seed + 2u, seed + 3u, seed + 4u,
+                                      seed + 5u, seed + 6u, seed + 7u, seed + 8u);
+  vector<uint, 8> b = vector<uint, 8>(8u, 7u, 6u, 5u, 4u, 3u, 2u, 1u);
+  vector<uint, 8> sum = a + b;
+  uint total = sum[0] + sum[1] + sum[2] + sum[3] +
+               sum[4] + sum[5] + sum[6] + sum[7];
+  outbuf.Store(0, total);
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_dynamic_float(uint3 id : SV_DispatchThreadID) {
+  float seed = float(inbuf.Load(0));
+  vector<float, 8> a = vector<float, 8>(seed + 1.0f, seed + 2.0f,
+                                         seed + 3.0f, seed + 4.0f,
+                                         seed + 5.0f, seed + 6.0f,
+                                         seed + 7.0f, seed + 8.0f);
+  vector<float, 8> b = vector<float, 8>(8.0f, 7.0f, 6.0f, 5.0f,
+                                         4.0f, 3.0f, 2.0f, 1.0f);
+  outbuf.Store(0, asuint(dot(a, b)));
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_16(uint3 id : SV_DispatchThreadID) {
+  vector<float, 16> a = vector<float, 16>(1.0f, 2.0f, 3.0f, 4.0f,
+                                           5.0f, 6.0f, 7.0f, 8.0f,
+                                           9.0f, 10.0f, 11.0f, 12.0f,
+                                           13.0f, 14.0f, 15.0f, 16.0f);
+  vector<float, 16> b = vector<float, 16>(16.0f, 15.0f, 14.0f, 13.0f,
+                                           12.0f, 11.0f, 10.0f, 9.0f,
+                                           8.0f, 7.0f, 6.0f, 5.0f,
+                                           4.0f, 3.0f, 2.0f, 1.0f);
+  outbuf.Store(0, asuint(dot(a, b)));
 }
 HLSL_SM69
 
@@ -2824,6 +2941,11 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_math_extended -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_math_extended.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_core_opcode_matrix -T cs_6_0 -HV 2021 -Od \
+      -Fo probe_dxil_semantic_core_opcode_matrix.cso probe_dxil_semantics.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_dot4add_unsigned -T cs_6_4 -HV 2021 \
       -Fo probe_dxil_semantic_dot4add_unsigned.cso probe_dxil_semantics.hlsl >/dev/null
@@ -2980,6 +3102,30 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_native16 -T cs_6_9 -HV 2021 -enable-16bit-types \
       -Fo probe_dxil_semantic_sm69_native16.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_fdot_wide -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_fdot_wide.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_arithmetic -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_arithmetic.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_integer -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_integer.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_dynamic -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_dynamic.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_dynamic_float -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_dynamic_float.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_16 -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_16.cso probe_dxil_semantic_sm69.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_texture_ops -T cs_6_9 -HV 2021 \
