@@ -36,6 +36,7 @@ RWStructuredBuffer<uint> output : register(u0);
 struct LODVertexOutput {
   float4 position : SV_Position;
   float coordinate : TEXCOORD0;
+  float comparison : TEXCOORD1;
 };
 
 LODVertexOutput vs_texture_lod(uint vertex_id : SV_VertexID) {
@@ -44,6 +45,8 @@ LODVertexOutput vs_texture_lod(uint vertex_id : SV_VertexID) {
   result.position = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0),
                            0.0, 1.0);
   result.coordinate = uv.x * 2.0;
+  result.comparison = comparison_tex1d.SampleCmpLevelZero(
+      comparison_samp, 0.5, 0.5);
   return result;
 }
 
@@ -59,7 +62,7 @@ float4 ps_texture_lod(LODVertexOutput input) : SV_Target0 {
   return float4(tex1.CalculateLevelOfDetail(samp, input.coordinate),
                 tex1.CalculateLevelOfDetailUnclamped(samp, input.coordinate),
                 comparison + comparison_level_zero + comparison_1d +
-                    comparison_1d_array,
+                    comparison_1d_array + input.comparison,
                 1.0);
 }
 

@@ -1453,11 +1453,22 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
             uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
             uint32_t element_type = resourceElementTypeForTextureSlot(ctx, i);
-            params.push_back("  " + textureBindingType(
-                                  resource_kind, false,
-                                  isIntegerResourceElementType(element_type), true,
-                                  false, isSignedResourceElementType(element_type)) +
-                             " tex" + std::to_string(i) + " [[texture(" +
+            bool comparison_slot =
+                ctx.sample_cmp_shader &&
+                ctx.comparison_texture_slots.count(i) != 0;
+            const bool comparison_kind =
+                resource_kind == 1u || resource_kind == 2u ||
+                resource_kind == 5u || resource_kind == 6u ||
+                resource_kind == 7u || resource_kind == 9u ||
+                resource_kind == 0u;
+            const std::string binding_type = comparison_slot && comparison_kind
+                ? depthTextureBindingType(resource_kind)
+                : textureBindingType(
+                      resource_kind, false,
+                      isIntegerResourceElementType(element_type), true,
+                      false, isSignedResourceElementType(element_type));
+            params.push_back("  " + binding_type + " tex" +
+                             std::to_string(i) + " [[texture(" +
                              std::to_string(i) + ")]]");
         }
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++)
@@ -3620,6 +3631,24 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
             if (producesValue(inst))
                 ++value_counter;
         }
+    }
+
+    // Some optimized graphics entry points renumber the annotated comparison
+    // handle outside the pre-analysis value sequence.  Preserve precise
+    // per-slot typing for mixed shaders, but recover the unambiguous case when
+    // the entry point exposes exactly one sampled texture range.
+    if (ctx.sample_cmp_shader && ctx.comparison_texture_slots.empty()) {
+        uint32_t only_slot = 0;
+        uint32_t texture_slot_count = 0;
+        for (const auto &range : plan.ranges) {
+            if (range.kind != DescriptorRangePlan::Kind::SRV ||
+                !isTextureResourceKind(range.resource_kind))
+                continue;
+            texture_slot_count += range.count;
+            only_slot = range.lower_bound;
+        }
+        if (texture_slot_count == 1)
+            ctx.comparison_texture_slots.insert(only_slot);
     }
 
     uint32_t max_sampler = 0;

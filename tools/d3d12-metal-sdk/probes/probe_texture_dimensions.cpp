@@ -483,7 +483,7 @@ static HRESULT create_graphics_texture_root_signature(
             D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[i].DescriptorTable.NumDescriptorRanges = 1;
         params[i].DescriptorTable.pDescriptorRanges = &ranges[i];
-        params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
     D3D12_ROOT_SIGNATURE_DESC desc = {};
     desc.NumParameters = 2;
@@ -1176,7 +1176,7 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
     float expected_lod = 1.0f;
     std::memcpy(&result.expected, &expected_lod, sizeof(expected_lod));
     result.expected_high = result.expected;
-    float expected_comparison_sum = 3.0f;
+    float expected_comparison_sum = 4.0f;
     std::memcpy(&result.dimensions_expected, &expected_comparison_sum,
                 sizeof(expected_comparison_sum));
 
@@ -1466,7 +1466,7 @@ static CaseResult run_graphics_lod_case(ID3D12Device* device) {
                   result.actual_high == result.expected_high &&
                   result.dimensions_actual == result.dimensions_expected;
     result.detail = result.pass
-                        ? "pixel-stage LOD and depth comparison sampling matched exact float readback"
+                        ? "vertex/pixel LOD and depth comparison sampling matched exact float readback"
                         : errors.empty() ? "pixel-stage texture sampling readback failed"
                                          : errors;
     safe_release(readback);
