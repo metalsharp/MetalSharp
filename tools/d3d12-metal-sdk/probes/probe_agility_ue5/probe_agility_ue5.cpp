@@ -399,6 +399,8 @@ static void print_hr_field(const char* key, HRESULT hr, bool last = false) {
 }
 
 int main() {
+    const wchar_t* database_path = L"Z:\\tmp\\metalsharp-agility-cache.bin";
+    DeleteFileW(database_path);
     configure_exported_sdk();
     std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
     std::string expected_windows = getenv_string("D3D12_METAL_SDK_EXPECT_WINDOWS_SUBSTR");
@@ -534,9 +536,10 @@ int main() {
             : E_NOINTERFACE;
     ID3D12StateObjectDatabaseCompat* database = nullptr;
     HRESULT create_database_hr =
-        database_factory ? database_factory->CreateStateObjectDatabaseFromFile(L"Z:\\tmp\\metalsharp-agility-cache.bin",
-                                                                               0, IID_ID3D12StateObjectDatabaseProbe,
-                                                                               reinterpret_cast<void**>(&database))
+        database_factory ? database_factory->CreateStateObjectDatabaseFromFile(
+                               database_path, 0,
+                               IID_ID3D12StateObjectDatabaseProbe,
+                               reinterpret_cast<void**>(&database))
                          : E_NOINTERFACE;
     wchar_t application_exe[] = L"probe.exe";
     wchar_t application_name[] = L"MetalSharp State DB";
@@ -629,6 +632,73 @@ int main() {
                        "bad", 3, 1, &unsupported_state_desc, nullptr, 0)
                  : E_NOINTERFACE;
 
+    ID3D12StateObjectDatabaseCompat* reopened_database = nullptr;
+    HRESULT reopen_database_hr =
+        database_factory ? database_factory->CreateStateObjectDatabaseFromFile(
+                               database_path, 0,
+                               IID_ID3D12StateObjectDatabaseProbe,
+                               reinterpret_cast<void**>(&reopened_database))
+                         : E_NOINTERFACE;
+    ApplicationCallbackState reopened_application_callback = {};
+    HRESULT reopened_application_hr =
+        reopened_database
+            ? reopened_database->GetApplicationDesc(
+                  reinterpret_cast<void*>(application_desc_callback),
+                  &reopened_application_callback)
+            : E_NOINTERFACE;
+    PipelineCallbackState reopened_pipeline_callback = {};
+    HRESULT reopened_pipeline_hr =
+        reopened_database
+            ? reopened_database->FindPipelineStateDesc(
+                  pso_key.data(), static_cast<UINT>(pso_key.size()),
+                  pipeline_state_callback, &reopened_pipeline_callback)
+            : E_NOINTERFACE;
+    StateObjectCallbackState reopened_state_callback = {};
+    HRESULT reopened_state_hr =
+        reopened_database
+            ? reopened_database->FindStateObjectDesc(
+                  state_key.data(), static_cast<UINT>(state_key.size()),
+                  state_object_callback, &reopened_state_callback)
+            : E_NOINTERFACE;
+    ID3D12StateObjectDatabaseCompat* readonly_database = nullptr;
+    HRESULT readonly_database_hr =
+        database_factory ? database_factory->CreateStateObjectDatabaseFromFile(
+                               database_path, 1,
+                               IID_ID3D12StateObjectDatabaseProbe,
+                               reinterpret_cast<void**>(&readonly_database))
+                         : E_NOINTERFACE;
+    HRESULT readonly_store_hr =
+        readonly_database
+            ? readonly_database->StorePipelineStateDesc(
+                  pso_key.data(), static_cast<UINT>(pso_key.size()), 8,
+                  &pipeline_desc)
+            : E_NOINTERFACE;
+
+    const wchar_t* malformed_database_path =
+        L"Z:\\tmp\\metalsharp-agility-cache-malformed.bin";
+    DeleteFileW(malformed_database_path);
+    HANDLE malformed_file = CreateFileW(
+        malformed_database_path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    const uint8_t malformed_bytes[] = {0x53, 0x44};
+    DWORD malformed_written = 0;
+    const BOOL malformed_write_ok =
+        malformed_file != INVALID_HANDLE_VALUE &&
+        WriteFile(malformed_file, malformed_bytes, sizeof(malformed_bytes),
+                  &malformed_written, nullptr) &&
+        malformed_written == sizeof(malformed_bytes);
+    if (malformed_file != INVALID_HANDLE_VALUE)
+        CloseHandle(malformed_file);
+    ID3D12StateObjectDatabaseCompat* malformed_database = nullptr;
+    HRESULT malformed_database_hr =
+        database_factory
+            ? database_factory->CreateStateObjectDatabaseFromFile(
+                  malformed_database_path, 0,
+                  IID_ID3D12StateObjectDatabaseProbe,
+                  reinterpret_cast<void**>(&malformed_database))
+            : E_NOINTERFACE;
+    const BOOL malformed_file_removed = DeleteFileW(malformed_database_path);
+
     bool d3d12_expected_path = expected_windows.empty() || contains_ascii_ci(modules[4].path, expected_windows);
     bool payload_version_matches = (modules[0].loaded && modules[0].has_exported_sdk_version &&
                                     modules[0].exported_sdk_version == D3D12SDKVersion) ||
@@ -672,7 +742,33 @@ int main() {
         state_callback.parent_key_size == state_parent_key.size() &&
         state_callback.parent_key == state_parent_key &&
         SUCCEEDED(find_state_version_hr) && found_state_version == 11 &&
-        store_unsupported_state_object_hr == E_NOTIMPL;
+        store_unsupported_state_object_hr == E_NOTIMPL &&
+        SUCCEEDED(reopen_database_hr) && SUCCEEDED(reopened_application_hr) &&
+        reopened_application_callback.called &&
+        reopened_application_callback.exe == L"probe.exe" &&
+        reopened_application_callback.name == L"MetalSharp State DB" &&
+        reopened_application_callback.engine == L"DXMT" &&
+        reopened_application_callback.version == 0x0001000200030004ull &&
+        reopened_application_callback.engine_version == 0x0005000600070008ull &&
+        SUCCEEDED(reopened_pipeline_hr) && reopened_pipeline_callback.called &&
+        reopened_pipeline_callback.version == 7 &&
+        reopened_pipeline_callback.size == sizeof(pipeline_stream) &&
+        SUCCEEDED(reopened_state_hr) && reopened_state_callback.called &&
+        reopened_state_callback.version == 11 &&
+        reopened_state_callback.subobject_count == 4 &&
+        reopened_state_callback.config_flags == state_config.Flags &&
+        reopened_state_callback.node_mask == state_node_mask.NodeMask &&
+        reopened_state_callback.max_payload_size ==
+            state_shader_config.MaxPayloadSizeInBytes &&
+        reopened_state_callback.max_attribute_size ==
+            state_shader_config.MaxAttributeSizeInBytes &&
+        reopened_state_callback.max_recursion_depth ==
+            state_pipeline_config.MaxTraceRecursionDepth &&
+        reopened_state_callback.parent_key == state_parent_key &&
+        SUCCEEDED(readonly_database_hr) && readonly_store_hr == E_ACCESSDENIED &&
+        malformed_write_ok && malformed_database_hr ==
+            HRESULT_FROM_WIN32(ERROR_BAD_FORMAT) && malformed_database == nullptr;
+    const BOOL database_file_removed = DeleteFileW(database_path);
     bool pass = modules[0].loaded && modules[1].loaded && modules[4].loaded && modules[4].has_required_symbol &&
                 payload_version_matches && d3d12_expected_path && SUCCEEDED(create_hr) && device != nullptr &&
                 interfaces[0].supported && device_configuration_ok && shader_cache_ok && pipeline_desc_cache_ok;
@@ -727,6 +823,18 @@ int main() {
     print_hr_field("find_state_object_desc", find_state_object_hr);
     print_hr_field("find_state_object_version", find_state_version_hr);
     print_hr_field("store_unsupported_state_object_desc", store_unsupported_state_object_hr);
+    print_hr_field("reopen_database", reopen_database_hr);
+    print_hr_field("reopened_application_desc", reopened_application_hr);
+    print_hr_field("reopened_pipeline_desc", reopened_pipeline_hr);
+    print_hr_field("reopened_state_object_desc", reopened_state_hr);
+    print_hr_field("readonly_database", readonly_database_hr);
+    print_hr_field("readonly_store", readonly_store_hr);
+    print_hr_field("malformed_database", malformed_database_hr);
+    std::printf("    \"malformed_file_rejected\": %s,\n",
+                (malformed_write_ok && malformed_database_hr ==
+                     HRESULT_FROM_WIN32(ERROR_BAD_FORMAT) && malformed_database == nullptr) ? "true" : "false");
+    std::printf("    \"malformed_file_removed\": %s,\n",
+                malformed_file_removed ? "true" : "false");
     std::printf("    \"application_callback_called\": %s,\n",
                 application_callback.called ? "true" : "false");
     std::printf("    \"application_callback_name_deep_copy_verified\": %s,\n",
@@ -752,6 +860,13 @@ int main() {
     std::printf("    \"state_object_callback_max_recursion_depth\": %u,\n",
                 state_callback.max_recursion_depth);
     std::printf("    \"state_object_parent_key_size\": %u,\n", state_callback.parent_key_size);
+    std::printf("    \"state_object_file_persistence_verified\": %s,\n",
+                (SUCCEEDED(reopen_database_hr) && SUCCEEDED(reopened_application_hr) &&
+                 SUCCEEDED(reopened_pipeline_hr) && SUCCEEDED(reopened_state_hr)) ? "true" : "false");
+    std::printf("    \"readonly_store_rejected\": %s,\n",
+                readonly_store_hr == E_ACCESSDENIED ? "true" : "false");
+    std::printf("    \"database_file_removed\": %s,\n",
+                database_file_removed ? "true" : "false");
     std::printf("    \"shader_cache_verified\": %s,\n", shader_cache_ok ? "true" : "false");
     std::printf("    \"pipeline_desc_cache_verified\": %s,\n", pipeline_desc_cache_ok ? "true" : "false");
     std::printf("    \"state_object_desc_cache_verified\": %s,\n",

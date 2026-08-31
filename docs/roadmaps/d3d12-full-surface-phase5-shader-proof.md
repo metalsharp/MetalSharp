@@ -159,16 +159,20 @@
   `pipeline_library_serialization_pass`, `pipeline_library_recreation_pass`,
   `shader_cache_session_pass`, and `shader_cache_disk_session_pass` are true.
   The recreated stored compute pipeline dispatches and returns exact value 42.
-  Profile `phase5-statedb1` additionally proves device-configuration and
+  Profile `phase5-statedb-malformed` additionally proves device-configuration and
   state-object-database factory routing, pipeline descriptor version `7`, and
   collection descriptor version `11` with four deeply copied fixed-size
   subobjects: `STATE_OBJECT_CONFIG Flags=1`, node mask `3`, shader payload /
   attribute sizes `32/8`, and pipeline recursion depth `2`, plus an exact
   four-byte parent-key callback round-trip. The application executable/name/
   engine/version descriptor also survives caller-string mutation through a
-  deep-copy callback round-trip. These fixed-size payloads are supported; pointer-rich DXIL-library subobjects reject
-  with exact `E_NOTIMPL`. Deep variable-payload cloning and file persistence
-  remain in the exhaustive row.
+  deep-copy callback round-trip. Profile `phase5-statedb-malformed` reloads
+  all three descriptor classes in a fresh database instance, rejects a
+  read-only store with `E_ACCESSDENIED`, and rejects a malformed file with
+  `ERROR_BAD_FORMAT`; the probe removes both disposable database files. These
+  fixed-size payloads are supported; pointer-rich DXIL-library subobjects
+  reject with exact `E_NOTIMPL`. Deep variable-payload cloning remains in the
+  exhaustive row.
 
 ## Exact evidence
 
