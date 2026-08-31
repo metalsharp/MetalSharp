@@ -30,6 +30,7 @@ enum class MSLTypeKind : uint8_t {
     UShort,
     Long,
     Double,
+    LongVector,
     DeviceCharPtr,
     ThreadgroupCharPtr,
     Texture2D,
@@ -49,6 +50,11 @@ struct MSLType {
     MSLTypeKind kind = MSLTypeKind::Unknown;
     uint32_t struct_type_id = 0;
     std::vector<MSLType> struct_fields;
+    // SM6.9 permits vectors wider than Metal's native float2/3/4 types. Such
+    // values are represented as array<scalar, vector_width> and scalarized
+    // by operations that consume them.
+    uint32_t vector_width = 0;
+    MSLTypeKind vector_element_kind = MSLTypeKind::Unknown;
 };
 
 enum class ValueRole : uint8_t {
@@ -156,6 +162,7 @@ public:
     static bool isFloatType(const MSLType &t);
     static bool isIntType(const MSLType &t);
     static bool isVectorType(const MSLType &t);
+    static bool isLongVectorType(const MSLType &t);
     static uint32_t vectorWidth(const MSLType &t);
     static MSLType scalarType(const MSLType &t);
     static MSLType vectorOfType(const MSLType &elem, uint32_t width);

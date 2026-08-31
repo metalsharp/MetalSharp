@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdarg>
+#include <cstdlib>
 #include <cctype>
 #include <algorithm>
 #include <map>
@@ -528,6 +529,8 @@ static std::string defaultForType(const MSLType &t) {
         return "tex0";
     case MSLTypeKind::Sampler:
         return "samp0";
+    case MSLTypeKind::LongVector:
+        return "{}";
     default: return "0";
     }
 }
@@ -543,6 +546,18 @@ static MSLType aggregateFallbackType(const std::vector<std::string> &parts) {
         }
         if (!part.empty() && part.back() == 'u')
             has_unsigned = true;
+    }
+
+    if (parts.size() > 4) {
+        MSLType result;
+        result.kind = MSLTypeKind::LongVector;
+        result.vector_width = static_cast<uint32_t>(parts.size());
+        result.vector_element_kind = has_float
+                                          ? MSLTypeKind::Float
+                                          : has_unsigned
+                                                ? MSLTypeKind::UInt
+                                                : MSLTypeKind::Int;
+        return result;
     }
 
     size_t count = std::min<size_t>(std::max<size_t>(parts.size(), 1), 4);
@@ -577,7 +592,8 @@ static bool isAggregateLiteralText(const std::string &text) {
 static std::string aggregateConstructor(const std::string &literal, MSLType type = {}) {
     auto parts = parseAggregateLiteral(literal);
     if (parts.empty()) return literal;
-    if (!DXILIRBuilder::isVectorType(type))
+    if (!DXILIRBuilder::isVectorType(type) &&
+        !DXILIRBuilder::isLongVectorType(type))
         type = aggregateFallbackType(parts);
 
     std::string type_name = emitTypeName(type);
@@ -608,6 +624,8 @@ static std::string aggregateConstructor(const std::string &literal, MSLType type
         if (i) args += ", ";
         args += DXILIRBuilder::isVectorType(type) ? scalarize_vector_part(parts[i]) : parts[i];
     }
+    if (DXILIRBuilder::isLongVectorType(type))
+        return type_name + "{{" + args + "}}";
     return type_name + "(" + args + ")";
 }
 
@@ -6414,8 +6432,22 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     }
     case DXOP_FDot: {
         if (args.size() < 2) return "0.0f";
-        return "dot(" + vectorArg(0, "float2(0.0f)") + ", " +
-               vectorArg(1, "float2(0.0f)") + ")";
+        const MSLType lhs_type = valueTypeOrUnknown(ctx, args[0]);
+        const MSLType rhs_type = valueTypeOrUnknown(ctx, args[1]);
+        const MSLType vector_type = DXILIRBuilder::isLongVectorType(lhs_type)
+                                        ? lhs_type
+                                        : rhs_type;
+        const std::string lhs = vectorArg(0, "float2(0.0f)");
+        const std::string rhs = vectorArg(1, "float2(0.0f)");
+        if (DXILIRBuilder::isLongVectorType(vector_type)) {
+            std::string result = "0.0f";
+            for (uint32_t i = vector_type.vector_width; i-- > 0;) {
+                result = "(" + lhs + "[" + std::to_string(i) + "] * " +
+                         rhs + "[" + std::to_string(i) + "] + " + result + ")";
+            }
+            return result;
+        }
+        return "dot(" + lhs + ", " + rhs + ")";
     }
     case DXOP_Dot4: {
         if (args.size() < 8) return "0.0";
@@ -6730,6 +6762,23 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
     };
 
     auto inferTypeFromExpr = [](const std::string &expr) -> MSLType {
+        if (startsWith(expr, "array<")) {
+            const size_t comma = expr.find(',', 6);
+            const size_t close = expr.find('>', comma == std::string::npos ? 6 : comma);
+            if (comma != std::string::npos && close != std::string::npos) {
+                MSLType result;
+                result.kind = MSLTypeKind::LongVector;
+                std::string element = expr.substr(6, comma - 6);
+                result.vector_width = static_cast<uint32_t>(std::strtoul(
+                    expr.substr(comma + 1, close - comma - 1).c_str(), nullptr, 10));
+                result.vector_element_kind = element == "uint"
+                                                  ? MSLTypeKind::UInt
+                                                  : element == "int"
+                                                        ? MSLTypeKind::Int
+                                                        : MSLTypeKind::Float;
+                return result;
+            }
+        }
         if (startsWith(expr, "buf"))
             return {MSLTypeKind::DeviceCharPtr, 0, {}};
         if (startsWith(expr, "tex"))
@@ -6779,6 +6828,41 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         if (expr.find("float3(") == 0)
             return {MSLTypeKind::Float3, 0, {}};
         return {MSLTypeKind::Unknown, 0, {}};
+    };
+
+    auto inferLongVectorType = [&](uint32_t value_id,
+                                   MSLTypeKind element_hint = MSLTypeKind::Unknown) -> MSLType {
+        if (value_id < ctx.value_types.size() &&
+            DXILIRBuilder::isLongVectorType(ctx.value_types[value_id]))
+            return ctx.value_types[value_id];
+        if (value_id < ctx.value_table.size()) {
+            MSLType inferred = inferTypeFromExpr(ctx.value_table[value_id]);
+            if (DXILIRBuilder::isLongVectorType(inferred))
+                return inferred;
+        }
+        for (const auto &type : ctx.mod.types) {
+            if (type.kind != LLVMType::Vector || type.bit_width <= 4 ||
+                type.bit_width > 16)
+                continue;
+            MSLType result;
+            result.kind = MSLTypeKind::LongVector;
+            result.vector_width = type.bit_width;
+            result.vector_element_kind = element_hint == MSLTypeKind::Unknown
+                                              ? MSLTypeKind::Float
+                                              : element_hint;
+            if (!type.type_refs.empty()) {
+                MSLType element = DXILIRBuilder::resolveType(type.type_refs[0], ctx.mod);
+                if (element.kind == MSLTypeKind::Float ||
+                    element.kind == MSLTypeKind::Half)
+                    result.vector_element_kind = MSLTypeKind::Float;
+                else if (element.kind == MSLTypeKind::UInt)
+                    result.vector_element_kind = MSLTypeKind::UInt;
+                else if (element.kind == MSLTypeKind::Int)
+                    result.vector_element_kind = MSLTypeKind::Int;
+            }
+            return result;
+        }
+        return {};
     };
 
     auto bestType = [&](MSLType declared, const std::string &expr) -> MSLType {
@@ -6931,11 +7015,13 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         MSLType resolved = typeForResolvedExpression(ctx, getValue(idx));
         if (isUsableType(resolved) &&
             (typeLooksResourceHandle(resolved) || !isUsableType(tracked) ||
-             DXILIRBuilder::isVectorType(resolved)))
+             DXILIRBuilder::isVectorType(resolved) ||
+             DXILIRBuilder::isLongVectorType(resolved)))
             return resolved;
         MSLType inferred = inferTypeFromExpr(getValue(idx));
         if (isUsableType(inferred) &&
-            (!isUsableType(tracked) || DXILIRBuilder::isVectorType(inferred)))
+            (!isUsableType(tracked) || DXILIRBuilder::isVectorType(inferred) ||
+             DXILIRBuilder::isLongVectorType(inferred)))
             return inferred;
         return tracked;
     };
@@ -6953,7 +7039,14 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         case MSLTypeKind::Float:
         case MSLTypeKind::Half:
         case MSLTypeKind::Double:
-            return {MSLTypeKind::Int, 0, {}};
+            return {MSLTypeKind::Int, 0, {} };
+        case MSLTypeKind::LongVector: {
+            MSLType result = t;
+            result.vector_element_kind = t.vector_element_kind == MSLTypeKind::UInt
+                                             ? MSLTypeKind::UInt
+                                             : MSLTypeKind::Int;
+            return result;
+        }
         default:
             return t;
         }
@@ -7124,8 +7217,12 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         MSLType op1 = typeLooksResourceHandle(rhs) ? MSLType{pointer_scalar, 0, {}}
                                                    : demotePointerType(rhs, pointer_scalar);
 
-        if (DXILIRBuilder::isVectorType(op0)) result_type = op0;
-        else if (DXILIRBuilder::isVectorType(op1)) result_type = op1;
+        if (DXILIRBuilder::isVectorType(op0) ||
+            DXILIRBuilder::isLongVectorType(op0))
+            result_type = op0;
+        else if (DXILIRBuilder::isVectorType(op1) ||
+                 DXILIRBuilder::isLongVectorType(op1))
+            result_type = op1;
         else if (op0.kind == MSLTypeKind::Double ||
                  op1.kind == MSLTypeKind::Double)
             result_type = {MSLTypeKind::Double, 0, {}};
@@ -7371,7 +7468,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             result_type = {MSLTypeKind::Long, 0, {}};
         auto pre_it = ctx.predeclared_types.find(result);
         if (pre_it != ctx.predeclared_types.end() &&
-            DXILIRBuilder::isVectorType(pre_it->second) &&
+            (DXILIRBuilder::isVectorType(pre_it->second) ||
+             DXILIRBuilder::isLongVectorType(pre_it->second)) &&
             (DXILIRBuilder::isFloatType(pre_it->second) || DXILIRBuilder::isIntType(pre_it->second)))
             result_type = pre_it->second;
         bool arithmetic_op = inst.opcode == LLVMInstruction::Add ||
@@ -7387,6 +7485,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         if ((inst.opcode == LLVMInstruction::Shl || inst.opcode == LLVMInstruction::LShr ||
              inst.opcode == LLVMInstruction::AShr) &&
             !DXILIRBuilder::isVectorType(result_type) &&
+            !DXILIRBuilder::isLongVectorType(result_type) &&
             result_type.kind != MSLTypeKind::Long)
             result_type = {MSLTypeKind::Int, 0, {}};
         bool is_shift = inst.opcode == LLVMInstruction::Shl ||
@@ -7404,7 +7503,33 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             rhs = castExpr(rhs, {MSLTypeKind::Float, 0, {}});
         }
         std::string expr;
-        if (result_type.kind == MSLTypeKind::Double) {
+        if (DXILIRBuilder::isLongVectorType(result_type)) {
+            const MSLType lhs_type = operandType(inst.operands[0]);
+            const MSLType rhs_type = operandType(inst.operands[1]);
+            auto component = [&](const std::string &value, const MSLType &type,
+                                 uint32_t index) {
+                if (DXILIRBuilder::isLongVectorType(type))
+                    return value + "[" + std::to_string(index) + "]";
+                if (DXILIRBuilder::isVectorType(type))
+                    return componentAccess(value, index, type);
+                return value;
+            };
+            const std::string type_name = emitTypeName(result_type);
+            expr = type_name + "{{";
+            for (uint32_t i = 0; i < result_type.vector_width; ++i) {
+                if (i)
+                    expr += ", ";
+                const std::string left = component(lhs, lhs_type, i);
+                const std::string right = component(rhs, rhs_type, i);
+                if (preserve_float_arithmetic &&
+                    (inst.opcode == LLVMInstruction::URem ||
+                     inst.opcode == LLVMInstruction::SRem))
+                    expr += "fmod(" + left + ", " + right + ")";
+                else
+                    expr += left + " " + std::string(op_str) + " " + right;
+            }
+            expr += "}}";
+        } else if (result_type.kind == MSLTypeKind::Double) {
             if (inst.opcode == LLVMInstruction::Add ||
                 inst.opcode == LLVMInstruction::Sub) {
                 if (inst.opcode == LLVMInstruction::Sub)
@@ -7449,7 +7574,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 agg_type = ctx.value_types[inst.operands[0]];
 
             bool is_struct = (agg_type.kind == MSLTypeKind::Struct);
-            bool agg_is_vector = DXILIRBuilder::isVectorType(agg_type);
+            bool agg_is_vector = DXILIRBuilder::isVectorType(agg_type) ||
+                                 DXILIRBuilder::isLongVectorType(agg_type);
 
             if (is_struct) {
                 if (idx == 0) {
@@ -7457,8 +7583,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 } else {
                     emitTypedLine(result_type, result, defaultForType(result_type));
                 }
-            } else if (agg_is_vector && idx < 4) {
-                std::string expr = componentAccess(agg, idx, agg_type);
+            } else if (agg_is_vector && idx < DXILIRBuilder::vectorWidth(agg_type)) {
+                std::string expr = DXILIRBuilder::isLongVectorType(agg_type)
+                                       ? agg + "[" + std::to_string(idx) + "]"
+                                       : componentAccess(agg, idx, agg_type);
                 auto scalar = DXILIRBuilder::scalarType(agg_type);
                 emitTypedLine(scalar, result, expr);
                 result_type = scalar;
@@ -7467,8 +7595,12 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 emitTypedLine(result_type, result, agg);
             } else {
                 auto inferred = inferTypeFromExpr(agg);
-                if (DXILIRBuilder::isVectorType(inferred) && idx < 4) {
-                    std::string expr = componentAccess(agg, idx, inferred);
+                if ((DXILIRBuilder::isVectorType(inferred) ||
+                     DXILIRBuilder::isLongVectorType(inferred)) &&
+                    idx < DXILIRBuilder::vectorWidth(inferred)) {
+                    std::string expr = DXILIRBuilder::isLongVectorType(inferred)
+                                           ? agg + "[" + std::to_string(idx) + "]"
+                                           : componentAccess(agg, idx, inferred);
                     auto scalar = DXILIRBuilder::scalarType(inferred);
                     emitTypedLine(scalar, result, expr);
                     result_type = scalar;
@@ -7533,15 +7665,36 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
     case LLVMInstruction::InsertElement: {
         ensureValueTable(value_counter);
         MSLType result_type = getTypeForInst(inst.type_id);
+        if (!isUsableType(result_type) && !inst.operands.empty() &&
+            inst.operands[0] < ctx.value_types.size())
+            result_type = ctx.value_types[inst.operands[0]];
+        if (!isUsableType(result_type) && inst.operands.size() > 1) {
+            MSLTypeKind hint = inst.operands[1] < ctx.value_types.size()
+                                   ? DXILIRBuilder::scalarType(
+                                         ctx.value_types[inst.operands[1]])
+                                         .kind
+                                   : MSLTypeKind::Unknown;
+            MSLType inferred = inferLongVectorType(inst.operands[0], hint);
+            if (DXILIRBuilder::isLongVectorType(inferred))
+                result_type = inferred;
+        }
         if (inst.operands.size() >= 3) {
             auto vec = getValue(inst.operands[0]);
             auto elem = getValue(inst.operands[1]);
             auto idx = getValue(inst.operands[2]);
+            if (DXILIRBuilder::isLongVectorType(result_type) &&
+                (vec == "0" || vec == "undef" ||
+                 exprLooksScalarLiteral(vec)))
+                vec = emitTypeName(result_type) + "{}";
             emitTypedLine(result_type, result, vec);
             uint32_t idx_val = 0;
-            if (parseUnsignedLiteral(idx, idx_val) && idx_val < 4)
-                os << "  " << result << componentSuffix(idx_val) << " = " << elem << ";\n";
-            else
+            if (parseUnsignedLiteral(idx, idx_val) &&
+                idx_val < DXILIRBuilder::vectorWidth(result_type)) {
+                if (DXILIRBuilder::isLongVectorType(result_type))
+                    os << "  " << result << "[" << idx_val << "] = " << elem << ";\n";
+                else
+                    os << "  " << result << componentSuffix(idx_val) << " = " << elem << ";\n";
+            } else
                 os << "  " << result << "[" + idx + "] = " << elem << ";\n";
         } else {
             emitTypedLine(result_type, result, inst.operands.size() >= 1 ? getValue(inst.operands[0]) : "float4(0)");
@@ -8184,8 +8337,14 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         for (size_t i = 1; i < inst.operands.size(); i++) {
             auto idx = coerceOperand(inst.operands[i], {MSLTypeKind::Int, 0, {}});
             idx = ensureScalarIndex(idx);
-            if (idx != "0" && idx != "0.0" && idx != "0.0f")
-                gep += " + " + idx;
+            if (idx != "0" && idx != "0.0" && idx != "0.0f") {
+                // The translated alloca storage is byte-addressed. LLVM GEP
+                // indices are element-addressed, so scale the selected
+                // element by the scalar slot size before casting the pointer.
+                // DXIL's private aggregate/vector scratch values are built
+                // from 32-bit lanes; zero outer indices remain free.
+                gep += " + (" + idx + ") * 4";
+            }
         }
         ctx.value_table[value_counter] = gep;
         ctx.value_types[value_counter] = {MSLTypeKind::DeviceCharPtr, 0, {}};
@@ -8636,7 +8795,8 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             MSLType source_type = inst.operands.empty() || inst.operands[0] >= ctx.value_types.size()
                 ? MSLType{}
                 : ctx.value_types[inst.operands[0]];
-            if (DXILIRBuilder::isVectorType(source_type))
+            if (DXILIRBuilder::isVectorType(source_type) ||
+                DXILIRBuilder::isLongVectorType(source_type))
                 return DXILIRBuilder::scalarType(source_type);
             break;
         }
@@ -8656,7 +8816,8 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         case LLVMInstruction::InsertElement:
         case LLVMInstruction::InsertValue: {
             if (!inst.operands.empty() && inst.operands[0] < ctx.value_types.size() &&
-                DXILIRBuilder::isVectorType(ctx.value_types[inst.operands[0]]))
+                (DXILIRBuilder::isVectorType(ctx.value_types[inst.operands[0]]) ||
+                 DXILIRBuilder::isLongVectorType(ctx.value_types[inst.operands[0]])))
                 return ctx.value_types[inst.operands[0]];
             break;
         }

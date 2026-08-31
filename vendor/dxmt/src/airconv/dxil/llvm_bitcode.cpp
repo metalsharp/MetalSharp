@@ -1175,7 +1175,6 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
       continue;
 
     uint32_t rec_code = (uint32_t)ops[0];
-
     switch (rec_code) {
     case kFuncCode_DeclareBlocks:
       fn.blocks.resize(ops.size() > 1 ? (size_t)ops[1] : 0);
@@ -1496,15 +1495,27 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
     }
     case kFuncCode_InstInsertElt:
     case kFuncCode_InstShuffleVec: {
-      if (cur_block < fn.blocks.size() && ops.size() >= 5) {
+      if (cur_block < fn.blocks.size() &&
+          ((rec_code == kFuncCode_InstInsertElt && ops.size() >= 4) ||
+           (rec_code == kFuncCode_InstShuffleVec && ops.size() >= 5))) {
         LLVMInstruction inst;
         inst.opcode = rec_code == kFuncCode_InstInsertElt
                           ? LLVMInstruction::InsertElement
                           : LLVMInstruction::ShuffleVector;
-        inst.type_id = (uint32_t)ops[2];
-        inst.operands.push_back(value(ops[1]));
-        inst.operands.push_back(value(ops[3]));
-        inst.operands.push_back(value(ops[4]));
+        if (rec_code == kFuncCode_InstInsertElt && ops.size() == 4) {
+          // Newer LLVM bitcode emits INSERTELT as [opval, opval, opval]
+          // when the vector type is recoverable from the first operand. The
+          // third field is the index value, not a type id.
+          inst.type_id = 0;
+          inst.operands.push_back(value(ops[1]));
+          inst.operands.push_back(value(ops[2]));
+          inst.operands.push_back(value(ops[3]));
+        } else {
+          inst.type_id = (uint32_t)ops[2];
+          inst.operands.push_back(value(ops[1]));
+          inst.operands.push_back(value(ops[3]));
+          inst.operands.push_back(value(ops[4]));
+        }
         fn.blocks[cur_block].instructions.push_back(inst);
         noteResult();
       }

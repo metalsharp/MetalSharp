@@ -254,6 +254,7 @@ struct CorpusCase {
     bool expected_rejection;
     bool waveops_case;
     bool expected_pso_rejection = false;
+    const char* defines = nullptr;
 };
 
 struct CaseResult {
@@ -293,6 +294,10 @@ static CaseResult run_dxc_case(ID3D12Device* device, ID3D12RootSignature* root, 
 
     std::string command = "dxc.exe -nologo -T ";
     command += corpus_case.target;
+    if (corpus_case.defines) {
+        command += " -D";
+        command += corpus_case.defines;
+    }
     command += " -E ";
     command += corpus_case.entry;
     command += " -HV 2021 -Od -Fo ";
@@ -547,6 +552,17 @@ void cs_fdot_sm69(uint3 id : SV_DispatchThreadID) {
   out_uav.Store(0, asuint(dot(a, b)));
 }
 
+#ifdef DXMT_SM69_WIDE
+[numthreads(1, 1, 1)]
+void cs_fdot_sm69_wide(uint3 id : SV_DispatchThreadID) {
+  vector<float, 8> a = vector<float, 8>(1.0f, 2.0f, 3.0f, 4.0f,
+                                         5.0f, 6.0f, 7.0f, 8.0f);
+  vector<float, 8> b = vector<float, 8>(8.0f, 7.0f, 6.0f, 5.0f,
+                                         4.0f, 3.0f, 2.0f, 1.0f);
+  out_uav.Store(0, asuint(dot(a, b)));
+}
+#endif
+
 [numthreads(4, 1, 1)]
 void cs_resource_indexing(uint3 id : SV_DispatchThreadID) {
   uint index = selector & 1u;
@@ -585,6 +601,37 @@ void cs_texture_sampling(uint3 id : SV_DispatchThreadID) {
 void cs_root_constants(uint3 id : SV_DispatchThreadID) {
   out_uav.Store(id.x * 4, (id.x + addend) * multiplier + selector);
 }
+
+[numthreads(1, 1, 1)]
+void cs_core_math_opcode_matrix(uint3 id : SV_DispatchThreadID) {
+  float a = 0.25f;
+  float b = 0.75f;
+  float2 v2 = float2(a, b);
+  float3 v3 = float3(a, b, 1.0f);
+  float4 v4 = float4(v3, 0.5f);
+  float4 n = normalize(v4);
+  float4 r = reflect(v4, normalize(float4(0.0f, 1.0f, 0.0f, 0.0f)));
+  float3 refracted = refract(v3, normalize(float3(0.0f, 1.0f, 0.0f)), 0.5f);
+  float4 mixed = lerp(v4, r, saturate(a)) + smoothstep(0.0f, 1.0f, v4);
+  uint bits = reversebits(1u) ^ countbits(0xf0f0u) ^
+              uint(firstbitlow(0x10u)) ^ uint(firstbithigh(0x10u));
+  float scalar = dot(v2, float2(2.0f, 3.0f)) + dot(v3, v3) +
+                 dot(v4, n) + length(refracted) + distance(v3, refracted) +
+                 determinant(float3x3(v3, v3, v3));
+  out_uav.Store(0, asuint(abs(scalar) + mixed.x + cosh(a) + sinh(b) + tanh(a)));
+  out_uav.Store(4, bits);
+}
+
+[numthreads(1, 1, 1)]
+void cs_core_conversion_opcode_matrix(uint3 id : SV_DispatchThreadID) {
+  int signed_value = -7;
+  uint unsigned_value = 13u;
+  float f = float(unsigned_value) + float(signed_value);
+  uint packed = asuint(f) ^ asuint(asfloat(0x3f800000u));
+  out_uav.Store(0, packed);
+  out_uav.Store(4, uint(floor(f)) + uint(ceil(f)) + uint(round(f)) +
+                          uint(trunc(f)));
+}
 )";
 
     bool hlsl_written = write_text_file(hlsl_path, hlsl);
@@ -619,6 +666,8 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
         {"sm68_vector_arithmetic", "sm67_through_sm69_progression", "cs_sm68", "cs_6_8", false, false},
         {"sm69_integer_float_mix", "sm67_through_sm69_progression", "cs_sm69", "cs_6_9", false, false},
         {"sm69_fdot", "sm67_through_sm69_progression", "cs_fdot_sm69", "cs_6_9", false, false},
+        {"sm69_fdot_wide", "sm67_through_sm69_progression", "cs_fdot_sm69_wide", "cs_6_9", false, false, false,
+         "DXMT_SM69_WIDE"},
         {"resource_indexing", "resource_indexing", "cs_resource_indexing", "cs_6_0", false, false},
         {"append_counter_link", "append_counter_link", "cs_append_counter", "cs_6_0", false, false},
         {"two_counter_fail_closed", "counter_fail_closed", "cs_two_append_counters", "cs_6_0", false, false, true},
@@ -627,6 +676,8 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
          false},
         {"texture_sampling", "texture_sampling", "cs_texture_sampling", "cs_6_0", false, false},
         {"root_constants", "root_constants", "cs_root_constants", "cs_6_0", false, false},
+        {"core_math_opcode_matrix", "core_opcode_matrix", "cs_core_math_opcode_matrix", "cs_6_0", false, false},
+        {"core_conversion_opcode_matrix", "core_opcode_matrix", "cs_core_conversion_opcode_matrix", "cs_6_0", false, false},
         {"unsupported_shader_model", "unsupported_feature_rejection", "cs_sm60", "cs_9_9", true, false},
     };
 
@@ -653,6 +704,8 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     bool unsupported_rejection = false;
     bool append_counter_link = false;
     bool counter_fail_closed = false;
+    bool core_opcode_matrix = true;
+    bool core_opcode_matrix_case = false;
 
     for (const auto& result : results) {
         required_cases_pass = required_cases_pass && result.case_pass;
@@ -680,12 +733,17 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
             append_counter_link = result.case_pass;
         if (result.category == "counter_fail_closed")
             counter_fail_closed = result.case_pass;
+        if (result.category == "core_opcode_matrix") {
+            core_opcode_matrix = core_opcode_matrix && result.case_pass;
+            core_opcode_matrix_case = true;
+        }
     }
+    core_opcode_matrix = core_opcode_matrix && core_opcode_matrix_case;
 
     bool synthetic_shader_corpus_proven =
         entrypoints_ok && required_cases_pass && sm50_baseline && sm60_to_sm66 && sm67_to_sm69 && resource_indexing && uav_writes &&
-        typed_structured_buffers && texture_sampling && root_constants && waveops_compile_link && unsupported_rejection &&
-        append_counter_link && counter_fail_closed;
+        typed_structured_buffers && texture_sampling && root_constants && core_opcode_matrix &&
+        waveops_compile_link && unsupported_rejection && append_counter_link && counter_fail_closed;
     bool pass = synthetic_shader_corpus_proven;
 
     std::printf("{\n");
@@ -717,6 +775,7 @@ void cs_root_constants(uint3 id : SV_DispatchThreadID) {
     std::printf("    \"typed_and_structured_buffers\": %s,\n", typed_structured_buffers ? "true" : "false");
     std::printf("    \"texture_sampling\": %s,\n", texture_sampling ? "true" : "false");
     std::printf("    \"root_constants\": %s,\n", root_constants ? "true" : "false");
+    std::printf("    \"core_opcode_matrix\": %s,\n", core_opcode_matrix ? "true" : "false");
     std::printf("    \"waveops_compile_link\": %s,\n", waveops_compile_link ? "true" : "false");
     std::printf("    \"waveops_runtime_gated_by_probe_wave_ops\": true,\n");
     std::printf("    \"unsupported_feature_rejection\": %s,\n", unsupported_rejection ? "true" : "false");

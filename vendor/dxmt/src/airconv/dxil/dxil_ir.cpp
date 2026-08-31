@@ -82,24 +82,39 @@ MSLType DXILIRBuilder::resolveType(uint32_t type_id, const LLVMModule &mod) {
             return {MSLTypeKind::Unknown, 0, {}};
         MSLType elem = resolveType(t.type_refs[0], mod);
         uint32_t count = t.bit_width;
-        if (count < 2 || count > 4)
+        if (count < 2 || count > 16)
             return {MSLTypeKind::Unknown, 0, {}};
         if (elem.kind == MSLTypeKind::Float || elem.kind == MSLTypeKind::Double ||
             elem.kind == MSLTypeKind::Half) {
             if (count == 2) return {MSLTypeKind::Float2, 0, {}};
             if (count == 3) return {MSLTypeKind::Float3, 0, {}};
-            return {MSLTypeKind::Float4, 0, {}};
+            if (count == 4) return {MSLTypeKind::Float4, 0, {}};
+            MSLType result;
+            result.kind = MSLTypeKind::LongVector;
+            result.vector_width = count;
+            result.vector_element_kind = MSLTypeKind::Float;
+            return result;
         }
         if (elem.kind == MSLTypeKind::UInt) {
             if (count == 2) return {MSLTypeKind::UInt2, 0, {}};
             if (count == 3) return {MSLTypeKind::UInt3, 0, {}};
-            return {MSLTypeKind::UInt4, 0, {}};
+            if (count == 4) return {MSLTypeKind::UInt4, 0, {}};
+            MSLType result;
+            result.kind = MSLTypeKind::LongVector;
+            result.vector_width = count;
+            result.vector_element_kind = MSLTypeKind::UInt;
+            return result;
         }
         if (elem.kind == MSLTypeKind::Int || elem.kind == MSLTypeKind::Short ||
             elem.kind == MSLTypeKind::UShort || elem.kind == MSLTypeKind::Long) {
             if (count == 2) return {MSLTypeKind::Int2, 0, {}};
             if (count == 3) return {MSLTypeKind::Int3, 0, {}};
-            return {MSLTypeKind::Int4, 0, {}};
+            if (count == 4) return {MSLTypeKind::Int4, 0, {}};
+            MSLType result;
+            result.kind = MSLTypeKind::LongVector;
+            result.vector_width = count;
+            result.vector_element_kind = MSLTypeKind::Int;
+            return result;
         }
         return {MSLTypeKind::Unknown, 0, {}};
     }
@@ -148,6 +163,15 @@ std::string DXILIRBuilder::mslTypeName(const MSLType &t) {
     // IEEE-754 binary64 payload so make/split/bitcast operations remain exact
     // without emitting the unsupported Metal `double` spelling.
     case MSLTypeKind::Double: return "ulong";
+    case MSLTypeKind::LongVector: {
+        const char *element = t.vector_element_kind == MSLTypeKind::UInt
+                                  ? "uint"
+                                  : t.vector_element_kind == MSLTypeKind::Int
+                                        ? "int"
+                                        : "float";
+        return "array<" + std::string(element) + "," +
+               std::to_string(t.vector_width) + ">";
+    }
     case MSLTypeKind::DeviceCharPtr: return "device char*";
     case MSLTypeKind::ThreadgroupCharPtr: return "threadgroup char*";
     case MSLTypeKind::Texture2D: return "texture2d<float, access::sample>";
@@ -172,6 +196,9 @@ uint32_t DXILIRBuilder::typeBitWidth(const MSLType &t) {
     case MSLTypeKind::Float3: case MSLTypeKind::Int3: case MSLTypeKind::UInt3: return 96;
     case MSLTypeKind::Float4: case MSLTypeKind::Int4: case MSLTypeKind::UInt4: return 128;
     case MSLTypeKind::Double: case MSLTypeKind::Long: return 64;
+    case MSLTypeKind::LongVector:
+        return t.vector_width *
+               (t.vector_element_kind == MSLTypeKind::Half ? 16u : 32u);
     case MSLTypeKind::Half: case MSLTypeKind::Short: case MSLTypeKind::UShort: return 16;
     default: return 32;
     }
@@ -180,7 +207,10 @@ uint32_t DXILIRBuilder::typeBitWidth(const MSLType &t) {
 bool DXILIRBuilder::isFloatType(const MSLType &t) {
     return t.kind == MSLTypeKind::Float || t.kind == MSLTypeKind::Float2 ||
            t.kind == MSLTypeKind::Float3 || t.kind == MSLTypeKind::Float4 ||
-           t.kind == MSLTypeKind::Double || t.kind == MSLTypeKind::Half;
+           t.kind == MSLTypeKind::Double || t.kind == MSLTypeKind::Half ||
+           (t.kind == MSLTypeKind::LongVector &&
+            (t.vector_element_kind == MSLTypeKind::Float ||
+             t.vector_element_kind == MSLTypeKind::Half));
 }
 
 bool DXILIRBuilder::isIntType(const MSLType &t) {
@@ -189,7 +219,10 @@ bool DXILIRBuilder::isIntType(const MSLType &t) {
            t.kind == MSLTypeKind::UInt || t.kind == MSLTypeKind::UInt2 ||
            t.kind == MSLTypeKind::UInt3 || t.kind == MSLTypeKind::UInt4 ||
            t.kind == MSLTypeKind::Bool || t.kind == MSLTypeKind::Short ||
-           t.kind == MSLTypeKind::UShort || t.kind == MSLTypeKind::Long;
+           t.kind == MSLTypeKind::UShort || t.kind == MSLTypeKind::Long ||
+           (t.kind == MSLTypeKind::LongVector &&
+            (t.vector_element_kind == MSLTypeKind::Int ||
+             t.vector_element_kind == MSLTypeKind::UInt));
 }
 
 bool DXILIRBuilder::isVectorType(const MSLType &t) {
@@ -198,11 +231,16 @@ bool DXILIRBuilder::isVectorType(const MSLType &t) {
            t.kind == MSLTypeKind::UInt2 || t.kind == MSLTypeKind::UInt3 || t.kind == MSLTypeKind::UInt4;
 }
 
+bool DXILIRBuilder::isLongVectorType(const MSLType &t) {
+    return t.kind == MSLTypeKind::LongVector && t.vector_width > 4;
+}
+
 uint32_t DXILIRBuilder::vectorWidth(const MSLType &t) {
     switch (t.kind) {
     case MSLTypeKind::Float2: case MSLTypeKind::Int2: case MSLTypeKind::UInt2: return 2;
     case MSLTypeKind::Float3: case MSLTypeKind::Int3: case MSLTypeKind::UInt3: return 3;
     case MSLTypeKind::Float4: case MSLTypeKind::Int4: case MSLTypeKind::UInt4: return 4;
+    case MSLTypeKind::LongVector: return t.vector_width;
     default: return 1;
     }
 }
@@ -215,11 +253,24 @@ MSLType DXILIRBuilder::scalarType(const MSLType &t) {
         return {MSLTypeKind::Int, 0, {}};
     case MSLTypeKind::UInt2: case MSLTypeKind::UInt3: case MSLTypeKind::UInt4:
         return {MSLTypeKind::UInt, 0, {}};
+    case MSLTypeKind::LongVector:
+        return {t.vector_element_kind, 0, {}};
     default: return t;
     }
 }
 
 MSLType DXILIRBuilder::vectorOfType(const MSLType &elem, uint32_t width) {
+    if (width > 4) {
+        MSLType result;
+        result.kind = MSLTypeKind::LongVector;
+        result.vector_width = width;
+        result.vector_element_kind = elem.kind == MSLTypeKind::UInt
+                                         ? MSLTypeKind::UInt
+                                         : elem.kind == MSLTypeKind::Int
+                                               ? MSLTypeKind::Int
+                                               : MSLTypeKind::Float;
+        return result;
+    }
     bool is_f = (elem.kind == MSLTypeKind::Float || elem.kind == MSLTypeKind::Half);
     bool is_i = (elem.kind == MSLTypeKind::Int || elem.kind == MSLTypeKind::UInt);
     if (is_f) {
