@@ -183,13 +183,17 @@
   caller-string mutation protection, and an exact four-byte parent-key callback
   round-trip. The application executable/name/
   engine/version descriptor also survives caller-string mutation through a
-  deep-copy callback round-trip. Profile `phase5-stateassoc-normal2` reloads
-  all three descriptor classes in a fresh database instance, rejects a
-  read-only store with `E_ACCESSDENIED`, and rejects a malformed file with
-  `ERROR_BAD_FORMAT`; the probe removes both disposable database files. These
-  fixed-size payloads, DXIL library bytecode/exports, HIT_GROUP strings, and
-  both subobject-association forms are supported; root-signature and
-  existing-collection pointer payloads reject with exact `E_NOTIMPL`.
+  deep-copy callback round-trip. Profile `phase5-sodb-v5e` reloads all five
+  descriptor classes in a fresh database instance, including both
+  `GLOBAL_SERIALIZED_ROOT_SIGNATURE` and `LOCAL_SERIALIZED_ROOT_SIGNATURE`
+  twelve-byte blobs plus an `EXISTING_COLLECTION_BY_KEY` four-byte key and
+  `ByKeyExport` -> `ByKeyRenamed` export payload. It rejects a read-only store
+  with `E_ACCESSDENIED`, rejects a malformed file with `ERROR_BAD_FORMAT`, and
+  removes both disposable database files. These fixed-size payloads, DXIL
+  library bytecode/exports, HIT_GROUP strings, both subobject-association
+  forms, both serialized root-signature forms, and existing-collection-by-key
+  payloads are supported; broader compiler-session and state-object
+  combinations remain in the exhaustive row.
 
 ## Exact evidence
 
@@ -216,6 +220,14 @@ METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh \
     --texture-dimensions-only
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_PROBE_PROFILE=phase5-sodb-v5e \
+METALSHARP_WINE_ROOT=/Users/averyfelts/.metalsharp/runtime/wine \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/dxmt_m12 \
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
+    --agility-only --no-winemetal-abi
 ```
 
 The latest isolated semantic result (profile

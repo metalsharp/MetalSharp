@@ -642,11 +642,34 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SDKConfiguration::CreateDeviceFactory(
 }
 
 constexpr uint32_t kStateDatabaseMagic = 0x31424453u; // SDB1
-constexpr uint32_t kStateDatabaseVersion = 4u;
+constexpr uint32_t kStateDatabaseVersion = 5u;
 constexpr size_t kStateDatabaseMaxBytes = 16u * 1024u * 1024u;
 constexpr uint32_t kStateDatabaseMaxEntries = 4096u;
 constexpr uint32_t kStateDatabaseMaxKeyBytes = 4096u;
 constexpr uint32_t kStateDatabaseMaxStringChars = 1u * 1024u * 1024u;
+// These Agility state-database subobject values are newer than the vendored
+// D3D12 header. They are descriptor-only forms and remain separate from the
+// runtime pointer-bearing subobjects (1, 2, and 6).
+constexpr UINT kStateSubobjectGlobalSerializedRootSignature = 31u;
+constexpr UINT kStateSubobjectLocalSerializedRootSignature = 32u;
+constexpr UINT kStateSubobjectExistingCollectionByKey = 36u;
+
+struct D3D12SerializedRootSignatureDescCompat {
+  const void *pSerializedBlob;
+  SIZE_T SerializedBlobSizeInBytes;
+};
+struct D3D12GlobalSerializedRootSignatureCompat {
+  D3D12SerializedRootSignatureDescCompat Desc;
+};
+struct D3D12LocalSerializedRootSignatureCompat {
+  D3D12SerializedRootSignatureDescCompat Desc;
+};
+struct D3D12ExistingCollectionByKeyDescCompat {
+  const void *pKey;
+  UINT KeySize;
+  UINT NumExports;
+  const D3D12_EXPORT_DESC *pExports;
+};
 
 static void AppendStateDatabaseU32(std::vector<uint8_t> &data, uint32_t value) {
   data.push_back(static_cast<uint8_t>(value));
@@ -1019,6 +1042,48 @@ public:
           stored.dxil_association_exports.emplace_back(
               association->pExports[export_index]);
         }
+      } else if (static_cast<UINT>(subobject.Type) ==
+                     kStateSubobjectGlobalSerializedRootSignature ||
+                 static_cast<UINT>(subobject.Type) ==
+                     kStateSubobjectLocalSerializedRootSignature) {
+        const auto *serialized =
+            static_cast<const D3D12GlobalSerializedRootSignatureCompat *>(
+                subobject.pDesc);
+        if (!serialized->Desc.pSerializedBlob ||
+            !serialized->Desc.SerializedBlobSizeInBytes ||
+            serialized->Desc.SerializedBlobSizeInBytes > kStateDatabaseMaxBytes)
+          return E_INVALIDARG;
+        const auto *bytes = static_cast<const uint8_t *>(
+            serialized->Desc.pSerializedBlob);
+        stored.serialized_root_signature.assign(
+            bytes, bytes + serialized->Desc.SerializedBlobSizeInBytes);
+      } else if (static_cast<UINT>(subobject.Type) ==
+                 kStateSubobjectExistingCollectionByKey) {
+        const auto *collection =
+            static_cast<const D3D12ExistingCollectionByKeyDescCompat *>(
+                subobject.pDesc);
+        if (!collection->pKey || !collection->KeySize ||
+            collection->KeySize > kStateDatabaseMaxKeyBytes ||
+            collection->NumExports > 64u ||
+            (collection->NumExports && !collection->pExports))
+          return E_INVALIDARG;
+        const auto *key = static_cast<const uint8_t *>(collection->pKey);
+        stored.existing_collection_key.assign(
+            key, key + collection->KeySize);
+        stored.existing_collection_exports.reserve(collection->NumExports);
+        for (UINT export_index = 0; export_index < collection->NumExports;
+             ++export_index) {
+          const auto &export_desc = collection->pExports[export_index];
+          if (!export_desc.Name)
+            return E_INVALIDARG;
+          StateObjectExportEntry export_entry;
+          export_entry.name = export_desc.Name;
+          if (export_desc.ExportToRename)
+            export_entry.rename = export_desc.ExportToRename;
+          export_entry.flags = static_cast<UINT>(export_desc.Flags);
+          stored.existing_collection_exports.push_back(
+              std::move(export_entry));
+        }
       } else {
         const size_t desc_size = StateSubobjectDescSize(subobject.Type);
         if (!desc_size) {
@@ -1060,6 +1125,14 @@ public:
     std::vector<D3D12_STATE_SUBOBJECT> subobjects;
     std::vector<D3D12_DXIL_LIBRARY_DESC> libraries;
     std::vector<std::vector<D3D12_EXPORT_DESC>> library_exports;
+    std::vector<D3D12GlobalSerializedRootSignatureCompat>
+        global_serialized_roots;
+    std::vector<D3D12LocalSerializedRootSignatureCompat>
+        local_serialized_roots;
+    std::vector<D3D12ExistingCollectionByKeyDescCompat>
+        existing_collections_by_key;
+    std::vector<std::vector<D3D12_EXPORT_DESC>>
+        existing_collection_by_key_exports;
     std::vector<D3D12_HIT_GROUP_DESC> hit_groups;
     std::vector<D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION> dxil_associations;
     std::vector<std::vector<const WCHAR *>> association_exports;
@@ -1069,6 +1142,10 @@ public:
     subobjects.reserve(entry->second.subobjects.size());
     libraries.reserve(entry->second.subobjects.size());
     library_exports.reserve(entry->second.subobjects.size());
+    global_serialized_roots.reserve(entry->second.subobjects.size());
+    local_serialized_roots.reserve(entry->second.subobjects.size());
+    existing_collections_by_key.reserve(entry->second.subobjects.size());
+    existing_collection_by_key_exports.reserve(entry->second.subobjects.size());
     hit_groups.reserve(entry->second.subobjects.size());
     dxil_associations.reserve(entry->second.subobjects.size());
     association_exports.reserve(entry->second.subobjects.size());
@@ -1101,6 +1178,51 @@ public:
         }
         library.pExports = exports.empty() ? nullptr : exports.data();
         subobject.pDesc = &library;
+      } else if (static_cast<UINT>(stored.type) ==
+                 kStateSubobjectGlobalSerializedRootSignature) {
+        global_serialized_roots.emplace_back();
+        auto &serialized = global_serialized_roots.back();
+        serialized.Desc.pSerializedBlob =
+            stored.serialized_root_signature.data();
+        serialized.Desc.SerializedBlobSizeInBytes =
+            stored.serialized_root_signature.size();
+        subobject.pDesc = &serialized;
+      } else if (static_cast<UINT>(stored.type) ==
+                 kStateSubobjectLocalSerializedRootSignature) {
+        local_serialized_roots.emplace_back();
+        auto &serialized = local_serialized_roots.back();
+        serialized.Desc.pSerializedBlob =
+            stored.serialized_root_signature.data();
+        serialized.Desc.SerializedBlobSizeInBytes =
+            stored.serialized_root_signature.size();
+        subobject.pDesc = &serialized;
+      } else if (static_cast<UINT>(stored.type) ==
+                 kStateSubobjectExistingCollectionByKey) {
+        existing_collections_by_key.emplace_back();
+        existing_collection_by_key_exports.emplace_back();
+        auto &collection = existing_collections_by_key.back();
+        auto &exports = existing_collection_by_key_exports.back();
+        collection.pKey = stored.existing_collection_key.data();
+        collection.KeySize =
+            static_cast<UINT>(stored.existing_collection_key.size());
+        collection.NumExports =
+            static_cast<UINT>(stored.existing_collection_exports.size());
+        exports.reserve(stored.existing_collection_exports.size());
+        for (const auto &stored_export :
+             stored.existing_collection_exports) {
+          D3D12_EXPORT_DESC export_desc = {};
+          export_desc.Name = stored_export.name.empty()
+                                ? nullptr
+                                : stored_export.name.c_str();
+          export_desc.ExportToRename = stored_export.rename.empty()
+                                           ? nullptr
+                                           : stored_export.rename.c_str();
+          export_desc.Flags = static_cast<D3D12_EXPORT_FLAGS>(
+              stored_export.flags);
+          exports.push_back(export_desc);
+        }
+        collection.pExports = exports.empty() ? nullptr : exports.data();
+        subobject.pDesc = &collection;
       } else if (stored.type == D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP) {
         hit_groups.emplace_back();
         auto &hit_group = hit_groups.back();
@@ -1212,7 +1334,10 @@ private:
     D3D12_STATE_SUBOBJECT_TYPE type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
     std::vector<uint8_t> desc;
     std::vector<uint8_t> library;
+    std::vector<uint8_t> serialized_root_signature;
+    std::vector<uint8_t> existing_collection_key;
     std::vector<StateObjectExportEntry> exports;
+    std::vector<StateObjectExportEntry> existing_collection_exports;
     UINT hit_group_type = 0;
     std::wstring hit_group_export;
     std::wstring hit_group_any_hit;
@@ -1324,6 +1449,27 @@ private:
               data, static_cast<uint32_t>(subobject.dxil_association_exports.size()));
           for (const auto &export_name : subobject.dxil_association_exports)
             AppendStateDatabaseString(data, export_name);
+        } else if (static_cast<UINT>(subobject.type) ==
+                       kStateSubobjectGlobalSerializedRootSignature ||
+                   static_cast<UINT>(subobject.type) ==
+                       kStateSubobjectLocalSerializedRootSignature) {
+          AppendStateDatabaseU32(
+              data, static_cast<uint32_t>(subobject.serialized_root_signature.size()));
+          AppendStateDatabaseBytes(data, subobject.serialized_root_signature.data(),
+                                   subobject.serialized_root_signature.size());
+        } else if (static_cast<UINT>(subobject.type) ==
+                   kStateSubobjectExistingCollectionByKey) {
+          AppendStateDatabaseU32(
+              data, static_cast<uint32_t>(subobject.existing_collection_key.size()));
+          AppendStateDatabaseBytes(data, subobject.existing_collection_key.data(),
+                                   subobject.existing_collection_key.size());
+          AppendStateDatabaseU32(
+              data, static_cast<uint32_t>(subobject.existing_collection_exports.size()));
+          for (const auto &export_entry : subobject.existing_collection_exports) {
+            AppendStateDatabaseString(data, export_entry.name);
+            AppendStateDatabaseString(data, export_entry.rename);
+            AppendStateDatabaseU32(data, export_entry.flags);
+          }
         } else {
           AppendStateDatabaseU32(data,
                                  static_cast<uint32_t>(subobject.desc.size()));
@@ -1506,6 +1652,47 @@ private:
                 export_name.empty())
               return invalid();
             stored.dxil_association_exports.push_back(std::move(export_name));
+          }
+        } else if (static_cast<UINT>(stored.type) ==
+                       kStateSubobjectGlobalSerializedRootSignature ||
+                   static_cast<UINT>(stored.type) ==
+                       kStateSubobjectLocalSerializedRootSignature) {
+          uint32_t blob_size = 0;
+          if (!ReadStateDatabaseU32(data, offset, blob_size) || blob_size == 0 ||
+              blob_size > kStateDatabaseMaxBytes || offset > data.size() ||
+              data.size() - offset < blob_size)
+            return invalid();
+          stored.serialized_root_signature.resize(blob_size);
+          if (!ReadStateDatabaseBytes(data, offset,
+                                      stored.serialized_root_signature.data(),
+                                      stored.serialized_root_signature.size()))
+            return invalid();
+        } else if (static_cast<UINT>(stored.type) ==
+                   kStateSubobjectExistingCollectionByKey) {
+          uint32_t collection_key_size = 0, export_count = 0;
+          if (!ReadStateDatabaseU32(data, offset, collection_key_size) ||
+              collection_key_size == 0 ||
+              collection_key_size > kStateDatabaseMaxKeyBytes ||
+              offset > data.size() || data.size() - offset < collection_key_size)
+            return invalid();
+          stored.existing_collection_key.resize(collection_key_size);
+          if (!ReadStateDatabaseBytes(data, offset,
+                                      stored.existing_collection_key.data(),
+                                      stored.existing_collection_key.size()) ||
+              !ReadStateDatabaseU32(data, offset, export_count) ||
+              export_count > 64u)
+            return invalid();
+          stored.existing_collection_exports.reserve(export_count);
+          for (uint32_t export_index = 0; export_index < export_count;
+               ++export_index) {
+            StateObjectExportEntry export_entry;
+            if (!ReadStateDatabaseString(data, offset, export_entry.name) ||
+                !ReadStateDatabaseString(data, offset, export_entry.rename) ||
+                !ReadStateDatabaseU32(data, offset, export_entry.flags) ||
+                export_entry.name.empty())
+              return invalid();
+            stored.existing_collection_exports.push_back(
+                std::move(export_entry));
           }
         } else {
           uint32_t desc_size = 0;
