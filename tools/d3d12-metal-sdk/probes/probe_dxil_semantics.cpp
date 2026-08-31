@@ -898,6 +898,8 @@ int main() {
          {96u}, "sm69_long_vector_tertiary"},
         {"sm69_long_vector_divide_shift", "probe_dxil_semantic_sm69_long_vector_divide_shift.cso", {1u},
          {20u, 88u, 8u}, "sm69_long_vector_divide_shift"},
+        {"sm69_long_vector_select", "probe_dxil_semantic_sm69_long_vector_select.cso", {1u},
+         {56u}, "sm69_long_vector_select"},
         {"sm69_long_vector_16", "probe_dxil_semantic_sm69_long_vector_16.cso", {},
          {0x444c0000u}, "sm69_long_vector_16"},
         {"texture_sampling_forms", "probe_dxil_semantic_texture_ops.cso", {},
