@@ -202,12 +202,13 @@ All eight point/linear min/mag/mip permutations plus anisotropic filtering
 return distinct exact packed values from controlled magnification,
 minification, and fractional-LOD samples. Minimum and maximum reduction
 samplers, which Metal cannot represent, preserve the same exact sentinel
-instead of silently becoming linear filters. Comparison filter bitfields now
-retain their encoded min/mag/mip modes; full depth-comparison filtering remains
-in the exhaustive matrix. Profile `phase5-filter-sm66-regression2` passes all
-SM6.6/6.7 lanes after depth-sample comparison scalar handling, including exact
-comparison-level readback `[25,75,0,1]` and zero mismatches for the newer
-comparison gradient/bias lanes. Resource profile
+instead of silently becoming linear filters. Comparison filter bitfields retain their encoded min/mag/mip modes, and
+compute depth comparisons use native Metal `sample_compare` rather than an
+unfiltered read/compare approximation. Profile `phase5-samplecmp-final` passes
+all SM6.6/6.7 lanes with exact comparison-level readback `[25,75,1,1]`, exact
+point/linear/static-offset filtering `[0,128,255,0]`, and exact value `1` for
+the newer comparison gradient/bias lanes. Broader comparison dimension,
+address, and graphics-stage combinations remain in the exhaustive matrix. Resource profile
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
 Metal validation assertion. The latest SM6.6/6.7 profile

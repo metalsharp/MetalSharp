@@ -235,7 +235,7 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     ranges[1].BaseShaderRegister = 0;
     ranges[1].OffsetInDescriptorsFromTableStart = 0;
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-    ranges[2].NumDescriptors = 2;
+    ranges[2].NumDescriptors = 3;
     ranges[2].BaseShaderRegister = 0;
     ranges[2].OffsetInDescriptorsFromTableStart = 0;
 
@@ -307,7 +307,7 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
     if (SUCCEEDED(hr)) {
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-        heap_desc.NumDescriptors = 2;
+        heap_desc.NumDescriptors = 3;
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&sampler_heap));
     }
@@ -407,6 +407,15 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         hr = device->CreateCommittedResource(&props, D3D12_HEAP_FLAG_NONE, &comparison_desc,
                                              D3D12_RESOURCE_STATE_DEPTH_WRITE, nullptr,
                                              IID_PPV_ARGS(&comparison_texture));
+        if (SUCCEEDED(hr)) {
+            const float mip0_depth[] = {0.25f, 0.25f, 0.75f, 0.75f};
+            const float mip1_depth[] = {0.75f, 0.75f};
+            hr = comparison_texture->WriteToSubresource(
+                0, nullptr, mip0_depth, sizeof(mip0_depth), sizeof(mip0_depth));
+            if (SUCCEEDED(hr))
+                hr = comparison_texture->WriteToSubresource(
+                    1, nullptr, mip1_depth, sizeof(mip1_depth), sizeof(mip1_depth));
+        }
     }
 
     if (SUCCEEDED(hr)) {
@@ -468,6 +477,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         D3D12_CPU_DESCRIPTOR_HANDLE comparison_sampler = sampler_heap->GetCPUDescriptorHandleForHeapStart();
         comparison_sampler.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
         device->CreateSampler(&sampler, comparison_sampler);
+        sampler.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
+        D3D12_CPU_DESCRIPTOR_HANDLE comparison_linear_sampler = comparison_sampler;
+        comparison_linear_sampler.ptr +=
+            device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+        device->CreateSampler(&sampler, comparison_linear_sampler);
 
         D3D12_TEXTURE_COPY_LOCATION dst = {};
         dst.pResource = texture;
@@ -481,8 +495,6 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         src.PlacedFootprint.Footprint.Depth = 1;
         src.PlacedFootprint.Footprint.RowPitch = 256;
         list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-        list->ClearDepthStencilView(dsv_cpu, D3D12_CLEAR_FLAG_DEPTH, 0.25f, 0, 0, nullptr);
-        list->ClearDepthStencilView(dsv_mip1, D3D12_CLEAR_FLAG_DEPTH, 0.75f, 0, 0, nullptr);
         dst.pResource = raw_texture;
         src.PlacedFootprint.Footprint.Width = 1;
         list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
@@ -638,11 +650,14 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                 const uint32_t expected[] = {260, 300, 340, 380};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "sample_cmp_level_sm67") == 0) {
-                const uint32_t expected[] = {25, 75, 0, 1};
+                const uint32_t expected[] = {25, 75, 1, 1};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name, "sample_cmp_filter_sm67") == 0) {
+                const uint32_t expected[] = {0, 128, 255, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "sample_cmp_grad_sm68") == 0 ||
                        std::strcmp(audit_case.name, "sample_cmp_bias_sm68") == 0) {
-                const uint32_t expected[] = {0, 0, 0, 0};
+                const uint32_t expected[] = {1, 0, 0, 0};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else {
                 const uint32_t expected[] = {260, 261, 262, 263};
@@ -749,6 +764,7 @@ Texture2D<uint> raw_tex : register(t3);
 Texture2D<float> comparison_tex : register(t4);
 SamplerState smp : register(s0);
 SamplerComparisonState comparison_smp : register(s1);
+SamplerComparisonState comparison_linear_smp : register(s2);
 
 cbuffer RootConstants : register(b0) {
   uint selector;
@@ -1007,6 +1023,19 @@ void cs_sample_cmp_level_sm67(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_sample_cmp_filter_sm67(uint3 id : SV_DispatchThreadID) {
+  float point_value = comparison_tex.SampleCmpLevel(
+      comparison_smp, float2(0.125, 0.5), 0.5, 0.0);
+  float linear_value = comparison_tex.SampleCmpLevel(
+      comparison_linear_smp, float2(0.5, 0.5), 0.5, 0.0);
+  float offset_value = comparison_tex.SampleCmpLevel(
+      comparison_smp, float2(0.125, 0.5), 0.5, 0.0, int2(2, 0));
+  outbuf.Store3(0, uint3((uint)(point_value * 255.0 + 0.5),
+                             (uint)(linear_value * 255.0 + 0.5),
+                             (uint)(offset_value * 255.0 + 0.5)));
+}
+
+[numthreads(1, 1, 1)]
 void cs_sample_cmp_grad_sm68(uint3 id : SV_DispatchThreadID) {
   float value = comparison_tex.SampleCmpGrad(
       comparison_smp, float2(0.5, 0.5), 0.5,
@@ -1085,6 +1114,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"raw_gather_sm67", "cs_raw_gather_sm67", "cs_6_7", "sm67_raw_gather", true},
         {"typed_texture_load_sm67", "cs_typed_texture_load_sm67", "cs_6_7", "typed_texture_element_type", true},
         {"sample_cmp_level_sm67", "cs_sample_cmp_level_sm67", "cs_6_7", "sm67_sample_cmp_level", true},
+        {"sample_cmp_filter_sm67", "cs_sample_cmp_filter_sm67", "cs_6_7", "sm67_sample_cmp_filter", true},
         {"sample_cmp_grad_sm68", "cs_sample_cmp_grad_sm68", "cs_6_8", "sm68_sample_cmp_gradient", true},
         {"sample_cmp_bias_sm68", "cs_sample_cmp_bias_sm68", "cs_6_8", "sm68_sample_cmp_bias", true},
         {"quad_vote_sm67", "cs_quad_vote_sm67", "cs_6_7", "sm67_quad_vote", true},
@@ -1138,6 +1168,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         sm67_reportable && atomic_case_passed("programmable_offset_sm67") && atomic_case_passed("raw_gather_sm67") &&
         atomic_case_passed("typed_texture_load_sm67") && atomic_case_passed("static_offsets_sm67") &&
         atomic_case_passed("sample_cmp_level_sm67") &&
+        atomic_case_passed("sample_cmp_filter_sm67") &&
         atomic_case_passed("quad_vote_sm67");
     bool pass = entrypoints_ok && compiler_acceptance_complete && pso_link_complete && runtime_complete &&
                 atomic64_conservative;
