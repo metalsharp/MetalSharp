@@ -738,25 +738,40 @@ public:
       UINT parent_key_size) override {
     if (!key || !key_size || !desc || (parent_key_size && !parent_key))
       return E_INVALIDARG;
-    if (desc->NumSubobjects || desc->pSubobjects) {
-      TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
-                   "version=%u subobjects=%u -> E_NOTIMPL",
-                   key_size, version, desc->NumSubobjects);
-      return E_NOTIMPL;
-    }
+    if (desc->NumSubobjects && !desc->pSubobjects)
+      return E_INVALIDARG;
 
     StateObjectDescEntry entry;
     entry.version = version;
     entry.type = desc->Type;
+    entry.subobjects.reserve(desc->NumSubobjects);
+    for (UINT i = 0; i < desc->NumSubobjects; ++i) {
+      const auto &subobject = desc->pSubobjects[i];
+      const size_t desc_size = StateSubobjectDescSize(subobject.Type);
+      if (!desc_size) {
+        TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
+                     "version=%u subobject=%u type=%u -> E_NOTIMPL",
+                     key_size, version, i,
+                     static_cast<UINT>(subobject.Type));
+        return E_NOTIMPL;
+      }
+      if (!subobject.pDesc)
+        return E_INVALIDARG;
+      StateObjectSubobjectEntry stored;
+      stored.type = subobject.Type;
+      const auto *bytes = static_cast<const uint8_t *>(subobject.pDesc);
+      stored.desc.assign(bytes, bytes + desc_size);
+      entry.subobjects.push_back(std::move(stored));
+    }
     if (parent_key_size) {
       const auto *parent = static_cast<const uint8_t *>(parent_key);
       entry.parent_key.assign(parent, parent + parent_key_size);
     }
     m_state_object_descs[MakeKey(key, key_size)] = std::move(entry);
     TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
-                 "version=%u type=%u parent_key_size=%u",
+                 "version=%u type=%u subobjects=%u parent_key_size=%u",
                  key_size, version, static_cast<UINT>(desc->Type),
-                 parent_key_size);
+                 desc->NumSubobjects, parent_key_size);
     return S_OK;
   }
 
@@ -772,8 +787,18 @@ public:
     if (entry == m_state_object_descs.end())
       return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
 
+    std::vector<D3D12_STATE_SUBOBJECT> subobjects;
+    subobjects.reserve(entry->second.subobjects.size());
+    for (const auto &stored : entry->second.subobjects) {
+      D3D12_STATE_SUBOBJECT subobject = {};
+      subobject.Type = stored.type;
+      subobject.pDesc = stored.desc.data();
+      subobjects.push_back(subobject);
+    }
     D3D12_STATE_OBJECT_DESC desc = {};
     desc.Type = entry->second.type;
+    desc.NumSubobjects = static_cast<UINT>(subobjects.size());
+    desc.pSubobjects = subobjects.data();
     callback(entry->first.data(), static_cast<UINT>(entry->first.size()),
              entry->second.version, &desc,
              entry->second.parent_key.empty()
@@ -781,9 +806,9 @@ public:
                  : entry->second.parent_key.data(),
              static_cast<UINT>(entry->second.parent_key.size()), context);
     TraceAgility("StateObjectDatabase::FindStateObjectDesc key_size=%u -> "
-                 "hit version=%u type=%u parent_key_size=%zu",
+                 "hit version=%u type=%u subobjects=%zu parent_key_size=%zu",
                  key_size, entry->second.version,
-                 static_cast<UINT>(entry->second.type),
+                 static_cast<UINT>(entry->second.type), subobjects.size(),
                  entry->second.parent_key.size());
     return S_OK;
   }
@@ -812,11 +837,36 @@ private:
     std::vector<uint8_t> stream;
   };
 
+  struct StateObjectSubobjectEntry {
+    D3D12_STATE_SUBOBJECT_TYPE type = D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG;
+    std::vector<uint8_t> desc;
+  };
+
   struct StateObjectDescEntry {
     UINT version = 0;
     D3D12_STATE_OBJECT_TYPE type = D3D12_STATE_OBJECT_TYPE_COLLECTION;
+    std::vector<StateObjectSubobjectEntry> subobjects;
     std::vector<uint8_t> parent_key;
   };
+
+  static size_t StateSubobjectDescSize(D3D12_STATE_SUBOBJECT_TYPE type) {
+    switch (type) {
+    case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
+      return sizeof(D3D12_STATE_OBJECT_CONFIG);
+    case D3D12_STATE_SUBOBJECT_TYPE_NODE_MASK:
+      return sizeof(D3D12_NODE_MASK);
+    case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG:
+      return sizeof(D3D12_RAYTRACING_SHADER_CONFIG);
+    case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG:
+      return sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG);
+#ifdef D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1
+    case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
+      return sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG1);
+#endif
+    default:
+      return 0;
+    }
+  }
 
   static std::vector<uint8_t> MakeKey(const void *key, UINT key_size) {
     auto *bytes = static_cast<const uint8_t *>(key);
