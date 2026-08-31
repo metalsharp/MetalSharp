@@ -98,6 +98,22 @@ typedef void(STDMETHODCALLTYPE* D3D12StateObjectFuncCompat)(const void* key, UIN
                                                             const D3D12_STATE_OBJECT_DESC* desc, const void* parent_key,
                                                             UINT parent_key_size, void* context);
 
+union D3D12VersionNumberCompat {
+    UINT64 Version;
+    UINT16 VersionParts[4];
+};
+
+struct D3D12ApplicationDescCompat {
+    LPCWSTR pExeFilename;
+    LPCWSTR pName;
+    D3D12VersionNumberCompat Version;
+    LPCWSTR pEngineName;
+    D3D12VersionNumberCompat EngineVersion;
+};
+
+typedef void(STDMETHODCALLTYPE* D3D12ApplicationDescFuncCompat)(
+    const D3D12ApplicationDescCompat* application_desc, void* context);
+
 struct ID3D12StateObjectDatabaseCompat : public IUnknown {
     virtual HRESULT STDMETHODCALLTYPE SetApplicationDesc(const void* application_desc) = 0;
     virtual HRESULT STDMETHODCALLTYPE GetApplicationDesc(void* callback, void* context) = 0;
@@ -117,6 +133,28 @@ struct ID3D12StateObjectDatabaseFactoryCompat : public IUnknown {
     virtual HRESULT STDMETHODCALLTYPE CreateStateObjectDatabaseFromFile(LPCWSTR database_file, UINT flags, REFIID riid,
                                                                         void** state_object_database) = 0;
 };
+
+struct ApplicationCallbackState {
+    bool called = false;
+    std::wstring exe;
+    std::wstring name;
+    std::wstring engine;
+    UINT64 version = 0;
+    UINT64 engine_version = 0;
+};
+
+static void STDMETHODCALLTYPE application_desc_callback(
+    const D3D12ApplicationDescCompat* desc, void* context) {
+    auto* state = static_cast<ApplicationCallbackState*>(context);
+    if (!state || !desc)
+        return;
+    state->called = true;
+    state->exe = desc->pExeFilename ? desc->pExeFilename : L"";
+    state->name = desc->pName ? desc->pName : L"";
+    state->engine = desc->pEngineName ? desc->pEngineName : L"";
+    state->version = desc->Version.Version;
+    state->engine_version = desc->EngineVersion.Version;
+}
 
 struct PipelineCallbackState {
     bool called = false;
@@ -500,6 +538,26 @@ int main() {
                                                                                0, IID_ID3D12StateObjectDatabaseProbe,
                                                                                reinterpret_cast<void**>(&database))
                          : E_NOINTERFACE;
+    wchar_t application_exe[] = L"probe.exe";
+    wchar_t application_name[] = L"MetalSharp State DB";
+    wchar_t application_engine[] = L"DXMT";
+    D3D12ApplicationDescCompat application_desc = {};
+    application_desc.pExeFilename = application_exe;
+    application_desc.pName = application_name;
+    application_desc.Version.Version = 0x0001000200030004ull;
+    application_desc.pEngineName = application_engine;
+    application_desc.EngineVersion.Version = 0x0005000600070008ull;
+    HRESULT set_application_desc_hr =
+        database ? database->SetApplicationDesc(&application_desc)
+                 : E_NOINTERFACE;
+    application_name[0] = L'X';
+    application_engine[0] = L'Y';
+    ApplicationCallbackState application_callback = {};
+    HRESULT get_application_desc_hr =
+        database ? database->GetApplicationDesc(
+                       reinterpret_cast<void*>(application_desc_callback),
+                       &application_callback)
+                 : E_NOINTERFACE;
     struct PipelineStreamProbe {
         UINT type;
         ID3D12RootSignature* root_signature;
@@ -586,7 +644,14 @@ int main() {
                            SUCCEEDED(shader_cache_size_hr) && SUCCEEDED(shader_cache_find_hr) &&
                            shader_readback == shader_value;
     bool pipeline_desc_cache_ok =
-        SUCCEEDED(get_database_factory_hr) && SUCCEEDED(create_database_hr) && SUCCEEDED(store_pipeline_desc_hr) &&
+        SUCCEEDED(get_database_factory_hr) && SUCCEEDED(create_database_hr) &&
+        SUCCEEDED(set_application_desc_hr) && SUCCEEDED(get_application_desc_hr) &&
+        application_callback.called && application_callback.exe == L"probe.exe" &&
+        application_callback.name == L"MetalSharp State DB" &&
+        application_callback.engine == L"DXMT" &&
+        application_callback.version == 0x0001000200030004ull &&
+        application_callback.engine_version == 0x0005000600070008ull &&
+        SUCCEEDED(store_pipeline_desc_hr) &&
         SUCCEEDED(find_pipeline_desc_hr) && pipeline_callback.called && pipeline_callback.version == 7 &&
         pipeline_callback.size == sizeof(pipeline_stream) && SUCCEEDED(find_pipeline_version_hr) &&
         found_pipeline_version == 7 && SUCCEEDED(store_state_object_hr) &&
@@ -653,6 +718,8 @@ int main() {
     print_hr_field("shader_cache_find", shader_cache_find_hr);
     print_hr_field("get_state_object_database_factory", get_database_factory_hr);
     print_hr_field("create_state_object_database", create_database_hr);
+    print_hr_field("set_application_desc", set_application_desc_hr);
+    print_hr_field("get_application_desc", get_application_desc_hr);
     print_hr_field("store_pipeline_state_desc", store_pipeline_desc_hr);
     print_hr_field("find_pipeline_state_desc", find_pipeline_desc_hr);
     print_hr_field("find_pipeline_version", find_pipeline_version_hr);
@@ -660,6 +727,12 @@ int main() {
     print_hr_field("find_state_object_desc", find_state_object_hr);
     print_hr_field("find_state_object_version", find_state_version_hr);
     print_hr_field("store_unsupported_state_object_desc", store_unsupported_state_object_hr);
+    std::printf("    \"application_callback_called\": %s,\n",
+                application_callback.called ? "true" : "false");
+    std::printf("    \"application_callback_name_deep_copy_verified\": %s,\n",
+                application_callback.name == L"MetalSharp State DB" ? "true" : "false");
+    std::printf("    \"application_callback_engine_deep_copy_verified\": %s,\n",
+                application_callback.engine == L"DXMT" ? "true" : "false");
     std::printf("    \"pipeline_callback_called\": %s,\n", pipeline_callback.called ? "true" : "false");
     std::printf("    \"pipeline_callback_version\": %u,\n", pipeline_callback.version);
     std::printf("    \"pipeline_callback_size\": %llu,\n", static_cast<unsigned long long>(pipeline_callback.size));

@@ -667,6 +667,12 @@ public:
     if (!application_desc)
       return E_INVALIDARG;
     m_application_desc = *application_desc;
+    CopyApplicationString(application_desc->pExeFilename, m_exe_filename,
+                          m_application_desc.pExeFilename);
+    CopyApplicationString(application_desc->pName, m_application_name,
+                          m_application_desc.pName);
+    CopyApplicationString(application_desc->pEngineName, m_engine_name,
+                          m_application_desc.pEngineName);
     m_has_application_desc = true;
     TraceAgility("StateObjectDatabase::SetApplicationDesc name=%ls engine=%ls",
                  m_application_desc.pName ? m_application_desc.pName
@@ -849,6 +855,17 @@ private:
     std::vector<uint8_t> parent_key;
   };
 
+  static void CopyApplicationString(LPCWSTR source, std::wstring &storage,
+                                    LPCWSTR &destination) {
+    if (!source) {
+      storage.clear();
+      destination = nullptr;
+      return;
+    }
+    storage.assign(source);
+    destination = storage.c_str();
+  }
+
   static size_t StateSubobjectDescSize(D3D12_STATE_SUBOBJECT_TYPE type) {
     switch (type) {
     case D3D12_STATE_SUBOBJECT_TYPE_STATE_OBJECT_CONFIG:
@@ -876,6 +893,9 @@ private:
   std::atomic<ULONG> m_ref = {1};
   bool m_has_application_desc = false;
   D3D12ApplicationDescCompat m_application_desc = {};
+  std::wstring m_exe_filename;
+  std::wstring m_application_name;
+  std::wstring m_engine_name;
   std::map<std::vector<uint8_t>, PipelineDescEntry> m_pipeline_descs;
   std::map<std::vector<uint8_t>, StateObjectDescEntry> m_state_object_descs;
 };
