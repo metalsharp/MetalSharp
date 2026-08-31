@@ -4528,6 +4528,16 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         case DXILOP_IsInf:
         case DXILOP_IsFinite:
         case DXILOP_IsNormal:
+            if (DXILIRBuilder::isVectorType(operand) ||
+                DXILIRBuilder::isLongVectorType(operand)) {
+                MSLType result = operand;
+                result.vector_element_kind = MSLTypeKind::Int;
+                if (DXILIRBuilder::isVectorType(operand))
+                    return DXILIRBuilder::vectorOfType(
+                        {MSLTypeKind::Int, 0, {}},
+                        DXILIRBuilder::vectorWidth(operand));
+                return result;
+            }
             return {MSLTypeKind::Bool, 0, {}};
         case DXILOP_Countbits:
         case DXILOP_FirstbitLo:
@@ -4544,6 +4554,17 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         uint32_t op = args.empty() ? 0xFFFFFFFFu : literalFromValue(ctx, args[0], 0xFFFFFFFFu);
         MSLType a = args.size() > 1 ? valueTypeOrUnknown(ctx, args[1]) : MSLType{};
         MSLType b = args.size() > 2 ? valueTypeOrUnknown(ctx, args[2]) : MSLType{};
+        if (DXILIRBuilder::isLongVectorType(a) ||
+            DXILIRBuilder::isLongVectorType(b)) {
+            MSLType result = DXILIRBuilder::isLongVectorType(a) ? a : b;
+            if (op == DXILOP_IMax || op == DXILOP_IMin || op == DXILOP_IMul)
+                result.vector_element_kind = MSLTypeKind::Int;
+            else if (op == DXILOP_UMax || op == DXILOP_UMin ||
+                     op == DXILOP_UMul || op == DXILOP_UDiv ||
+                     op == DXILOP_UAddc || op == DXILOP_USubb)
+                result.vector_element_kind = MSLTypeKind::UInt;
+            return result;
+        }
         MSLType promoted = promoteNumericType(a, b, {MSLTypeKind::Int, 0, {}});
         if (op == DXILOP_UMax || op == DXILOP_UMin || op == DXILOP_UMul || op == DXILOP_UDiv ||
             op == DXILOP_UAddc || op == DXILOP_USubb)
@@ -4559,6 +4580,18 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         MSLType a = args.size() > 1 ? valueTypeOrUnknown(ctx, args[1]) : MSLType{};
         MSLType b = args.size() > 2 ? valueTypeOrUnknown(ctx, args[2]) : MSLType{};
         MSLType c = args.size() > 3 ? valueTypeOrUnknown(ctx, args[3]) : MSLType{};
+        if (DXILIRBuilder::isLongVectorType(a) ||
+            DXILIRBuilder::isLongVectorType(b) ||
+            DXILIRBuilder::isLongVectorType(c)) {
+            MSLType result = DXILIRBuilder::isLongVectorType(a)
+                                 ? a
+                                 : DXILIRBuilder::isLongVectorType(b) ? b : c;
+            if (op == DXILOP_IMad || op == DXILOP_Ibfe || op == DXILOP_Bfi)
+                result.vector_element_kind = MSLTypeKind::Int;
+            else if (op == DXILOP_UMad || op == DXILOP_Ubfe)
+                result.vector_element_kind = MSLTypeKind::UInt;
+            return result;
+        }
         return promoteNumericType(promoteNumericType(a, b, declared), c, {MSLTypeKind::Int, 0, {}});
     }
     case DXOP_LoadInput:
@@ -6299,6 +6332,60 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_Unary: {
         if (args.size() < 2) return "0";
         uint32_t op = literalArg(0, 0xFFFFFFFFu, "unary");
+        const MSLType operand_type = valueTypeOrUnknown(ctx, args[1]);
+        if (DXILIRBuilder::isLongVectorType(operand_type)) {
+            const std::string value = vectorArg(1, "{}");
+            MSLType result_type = operand_type;
+            const bool integer_result = op == DXILOP_Countbits ||
+                                         op == DXILOP_FirstbitLo ||
+                                         op == DXILOP_FirstbitHi ||
+                                         op == DXILOP_FirstbitSHi;
+            if (integer_result)
+                result_type.vector_element_kind = MSLTypeKind::Int;
+            std::string expression = emitTypeName(result_type) + "{{";
+            for (uint32_t i = 0; i < operand_type.vector_width; ++i) {
+                if (i)
+                    expression += ", ";
+                const std::string component = value + "[" +
+                                              std::to_string(i) + "]";
+                const std::string floating = "static_cast<float>(" +
+                                             component + ")";
+                switch (op) {
+                case DXILOP_FAbs: expression += "abs(" + floating + ")"; break;
+                case DXILOP_Saturate: expression += "clamp(" + floating + ", 0.0f, 1.0f)"; break;
+                case DXILOP_IsNaN: expression += "isnan(" + floating + ") ? 1 : 0"; break;
+                case DXILOP_IsInf: expression += "isinf(" + floating + ") ? 1 : 0"; break;
+                case DXILOP_IsFinite: expression += "isfinite(" + floating + ") ? 1 : 0"; break;
+                case DXILOP_IsNormal: expression += "isnormal(" + floating + ") ? 1 : 0"; break;
+                case DXILOP_Cos: expression += "cos(" + floating + ")"; break;
+                case DXILOP_Sin: expression += "sin(" + floating + ")"; break;
+                case DXILOP_Tan: expression += "tan(" + floating + ")"; break;
+                case DXILOP_Acos: expression += "acos(" + floating + ")"; break;
+                case DXILOP_Asin: expression += "asin(" + floating + ")"; break;
+                case DXILOP_Atan: expression += "atan(" + floating + ")"; break;
+                case DXILOP_Hcos: expression += "cosh(" + floating + ")"; break;
+                case DXILOP_Hsin: expression += "sinh(" + floating + ")"; break;
+                case DXILOP_Htan: expression += "tanh(" + floating + ")"; break;
+                case DXILOP_Exp: expression += "exp2(" + floating + ")"; break;
+                case DXILOP_Frc: expression += "fract(" + floating + ")"; break;
+                case DXILOP_Log: expression += "log2(" + floating + ")"; break;
+                case DXILOP_Sqrt: expression += "sqrt(" + floating + ")"; break;
+                case DXILOP_Rsqrt: expression += "rsqrt(" + floating + ")"; break;
+                case DXILOP_Round_ne: expression += "rint(" + floating + ")"; break;
+                case DXILOP_Round_ni: expression += "floor(" + floating + ")"; break;
+                case DXILOP_Round_pi: expression += "ceil(" + floating + ")"; break;
+                case DXILOP_Round_z: expression += "trunc(" + floating + ")"; break;
+                case DXILOP_Bfrev: expression += "reverse_bits(uint(" + component + "))"; break;
+                case DXILOP_Countbits: expression += "int(popcount(uint(" + component + ")))"; break;
+                case DXILOP_FirstbitLo: expression += "((uint(" + component + ") == 0u) ? -1 : int(ctz(uint(" + component + "))))"; break;
+                case DXILOP_FirstbitHi: expression += "((uint(" + component + ") == 0u) ? -1 : int(31u - clz(uint(" + component + "))))"; break;
+                case DXILOP_FirstbitSHi: expression += "((int(" + component + ") < 0) ? ((~uint(" + component + ") == 0u) ? -1 : int(31u - clz(~uint(" + component + ")))) : ((uint(" + component + ") == 0u) ? -1 : int(31u - clz(uint(" + component + ")))))"; break;
+                default: ctx.unsupported_intrinsics++; expression += "0"; break;
+                }
+            }
+            expression += "}}";
+            return expression;
+        }
         bool int_op = op == DXILOP_Bfrev || op == DXILOP_Countbits ||
                       op == DXILOP_FirstbitLo || op == DXILOP_FirstbitHi ||
                       op == DXILOP_FirstbitSHi;
@@ -6370,9 +6457,49 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_Binary: {
         if (args.size() < 3) return "0";
         uint32_t op = literalArg(0, 0xFFFFFFFFu, "binary");
+        const MSLType lhs_type = valueTypeOrUnknown(ctx, args[1]);
+        const MSLType rhs_type = valueTypeOrUnknown(ctx, args[2]);
+        const MSLType vector_type = DXILIRBuilder::isLongVectorType(lhs_type)
+                                        ? lhs_type
+                                        : rhs_type;
+        if (DXILIRBuilder::isLongVectorType(vector_type)) {
+            const std::string lhs = vectorArg(1, "{}");
+            const std::string rhs = vectorArg(2, "{}");
+            MSLType result_type = vector_type;
+            if (op == DXILOP_IMax || op == DXILOP_IMin ||
+                op == DXILOP_IMul)
+                result_type.vector_element_kind = MSLTypeKind::Int;
+            else if (op == DXILOP_UMax || op == DXILOP_UMin ||
+                     op == DXILOP_UMul || op == DXILOP_UDiv ||
+                     op == DXILOP_UAddc || op == DXILOP_USubb)
+                result_type.vector_element_kind = MSLTypeKind::UInt;
+            std::string expression = emitTypeName(result_type) + "{{";
+            for (uint32_t i = 0; i < result_type.vector_width; ++i) {
+                if (i)
+                    expression += ", ";
+                const std::string a = lhs + "[" + std::to_string(i) + "]";
+                const std::string b = rhs + "[" + std::to_string(i) + "]";
+                switch (op) {
+                case DXILOP_FMax: expression += "max(" + a + ", " + b + ")"; break;
+                case DXILOP_FMin: expression += "min(" + a + ", " + b + ")"; break;
+                case DXILOP_IMax: expression += "max(int(" + a + "), int(" + b + "))"; break;
+                case DXILOP_IMin: expression += "min(int(" + a + "), int(" + b + "))"; break;
+                case DXILOP_UMax: expression += "max(uint(" + a + "), uint(" + b + "))"; break;
+                case DXILOP_UMin: expression += "min(uint(" + a + "), uint(" + b + "))"; break;
+                case DXILOP_IMul: expression += "int(" + a + ") * int(" + b + ")"; break;
+                case DXILOP_UMul: expression += "uint(" + a + ") * uint(" + b + ")"; break;
+                case DXILOP_UDiv: expression += "uint(" + a + ") / uint(" + b + ")"; break;
+                case DXILOP_UAddc: expression += "uint(" + a + ") + uint(" + b + ")"; break;
+                case DXILOP_USubb: expression += "uint(" + a + ") - uint(" + b + ")"; break;
+                default: ctx.unsupported_intrinsics++; expression += "0"; break;
+                }
+            }
+            expression += "}}";
+            return expression;
+        }
         auto a = numericArg(1, "0"), b = numericArg(2, "0");
-        const bool double_op = valueTypeOrUnknown(ctx, args[1]).kind == MSLTypeKind::Double ||
-                               valueTypeOrUnknown(ctx, args[2]).kind == MSLTypeKind::Double;
+        const bool double_op = lhs_type.kind == MSLTypeKind::Double ||
+                               rhs_type.kind == MSLTypeKind::Double;
         auto da = double_op ? doubleArg(1, "0") : a;
         auto db = double_op ? doubleArg(2, "0") : b;
         switch (op) {
@@ -6395,10 +6522,66 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_Tertiary: {
         if (args.size() < 4) return "0";
         uint32_t op = literalArg(0, 0xFFFFFFFFu, "tertiary");
+        const MSLType a_type = valueTypeOrUnknown(ctx, args[1]);
+        const MSLType b_type = valueTypeOrUnknown(ctx, args[2]);
+        const MSLType c_type = valueTypeOrUnknown(ctx, args[3]);
+        const MSLType vector_type = DXILIRBuilder::isLongVectorType(a_type)
+                                        ? a_type
+                                        : DXILIRBuilder::isLongVectorType(b_type)
+                                              ? b_type
+                                              : c_type;
+        if (DXILIRBuilder::isLongVectorType(vector_type)) {
+            const std::string av = DXILIRBuilder::isLongVectorType(a_type)
+                                       ? vectorArg(1, "{}")
+                                       : numericArg(1, "0");
+            const std::string bv = DXILIRBuilder::isLongVectorType(b_type)
+                                       ? vectorArg(2, "{}")
+                                       : numericArg(2, "0");
+            const std::string cv = DXILIRBuilder::isLongVectorType(c_type)
+                                       ? vectorArg(3, "{}")
+                                       : numericArg(3, "0");
+            const bool a_vector = DXILIRBuilder::isLongVectorType(a_type) ||
+                                  startsWith(av, "array<");
+            const bool b_vector = DXILIRBuilder::isLongVectorType(b_type) ||
+                                  startsWith(bv, "array<");
+            const bool c_vector = DXILIRBuilder::isLongVectorType(c_type) ||
+                                  startsWith(cv, "array<");
+            MSLType result_type = vector_type;
+            if (op == DXILOP_IMad || op == DXILOP_Ibfe || op == DXILOP_Bfi)
+                result_type.vector_element_kind = MSLTypeKind::Int;
+            else if (op == DXILOP_UMad || op == DXILOP_Ubfe)
+                result_type.vector_element_kind = MSLTypeKind::UInt;
+            std::string expression = emitTypeName(result_type) + "{{";
+            for (uint32_t i = 0; i < result_type.vector_width; ++i) {
+                if (i)
+                    expression += ", ";
+                const std::string a = a_vector
+                                           ? av + "[" + std::to_string(i) + "]"
+                                           : av;
+                const std::string b = b_vector
+                                           ? bv + "[" + std::to_string(i) + "]"
+                                           : bv;
+                const std::string c = c_vector
+                                           ? cv + "[" + std::to_string(i) + "]"
+                                           : cv;
+                switch (op) {
+                case DXILOP_FMad:
+                case DXILOP_Fma: expression += "fma(" + a + ", " + b + ", " + c + ")"; break;
+                case DXILOP_IMad: expression += "int(" + a + ") * int(" + b + ") + int(" + c + ")"; break;
+                case DXILOP_UMad: expression += "uint(" + a + ") * uint(" + b + ") + uint(" + c + ")"; break;
+                case DXILOP_Ibfe: expression += "extract_bits(int(" + a + "), uint(" + b + "), uint(" + c + "))"; break;
+                case DXILOP_Ubfe: expression += "extract_bits(uint(" + a + "), uint(" + b + "), uint(" + c + "))"; break;
+                case DXILOP_Bfi: expression += "insert_bits(uint(" + b + "), uint(" + a + "), uint(" + c + "))"; break;
+                default: ctx.unsupported_intrinsics++; expression += "0"; break;
+                }
+            }
+            expression += "}}";
+            return expression;
+        }
         auto a = numericArg(1, "0"), b = numericArg(2, "0"), c = numericArg(3, "0");
-        const bool double_op = valueTypeOrUnknown(ctx, args[1]).kind == MSLTypeKind::Double ||
-                               valueTypeOrUnknown(ctx, args[2]).kind == MSLTypeKind::Double ||
-                               valueTypeOrUnknown(ctx, args[3]).kind == MSLTypeKind::Double;
+        const bool double_op = a_type.kind == MSLTypeKind::Double ||
+                               b_type.kind == MSLTypeKind::Double ||
+                               c_type.kind == MSLTypeKind::Double;
         auto da = double_op ? doubleArg(1, "0") : a;
         auto db = double_op ? doubleArg(2, "0") : b;
         auto dc = double_op ? doubleArg(3, "0") : c;
@@ -7771,11 +7954,21 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             MSLType op_type = inst.operands[0] < ctx.value_types.size() ? ctx.value_types[inst.operands[0]] : MSLType{};
             if (op_type.kind != MSLTypeKind::Unknown && op_type.kind != MSLTypeKind::Struct)
                 result_type = op_type;
+            const std::string value = getValue(inst.operands[0]);
             if (result_type.kind == MSLTypeKind::Double)
                 emitTypedLine(result_type, result,
-                              "(ulong(" + getValue(inst.operands[0]) + ") ^ (1ul << 63))");
-            else
-                emitTypedLine(result_type, result, "-(" + getValue(inst.operands[0]) + ")");
+                              "(ulong(" + value + ") ^ (1ul << 63))");
+            else if (DXILIRBuilder::isLongVectorType(result_type)) {
+                std::string expression = emitTypeName(result_type) + "{{";
+                for (uint32_t i = 0; i < result_type.vector_width; ++i) {
+                    if (i)
+                        expression += ", ";
+                    expression += "-" + value + "[" + std::to_string(i) + "]";
+                }
+                expression += "}}";
+                emitTypedLine(result_type, result, expression);
+            } else
+                emitTypedLine(result_type, result, "-(" + value + ")");
             ctx.value_table[value_counter] = result;
             ctx.value_types[value_counter] = result_type;
         }
