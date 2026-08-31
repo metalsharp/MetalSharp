@@ -2888,6 +2888,19 @@ void cs_sm69_long_vector_dynamic_float(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_sm69_long_vector_reduce(uint3 id : SV_DispatchThreadID) {
+  uint seed = inbuf.Load(0);
+  vector<uint, 8> values = vector<uint, 8>(seed + 1u, seed + 2u,
+                                           seed + 3u, seed + 4u,
+                                           seed + 5u, seed + 6u,
+                                           seed + 7u, seed + 8u);
+  bool all_set = all(values != 0u);
+  bool any_set = any(values != 0u);
+  outbuf.Store(0, all_set ? 1u : 0u);
+  outbuf.Store(4, any_set ? 1u : 0u);
+}
+
+[numthreads(1, 1, 1)]
 void cs_sm69_long_vector_16(uint3 id : SV_DispatchThreadID) {
   vector<float, 16> a = vector<float, 16>(1.0f, 2.0f, 3.0f, 4.0f,
                                            5.0f, 6.0f, 7.0f, 8.0f,
@@ -3123,6 +3136,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_dynamic_float -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
       -Fo probe_dxil_semantic_sm69_long_vector_dynamic_float.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_reduce -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_reduce.cso probe_dxil_semantic_sm69.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_16 -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
