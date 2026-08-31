@@ -352,13 +352,15 @@ with `append_counter_link=true` and rejects a two-counter shader with exact
 `AppendStructuredBuffer` heap shader and proves the unsupported counter mapping
 fails closed at PSO creation with exact `0x80004005`; `phase5-helper2` preserves
 all earlier semantic lanes with zero mismatches. Profile `phase5-rawvec4`
-passes all 42 current semantic lanes, including exact double payload words
+passes all 43 current semantic lanes, including exact double payload words
 `[0x54442d18,0x400921fb]`, dynamic add/subtract result
 `[0x00000000,0x400a0000]`, and the complete 16-word binary64 addition matrix.
 The same profile passes ordinary and IEEE-754 matrices for binary64
 multiply/divide, ordered comparisons including NaN, float32 round-trips,
 integer conversions, float-to-binary64 widening, FAbs, FMin/FMax, and
-special-value predicates, and fused binary64 multiply-add. Direct FRem
+special-value predicates, and fused binary64 multiply-add. The extended unary
+lane also records the HLSL-defined float-returning math overloads when their
+results are widened back to binary64. Direct FRem
 lowering is implemented through the software remainder helper; DXC's HLSL
 `fmod` overload is float-only and remains explicitly outside this binary64
 proof. The same source-staged run also passes `pack_u8`/`pack_s8` truncation,
