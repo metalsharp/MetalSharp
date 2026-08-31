@@ -5051,7 +5051,22 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 }
             }
         }
-        std::string base = "(((int)(" + idx + "))*4 + ((int)(" + off + ")))";
+        uint32_t resource_kind = 0;
+        uint32_t element_stride = 0;
+        auto handle_it = ctx.resource_handles.find(args[0]);
+        if (handle_it != ctx.resource_handles.end()) {
+            resource_kind = handle_it->second.resource_kind;
+            element_stride = handle_it->second.element_stride;
+        }
+        std::string base;
+        if (resource_kind == 12u || resource_kind == 10u) {
+            if (element_stride == 0)
+                element_stride = 16;
+            base = "(((int)(" + idx + ")) * " +
+                   std::to_string(element_stride) + " + ((int)(" + off + ")))";
+        } else {
+            base = "(((int)(" + idx + ")) + ((int)(" + off + ")))";
+        }
         std::ostringstream store;
         for (uint32_t i = 0; i < 4; i++) {
             if (i) store << ";\n  ";
