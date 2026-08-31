@@ -17,6 +17,11 @@
   and requires an exact raster readback: 1,352 nonzero pixels and center pixel
   `0xff407e81`. Geometry PSO linking alone is no longer the proof boundary for
   this baseline.
+- Profile `phase5-tess-runtime4` executes the SM5.0 vertex/hull/domain/pixel
+  chain with integer partitioning, triangle topology, three control points,
+  and factor one. It independently matches the exact 1,352-pixel raster and
+  center pixel `0xff407e81`, promoting the narrow native tessellation proof
+  from PSO linking to runtime behavior.
 - The exact semantic readback probe covers float/int math and bitcasts,
   first-bit and reverse-bit operations, min/max and integer multiply-add, raw
   buffer load/store, UAV exchange/add/compare-exchange atomics, 32-bit

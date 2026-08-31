@@ -26,6 +26,15 @@
       "remaining": "The SM5.0 vertex/geometry/pixel chain returns exactly 1,352 nonzero pixels and center pixel 0xff407e81. Broader geometry topology, resource, stream-output, adjacency, and multi-stage combinations remain in the exhaustive row."
     },
     {
+      "id": "sm50-hull-domain-stage-exact-runtime",
+      "status": "closed",
+      "result": "probe-mini-tessellation_shader_pso",
+      "checks": [
+        ["ok"]
+      ],
+      "remaining": "The SM5.0 vertex/hull/domain/pixel chain with integer partitioning, triangle topology, three control points, and factor one returns exactly 1,352 nonzero pixels and center pixel 0xff407e81. Broader patch layouts, partitioning, topology, factors, resources, and state remain in the exhaustive row."
+    },
+    {
       "id": "typed-dxil-runtime-readback-sm60-sm69",
       "status": "closed",
       "result": "probe-dxil-semantics",

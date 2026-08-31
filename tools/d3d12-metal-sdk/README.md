@@ -119,6 +119,7 @@ The current mini suite isolates:
 - `descriptors`
 - `graphics_pso`
 - `geometry_shader_pso`
+- `tessellation_shader_pso`
 - `mesh_object_shader_pso`
 - `texture_sample`
 - `subnautica_geometry_dxil_replay`

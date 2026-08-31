@@ -66,6 +66,7 @@ MINI_PROBES=(
   dxil_texture_color_output
   compute_first_use_dispatch
   dxr_acceleration_structures
+  tessellation_shader_pso
 )
 
 mini_probe_selected() {
