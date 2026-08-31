@@ -3708,9 +3708,20 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                                 annotated.resource_class = 0;
                             }
                         }
-                        if (properties.size() > 1)
-                            parseUnsignedLiteral(properties[1],
-                                                 annotated.element_stride);
+                        if (properties.size() > 1) {
+                            uint32_t property1 = 0;
+                            if (parseUnsignedLiteral(properties[1], property1)) {
+                                annotated.element_stride = property1;
+                                if (annotated.resource_kind >= 1u &&
+                                    annotated.resource_kind <= 10u) {
+                                    annotated.element_type = property1 & 0xffu;
+                                    const uint32_t samples =
+                                        (property1 >> 16) & 0xffu;
+                                    annotated.sample_count =
+                                        samples ? samples : 1u;
+                                }
+                            }
+                        }
                         ctx.resource_handles[result_id] = annotated;
                         auto annotated_binding = handle_bindings.find(result_id);
                         if (annotated_binding != handle_bindings.end())
@@ -3723,8 +3734,10 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                                 range.kind = annotated.kind;
                                 range.resource_kind =
                                     annotated.resource_kind;
+                                range.element_type = annotated.element_type;
                                 range.element_stride =
                                     annotated.element_stride;
+                                range.sample_count = annotated.sample_count;
                             }
                         }
                     }
@@ -4272,14 +4285,17 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                         }
                     }
                     if (properties.size() > 1) {
-                        parseUnsignedLiteral(properties[1],
-                                             annotated.element_stride);
-                        if (annotated.resource_kind == 3u ||
-                            annotated.resource_kind == 8u) {
-                            uint32_t encoded_samples =
-                                annotated.element_stride >> 16;
-                            annotated.sample_count =
-                                encoded_samples ? encoded_samples : 1u;
+                        uint32_t property1 = 0;
+                        if (parseUnsignedLiteral(properties[1], property1)) {
+                            annotated.element_stride = property1;
+                            if (annotated.resource_kind >= 1u &&
+                                annotated.resource_kind <= 10u) {
+                                annotated.element_type = property1 & 0xffu;
+                                const uint32_t samples =
+                                    (property1 >> 16) & 0xffu;
+                                annotated.sample_count =
+                                    samples ? samples : 1u;
+                            }
                         }
                     }
                 }

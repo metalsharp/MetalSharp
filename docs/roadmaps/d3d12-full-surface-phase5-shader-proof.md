@@ -125,8 +125,8 @@
   returns `[103,203,303,403]`, a dynamically indexed texture heap selects
   entry seven and returns exact `[100,110,120,130]` through both `Load` and
   `SampleLevel`, while `GatherRed` returns exact packed `0x828c8c82`;
-  directly indexed writable texture entry three stores exact
-  float bits `[0x447ac000,0x447b0000,0x447b4000,0x447b8000]`; a directly
+  directly indexed `RWTexture2D<uint>` entry three stores exact
+  `[1003,1004,1005,1006]`; a directly
   indexed sampler heap selects linear sampler one and returns exact
   `[15,15,15,15]`; its comparison-sampler counterpart selects entry one and
   returns `[1,1,1,1]`; bounded directly indexed comparison-texture entries six
@@ -278,8 +278,7 @@ buffer, `[803,804,805,806]` from descriptor three of a four-entry array,
 `[103,203,303,403]` from readable heap entry five,
 `[100,110,120,130]` from loading and sampling texture heap entry seven plus
 packed gather `0x828c8c82`,
-`[0x447ac000,0x447b0000,0x447b4000,0x447b8000]` from writable texture heap
-entry three, `[15,15,15,15]` from regular sampler heap entry one,
+`[1003,1004,1005,1006]` from writable integer texture heap entry three, `[15,15,15,15]` from regular sampler heap entry one,
 `[1,1,1,1]` from comparison sampler entry one, distinct comparison-texture
 entry-six/entry-seven results `[0,0,0,0]` / `[1,1,1,1]`, plus
 `[600,700,601,701,602,702,603,703]` from the `uint2` structured counterpart. Profile `phase5-atomic-load-final` also passes every focused case,
