@@ -154,7 +154,17 @@
         ["summary", "runtime_correctness_complete"],
         ["summary", "sm67_breadth_complete"]
       ],
-      "remaining": "The focused matrix covers the current SM6.6/6.7 atomic, descriptor, texture, static and programmable offset, typed-texture, sample-compare, raw-gather, QuadVote, root-constant provider, and SM6.8 SampleCmpGrad/SampleCmpBias cases; complete SM5.x–SM6.9 opcode/stage/resource coverage remains open."
+      "remaining": "The focused matrix covers the current SM6.6/6.7 atomic, raw/structured descriptor indexing, texture, static and programmable offset, typed-texture, sample-compare, gather, QuadVote, root-constant provider, and SM6.8 SampleCmpGrad/SampleCmpBias cases; complete SM5.x–SM6.9 opcode/stage/resource coverage remains open."
+    },
+    {
+      "id": "dxil-dynamic-buffer-indexing-runtime",
+      "status": "closed",
+      "result": "probe-sm66-capabilities",
+      "checks": [
+        ["pass"],
+        ["summary", "runtime_correctness_complete"]
+      ],
+      "remaining": "Bounded ByteAddressBuffer[2] and StructuredBuffer<uint>[2] indexing both return exact [103,203,303,403]. Larger arrays, writable dynamic arrays, and directly indexed heaps remain in the exhaustive row."
     },
     {
       "id": "lowering-report-unsupported-placeholder-audit",

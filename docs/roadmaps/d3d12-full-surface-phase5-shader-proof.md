@@ -99,6 +99,10 @@
   without recursive type resolution. The source-staged semantic run continues
   to match `math_bits`, `math_intrinsics`, and all 20 semantic lanes, including
   the four-lane vector aggregate shuffle.
+- Bounded descriptor indexing selects both `ByteAddressBuffer[2]` and
+  `StructuredBuffer<uint>[2]` resources through generated direct-buffer
+  helpers. Scalar structured loads retain their vector result type until DXIL
+  extraction, avoiding the former `device uint4`-to-`uint` MSL mismatch.
 - The object-contract probe now exercises pipeline-library serialization plus
   memory and disk shader-cache sessions. It verifies serialized-size/header
   round-trip, malformed-blob rejection, missing-name rejection, descriptor,
@@ -221,7 +225,10 @@ address, and graphics-stage combinations remain in the exhaustive matrix. Resour
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
 Metal validation assertion. The latest SM6.6/6.7 profile
-`phase5-atomic-load-final` also passes every focused case, including atomic
+`phase5-structured-dynamic1` additionally returns exact
+`[103,203,303,403]` from both raw and structured dynamically indexed SRV
+arrays. Profile `phase5-atomic-load-final` also passes every focused case,
+including atomic
 barrier readback `[4, 5, 6, 7]`, programmable offsets `[300, 341, 382, 383]`,
 and static offsets `[260, 300, 340, 380]`, with `METAL_SHADER_CONVERTER` set to
 `/nonexistent`. Profile `phase5-append-consume5` passes the complete compute
