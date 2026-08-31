@@ -228,7 +228,7 @@
         ["pass"],
         ["summary", "runtime_correctness_complete"]
       ],
-      "remaining": "Native depth 2D-array, cube, and cube-array SampleCmpLevelZero return exact float bits [0x3f800000,0x3f800000,0x3f800000], with exact sum 0x40400000; pixel-stage logical Texture1D and Texture1DArray comparisons contribute exact 1.0 each to a separate exact 3.0 sum; and an opaque-white comparison border sample returns exact [1,0,0,0]. Broader comparison wrap/mirror forms and non-pixel graphics-stage combinations remain in the exhaustive row."
+      "remaining": "Native depth 2D-array, cube, and cube-array SampleCmpLevelZero return exact float bits [0x3f800000,0x3f800000,0x3f800000], with exact sum 0x40400000; pixel-stage logical Texture1D and Texture1DArray comparisons contribute exact 1.0 each to a separate exact 3.0 sum; and the complete comparison address matrix returns exact clamp [0,1], opaque-white border [1,1], wrap [1,0], mirror [0,1], and mirror-once [0,1] pairs. Non-pixel graphics-stage comparison combinations remain in the exhaustive row."
     },
     {
       "id": "dxil-resource-element-type-runtime",
