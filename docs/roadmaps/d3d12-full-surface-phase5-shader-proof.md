@@ -34,7 +34,13 @@
   double-arithmetic lane, the complete 32-bit atomic binop matrix, and a 4x4
   texture's Load, SampleLevel, SampleGrad, SampleBias, GatherRed, and
   GetDimensions forms, plus signed and unsigned R32 typed texture
-  Load/GetDimensions lanes. Every lane
+  Load/GetDimensions lanes. Runtime-sourced DXIL `makeDouble` / `splitDouble`
+  and i64/f64 bitcasts preserve the exact binary64 payload
+  `0x400921fb54442d18` as two Metal `uint` words, with no native Metal
+  `double` spelling. Software binary64 add/subtract then passes exact dynamic
+  `1.5 + 2.25 - 0.5 = 3.25` bits and an eight-case IEEE-754 matrix spanning
+  signs, cancellation, subnormals, overflow, infinity/NaN, and tie-to-even /
+  one-ULP rounding. Every lane
   creates a PSO, dispatches through the DXMT command path, and matches its
   expected readback. The fresh no-offline-converter run reports
   `{1065353216, 0, 0, 1, 7}` for the extended math case.
@@ -108,8 +114,9 @@
   without recursive type resolution. The source-staged semantic run continues
   to match `math_bits`, `math_intrinsics`, and all 23 semantic lanes, including
   the four-lane vector aggregate shuffle, exact matrix aggregate arithmetic
-  `[17,27,37,47]`, a three-helper aggregate chain built with `-Od` returning
-  `[42,66,98,138]`, and signed/unsigned/float native-16 arithmetic
+  `[17,27,37,47]`, a three-helper source aggregate chain returning
+  `[42,66,98,138]` after validated DXC entry-point optimization, and
+  signed/unsigned/float native-16 arithmetic
   `[65085,65096,65107,65118]`.
 - Bounded descriptor indexing selects `ByteAddressBuffer[2]`,
   `StructuredBuffer<uint>[2]`, `StructuredBuffer<uint2>[2]`, and
@@ -305,7 +312,14 @@ with `append_counter_link=true` and rejects a two-counter shader with exact
 `0x80004005`; `phase5-directcounter1` additionally compiles a directly indexed
 `AppendStructuredBuffer` heap shader and proves the unsupported counter mapping
 fails closed at PSO creation with exact `0x80004005`; `phase5-helper2` preserves
-all 23 semantic lanes with zero mismatches.
+all earlier semantic lanes with zero mismatches. Profile `phase5-doublebits15`
+passes all 26 current semantic lanes, including exact double payload words
+`[0x54442d18,0x400921fb]`, dynamic add/subtract result
+`[0x00000000,0x400a0000]`, and the complete 16-word binary64 addition matrix.
+Its generated DXIL reports pass the unsupported/placeholder audit, and no
+generated MSL contains `float64_t` or `double`. Binary64 multiply, divide,
+remainder, comparisons, and conversions remain open rather than being counted
+as complete.
 
 ## Remaining Phase 5 work
 

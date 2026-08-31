@@ -144,7 +144,10 @@ std::string DXILIRBuilder::mslTypeName(const MSLType &t) {
     case MSLTypeKind::Short: return "short";
     case MSLTypeKind::UShort: return "ushort";
     case MSLTypeKind::Long: return "long";
-    case MSLTypeKind::Double: return "float64_t";
+    // Metal has no native double type. Preserve DXIL double values as their
+    // IEEE-754 binary64 payload so make/split/bitcast operations remain exact
+    // without emitting the unsupported Metal `double` spelling.
+    case MSLTypeKind::Double: return "ulong";
     case MSLTypeKind::DeviceCharPtr: return "device char*";
     case MSLTypeKind::ThreadgroupCharPtr: return "threadgroup char*";
     case MSLTypeKind::Texture2D: return "texture2d<float, access::sample>";

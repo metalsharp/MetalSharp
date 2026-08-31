@@ -668,6 +668,7 @@ struct LowerContext {
     bool compute_texture_sample_shader = false;
     bool uses_atomic64_emulation = false;
     bool uses_group_atomic64_emulation = false;
+    bool uses_double_emulation = false;
     bool uses_sampler_feedback = false;
 };
 
@@ -953,6 +954,58 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                << "u) return reinterpret_cast<device uint4&>(b"
                << (base + i) << "[byte_offset]);\n";
         os << "  return uint4(0);\n";
+        os << "}\n\n";
+    }
+
+    if (ctx.uses_double_emulation) {
+        os << "static inline ulong m12_f64_shift_right_sticky(ulong value, uint shift) {\n";
+        os << "  if (shift == 0u) return value;\n";
+        os << "  if (shift >= 64u) return value == 0ul ? 0ul : 1ul;\n";
+        os << "  ulong mask = (1ul << shift) - 1ul;\n";
+        os << "  return (value >> shift) | ((value & mask) != 0ul ? 1ul : 0ul);\n";
+        os << "}\n\n";
+        os << "static inline ulong m12_f64_add(ulong a, ulong b) {\n";
+        os << "  const ulong frac_mask = 0x000ffffffffffffful;\n";
+        os << "  const ulong quiet_nan = 0x7ff8000000000000ul;\n";
+        os << "  uint ea = uint((a >> 52) & 0x7fful);\n";
+        os << "  uint eb = uint((b >> 52) & 0x7fful);\n";
+        os << "  ulong fa = a & frac_mask;\n";
+        os << "  ulong fb = b & frac_mask;\n";
+        os << "  bool sign_a = (a >> 63) != 0ul;\n";
+        os << "  bool sign_b = (b >> 63) != 0ul;\n";
+        os << "  if (ea == 0x7ffu) {\n";
+        os << "    if (fa != 0ul || (eb == 0x7ffu && fb == 0ul && sign_a != sign_b)) return quiet_nan;\n";
+        os << "    return a;\n";
+        os << "  }\n";
+        os << "  if (eb == 0x7ffu) return fb != 0ul ? quiet_nan : b;\n";
+        os << "  if (ea == 0u && fa == 0ul) return (eb == 0u && fb == 0ul) ? ((sign_a && sign_b) ? (1ul << 63) : 0ul) : b;\n";
+        os << "  if (eb == 0u && fb == 0ul) return a;\n";
+        os << "  uint xa = ea == 0u ? 1u : ea;\n";
+        os << "  uint xb = eb == 0u ? 1u : eb;\n";
+        os << "  ulong sa = (fa | (ea == 0u ? 0ul : (1ul << 52))) << 3;\n";
+        os << "  ulong sb = (fb | (eb == 0u ? 0ul : (1ul << 52))) << 3;\n";
+        os << "  if (xa < xb || (xa == xb && sa < sb)) {\n";
+        os << "    uint tx = xa; xa = xb; xb = tx;\n";
+        os << "    ulong ts = sa; sa = sb; sb = ts;\n";
+        os << "    bool tsgn = sign_a; sign_a = sign_b; sign_b = tsgn;\n";
+        os << "  }\n";
+        os << "  sb = m12_f64_shift_right_sticky(sb, xa - xb);\n";
+        os << "  ulong sig = sign_a == sign_b ? sa + sb : sa - sb;\n";
+        os << "  if (sig == 0ul) return 0ul;\n";
+        os << "  uint exponent = xa;\n";
+        os << "  if (sign_a == sign_b && (sig & (1ul << 56)) != 0ul) {\n";
+        os << "    sig = m12_f64_shift_right_sticky(sig, 1u);\n";
+        os << "    exponent += 1u;\n";
+        os << "  } else {\n";
+        os << "    while (exponent > 1u && (sig & (1ul << 55)) == 0ul) { sig <<= 1; exponent -= 1u; }\n";
+        os << "  }\n";
+        os << "  ulong main = sig >> 3;\n";
+        os << "  ulong tail = sig & 7ul;\n";
+        os << "  if (tail > 4ul || (tail == 4ul && (main & 1ul) != 0ul)) main += 1ul;\n";
+        os << "  if ((main & (1ul << 53)) != 0ul) { main >>= 1; exponent += 1u; }\n";
+        os << "  if (exponent >= 0x7ffu) return (sign_a ? (1ul << 63) : 0ul) | (0x7fful << 52);\n";
+        os << "  ulong encoded_exponent = exponent == 1u && (main & (1ul << 52)) == 0ul ? 0ul : ulong(exponent);\n";
+        os << "  return (sign_a ? (1ul << 63) : 0ul) | (encoded_exponent << 52) | (main & frac_mask);\n";
         os << "}\n\n";
     }
 
@@ -5823,12 +5876,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return "";
     }
     case DXOP_MakeDouble:
-        if (args.size() < 2) return "0.0";
-        return "as_type<float64_t>((ulong(uint(" + numericArg(0, "0") + ")) | (ulong(uint(" +
-               numericArg(1, "0") + ")) << 32)))";
+        if (args.size() < 2) return "ulong(0)";
+        return "(ulong(uint(" + numericArg(0, "0") + ")) | (ulong(uint(" +
+               numericArg(1, "0") + ")) << 32))";
     case DXOP_SplitDouble: {
-        auto bits = "as_type<ulong>(float64_t(" + numericArg(0, "0.0") + "))";
-        return "uint2(uint(" + bits + " >> 32), uint(" + bits + "))";
+        auto bits = "ulong(" + numericArg(0, "0") + ")";
+        return "uint2(uint(" + bits + "), uint(" + bits + " >> 32))";
     }
     case DXOP_BitcastI16ToF16:
         return "as_type<half>(short(" + numericArg(0, "0") + "))";
@@ -5839,9 +5892,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_BitcastF32ToI32:
         return "as_type<int>(float(" + numericArg(0, "0.0") + "))";
     case DXOP_BitcastI64ToF64:
-        return "as_type<float64_t>(ulong(" + numericArg(0, "0") + "))";
+        return "ulong(" + numericArg(0, "0") + ")";
     case DXOP_BitcastF64ToI64:
-        return "as_type<long>(float64_t(" + numericArg(0, "0.0") + "))";
+        return "as_type<long>(ulong(" + numericArg(0, "0") + "))";
     case DXOP_LegacyF32ToF16:
         return "static_cast<uint>(as_type<ushort>(half(" + numericArg(0, "0.0") + ")))";
     case DXOP_LegacyF16ToF32:
@@ -6418,8 +6471,11 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
 
         if (DXILIRBuilder::isVectorType(op0)) result_type = op0;
         else if (DXILIRBuilder::isVectorType(op1)) result_type = op1;
+        else if (op0.kind == MSLTypeKind::Double ||
+                 op1.kind == MSLTypeKind::Double)
+            result_type = {MSLTypeKind::Double, 0, {}};
         else if (DXILIRBuilder::isFloatType(op0) || DXILIRBuilder::isFloatType(op1))
-            result_type = {pointer_scalar == MSLTypeKind::Float ? MSLTypeKind::Float : MSLTypeKind::Float, 0, {}};
+            result_type = {MSLTypeKind::Float, 0, {}};
         else if (isUsableType(op0)) result_type = op0;
         else if (isUsableType(op1)) result_type = op1;
 
@@ -6692,11 +6748,25 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             lhs = castExpr(lhs, {MSLTypeKind::Float, 0, {}});
             rhs = castExpr(rhs, {MSLTypeKind::Float, 0, {}});
         }
-        std::string expr = preserve_float_arithmetic &&
+        std::string expr;
+        if (result_type.kind == MSLTypeKind::Double) {
+            if (inst.opcode == LLVMInstruction::Add ||
+                inst.opcode == LLVMInstruction::Sub) {
+                if (inst.opcode == LLVMInstruction::Sub)
+                    rhs = "(ulong(" + rhs + ") ^ (1ul << 63))";
+                expr = "m12_f64_add(ulong(" + lhs + "), ulong(" + rhs + "))";
+            } else {
+                ctx.unsupported_opcodes++;
+                recordDiagnostic(ctx, "binary64 multiply/divide/remainder requires software lowering");
+                expr = "ulong(0)";
+            }
+        } else {
+            expr = preserve_float_arithmetic &&
                            (inst.opcode == LLVMInstruction::URem ||
                             inst.opcode == LLVMInstruction::SRem)
-            ? "fmod(" + lhs + ", " + rhs + ")"
-            : lhs + " " + std::string(op_str) + " " + rhs;
+                ? "fmod(" + lhs + ", " + rhs + ")"
+                : lhs + " " + std::string(op_str) + " " + rhs;
+        }
         emitTypedLine(result_type, result, expr);
         ctx.value_table[value_counter] = result;
         ctx.value_types[value_counter] = result_type;
@@ -6868,7 +6938,11 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             MSLType op_type = inst.operands[0] < ctx.value_types.size() ? ctx.value_types[inst.operands[0]] : MSLType{};
             if (op_type.kind != MSLTypeKind::Unknown && op_type.kind != MSLTypeKind::Struct)
                 result_type = op_type;
-            emitTypedLine(result_type, result, "-(" + getValue(inst.operands[0]) + ")");
+            if (result_type.kind == MSLTypeKind::Double)
+                emitTypedLine(result_type, result,
+                              "(ulong(" + getValue(inst.operands[0]) + ") ^ (1ul << 63))");
+            else
+                emitTypedLine(result_type, result, "-(" + getValue(inst.operands[0]) + ")");
             ctx.value_table[value_counter] = result;
             ctx.value_types[value_counter] = result_type;
         }
@@ -6890,10 +6964,32 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         }
         MSLType result_type = getTypeForInst(inst.type_id);
         if (inst.operands.size() >= 2) {
+            MSLType tracked_lhs = valueType(inst.operands[0]);
+            MSLType tracked_rhs = valueType(inst.operands[1]);
             result_type = chooseBinaryType(result_type, operandType(inst.operands[0]),
                                            operandType(inst.operands[1]), MSLTypeKind::Float);
+            if (tracked_lhs.kind == MSLTypeKind::Double ||
+                tracked_rhs.kind == MSLTypeKind::Double)
+                result_type = {MSLTypeKind::Double, 0, {}};
             std::string lhs = coerceOperand(inst.operands[0], result_type);
             std::string rhs = coerceOperand(inst.operands[1], result_type);
+            if (result_type.kind == MSLTypeKind::Double) {
+                if (inst.opcode == LLVMInstruction::FAdd ||
+                    inst.opcode == LLVMInstruction::FSub) {
+                    if (inst.opcode == LLVMInstruction::FSub)
+                        rhs = "(ulong(" + rhs + ") ^ (1ul << 63))";
+                    emitTypedLine(result_type, result,
+                                  "m12_f64_add(ulong(" + lhs + "), ulong(" + rhs + "))");
+                } else {
+                    ctx.unsupported_opcodes++;
+                    recordDiagnostic(ctx, "binary64 multiply/divide/remainder requires software lowering");
+                    emitTypedLine(result_type, result, "ulong(0)");
+                }
+                ctx.value_table[value_counter] = result;
+                ctx.value_types[value_counter] = result_type;
+                value_counter++;
+                break;
+            }
             if (inst.opcode == LLVMInstruction::FRem &&
                 !DXILIRBuilder::isVectorType(result_type)) {
                 lhs = castExpr(lhs, {MSLTypeKind::Float, 0, {}});
@@ -6980,7 +7076,12 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             if (!isUsableType(result_type))
                 result_type = {MSLTypeKind::Int, 0, {}};
             std::string dst_name = emitTypeName(result_type);
-            if (isPointerType(source_type) || typeLooksResourceHandle(source_type) ||
+            if (source_type.kind == MSLTypeKind::Double ||
+                result_type.kind == MSLTypeKind::Double) {
+                ctx.unsupported_opcodes++;
+                recordDiagnostic(ctx, "native binary64 conversion requires software lowering");
+                emitTypedLine(result_type, result, defaultForType(result_type));
+            } else if (isPointerType(source_type) || typeLooksResourceHandle(source_type) ||
                 exprLooksResourceHandle(val) || exprContainsRawResourceHandle(val))
                 emitTypedLine(result_type, result, defaultForType(result_type));
             else if (DXILIRBuilder::isVectorType(source_type) &&
@@ -7049,6 +7150,17 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 inst.opcode == LLVMInstruction::FCmp ? MSLTypeKind::Float : MSLTypeKind::Int);
             auto lhs = coerceOperand(inst.operands[1], cmp_type);
             auto rhs = coerceOperand(inst.operands[2], cmp_type);
+            if (inst.opcode == LLVMInstruction::FCmp &&
+                cmp_type.kind == MSLTypeKind::Double) {
+                ctx.unsupported_opcodes++;
+                recordDiagnostic(ctx, "native binary64 comparison requires software lowering");
+                MSLType bool_type = {MSLTypeKind::Bool, 0, {}};
+                emitTypedLine(bool_type, result, "false");
+                ctx.value_table[value_counter] = result;
+                ctx.value_types[value_counter] = bool_type;
+                value_counter++;
+                break;
+            }
             const char *cmp = "==";
             MSLType result_type = {MSLTypeKind::Bool, 0, {}};
             std::string cmp_result;
@@ -7592,6 +7704,40 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             std::string::npos) {
             ctx.uses_sampler_feedback = true;
             break;
+        }
+    }
+
+    bool module_has_double = false;
+    for (const auto &decl : ctx.function_decls) {
+        if (decl.second.find("makeDouble") != std::string::npos ||
+            decl.second.find("splitDouble") != std::string::npos ||
+            decl.second.find("bitcastI64toF64") != std::string::npos ||
+            decl.second.find("bitcastF64toI64") != std::string::npos) {
+            module_has_double = true;
+            break;
+        }
+    }
+    for (uint32_t type_id = 0;
+         !module_has_double && type_id < module.types.size(); ++type_id) {
+        if (DXILIRBuilder::resolveType(type_id, module).kind ==
+            MSLTypeKind::Double) {
+            module_has_double = true;
+            break;
+        }
+    }
+    if (module_has_double) {
+        for (const auto &block : fn.blocks) {
+            for (const auto &inst : block.instructions) {
+                if (inst.opcode == LLVMInstruction::FAdd ||
+                    inst.opcode == LLVMInstruction::FSub ||
+                    inst.opcode == LLVMInstruction::Add ||
+                    inst.opcode == LLVMInstruction::Sub) {
+                    ctx.uses_double_emulation = true;
+                    break;
+                }
+            }
+            if (ctx.uses_double_emulation)
+                break;
         }
     }
 

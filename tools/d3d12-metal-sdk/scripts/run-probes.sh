@@ -2184,6 +2184,8 @@ JSON
 prepare_dxil_semantic_probes() {
   local hlsl="$SDK_DIR/out/bin/probe_dxil_semantics.hlsl"
 
+  rm -f "$SDK_DIR"/out/bin/probe_dxil_semantic_*.cso
+
   cat > "$hlsl" <<'HLSL'
 RWByteAddressBuffer outbuf : register(u0);
 ByteAddressBuffer inbuf : register(t0);
@@ -2331,18 +2333,15 @@ void cs_vector_shuffle(uint3 id : SV_DispatchThreadID) {
 
 groupshared uint g_counter;
 
-[noinline]
 uint helper_leaf(uint value) {
   return value * value + 3u;
 }
 
-[noinline]
 uint4 helper_vector(uint base) {
   return uint4(helper_leaf(base), helper_leaf(base + 1u),
                helper_leaf(base + 2u), helper_leaf(base + 3u));
 }
 
-[noinline]
 uint helper_reduce(uint4 value) {
   return value.x + value.y + value.z + value.w;
 }
@@ -2430,13 +2429,64 @@ void cs_loop_aggregate(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(id.x * 4, value);
 }
 
+HLSL
+
+  local double_bitcast_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_double_bitcast.hlsl"
+  cat > "$double_bitcast_hlsl" <<'HLSL_DOUBLE_BITCAST'
+RWByteAddressBuffer outbuf : register(u0);
+ByteAddressBuffer inbuf : register(t0);
+
 [numthreads(1, 1, 1)]
 void cs_double_arithmetic(uint3 id : SV_DispatchThreadID) {
   double value = 1.5 + 2.25;
   outbuf.Store(0, (uint)(value * 10.0));
 }
 
-HLSL
+[numthreads(1, 1, 1)]
+void cs_double_bitcast(uint3 id : SV_DispatchThreadID) {
+  uint low = inbuf.Load(0);
+  uint high = inbuf.Load(4);
+  double value = asdouble(low, high);
+  uint split_low = 0;
+  uint split_high = 0;
+  asuint(value, split_low, split_high);
+  outbuf.Store(0, split_low);
+  outbuf.Store(4, split_high);
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_dynamic_arithmetic(uint3 id : SV_DispatchThreadID) {
+  double lhs = asdouble(inbuf.Load(0), inbuf.Load(4));
+  double rhs = asdouble(inbuf.Load(8), inbuf.Load(12));
+  double sum = lhs + rhs;
+  double adjustment = asdouble(inbuf.Load(16), inbuf.Load(20));
+  double adjusted = sum - adjustment;
+  uint split_low = 0;
+  uint split_high = 0;
+  asuint(adjusted, split_low, split_high);
+  outbuf.Store(0, split_low);
+  outbuf.Store(4, split_high);
+  outbuf.Store(8, id.x);
+}
+
+[numthreads(1, 1, 1)]
+void cs_double_add_matrix(uint3 id : SV_DispatchThreadID) {
+  [unroll]
+  for (uint i = 0; i < 8; ++i) {
+    uint input_offset = i * 16;
+    double lhs = asdouble(inbuf.Load(input_offset),
+                          inbuf.Load(input_offset + 4));
+    double rhs = asdouble(inbuf.Load(input_offset + 8),
+                          inbuf.Load(input_offset + 12));
+    double sum = lhs + rhs;
+    uint split_low = 0;
+    uint split_high = 0;
+    asuint(sum, split_low, split_high);
+    outbuf.Store(i * 8, split_low);
+    outbuf.Store(i * 8 + 4, split_high);
+  }
+}
+HLSL_DOUBLE_BITCAST
 
   local sm69_hlsl="$SDK_DIR/out/bin/probe_dxil_semantic_sm69.hlsl"
   cat > "$sm69_hlsl" <<'HLSL_SM69'
@@ -2534,7 +2584,7 @@ HLSL_TEXTURE
       -Fo probe_dxil_semantic_matrix_aggregate.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-    "$WINE_BIN" dxc.exe -nologo -E cs_helper_aggregate -T cs_6_0 -HV 2021 -Od \
+    "$WINE_BIN" dxc.exe -nologo -E cs_helper_aggregate -T cs_6_0 -HV 2021 \
       -Fo probe_dxil_semantic_helper_aggregate.cso probe_dxil_semantics.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
@@ -2563,7 +2613,19 @@ HLSL_TEXTURE
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_double_arithmetic -T cs_6_0 -HV 2021 \
-      -Fo probe_dxil_semantic_double_arithmetic.cso probe_dxil_semantics.hlsl >/dev/null
+      -Fo probe_dxil_semantic_double_arithmetic.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_bitcast -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_bitcast.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_dynamic_arithmetic -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_dynamic_arithmetic.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_double_add_matrix -T cs_6_0 -HV 2021 \
+      -Fo probe_dxil_semantic_double_add_matrix.cso probe_dxil_semantic_double_bitcast.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69 -T cs_6_9 -HV 2021 -enable-16bit-types \
