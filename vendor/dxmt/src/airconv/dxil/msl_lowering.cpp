@@ -1636,7 +1636,18 @@ static std::string resolveValue(LowerContext &ctx, uint32_t idx) {
 }
 
 static bool exprLooksResourceHandle(const std::string &value) {
-    return startsWith(value, "tex") || startsWith(value, "samp") || startsWith(value, "buf");
+    const std::string &stripped = value;
+    auto is_numbered_handle = [&](const char *prefix) {
+        const size_t prefix_length = std::strlen(prefix);
+        if (!startsWith(stripped, prefix) || stripped.size() == prefix_length)
+            return false;
+        for (size_t i = prefix_length; i < stripped.size(); ++i)
+            if (!std::isdigit(static_cast<unsigned char>(stripped[i])))
+                return false;
+        return true;
+    };
+    return is_numbered_handle("tex") || is_numbered_handle("samp") ||
+           is_numbered_handle("buf");
 }
 
 static bool exprContainsPointerSyntax(const std::string &value) {
@@ -1834,6 +1845,9 @@ static MSLType typeForResolvedExpression(const LowerContext &ctx, const std::str
             return base_type;
     }
 
+    if (value.find(".calculate_clamped_lod(") != std::string::npos ||
+        value.find(".calculate_unclamped_lod(") != std::string::npos)
+        return {MSLTypeKind::Float, 0, {}};
     if (value.find("reinterpret_cast<device float4&>") != std::string::npos ||
         value.find(".read(") != std::string::npos ||
         value.find(".sample(") != std::string::npos ||
@@ -2009,6 +2023,9 @@ static bool exprLooksScalarResultCall(const std::string &value) {
     static const char *scalar_calls[] = {
         "any(", "all(", "dot(", "length(", "distance("
     };
+    if (stripped.find(".calculate_clamped_lod(") != std::string::npos ||
+        stripped.find(".calculate_unclamped_lod(") != std::string::npos)
+        return true;
     for (const char *call : scalar_calls)
         if (startsWith(stripped, call))
             return true;
@@ -2420,6 +2437,8 @@ static bool exprContainsRawResourceHandle(const std::string &value) {
         value.find(".sample(") != std::string::npos ||
         value.find(".gather(") != std::string::npos ||
         value.find(".gather_compare(") != std::string::npos ||
+        value.find(".calculate_clamped_lod(") != std::string::npos ||
+        value.find(".calculate_unclamped_lod(") != std::string::npos ||
         value.find(".write(") != std::string::npos ||
         value.find(".get_width(") != std::string::npos ||
         value.find(".get_height(") != std::string::npos)
@@ -4923,12 +4942,33 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case 83: case 85: return "dfdx(" + valueArg(0, "0.0") + ")";
     case 84: case 86: return "dfdy(" + valueArg(0, "0.0") + ")";
     case 81: {
-        if (args.size() < 4) return "0.0";
+        if (args.size() < 6) return "0.0";
         auto handle = handleArg(0, "tex", "tex0");
         auto samp = handleArg(1, "samp", "samp0");
-        return handle + ".calculate_unclamped_lod(" + samp + ", float2(" +
-               sampleCoordComponent(ctx, valueArg(2, "0.0"), 0) + ", " +
-               sampleCoordComponent(ctx, valueArg(3, "0.0"), 1) + "))";
+        const uint32_t resource_kind = resourceKindForHandle(ctx, args[0]);
+        auto c0 = sampleCoordComponent(ctx, valueArg(2, "0.0"), 0);
+        auto c1 = sampleCoordComponent(ctx, valueArg(3, "0.0"), 1);
+        auto c2 = sampleCoordComponent(ctx, valueArg(4, "0.0"), 2);
+        std::string coord;
+        if (resource_kind == 1u || resource_kind == 6u)
+            coord = "float2(" + c0 + ", 0.5f)";
+        else if (resource_kind == 2u || resource_kind == 7u ||
+                 resource_kind == 0u)
+            coord = "float2(" + c0 + ", " + c1 + ")";
+        else if (resource_kind == 4u || resource_kind == 5u ||
+                 resource_kind == 9u)
+            coord = "float3(" + c0 + ", " + c1 + ", " + c2 + ")";
+        else {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL calculate LOD is unsupported for resource kind=%u",
+                             resource_kind);
+            return "0.0";
+        }
+        const bool clamped = literalArg(args.size() - 1, 0, "clamped") != 0;
+        return handle + (clamped ? ".calculate_clamped_lod("
+                                 : ".calculate_unclamped_lod(") +
+               samp + ", " + coord + ")";
     }
     case 78: {
         if (args.size() < 4) return "0";
@@ -5479,6 +5519,9 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             return {MSLTypeKind::Sampler, 0, {}};
         if (exprLooksScalarMathCall(expr))
             return {MSLTypeKind::Float, 0, {}};
+        if (expr.find(".calculate_clamped_lod(") != std::string::npos ||
+            expr.find(".calculate_unclamped_lod(") != std::string::npos)
+            return {MSLTypeKind::Float, 0, {}};
         if (expr.find("reinterpret_cast<device float4&>") != std::string::npos)
             return {MSLTypeKind::Float4, 0, {}};
         if (expr.find("reinterpret_cast<device uint4&>") != std::string::npos)
@@ -6001,9 +6044,13 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 ctx.value_types[value_counter] = fallback_type;
             } else if (translated.find('=') == std::string::npos) {
                 if (!translated.empty() && translated[0] != ' ') {
-                    bool is_resource_handle = startsWith(translated, "buf") ||
-                                              startsWith(translated, "tex") ||
-                                              startsWith(translated, "samp");
+                    const bool bare_handle =
+                        translated.find('.') == std::string::npos &&
+                        translated.find('(') == std::string::npos;
+                    bool is_resource_handle =
+                        bare_handle && (startsWith(translated, "buf") ||
+                                        startsWith(translated, "tex") ||
+                                        startsWith(translated, "samp"));
                     if (is_resource_handle) {
                         ctx.value_table[value_counter] = translated;
                     } else {
@@ -6905,7 +6952,8 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         ctx.compute_texture_sample_shader = false;
         for (const auto &decl : module.functions) {
             if (startsWith(decl.name, "dx.op.sample") ||
-                startsWith(decl.name, "dx.op.textureGather")) {
+                startsWith(decl.name, "dx.op.textureGather") ||
+                startsWith(decl.name, "dx.op.calculateLOD")) {
                 ctx.compute_texture_sample_shader = true;
                 break;
             }

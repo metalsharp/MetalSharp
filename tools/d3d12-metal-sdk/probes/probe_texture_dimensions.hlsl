@@ -29,6 +29,26 @@ Texture2D<int64_t> tex_sint64 : register(t0);
 
 RWStructuredBuffer<uint> output : register(u0);
 
+struct LODVertexOutput {
+  float4 position : SV_Position;
+  float coordinate : TEXCOORD0;
+};
+
+LODVertexOutput vs_texture_lod(uint vertex_id : SV_VertexID) {
+  float2 uv = float2((vertex_id << 1) & 2, vertex_id & 2);
+  LODVertexOutput result;
+  result.position = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0),
+                           0.0, 1.0);
+  result.coordinate = uv.x * 2.0;
+  return result;
+}
+
+float4 ps_texture_lod(LODVertexOutput input) : SV_Target0 {
+  return float4(tex1.CalculateLevelOfDetail(samp, input.coordinate),
+                tex1.CalculateLevelOfDetailUnclamped(samp, input.coordinate),
+                0.0, 1.0);
+}
+
 [numthreads(4,1,1)]
 void cs_texture_1d(uint3 id : SV_DispatchThreadID) {
   output[0] = uint(tex1.SampleLevel(samp, 0.5, 0).r * 255.0 + 0.5);

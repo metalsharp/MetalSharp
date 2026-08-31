@@ -173,7 +173,7 @@ lowering-report-audit rows
 while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
 row open. The latest isolated
 texture-dimension result is profile
-`phase5-texture-filter-final`: 65/65 cases passed with exact
+`phase5-graphics-lod1`: 66/66 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values
 for distinct slices/faces), including R32_UINT/R32_SINT `0x281e140a`,
 R16_UINT `0x1234`, R16_SINT `0xfffffffe`, RG16_UINT `0x56781234`,
@@ -191,6 +191,9 @@ coordinates and dimensions: mip-1 1D and 1D-array values are both `96`, with
 exact packed
 GetDimensions values `131074` and `131586`. The combined mip-level, bias,
 gradient, and static-offset lane returns packed exact value `0x14323232`.
+A pixel-stage derivative lane returns exact float bits `0x3f800000` for both
+clamped and unclamped `CalculateLevelOfDetail`, proving the logical 1D-to-Metal
+2D coordinate adaptation without relying on undefined compute derivatives.
 Clamp, wrap, mirror, border, and mirror-once address modes return distinct exact
 packed values, while transparent black, opaque black, and opaque white border
 colors return `0x00000000`, `0xff000000`, and `0xffffffff`. Dynamic sampler
