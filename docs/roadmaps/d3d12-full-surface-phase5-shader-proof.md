@@ -183,17 +183,24 @@
   caller-string mutation protection, and an exact four-byte parent-key callback
   round-trip. The application executable/name/
   engine/version descriptor also survives caller-string mutation through a
-  deep-copy callback round-trip. Profile `phase5-sodb-v5e` reloads all five
+  deep-copy callback round-trip. Profile `phase5-compiler-api-final` reloads all five
   descriptor classes in a fresh database instance, including both
   `GLOBAL_SERIALIZED_ROOT_SIGNATURE` and `LOCAL_SERIALIZED_ROOT_SIGNATURE`
   twelve-byte blobs plus an `EXISTING_COLLECTION_BY_KEY` four-byte key and
   `ByKeyExport` -> `ByKeyRenamed` export payload. It rejects a read-only store
   with `E_ACCESSDENIED`, rejects a malformed file with `ERROR_BAD_FORMAT`, and
-  removes both disposable database files. These fixed-size payloads, DXIL
-  library bytecode/exports, HIT_GROUP strings, both subobject-association
-  forms, both serialized root-signature forms, and existing-collection-by-key
-  payloads are supported; broader compiler-session and state-object
-  combinations remain in the exhaustive row.
+  removes both disposable database files. The same profile also exercises the
+  Agility `D3D12CompilerCreateFactory` host against DXMT's compiler-plugin DDI:
+  it enumerates the behavior-backed `Apple M4` family and ABI `1`, verifies
+  compiler/profile version `1`, round-trips typed object-code/metadata values
+  and their group through a persisted compiler cache session, and verifies
+  factory/session routing. Since DXMT has no portable offline object-code
+  provider, compiler-object creation returns exact `E_NOTIMPL`; the plugin
+  never publishes fabricated precompiled bytes. These fixed-size payloads,
+  DXIL library bytecode/exports, HIT_GROUP strings, both
+  subobject-association forms, both serialized root-signature forms, and
+  existing-collection-by-key payloads are supported; broader compiler-session
+  and state-object combinations remain in the exhaustive row.
 
 ## Exact evidence
 
@@ -222,7 +229,7 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --texture-dimensions-only
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
-METALSHARP_PROBE_PROFILE=phase5-sodb-v5e \
+METALSHARP_PROBE_PROFILE=phase5-compiler-api-final \
 METALSHARP_WINE_ROOT=/Users/averyfelts/.metalsharp/runtime/wine \
 METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/dxmt_m12 \
 METAL_SHADER_CONVERTER=/nonexistent \

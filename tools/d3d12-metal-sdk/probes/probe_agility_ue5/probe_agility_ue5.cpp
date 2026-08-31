@@ -1,12 +1,14 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <d3d12.h>
@@ -132,6 +134,108 @@ struct ID3D12StateObjectDatabaseCompat : public IUnknown {
 struct ID3D12StateObjectDatabaseFactoryCompat : public IUnknown {
     virtual HRESULT STDMETHODCALLTYPE CreateStateObjectDatabaseFromFile(LPCWSTR database_file, UINT flags, REFIID riid,
                                                                         void** state_object_database) = 0;
+};
+
+static const GUID IID_ID3D12CompilerFactoryProbe = {
+    0xc1ee4b59, 0x3f59, 0x47a5, {0x9b, 0x4e, 0xa8, 0x55, 0xc8, 0x58, 0xa8, 0x78}};
+static const GUID IID_ID3D12CompilerFactoryChildProbe = {
+    0xe0d06420, 0x9f31, 0x47e8, {0xae, 0x9a, 0xdd, 0x2b, 0xa2, 0x5a, 0xc0, 0xbc}};
+static const GUID IID_ID3D12CompilerCacheSessionProbe = {
+    0x5704e5e6, 0x054b, 0x4738, {0xb6, 0x61, 0x7b, 0x0d, 0x68, 0xd8, 0xdd, 0xe2}};
+static const GUID IID_ID3D12CompilerProbe = {
+    0x8c403c12, 0x993b, 0x4583, {0x80, 0xf1, 0x68, 0x24, 0x13, 0x8f, 0xa6, 0x8e}};
+static const GUID IID_ID3D12CompilerStateObjectProbe = {
+    0x5981cca4, 0xe8ae, 0x44ca, {0x9b, 0x92, 0x4f, 0xa8, 0x6f, 0x5a, 0x3a, 0x3a}};
+
+struct CompilerAdapterFamilyCompat {
+    WCHAR szAdapterFamily[128];
+};
+enum CompilerValueTypeCompat : UINT {
+    CompilerValueTypeObjectCode = 0,
+    CompilerValueTypeMetadata = 1,
+    CompilerValueTypeDebugPdb = 2,
+    CompilerValueTypePerformanceData = 3,
+};
+enum CompilerValueTypeFlagsCompat : UINT {
+    CompilerValueTypeFlagsNone = 0,
+    CompilerValueTypeFlagsObjectCode = 1,
+    CompilerValueTypeFlagsMetadata = 2,
+    CompilerValueTypeFlagsDebugPdb = 4,
+    CompilerValueTypeFlagsPerformanceData = 8,
+};
+struct CompilerDatabasePathCompat {
+    CompilerValueTypeFlagsCompat Types;
+    LPCWSTR pPath;
+};
+struct CompilerCacheGroupKeyCompat {
+    const void* pKey;
+    UINT KeySize;
+};
+struct CompilerCacheValueKeyCompat {
+    const void* pKey;
+    UINT KeySize;
+};
+struct CompilerCacheValueCompat {
+    void* pValue;
+    UINT ValueSize;
+};
+struct CompilerCacheTypedValueCompat {
+    CompilerValueTypeCompat Type;
+    CompilerCacheValueCompat Value;
+};
+struct CompilerCacheConstValueCompat {
+    const void* pValue;
+    UINT ValueSize;
+};
+struct CompilerCacheTypedConstValueCompat {
+    CompilerValueTypeCompat Type;
+    CompilerCacheConstValueCompat Value;
+};
+struct CompilerTargetCompat {
+    UINT AdapterFamilyIndex;
+    UINT64 ABIVersion;
+};
+union CompilerVersionNumberCompat {
+    UINT64 Version;
+    UINT16 VersionParts[4];
+};
+struct ID3D12CompilerFactoryChildProbe : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetFactory(REFIID riid, void** factory) = 0;
+};
+using CompilerCacheAllocationFunc = void* (__stdcall *)(SIZE_T, void*);
+using CompilerGroupValueKeysFunc = void (__stdcall *)(const CompilerCacheValueKeyCompat*, void*);
+using CompilerGroupValuesFunc = void (__stdcall *)(UINT, const CompilerCacheTypedConstValueCompat*, void*);
+struct ID3D12CompilerCacheSessionProbe : public ID3D12CompilerFactoryChildProbe {
+    virtual HRESULT STDMETHODCALLTYPE FindGroup(const CompilerCacheGroupKeyCompat*, UINT*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE FindGroupValueKeys(const CompilerCacheGroupKeyCompat*, const UINT*, CompilerGroupValueKeysFunc, void*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE FindGroupValues(const CompilerCacheGroupKeyCompat*, const UINT*, CompilerValueTypeFlagsCompat, CompilerGroupValuesFunc, void*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE FindValue(const CompilerCacheValueKeyCompat*, CompilerCacheTypedValueCompat*, UINT, CompilerCacheAllocationFunc, void*) = 0;
+    virtual const D3D12ApplicationDescCompat* STDMETHODCALLTYPE GetApplicationDesc() = 0;
+#if defined(_MSC_VER) || !defined(_WIN32)
+    virtual CompilerTargetCompat STDMETHODCALLTYPE GetCompilerTarget() = 0;
+#else
+    virtual CompilerTargetCompat* STDMETHODCALLTYPE GetCompilerTarget(CompilerTargetCompat* ret) = 0;
+#endif
+    virtual CompilerValueTypeFlagsCompat STDMETHODCALLTYPE GetValueTypes() = 0;
+    virtual HRESULT STDMETHODCALLTYPE StoreGroupValueKeys(const CompilerCacheGroupKeyCompat*, UINT, const CompilerCacheValueKeyCompat*, UINT) = 0;
+    virtual HRESULT STDMETHODCALLTYPE StoreValue(const CompilerCacheValueKeyCompat*, const CompilerCacheTypedConstValueCompat*, UINT) = 0;
+};
+struct ID3D12CompilerStateObjectProbe : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE GetCompiler(REFIID riid, void** compiler) = 0;
+};
+struct ID3D12CompilerProbe : public ID3D12CompilerFactoryChildProbe {
+    virtual HRESULT STDMETHODCALLTYPE CompilePipelineState(const CompilerCacheGroupKeyCompat*, UINT, const D3D12_PIPELINE_STATE_STREAM_DESC*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CompileStateObject(const CompilerCacheGroupKeyCompat*, UINT, const D3D12_STATE_OBJECT_DESC*, REFIID, void**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CompileAddToStateObject(const CompilerCacheGroupKeyCompat*, UINT, const D3D12_STATE_OBJECT_DESC*, ID3D12CompilerStateObjectProbe*, REFIID, void**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetCacheSession(REFIID, void**) = 0;
+};
+struct ID3D12CompilerFactoryProbe : public IUnknown {
+    virtual HRESULT STDMETHODCALLTYPE EnumerateAdapterFamilies(UINT, CompilerAdapterFamilyCompat*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE EnumerateAdapterFamilyABIVersions(UINT, UINT32*, UINT64*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE EnumerateAdapterFamilyCompilerVersion(UINT, CompilerVersionNumberCompat*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetApplicationProfileVersion(const CompilerTargetCompat*, const D3D12ApplicationDescCompat*, CompilerVersionNumberCompat*) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CreateCompilerCacheSession(const CompilerDatabasePathCompat*, UINT, const CompilerTargetCompat*, const D3D12ApplicationDescCompat*, REFIID, void**) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CreateCompiler(ID3D12CompilerCacheSessionProbe*, REFIID, void**) = 0;
 };
 
 // Agility 1.619 state-database-only descriptor forms are not present in the
@@ -464,6 +568,17 @@ static std::string json_escape(const std::string& input) {
     return out;
 }
 
+static std::string narrow_ascii(const wchar_t* value) {
+    std::string result;
+    if (!value)
+        return result;
+    while (*value) {
+        result.push_back(*value < 0x80 ? static_cast<char>(*value) : '?');
+        ++value;
+    }
+    return result;
+}
+
 static std::string getenv_string(const char* key) {
     DWORD needed = GetEnvironmentVariableA(key, nullptr, 0);
     if (needed == 0)
@@ -474,6 +589,31 @@ static std::string getenv_string(const char* key) {
         return "";
     value.resize(written);
     return value;
+}
+
+struct CompilerCacheCallbackState {
+    std::vector<std::vector<uint8_t>> keys;
+    std::vector<std::pair<CompilerValueTypeCompat, std::vector<uint8_t>>> values;
+};
+
+static void __stdcall compiler_group_value_keys_callback(
+    const CompilerCacheValueKeyCompat* key, void* context) {
+    auto* state = static_cast<CompilerCacheCallbackState*>(context);
+    if (!state || !key || (!key->pKey && key->KeySize))
+        return;
+    const auto* bytes = static_cast<const uint8_t*>(key->pKey);
+    state->keys.emplace_back(bytes, bytes + key->KeySize);
+}
+
+static void __stdcall compiler_group_values_callback(
+    UINT, const CompilerCacheTypedConstValueCompat* value, void* context) {
+    auto* state = static_cast<CompilerCacheCallbackState*>(context);
+    if (!state || !value || (!value->Value.pValue && value->Value.ValueSize))
+        return;
+    const auto* bytes = static_cast<const uint8_t*>(value->Value.pValue);
+    state->values.emplace_back(
+        value->Type,
+        std::vector<uint8_t>(bytes, bytes + value->Value.ValueSize));
 }
 
 static void configure_exported_sdk() {
@@ -754,6 +894,266 @@ int main() {
                        reinterpret_cast<void*>(application_desc_callback),
                        &application_callback)
                  : E_NOINTERFACE;
+
+    using CreateCompilerFactoryFn = HRESULT(WINAPI*)(LPCWSTR, REFIID, void**);
+    CreateCompilerFactoryFn create_compiler_factory = nullptr;
+    FARPROC create_compiler_factory_proc =
+        modules[2].loaded
+            ? GetProcAddress(modules[2].handle, "D3D12CompilerCreateFactory")
+            : nullptr;
+    static_assert(sizeof(create_compiler_factory) ==
+                      sizeof(create_compiler_factory_proc),
+                  "compiler factory function pointer size mismatch");
+    std::memcpy(&create_compiler_factory, &create_compiler_factory_proc,
+                sizeof(create_compiler_factory));
+    ID3D12CompilerFactoryProbe* compiler_factory = nullptr;
+    HRESULT compiler_factory_hr =
+        create_compiler_factory
+            ? create_compiler_factory(L"d3d12.dll", IID_ID3D12CompilerFactoryProbe,
+                                      reinterpret_cast<void**>(&compiler_factory))
+            : HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
+    CompilerAdapterFamilyCompat compiler_family = {};
+    HRESULT compiler_family_hr = compiler_factory
+                                     ? compiler_factory->EnumerateAdapterFamilies(
+                                           0, &compiler_family)
+                                     : E_NOINTERFACE;
+    CompilerAdapterFamilyCompat compiler_family_end = {};
+    HRESULT compiler_family_end_hr = compiler_factory
+                                         ? compiler_factory->EnumerateAdapterFamilies(
+                                               1, &compiler_family_end)
+                                         : E_NOINTERFACE;
+    UINT compiler_abi_count = 0;
+    HRESULT compiler_abi_size_hr =
+        compiler_factory
+            ? compiler_factory->EnumerateAdapterFamilyABIVersions(
+                  0, &compiler_abi_count, nullptr)
+            : E_NOINTERFACE;
+    UINT64 compiler_abi_version = 0;
+    UINT compiler_abi_capacity = compiler_abi_count;
+    HRESULT compiler_abi_hr =
+        compiler_factory
+            ? compiler_factory->EnumerateAdapterFamilyABIVersions(
+                  0, &compiler_abi_capacity, &compiler_abi_version)
+            : E_NOINTERFACE;
+    CompilerVersionNumberCompat compiler_version = {};
+    HRESULT compiler_version_hr = compiler_factory
+                                      ? compiler_factory->EnumerateAdapterFamilyCompilerVersion(
+                                            0, &compiler_version)
+                                      : E_NOINTERFACE;
+    wchar_t compiler_exe[] = L"compiler-probe.exe";
+    wchar_t compiler_name[] = L"MetalSharp Compiler Probe";
+    wchar_t compiler_engine[] = L"DXMT";
+    D3D12ApplicationDescCompat compiler_application = {};
+    compiler_application.pExeFilename = compiler_exe;
+    compiler_application.pName = compiler_name;
+    compiler_application.Version.Version = 0x0001000200030004ull;
+    compiler_application.pEngineName = compiler_engine;
+    compiler_application.EngineVersion.Version = 0x0005000600070008ull;
+    CompilerTargetCompat compiler_target = {0, 0};
+    CompilerVersionNumberCompat compiler_profile_version = {};
+    HRESULT compiler_profile_hr =
+        compiler_factory
+            ? compiler_factory->GetApplicationProfileVersion(
+                  &compiler_target, &compiler_application,
+                  &compiler_profile_version)
+            : E_NOINTERFACE;
+    const wchar_t* compiler_cache_path =
+        L"Z:\\tmp\\metalsharp-compiler-session.psdb";
+    DeleteFileW(compiler_cache_path);
+    CompilerDatabasePathCompat compiler_database_path = {};
+    compiler_database_path.Types = static_cast<CompilerValueTypeFlagsCompat>(
+        CompilerValueTypeFlagsObjectCode | CompilerValueTypeFlagsMetadata);
+    compiler_database_path.pPath = compiler_cache_path;
+    ID3D12CompilerCacheSessionProbe* compiler_session = nullptr;
+    HRESULT compiler_session_hr =
+        compiler_factory
+            ? compiler_factory->CreateCompilerCacheSession(
+                  &compiler_database_path, 1, &compiler_target,
+                  &compiler_application, IID_ID3D12CompilerCacheSessionProbe,
+                  reinterpret_cast<void**>(&compiler_session))
+            : E_NOINTERFACE;
+    CompilerTargetCompat compiler_session_target = {};
+    CompilerTargetCompat* compiler_session_target_ptr =
+        compiler_session ? compiler_session->GetCompilerTarget(
+                               &compiler_session_target)
+                         : nullptr;
+    const D3D12ApplicationDescCompat* compiler_session_application =
+        compiler_session ? compiler_session->GetApplicationDesc() : nullptr;
+    CompilerValueTypeFlagsCompat compiler_session_value_types =
+        compiler_session ? compiler_session->GetValueTypes()
+                         : CompilerValueTypeFlagsNone;
+    std::array<uint8_t, 5> compiler_group_bytes = {
+        'g', 'r', 'o', 'u', 'p'};
+    std::array<uint8_t, 5> compiler_value_key_bytes = {
+        'v', 'a', 'l', 'u', 'e'};
+    std::array<uint8_t, 4> compiler_object_bytes = {
+        0x10, 0x20, 0x30, 0x40};
+    std::array<uint8_t, 4> compiler_metadata_bytes = {
+        0x50, 0x60, 0x70, 0x80};
+    CompilerCacheGroupKeyCompat compiler_group_key = {
+        compiler_group_bytes.data(), static_cast<UINT>(compiler_group_bytes.size())};
+    CompilerCacheValueKeyCompat compiler_value_key = {
+        compiler_value_key_bytes.data(),
+        static_cast<UINT>(compiler_value_key_bytes.size())};
+    CompilerCacheTypedConstValueCompat compiler_typed_values[2] = {};
+    compiler_typed_values[0].Type = CompilerValueTypeObjectCode;
+    compiler_typed_values[0].Value.pValue = compiler_object_bytes.data();
+    compiler_typed_values[0].Value.ValueSize =
+        static_cast<UINT>(compiler_object_bytes.size());
+    compiler_typed_values[1].Type = CompilerValueTypeMetadata;
+    compiler_typed_values[1].Value.pValue = compiler_metadata_bytes.data();
+    compiler_typed_values[1].Value.ValueSize =
+        static_cast<UINT>(compiler_metadata_bytes.size());
+    HRESULT compiler_store_value_hr =
+        compiler_session ? compiler_session->StoreValue(
+                               &compiler_value_key, compiler_typed_values, 2)
+                         : E_NOINTERFACE;
+    HRESULT compiler_store_group_hr =
+        compiler_session ? compiler_session->StoreGroupValueKeys(
+                               &compiler_group_key, 23, &compiler_value_key, 1)
+                         : E_NOINTERFACE;
+    UINT compiler_found_group_version = 0;
+    HRESULT compiler_find_group_hr =
+        compiler_session ? compiler_session->FindGroup(
+                               &compiler_group_key, &compiler_found_group_version)
+                         : E_NOINTERFACE;
+    CompilerCacheCallbackState compiler_group_keys = {};
+    HRESULT compiler_find_group_keys_hr =
+        compiler_session ? compiler_session->FindGroupValueKeys(
+                               &compiler_group_key, &compiler_found_group_version,
+                               compiler_group_value_keys_callback,
+                               &compiler_group_keys)
+                         : E_NOINTERFACE;
+    CompilerCacheCallbackState compiler_group_values = {};
+    HRESULT compiler_find_group_values_hr =
+        compiler_session ? compiler_session->FindGroupValues(
+                               &compiler_group_key, &compiler_found_group_version,
+                               static_cast<CompilerValueTypeFlagsCompat>(
+                                   CompilerValueTypeFlagsObjectCode |
+                                   CompilerValueTypeFlagsMetadata),
+                               compiler_group_values_callback,
+                               &compiler_group_values)
+                         : E_NOINTERFACE;
+    std::array<uint8_t, 4> compiler_object_readback = {};
+    std::array<uint8_t, 4> compiler_metadata_readback = {};
+    CompilerCacheTypedValueCompat compiler_typed_readback[2] = {};
+    compiler_typed_readback[0].Type = CompilerValueTypeObjectCode;
+    compiler_typed_readback[0].Value.pValue = compiler_object_readback.data();
+    compiler_typed_readback[0].Value.ValueSize =
+        static_cast<UINT>(compiler_object_readback.size());
+    compiler_typed_readback[1].Type = CompilerValueTypeMetadata;
+    compiler_typed_readback[1].Value.pValue = compiler_metadata_readback.data();
+    compiler_typed_readback[1].Value.ValueSize =
+        static_cast<UINT>(compiler_metadata_readback.size());
+    HRESULT compiler_find_value_hr =
+        compiler_session ? compiler_session->FindValue(
+                               &compiler_value_key, compiler_typed_readback, 2,
+                               nullptr, nullptr)
+                         : E_NOINTERFACE;
+    ID3D12CompilerProbe* compiler = nullptr;
+    HRESULT compiler_create_hr =
+        compiler_factory
+            ? compiler_factory->CreateCompiler(
+                  compiler_session, IID_ID3D12CompilerProbe,
+                  reinterpret_cast<void**>(&compiler))
+            : E_NOINTERFACE;
+    void* compiler_factory_from_compiler = nullptr;
+    HRESULT compiler_get_factory_hr =
+        compiler ? compiler->GetFactory(IID_ID3D12CompilerFactoryProbe,
+                                        &compiler_factory_from_compiler)
+                 : E_NOINTERFACE;
+    void* compiler_session_from_compiler = nullptr;
+    HRESULT compiler_get_session_hr =
+        compiler ? compiler->GetCacheSession(IID_ID3D12CompilerCacheSessionProbe,
+                                             &compiler_session_from_compiler)
+                 : E_NOINTERFACE;
+    bool compiler_application_ok =
+        compiler_session_application && compiler_session_application->pExeFilename &&
+        std::wstring(compiler_session_application->pExeFilename) ==
+            L"compiler-probe.exe" &&
+        compiler_session_application->pName &&
+        std::wstring(compiler_session_application->pName) ==
+            L"MetalSharp Compiler Probe";
+    ID3D12CompilerCacheSessionProbe* compiler_reopened_session = nullptr;
+    HRESULT compiler_reopen_session_hr =
+        compiler_factory
+            ? compiler_factory->CreateCompilerCacheSession(
+                  &compiler_database_path, 1, &compiler_target,
+                  &compiler_application, IID_ID3D12CompilerCacheSessionProbe,
+                  reinterpret_cast<void**>(&compiler_reopened_session))
+            : E_NOINTERFACE;
+    UINT compiler_reopened_group_version = 0;
+    HRESULT compiler_reopened_find_group_hr =
+        compiler_reopened_session
+            ? compiler_reopened_session->FindGroup(
+                  &compiler_group_key, &compiler_reopened_group_version)
+            : E_NOINTERFACE;
+    std::array<uint8_t, 4> compiler_reopened_object_readback = {};
+    CompilerCacheTypedValueCompat compiler_reopened_typed_value = {};
+    compiler_reopened_typed_value.Type = CompilerValueTypeObjectCode;
+    compiler_reopened_typed_value.Value.pValue =
+        compiler_reopened_object_readback.data();
+    compiler_reopened_typed_value.Value.ValueSize =
+        static_cast<UINT>(compiler_reopened_object_readback.size());
+    HRESULT compiler_reopened_find_value_hr =
+        compiler_reopened_session
+            ? compiler_reopened_session->FindValue(
+                  &compiler_value_key, &compiler_reopened_typed_value, 1,
+                  nullptr, nullptr)
+            : E_NOINTERFACE;
+    bool compiler_persistence_ok =
+        SUCCEEDED(compiler_reopen_session_hr) &&
+        compiler_reopened_find_group_hr == S_OK &&
+        compiler_reopened_group_version == 23 &&
+        compiler_reopened_find_value_hr == S_OK &&
+        compiler_reopened_object_readback == compiler_object_bytes;
+    bool compiler_provider_fail_closed =
+        compiler_create_hr == E_NOTIMPL && compiler == nullptr;
+    bool compiler_cache_api_ok =
+        SUCCEEDED(compiler_factory_hr) && compiler_family_hr == S_OK &&
+        compiler_family_end_hr == DXGI_ERROR_NOT_FOUND &&
+        std::wstring(compiler_family.szAdapterFamily) == L"Apple M4" &&
+        compiler_abi_size_hr == S_OK && compiler_abi_count == 1 &&
+        compiler_abi_hr == S_OK && compiler_abi_capacity == 1 &&
+        compiler_abi_version == 1 && compiler_version_hr == S_OK &&
+        compiler_version.Version == 1 && compiler_profile_hr == S_OK &&
+        compiler_profile_version.Version == 1 &&
+        SUCCEEDED(compiler_session_hr) && compiler_session_target_ptr &&
+        compiler_session_target.AdapterFamilyIndex == 0 &&
+        compiler_session_target.ABIVersion == 1 && compiler_session_value_types ==
+            static_cast<CompilerValueTypeFlagsCompat>(
+                CompilerValueTypeFlagsObjectCode |
+                CompilerValueTypeFlagsMetadata) &&
+        compiler_application_ok && compiler_store_value_hr == S_OK &&
+        compiler_store_group_hr == S_OK && compiler_find_group_hr == S_OK &&
+        compiler_found_group_version == 23 && compiler_find_group_keys_hr == S_OK &&
+        compiler_group_keys.keys.size() == 1 &&
+        compiler_group_keys.keys[0].size() == compiler_value_key_bytes.size() &&
+        std::equal(compiler_group_keys.keys[0].begin(),
+                   compiler_group_keys.keys[0].end(),
+                   compiler_value_key_bytes.begin()) &&
+        compiler_find_group_values_hr == S_OK &&
+        compiler_group_values.values.size() == 2 && compiler_find_value_hr == S_OK &&
+        compiler_typed_readback[0].Value.ValueSize == compiler_object_bytes.size() &&
+        compiler_typed_readback[1].Value.ValueSize ==
+            compiler_metadata_bytes.size() &&
+        compiler_object_readback == compiler_object_bytes &&
+        compiler_metadata_readback == compiler_metadata_bytes &&
+        compiler_persistence_ok && compiler_provider_fail_closed;
+    if (compiler_factory_from_compiler)
+        reinterpret_cast<IUnknown*>(compiler_factory_from_compiler)->Release();
+    if (compiler_session_from_compiler)
+        reinterpret_cast<IUnknown*>(compiler_session_from_compiler)->Release();
+    if (compiler)
+        compiler->Release();
+    if (compiler_reopened_session)
+        compiler_reopened_session->Release();
+    if (compiler_session)
+        compiler_session->Release();
+    DeleteFileW(compiler_cache_path);
+    if (compiler_factory)
+        compiler_factory->Release();
+
     struct PipelineStreamProbe {
         UINT type;
         ID3D12RootSignature* root_signature;
@@ -1140,7 +1540,8 @@ int main() {
     const BOOL database_file_removed = DeleteFileW(database_path);
     bool pass = modules[0].loaded && modules[1].loaded && modules[4].loaded && modules[4].has_required_symbol &&
                 payload_version_matches && d3d12_expected_path && SUCCEEDED(create_hr) && device != nullptr &&
-                interfaces[0].supported && device_configuration_ok && shader_cache_ok && pipeline_desc_cache_ok;
+                interfaces[0].supported && device_configuration_ok && shader_cache_ok && pipeline_desc_cache_ok &&
+                compiler_cache_api_ok;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-agility-ue5.v1\",\n");
@@ -1190,6 +1591,26 @@ int main() {
     print_hr_field("find_pipeline_version", find_pipeline_version_hr);
     print_hr_field("store_state_object_desc", store_state_object_hr);
     print_hr_field("find_state_object_desc", find_state_object_hr);
+    print_hr_field("compiler_factory", compiler_factory_hr);
+    print_hr_field("compiler_family", compiler_family_hr);
+    print_hr_field("compiler_family_end", compiler_family_end_hr);
+    print_hr_field("compiler_abi_size", compiler_abi_size_hr);
+    print_hr_field("compiler_abi", compiler_abi_hr);
+    print_hr_field("compiler_version", compiler_version_hr);
+    print_hr_field("compiler_profile", compiler_profile_hr);
+    print_hr_field("compiler_session", compiler_session_hr);
+    print_hr_field("compiler_store_value", compiler_store_value_hr);
+    print_hr_field("compiler_store_group", compiler_store_group_hr);
+    print_hr_field("compiler_find_group", compiler_find_group_hr);
+    print_hr_field("compiler_find_group_keys", compiler_find_group_keys_hr);
+    print_hr_field("compiler_find_group_values", compiler_find_group_values_hr);
+    print_hr_field("compiler_find_value", compiler_find_value_hr);
+    print_hr_field("compiler_create", compiler_create_hr);
+    print_hr_field("compiler_get_factory", compiler_get_factory_hr);
+    print_hr_field("compiler_get_session", compiler_get_session_hr);
+    print_hr_field("compiler_reopen_session", compiler_reopen_session_hr);
+    print_hr_field("compiler_reopened_find_group", compiler_reopened_find_group_hr);
+    print_hr_field("compiler_reopened_find_value", compiler_reopened_find_value_hr);
     print_hr_field("find_state_object_version", find_state_version_hr);
     print_hr_field("store_unsupported_state_object_desc", store_unsupported_state_object_hr);
     print_hr_field("reopen_database", reopen_database_hr);
@@ -1269,6 +1690,24 @@ int main() {
     std::printf("    \"pipeline_desc_cache_verified\": %s,\n", pipeline_desc_cache_ok ? "true" : "false");
     std::printf("    \"state_object_desc_cache_verified\": %s,\n",
                 state_callback.called && found_state_version == 11 ? "true" : "false");
+    std::printf("    \"compiler_cache_api_verified\": %s,\n",
+                compiler_cache_api_ok ? "true" : "false");
+    std::printf("    \"compiler_provider_fail_closed\": %s,\n",
+                compiler_provider_fail_closed ? "true" : "false");
+    std::printf("    \"compiler_family\": \"%s\",\n",
+                json_escape(narrow_ascii(compiler_family.szAdapterFamily)).c_str());
+    std::printf("    \"compiler_abi_version\": %llu,\n",
+                static_cast<unsigned long long>(compiler_abi_version));
+    std::printf("    \"compiler_group_value_key_count\": %zu,\n",
+                compiler_group_keys.keys.size());
+    std::printf("    \"compiler_group_value_count\": %zu,\n",
+                compiler_group_values.values.size());
+    std::printf("    \"compiler_object_readback_match\": %s,\n",
+                compiler_object_readback == compiler_object_bytes ? "true" : "false");
+    std::printf("    \"compiler_metadata_readback_match\": %s,\n",
+                compiler_metadata_readback == compiler_metadata_bytes ? "true" : "false");
+    std::printf("    \"compiler_persistence_verified\": %s,\n",
+                compiler_persistence_ok ? "true" : "false");
     std::printf("    \"unsupported_state_object_rejected\": %s\n",
                 store_unsupported_state_object_hr == E_NOTIMPL ? "true" : "false");
     std::printf("  },\n");
