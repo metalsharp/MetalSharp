@@ -545,7 +545,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             std::strcmp(audit_case.name,
                         "texture_direct_heap_descriptor_indexing") == 0 ||
             std::strcmp(audit_case.name,
-                        "texture_sample_direct_heap_descriptor_indexing") == 0;
+                        "texture_sample_direct_heap_descriptor_indexing") == 0 ||
+            std::strcmp(audit_case.name,
+                        "texture_gather_direct_heap_descriptor_indexing") == 0;
         srv.Format = direct_texture_case ? DXGI_FORMAT_R8G8B8A8_UNORM
                                          : DXGI_FORMAT_R32_UINT;
         device->CreateShaderResourceView(
@@ -802,6 +804,11 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name,
                                    "sampler_direct_heap_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {15, 15, 15, 15};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "texture_gather_direct_heap_descriptor_indexing") == 0) {
+                const uint32_t expected[] = {0x828c8c82, 0x828c8c82,
+                                             0x828c8c82, 0x828c8c82};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "texture_store_direct_heap_descriptor_indexing") == 0) {
@@ -1291,6 +1298,17 @@ void cs_texture_store_direct_heap_descriptor_indexing(
 }
 
 [numthreads(4, 1, 1)]
+void cs_texture_gather_direct_heap_descriptor_indexing(
+    uint3 id : SV_DispatchThreadID) {
+  Texture2D<float4> selected = ResourceDescriptorHeap[6u + (selector & 1u)];
+  float4 gathered = selected.GatherRed(smp, float2(0.5, 0.5));
+  uint4 bytes = uint4(round(gathered * 255.0));
+  uint packed = bytes.x | (bytes.y << 8) | (bytes.z << 16) |
+                (bytes.w << 24);
+  outbuf.Store(id.x * 4, packed);
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1506,6 +1524,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"sampler_direct_heap_descriptor_indexing", "cs_sampler_direct_heap_descriptor_indexing", "cs_6_6", "sampler_direct_heap_descriptor_indexing", true},
         {"texture_sample_direct_heap_descriptor_indexing", "cs_texture_sample_direct_heap_descriptor_indexing", "cs_6_6", "texture_sample_direct_heap_descriptor_indexing", true},
         {"texture_store_direct_heap_descriptor_indexing", "cs_texture_store_direct_heap_descriptor_indexing", "cs_6_6", "texture_store_direct_heap_descriptor_indexing", true},
+        {"texture_gather_direct_heap_descriptor_indexing", "cs_texture_gather_direct_heap_descriptor_indexing", "cs_6_6", "texture_gather_direct_heap_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},
