@@ -1843,6 +1843,8 @@ static MSLType typeForResolvedExpression(const LowerContext &ctx, const std::str
     if (value.find(".calculate_clamped_lod(") != std::string::npos ||
         value.find(".calculate_unclamped_lod(") != std::string::npos)
         return {MSLTypeKind::Float, 0, {}};
+    if (value.find("m12_dynamic_buffer_load_") != std::string::npos)
+        return {MSLTypeKind::UInt4, 0, {}};
     if (value.find("reinterpret_cast<device float4&>") != std::string::npos ||
         value.find(".read(") != std::string::npos ||
         value.find(".sample(") != std::string::npos ||
@@ -2006,7 +2008,8 @@ static std::string vectorZeroForExpression(const std::string &value) {
         stripped.find(".gather(") != std::string::npos ||
         stripped.find(".gather_compare(") != std::string::npos)
         return "float4(0.0f)";
-    if (stripped.find("reinterpret_cast<device uint4&>") != std::string::npos)
+    if (stripped.find("reinterpret_cast<device uint4&>") != std::string::npos ||
+        stripped.find("m12_dynamic_buffer_load_") != std::string::npos)
         return "uint4(0)";
     if (stripped.find("reinterpret_cast<device int4&>") != std::string::npos)
         return "int4(0)";
@@ -2073,7 +2076,8 @@ static bool exprLooksVectorValue(const std::string &value) {
            value.find(".read(") != std::string::npos ||
            value.find(".sample(") != std::string::npos ||
            value.find(".gather(") != std::string::npos ||
-           value.find(".gather_compare(") != std::string::npos;
+           value.find(".gather_compare(") != std::string::npos ||
+           value.find("m12_dynamic_buffer_load_") != std::string::npos;
 }
 
 static bool exprContainsVectorConstructor(const std::string &value) {
@@ -5533,6 +5537,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         if (expr.find(".calculate_clamped_lod(") != std::string::npos ||
             expr.find(".calculate_unclamped_lod(") != std::string::npos)
             return {MSLTypeKind::Float, 0, {}};
+        if (expr.find("m12_dynamic_buffer_load_") != std::string::npos)
+            return {MSLTypeKind::UInt4, 0, {}};
         if (expr.find("reinterpret_cast<device float4&>") != std::string::npos)
             return {MSLTypeKind::Float4, 0, {}};
         if (expr.find("reinterpret_cast<device uint4&>") != std::string::npos)
