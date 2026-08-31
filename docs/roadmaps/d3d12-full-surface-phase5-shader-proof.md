@@ -124,7 +124,8 @@
   `[903,904,905,906]`, a directly indexed heap SRV selects entry five and
   returns `[103,203,303,403]`, a dynamically indexed texture heap selects
   entry seven and returns exact `[100,110,120,130]` through both `Load` and
-  `SampleLevel`; directly indexed writable texture entry three stores exact
+  `SampleLevel`, while `GatherRed` returns exact packed `0x828c8c82`;
+  directly indexed writable texture entry three stores exact
   float bits `[0x447ac000,0x447b0000,0x447b4000,0x447b8000]`; a directly
   indexed sampler heap selects linear sampler one
   and returns exact `[15,15,15,15]`, and
@@ -273,7 +274,8 @@ and scalar-structured dynamically indexed SRV arrays,
 buffer, `[803,804,805,806]` from descriptor three of a four-entry array,
 `[903,904,905,906]` from directly indexed writable heap entry three,
 `[103,203,303,403]` from readable heap entry five,
-`[100,110,120,130]` from both loading and sampling texture heap entry seven,
+`[100,110,120,130]` from loading and sampling texture heap entry seven plus
+packed gather `0x828c8c82`,
 `[0x447ac000,0x447b0000,0x447b4000,0x447b8000]` from writable texture heap
 entry three, `[15,15,15,15]` from sampler heap entry one, plus
 `[600,700,601,701,602,702,603,703]` from the `uint2` structured counterpart. Profile `phase5-atomic-load-final` also passes every focused case,
