@@ -1837,7 +1837,8 @@ static MSLType typeForResolvedExpression(const LowerContext &ctx, const std::str
     if (value.find("reinterpret_cast<device float4&>") != std::string::npos ||
         value.find(".read(") != std::string::npos ||
         value.find(".sample(") != std::string::npos ||
-        value.find(".gather(") != std::string::npos)
+        value.find(".gather(") != std::string::npos ||
+        value.find(".gather_compare(") != std::string::npos)
         return {MSLTypeKind::Float4, 0, {}};
     if (value.find("reinterpret_cast<device uint4&>") != std::string::npos)
         return {MSLTypeKind::UInt4, 0, {}};
@@ -1993,7 +1994,8 @@ static std::string vectorZeroForExpression(const std::string &value) {
     if (stripped.find("reinterpret_cast<device float4&>") != std::string::npos ||
         stripped.find(".read(") != std::string::npos ||
         stripped.find(".sample(") != std::string::npos ||
-        stripped.find(".gather(") != std::string::npos)
+        stripped.find(".gather(") != std::string::npos ||
+        stripped.find(".gather_compare(") != std::string::npos)
         return "float4(0.0f)";
     if (stripped.find("reinterpret_cast<device uint4&>") != std::string::npos)
         return "uint4(0)";
@@ -2058,7 +2060,8 @@ static bool exprLooksVectorValue(const std::string &value) {
            value.find("reinterpret_cast<device int4&>") != std::string::npos ||
            value.find(".read(") != std::string::npos ||
            value.find(".sample(") != std::string::npos ||
-           value.find(".gather(") != std::string::npos;
+           value.find(".gather(") != std::string::npos ||
+           value.find(".gather_compare(") != std::string::npos;
 }
 
 static bool exprContainsVectorConstructor(const std::string &value) {
@@ -2416,6 +2419,7 @@ static bool exprContainsRawResourceHandle(const std::string &value) {
     if (value.find(".read(") != std::string::npos ||
         value.find(".sample(") != std::string::npos ||
         value.find(".gather(") != std::string::npos ||
+        value.find(".gather_compare(") != std::string::npos ||
         value.find(".write(") != std::string::npos ||
         value.find(".get_width(") != std::string::npos ||
         value.find(".get_height(") != std::string::npos)
@@ -2912,6 +2916,7 @@ static bool exprLooksScalarizedArithmetic(const std::string &value) {
         stripped.find(".read(") != std::string::npos ||
         stripped.find(".sample(") != std::string::npos ||
         stripped.find(".gather(") != std::string::npos ||
+        stripped.find(".gather_compare(") != std::string::npos ||
         stripped.find("reinterpret_cast<device float4&>") != std::string::npos ||
         stripped.find("reinterpret_cast<device uint4&>") != std::string::npos ||
         stripped.find("reinterpret_cast<device int4&>") != std::string::npos)
@@ -3732,9 +3737,7 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
                    : MSLType{MSLTypeKind::Float4, 0, {}};
     }
     case DXOP_TextureGatherCmp:
-        return ctx.shader.kind == DxilShaderKind::Compute
-                   ? MSLType{MSLTypeKind::Float, 0, {}}
-                   : MSLType{MSLTypeKind::Float4, 0, {}};
+        return {MSLTypeKind::Float4, 0, {}};
     case DXOP_TextureGatherRaw:
         return {MSLTypeKind::UInt4, 0, {}};
     case DXOP_RawBufferLoad:
@@ -4707,11 +4710,6 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         const std::string array_suffix = array_texture ? ", (uint)(" + c2 + ")" : "";
         if (intrinsic_id == DXOP_TextureGatherCmp) {
             auto compare = numericArg(9, "0.0");
-            if (ctx.shader.kind == DxilShaderKind::Compute) {
-                auto sample = handle + ".read(uint2((uint)(" + cx +
-                               "), (uint)(" + cy + "))" + array_suffix + ")";
-                return "((" + sample + " >= (float)(" + compare + ")) ? 1.0f : 0.0f)";
-            }
             return handle + ".gather_compare(" + samp + ", " + coord +
                    array_suffix + ", (float)(" + compare + "), int2(" + ox +
                    ", " + oy + "))";
@@ -4721,17 +4719,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                    ", int2(" + ox + ", " + oy + "), component::x)";
         }
         uint32_t ch = args.size() > 8 ? literalArg(8, 0, "ch") : 0;
-        if (ctx.shader.kind == DxilShaderKind::Compute) {
-            auto texel = handle + ".read(uint2(" +
-                         textureCoordComponent(ctx, valueArg(2, "0"), 0) + ", " +
-                         textureCoordComponent(ctx, valueArg(3, "0"), 1) + ")" +
-                         (array_texture ? ", (uint)(" +
-                              textureCoordComponent(ctx, valueArg(4, "0"), 2) + ")"
-                                         : "") + ")";
-            return "float4((" + texel + ")." + componentName(ch) + ")";
-        }
-        auto sample = handle + ".sample(" + samp + ", " + coord + array_suffix + ")";
-        return "float4((" + sample + ")." + componentName(ch) + ")";
+        return handle + ".gather(" + samp + ", " + coord + array_suffix +
+               ", int2(" + ox + ", " + oy + "), component::" +
+               componentName(ch) + ")";
     }
     case 8:
         return "isnan(" + numericArg(0, "0.0") + ")";
@@ -5503,7 +5493,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             return {MSLTypeKind::Float4, 0, {}};
         if (expr.find(".sample(") != std::string::npos)
             return {MSLTypeKind::Float4, 0, {}};
-        if (expr.find(".gather(") != std::string::npos)
+        if (expr.find(".gather(") != std::string::npos ||
+            expr.find(".gather_compare(") != std::string::npos)
             return {MSLTypeKind::Float4, 0, {}};
         if (expr.find("float4(") == 0 || expr.find("(float4(") != std::string::npos)
             return {MSLTypeKind::Float4, 0, {}};

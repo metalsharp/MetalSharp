@@ -204,10 +204,13 @@ minification, and fractional-LOD samples. Minimum and maximum reduction
 samplers, which Metal cannot represent, preserve the same exact sentinel
 instead of silently becoming linear filters. Comparison filter bitfields retain their encoded min/mag/mip modes, and
 compute depth comparisons use native Metal `sample_compare` rather than an
-unfiltered read/compare approximation. Profile `phase5-samplecmp-final` passes
+unfiltered read/compare approximation. Profile `phase5-gather-final` passes
 all SM6.6/6.7 lanes with exact comparison-level readback `[25,75,1,1]`, exact
 point/linear/static-offset filtering `[0,128,255,0]`, and exact value `1` for
-the newer comparison gradient/bias lanes. Broader comparison dimension,
+the newer comparison gradient/bias lanes. Native color gather and static-offset
+gather return `[40,50,50,40]` and `[50,60,60,50]`; native comparison gather
+and comparison-gather offset return `[0,255,255,0]` and
+`[255,255,255,255]`. Broader comparison dimension,
 address, and graphics-stage combinations remain in the exhaustive matrix. Resource profile
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
