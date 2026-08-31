@@ -3599,10 +3599,13 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                     !parseUnsignedLiteral(heap_value, literal_heap_index);
                 if (!dynamic_heap_index)
                     heap_index = literal_heap_index;
-                const uint32_t count = dynamic_heap_index && !sampler
-                                           ? std::min<uint32_t>(
-                                                 8u, plan.direct_buffer_count)
-                                           : 1u;
+                const uint32_t count =
+                    dynamic_heap_index
+                        ? (sampler ? std::min<uint32_t>(
+                                         4u, plan.direct_sampler_count)
+                                   : std::min<uint32_t>(
+                                         8u, plan.direct_buffer_count))
+                        : 1u;
                 const uint32_t lower_bound = dynamic_heap_index ? 0u : heap_index;
                 const std::string dynamic_index =
                     dynamic_heap_index ? heap_value : std::string();
@@ -4242,13 +4245,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                     : DescriptorRangePlan::Kind::SRV,
             sampler ? 3 : 0, heap_index, 0, 0, false, nullptr,
             dynamic_index);
-        if (!dynamic_index.empty() && !sampler) {
-            // Directly indexed resource heaps use the bounded direct-buffer
-            // ABI for raw/structured buffer descriptors. Preserve the heap
-            // index until AnnotateHandle identifies SRV versus UAV instead of
-            // collapsing every dynamic heap access to descriptor zero.
-            ctx.pending_handle->binding_count = std::min<uint32_t>(
-                8u, ctx.binding_plan.direct_buffer_count);
+        if (!dynamic_index.empty()) {
+            // Directly indexed heaps use bounded direct resource slots.
+            // Preserve the dynamic index until the consuming operation can
+            // select a complete buffer, texture, or sampler expression.
+            ctx.pending_handle->binding_count =
+                sampler ? std::min<uint32_t>(
+                              4u, ctx.binding_plan.direct_sampler_count)
+                        : std::min<uint32_t>(
+                              8u, ctx.binding_plan.direct_buffer_count);
             handle = materializeHandleName(ctx, *ctx.pending_handle);
         }
         return handle;
@@ -4843,7 +4848,38 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             else
                 call += ", int2(" + ox + ", " + oy + ")";
         }
-        return call + ")";
+        call += ")";
+        auto dynamic_sampler = ctx.resource_handles.find(args[1]);
+        if (dynamic_sampler != ctx.resource_handles.end() &&
+            !dynamic_sampler->second.dynamic_index.empty() &&
+            dynamic_sampler->second.binding_count > 1) {
+            const uint32_t base = dynamic_sampler->second.lower_bound;
+            const uint32_t count = std::min<uint32_t>(
+                dynamic_sampler->second.binding_count,
+                ctx.binding_plan.direct_sampler_count > base
+                    ? ctx.binding_plan.direct_sampler_count - base
+                    : 0);
+            auto with_sampler = [&](uint32_t slot) {
+                std::string selected_call = call;
+                const size_t position = selected_call.find(samp);
+                if (position != std::string::npos)
+                    selected_call.replace(position, samp.size(),
+                                          "samp" + std::to_string(slot));
+                return selected_call;
+            };
+            if (count > 1) {
+                std::string selected = with_sampler(base + count - 1);
+                for (uint32_t i = count - 1; i > 0; --i) {
+                    selected = "((uint(" +
+                               dynamic_sampler->second.dynamic_index +
+                               ") == " + std::to_string(base + i - 1) +
+                               "u) ? " + with_sampler(base + i - 1) +
+                               " : " + selected + ")";
+                }
+                return "float4(" + selected + ")";
+            }
+        }
+        return call;
     }
     case DXOP_TextureGather: case DXOP_TextureGatherCmp: case 223: {
         if (args.size() < 4) return "float4(0)";
