@@ -151,7 +151,7 @@
         ["coverage", "pixel_append_counter_runtime"],
         ["coverage", "dispatch_indirect_layout_and_bounds"]
       ],
-      "remaining": "Single external-counter compute append/consume plus vertex/pixel append semantics are exact; multi-counter, directly indexed counter heaps, and other graphics stages remain fail-closed."
+      "remaining": "Single external-counter compute append/consume plus vertex/pixel append semantics are exact; a directly indexed AppendStructuredBuffer heap shader compiles to DXIL and rejects PSO creation with exact E_FAIL, proving that boundary fail-closed; multi-counter and other graphics stages remain fail-closed."
     },
     {
       "id": "append-consume-counter-runtime",
@@ -175,7 +175,7 @@
         ["summary", "append_counter_link"],
         ["summary", "counter_fail_closed"]
       ],
-      "remaining": "The corpus links one counter UAV and rejects a two-counter shader with E_FAIL; directly indexed counter heaps and non-vertex/pixel graphics-stage counters remain fail-closed."
+      "remaining": "The corpus links one counter UAV and rejects a two-counter shader with E_FAIL; the focused SM6.6 matrix also compiles and rejects a directly indexed counter heap with E_FAIL; non-vertex/pixel graphics-stage counters remain fail-closed."
     },
     {
       "id": "shader-cache-session-roundtrip",
@@ -209,7 +209,7 @@
         ["pass"],
         ["summary", "runtime_correctness_complete"]
       ],
-      "remaining": "Bounded ByteAddressBuffer[2] and StructuredBuffer<uint>[2] indexing both return exact [103,203,303,403], StructuredBuffer<uint2>[2] aggregate extraction with stride-eight addressing returns exact [303,703,303,703], RWByteAddressBuffer[2] writes exact [503,504,505,506], RWByteAddressBuffer[4] selects descriptor three and writes [803,804,805,806], directly indexed ResourceDescriptorHeap entry three writes [903,904,905,906], readable heap entry five returns [103,203,303,403], texture heap entry seven loads/samples [100,110,120,130] and gathers packed 0x828c8c82, writable texture heap entry three stores exact float bits [0x447ac000,0x447b0000,0x447b4000,0x447b8000], regular sampler heap entry one samples [15,15,15,15], comparison sampler entry one returns [1,1,1,1], bounded comparison-texture entries six/seven return distinct [0,0,0,0]/[1,1,1,1], and RWStructuredBuffer<uint2>[2] writes exact [600,700,601,701,602,702,603,703]. Arrays beyond four entries, directly indexed counter combinations, integer writable textures, and wider/nested structures remain in the exhaustive row."
+      "remaining": "Bounded ByteAddressBuffer[2] and StructuredBuffer<uint>[2] indexing both return exact [103,203,303,403], StructuredBuffer<uint2>[2] aggregate extraction with stride-eight addressing returns exact [303,703,303,703], RWByteAddressBuffer[2] writes exact [503,504,505,506], RWByteAddressBuffer[4] selects descriptor three and writes [803,804,805,806], directly indexed ResourceDescriptorHeap entry three writes [903,904,905,906], readable heap entry five returns [103,203,303,403], texture heap entry seven loads/samples [100,110,120,130] and gathers packed 0x828c8c82, writable texture heap entry three stores exact float bits [0x447ac000,0x447b0000,0x447b4000,0x447b8000], regular sampler heap entry one samples [15,15,15,15], comparison sampler entry one returns [1,1,1,1], bounded comparison-texture entries six/seven return distinct [0,0,0,0]/[1,1,1,1], and RWStructuredBuffer<uint2>[2] writes exact [600,700,601,701,602,702,603,703]. Arrays beyond four entries, integer writable textures, and wider/nested structures remain in the exhaustive row."
     },
     {
       "id": "lowering-report-unsupported-placeholder-audit",
@@ -282,7 +282,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "Positive and negative evidence is still incomplete for the full stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter/direct-counter-heap, cache, and compiler-session matrix."
+      "remaining": "Positive and negative evidence is still incomplete for the full stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix."
     }
   ]
 }
