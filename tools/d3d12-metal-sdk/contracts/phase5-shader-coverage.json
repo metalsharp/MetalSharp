@@ -276,6 +276,19 @@
       "remaining": "The 42-case source-staged matrix proves R32/R16/RG16/RGBA8 signed, unsigned, floating, and normalized access; packed R10G10B10A2 UINT/UNORM and R11G11B10 FLOAT; and scalar signed/unsigned 64-bit R32G32_UINT reads/writes with exact logical or storage-bit readback. The focused writable-MSAA source probe additionally proves 2/4/8-sample and array stores, loads, resolves, programmable sample-position options, and a graphics-stage MSAA path with exact values; broader multisample typed combinations remain in the exhaustive row."
     },
     {
+      "id": "shader-reflection-binding-abi",
+      "status": "closed",
+      "result": "probe-reflection-abi",
+      "checks": [
+        ["pass"],
+        ["summary", "reflected_bindings_match_root_signature"],
+        ["summary", "descriptor_table_indexing_validated"],
+        ["summary", "graphics_compute_same_descriptor_abi"],
+        ["summary", "negative_mismatch_failures_deterministic"]
+      ],
+      "remaining": "Profile phase5-reflection-fix1 validates the runtime-generated MSL binding manifest against CBV b0, SRV t0/t1, UAV u0, and sampler s0, with deterministic invalid-binding negatives. Metal Shader Converter reflection remains an optional cross-provider input rather than the sole reflection source."
+    },
+    {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "open",
       "result": "probe-shader-corpus",

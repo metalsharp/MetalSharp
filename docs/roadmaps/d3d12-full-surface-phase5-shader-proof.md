@@ -114,7 +114,11 @@
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
-  generated-report audit also checks every focused report for nonzero
+  reflection ABI probe now validates the runtime-generated MSL binding manifest
+  against CBV `b0`, SRV `t0/t1`, UAV `u0`, and sampler `s0` under the required
+  no-offline-converter environment, including deterministic invalid-binding
+  negatives; MSC reflection remains an optional provider. The generated-report
+  audit also checks every focused report for nonzero
   unsupported-intrinsic/opcode counts and placeholder lowering markers. The
   typed lowerer now preserves an explicit DXIL i32 destination when LLVM type
   ID zero is used by a float bitcast, emitting `as_type<int>` rather than a
@@ -308,7 +312,8 @@ combinations remain in the exhaustive matrix. Resource profile
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
 Metal validation assertion. The latest SM6.6/6.7 profile
-`phase5-rwdyn2` additionally returns exact `[103,203,303,403]` from both raw
+`phase5-reflection-fix1` additionally validates the runtime binding manifest
+against the root signature, and `phase5-rwdyn2` returns exact `[103,203,303,403]` from both raw
 and scalar-structured dynamically indexed SRV arrays,
 `[303,703,303,703]` from the `uint2` aggregate lane,
 `[103,203,303,403]` from nested stride-sixteen `uint2` pairs, and
