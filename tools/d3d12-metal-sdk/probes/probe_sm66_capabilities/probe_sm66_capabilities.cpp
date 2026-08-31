@@ -256,7 +256,9 @@ static HRESULT create_root_signature(ID3D12Device* device, D3D12SerializeRootSig
     D3D12_ROOT_SIGNATURE_DESC desc = {};
     desc.NumParameters = 4;
     desc.pParameters = params;
-    desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+    desc.Flags =
+        D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED |
+        D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED;
 
     ID3DBlob* blob = nullptr;
     ID3DBlob* error_blob = nullptr;
@@ -554,7 +556,12 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
         sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         sampler.MaxLOD = D3D12_FLOAT32_MAX;
         device->CreateSampler(&sampler, sampler_heap->GetCPUDescriptorHandleForHeapStart());
-        sampler.Filter = D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
+        const bool direct_sampler_case =
+            std::strcmp(audit_case.name,
+                        "sampler_direct_heap_descriptor_indexing") == 0;
+        sampler.Filter = direct_sampler_case
+                             ? D3D12_FILTER_MIN_MAG_MIP_LINEAR
+                             : D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
         sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
         D3D12_CPU_DESCRIPTOR_HANDLE comparison_sampler = sampler_heap->GetCPUDescriptorHandleForHeapStart();
         comparison_sampler.ptr += device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
@@ -734,6 +741,10 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
             } else if (std::strcmp(audit_case.name,
                                    "texture_direct_heap_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {100, 110, 120, 130};
+                std::memcpy(result.expected, expected, sizeof(expected));
+            } else if (std::strcmp(audit_case.name,
+                                   "sampler_direct_heap_descriptor_indexing") == 0) {
+                const uint32_t expected[] = {15, 15, 15, 15};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
                                    "rw_structured_descriptor_indexing") == 0) {
@@ -1193,6 +1204,13 @@ void cs_texture_direct_heap_descriptor_indexing(uint3 id : SV_DispatchThreadID) 
 }
 
 [numthreads(4, 1, 1)]
+void cs_sampler_direct_heap_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
+  SamplerState selected = SamplerDescriptorHeap[selector & 1u];
+  float4 value = tex.SampleLevel(selected, float2(0.125, 0.5), 0.0);
+  outbuf.Store(id.x * 4, uint(round(value.x * 255.0)));
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1405,6 +1423,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"rw_direct_heap_descriptor_indexing", "cs_rw_direct_heap_descriptor_indexing", "cs_6_6", "writable_direct_heap_descriptor_indexing", true},
         {"srv_direct_heap_descriptor_indexing", "cs_srv_direct_heap_descriptor_indexing", "cs_6_6", "readable_direct_heap_descriptor_indexing", true},
         {"texture_direct_heap_descriptor_indexing", "cs_texture_direct_heap_descriptor_indexing", "cs_6_6", "texture_direct_heap_descriptor_indexing", true},
+        {"sampler_direct_heap_descriptor_indexing", "cs_sampler_direct_heap_descriptor_indexing", "cs_6_6", "sampler_direct_heap_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},

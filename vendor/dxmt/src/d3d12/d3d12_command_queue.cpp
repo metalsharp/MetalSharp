@@ -9028,6 +9028,35 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     }
   }
 
+  if (compute_sig &&
+      (compute_sig->GetFlags() &
+       D3D12_ROOT_SIGNATURE_FLAG_SAMPLER_HEAP_DIRECTLY_INDEXED) &&
+      st.pso->UsesDirectResourceDescriptorHeap()) {
+    for (uint32_t h = 0; h < st.desc_heap_count; h++) {
+      auto *heap = static_cast<MTLD3D12DescriptorHeap *>(st.desc_heaps[h]);
+      if (!heap)
+        continue;
+      D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+      heap->GetDesc(&heap_desc);
+      if (heap_desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+        continue;
+      const uint32_t count = std::min<uint32_t>(
+          heap->GetDescriptorCount(), kD3D12M12DirectComputeSamplerSlots);
+      auto *descriptors = heap->GetDescriptors();
+      for (uint32_t index = 0; index < count; ++index) {
+        auto *desc = descriptors + index;
+        if (desc->invalid_sampler) {
+          compute_invalid_sampler = true;
+          continue;
+        }
+        if (desc->metal_sampler.handle)
+          append_compute_setsampler(desc->metal_sampler.handle, index);
+      }
+      QTRACE("%s: directly indexed sampler heap bound descriptors=%u",
+             trace_prefix, count);
+    }
+  }
+
   if (compute_invalid_sampler) {
     Logger::info(str::format(
         "M12 compute dispatch rejected invalid table sampler label=",
