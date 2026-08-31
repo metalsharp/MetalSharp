@@ -209,7 +209,7 @@
         ["pass"],
         ["summary", "runtime_correctness_complete"]
       ],
-      "remaining": "Bounded ByteAddressBuffer[2] and StructuredBuffer<uint>[2] indexing both return exact [103,203,303,403]. Larger arrays, writable dynamic arrays, and directly indexed heaps remain in the exhaustive row."
+      "remaining": "Bounded ByteAddressBuffer[2] and StructuredBuffer<uint>[2] indexing both return exact [103,203,303,403], while StructuredBuffer<uint2>[2] aggregate extraction with stride-eight addressing returns exact [303,703,303,703]. Larger arrays, writable dynamic arrays, directly indexed heaps, and wider/nested structures remain in the exhaustive row."
     },
     {
       "id": "lowering-report-unsupported-placeholder-audit",
