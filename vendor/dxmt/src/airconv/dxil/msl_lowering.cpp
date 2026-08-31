@@ -4849,36 +4849,86 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 call += ", int2(" + ox + ", " + oy + ")";
         }
         call += ")";
+        auto replace_binding = [](std::string expression,
+                                  const std::string &from,
+                                  const std::string &to) {
+            if (from.empty() || from == to)
+                return expression;
+            for (size_t position = expression.find(from);
+                 position != std::string::npos;
+                 position = expression.find(from, position + to.size()))
+                expression.replace(position, from.size(), to);
+            return expression;
+        };
+        auto dynamic_texture = ctx.resource_handles.find(args[0]);
         auto dynamic_sampler = ctx.resource_handles.find(args[1]);
-        if (dynamic_sampler != ctx.resource_handles.end() &&
+        const bool has_dynamic_texture =
+            dynamic_texture != ctx.resource_handles.end() &&
+            !dynamic_texture->second.dynamic_index.empty() &&
+            dynamic_texture->second.binding_count > 1;
+        const bool has_dynamic_sampler =
+            dynamic_sampler != ctx.resource_handles.end() &&
             !dynamic_sampler->second.dynamic_index.empty() &&
-            dynamic_sampler->second.binding_count > 1) {
+            dynamic_sampler->second.binding_count > 1;
+        auto call_for = [&](int texture_slot, int sampler_slot) {
+            std::string selected_call = call;
+            if (texture_slot >= 0)
+                selected_call = replace_binding(
+                    selected_call, handle,
+                    "tex" + std::to_string(texture_slot));
+            if (sampler_slot >= 0)
+                selected_call = replace_binding(
+                    selected_call, samp,
+                    "samp" + std::to_string(sampler_slot));
+            return selected_call;
+        };
+        auto select_sampler = [&](int texture_slot) {
+            if (!has_dynamic_sampler)
+                return call_for(texture_slot, -1);
             const uint32_t base = dynamic_sampler->second.lower_bound;
             const uint32_t count = std::min<uint32_t>(
                 dynamic_sampler->second.binding_count,
                 ctx.binding_plan.direct_sampler_count > base
                     ? ctx.binding_plan.direct_sampler_count - base
                     : 0);
-            auto with_sampler = [&](uint32_t slot) {
-                std::string selected_call = call;
-                const size_t position = selected_call.find(samp);
-                if (position != std::string::npos)
-                    selected_call.replace(position, samp.size(),
-                                          "samp" + std::to_string(slot));
-                return selected_call;
-            };
+            if (count <= 1)
+                return call_for(texture_slot, -1);
+            std::string selected =
+                call_for(texture_slot, static_cast<int>(base + count - 1));
+            for (uint32_t i = count - 1; i > 0; --i) {
+                selected = "((uint(" + dynamic_sampler->second.dynamic_index +
+                           ") == " + std::to_string(base + i - 1) +
+                           "u) ? " +
+                           call_for(texture_slot,
+                                    static_cast<int>(base + i - 1)) +
+                           " : " + selected + ")";
+            }
+            return selected;
+        };
+        if (has_dynamic_texture) {
+            const uint32_t base = dynamic_texture->second.lower_bound;
+            const uint32_t count = std::min<uint32_t>(
+                dynamic_texture->second.binding_count,
+                ctx.binding_plan.direct_texture_count > base
+                    ? ctx.binding_plan.direct_texture_count - base
+                    : 0);
             if (count > 1) {
-                std::string selected = with_sampler(base + count - 1);
+                std::string selected = select_sampler(
+                    static_cast<int>(base + count - 1));
                 for (uint32_t i = count - 1; i > 0; --i) {
                     selected = "((uint(" +
-                               dynamic_sampler->second.dynamic_index +
+                               dynamic_texture->second.dynamic_index +
                                ") == " + std::to_string(base + i - 1) +
-                               "u) ? " + with_sampler(base + i - 1) +
+                               "u) ? " +
+                               select_sampler(
+                                   static_cast<int>(base + i - 1)) +
                                " : " + selected + ")";
                 }
                 return "float4(" + selected + ")";
             }
         }
+        if (has_dynamic_sampler)
+            return "float4(" + select_sampler(-1) + ")";
         return call;
     }
     case DXOP_TextureGather: case DXOP_TextureGatherCmp: case 223: {
