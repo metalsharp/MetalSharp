@@ -725,6 +725,8 @@ int main() {
          "uav_atomic_binop_matrix"},
         {"vector_shuffle", "probe_dxil_semantic_vector_shuffle.cso", {},
          {1234, 2345, 3456, 4567}, "vector_aggregate_shuffle"},
+        {"matrix_aggregate", "probe_dxil_semantic_matrix_aggregate.cso", {},
+         {17, 27, 37, 47}, "matrix_aggregate_arithmetic"},
         {"atomics_ids", "probe_dxil_semantic_atomics_ids.cso", {}, {4, 6, 8, 10}, "barrier_atomics_compute_ids"},
         {"wave_quad", "probe_dxil_semantic_wave_quad.cso", {}, {273, 273, 273, 273}, "wave_quad_ops"},
         {"sm67_vector_int64", "probe_dxil_semantic_sm67.cso", {}, {68, 69, 70, 71},
