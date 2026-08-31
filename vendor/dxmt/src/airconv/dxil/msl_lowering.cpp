@@ -6274,7 +6274,23 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     case DXOP_VectorReduceAnd:
     case DXOP_VectorReduceOr: {
         if (args.empty()) return "false";
-        const std::string value = valueArg(0, "0");
+        const MSLType value_type = valueTypeOrUnknown(ctx, args[0]);
+        const std::string value = DXILIRBuilder::isLongVectorType(value_type)
+                                      ? vectorArg(0, "{}")
+                                      : valueArg(0, "0");
+        if (DXILIRBuilder::isLongVectorType(value_type)) {
+            std::string result = intrinsic_id == DXOP_VectorReduceAnd
+                                     ? "true"
+                                     : "false";
+            for (uint32_t i = value_type.vector_width; i-- > 0;) {
+                const std::string term = "(" + value + "[" +
+                                         std::to_string(i) + "] != 0)";
+                result = intrinsic_id == DXOP_VectorReduceAnd
+                             ? "(" + term + " && " + result + ")"
+                             : "(" + term + " || " + result + ")";
+            }
+            return result;
+        }
         const std::string predicate = "(" + value + " != 0)";
         return intrinsic_id == DXOP_VectorReduceAnd
                    ? "all(" + predicate + ")"
@@ -8000,7 +8016,60 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             const char *cmp = "==";
             MSLType result_type = {MSLTypeKind::Bool, 0, {}};
             std::string cmp_result;
-            if (inst.opcode == LLVMInstruction::ICmp) {
+            const bool long_vector_cmp =
+                DXILIRBuilder::isLongVectorType(cmp_type);
+            if (long_vector_cmp) {
+                switch (pred) {
+                case 0: cmp_result = "false"; break;
+                case 15: cmp_result = "true"; break;
+                case 7:
+                case 8:
+                case 14:
+                    break;
+                default:
+                    if (pred == 1 || pred == 8 || pred == 32) cmp = "==";
+                    else if (pred == 2 || pred == 9 || pred == 34 || pred == 38) cmp = ">";
+                    else if (pred == 3 || pred == 10 || pred == 35 || pred == 39) cmp = ">=";
+                    else if (pred == 4 || pred == 11 || pred == 36 || pred == 40) cmp = "<";
+                    else if (pred == 5 || pred == 12 || pred == 37 || pred == 41) cmp = "<=";
+                    else if (pred == 6 || pred == 13 || pred == 33) cmp = "!=";
+                    break;
+                }
+                if (pred != 0 && pred != 15) {
+                    const MSLType lhs_vector_type = operandType(inst.operands[1]);
+                    const MSLType rhs_vector_type = operandType(inst.operands[2]);
+                    const std::string lhs_value = getValue(inst.operands[1]);
+                    const std::string rhs_value = getValue(inst.operands[2]);
+                    auto component = [&](const std::string &value,
+                                         const MSLType &type, uint32_t index) {
+                        if (DXILIRBuilder::isLongVectorType(type))
+                            return value + "[" + std::to_string(index) + "]";
+                        if (DXILIRBuilder::isVectorType(type))
+                            return componentAccess(value, index, type);
+                        return value;
+                    };
+                    result_type = cmp_type;
+                    result_type.vector_element_kind = MSLTypeKind::Int;
+                    const std::string type_name = emitTypeName(result_type);
+                    cmp_result = type_name + "{{";
+                    for (uint32_t i = 0; i < result_type.vector_width; ++i) {
+                        if (i)
+                            cmp_result += ", ";
+                        const std::string lhs = component(lhs_value,
+                                                          lhs_vector_type, i);
+                        const std::string rhs = component(rhs_value,
+                                                          rhs_vector_type, i);
+                        if (pred == 7)
+                            cmp_result += "(!isnan(" + lhs + ") && !isnan(" + rhs + ")) ? 1 : 0";
+                        else if (pred == 14)
+                            cmp_result += "(isnan(" + lhs + ") || isnan(" + rhs + ")) ? 1 : 0";
+                        else
+                            cmp_result += "(" + lhs + " " + cmp + " " + rhs + ") ? 1 : 0";
+                    }
+                    cmp_result += "}}";
+                }
+            }
+            if (!long_vector_cmp && inst.opcode == LLVMInstruction::ICmp) {
                 switch (pred) {
                 case 32: cmp = "=="; break; // ICMP_EQ
                 case 33: cmp = "!="; break; // ICMP_NE
@@ -8029,25 +8098,25 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                                      ? std::string("any((") + cmp_expr + "))"
                                      : cmp_expr;
                 }
-            } else if (pred == 0) {
+            } else if (!long_vector_cmp && pred == 0) {
                 cmp_result = "false";
-            } else if (pred == 15) {
+            } else if (!long_vector_cmp && pred == 15) {
                 cmp_result = "true";
-            } else if (pred == 7) {
+            } else if (!long_vector_cmp && pred == 7) {
                 std::string ilhs = coerceIsNanOperand(lhs, cmp_type);
                 std::string irhs = coerceIsNanOperand(rhs, cmp_type);
                 if (DXILIRBuilder::isVectorType(cmp_type))
                     cmp_result = "all((!isnan(" + ilhs + ")) & (!isnan(" + irhs + ")))";
                 else
                     cmp_result = "(!isnan(" + ilhs + ") && !isnan(" + irhs + "))";
-            } else if (pred == 14) {
+            } else if (!long_vector_cmp && pred == 14) {
                 std::string ilhs = coerceIsNanOperand(lhs, cmp_type);
                 std::string irhs = coerceIsNanOperand(rhs, cmp_type);
                 if (DXILIRBuilder::isVectorType(cmp_type))
                     cmp_result = "any((isnan(" + ilhs + ")) | (isnan(" + irhs + ")))";
                 else
                     cmp_result = "(isnan(" + ilhs + ") || isnan(" + irhs + "))";
-            } else {
+            } else if (!long_vector_cmp) {
                 if (pred == 1 || pred == 8) cmp = "==";
                 else if (pred == 2 || pred == 9) cmp = ">";
                 else if (pred == 3 || pred == 10) cmp = ">=";
@@ -8064,7 +8133,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             }
             emitTypedLine(result_type, result, cmp_result);
             ctx.value_table[value_counter] = result;
-            ctx.value_types[value_counter] = {MSLTypeKind::Bool, 0, {}};
+            ctx.value_types[value_counter] = result_type;
         }
         value_counter++;
         break;
