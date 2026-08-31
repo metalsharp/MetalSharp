@@ -4287,7 +4287,10 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_Dot3:
     case DXOP_Dot4:
     case DXOP_Dot2AddHalf:
-        return {MSLTypeKind::Float, 0, {}};
+        for (const auto arg : args)
+            if (valueTypeOrUnknown(ctx, arg).kind == MSLTypeKind::Double)
+                return {MSLTypeKind::Double, 0, {}};
+        return {MSLTypeKind::Float, 0, {} };
     case DXOP_Dot4AddI8Packed:
         return {MSLTypeKind::Int, 0, {}};
     case DXOP_Dot4AddU8Packed:
@@ -6031,6 +6034,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         auto x = numericArg(1, int_op ? "0" : "0.0");
         auto dx = double_op ? doubleArg(1, "0") : x;
         auto fx = "static_cast<float>(" + x + ")";
+        if (double_op && op != DXILOP_FAbs && op != DXILOP_Saturate &&
+            op != DXILOP_IsNaN && op != DXILOP_IsInf &&
+            op != DXILOP_IsFinite && op != DXILOP_IsNormal) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "binary64 unary intrinsic requires software lowering op=%u",
+                             op);
+            return "ulong(0)";
+        }
         switch (op) {
         case DXILOP_FAbs:
             return double_op ? "(ulong(" + dx + ") & 0x7ffffffffffffffful)" : "abs(" + fx + ")";
@@ -6133,14 +6145,38 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
     }
     case DXOP_Dot2: {
         if (args.size() < 4) return "0.0";
+        const bool double_op = valueTypeOrUnknown(ctx, args[0]).kind == MSLTypeKind::Double ||
+                               valueTypeOrUnknown(ctx, args[1]).kind == MSLTypeKind::Double ||
+                               valueTypeOrUnknown(ctx, args[2]).kind == MSLTypeKind::Double ||
+                               valueTypeOrUnknown(ctx, args[3]).kind == MSLTypeKind::Double;
+        if (double_op)
+            return "m12_f64_add(m12_f64_mul(ulong(" + doubleArg(0, "0") + "), ulong(" + doubleArg(2, "0") + ")), m12_f64_mul(ulong(" + doubleArg(1, "0") + "), ulong(" + doubleArg(3, "0") + ")))";
         return "((" + numericArg(0,"0.0") + ")*(" + numericArg(2,"0.0") + ") + (" + numericArg(1,"0.0") + ")*(" + numericArg(3,"0.0") + "))";
     }
     case DXOP_Dot3: {
         if (args.size() < 6) return "0.0";
+        bool double_op = false;
+        for (unsigned i = 0; i < 6; ++i)
+            double_op = double_op || valueTypeOrUnknown(ctx, args[i]).kind == MSLTypeKind::Double;
+        if (double_op) {
+            std::string result = "m12_f64_mul(ulong(" + doubleArg(0, "0") + "), ulong(" + doubleArg(3, "0") + "))";
+            for (unsigned i = 1; i < 3; ++i)
+                result = "m12_f64_add(" + result + ", m12_f64_mul(ulong(" + doubleArg(i, "0") + "), ulong(" + doubleArg(i + 3, "0") + ")))";
+            return result;
+        }
         return "((" + numericArg(0,"0.0") + ")*(" + numericArg(3,"0.0") + ") + (" + numericArg(1,"0.0") + ")*(" + numericArg(4,"0.0") + ") + (" + numericArg(2,"0.0") + ")*(" + numericArg(5,"0.0") + "))";
     }
     case DXOP_Dot4: {
         if (args.size() < 8) return "0.0";
+        bool double_op = false;
+        for (unsigned i = 0; i < 8; ++i)
+            double_op = double_op || valueTypeOrUnknown(ctx, args[i]).kind == MSLTypeKind::Double;
+        if (double_op) {
+            std::string result = "m12_f64_mul(ulong(" + doubleArg(0, "0") + "), ulong(" + doubleArg(4, "0") + "))";
+            for (unsigned i = 1; i < 4; ++i)
+                result = "m12_f64_add(" + result + ", m12_f64_mul(ulong(" + doubleArg(i, "0") + "), ulong(" + doubleArg(i + 4, "0") + ")))";
+            return result;
+        }
         return "((" + numericArg(0,"0.0") + ")*(" + numericArg(4,"0.0") + ") + (" + numericArg(1,"0.0") + ")*(" + numericArg(5,"0.0") + ") + (" + numericArg(2,"0.0") + ")*(" + numericArg(6,"0.0") + ") + (" + numericArg(3,"0.0") + ")*(" + numericArg(7,"0.0") + "))";
     }
     case DXOP_Dot2AddHalf:
