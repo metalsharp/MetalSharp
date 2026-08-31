@@ -217,11 +217,16 @@ compute depth comparisons use native Metal `sample_compare` rather than an
 unfiltered read/compare approximation. Profile `phase5-gather-final` passes
 all SM6.6/6.7 lanes with exact comparison-level readback `[25,75,1,1]`, exact
 point/linear/static-offset filtering `[0,128,255,0]`, and exact value `1` for
-the newer comparison gradient/bias lanes. Native color gather and static-offset
-gather return `[40,50,50,40]` and `[50,60,60,50]`; native comparison gather
-and comparison-gather offset return `[0,255,255,0]` and
-`[255,255,255,255]`. Broader comparison dimension,
-address, and graphics-stage combinations remain in the exhaustive matrix. Resource profile
+the newer comparison gradient/bias lanes. Profile `phase5-cmp-dims3`
+additionally returns exact float bits
+`[0x3f800000,0x3f800000,0x3f800000,0x40400000]` for depth 2D-array, cube,
+cube-array, and their sum. Depth SRVs now materialize Depth32 Metal views with
+the requested array/cube type instead of binding an incompatible underlying
+2D-array object. Native color gather and static-offset gather return
+`[40,50,50,40]` and `[50,60,60,50]`; native comparison gather and
+comparison-gather offset return `[0,255,255,0]` and
+`[255,255,255,255]`. Broader comparison address and non-pixel graphics-stage
+combinations remain in the exhaustive matrix. Resource profile
 `phase5-texture1d-resource` also passes the full 108-format/shape matrix,
 zero-mip normalization `{5,5,3}`, and a five-mip 1D-array creation without a
 Metal validation assertion. The latest SM6.6/6.7 profile

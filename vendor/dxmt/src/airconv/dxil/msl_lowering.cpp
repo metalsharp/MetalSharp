@@ -797,12 +797,12 @@ static std::string textureBindingType(uint32_t resource_kind, bool writable,
 }
 
 static std::string depthTextureBindingType(uint32_t resource_kind) {
-    if (resource_kind == 7u)
+    if (resource_kind == 7u || resource_kind == 6u)
         return "depth2d_array<float, access::sample>";
-    if (resource_kind == 6u)
-        return "depth2d_array<float, access::sample>";
-    if (resource_kind == 1u)
-        return "depth2d<float, access::sample>";
+    if (resource_kind == 5u)
+        return "depthcube<float, access::sample>";
+    if (resource_kind == 9u)
+        return "depthcube_array<float, access::sample>";
     return "depth2d<float, access::sample>";
 }
 
@@ -1397,7 +1397,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                                                           false, false, true)
                        << " tex" << i << " [[texture(" << i << ")]],\n";
                 else if (comparison_slot && (resource_kind == 2u ||
+                                               resource_kind == 5u ||
                                                resource_kind == 7u ||
+                                               resource_kind == 9u ||
                                                resource_kind == 0u))
                     os << "  " << depthTextureBindingType(resource_kind)
                        << " tex" << i << " [[texture(" << i << ")]],\n";
@@ -1518,7 +1520,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                      ctx.writable_msaa_texture_slots.count(i));
                 if (comparison_slot && srv_slot && !uav_slot &&
                     (resource_kind == 1u || resource_kind == 2u ||
-                     resource_kind == 6u || resource_kind == 7u))
+                     resource_kind == 5u || resource_kind == 6u ||
+                     resource_kind == 7u || resource_kind == 9u))
                     os << "  " << depthTextureBindingType(resource_kind)
                        << " tex" << i << " [[texture(" << i << ")]],\n";
                 else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
@@ -4828,8 +4831,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             break;
         }
         if (ctx.shader.kind == DxilShaderKind::Compute &&
-            resource_kind != 0u && resource_kind != 2u &&
-            resource_kind != 7u) {
+            (resource_kind == 1u || resource_kind == 6u)) {
             std::string sample;
             if (resource_kind == 1u)
                 sample = handle + ".read(uint2((uint)(" + c0 + "), 0u), (uint)(" + numericArg(10, "0") + "))";
