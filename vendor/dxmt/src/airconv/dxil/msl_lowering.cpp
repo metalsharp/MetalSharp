@@ -5182,7 +5182,37 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             else
                 call += ", int2(" + ox + ", " + oy + ")";
         }
-        return call + ")";
+        call += ")";
+        auto dynamic_sampler = ctx.resource_handles.find(args[1]);
+        if (dynamic_sampler != ctx.resource_handles.end() &&
+            !dynamic_sampler->second.dynamic_index.empty() &&
+            dynamic_sampler->second.binding_count > 1) {
+            const uint32_t base = dynamic_sampler->second.lower_bound;
+            const uint32_t count = std::min<uint32_t>(
+                dynamic_sampler->second.binding_count,
+                ctx.binding_plan.direct_sampler_count > base
+                    ? ctx.binding_plan.direct_sampler_count - base
+                    : 0);
+            auto with_sampler = [&](uint32_t slot) {
+                std::string selected_call = call;
+                const size_t position = selected_call.find(samp);
+                if (position != std::string::npos)
+                    selected_call.replace(position, samp.size(),
+                                          "samp" + std::to_string(slot));
+                return selected_call;
+            };
+            if (count > 1) {
+                std::string selected = with_sampler(base + count - 1);
+                for (uint32_t i = count - 1; i > 0; --i)
+                    selected = "((uint(" +
+                               dynamic_sampler->second.dynamic_index +
+                               ") == " + std::to_string(base + i - 1) +
+                               "u) ? " + with_sampler(base + i - 1) +
+                               " : " + selected + ")";
+                return selected;
+            }
+        }
+        return call;
     }
     case DXOP_BufferUpdateCounter: {
         uint32_t counter_bindings = 0;
