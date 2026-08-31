@@ -101,16 +101,20 @@
   unsigned 64-bit texture accesses over R32G32_UINT preserve both 32-bit
   halves for reads and writes. The D3D12 MSAA SRV view path now preserves the
   multisample Metal texture type instead of creating an incompatible 2D view.
-  Profile `phase5-msaa-sampleinputs3` independently passes writable 2/4/8-sample
-  and array stores/loads/resolves, exact resolve values `152.75`, `251.5`,
-  `600.5`, `628.5`, and `98`, plus custom pixel sample position/count,
-  `SV_SampleIndex`, and `SV_Coverage` readback encoded as `0xffdd00bf`
-  (sample position `(0.25,0.25)`, sample index `0`, coverage mask `0xdd`,
-  render-target sample count `4`) and programmable sample-position options.
-  The shader lowering maps pixel-stage `GetRenderTargetSamplePosition` to
-  Metal `get_sample_position`, `GetRenderTargetSampleCount` to
-  `get_num_samples`, `SampleIndex` to `[[sample_id]]`, and `Coverage` to
-  `[[sample_mask]]`; non-pixel use and `InnerCoverage` remain fail-closed.
+  Profile `phase5-eval-snapped` independently passes writable 2/4/8-sample and
+  array stores/loads/resolves, exact per-sample target values
+  `[318,308,320,321]`, resolve value `316.75`, and graphics output
+  `0xff4080ff`. The graphics shader simultaneously exercises custom pixel
+  sample position/count, `SV_SampleIndex`, `SV_Coverage`,
+  `Texture2DMS.GetSamplePosition`, `EvaluateAttributeCentroid`,
+  `EvaluateAttributeAtSample`, and `EvaluateAttributeSnapped` on a constant
+  varying; the centroid/sample/snapped readback is exact `[1.0,0.5,0.25]`,
+  while the sample-position/count path contributes exact target arithmetic.
+  The shader lowering maps pixel-stage sample position to Metal
+  `get_sample_position`, sample count to `get_num_samples`, `SampleIndex` to
+  `[[sample_id]]`, `Coverage` to `[[sample_mask]]`, and evaluated varyings to
+  Metal perspective `interpolant` methods; non-pixel use and `InnerCoverage`
+  remain fail-closed.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The

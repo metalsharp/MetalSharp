@@ -106,6 +106,10 @@ enum DXIntrinsicOpcode {
   DXOP_SampleIndex = 90,
   DXOP_Coverage = 91,
   DXOP_InnerCoverage = 92,
+  DXOP_EvalSnapped = 87,
+  DXOP_EvalSampleIndex = 88,
+  DXOP_EvalCentroid = 89,
+  DXOP_AttributeAtVertex = 137,
   DXOP_WriteSamplerFeedback = 174,
   DXOP_WriteSamplerFeedbackBias = 175,
   DXOP_WriteSamplerFeedbackLevel = 176,
@@ -394,6 +398,10 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "sampleIndex", 11) == 0) return DXOP_SampleIndex;
     if (strncmp(s, "coverage", 8) == 0) return DXOP_Coverage;
     if (strncmp(s, "innerCoverage", 13) == 0) return DXOP_InnerCoverage;
+    if (strncmp(s, "evalSnapped", 11) == 0) return DXOP_EvalSnapped;
+    if (strncmp(s, "evalSampleIndex", 15) == 0) return DXOP_EvalSampleIndex;
+    if (strncmp(s, "evalCentroid", 12) == 0) return DXOP_EvalCentroid;
+    if (strncmp(s, "attributeAtVertex", 17) == 0) return DXOP_AttributeAtVertex;
     return 0;
 }
 
@@ -433,6 +441,10 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_SampleIndex:
     case DXOP_Coverage:
     case DXOP_InnerCoverage:
+    case DXOP_EvalSnapped:
+    case DXOP_EvalSampleIndex:
+    case DXOP_EvalCentroid:
+    case DXOP_AttributeAtVertex:
     case DXOP_BufferLoad:
     case DXOP_BufferStore:
     case DXOP_RawBufferLoad:
@@ -720,6 +732,7 @@ struct LowerContext {
     bool uses_double_emulation = false;
     bool uses_sample_index = false;
     bool uses_coverage = false;
+    bool uses_interpolation = false;
     bool uses_sampler_feedback = false;
 };
 
@@ -1584,14 +1597,32 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     }
     os << "struct input_v {\n";
     os << "  float4 position [[position]];\n";
-    os << "  float4 v0 [[user(locn0)]]; float4 v1 [[user(locn1)]];\n";
-    os << "  float4 v2 [[user(locn2)]]; float4 v3 [[user(locn3)]];\n";
-    os << "  float4 v4 [[user(locn4)]]; float4 v5 [[user(locn5)]];\n";
-    os << "  float4 v6 [[user(locn6)]]; float4 v7 [[user(locn7)]];\n";
-    os << "  float2 uv0 [[user(locn8)]]; float2 uv1 [[user(locn9)]];\n";
-    os << "  float2 uv2 [[user(locn10)]]; float2 uv3 [[user(locn11)]];\n";
-    os << "  float4 color0 [[user(locn12)]]; float4 color1 [[user(locn13)]];\n";
-    os << "  float4 color2 [[user(locn14)]]; float4 color3 [[user(locn15)]];\n";
+    auto emitInputField = [&](const char *type, const char *name,
+                              unsigned location) {
+        os << "  ";
+        if (ctx.uses_interpolation)
+            os << "interpolant<" << type
+               << ", interpolation::perspective> ";
+        else
+            os << type << " ";
+        os << name << " [[user(locn" << location << ")]];\n";
+    };
+    emitInputField("float4", "v0", 0);
+    emitInputField("float4", "v1", 1);
+    emitInputField("float4", "v2", 2);
+    emitInputField("float4", "v3", 3);
+    emitInputField("float4", "v4", 4);
+    emitInputField("float4", "v5", 5);
+    emitInputField("float4", "v6", 6);
+    emitInputField("float4", "v7", 7);
+    emitInputField("float2", "uv0", 8);
+    emitInputField("float2", "uv1", 9);
+    emitInputField("float2", "uv2", 10);
+    emitInputField("float2", "uv3", 11);
+    emitInputField("float4", "color0", 12);
+    emitInputField("float4", "color1", 13);
+    emitInputField("float4", "color2", 14);
+    emitInputField("float4", "color3", 15);
     if (ctx.shader.kind == DxilShaderKind::Pixel &&
         ctx.shader.shading_rate_input_register >= 0)
         os << "  uint shading_rate [[user(locn16)]];\n";
@@ -4292,6 +4323,11 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_Coverage:
     case DXOP_InnerCoverage:
         return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_EvalSnapped:
+    case DXOP_EvalSampleIndex:
+    case DXOP_EvalCentroid:
+    case DXOP_AttributeAtVertex:
+        return usableType(declared) ? declared : MSLType{MSLTypeKind::Float, 0, {}};
     case DXOP_RawBufferLoad:
     case 303:
     case 1025:
@@ -6055,6 +6091,39 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         ctx.unsupported_intrinsics++;
         recordDiagnostic(ctx, "DXIL inner-coverage intrinsic has no Metal equivalent");
         return "0u";
+    case DXOP_EvalSnapped:
+    case DXOP_EvalSampleIndex:
+    case DXOP_EvalCentroid: {
+        if (ctx.shader.kind != DxilShaderKind::Pixel || args.size() < 3) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL attribute evaluation requires a pixel shader");
+            return "0.0f";
+        }
+        const uint32_t input_id = literalArg(0, 0, "input signature");
+        const uint32_t component = literalArg(2, 0, "input component");
+        std::string field = varyingField("in", input_id);
+        std::string evaluated;
+        if (input_id == 0) {
+            evaluated = field;
+        } else if (intrinsic_id == DXOP_EvalCentroid) {
+            ctx.uses_interpolation = true;
+            evaluated = field + ".interpolate_at_centroid()";
+        } else if (intrinsic_id == DXOP_EvalSampleIndex && args.size() >= 4) {
+            ctx.uses_interpolation = true;
+            evaluated = field + ".interpolate_at_sample((uint)(" +
+                        numericArg(3, "0") + "))";
+        } else if (intrinsic_id == DXOP_EvalSnapped && args.size() >= 5) {
+            ctx.uses_interpolation = true;
+            evaluated = field + ".interpolate_at_offset(float2((float)(" +
+                        numericArg(3, "0") + ") / 16.0f, (float)(" +
+                        numericArg(4, "0") + ") / 16.0f))";
+        } else {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL attribute evaluation has malformed operands");
+            return "0.0f";
+        }
+        return evaluated + componentSuffix(component);
+    }
     case 97:
     case 98:
         ctx.unsupported_intrinsics++;
@@ -6303,7 +6372,10 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 static_cast<int32_t>(input_id) ==
                     ctx.shader.render_target_array_index_input_register)
                 return "static_cast<uint>(in.render_target_array_index)";
-            return varyingField("in", input_id) + componentSuffix(comp);
+            const std::string field = varyingField("in", input_id);
+            if (ctx.uses_interpolation && input_id != 0)
+                return field + ".interpolate_at_center()" + componentSuffix(comp);
+            return field + componentSuffix(comp);
         }
         if (ctx.shader.kind == DxilShaderKind::Vertex) {
             if (isLoadInputI32(callee_name) && shouldLowerLoadInputI32AsVertexId(ctx, input_id))
@@ -8252,6 +8324,10 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                     ctx.uses_sample_index = true;
                 else if (intrinsic == DXOP_Coverage)
                     ctx.uses_coverage = true;
+                else if (intrinsic == DXOP_EvalSnapped ||
+                         intrinsic == DXOP_EvalSampleIndex ||
+                         intrinsic == DXOP_EvalCentroid)
+                    ctx.uses_interpolation = true;
             }
         }
     }
