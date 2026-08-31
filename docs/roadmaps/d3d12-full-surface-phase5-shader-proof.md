@@ -291,9 +291,15 @@ The fail-closed coverage manifest is
 closed semantic, WaveOps (including active/prefix bit counts), control-flow,
 double-arithmetic, atomic-binop, diagnostic, atomic/special-float,
 binding-baseline, resource-metadata/texture-dimension, and focused
-lowering-report-audit rows
-while keeping the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session
-row open. The latest isolated
+lowering-report-audit rows. The complete numeric inventory is now pinned in
+`tools/d3d12-metal-sdk/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json`:
+all 312 DXIL 1.9 opcode values (including 32 reserved values) are classified
+by first DXIL version, stage, and resource scope. The companion
+`validate-sm5-sm69-opcode-matrix.py` consumes the runtime's `dxil_opcodes`
+module-report section and has a strict mode for the eventual zero-missing
+exit gate; it intentionally reports the still-open rows today. The exhaustive
+SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore remains open.
+The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact
 dimension-specific sample/load/store and GetDimensions readback (64/96 values

@@ -739,9 +739,13 @@ resource-metadata/42-case typed texture matrix, exact single-counter
 append/consume readbacks with bounded negative cases, malformed-DXIL
 negative evidence, and the SM6.9 eight-component long-vector FDot/arithmetic
 matrix. The fail-closed manifest is
-`tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`; its exhaustive
-opcode/stage/resource/cache/session row remains open, so `D3D12_FEATURE_SHADER_MODEL`
-continues to report only the behavior-backed 6.7 ceiling.
+`tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`; the complete
+numeric opcode inventory is
+`tools/d3d12-metal-sdk/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json`
+and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
+opcode/stage/resource/cache/session row remains open, so
+`D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
+ceiling.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
