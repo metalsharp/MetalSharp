@@ -686,7 +686,9 @@ static void execute_case(ID3D12Device* device, ID3D12RootSignature* root, ID3D12
                 const uint32_t expected[] = {6, 8, 10, 12};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name, "descriptor_indexing") == 0 ||
-                       std::strcmp(audit_case.name, "structured_descriptor_indexing") == 0) {
+                       std::strcmp(audit_case.name, "structured_descriptor_indexing") == 0 ||
+                       std::strcmp(audit_case.name,
+                                   "srv_direct_heap_descriptor_indexing") == 0) {
                 const uint32_t expected[] = {103, 203, 303, 403};
                 std::memcpy(result.expected, expected, sizeof(expected));
             } else if (std::strcmp(audit_case.name,
@@ -1149,6 +1151,12 @@ void cs_rw_direct_heap_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(4, 1, 1)]
+void cs_srv_direct_heap_descriptor_indexing(uint3 id : SV_DispatchThreadID) {
+  ByteAddressBuffer selected = ResourceDescriptorHeap[4u + (selector & 1u)];
+  outbuf.Store(id.x * 4, selected.Load(id.x * 4) + addend);
+}
+
+[numthreads(4, 1, 1)]
 void cs_int64_arithmetic(uint3 id : SV_DispatchThreadID) {
   uint64_t wide = ((uint64_t)inputs[0].Load(id.x * 4) << 32) | (uint64_t)(id.x + addend);
   wide += 0x100000002ull;
@@ -1359,6 +1367,7 @@ void cs_quad_vote_sm67(uint3 id : SV_DispatchThreadID) {
         {"rw_structured_descriptor_indexing", "cs_rw_structured_descriptor_indexing", "cs_6_6", "writable_structured_resource_descriptor_indexing", true},
         {"rw_descriptor_indexing4", "cs_rw_descriptor_indexing4", "cs_6_6", "writable_resource_descriptor_indexing4", true},
         {"rw_direct_heap_descriptor_indexing", "cs_rw_direct_heap_descriptor_indexing", "cs_6_6", "writable_direct_heap_descriptor_indexing", true},
+        {"srv_direct_heap_descriptor_indexing", "cs_srv_direct_heap_descriptor_indexing", "cs_6_6", "readable_direct_heap_descriptor_indexing", true},
         {"int64_arithmetic", "cs_int64_arithmetic", "cs_6_6", "64_bit_shader_arithmetic", true},
         {"atomics_barriers", "cs_atomics_barriers", "cs_6_6", "atomics_barriers", true},
         {"atomic64_raw_add", "cs_atomic64_raw_add", "cs_6_6", "atomic64_software_lock", true},

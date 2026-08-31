@@ -3581,8 +3581,23 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 bool sampler = fn_args.size() >= 2 && literalFromValue(ctx, fn_args[1], 0) != 0;
                 auto kind = sampler ? DescriptorRangePlan::Kind::Sampler
                                      : DescriptorRangePlan::Kind::SRV;
-                recordDescriptorRange(plan, {kind, 0, heap_index, 1});
-                rememberHandle(result_id, kind, heap_index, 1);
+                const std::string heap_value = resolveValue(ctx, fn_args[0]);
+                uint32_t literal_heap_index = 0;
+                const bool dynamic_heap_index =
+                    !parseUnsignedLiteral(heap_value, literal_heap_index);
+                if (!dynamic_heap_index)
+                    heap_index = literal_heap_index;
+                const uint32_t count = dynamic_heap_index && !sampler
+                                           ? std::min<uint32_t>(
+                                                 8u, plan.direct_buffer_count)
+                                           : 1u;
+                const uint32_t lower_bound = dynamic_heap_index ? 0u : heap_index;
+                const std::string dynamic_index =
+                    dynamic_heap_index ? heap_value : std::string();
+                recordDescriptorRange(plan,
+                                      {kind, 0, lower_bound, count});
+                rememberHandle(result_id, kind, lower_bound, count, 0,
+                               nullptr, dynamic_index);
             } else if (intrinsic_id == DXOP_AnnotateHandle &&
                        fn_args.size() >= 2) {
                 auto base = handle_bindings.find(fn_args[0]);
