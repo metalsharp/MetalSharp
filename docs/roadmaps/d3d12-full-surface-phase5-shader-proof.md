@@ -141,7 +141,8 @@
   semantic lanes: the core opcode lane returns 36 exact float/int/bitwise
   results, while SM6.9 eight- and sixteen-component float/uint vectors
   preserve exact FDot, add, xor, dynamic construction, element addressing,
-  all/any reduction, componentwise negation/absolute-value, min/max, tertiary
+  all/any reduction, componentwise negation/absolute-value/sqrt/rsqrt/log2/exp2,
+  min/max, tertiary
   mad, float/integer vector conversion, vector select, signed/unsigned divide,
   shift, and remainder readbacks (`120.0f`, `72.0f`, `40/0xffffffd4`, `80`,
   `156.0f`, `1/1`, `44.0f/36.0f`, `24/56/20.0f/52.0f`, `96/80.0f`, `56`,
