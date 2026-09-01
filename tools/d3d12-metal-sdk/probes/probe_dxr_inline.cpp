@@ -106,8 +106,11 @@ struct ProbeResult {
     UINT64 blas_scratch_bytes = 0;
     UINT64 tlas_result_bytes = 0;
     UINT64 tlas_scratch_bytes = 0;
-    std::array<UINT, 90> readback = {};
+    UINT64 aabb_blas_result_bytes = 0;
+    UINT64 aabb_blas_scratch_bytes = 0;
+    std::array<UINT, 96> readback = {};
     bool accessor_matrix_verified = false;
+    bool procedural_commit_verified = false;
     bool invalid_pipeline_rejected = false;
     HRESULT invalid_pipeline_hr = E_FAIL;
 };
@@ -164,6 +167,8 @@ static ProbeResult run_probe() {
     ID3D12Resource *blas = nullptr;
     ID3D12Resource *instances = nullptr;
     ID3D12Resource *tlas = nullptr;
+    ID3D12Resource *aabbs = nullptr;
+    ID3D12Resource *aabb_blas = nullptr;
     ID3D12Resource *scratch = nullptr;
     ID3D12Resource *output = nullptr;
     ID3D12Resource *readback = nullptr;
@@ -321,7 +326,58 @@ static ProbeResult run_probe() {
         if (FAILED(result.hr))
             break;
 
-        D3D12_RAYTRACING_INSTANCE_DESC instance = {};
+        const D3D12_RAYTRACING_AABB aabb = {
+            -0.5f, -0.5f, 0.0f, 0.5f, 0.5f, 1.0f};
+        D3D12_RESOURCE_DESC aabb_desc = buffer_desc(sizeof(aabb));
+        result.hr = device->CreateCommittedResource(
+            &upload_properties, D3D12_HEAP_FLAG_NONE, &aabb_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&aabbs));
+        if (FAILED(result.hr))
+            break;
+        mapped = nullptr;
+        result.hr = aabbs->Map(0, nullptr, &mapped);
+        if (FAILED(result.hr))
+            break;
+        std::memcpy(mapped, &aabb, sizeof(aabb));
+        aabbs->Unmap(0, nullptr);
+
+        D3D12_RAYTRACING_GEOMETRY_DESC aabb_geometry = {};
+        aabb_geometry.Type =
+            D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+        aabb_geometry.AABBs.AABBCount = 1;
+        aabb_geometry.AABBs.AABBs.StartAddress = aabbs->GetGPUVirtualAddress();
+        aabb_geometry.AABBs.AABBs.StrideInBytes = sizeof(aabb);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS aabb_blas_inputs = {};
+        aabb_blas_inputs.Type =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        aabb_blas_inputs.Flags =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        aabb_blas_inputs.NumDescs = 1;
+        aabb_blas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        aabb_blas_inputs.pGeometryDescs = &aabb_geometry;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO aabb_blas_info = {};
+        device5->GetRaytracingAccelerationStructurePrebuildInfo(
+            &aabb_blas_inputs, &aabb_blas_info);
+        result.aabb_blas_result_bytes =
+            aabb_blas_info.ResultDataMaxSizeInBytes;
+        result.aabb_blas_scratch_bytes = aabb_blas_info.ScratchDataSizeInBytes;
+        if (!result.aabb_blas_result_bytes || !result.aabb_blas_scratch_bytes) {
+            result.hr = E_FAIL;
+            break;
+        }
+        D3D12_RESOURCE_DESC aabb_blas_desc = buffer_desc(
+            result.aabb_blas_result_bytes,
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        result.hr = device->CreateCommittedResource(
+            &default_properties, D3D12_HEAP_FLAG_NONE, &aabb_blas_desc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(&aabb_blas));
+        if (FAILED(result.hr))
+            break;
+
+        D3D12_RAYTRACING_INSTANCE_DESC instances_data[2] = {};
+        D3D12_RAYTRACING_INSTANCE_DESC &instance = instances_data[0];
         instance.Transform[0][0] = 1.0f;
         instance.Transform[1][1] = 1.0f;
         instance.Transform[2][2] = 1.0f;
@@ -331,7 +387,15 @@ static ProbeResult run_probe() {
         instance.InstanceMask = 1;
         instance.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
         instance.AccelerationStructure = blas->GetGPUVirtualAddress();
-        D3D12_RESOURCE_DESC instances_desc = buffer_desc(sizeof(instance));
+        instances_data[1].Transform[0][0] = 1.0f;
+        instances_data[1].Transform[1][1] = 1.0f;
+        instances_data[1].Transform[2][2] = 1.0f;
+        instances_data[1].InstanceID = 11;
+        instances_data[1].InstanceContributionToHitGroupIndex = 31;
+        instances_data[1].InstanceMask = 1;
+        instances_data[1].AccelerationStructure =
+            aabb_blas->GetGPUVirtualAddress();
+        D3D12_RESOURCE_DESC instances_desc = buffer_desc(sizeof(instances_data));
         result.hr = device->CreateCommittedResource(
             &upload_properties, D3D12_HEAP_FLAG_NONE, &instances_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -342,7 +406,7 @@ static ProbeResult run_probe() {
         result.hr = instances->Map(0, nullptr, &mapped);
         if (FAILED(result.hr))
             break;
-        std::memcpy(mapped, &instance, sizeof(instance));
+        std::memcpy(mapped, instances_data, sizeof(instances_data));
         instances->Unmap(0, nullptr);
 
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs = {};
@@ -350,7 +414,7 @@ static ProbeResult run_probe() {
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
         tlas_inputs.Flags =
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-        tlas_inputs.NumDescs = 1;
+        tlas_inputs.NumDescs = 2;
         tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
         tlas_inputs.InstanceDescs = instances->GetGPUVirtualAddress();
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlas_info = {};
@@ -382,7 +446,7 @@ static ProbeResult run_probe() {
         if (FAILED(result.hr))
             break;
         D3D12_RESOURCE_DESC output_desc =
-            buffer_desc(360, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+            buffer_desc(384, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         result.hr = device->CreateCommittedResource(
             &default_properties, D3D12_HEAP_FLAG_NONE, &output_desc,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
@@ -391,7 +455,7 @@ static ProbeResult run_probe() {
             break;
         D3D12_HEAP_PROPERTIES readback_properties =
             heap_properties(D3D12_HEAP_TYPE_READBACK);
-        D3D12_RESOURCE_DESC readback_desc = buffer_desc(360);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(384);
         result.hr = device->CreateCommittedResource(
             &readback_properties, D3D12_HEAP_FLAG_NONE, &readback_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
@@ -423,7 +487,7 @@ static ProbeResult run_probe() {
         D3D12_UNORDERED_ACCESS_VIEW_DESC output_view = {};
         output_view.Format = DXGI_FORMAT_R32_TYPELESS;
         output_view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        output_view.Buffer.NumElements = 90;
+        output_view.Buffer.NumElements = 96;
         output_view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(output, nullptr, &output_view,
                                           cpu_handle);
@@ -432,6 +496,12 @@ static ProbeResult run_probe() {
         build.DestAccelerationStructureData = blas->GetGPUVirtualAddress();
         build.ScratchAccelerationStructureData = scratch->GetGPUVirtualAddress();
         build.Inputs = blas_inputs;
+        list4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+        build = {};
+        build.DestAccelerationStructureData =
+            aabb_blas->GetGPUVirtualAddress();
+        build.ScratchAccelerationStructureData = scratch->GetGPUVirtualAddress();
+        build.Inputs = aabb_blas_inputs;
         list4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
         build = {};
         build.DestAccelerationStructureData = tlas->GetGPUVirtualAddress();
@@ -449,7 +519,7 @@ static ProbeResult run_probe() {
         list4->SetComputeRootDescriptorTable(
             0, descriptor_heap->GetGPUDescriptorHandleForHeapStart());
         list4->Dispatch(1, 1, 1);
-        list4->CopyBufferRegion(readback, 0, output, 0, 360);
+        list4->CopyBufferRegion(readback, 0, output, 0, 384);
         result.hr = list4->Close();
         if (FAILED(result.hr))
             break;
@@ -490,8 +560,10 @@ static ProbeResult run_probe() {
     result.ok = SUCCEEDED(result.hr) && SUCCEEDED(result.removed_reason) &&
                 result.blas_result_bytes > 0 && result.blas_scratch_bytes > 0 &&
                 result.tlas_result_bytes > 0 && result.tlas_scratch_bytes > 0 &&
+                result.aabb_blas_result_bytes > 0 &&
+                result.aabb_blas_scratch_bytes > 0 &&
                 result.readback[0] == 1 && result.invalid_pipeline_rejected;
-    static const std::array<UINT, 90> expected = {
+    static const std::array<UINT, 96> expected = {
         1u, 0u, 7u, 0u, 0u, 0u, 0x40000000u, 0x3daaaaabu,
         0x3f000000u, 0xbe800000u, 0u, 0xc0000000u, 0u, 0u,
         0x3f800000u, 1u, 0u, 7u, 0u, 0u, 0u, 0x40000000u,
@@ -505,9 +577,16 @@ static ProbeResult run_probe() {
         0x3f800000u, 0u, 0u, 0x3e800000u, 0u, 0x3f800000u, 0u, 0u,
         0u, 0u, 0x3f800000u, 0u,
         0x3f800000u, 0u, 0u, 0xbe800000u, 0u, 0x3f800000u, 0u,
-        0x80000000u, 0u, 0u, 0x3f800000u, 0x80000000u, 23u, 23u};
+        0x80000000u, 0u, 0u, 0x3f800000u, 0x80000000u, 23u, 23u,
+        1u, 11u, 2u, 1u, 0x40000000u, 0xd3d12000u};
     result.accessor_matrix_verified = result.readback == expected;
-    result.ok = result.ok && result.accessor_matrix_verified;
+    result.procedural_commit_verified =
+        result.readback[90] == 1u && result.readback[91] == 11u &&
+        result.readback[92] == 2u && result.readback[93] == 1u &&
+        result.readback[94] == 0x40000000u &&
+        result.readback[95] == 0xd3d12000u;
+    result.ok = result.ok && result.accessor_matrix_verified &&
+                result.procedural_commit_verified;
     if (result.ok)
         result.detail = "DXIL RayQuery TraceRayInline exact TLAS hit readback";
     else if (SUCCEEDED(result.hr) && result.readback[0] != 1)
@@ -521,6 +600,8 @@ static ProbeResult run_probe() {
     safe_release(output);
     safe_release(scratch);
     safe_release(tlas);
+    safe_release(aabb_blas);
+    safe_release(aabbs);
     safe_release(instances);
     safe_release(blas);
     safe_release(vertices);
@@ -558,9 +639,15 @@ int main() {
                 static_cast<unsigned long long>(result.tlas_result_bytes));
     std::printf("  \"tlas_scratch_bytes\": %llu,\n",
                 static_cast<unsigned long long>(result.tlas_scratch_bytes));
+    std::printf("  \"aabb_blas_result_bytes\": %llu,\n",
+                static_cast<unsigned long long>(result.aabb_blas_result_bytes));
+    std::printf("  \"aabb_blas_scratch_bytes\": %llu,\n",
+                static_cast<unsigned long long>(result.aabb_blas_scratch_bytes));
     std::printf("  \"readback\": %u,\n", result.readback[0]);
     std::printf("  \"accessor_matrix_verified\": %s,\n",
                 result.accessor_matrix_verified ? "true" : "false");
+    std::printf("  \"procedural_commit_verified\": %s,\n",
+                result.procedural_commit_verified ? "true" : "false");
     std::printf("  \"words\": [");
     for (unsigned i = 0; i < result.readback.size(); ++i)
         std::printf("%s%u", i ? "," : "", result.readback[i]);

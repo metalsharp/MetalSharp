@@ -746,10 +746,10 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; 36 inline-RayQuery opcodes and two SM6.8 extended-command-information
+ceiling; 37 inline-RayQuery opcodes and two SM6.8 extended-command-information
 opcodes are now observed, including the exact candidate/committed
-state-accessor, transform, contribution, and abort matrix, while broader DXR
-accessors, procedural/ray-generation paths, and state-object breadth remain
+state-accessor, transform, contribution, procedural, and abort matrix, while
+broader DXR accessors, ray-generation paths, and state-object breadth remain
 open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
@@ -1463,3 +1463,16 @@ whether the scoped FL12_2 gate is green.
   and exact readback. The exhaustive matrix now has 188 observed, 92 open, and
   32 reserved/not-applicable rows; contribution/counter slot aliasing and the
   broader DXR paths remain open.
+
+### 2026-09-01 — Phase 5 inline procedural-hit proof
+
+- Extended the inline-RayQuery probe to build a two-instance TLAS containing a
+  translated triangle and a procedural AABB. `CommitProceduralPrimitiveHit(2.0)`
+  now executes through native Metal `intersection_query` and returns exact
+  committed status `2`, instance index `1`, instance ID `11`, and ray distance
+  `2.0`, while the existing 90-word state matrix remains exact.
+- Promoted the procedural-commit opcode row from the runtime module report and
+  exact readback. The exhaustive matrix now has 189 observed, 91 open, and 32
+  reserved/not-applicable rows; broader procedural geometry, contribution-table
+  aliasing, ray-generation/state-object paths, and the Phase 5 exit gate remain
+  open.

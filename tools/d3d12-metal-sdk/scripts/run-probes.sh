@@ -1824,8 +1824,8 @@ void cs_main() {
       output.Store(248, asuint(candidate_world_to_object[2][2]));
       output.Store(252, asuint(candidate_world_to_object[2][3]));
       output.Store(352, query.CandidateInstanceContributionToHitGroupIndex());
+      query.CommitNonOpaqueTriangleHit();
     }
-    query.CommitNonOpaqueTriangleHit();
   }
   output.Store(60, query.CommittedStatus());
   output.Store(64, query.CommittedInstanceIndex());
@@ -1888,6 +1888,20 @@ void cs_main() {
     aborted.Abort();
   }
   output.Store(156, aborted.CommittedStatus());
+  RayQuery<RAY_FLAG_NONE> procedural_query;
+  procedural_query.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
+  uint procedural_candidate = 0;
+  while (procedural_query.Proceed()) {
+    procedural_candidate = procedural_query.CandidateProceduralPrimitiveNonOpaque() ? 1 : 0;
+    if (procedural_candidate != 0)
+      procedural_query.CommitProceduralPrimitiveHit(2.0);
+  }
+  output.Store(360, procedural_candidate);
+  output.Store(364, procedural_query.CommittedInstanceID());
+  output.Store(368, procedural_query.CommittedStatus());
+  output.Store(372, procedural_query.CommittedInstanceIndex());
+  output.Store(376, asuint(procedural_query.CommittedRayT()));
+  output.Store(380, 0xd3d12000);
   output.Store(0, query.CommittedStatus());
 }
 HLSL
