@@ -3030,7 +3030,7 @@ void cs_texture_ops(uint3 id : SV_DispatchThreadID) {
   float4 loaded = tex.Load(int3(1, 1, 0));
   float4 sampled = tex.SampleLevel(smp, uv, 0.0);
   float4 gradient = tex.SampleGrad(smp, uv, float2(0.0, 0.0), float2(0.0, 0.0));
-  float4 biased = tex.SampleBias(smp, uv, 0.0);
+  float4 biased = tex.SampleBias(smp, uv, 1.0);
   float4 gathered = tex.GatherRed(smp, uv);
   uint width = 0;
   uint height = 0;
