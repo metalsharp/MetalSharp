@@ -2478,7 +2478,8 @@ void raygen() {
                                  : float3(0.0, 0.0, 1.0);
   ray.TMax = 10.0;
   MissPayload payload;
-  payload.value = 0;
+  payload.value = ray_index == 3 ? 0xffffffff
+                                : ray_index == 4 ? 0xfffffffe : 0;
   TraceRay(scene, RAY_FLAG_NONE, 0x02, 0, 0,
            ray_index == 0 ? 1 : 0, ray, payload);
   output.Store(ray_index < 3 ? 4 + ray_index * 4
@@ -2504,6 +2505,7 @@ void miss_shader(inout MissPayload payload) {
 void closest_hit(inout MissPayload payload,
                  BuiltInTriangleIntersectionAttributes attributes) {
   bool any_hit_ran = payload.value == 0x414e5948;
+  bool accepted_hit = payload.value == 0xfffffffe;
   uint ray_index = DispatchRaysIndex().x;
   if (ray_index == 1) {
     output.Store(44, InstanceID());
@@ -2549,29 +2551,35 @@ void closest_hit(inout MissPayload payload,
   TraceRay(scene, RAY_FLAG_NONE, 0xff, 0, 0, 0,
            recursive_ray, recursive_payload);
   closest_hit_local_output.Store(0, 0x4c525557);
-  payload.value = any_hit_ran && recursive_payload.value == 0x4d495353 &&
-                          closest_hit_local_marker == 0x4c4f434c &&
-                          closest_hit_local_buffer.Load(0) == 0x53525631 &&
-                          closest_hit_local_cbv_marker == 0x43425631 &&
-                          closest_hit_local_texture.SampleLevel(
-                              closest_hit_local_sampler, float2(0.5, 0.5), 0).r >
-                              0.9 &&
-                          closest_hit_local_texture.SampleLevel(
-                              closest_hit_local_static_sampler,
-                              float2(0.5, 0.5), 0).r > 0.9
-                      ? 0x52454332
-                      : 0x48495431;
+  payload.value = accepted_hit
+                      ? 0x41434350
+                      : any_hit_ran && recursive_payload.value == 0x4d495353 &&
+                                closest_hit_local_marker == 0x4c4f434c &&
+                                closest_hit_local_buffer.Load(0) == 0x53525631 &&
+                                closest_hit_local_cbv_marker == 0x43425631 &&
+                                closest_hit_local_texture.SampleLevel(
+                                    closest_hit_local_sampler, float2(0.5, 0.5), 0).r >
+                                    0.9 &&
+                                closest_hit_local_texture.SampleLevel(
+                                    closest_hit_local_static_sampler,
+                                    float2(0.5, 0.5), 0).r > 0.9
+                            ? 0x52454332
+                            : 0x48495431;
 }
 
 [shader("anyhit")]
 void any_hit(inout MissPayload payload,
              BuiltInTriangleIntersectionAttributes attributes) {
   uint incoming_payload = payload.value;
-  payload.value = 0x414e5948;
-  if (incoming_payload == 0xffffffff)
+  if (incoming_payload == 0xffffffff) {
     IgnoreHit();
-  if (incoming_payload == 0xfffffffe)
+    return;
+  }
+  if (incoming_payload == 0xfffffffe) {
     AcceptHitAndEndSearch();
+    return;
+  }
+  payload.value = 0x414e5948;
 }
 
 [shader("callable")]

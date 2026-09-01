@@ -340,15 +340,18 @@
       "id": "dxil-ray-generation-system-values-exact-runtime",
       "status": "closed",
       "result": "probe-mini-dxr_acceleration_structures",
+      "profile": "phase5-closeout-dxr-control4",
       "checks": [
         ["ok"],
         ["tier1_1_matrix_complete"],
         ["ray_shader_builtin_matrix_verified"],
         ["prebuild_result_bytes", 768],
         ["raygen_dispatch_value", 42],
-        ["ray_shader_builtin_words", [5, 1, 1, 7, 0, 254, 0, 0, 0, 0, 1073741824, 0, 0, 3221225472, 0, 0, 1065353216, 0, 0, 3221225472, 0, 0, 1065353216, 1065353216, 1065353216, 1065353216, 1065353216, 1065353216, 1065353216]]
+        ["ray_shader_builtin_words", [5, 1, 1, 7, 0, 254, 0, 0, 0, 0, 1073741824, 0, 0, 3221225472, 0, 0, 1065353216, 0, 0, 3221225472, 0, 0, 1065353216, 1065353216, 1065353216, 1065353216, 1065353216, 1065353216, 1065353216]],
+        ["ignore_hit_behavior_verified"],
+        ["accept_hit_behavior_verified"]
       ],
-      "remaining": "The host-specific native libmetalirconverter provider now executes exact ray-generation DispatchRaysIndex/Dimensions, triangle hit InstanceID/InstanceIndex/HitKind/RayFlags, primitive/geometry indices, RayTMin/RayTCurrent, world/object ray vectors, and diagonal object/world transforms. IgnoreHit and AcceptHitAndEndSearch still require an executed control-flow matrix; full table counts/strides/offsets, recursion, local-root combinations, SER, OMM, and portable compiler-object coverage remain open."
+      "remaining": "The host-specific native libmetalirconverter provider now executes exact ray-generation DispatchRaysIndex/Dimensions, triangle hit InstanceID/InstanceIndex/HitKind/RayFlags, primitive/geometry indices, RayTMin/RayTCurrent, world/object ray vectors, and diagonal object/world transforms. It also executes IgnoreHit on one triangle path (which reaches the miss shader) and AcceptHitAndEndSearch on another (which reaches the closest-hit path with its accepted-payload marker). Full table counts/strides/offsets, recursion, local-root combinations, SER, OMM, and portable compiler-object coverage remain open."
     },
     {
       "id": "dxil-extended-command-information-runtime",

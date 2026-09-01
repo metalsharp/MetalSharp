@@ -1239,7 +1239,7 @@ void DumpDXILModuleSummary(const char *path,
       for (const auto &inst : block.instructions) {
         opcode_counts[(int)inst.opcode]++;
         if (inst.opcode != dxmt::dxil::LLVMInstruction::Call ||
-            inst.operands.size() < 3)
+            inst.operands.empty())
           continue;
         auto declaration = declaration_names.find(inst.operands[0]);
         if (declaration == declaration_names.end() ||
@@ -1247,7 +1247,8 @@ void DumpDXILModuleSummary(const char *path,
           continue;
         uint32_t dxil_opcode = 0;
         const std::string &name = declaration->second;
-        bool opcode_resolved = scalar_constant(inst.operands[2], dxil_opcode);
+        bool opcode_resolved = inst.operands.size() >= 3 &&
+                                scalar_constant(inst.operands[2], dxil_opcode);
         if (!opcode_resolved)
           opcode_resolved =
               DxilSystemOpcodeFromDeclaration(name, dxil_opcode);
@@ -1285,6 +1286,18 @@ void DumpDXILModuleSummary(const char *path,
   fprintf(df, "\nopcodes:\n");
   for (const auto &entry : opcode_counts)
     fprintf(df, "  opcode=%d count=%zu\n", entry.first, entry.second);
+  // Some DXIL library system-value calls are represented by the LLVM reader
+  // without a numeric opcode operand (notably void any-hit terminals and
+  // library-only ray builtins). Keep the declaration in the report so the
+  // evidence-first matrix can match it to a separate exact runtime probe;
+  // declaration presence alone is never promoted as behavior.
+  for (const auto &entry : declaration_names) {
+    uint32_t opcode = 0;
+    if (DxilSystemOpcodeFromDeclaration(entry.second, opcode) &&
+        dxil_opcode_counts.count(static_cast<int>(opcode)) == 0)
+      dxil_opcode_counts[static_cast<int>(opcode)] = 1;
+  }
+
   fprintf(df, "\ndxil_opcodes:\n");
   for (const auto &entry : dxil_opcode_counts)
     fprintf(df, "  opcode=%d count=%zu\n", entry.first, entry.second);

@@ -282,9 +282,12 @@
   29-word system-value matrix is exact: dispatch dimensions `[5,1,1]`,
   triangle `InstanceID=7`, `InstanceIndex=0`, `HitKind=0xfe`, `RayFlags=0`,
   primitive/geometry index zero, `RayTMin=0`, `RayTCurrent=2`, identity
-  world/object ray vectors and transforms. This closes only the exercised
-  ray-generation system-value rows; `IgnoreHit`/`AcceptHitAndEndSearch`, full
-  table breadth, SER, OMM, and portable object-code support remain open.
+  world/object ray vectors and transforms. Follow-up profile
+  `phase5-closeout-dxr-control4` executes `IgnoreHit` on one triangle path and
+  `AcceptHitAndEndSearch` on another, with exact miss and accepted-payload
+  markers. This closes only the exercised ray-generation system-value and
+  any-hit control-flow rows; full table
+  breadth, SER, OMM, and portable object-code support remain open.
 
 - The dedicated `phase5-viewid-default-final` profile compiles a pinned SM6.8
   vertex shader using `SV_StartVertexLocation`, `SV_StartInstanceLocation`,
@@ -710,8 +713,9 @@ the exhaustive row.
 ## Remaining Phase 5 work
 
 The complete exit gate is not claimed. The native ray-generation batch now
-adds exact positive behavior for the exercised DXR shader-system-value rows,
-but the stable corpus still needs positive and negative behavior evidence for
+adds exact positive behavior for the exercised DXR shader-system-value and
+any-hit control-flow rows, but the stable corpus still needs positive and
+negative behavior evidence for
 every remaining declared DXIL opcode/intrinsic,
 control-flow and aggregate shape, graphics stage, remaining texture sampling
 forms, typed/raw/structured/counter resource, cache/compiler-session path, and

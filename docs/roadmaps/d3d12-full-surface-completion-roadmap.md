@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (222/280 required opcode rows observed; 58 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (224/280 required opcode rows observed; 56 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -770,7 +770,7 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, ray-generation paths, and state-object
 breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 222 observed, 58 open, and 32
+The exhaustive Phase 5 matrix currently has 224 observed, 56 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence; vector overloads and broader
 stage matrices remain open.
@@ -796,8 +796,8 @@ host-specific native mesh/amplification payload proofs for 64/128/256-byte
 payloads and a 64-thread group, while work graphs/node shaders remain open.
 Phase 8 has exact inline RayQuery state/accessor/transform/contribution/
 procedural/abort behavior, indexed R16 BLAS coverage, and a host-specific
-native ray-generation system-value matrix, while full table breadth, SER, OMM,
-and portable serialization remain open.
+native ray-generation system-value and any-hit control-flow matrix, while
+full table breadth, SER, OMM, and portable serialization remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1611,7 +1611,9 @@ whether the scoped FL12_2 gate is green.
   29-word system-value matrix: dimensions `[5,1,1]`, triangle
   `InstanceID=7`, `InstanceIndex=0`, `HitKind=0xfe`, `RayFlags=0`, zero
   primitive/geometry indices, `RayTMin=0`, `RayTCurrent=2`, identity
-  world/object vectors and transforms. The matrix now reports 222 observed,
-  58 open, and 32 reserved/not-applicable required rows; executed
-  `IgnoreHit`/`AcceptHitAndEndSearch`, remaining table breadth, Work Graph/SER,
-  OMM, and portable DXR object-code coverage remain open.
+  world/object vectors and transforms. Follow-up profile
+  `phase5-closeout-dxr-control4` executes `IgnoreHit` and
+  `AcceptHitAndEndSearch` with exact miss/accepted-payload readbacks. The
+  matrix now reports 224 observed, 56 open, and 32 reserved/not-applicable
+  required rows; remaining table breadth, Work Graph/SER, OMM, and portable
+  DXR object-code coverage remain open.

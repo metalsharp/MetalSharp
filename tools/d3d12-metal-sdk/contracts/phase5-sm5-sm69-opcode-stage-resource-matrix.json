@@ -3487,8 +3487,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_control_flow"
+      ],
       "negative_evidence": []
     },
     {
@@ -3501,8 +3503,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_control_flow"
+      ],
       "negative_evidence": []
     },
     {
