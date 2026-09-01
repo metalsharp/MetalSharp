@@ -141,15 +141,16 @@
   semantic lanes: the core opcode lane returns 36 exact float/int/bitwise
   results, while SM6.9 eight- and sixteen-component float/uint vectors
   preserve exact FDot, add, xor, dynamic construction, element addressing,
-  all/any reduction, componentwise negation/absolute-value/sqrt/rsqrt/log2/exp2,
-  min/max, tertiary
+  all/any reduction, componentwise negation/absolute-value/sqrt/rsqrt/log2/exp2/
+  sin/cos, min/max, tertiary
   mad, float/integer vector conversion, vector select, signed/unsigned divide,
   shift, and remainder readbacks (`120.0f`, `72.0f`, `40/0xffffffd4`, `80`,
   `156.0f`, `1/1`, `44.0f/36.0f`, `24/56/20.0f/52.0f`, `96/80.0f`, `56`,
   `52.0f`,
   `-4.0f/0xfffffffc`, `20/88/8/20`, `0xfffffff0/0xffffffec/0xfffffff7`,
   `4.0f` for long-vector floating remainder, `10` for native-16
-  sqrt/rsqrt/abs/min/max, and `816.0f` respectively). The compact
+  sqrt/rsqrt/abs/min/max, and `0/8.0f` for long-vector sin/cos respectively,
+  and `816.0f` respectively). The compact
   LLVM INSERTELT record form is decoded as three value operands, and private
   vector scratch GEPs scale 32-bit lanes by four bytes.
 - Bounded descriptor indexing selects `ByteAddressBuffer[2]`,
