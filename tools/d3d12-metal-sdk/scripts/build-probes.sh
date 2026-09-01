@@ -230,6 +230,7 @@ build_mini_probe 6 root_signature
 build_mini_probe 7 descriptors
 build_mini_probe 8 graphics_pso
 build_mini_probe 9 geometry_shader_pso
+build_mini_probe 22 geometry_system_matrix
 build_mini_probe 10 mesh_object_shader_pso
 build_mini_probe 11 texture_sample
 build_mini_probe 12 subnautica_geometry_dxil_replay
@@ -286,6 +287,7 @@ echo "$OUT_DIR/probe_mini_root_signature.exe"
 echo "$OUT_DIR/probe_mini_descriptors.exe"
 echo "$OUT_DIR/probe_mini_graphics_pso.exe"
 echo "$OUT_DIR/probe_mini_geometry_shader_pso.exe"
+echo "$OUT_DIR/probe_mini_geometry_system_matrix.exe"
 echo "$OUT_DIR/probe_mini_mesh_object_shader_pso.exe"
 echo "$OUT_DIR/probe_mini_texture_sample.exe"
 echo "$OUT_DIR/probe_mini_subnautica_geometry_dxil_replay.exe"

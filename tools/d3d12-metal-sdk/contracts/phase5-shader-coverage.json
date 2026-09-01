@@ -26,6 +26,19 @@
       "remaining": "The SM5.0 vertex/geometry/pixel chain returns exactly 1,352 nonzero pixels and center pixel 0xff407e81. Broader geometry topology, resource, stream-output, adjacency, and multi-stage combinations remain in the exhaustive row."
     },
     {
+      "id": "sm50-geometry-stream-system-exact-runtime",
+      "status": "closed",
+      "result": "probe-mini-geometry_system_matrix",
+      "profile": "geometry-system-v2",
+      "checks": [
+        ["ok"],
+        ["nonzero_pixels", 1062],
+        ["left_rgba", [255, 0, 64, 255]],
+        ["right_rgba", [0, 255, 64, 255]]
+      ],
+      "remaining": "The SM5 DXBC/AIR geometry provider executes two emitted strips with RestartStrip and SV_PrimitiveID. EmitThenCutStream, GSInstanceID, DXIL geometry-provider ABI, and broader topology/resource/adjacency combinations remain open."
+    },
+    {
       "id": "sm50-hull-domain-stage-exact-runtime",
       "status": "closed",
       "result": "probe-mini-tessellation_shader_pso",

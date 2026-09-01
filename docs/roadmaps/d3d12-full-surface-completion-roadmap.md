@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (224/280 required opcode rows observed; 56 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (227/280 required opcode rows observed; 53 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -762,18 +762,21 @@ opcode, two SM6.8 extended-command-information opcodes, and the InnerCoverage
 opcode are now observed, including exact temporary-register,
 candidate/committed state-accessor, transform, contribution, procedural,
 AllocateRayQuery2, abort, ViewID-default/instancing, conservative-raster, and
-native direct/indirect mesh matrices, including 64-byte, 128-byte, and
-256-byte amplification payloads plus a 64-thread mesh group. The mesh proof
+native direct/indirect mesh matrices, including the SM5 DXBC geometry
+stream-restart/primitive-ID readback (`geometry-system-v2`, 1,062 nonzero
+pixels), 64-byte, 128-byte, and 256-byte amplification payloads plus a
+64-thread mesh group. The mesh proof
 uses an explicitly selected
 host `libmetalirconverter` cache provider while retaining the
 `METAL_SHADER_CONVERTER=/nonexistent` runtime setting; vector temporary
 breadth, broader DXR accessors, ray-generation paths, and state-object
 breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 224 observed, 56 open, and 32
+The exhaustive Phase 5 matrix currently has 227 observed, 53 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
-register forms have exact compute-UAV evidence; vector overloads and broader
-stage matrices remain open.
+register forms have exact compute-UAV evidence, and the SM5 DXBC/AIR geometry
+provider now has an exact stream-restart/primitive-ID readback. DXIL geometry
+provider breadth, vector overloads, and broader stage matrices remain open.
 
 **Phase 5 closeout plan (literal gate retained):** Work is now batched by the
 remaining matrix families rather than by ad-hoc probes. First close the
@@ -1614,6 +1617,16 @@ whether the scoped FL12_2 gate is green.
   world/object vectors and transforms. Follow-up profile
   `phase5-closeout-dxr-control4` executes `IgnoreHit` and
   `AcceptHitAndEndSearch` with exact miss/accepted-payload readbacks. The
-  matrix now reports 224 observed, 56 open, and 32 reserved/not-applicable
-  required rows; remaining table breadth, Work Graph/SER, OMM, and portable
+  matrix now reports 227 observed, 53 open, and 32 reserved/not-applicable
+  required rows; remaining table breadth, DXIL geometry breadth, Work Graph/SER, OMM, and portable
   DXR object-code coverage remain open.
+
+### 2026-09-01 — Phase 5 SM5 geometry stream/system readback
+
+- Added `geometry-system-v2`, an isolated Apple M4 execution of the SM5
+  DXBC/AIR geometry provider with two emitted strips, `RestartStrip`, and
+  `SV_PrimitiveID`. It requires exactly 1,062 nonzero pixels and left/right
+  RGBA samples `[255,0,64,255]` and `[0,255,64,255]`.
+- Promoted only the behavior-backed `EmitStream`, `CutStream`, and first
+  primitive `PrimitiveID` rows. `EmitThenCutStream`, `GSInstanceID`, the
+  tessellation-state rows, and the DXIL geometry-provider ABI remain open.

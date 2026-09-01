@@ -22,6 +22,13 @@
   and factor one. It independently matches the exact 1,352-pixel raster and
   center pixel `0xff407e81`, promoting the narrow native tessellation proof
   from PSO linking to runtime behavior.
+- Profile `geometry-system-v2` extends the SM5 DXBC/AIR geometry provider with
+  two emitted strips, an explicit `RestartStrip`, and `SV_PrimitiveID`; the
+  isolated M4 readback is exact at `1,062` nonzero pixels with left/right
+  samples `[255,0,64,255]` and `[0,255,64,255]`. This is positive evidence
+  for `EmitStream`, `CutStream`, and the first-primitive `PrimitiveID` case;
+  `EmitThenCutStream`, `GSInstanceID`, and the DXIL geometry-provider ABI remain
+  open rather than being inferred from this SM5 lane.
 - The exact semantic readback probe covers float/int math and bitcasts,
   first-bit and reverse-bit operations, min/max and integer multiply-add, raw
   buffer load/store, UAV exchange/add/compare-exchange atomics, 32-bit
