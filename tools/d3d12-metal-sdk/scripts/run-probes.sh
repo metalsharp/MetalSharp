@@ -1627,6 +1627,38 @@ struct MeshPayload {
   uint tail25;
   uint tail26;
   uint tail27;
+  uint tail28;
+  uint tail29;
+  uint tail30;
+  uint tail31;
+  uint tail32;
+  uint tail33;
+  uint tail34;
+  uint tail35;
+  uint tail36;
+  uint tail37;
+  uint tail38;
+  uint tail39;
+  uint tail40;
+  uint tail41;
+  uint tail42;
+  uint tail43;
+  uint tail44;
+  uint tail45;
+  uint tail46;
+  uint tail47;
+  uint tail48;
+  uint tail49;
+  uint tail50;
+  uint tail51;
+  uint tail52;
+  uint tail53;
+  uint tail54;
+  uint tail55;
+  uint tail56;
+  uint tail57;
+  uint tail58;
+  uint tail59;
 };
 
 groupshared MeshPayload payload;
@@ -1679,6 +1711,38 @@ void as_main(uint3 group_id : SV_GroupID) {
   payload.tail25 = 0x50415949;
   payload.tail26 = 0x5041594a;
   payload.tail27 = 0x5041594b;
+  payload.tail28 = 0x5041594c;
+  payload.tail29 = 0x5041594d;
+  payload.tail30 = 0x5041594e;
+  payload.tail31 = 0x5041594f;
+  payload.tail32 = 0x50415950;
+  payload.tail33 = 0x50415951;
+  payload.tail34 = 0x50415952;
+  payload.tail35 = 0x50415953;
+  payload.tail36 = 0x50415954;
+  payload.tail37 = 0x50415955;
+  payload.tail38 = 0x50415956;
+  payload.tail39 = 0x50415957;
+  payload.tail40 = 0x50415958;
+  payload.tail41 = 0x50415959;
+  payload.tail42 = 0x5041595a;
+  payload.tail43 = 0x5041595b;
+  payload.tail44 = 0x5041595c;
+  payload.tail45 = 0x5041595d;
+  payload.tail46 = 0x5041595e;
+  payload.tail47 = 0x5041595f;
+  payload.tail48 = 0x50415960;
+  payload.tail49 = 0x50415961;
+  payload.tail50 = 0x50415962;
+  payload.tail51 = 0x50415963;
+  payload.tail52 = 0x50415964;
+  payload.tail53 = 0x50415965;
+  payload.tail54 = 0x50415966;
+  payload.tail55 = 0x50415967;
+  payload.tail56 = 0x50415968;
+  payload.tail57 = 0x50415969;
+  payload.tail58 = 0x5041596a;
+  payload.tail59 = 0x5041596b;
   DispatchMesh(amplification_enabled * amplification_control.Load(0),
                1, 1, payload);
 }
@@ -1696,7 +1760,7 @@ void ms_main(in payload MeshPayload payload,
   mesh_output.Store(0, 0x4d534831);
   mesh_output.Store(8 + group_thread_id * 4,
                     payload.signature + group_thread_id);
-  if (group_thread_id < 28) {
+  if (group_thread_id < 60) {
     uint payload_tail = group_thread_id == 0 ? payload.tail0 :
                         group_thread_id == 1 ? payload.tail1 :
                         group_thread_id == 2 ? payload.tail2 :
@@ -1723,7 +1787,39 @@ void ms_main(in payload MeshPayload payload,
                         group_thread_id == 23 ? payload.tail23 :
                         group_thread_id == 24 ? payload.tail24 :
                         group_thread_id == 25 ? payload.tail25 :
-                        group_thread_id == 26 ? payload.tail26 : payload.tail27;
+                        group_thread_id == 26 ? payload.tail26 :
+                        group_thread_id == 27 ? payload.tail27 :
+                        group_thread_id == 28 ? payload.tail28 :
+                        group_thread_id == 29 ? payload.tail29 :
+                        group_thread_id == 30 ? payload.tail30 :
+                        group_thread_id == 31 ? payload.tail31 :
+                        group_thread_id == 32 ? payload.tail32 :
+                        group_thread_id == 33 ? payload.tail33 :
+                        group_thread_id == 34 ? payload.tail34 :
+                        group_thread_id == 35 ? payload.tail35 :
+                        group_thread_id == 36 ? payload.tail36 :
+                        group_thread_id == 37 ? payload.tail37 :
+                        group_thread_id == 38 ? payload.tail38 :
+                        group_thread_id == 39 ? payload.tail39 :
+                        group_thread_id == 40 ? payload.tail40 :
+                        group_thread_id == 41 ? payload.tail41 :
+                        group_thread_id == 42 ? payload.tail42 :
+                        group_thread_id == 43 ? payload.tail43 :
+                        group_thread_id == 44 ? payload.tail44 :
+                        group_thread_id == 45 ? payload.tail45 :
+                        group_thread_id == 46 ? payload.tail46 :
+                        group_thread_id == 47 ? payload.tail47 :
+                        group_thread_id == 48 ? payload.tail48 :
+                        group_thread_id == 49 ? payload.tail49 :
+                        group_thread_id == 50 ? payload.tail50 :
+                        group_thread_id == 51 ? payload.tail51 :
+                        group_thread_id == 52 ? payload.tail52 :
+                        group_thread_id == 53 ? payload.tail53 :
+                        group_thread_id == 54 ? payload.tail54 :
+                        group_thread_id == 55 ? payload.tail55 :
+                        group_thread_id == 56 ? payload.tail56 :
+                        group_thread_id == 57 ? payload.tail57 :
+                        group_thread_id == 58 ? payload.tail58 : payload.tail59;
     mesh_output.Store(264 + group_thread_id * 4, payload_tail);
   }
   if (group_thread_id == 0) {
