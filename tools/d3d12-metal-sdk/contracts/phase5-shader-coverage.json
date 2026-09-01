@@ -320,7 +320,7 @@
         ["invalid_pipeline_rejected"],
         ["accessor_matrix_verified"]
       ],
-      "remaining": "The native Metal intersection_query path proves a compute-stage RayQuery over one exact triangle TLAS, including exact hit readback, candidate/committed state accessors, direct acceleration-structure binding, and fail-closed rejection of an unsupported ray flag. Procedural hits beyond the proven triangle-state negative, ray-generation dispatch, state-object growth, shader tables, mixed geometry, serialization, and broader DXR stage/resource combinations remain in the exhaustive row."
+      "remaining": "The native Metal intersection_query path proves a compute-stage RayQuery over one exact triangle TLAS, including exact hit readback, candidate/committed state and instance-contribution accessors, direct acceleration-structure/contribution-table binding, and fail-closed rejection of an unsupported ray flag. Contribution-table aliasing with an external UAV counter, procedural hits beyond the proven triangle-state negative, ray-generation dispatch, state-object growth, shader tables, mixed geometry, serialization, and broader DXR stage/resource combinations remain in the exhaustive row."
     },
     {
       "id": "dxil-extended-command-information-runtime",

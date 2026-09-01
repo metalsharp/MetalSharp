@@ -1823,6 +1823,7 @@ void cs_main() {
       output.Store(244, asuint(candidate_world_to_object[2][1]));
       output.Store(248, asuint(candidate_world_to_object[2][2]));
       output.Store(252, asuint(candidate_world_to_object[2][3]));
+      output.Store(352, query.CandidateInstanceContributionToHitGroupIndex());
     }
     query.CommitNonOpaqueTriangleHit();
   }
@@ -1880,6 +1881,7 @@ void cs_main() {
   output.Store(340, asuint(committed_world_to_object[2][1]));
   output.Store(344, asuint(committed_world_to_object[2][2]));
   output.Store(348, asuint(committed_world_to_object[2][3]));
+  output.Store(356, query.CommittedInstanceContributionToHitGroupIndex());
   RayQuery<RAY_FLAG_NONE> aborted;
   aborted.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
   while (aborted.Proceed()) {

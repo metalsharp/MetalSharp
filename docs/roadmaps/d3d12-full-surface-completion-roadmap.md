@@ -746,10 +746,11 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; 34 inline-RayQuery opcodes and two SM6.8 extended-command-information
+ceiling; 36 inline-RayQuery opcodes and two SM6.8 extended-command-information
 opcodes are now observed, including the exact candidate/committed
-state-accessor, transform, and abort matrix, while broader DXR accessors,
-procedural/ray-generation paths, and state-object breadth remain open.
+state-accessor, transform, contribution, and abort matrix, while broader DXR
+accessors, procedural/ray-generation paths, and state-object breadth remain
+open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1450,3 +1451,15 @@ whether the scoped FL12_2 gate is green.
   runtime module report and exact raster readback. The exhaustive matrix now
   has 186 observed, 94 open, and 32 reserved/not-applicable rows; the Phase 5
   exit gate remains open.
+
+### 2026-09-01 — Phase 5 RayQuery contribution-index proof
+
+- Bound the D3D12 TLAS instance-contribution table through the reserved direct
+  compute slot 30 and lowered candidate/committed contribution accessors by
+  their native instance indices. The isolated M4 RayQuery profile now records
+  exact candidate and committed contribution values of `23` alongside the
+  non-identity transform and 90-word accessor readback.
+- Promoted both contribution-index opcode rows from the runtime module report
+  and exact readback. The exhaustive matrix now has 188 observed, 92 open, and
+  32 reserved/not-applicable rows; contribution/counter slot aliasing and the
+  broader DXR paths remain open.
