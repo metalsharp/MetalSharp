@@ -600,10 +600,11 @@ exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
 exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 89 rows still missing after 38 exact inline-RayQuery,
-one ViewID, and two extended-command-information opcode observations, including
-the candidate/committed state-accessor, transform, contribution, procedural,
-AllocateRayQuery2, and abort matrix.
+remains open with 47 rows still missing after the exact inline-RayQuery,
+ViewID, extended-command-information, SM5 geometry stream/system, and
+SM5 tessellation-system observations, including the candidate/committed
+state-accessor, transform, contribution, procedural, AllocateRayQuery2, abort,
+stream, tessellation, Work Graph/node, and SER/HitObject boundaries.
 The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact
