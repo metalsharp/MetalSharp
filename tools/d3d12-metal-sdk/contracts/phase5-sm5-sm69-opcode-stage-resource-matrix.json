@@ -2379,7 +2379,7 @@
       "required": true,
       "status": "observed",
       "positive_evidence": [
-        "probe-mini-geometry-system-matrix:gs_instance_id_default_zero"
+        "probe-mini-geometry-system-matrix:gs_instance_id_two_instances"
       ],
       "negative_evidence": []
     },
