@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (202/280 required opcode rows observed; 78 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (222/280 required opcode rows observed; 58 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -770,7 +770,7 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, ray-generation paths, and state-object
 breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 202 observed, 78 open, and 32
+The exhaustive Phase 5 matrix currently has 222 observed, 58 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence; vector overloads and broader
 stage matrices remain open.
@@ -795,9 +795,9 @@ but broader raster/topology/ROV/depth-bias coverage remains open. Phase 7 has
 host-specific native mesh/amplification payload proofs for 64/128/256-byte
 payloads and a 64-thread group, while work graphs/node shaders remain open.
 Phase 8 has exact inline RayQuery state/accessor/transform/contribution/
-procedural/abort behavior and indexed R16 BLAS coverage, while full
-ray-generation/state-object execution, SER, OMM, and portable serialization
-remain open.
+procedural/abort behavior, indexed R16 BLAS coverage, and a host-specific
+native ray-generation system-value matrix, while full table breadth, SER, OMM,
+and portable serialization remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1598,3 +1598,20 @@ whether the scoped FL12_2 gate is green.
   DXIL reports contain opcodes 168–173 with zero unsupported semantics. The
   broader mesh/work-graph matrix remains open and the host-specific provider
   does not change the fail-closed compiler-object boundary.
+
+### 2026-09-01 — Phase 5 native ray-generation system-value proof
+
+- Fixed the explicit `METALSHARP_NATIVE_IRCONVERTER=1` DXR preparation lane so
+  it materializes ray-generation, dispatch-wrapper, miss, hit, callable, and
+  procedural libraries even when `METAL_SHADER_CONVERTER=/nonexistent`; the
+  generic portable converter remains disabled.
+- Profile `phase5-closeout-dxr9` passes exact BLAS/TLAS construction,
+  collection filtering/merge, direct and indirect `DispatchRays`, recursive
+  miss/closest-hit/callable/procedural dispatch, local-root records, and a
+  29-word system-value matrix: dimensions `[5,1,1]`, triangle
+  `InstanceID=7`, `InstanceIndex=0`, `HitKind=0xfe`, `RayFlags=0`, zero
+  primitive/geometry indices, `RayTMin=0`, `RayTCurrent=2`, identity
+  world/object vectors and transforms. The matrix now reports 222 observed,
+  58 open, and 32 reserved/not-applicable required rows; executed
+  `IgnoreHit`/`AcceptHitAndEndSearch`, remaining table breadth, Work Graph/SER,
+  OMM, and portable DXR object-code coverage remain open.

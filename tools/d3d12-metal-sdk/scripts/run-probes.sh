@@ -173,8 +173,8 @@ Options:
 Environment:
   METALSHARP_NATIVE_IRCONVERTER=1
                         Use the host libmetalirconverter provider to materialize
-                        native mesh/amplification cache libraries. This does not
-                        change the required METAL_SHADER_CONVERTER setting.
+                        native mesh/amplification and DXR cache libraries. This
+                        does not change the required METAL_SHADER_CONVERTER setting.
   METALSHARP_IRCONVERTER_ROOT
                         Header/library root for the native provider (default /usr/local).
 
@@ -2052,6 +2052,68 @@ open(output_path, "wb").write(container)
 PY
 }
 
+materialize_native_dxr_cache() {
+  local cache_dir="$1"
+  local raygen_cso="$2"
+  local raygen_root="$3"
+  local closest_hit_local_root="$4"
+  local procedural_compiler="$5"
+  local ir_root="${METALSHARP_IRCONVERTER_ROOT:-/usr/local}"
+  local dxbc
+  shopt -s nullglob
+  for dxbc in "$cache_dir"/*.dxbc; do
+    if ! cmp -s "$dxbc" "$raygen_cso"; then
+      continue
+    fi
+    local base="${dxbc%.dxbc}"
+    if DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" raygen "$base.metallib" \
+      "$closest_hit_local_root" \
+      >"$base.raygen-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" @ray-dispatch \
+      "$base.raydispatch.metallib" "$closest_hit_local_root" \
+      >"$base.raydispatch-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" miss_shader "$base.miss.metallib" \
+      "$closest_hit_local_root" \
+      >"$base.miss-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" closest_hit "$base.closesthit.metallib" \
+      "$closest_hit_local_root" \
+      >"$base.closesthit-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" callable_shader "$base.callable.metallib" \
+      "$closest_hit_local_root" \
+      >"$base.callable-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" any_hit "$base.anyhit.metallib" \
+      "$closest_hit_local_root" \
+      >"$base.anyhit-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" @triangle-wrapper \
+      "$base.rayintersection.metallib" "$closest_hit_local_root" \
+      >"$base.rayintersection-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" procedural_intersection \
+      "$base.proceduralintersection.metallib" "$closest_hit_local_root" \
+      >"$base.proceduralintersection-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" procedural_closest_hit \
+      "$base.proceduralclosesthit.metallib" "$closest_hit_local_root" \
+      >"$base.proceduralclosesthit-msc.log" 2>&1 &&
+      DYLD_LIBRARY_PATH="$ir_root/lib" "$procedural_compiler" \
+      "$dxbc" "$raygen_root" @procedural-wrapper \
+      "$base.proceduralwrapper.metallib" "$closest_hit_local_root" \
+      >"$base.proceduralwrapper-msc.log" 2>&1; then
+      rm -f "$base.msc.fail"
+    else
+      : >"$base.msc.fail"
+    fi
+  done
+  shopt -u nullglob
+}
+
 prepare_dxr_acceleration_structure_probe() {
   local hlsl="$SDK_DIR/out/bin/probe_dxr_inline.hlsl"
   local raygen_hlsl="$SDK_DIR/out/bin/probe_dxr_raygen.hlsl"
@@ -2400,6 +2462,12 @@ struct CallablePayload {
 [shader("raygeneration")]
 void raygen() {
   uint ray_index = DispatchRaysIndex().x;
+  uint3 dispatch_dimensions = DispatchRaysDimensions();
+  if (ray_index == 0) {
+    output.Store(32, dispatch_dimensions.x);
+    output.Store(36, dispatch_dimensions.y);
+    output.Store(40, dispatch_dimensions.z);
+  }
   RayDesc ray;
   ray.Origin = ray_index == 2 ? float3(2.0, 0.0, -2.0)
                               : ray_index == 3 ? float3(4.6, -0.6, -2.0)
@@ -2436,6 +2504,41 @@ void miss_shader(inout MissPayload payload) {
 void closest_hit(inout MissPayload payload,
                  BuiltInTriangleIntersectionAttributes attributes) {
   bool any_hit_ran = payload.value == 0x414e5948;
+  uint ray_index = DispatchRaysIndex().x;
+  if (ray_index == 1) {
+    output.Store(44, InstanceID());
+    output.Store(48, InstanceIndex());
+    output.Store(52, HitKind());
+    output.Store(56, RayFlags());
+    output.Store(60, PrimitiveIndex());
+    output.Store(64, GeometryIndex());
+    output.Store(68, asuint(RayTMin()));
+    output.Store(72, asuint(RayTCurrent()));
+    float3 world_origin = WorldRayOrigin();
+    output.Store(76, asuint(world_origin.x));
+    output.Store(80, asuint(world_origin.y));
+    output.Store(84, asuint(world_origin.z));
+    float3 world_direction = WorldRayDirection();
+    output.Store(88, asuint(world_direction.x));
+    output.Store(92, asuint(world_direction.y));
+    output.Store(96, asuint(world_direction.z));
+    float3 object_origin = ObjectRayOrigin();
+    output.Store(100, asuint(object_origin.x));
+    output.Store(104, asuint(object_origin.y));
+    output.Store(108, asuint(object_origin.z));
+    float3 object_direction = ObjectRayDirection();
+    output.Store(112, asuint(object_direction.x));
+    output.Store(116, asuint(object_direction.y));
+    output.Store(120, asuint(object_direction.z));
+    float3x4 object_to_world = ObjectToWorld3x4();
+    output.Store(124, asuint(object_to_world[0][0]));
+    output.Store(128, asuint(object_to_world[1][1]));
+    output.Store(132, asuint(object_to_world[2][2]));
+    float3x4 world_to_object = WorldToObject3x4();
+    output.Store(136, asuint(world_to_object[0][0]));
+    output.Store(140, asuint(world_to_object[1][1]));
+    output.Store(144, asuint(world_to_object[2][2]));
+  }
   RayDesc recursive_ray;
   recursive_ray.Origin = float3(0.0, 0.0, -2.0);
   recursive_ray.TMin = 0.0;
@@ -2463,7 +2566,12 @@ void closest_hit(inout MissPayload payload,
 [shader("anyhit")]
 void any_hit(inout MissPayload payload,
              BuiltInTriangleIntersectionAttributes attributes) {
+  uint incoming_payload = payload.value;
   payload.value = 0x414e5948;
+  if (incoming_payload == 0xffffffff)
+    IgnoreHit();
+  if (incoming_payload == 0xfffffffe)
+    AcceptHitAndEndSearch();
 }
 
 [shader("callable")]
@@ -2538,7 +2646,10 @@ HLSL
     if [[ -z "$converter" ]]; then
       converter="$(command -v metal-shaderconverter || true)"
     fi
-    if [[ -n "$converter" && -x "$converter" ]]; then
+    if [[ "${METALSHARP_NATIVE_IRCONVERTER:-0}" == "1" ]]; then
+      materialize_native_dxr_cache "$SHADER_CACHE_DIR" "$raygen_cso" \
+        "$raygen_root" "$closest_hit_local_root" "$procedural_compiler"
+    elif [[ -n "$converter" && -x "$converter" ]]; then
       local dxbc
       shopt -s nullglob
       for dxbc in "$SHADER_CACHE_DIR"/*.dxbc; do
