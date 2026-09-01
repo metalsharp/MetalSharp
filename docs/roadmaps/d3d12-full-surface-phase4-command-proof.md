@@ -27,10 +27,11 @@
   generations and texture layout transitions for the recorded subresource
   ranges before the queue-order event split.
 - A bounded stream-output provider compiles non-rasterized DXBC vertex-only
-  PSOs through the existing SM50 stream-output lowering, binds one output
-  buffer at the provider slot, orders a filled-size counter update through a
-  blit copy, and rejects unsupported stage mixes, DXIL, indexed/multi-instance,
-  multiple-stream, and out-of-range draws instead of writing out of bounds.
+  PSOs through the existing SM50 stream-output lowering, binds one to four
+  output buffers at provider slots 20–23, orders each filled-size counter
+  update through a blit copy, and rejects unsupported stage mixes, DXIL,
+  indexed/multi-instance, duplicate counters, and out-of-range draws instead
+  of writing out of bounds.
 - Command-stream statistics retain a histogram and unknown-type count for every
   serialized command kind. Render-pass begin/end, protected-session, and
   meta-command calls are serialized and replayed as explicit provider-boundary
@@ -176,6 +177,16 @@ The isolated source-staged command probe passed with these behavior checks, incl
     "output_verified": true,
     "filled_size_verified": true
   },
+  "stream_output_multi_stream_capture": {
+    "pass": true,
+    "provider": "sm50_vertex_capture_multi_stream",
+    "output_slots": 2,
+    "prefixes": [16, 32],
+    "final_counters": [144, 160],
+    "payload0_verified": true,
+    "payload1_verified": true,
+    "counters_verified": true
+  },
   "command_inventory": {
     "histogram": true,
     "unknown_type_count": 1,
@@ -217,9 +228,12 @@ matrices remain tracked by the later phase lanes.
 
 ## Residual limitations carried into later phases
 
-The stream-output provider is limited to one non-rasterized DXBC vertex stream
-and still lacks multiple streams, overflow continuation, DXIL/geometry-stage
-capture, and downstream-consumer coverage. The source-staged counter lane now
+The stream-output provider remains limited to non-rasterized DXBC vertex
+streams and still lacks overflow continuation, DXIL/geometry-stage capture,
+and downstream-consumer coverage. In addition to the one-stream lane, the
+source-staged two-stream lane uses independent nonzero prefixes (`16` and
+`32` bytes), exact two-draw payload readbacks on both streams, and final
+filled-size counters of `144` and `160` bytes. The single-stream counter lane
 starts at a nonzero filled size (`16` bytes), preserves that prefix, appends two
 exact draws, and reads back the final `144`-byte counter. Broader
 sample-count/pattern and indirect-work coverage remains in the later phase

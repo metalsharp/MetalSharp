@@ -1176,10 +1176,10 @@ struct ReplayState {
   bool render_pass_open = false;
   ID3D12ProtectedResourceSession *protected_session = nullptr;
   bool stream_output_ready = true;
-  uint64_t stream_output_counter_address = 0;
-  uint64_t stream_output_filled_size = 0;
-  uint64_t stream_output_initial_filled_size = 0;
-  bool stream_output_counter_known = false;
+  uint64_t stream_output_counter_address[4] = {};
+  uint64_t stream_output_filled_size[4] = {};
+  uint64_t stream_output_initial_filled_size[4] = {};
+  bool stream_output_counter_known[4] = {};
   D3D12_VIEWPORT viewports[16] = {};
   uint32_t viewport_count = 0;
   D3D12_RECT scissor_rects[16] = {};
@@ -7063,88 +7063,119 @@ struct ReplayState {
       return true;
 
     stream_output_ready = false;
-    if (!render_enc_open || !device || pso->GetStreamOutputStride() == 0 ||
-        so_view_count == 0 || so_views[0].BufferLocation == 0 ||
-        so_views[0].SizeInBytes == 0) {
-      QTRACE("StreamOutput target rejected: encoder=%u stride=%u views=%u "
-             "buffer=0x%llx size=%llu filled=0x%llx",
-             render_enc_open ? 1u : 0u, pso->GetStreamOutputStride(),
-             so_view_count, (unsigned long long)so_views[0].BufferLocation,
-             (unsigned long long)so_views[0].SizeInBytes,
-             (unsigned long long)so_views[0].BufferFilledSizeLocation);
+    const uint32_t slot_count = pso->GetStreamOutputSlotCount();
+    if (!render_enc_open || !device || slot_count == 0 || slot_count > 4 ||
+        so_view_count < slot_count) {
+      QTRACE("StreamOutput target rejected: encoder=%u slots=%u views=%u",
+             render_enc_open ? 1u : 0u, slot_count, so_view_count);
       return false;
     }
 
-    auto *resource = device->LookupResourceByGPUAddress(
-        so_views[0].BufferLocation);
-    if (!resource || !resource->GetMTLBuffer().handle) {
-      QTRACE("StreamOutput target rejected: unresolved buffer=0x%llx",
-             (unsigned long long)so_views[0].BufferLocation);
-      return false;
-    }
-    const uint64_t resource_offset =
-        so_views[0].BufferLocation - resource->GetGPUVirtualAddress();
-    const uint64_t resource_length = resource->GetBufferByteLength();
-    if (resource_offset > resource_length ||
-        so_views[0].SizeInBytes > resource_length - resource_offset) {
-      QTRACE("StreamOutput target rejected: offset=%llu size=%llu length=%llu",
-             (unsigned long long)resource_offset,
-             (unsigned long long)so_views[0].SizeInBytes,
-             (unsigned long long)resource_length);
-      return false;
-    }
-
-    uint64_t initial_filled_size = 0;
-    const uint64_t counter_address = so_views[0].BufferFilledSizeLocation;
-    if (counter_address) {
-      auto *counter = device->LookupResourceByGPUAddress(counter_address);
-      if (!counter || !counter->GetMTLBuffer().handle)
+    MTLD3D12Resource *resources[4] = {};
+    MTLD3D12Resource *counters[4] = {};
+    uint64_t resource_offsets[4] = {};
+    uint64_t initial_filled_sizes[4] = {};
+    for (uint32_t slot = 0; slot < slot_count; ++slot) {
+      const auto &view = so_views[slot];
+      const uint32_t stride = pso->GetStreamOutputStride(slot);
+      if (!stride || !view.BufferLocation || !view.SizeInBytes) {
+        QTRACE("StreamOutput target rejected: slot=%u stride=%u buffer=0x%llx "
+               "size=%llu",
+               slot, stride, (unsigned long long)view.BufferLocation,
+               (unsigned long long)view.SizeInBytes);
         return false;
-      const uint64_t counter_offset =
-          counter_address - counter->GetGPUVirtualAddress();
-      if (counter_offset > counter->GetBufferByteLength() ||
-          sizeof(uint32_t) > counter->GetBufferByteLength() - counter_offset ||
-          (counter_address & (alignof(uint32_t) - 1)) != 0)
-        return false;
-      if (stream_output_counter_known &&
-          stream_output_counter_address == counter_address) {
-        initial_filled_size = stream_output_filled_size;
-      } else {
-        uint32_t filled_size = 0;
-        if (!counter->ReadBufferRange(counter_offset, &filled_size,
-                                      sizeof(filled_size)))
-          return false;
-        initial_filled_size = filled_size;
-        stream_output_counter_address = counter_address;
-        stream_output_filled_size = initial_filled_size;
-        stream_output_counter_known = true;
       }
-    } else {
-      stream_output_counter_address = 0;
-      stream_output_filled_size = 0;
-      stream_output_counter_known = false;
+      auto *resource = device->LookupResourceByGPUAddress(view.BufferLocation);
+      if (!resource || !resource->GetMTLBuffer().handle) {
+        QTRACE("StreamOutput target rejected: slot=%u unresolved buffer=0x%llx",
+               slot, (unsigned long long)view.BufferLocation);
+        return false;
+      }
+      const uint64_t resource_offset =
+          view.BufferLocation - resource->GetGPUVirtualAddress();
+      const uint64_t resource_length = resource->GetBufferByteLength();
+      if (resource_offset > resource_length ||
+          view.SizeInBytes > resource_length - resource_offset) {
+        QTRACE("StreamOutput target rejected: slot=%u offset=%llu size=%llu "
+               "length=%llu",
+               slot, (unsigned long long)resource_offset,
+               (unsigned long long)view.SizeInBytes,
+               (unsigned long long)resource_length);
+        return false;
+      }
+
+      uint64_t initial_filled_size = 0;
+      const uint64_t counter_address = view.BufferFilledSizeLocation;
+      if (counter_address) {
+        auto *counter = device->LookupResourceByGPUAddress(counter_address);
+        if (!counter || !counter->GetMTLBuffer().handle)
+          return false;
+        const uint64_t counter_offset =
+            counter_address - counter->GetGPUVirtualAddress();
+        if (counter_offset > counter->GetBufferByteLength() ||
+            sizeof(uint32_t) >
+                counter->GetBufferByteLength() - counter_offset ||
+            (counter_address & (alignof(uint32_t) - 1)) != 0)
+          return false;
+        for (uint32_t previous = 0; previous < slot; ++previous) {
+          if (so_views[previous].BufferFilledSizeLocation == counter_address) {
+            QTRACE("StreamOutput target rejected: duplicate counter slot=%u "
+                   "previous=%u",
+                   slot, previous);
+            return false;
+          }
+        }
+        if (stream_output_counter_known[slot] &&
+            stream_output_counter_address[slot] == counter_address) {
+          initial_filled_size = stream_output_filled_size[slot];
+        } else {
+          uint32_t filled_size = 0;
+          if (!counter->ReadBufferRange(counter_offset, &filled_size,
+                                        sizeof(filled_size)))
+            return false;
+          initial_filled_size = filled_size;
+          stream_output_counter_address[slot] = counter_address;
+          stream_output_filled_size[slot] = initial_filled_size;
+          stream_output_counter_known[slot] = true;
+        }
+        counters[slot] = counter;
+      } else {
+        stream_output_counter_address[slot] = 0;
+        stream_output_filled_size[slot] = 0;
+        stream_output_counter_known[slot] = false;
+      }
+      if (initial_filled_size > view.SizeInBytes ||
+          resource_offset > resource_length - initial_filled_size) {
+        QTRACE("StreamOutput target rejected: slot=%u filled=%llu size=%llu",
+               slot, (unsigned long long)initial_filled_size,
+               (unsigned long long)view.SizeInBytes);
+        return false;
+      }
+      resources[slot] = resource;
+      resource_offsets[slot] = resource_offset;
+      initial_filled_sizes[slot] = initial_filled_size;
     }
-    if (initial_filled_size > so_views[0].SizeInBytes ||
-        resource_offset > resource_length - initial_filled_size) {
-      QTRACE("StreamOutput target rejected: filled=%llu size=%llu",
-             (unsigned long long)initial_filled_size,
-             (unsigned long long)so_views[0].SizeInBytes);
-      return false;
+
+    for (uint32_t slot = 0; slot < slot_count; ++slot) {
+      const uint64_t bound_offset =
+          resource_offsets[slot] + initial_filled_sizes[slot];
+      stream_output_initial_filled_size[slot] = initial_filled_sizes[slot];
+      if (!SetVertexBufferTracked(resources[slot]->GetMTLBuffer(),
+                                  bound_offset, 20 + slot))
+        return false;
+      render_enc.useResource(resources[slot]->GetMTLBuffer(),
+                             WMTResourceUsageWrite, WMTRenderStageVertex);
+      RetainResourceMetalObjectsForCompletion(resources[slot]);
+      if (counters[slot])
+        RetainResourceMetalObjectsForCompletion(counters[slot]);
+      QTRACE("StreamOutput target bound slot=%u buffer=0x%llx offset=%llu "
+             "size=%llu stride=%u",
+             slot, (unsigned long long)so_views[slot].BufferLocation,
+             (unsigned long long)bound_offset,
+             (unsigned long long)so_views[slot].SizeInBytes,
+             pso->GetStreamOutputStride(slot));
     }
-    const uint64_t bound_offset = resource_offset + initial_filled_size;
-    stream_output_initial_filled_size = initial_filled_size;
-    if (!SetVertexBufferTracked(resource->GetMTLBuffer(), bound_offset, 20))
-      return false;
-    render_enc.useResource(resource->GetMTLBuffer(), WMTResourceUsageWrite,
-                           WMTRenderStageVertex);
-    RetainResourceMetalObjectsForCompletion(resource);
     stream_output_ready = true;
-    QTRACE("StreamOutput target bound buffer=0x%llx offset=%llu size=%llu "
-           "stride=%u slot=20",
-           (unsigned long long)so_views[0].BufferLocation,
-           (unsigned long long)bound_offset,
-           (unsigned long long)so_views[0].SizeInBytes,
-           pso->GetStreamOutputStride());
     return true;
   }
 
@@ -7155,12 +7186,20 @@ struct ReplayState {
     if (indexed || instance_count != 1 || !vertex_count ||
         !stream_output_ready)
       return false;
-    const uint64_t stride = pso->GetStreamOutputStride();
-    if (!stride || stream_output_initial_filled_size > so_views[0].SizeInBytes)
+    const uint32_t slot_count = pso->GetStreamOutputSlotCount();
+    if (slot_count == 0 || slot_count > 4)
       return false;
-    return vertex_count <=
-           (so_views[0].SizeInBytes - stream_output_initial_filled_size) /
-               stride;
+    for (uint32_t slot = 0; slot < slot_count; ++slot) {
+      const uint64_t stride = pso->GetStreamOutputStride(slot);
+      if (!stride || stream_output_initial_filled_size[slot] >
+                          so_views[slot].SizeInBytes ||
+          vertex_count >
+              (so_views[slot].SizeInBytes -
+               stream_output_initial_filled_size[slot]) /
+                  stride)
+        return false;
+    }
+    return true;
   }
 
   bool UpdateStreamOutputFilledSize(MTLD3D12Device *device,
@@ -7169,61 +7208,91 @@ struct ReplayState {
       return true;
     if (!StreamOutputDrawReady(vertex_count, 1, false))
       return false;
-    const uint64_t byte_count =
-        uint64_t(vertex_count) * pso->GetStreamOutputStride();
-    if (byte_count > so_views[0].SizeInBytes -
-                         stream_output_initial_filled_size ||
-        stream_output_initial_filled_size > UINT32_MAX - byte_count)
+    const uint32_t slot_count = pso->GetStreamOutputSlotCount();
+    if (!device || slot_count == 0 || slot_count > 4)
       return false;
-    const uint64_t new_filled_size =
-        stream_output_initial_filled_size + byte_count;
-    if (!so_views[0].BufferFilledSizeLocation) {
-      stream_output_filled_size = new_filled_size;
-      stream_output_counter_known = false;
-      return true;
+
+    uint64_t new_filled_sizes[4] = {};
+    MTLD3D12Resource *counters[4] = {};
+    uint64_t counter_offsets[4] = {};
+    uint32_t filled_values[4] = {};
+    WMT::Reference<WMT::Buffer> staging[4];
+    bool has_counter_update = false;
+    for (uint32_t slot = 0; slot < slot_count; ++slot) {
+      const uint64_t byte_count =
+          uint64_t(vertex_count) * pso->GetStreamOutputStride(slot);
+      if (byte_count > so_views[slot].SizeInBytes -
+                           stream_output_initial_filled_size[slot] ||
+          stream_output_initial_filled_size[slot] > UINT32_MAX - byte_count)
+        return false;
+      new_filled_sizes[slot] =
+          stream_output_initial_filled_size[slot] + byte_count;
+      if (!so_views[slot].BufferFilledSizeLocation) {
+        stream_output_filled_size[slot] = new_filled_sizes[slot];
+        stream_output_counter_known[slot] = false;
+        continue;
+      }
+
+      auto *counter = device->LookupResourceByGPUAddress(
+          so_views[slot].BufferFilledSizeLocation);
+      if (!counter || !counter->GetMTLBuffer().handle)
+        return false;
+      const uint64_t counter_offset =
+          so_views[slot].BufferFilledSizeLocation -
+          counter->GetGPUVirtualAddress();
+      if (counter_offset > counter->GetBufferByteLength() ||
+          sizeof(uint32_t) > counter->GetBufferByteLength() - counter_offset ||
+          (so_views[slot].BufferFilledSizeLocation &
+           (alignof(uint32_t) - 1)) != 0)
+        return false;
+      counters[slot] = counter;
+      counter_offsets[slot] = counter_offset;
+      filled_values[slot] = static_cast<uint32_t>(new_filled_sizes[slot]);
+      staging[slot] = MakeTransientBuffer(device, sizeof(uint32_t));
+      if (!staging[slot].handle)
+        return false;
+      staging[slot].updateContents(0, &filled_values[slot], sizeof(uint32_t));
+      has_counter_update = true;
     }
 
-    auto *counter = device->LookupResourceByGPUAddress(
-        so_views[0].BufferFilledSizeLocation);
-    if (!counter || !counter->GetMTLBuffer().handle)
-      return false;
-    const uint64_t counter_offset =
-        so_views[0].BufferFilledSizeLocation - counter->GetGPUVirtualAddress();
-    if (counter_offset > counter->GetBufferByteLength() ||
-        sizeof(uint32_t) > counter->GetBufferByteLength() - counter_offset ||
-        (so_views[0].BufferFilledSizeLocation & (alignof(uint32_t) - 1)) != 0)
-      return false;
-
-    uint32_t filled_size = static_cast<uint32_t>(new_filled_size);
-    auto staging = MakeTransientBuffer(device, sizeof(filled_size));
-    if (!staging.handle)
-      return false;
-    staging.updateContents(0, &filled_size, sizeof(filled_size));
-
-    CloseRenderEncoder();
-    auto encoder = cmdbuf.blitCommandEncoder();
-    if (!encoder.handle)
-      return false;
-    wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
-    copy.type = WMTBlitCommandCopyFromBufferToBuffer;
-    copy.next.set(nullptr);
-    copy.src = staging.handle;
-    copy.src_offset = 0;
-    copy.dst = counter->GetMTLBuffer().handle;
-    copy.dst_offset = counter_offset;
-    copy.copy_length = sizeof(filled_size);
-    const bool encoded = encoder.encodeCommands(
-        reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
-    encoder.endEncoding();
-    if (!encoded)
-      return false;
-    RetainResourceMetalObjectsForCompletion(counter);
-    stream_output_counter_address = so_views[0].BufferFilledSizeLocation;
-    stream_output_filled_size = new_filled_size;
-    stream_output_counter_known = true;
-    QTRACE("StreamOutput filled-size counter updated address=0x%llx bytes=%u",
-           (unsigned long long)so_views[0].BufferFilledSizeLocation,
-           filled_size);
+    if (has_counter_update) {
+      CloseRenderEncoder();
+      auto encoder = cmdbuf.blitCommandEncoder();
+      if (!encoder.handle)
+        return false;
+      for (uint32_t slot = 0; slot < slot_count; ++slot) {
+        if (!counters[slot])
+          continue;
+        wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
+        copy.type = WMTBlitCommandCopyFromBufferToBuffer;
+        copy.next.set(nullptr);
+        copy.src = staging[slot].handle;
+        copy.src_offset = 0;
+        copy.dst = counters[slot]->GetMTLBuffer().handle;
+        copy.dst_offset = counter_offsets[slot];
+        copy.copy_length = sizeof(uint32_t);
+        if (!encoder.encodeCommands(
+                reinterpret_cast<const wmtcmd_blit_nop *>(&copy))) {
+          encoder.endEncoding();
+          return false;
+        }
+      }
+      encoder.endEncoding();
+    }
+    for (uint32_t slot = 0; slot < slot_count; ++slot) {
+      if (!counters[slot])
+        continue;
+      RetainResourceMetalObjectsForCompletion(counters[slot]);
+      stream_output_counter_address[slot] =
+          so_views[slot].BufferFilledSizeLocation;
+      stream_output_filled_size[slot] = new_filled_sizes[slot];
+      stream_output_counter_known[slot] = true;
+      QTRACE("StreamOutput filled-size counter updated slot=%u address=0x%llx "
+             "bytes=%u",
+             slot,
+             (unsigned long long)so_views[slot].BufferFilledSizeLocation,
+             filled_values[slot]);
+    }
     return true;
   }
 

@@ -2672,16 +2672,22 @@ bool MTLD3D12PipelineState::CompileShader(
     if (m_has_stream_output) {
       if (m_stream_output.NumEntries == 0 ||
           m_stream_output.pSODeclaration == nullptr ||
-          m_stream_output.NumStrides != 1 ||
+          m_stream_output.NumStrides == 0 || m_stream_output.NumStrides > 4 ||
           m_stream_output.pBufferStrides == nullptr ||
-          m_stream_output.pBufferStrides[0] == 0 ||
-          m_stream_output.pBufferStrides[0] >
-              D3D12_SO_BUFFER_MAX_STRIDE_IN_BYTES ||
           m_stream_output.RasterizedStream != D3D12_SO_NO_RASTERIZED_STREAM) {
         return RecordCompileFailure(
             "pso/unsupported_stream_output_desc",
-            "Only one non-rasterized stream-output declaration with one nonzero "
-            "buffer stride is supported");
+            "Stream-output requires one to four non-rasterized output strides");
+      }
+      for (UINT slot = 0; slot < m_stream_output.NumStrides; ++slot) {
+        if (m_stream_output.pBufferStrides[slot] == 0 ||
+            m_stream_output.pBufferStrides[slot] >
+                D3D12_SO_BUFFER_MAX_STRIDE_IN_BYTES) {
+          return RecordCompileFailure(
+              "pso/unsupported_stream_output_desc",
+              str::format("Invalid stream-output stride slot=", slot,
+                          " stride=", m_stream_output.pBufferStrides[slot]));
+        }
       }
 
       using namespace microsoft;
@@ -2694,11 +2700,11 @@ bool MTLD3D12PipelineState::CompileShader(
       const D3D11_SIGNATURE_PARAMETER *output_parameters = nullptr;
       const uint32_t output_parameter_count =
           output_parser.GetParameters(&output_parameters);
-      uint32_t output_offset = 0;
+      uint32_t output_offsets[4] = {};
       stream_output_elements.reserve(m_stream_output.NumEntries * 4u);
       for (UINT i = 0; i < m_stream_output.NumEntries; ++i) {
         const auto &entry = m_stream_output.pSODeclaration[i];
-        if (entry.Stream != 0 || entry.OutputSlot != 0 ||
+        if (entry.Stream != 0 || entry.OutputSlot >= m_stream_output.NumStrides ||
             entry.StartComponent > 3 || entry.ComponentCount > 4 ||
             uint32_t(entry.StartComponent) + uint32_t(entry.ComponentCount) >
                 4) {
@@ -2734,30 +2740,41 @@ bool MTLD3D12PipelineState::CompileShader(
 
         for (UINT component = 0; component < entry.ComponentCount;
              ++component) {
+          const uint32_t slot = entry.OutputSlot;
           stream_output_elements.push_back({
               register_id,
               uint32_t(entry.StartComponent) + component,
-              0,
-              output_offset});
-          output_offset += sizeof(float);
+              slot,
+              output_offsets[slot]});
+          output_offsets[slot] += sizeof(float);
         }
       }
-      if (stream_output_elements.empty() ||
-          output_offset > m_stream_output.pBufferStrides[0]) {
+      if (stream_output_elements.empty()) {
         return RecordCompileFailure(
             "pso/unsupported_stream_output_desc",
-            "Stream-output declaration does not fit within its buffer stride");
+            "Stream-output declaration contains no components");
+      }
+      for (UINT slot = 0; slot < m_stream_output.NumStrides; ++slot) {
+        if (output_offsets[slot] > m_stream_output.pBufferStrides[slot]) {
+          return RecordCompileFailure(
+              "pso/unsupported_stream_output_desc",
+              str::format("Stream-output declaration does not fit slot=", slot,
+                          " bytes=", output_offsets[slot], " stride=",
+                          m_stream_output.pBufferStrides[slot]));
+        }
       }
       stream_output.next = &common;
       stream_output.type = SM50_SHADER_EMULATE_VERTEX_STREAM_OUTPUT;
-      stream_output.num_output_slots = 1;
+      stream_output.num_output_slots = m_stream_output.NumStrides;
       stream_output.num_elements =
           static_cast<uint32_t>(stream_output_elements.size());
-      stream_output.strides[0] = m_stream_output.pBufferStrides[0];
+      for (UINT slot = 0; slot < m_stream_output.NumStrides; ++slot)
+        stream_output.strides[slot] = m_stream_output.pBufferStrides[slot];
       stream_output.elements = stream_output_elements.data();
       ia_layout.next = &stream_output;
-      PSTRACE("CompileShader: %s stream-output elements=%u stride=%u",
-              func_name, stream_output.num_elements, stream_output.strides[0]);
+      PSTRACE("CompileShader: %s stream-output elements=%u slots=%u stride0=%u",
+              func_name, stream_output.num_elements,
+              stream_output.num_output_slots, stream_output.strides[0]);
     }
 
     compile_args = (SM50_SHADER_COMPILATION_ARGUMENT_DATA *)&ia_layout;

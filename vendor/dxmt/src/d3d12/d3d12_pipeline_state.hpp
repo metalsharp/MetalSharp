@@ -253,6 +253,9 @@ public:
                ? m_stream_output_strides[slot]
                : 0;
   }
+  UINT GetStreamOutputSlotCount() const {
+    return static_cast<UINT>(m_stream_output_strides.size());
+  }
   UINT GetViewInstanceCount() const { return m_view_instance_count; }
   const std::vector<D3D12ViewInstanceLocation> &GetViewInstanceLocations() const {
     return m_view_instance_locations;

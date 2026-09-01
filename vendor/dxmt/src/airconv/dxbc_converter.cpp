@@ -807,33 +807,43 @@ llvm::Error convert_dxbc_vertex_shader(
   if (vertex_so) {
     auto bv = func_signature.DefineInput(air::InputBaseVertex{});
     auto vid = func_signature.DefineInput(air::InputVertexID{});
-    auto slot_0 = func_signature.DefineInput(air::ArgumentBindingBuffer{
-      .buffer_size = {},
-      .location_index = 20,
-      .array_size = 0,
-      .memory_access = air::MemoryAccess::write,
-      .address_space = air::AddressSpace::device,
-      .type = air::MSLUint{},
-      .arg_name = "so_slot0",
-      .raster_order_group = {}
-    });
+    static const char *const stream_output_names[4] = {
+      "so_slot0", "so_slot1", "so_slot2", "so_slot3"
+    };
+    uint32_t stream_output_args[4] = {~0u, ~0u, ~0u, ~0u};
+    for (uint32_t slot = 0; slot < vertex_so->num_output_slots && slot < 4;
+         ++slot) {
+      stream_output_args[slot] = func_signature.DefineInput(
+        air::ArgumentBindingBuffer{
+          .buffer_size = {},
+          .location_index = 20 + slot,
+          .array_size = 0,
+          .memory_access = air::MemoryAccess::write,
+          .address_space = air::AddressSpace::device,
+          .type = air::MSLUint{},
+          .arg_name = stream_output_names[slot],
+          .raster_order_group = {}
+        });
+    }
     epilogue << make_irvalue([=](struct context ctx) {
       auto &builder = ctx.builder;
       auto base_vertex = ctx.function->getArg(bv);
       auto vertex_id = ctx.function->getArg(vid);
-      auto slot0 = ctx.function->getArg(slot_0);
       auto adjusted_vertex_id = builder.CreateSub(vertex_id, base_vertex);
       auto output_regs = builder.CreateBitOrPointerCast(
         ctx.resource.output.ptr_int4, llvm::PointerType::get(ctx.types._int, 0)
       );
       for (unsigned i = 0; i < vertex_so->num_elements; i++) {
         auto &element = vertex_so->elements[i];
-        if (element.reg_id == 0xffffffff)
+        if (element.reg_id == 0xffffffff || element.output_slot >= 4 ||
+            stream_output_args[element.output_slot] == ~0u)
           continue;
         auto ptr = ctx.builder.CreateConstGEP1_32(
           ctx.types._int, output_regs,
           (unsigned)(element.reg_id * 4 + element.component)
         );
+        auto slot = ctx.function->getArg(
+          stream_output_args[element.output_slot]);
         auto target_offset = ctx.builder.CreateAdd(
           ctx.builder.CreateMul(
             adjusted_vertex_id,
@@ -842,7 +852,7 @@ llvm::Error convert_dxbc_vertex_shader(
           ctx.builder.getInt32(element.offset)
         );
         auto target_ptr = ctx.builder.CreateGEP(
-          ctx.types._int, slot0, {ctx.builder.CreateLShr(target_offset, 2)}
+          ctx.types._int, slot, {ctx.builder.CreateLShr(target_offset, 2)}
         );
         ctx.builder.CreateStore(
           ctx.builder.CreateLoad(ctx.types._int, ptr), target_ptr, true
