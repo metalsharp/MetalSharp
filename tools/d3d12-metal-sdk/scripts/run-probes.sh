@@ -2989,7 +2989,19 @@ void cs_sm69_long_vector_tertiary(uint3 id : SV_DispatchThreadID) {
   vector<uint, 8> value = mad(a, factor, addend);
   uint total = value[0] + value[1] + value[2] + value[3] +
                value[4] + value[5] + value[6] + value[7];
+  vector<float, 8> float_a = vector<float, 8>(1.0f, 2.0f, 3.0f, 4.0f,
+                                                5.0f, 6.0f, 7.0f, 8.0f);
+  vector<float, 8> float_factor = vector<float, 8>(2.0f, 2.0f, 2.0f, 2.0f,
+                                                    2.0f, 2.0f, 2.0f, 2.0f);
+  vector<float, 8> float_addend = vector<float, 8>(1.0f, 1.0f, 1.0f, 1.0f,
+                                                    1.0f, 1.0f, 1.0f, 1.0f);
+  vector<float, 8> float_value = mad(float_a, float_factor, float_addend);
+  float float_total = float_value[0] + float_value[1] +
+                      float_value[2] + float_value[3] +
+                      float_value[4] + float_value[5] +
+                      float_value[6] + float_value[7];
   outbuf.Store(0, total);
+  outbuf.Store(4, asuint(float_total));
 }
 
 [numthreads(1, 1, 1)]
