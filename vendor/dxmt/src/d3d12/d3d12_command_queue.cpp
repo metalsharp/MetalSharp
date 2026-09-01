@@ -6815,8 +6815,11 @@ struct ReplayState {
     } else {
       params.draw.vertexCountPerInstance = element_count;
       params.draw.instanceCount = instance_count;
-      // Metal's vertexStart is already reflected in [[vertex_id]].
-      params.draw.startVertexLocation = 0;
+      // Metal's vertexStart is already reflected in [[vertex_id]], but the
+      // native vertex-pull shader still needs the original D3D12 value for
+      // SV_StartVertexLocation.  Keep the stage-in/MSC ABI at zero while
+      // preserving the command value for the direct MSL path.
+      params.draw.startVertexLocation = vertex_pull ? start_element : 0;
       params.draw.startInstanceLocation = start_instance;
     }
 

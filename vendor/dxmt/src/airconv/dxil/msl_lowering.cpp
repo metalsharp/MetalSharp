@@ -124,6 +124,8 @@ enum DXIntrinsicOpcode {
   DXOP_RayQueryCommittedStatus = 184,
   DXOP_RayQueryCandidateType = 185,
   DXOP_AllocateRayQuery2 = 258,
+  DXOP_StartVertexLocation = 256,
+  DXOP_StartInstanceLocation = 257,
   // dx.op.isSpecialFloat carries the concrete operation (8..11) in its
   // opcode argument rather than in the intrinsic name.
   DXOP_SpecialFloat = 1000,
@@ -411,6 +413,10 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
         return 193;
     if (strncmp(s, "rayQuery_StateScalar", 20) == 0)
         return DXOP_RayQueryCandidateType;
+    if (strncmp(s, "startVertexLocation", 19) == 0)
+        return DXOP_StartVertexLocation;
+    if (strncmp(s, "startInstanceLocation", 21) == 0)
+        return DXOP_StartInstanceLocation;
     if (strncmp(s, "isSpecialFloat.", 14) == 0) return DXOP_SpecialFloat;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
@@ -525,6 +531,8 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_RayQueryCommittedStatus:
     case DXOP_RayQueryCandidateType:
     case DXOP_AllocateRayQuery2:
+    case DXOP_StartVertexLocation:
+    case DXOP_StartInstanceLocation:
     case 186:
     case 187:
     case 188:
@@ -4643,12 +4651,15 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_GroupId:
     case DXOP_ThreadIDInGroup:
     case DXOP_FlattenedThreadIDInGroup:
+    case DXOP_StartInstanceLocation:
     case DXOP_BufferUpdateCounter:
     case DXOP_AtomicBinOp:
     case DXOP_AtomicCompareExchange:
         if (callee_name.find(".i64") != std::string::npos)
             return {MSLTypeKind::Long, 0, {}};
         return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_StartVertexLocation:
+        return {MSLTypeKind::Int, 0, {}};
     case DXOP_WaveGetLaneIndex:
     case DXOP_WaveGetLaneCount:
     case DXOP_WaveAllBitCount:
@@ -5293,6 +5304,26 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         recordDiagnostic(ctx, "DXIL RayQuery state opcode %u is not lowered",
                          intrinsic_id);
         return "0";
+    case DXOP_StartVertexLocation:
+        if (ctx.shader.kind != DxilShaderKind::Vertex) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL StartVertexLocation is only valid in a vertex shader");
+            return "0";
+        }
+        return "(buf29 == nullptr ? 0 : (int)(m12_is_indexed_draw(buf30) ? "
+               "reinterpret_cast<device m12_draw_indexed_argument*>(buf29)->baseVertexLocation : "
+               "reinterpret_cast<device m12_draw_argument*>(buf29)->startVertexLocation))";
+    case DXOP_StartInstanceLocation:
+        if (ctx.shader.kind != DxilShaderKind::Vertex) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL StartInstanceLocation is only valid in a vertex shader");
+            return "0u";
+        }
+        return "(buf29 == nullptr ? 0u : (m12_is_indexed_draw(buf30) ? "
+               "reinterpret_cast<device m12_draw_indexed_argument*>(buf29)->startInstanceLocation : "
+               "reinterpret_cast<device m12_draw_argument*>(buf29)->startInstanceLocation))";
     case DXOP_ThreadId: {
         ctx.uses_thread_id = true;
         uint32_t c = args.empty() ? 0 : literalArg(0, 0, "comp");
@@ -7897,7 +7928,12 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 intrinsic_id = 0;
         }
 
-        if (intrinsic_id != 0 && call_args.empty()) {
+        const bool no_arg_start_location =
+            call_args.empty() &&
+            (intrinsic_id == DXOP_StartVertexLocation ||
+             intrinsic_id == DXOP_StartInstanceLocation);
+        if (intrinsic_id != 0 && call_args.empty() &&
+            !no_arg_start_location) {
             ensureValueTable(value_counter);
             if (intrinsic_id == DXOP_LoadInput && isLoadInputI32(callee_name) &&
                 shouldLowerArgumentlessLoadInputI32AsVertexId(ctx)) {
@@ -7912,7 +7948,9 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             }
         } else if (intrinsic_id != 0) {
             std::vector<uint32_t> fn_args;
-            if (opcode_prefixed_intrinsic)
+            if (no_arg_start_location)
+                fn_args.clear();
+            else if (opcode_prefixed_intrinsic)
                 fn_args.assign(call_args.begin() + 1, call_args.end());
             else if (intrinsic_id == 13 || intrinsic_id == 14 || intrinsic_id == 15)
                 fn_args = call_args;
@@ -8006,6 +8044,11 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 os << "  " << translated << ";\n";
                 ctx.value_table[value_counter] = translated;
             }
+        } else if (callee_name == "llvm.lifetime.start" ||
+                   callee_name == "llvm.lifetime.end") {
+            // Lifetime intrinsics only constrain LLVM's optimizer; they do
+            // not represent shader-visible work and are safe to omit.
+            call_produces_value = false;
         } else {
             // A non-DXIL call would otherwise become a zero-valued temporary
             // and allow an unlowered helper/unknown intrinsic to reach MSL.

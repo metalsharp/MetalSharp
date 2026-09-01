@@ -68,6 +68,7 @@ MINI_PROBES=(
   dxr_inline
   dxr_acceleration_structures
   tessellation_shader_pso
+  start_draw_info
 )
 
 mini_probe_selected() {
@@ -1671,6 +1672,47 @@ HLSL
     DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
     "$WINE_BIN" dxc.exe -nologo -T ps_6_0 -E ps_main -HV 2021 \
       -Fo probe_conservative_raster_ps.cso probe_conservative_raster.hlsl >/dev/null
+  )
+}
+
+prepare_start_draw_info_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_start_draw_info.hlsl"
+
+  cat > "$hlsl" <<'HLSL'
+struct VSOut {
+  float4 position : SV_Position;
+  float4 color : COLOR0;
+};
+
+VSOut vs_main(uint vertex_id : SV_VertexID,
+             int start_vertex : SV_StartVertexLocation,
+             uint start_instance : SV_StartInstanceLocation) {
+  float2 position = vertex_id == 4 ? float2(-0.8, -0.8) :
+                    vertex_id == 5 ? float2(0.0, 0.8) :
+                                      float2(0.8, -0.8);
+  VSOut output;
+  output.position = float4(position, 0.0, 1.0);
+  output.color = float4(start_vertex == 4 ? 1.0 : 0.0,
+                        start_instance == 7 ? 0.5 : 0.0,
+                        0.25, 1.0);
+  return output;
+}
+
+float4 ps_main(VSOut input) : SV_Target {
+  return input.color;
+}
+HLSL
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E vs_main -T vs_6_8 \
+      -Fo probe_start_draw_vs.cso probe_start_draw_info.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_start_draw_ps.cso probe_start_draw_info.hlsl >/dev/null
   )
 }
 
@@ -3732,6 +3774,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   fi
   if mini_probe_selected dxr_inline; then
     DXR_INLINE_ONLY=1 prepare_dxr_acceleration_structure_probe
+  fi
+  if mini_probe_selected start_draw_info; then
+    prepare_start_draw_info_probe
   fi
 fi
 if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
