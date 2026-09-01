@@ -737,15 +737,18 @@ DXIL rejection boundary, SM5.0 through SM6.9 compile/link progression, exact
 SM6.7/6.8/6.9 semantic readbacks, WaveOps/QuadOps matrix, the source-staged
 resource-metadata/42-case typed texture matrix, exact single-counter
 append/consume readbacks with bounded negative cases, malformed-DXIL
-negative evidence, and the SM6.9 eight-component long-vector FDot/arithmetic
-matrix. The fail-closed manifest is
+negative evidence, the SM6.9 eight-component long-vector FDot/arithmetic
+matrix, and the native one-triangle TLAS `TraceRayInline` readback plus
+unsupported-ray-flag rejection. The fail-closed manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`; the complete
 numeric opcode inventory is
 `tools/d3d12-metal-sdk/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json`
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling.
+ceiling; the six inline-RayQuery opcodes are observed, while broader DXR
+accessors, procedural/ray-generation paths, and state-object breadth remain
+open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1395,5 +1398,14 @@ whether the scoped FL12_2 gate is green.
   counters cannot become successful placeholder PSOs.
 - Added the Phase 5 shader proof, lowering-report audit, and fail-closed
   `phase5-shader-coverage.json` manifest. Focused semantic, WaveOps,
-  diagnostic, and binding-baseline rows are closed; the exhaustive
-  SM5.x–SM6.9 opcode/stage/resource/cache/session row remains open.
+  diagnostic, binding-baseline, and narrow inline-RayQuery rows are closed;
+  the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row remains
+  open.
+
+### 2026-08-31 — Phase 5 native inline-RayQuery proof
+
+- Added a direct Metal `intersection_query` lowering and acceleration-structure
+  buffer binding path for the compute-stage DXIL RayQuery subset. The isolated
+  M4 run proves exact one-triangle TLAS hit readback and rejects a shader using
+  an unsupported ray flag with `0x80004005`; the six corresponding opcode rows
+  are now observed without claiming the broader DXR or Phase 5 exit gate.

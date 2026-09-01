@@ -183,6 +183,10 @@ std::string DXILIRBuilder::mslTypeName(const MSLType &t) {
     case MSLTypeKind::RWTexture2DArray: return "texture2d_array<float, access::read_write>";
     case MSLTypeKind::RWTexture3D: return "texture3d<float, access::read_write>";
     case MSLTypeKind::Sampler: return "sampler";
+    case MSLTypeKind::InstanceAccelerationStructure:
+        return "instance_acceleration_structure";
+    case MSLTypeKind::RayQuery:
+        return "intersection_query<instancing, triangle_data>";
     case MSLTypeKind::Struct: return "struct_" + std::to_string(t.struct_type_id);
     default: return "int";
     }

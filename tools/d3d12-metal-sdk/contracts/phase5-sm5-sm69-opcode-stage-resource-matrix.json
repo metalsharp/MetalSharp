@@ -3867,8 +3867,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxr-inline:exact_tlas_hit"
+      ],
       "negative_evidence": []
     },
     {
@@ -3881,9 +3883,13 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
-      "negative_evidence": []
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxr-inline:exact_tlas_hit"
+      ],
+      "negative_evidence": [
+        "probe-dxr-inline:unsupported_ray_flag_rejected"
+      ]
     },
     {
       "id": 180,
@@ -3895,8 +3901,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxr-inline:exact_tlas_hit"
+      ],
       "negative_evidence": []
     },
     {
@@ -3923,8 +3931,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxr-inline:exact_tlas_hit"
+      ],
       "negative_evidence": []
     },
     {
@@ -3951,8 +3961,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxr-inline:exact_tlas_hit"
+      ],
       "negative_evidence": []
     },
     {
@@ -3965,8 +3977,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxr-inline:exact_tlas_hit"
+      ],
       "negative_evidence": []
     },
     {

@@ -8612,6 +8612,23 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
     mark_compute_texture(index, fallback);
     return true;
   };
+  auto append_compute_setaccelerationstructure =
+      [&](obj_handle_t acceleration_structure, uint32_t index) -> bool {
+    if (!acceleration_structure || index > 0xffu)
+      return false;
+    struct wmtcmd_compute_setaccelerationstructure sas = {};
+    sas.type = WMTComputeCommandSetAccelerationStructure;
+    sas.acceleration_structure = acceleration_structure;
+    sas.index = index;
+    if (!append_cmd(&sas, sizeof(sas)))
+      return false;
+    st.RetainMTLObjectForCompletion(acceleration_structure);
+    // The direct ABI reserves the SRV half of the buffer namespace for both
+    // raw buffers and acceleration structures. Marking the slot occupied
+    // prevents the generic null-buffer fallback from overwriting the AS.
+    mark_compute_buffer(index);
+    return true;
+  };
   auto append_compute_setsampler = [&](obj_handle_t sampler, uint32_t index,
                                        bool fallback = false) -> bool {
     if (!sampler || index > 0xffu)
@@ -8861,6 +8878,8 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
           desc->srv.ViewDimension ==
               D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE &&
           res->GetMTLAccelerationStructure().handle) {
+        append_compute_setaccelerationstructure(
+            res->GetMTLAccelerationStructure().handle, buf_slot);
         append_compute_useresource(res->GetMTLAccelerationStructure().handle,
                                    WMTResourceUsageRead);
       } else if (res->GetMTLBuffer().handle) {
@@ -8994,7 +9013,19 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         auto *res = static_cast<MTLD3D12Resource *>(desc->resource);
         const bool writable =
             desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-        if (res->GetMTLBuffer().handle) {
+        if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_SRV &&
+            desc->srv.ViewDimension ==
+                D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE &&
+            res->GetMTLAccelerationStructure().handle) {
+          uint32_t buffer_slot =
+              DirectBufferSlotForRange(desc->range_type, index);
+          if (buffer_slot == UINT32_MAX || buffer_slot >= 31)
+            continue;
+          append_compute_setaccelerationstructure(
+              res->GetMTLAccelerationStructure().handle, buffer_slot);
+          append_compute_useresource(res->GetMTLAccelerationStructure().handle,
+                                     WMTResourceUsageRead);
+        } else if (res->GetMTLBuffer().handle) {
           uint64_t offset = 0;
           if (desc->range_type == D3D12_DESCRIPTOR_RANGE_TYPE_UAV)
             offset = desc->is_sampler_feedback ? 0 : UAVBufferByteOffset(desc);

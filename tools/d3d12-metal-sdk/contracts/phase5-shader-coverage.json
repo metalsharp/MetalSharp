@@ -312,6 +312,16 @@
       "remaining": "The SM6.0 pixel shader discards the left half of a 64x64 full-screen triangle at SV_Position.x < 32 and returns exactly 1,024 surviving nonzero target words. Other discard control-flow shapes and interactions with depth, MSAA, UAV writes, and derivatives remain in the exhaustive row."
     },
     {
+      "id": "dxil-ray-query-inline-exact-runtime",
+      "status": "closed",
+      "result": "probe-mini-dxr_inline",
+      "checks": [
+        ["ok"],
+        ["invalid_pipeline_rejected"]
+      ],
+      "remaining": "The native Metal intersection_query path proves a compute-stage RayQuery over one exact triangle TLAS, including exact hit readback, direct acceleration-structure binding, and fail-closed rejection of an unsupported ray flag. Candidate/committed accessors beyond type/status, procedural hits, ray-generation dispatch, state-object growth, shader tables, mixed geometry, serialization, and broader DXR stage/resource combinations remain in the exhaustive row."
+    },
+    {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "open",
       "result": "probe-shader-corpus",

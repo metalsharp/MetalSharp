@@ -125,6 +125,7 @@ The current mini suite isolates:
 - `subnautica_geometry_dxil_replay`
 - `dxil_texture_color_output`
 - `compute_first_use_dispatch`
+- `dxr_inline`
 - `dxr_acceleration_structures`
 
 PRs that touch `vendor/dxmt/src/d3d12`, `vendor/dxmt/src/airconv`,
@@ -170,8 +171,10 @@ recursion executing through direct `DispatchRays` and a focused DXR 1.1
 `DISPATCH_RAYS` indirect command signature with a nonzero argument-buffer
 offset and an independent fourth-ray procedural readback, while keeping
 RaytracingTier conservative; broader shader-table matrices remain gated.
-Both remain breadth
-gates rather than general feature claims.
+The dedicated `dxr_inline` mini probe independently proves the typed
+no-converter `TraceRayInline`/`Proceed`/candidate-type/commit/status path over
+an exact one-triangle TLAS and rejects an unsupported ray flag at PSO creation.
+Both remain breadth gates rather than general feature claims.
 
 For DXIL semantic coverage, run the reduced SM6 opcode-group probe:
 
