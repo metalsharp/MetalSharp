@@ -84,13 +84,16 @@
   temporaries until helper-function lowering is implemented.
 - The source-owned `probe_temp_registers.ll` DXIL-part fixture exercises the
   otherwise cleanup-only core opcodes directly: `TempRegStore.i32(0, 4660)`
-  followed by `TempRegLoad.i32(0)` produces the exact `4661` UAV readback, and
+  followed by `TempRegLoad.i32(0)` produces the exact `4661` UAV readback;
+  float and bool `TempReg` overloads preserve exact `1.5` bits and `true`; a
+  half overload round-trips exact `1.5` after promotion; and
   `MinPrecXRegStore.f32`/`MinPrecXRegLoad.f32` over a private pointer base
   produces exact `6.0` bits (`1086324736`) in profile
-  `phase5-tempregs4`, under `METAL_SHADER_CONVERTER=/nonexistent`. The
+  `phase5-tempreg-overloads`, under `METAL_SHADER_CONVERTER=/nonexistent`. The
   generated MSL uses separate per-invocation typed temporary storage, pointer
   plus index/component addressing, and bounded dynamic register indices;
-  bool/half/vector overloads and broader stage matrices remain open.
+  vector overloads, dynamic indexable min-precision addressing, and broader
+  stage matrices remain open.
 - The LLVM 3.7 DXIL metadata reader now resolves the named `!dx.resources`
   graph into class, register-space, range, resource-kind, structured stride,
   sample-count, and UAV-flag records. The typed lowerer uses those records for
@@ -333,8 +336,8 @@ METAL_SHADER_CONVERTER=/nonexistent \
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
 METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
-METALSHARP_PROBE_PROFILE=phase5-tempregs4 \
-METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-tempregs4 \
+METALSHARP_PROBE_PROFILE=phase5-tempreg-overloads \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-tempreg-overloads \
 METALSHARP_MINI_PROBE_FILTER=temp_registers \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
@@ -386,7 +389,7 @@ It was run against the rebuilt runtime with `METAL_SHADER_CONVERTER=/nonexistent
 and a disposable Wine prefix.
 
 The latest isolated temporary-register result (profile
-`phase5-tempregs4`) passed with exact UAV readbacks:
+`phase5-tempreg-overloads`) passed with exact UAV readbacks:
 
 ```json
 {

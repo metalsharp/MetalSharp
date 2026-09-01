@@ -1531,9 +1531,10 @@ whether the scoped FL12_2 gate is green.
 - Added a source-owned DXIL-part fixture and bounded per-invocation typed
   temporary storage for `TempRegLoad`, `TempRegStore`, `MinPrecXRegLoad`, and
   `MinPrecXRegStore`.
-- The `phase5-tempregs4` compute probe stores `4660`, reloads it, adds one,
-  and reads back exactly `4661`; it also stores and reloads `5.0` through the
-  min-precision pointer/component path and reads back exact `6.0` bits
-  (`1086324736`) through a UAV with `METAL_SHADER_CONVERTER=/nonexistent`.
-  All four core temporary-register rows are now observed; bool/half/vector
-  overloads and broader stage matrices remain open.
+- The `phase5-tempreg-overloads` compute probe stores `4660`, reloads it,
+  adds one, and reads back exactly `4661`; it also verifies float, bool, and
+  half `TempReg` overloads plus `5.0` through the min-precision
+  pointer/component path, reading back exact `6.0` bits (`1086324736`) through a UAV with
+  `METAL_SHADER_CONVERTER=/nonexistent`. All four core temporary-register rows
+  are now observed; vector overloads, dynamic indexable min-precision
+  addressing, and broader stage matrices remain open.
