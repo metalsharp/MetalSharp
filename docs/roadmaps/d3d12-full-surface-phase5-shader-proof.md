@@ -130,14 +130,14 @@
   of `firstbitlow`/`firstbithigh`. The LLVM type reader now resolves vector
   element references from `type_refs` and rejects unsupported array values
   without recursive type resolution. The source-staged semantic run continues
-  to match `math_bits`, `math_intrinsics`, and all 60 semantic lanes, including
+  to match `math_bits`, `math_intrinsics`, and all 61 semantic lanes, including
   the four-lane vector aggregate shuffle, exact matrix aggregate arithmetic
   `[17,27,37,47]`, a three-helper source aggregate chain returning
   `[42,66,98,138]` after validated DXC entry-point optimization, and
   signed/unsigned/float native-16 arithmetic
   `[65085,65096,65107,65118]`. The SM6.9 vectorized `FDot` opcode is also
   lowered to a native MSL `dot` and returns exact float bits for the
-  four-component case. Profile `phase5-long-frem3` passes 60/60
+  four-component case. Profile `phase5-native16-math` passes 61/61
   semantic lanes: the core opcode lane returns 36 exact float/int/bitwise
   results, while SM6.9 eight- and sixteen-component float/uint vectors
   preserve exact FDot, add, xor, dynamic construction, element addressing,
@@ -146,7 +146,8 @@
   shift, and remainder readbacks (`120.0f`, `72.0f`, `40/0xffffffd4`, `80`,
   `156.0f`, `1/1`, `44.0f`, `24/56`, `96`, `56`, `52.0f`,
   `-4.0f/0xfffffffc`, `20/88/8/20`, `0xfffffff0/0xffffffec/0xfffffff7`,
-  `4.0f`, and `816.0f` respectively). The compact
+  `4.0f` for long-vector floating remainder, `10` for native-16
+  sqrt/rsqrt/abs/min/max, and `816.0f` respectively). The compact
   LLVM INSERTELT record form is decoded as three value operands, and private
   vector scratch GEPs scale 32-bit lanes by four bytes.
 - Bounded descriptor indexing selects `ByteAddressBuffer[2]`,
@@ -397,7 +398,7 @@ with `append_counter_link=true` and rejects a two-counter shader with exact
 `AppendStructuredBuffer` heap shader and proves the unsupported counter mapping
 fails closed at PSO creation with exact `0x80004005`; `phase5-helper2` preserves
 all earlier semantic lanes with zero mismatches. Profile `phase5-rawvec4`
-passes all 60 current semantic lanes, including exact double payload words
+passes all 61 current semantic lanes, including exact double payload words
 `[0x54442d18,0x400921fb]`, dynamic add/subtract result
 `[0x00000000,0x400a0000]`, and the complete 16-word binary64 addition matrix.
 The same profile passes ordinary and IEEE-754 matrices for binary64

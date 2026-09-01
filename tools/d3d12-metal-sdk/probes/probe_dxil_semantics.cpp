@@ -878,6 +878,8 @@ int main() {
          "sm69_integer_float16_conversion"},
         {"sm69_native16_arithmetic", "probe_dxil_semantic_sm69_native16.cso", {},
          {65085, 65096, 65107, 65118}, "sm69_native16_arithmetic"},
+        {"sm69_native16_math", "probe_dxil_semantic_sm69_native16_math.cso", {},
+         {10u}, "sm69_native16_math"},
         {"sm69_fdot_wide", "probe_dxil_semantic_sm69_fdot_wide.cso", {},
          {0x42f00000u}, "sm69_long_vector_fdot"},
         {"sm69_long_vector_arithmetic", "probe_dxil_semantic_sm69_long_vector_arithmetic.cso", {},
