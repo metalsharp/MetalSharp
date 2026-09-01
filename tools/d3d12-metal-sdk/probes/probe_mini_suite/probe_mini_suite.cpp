@@ -3450,7 +3450,7 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t wireframe_unexpected_pixels = 0;
     uint32_t mesh_output_value = 0;
     uint32_t mesh_lane_values[64] = {};
-    uint32_t mesh_payload_tail_values[28] = {};
+    uint32_t mesh_payload_tail_values[60] = {};
     D3D12_QUERY_DATA_PIPELINE_STATISTICS1 pipeline_statistics1 = {};
     bool pipeline_statistics1_readback_ok = false;
     if (SUCCEEDED(hr)) {
@@ -3655,7 +3655,7 @@ static ProbeResult probe_mesh_shader_pso() {
     for (uint32_t lane = 0; lane < 64; lane++)
         mesh_lane_values_verified &= mesh_lane_values[lane] == 0x4153504c + lane;
     bool mesh_payload_tail_verified = true;
-    for (uint32_t value = 0; value < 28; value++)
+    for (uint32_t value = 0; value < 60; value++)
         mesh_payload_tail_verified &= mesh_payload_tail_values[value] == 0x50415930 + value;
     const bool indirect_mesh_behavior_verified =
         layer_indirect_pixels[0] >= 100 && layer_indirect_pixels[0] <= 400 &&
@@ -3739,7 +3739,7 @@ static ProbeResult probe_mesh_shader_pso() {
             ",\"mesh_output_value\":" + std::to_string(mesh_output_value) + ",\"mesh_texture_scale\":0.5" +
             std::string(",\"mesh_threadgroup_width\":64") + std::string(",\"dispatch_mesh_groups_x\":2") +
             ",\"mesh_lane_values_verified\":" + (mesh_lane_values_verified ? "true" : "false") +
-            ",\"mesh_payload_bytes\":128,\"mesh_payload_tail_verified\":" +
+            ",\"mesh_payload_bytes\":256,\"mesh_payload_tail_verified\":" +
             (mesh_payload_tail_verified ? "true" : "false") +
             ",\"pipeline_statistics1_readback_ok\":" + (pipeline_statistics1_readback_ok ? "true" : "false") +
             ",\"pipeline_statistics1_as_invocations\":" + std::to_string(pipeline_statistics1.ASInvocations) +
