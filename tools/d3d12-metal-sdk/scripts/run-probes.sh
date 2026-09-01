@@ -2955,8 +2955,16 @@ void cs_sm69_long_vector_unary(uint3 id : SV_DispatchThreadID) {
   vector<float, 8> roots = sqrt(squares);
   float root_total = roots[0] + roots[1] + roots[2] + roots[3] +
                      roots[4] + roots[5] + roots[6] + roots[7];
+  vector<float, 8> ones = vector<float, 8>(1.0f, 1.0f, 1.0f, 1.0f,
+                                            1.0f, 1.0f, 1.0f, 1.0f);
+  vector<float, 8> reciprocal_roots = rsqrt(ones);
+  float reciprocal_total = reciprocal_roots[0] + reciprocal_roots[1] +
+                            reciprocal_roots[2] + reciprocal_roots[3] +
+                            reciprocal_roots[4] + reciprocal_roots[5] +
+                            reciprocal_roots[6] + reciprocal_roots[7];
   outbuf.Store(0, asuint(total));
   outbuf.Store(4, asuint(root_total));
+  outbuf.Store(8, asuint(reciprocal_total));
 }
 
 [numthreads(1, 1, 1)]
