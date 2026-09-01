@@ -71,6 +71,7 @@ MINI_PROBES=(
   start_draw_info
   inner_coverage
   view_id_instancing
+  temp_registers
 )
 
 mini_probe_selected() {
@@ -1789,6 +1790,42 @@ HLSL
     "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
       -Fo probe_view_id_instancing_ps.cso probe_view_id_instancing.hlsl >/dev/null
   )
+}
+
+prepare_temp_register_probe() {
+  local source="$SDK_DIR/probes/probe_temp_registers.ll"
+  local raw="$SDK_DIR/out/bin/probe_temp_registers.bc"
+  local output="$SDK_DIR/out/bin/probe_temp_registers.dxil"
+  local llvm_root="${METALSHARP_X86_LLVM_ROOT:-/Volumes/AverySSD/toolchains}/clang+llvm-15.0.7-x86_64-apple-darwin21.0"
+  local llvm_as="$llvm_root/bin/llvm-as"
+  if [[ ! -x "$llvm_as" ]]; then
+    echo "missing pinned llvm-as for temporary-register probe: $llvm_as" >&2
+    return 1
+  fi
+  "$llvm_as" "$source" -o "$raw"
+  python3 - "$raw" "$output" <<'PY'
+import struct
+import sys
+
+raw_path, output_path = sys.argv[1:]
+bitcode = open(raw_path, "rb").read()
+# DXMT's DXIL-part parser expects a DXIL program header followed by the
+# bitcode at offset 24.  The outer DXBC wrapper makes the generated module a
+# normal D3D12 shader bytecode blob rather than a test-only raw bitcode file.
+program_version = (5 << 16) | (6 << 4)  # compute, SM 6.0
+program = struct.pack(
+    "<II4sHHII", program_version, 24 + len(bitcode), b"DXIL", 0, 1,
+    16, len(bitcode)
+) + bitcode
+chunk = struct.pack("<4sI", b"DXIL", len(program)) + program
+part_offset = 36
+container_size = part_offset + len(chunk)
+container = (
+    b"DXBC" + b"\0" * 16 + struct.pack("<III", 1, container_size, 1) +
+    struct.pack("<I", part_offset) + chunk
+)
+open(output_path, "wb").write(container)
+PY
 }
 
 prepare_dxr_acceleration_structure_probe() {
@@ -3874,6 +3911,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   fi
   if mini_probe_selected view_id_instancing; then
     prepare_view_id_instancing_probe
+  fi
+  if mini_probe_selected temp_registers; then
+    prepare_temp_register_probe
   fi
 fi
 if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
