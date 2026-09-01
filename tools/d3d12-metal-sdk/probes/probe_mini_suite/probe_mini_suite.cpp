@@ -5335,6 +5335,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
     const HRESULT removed_reason = device->GetDeviceRemovedReason();
     const bool indirect_ray_behavior_verified =
         indirect_ray_dispatch_recorded && indirect_ray_behavior_value == 0x50524f43;
+    const bool ignore_hit_behavior_verified = mixed_hit_value == 0x4d495353;
+    const bool accept_hit_behavior_verified = mixed_aabb_hit_value == 0x41434350;
     const bool verified =
         SUCCEEDED(hr) && SUCCEEDED(removed_reason) && source_acceleration_structures_released_before_traversal &&
         current_size > 0 && current_size <= prebuild.ResultDataMaxSizeInBytes && clone_current_size == current_size &&
@@ -5357,11 +5359,12 @@ static ProbeResult probe_dxr_acceleration_structures() {
         serialized_pointer_list_matches_instances && top_level_current_size > 0 &&
         top_level_current_size <= top_level_prebuild.ResultDataMaxSizeInBytes && ray_hit == 1 &&
         miss_value == 0x4d495353 && closest_hit_value == 0x52454332 && callable_value == 0x43414c4c &&
-        raygen_value == 42 && procedural_hit_value == 0x50524f43 && mixed_hit_value == 0x52454332 &&
-        mixed_aabb_hit_value == 0x50524f43 && shader_identifier_abi_layout && collection_filtering_and_merge &&
+        raygen_value == 42 && procedural_hit_value == 0x50524f43 && mixed_hit_value == 0x4d495353 &&
+        mixed_aabb_hit_value == 0x41434350 && shader_identifier_abi_layout && collection_filtering_and_merge &&
         local_descriptor_tables_written && local_sampler_table_written && local_static_sampler_written &&
         stack_size_contract && indirect_ray_dispatch_recorded && indirect_ray_behavior_value == 0x50524f43 &&
-        local_root_uav_value == 0x4c525557 && ray_shader_builtin_matrix_verified;
+        local_root_uav_value == 0x4c525557 && ray_shader_builtin_matrix_verified &&
+        ignore_hit_behavior_verified && accept_hit_behavior_verified;
 
     safe_release(indirect_ray_args);
     safe_release(indirect_ray_signature);
@@ -5514,6 +5517,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
             ",\"closest_hit_local_uav_value\":" + std::to_string(local_root_uav_value) +
             ",\"ray_shader_builtin_words\":[" + [&]() { std::string values; for (size_t i = 0; i < ray_shader_builtin_words.size(); ++i) { if (i) values += ","; values += std::to_string(ray_shader_builtin_words[i]); } return values; }() +
             "],\"ray_shader_builtin_matrix_verified\":" + (ray_shader_builtin_matrix_verified ? "true" : "false") +
+            ",\"ignore_hit_behavior_verified\":" + (ignore_hit_behavior_verified ? "true" : "false") +
+            ",\"accept_hit_behavior_verified\":" + (accept_hit_behavior_verified ? "true" : "false") +
             ",\"unknown_identifier_null\":" + (!unknown_identifier ? "true" : "false") +
             ",\"tier1_1_matrix_complete\":" + (verified ? "true" : "false") + ",\"removed_reason\":\"" +
             hr_hex(removed_reason) + "\""};
