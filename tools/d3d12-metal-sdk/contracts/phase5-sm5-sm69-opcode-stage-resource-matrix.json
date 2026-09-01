@@ -2437,8 +2437,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-tessellation_shader_pso:load_output_control_point"
+      ],
       "negative_evidence": []
     },
     {
@@ -2469,8 +2471,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-tessellation_shader_pso:domain_location"
+      ],
       "negative_evidence": []
     },
     {
@@ -2485,8 +2489,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-tessellation_shader_pso:store_patch_constant"
+      ],
       "negative_evidence": []
     },
     {
@@ -2501,8 +2507,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-tessellation_shader_pso:output_control_point_id"
+      ],
       "negative_evidence": []
     },
     {

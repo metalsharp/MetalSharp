@@ -2238,7 +2238,9 @@ float4 ps_main(CP input) : SV_Target { return saturate(input.color); }
                 std::to_string(expected_nonzero_pixels) +
                 ",\"center_pixel\":" + std::to_string(center_pixel) +
                 ",\"expected_center_pixel\":" +
-                std::to_string(expected_center_pixel)};
+                std::to_string(expected_center_pixel) +
+                ",\"tessellation_system_values_verified\":" +
+                (verified ? "true" : "false")};
 }
 
 static ProbeResult probe_subnautica_geometry_dxil_replay() {
