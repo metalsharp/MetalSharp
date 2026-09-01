@@ -2833,6 +2833,19 @@ void cs_sm69_native16(uint3 id : SV_DispatchThreadID) {
 }
 
 [numthreads(1, 1, 1)]
+void cs_sm69_native16_math(uint3 id : SV_DispatchThreadID) {
+  float16_t value = float16_t(4.0);
+  float16_t root = sqrt(value);
+  float16_t reciprocal_root = rsqrt(value);
+  float16_t magnitude = abs(-float16_t(3.5));
+  float16_t minimum = min(float16_t(1.5), float16_t(2.5));
+  float16_t maximum = max(float16_t(1.5), float16_t(2.5));
+  uint result = uint(root) + uint(reciprocal_root * float16_t(4.0)) +
+                uint(magnitude) + uint(minimum) + uint(maximum);
+  outbuf.Store(0, result);
+}
+
+[numthreads(1, 1, 1)]
 void cs_sm69_fdot_wide(uint3 id : SV_DispatchThreadID) {
   vector<float, 8> a = vector<float, 8>(1.0f, 2.0f, 3.0f, 4.0f,
                                          5.0f, 6.0f, 7.0f, 8.0f);
@@ -3275,6 +3288,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_native16 -T cs_6_9 -HV 2021 -enable-16bit-types \
       -Fo probe_dxil_semantic_sm69_native16.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_native16_math -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_native16_math.cso probe_dxil_semantic_sm69.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_fdot_wide -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
