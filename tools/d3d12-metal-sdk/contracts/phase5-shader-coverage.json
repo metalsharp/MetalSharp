@@ -398,7 +398,7 @@
         ["pipeline_statistics1_ms_invocations", 2],
         ["pipeline_statistics1_ms_primitives", 2]
       ],
-      "remaining": "The exact Apple M4/Metal 4 native mesh provider covers one 64-byte SM6.5 amplification-to-mesh payload, direct and GPU-only indirect dispatch, one triangle, two render-target-array layers, depth/blend/wireframe variants, stage CBV/SRV/UAV/sampler bindings, and PIPELINE_STATISTICS1. Additional payload sizes, mesh output counts/topologies, thread-group shapes, barriers, resource ranges, VRS, and amplification patterns remain in the exhaustive row; the native libmetalirconverter cache provider is host-specific and is not a portable compiler-object provider."
+      "remaining": "The exact Apple M4/Metal 4 native mesh provider covers 64-byte, 128-byte, and 256-byte SM6.5 amplification-to-mesh payloads, including a 64-thread group, direct and GPU-only indirect dispatch, one triangle, two render-target-array layers, depth/blend/wireframe variants, stage CBV/SRV/UAV/sampler bindings, and PIPELINE_STATISTICS1. Additional payload sizes, mesh output counts/topologies, other thread-group shapes, barriers, resource ranges, VRS, and amplification patterns remain in the exhaustive row; the native libmetalirconverter cache provider is host-specific and is not a portable compiler-object provider."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
