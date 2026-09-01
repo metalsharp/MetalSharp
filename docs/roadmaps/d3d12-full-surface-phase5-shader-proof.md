@@ -274,6 +274,17 @@
   to the non-indexed triangle path. A second legal DXIL shader using
   `RAY_FLAG_FORCE_OPAQUE` is rejected at PSO creation with exact `0x80004005`;
   no unsupported ray flag is silently discarded.
+- Profile `phase5-closeout-dxr9` now executes the native ray-generation/state-
+  object provider with `METAL_SHADER_CONVERTER=/nonexistent` and explicit
+  `METALSHARP_NATIVE_IRCONVERTER=1`. It passes exact BLAS/TLAS construction,
+  collection filtering/merge, direct and indirect `DispatchRays`, recursive
+  miss/closest-hit/callable/procedural dispatch, and local-root records. Its
+  29-word system-value matrix is exact: dispatch dimensions `[5,1,1]`,
+  triangle `InstanceID=7`, `InstanceIndex=0`, `HitKind=0xfe`, `RayFlags=0`,
+  primitive/geometry index zero, `RayTMin=0`, `RayTCurrent=2`, identity
+  world/object ray vectors and transforms. This closes only the exercised
+  ray-generation system-value rows; `IgnoreHit`/`AcceptHitAndEndSearch`, full
+  table breadth, SER, OMM, and portable object-code support remain open.
 
 - The dedicated `phase5-viewid-default-final` profile compiles a pinned SM6.8
   vertex shader using `SV_StartVertexLocation`, `SV_StartInstanceLocation`,
@@ -698,8 +709,10 @@ the exhaustive row.
 
 ## Remaining Phase 5 work
 
-The complete exit gate is not claimed. The stable corpus still needs positive
-and negative behavior evidence for every declared DXIL opcode/intrinsic,
+The complete exit gate is not claimed. The native ray-generation batch now
+adds exact positive behavior for the exercised DXR shader-system-value rows,
+but the stable corpus still needs positive and negative behavior evidence for
+every remaining declared DXIL opcode/intrinsic,
 control-flow and aggregate shape, graphics stage, remaining texture sampling
 forms, typed/raw/structured/counter resource, cache/compiler-session path, and
 all legal SM5.x–SM6.9 operations. Multi-counter and non-compute/vertex/pixel

@@ -5066,7 +5066,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         D3D12_RESOURCE_BARRIER direct_output_barrier = transition_barrier(
             ray_query_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &direct_output_barrier);
-        list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0, sizeof(uint32_t) * 8);
+        list4->CopyBufferRegion(ray_query_readback, 0, ray_query_output, 0, sizeof(uint32_t) * 40);
         D3D12_RESOURCE_BARRIER indirect_output_barrier = transition_barrier(
             ray_query_output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         list4->ResourceBarrier(1, &indirect_output_barrier);
@@ -5116,7 +5116,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         D3D12_RESOURCE_BARRIER output_barrier = transition_barrier(
             ray_query_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &output_barrier);
-        list4->CopyBufferRegion(indirect_ray_readback, 0, ray_query_output, 0, sizeof(uint32_t) * 8);
+        list4->CopyBufferRegion(indirect_ray_readback, 0, ray_query_output, 0, sizeof(uint32_t) * 40);
         hr = execute_and_wait(queue, list4);
     }
 
@@ -5156,6 +5156,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     uint32_t mixed_aabb_hit_value = 0;
     uint32_t indirect_ray_behavior_value = 0;
     uint32_t local_root_uav_value = 0;
+    std::array<uint32_t, 29> ray_shader_builtin_words = {};
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
         D3D12_RANGE range = {0, sizeof(clone_current_size)};
@@ -5281,7 +5282,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(uint32_t) * 8};
+        D3D12_RANGE range = {0, sizeof(uint32_t) * 40};
         hr = ray_query_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&ray_hit, mapped, sizeof(ray_hit));
@@ -5292,6 +5293,9 @@ static ProbeResult probe_dxr_acceleration_structures() {
                         sizeof(callable_value));
             std::memcpy(&raygen_value, static_cast<const uint8_t*>(mapped) + sizeof(uint32_t) * 5,
                         sizeof(raygen_value));
+            std::memcpy(ray_shader_builtin_words.data(),
+                        static_cast<const uint8_t *>(mapped) + 32,
+                        ray_shader_builtin_words.size() * sizeof(uint32_t));
             std::memcpy(&procedural_hit_value, static_cast<const uint8_t*>(mapped) + sizeof(uint32_t) * 3,
                         sizeof(procedural_hit_value));
             std::memcpy(&mixed_hit_value, static_cast<const uint8_t*>(mapped) + sizeof(uint32_t) * 6,
@@ -5303,7 +5307,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     }
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(uint32_t) * 8};
+        D3D12_RANGE range = {0, sizeof(uint32_t) * 40};
         hr = indirect_ray_readback->Map(0, &range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&indirect_ray_behavior_value, static_cast<const uint8_t*>(mapped) + sizeof(uint32_t) * 3,
@@ -5320,6 +5324,14 @@ static ProbeResult probe_dxr_acceleration_structures() {
             closest_hit_local_uav_readback->Unmap(0, nullptr);
         }
     }
+    const std::array<uint32_t, 29> expected_ray_shader_builtin_words = {
+        5u, 1u, 1u, 7u, 0u, 0xfeu, 0u, 0u, 0u, 0u,
+        0x40000000u, 0u, 0u, 0xc0000000u, 0u, 0u, 0x3f800000u,
+        0u, 0u, 0xc0000000u, 0u, 0u, 0x3f800000u,
+        0x3f800000u, 0x3f800000u, 0x3f800000u, 0x3f800000u,
+        0x3f800000u, 0x3f800000u};
+    const bool ray_shader_builtin_matrix_verified =
+        ray_shader_builtin_words == expected_ray_shader_builtin_words;
     const HRESULT removed_reason = device->GetDeviceRemovedReason();
     const bool indirect_ray_behavior_verified =
         indirect_ray_dispatch_recorded && indirect_ray_behavior_value == 0x50524f43;
@@ -5349,7 +5361,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
         mixed_aabb_hit_value == 0x50524f43 && shader_identifier_abi_layout && collection_filtering_and_merge &&
         local_descriptor_tables_written && local_sampler_table_written && local_static_sampler_written &&
         stack_size_contract && indirect_ray_dispatch_recorded && indirect_ray_behavior_value == 0x50524f43 &&
-        local_root_uav_value == 0x4c525557;
+        local_root_uav_value == 0x4c525557 && ray_shader_builtin_matrix_verified;
 
     safe_release(indirect_ray_args);
     safe_release(indirect_ray_signature);
@@ -5500,6 +5512,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
             ",\"closest_hit_local_root_marker\":1280262988" + ",\"closest_hit_local_srv_marker\":1397904945" +
             ",\"closest_hit_local_cbv_marker\":1128420913" +
             ",\"closest_hit_local_uav_value\":" + std::to_string(local_root_uav_value) +
+            ",\"ray_shader_builtin_words\":[" + [&]() { std::string values; for (size_t i = 0; i < ray_shader_builtin_words.size(); ++i) { if (i) values += ","; values += std::to_string(ray_shader_builtin_words[i]); } return values; }() +
+            "],\"ray_shader_builtin_matrix_verified\":" + (ray_shader_builtin_matrix_verified ? "true" : "false") +
             ",\"unknown_identifier_null\":" + (!unknown_identifier ? "true" : "false") +
             ",\"tier1_1_matrix_complete\":" + (verified ? "true" : "false") + ",\"removed_reason\":\"" +
             hr_hex(removed_reason) + "\""};

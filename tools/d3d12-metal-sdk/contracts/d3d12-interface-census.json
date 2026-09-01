@@ -5661,7 +5661,7 @@
             {
               "lines": [
                 1105,
-                2181
+                2224
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_pipeline_state.cpp"
             },
@@ -11518,7 +11518,7 @@
             },
             {
               "lines": [
-                4177
+                4220
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_pipeline_state.cpp"
             },
@@ -18942,7 +18942,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "944eb6bd43fdc20364a2e14462a18e88abb246d9",
+    "git_head": "c9d497f2693642cba346da2a7e58acb3f921e1d6",
     "runtime_file_count": 167,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
@@ -18951,7 +18951,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "dab2f5f9bdadf8671ee15422cb5f4b082044f7c6824cde3e624485b041d0c2da"
+    "runtime_tree_sha256": "42988831cf6d167d3cfe62d6c293c208d520bdf604446a0fe5ec066ce4c79bea"
   },
   "state": "phase0_inventory",
   "summary": {

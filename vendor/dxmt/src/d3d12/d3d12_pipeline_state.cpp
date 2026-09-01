@@ -1138,6 +1138,45 @@ void DumpRootSignatureSummary(FILE *df, const MTLD3D12RootSignature *root_sig) {
   }
 }
 
+static bool DxilSystemOpcodeFromDeclaration(const std::string &name,
+                                             uint32_t &opcode) {
+  struct OpcodeName {
+    const char *prefix;
+    uint32_t opcode;
+  };
+  static constexpr OpcodeName names[] = {
+      {"dx.op.instanceID.", 141},
+      {"dx.op.instanceIndex.", 142},
+      {"dx.op.hitKind.", 143},
+      {"dx.op.rayFlags.", 144},
+      {"dx.op.dispatchRaysIndex.", 145},
+      {"dx.op.dispatchRaysDimensions.", 146},
+      {"dx.op.worldRayOrigin.", 147},
+      {"dx.op.worldRayDirection.", 148},
+      {"dx.op.objectRayOrigin.", 149},
+      {"dx.op.objectRayDirection.", 150},
+      {"dx.op.objectToWorld.", 151},
+      {"dx.op.worldToObject.", 152},
+      {"dx.op.rayTMin.", 153},
+      {"dx.op.rayTCurrent.", 154},
+      {"dx.op.ignoreHit", 155},
+      {"dx.op.acceptHitAndEndSearch", 156},
+      {"dx.op.traceRay.", 157},
+      {"dx.op.reportHit.", 158},
+      {"dx.op.callShader.", 159},
+      {"dx.op.createHandleForLib.", 160},
+      {"dx.op.primitiveIndex.", 161},
+      {"dx.op.geometryIndex.", 213},
+  };
+  for (const auto &entry : names) {
+    if (name.rfind(entry.prefix, 0) == 0) {
+      opcode = entry.opcode;
+      return true;
+    }
+  }
+  return false;
+}
+
 void DumpDXILModuleSummary(const char *path,
                            const dxmt::dxil::LLVMModule &module,
                            const dxmt::dxil::DxilParsedShader &shader_info) {
@@ -1207,9 +1246,13 @@ void DumpDXILModuleSummary(const char *path,
             declaration->second.rfind("dx.op.", 0) != 0)
           continue;
         uint32_t dxil_opcode = 0;
-        if (scalar_constant(inst.operands[2], dxil_opcode)) {
+        const std::string &name = declaration->second;
+        bool opcode_resolved = scalar_constant(inst.operands[2], dxil_opcode);
+        if (!opcode_resolved)
+          opcode_resolved =
+              DxilSystemOpcodeFromDeclaration(name, dxil_opcode);
+        if (opcode_resolved) {
           dxil_opcode_counts[static_cast<int>(dxil_opcode)]++;
-          const std::string &name = declaration->second;
           const bool nested_opcode =
               name.rfind("dx.op.unary.", 0) == 0 ||
               name.rfind("dx.op.binary.", 0) == 0 ||
