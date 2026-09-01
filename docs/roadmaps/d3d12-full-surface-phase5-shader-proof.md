@@ -102,8 +102,10 @@
   `0x4d534831` mesh UAV marker, exact two-layer/depth/blend/wireframe
   readbacks, and `PIPELINE_STATISTICS1` values `AS=2`, `MS=2`, `primitives=2`.
   The 128-byte profile additionally verifies all 28 payload-tail words and
-  reports `mesh_payload_bytes=128`. The DXIL reports contain opcodes 168–173
-  with zero unsupported semantics. This is a host-specific native-IR cache
+  reports `mesh_payload_bytes=128`; profile `phase7-mesh-threadgroup64`
+  additionally verifies all 64 mesh lanes with `mesh_threadgroup_width=64`
+  while preserving the same payload and raster readbacks. The DXIL reports
+  contain opcodes 168–173 with zero unsupported semantics. This is a host-specific native-IR cache
   provider; broader mesh payload/output/resource/barrier/VRS matrices remain
   open and no portable compiler-object provider is implied.
 - The LLVM 3.7 DXIL metadata reader now resolves the named `!dx.resources`
@@ -450,8 +452,10 @@ The mesh libraries were produced by the explicitly selected host
 remained set; the Wine prefix and runtime stage were disposable. Profiles
 `phase7-mesh-payload64` and `phase7-mesh-payload128` both pass the exact
 native direct/indirect matrix; the latter verifies all 28 payload-tail words
-and reports `mesh_payload_bytes=128`. Additional payload sizes and mesh
-output/resource matrices remain open.
+and reports `mesh_payload_bytes=128`; profile
+`phase7-mesh-threadgroup64` additionally verifies all 64 mesh lanes and
+`mesh_threadgroup_width=64` with the same exact readbacks. Additional payload
+sizes and mesh output/resource matrices remain open.
 
 The latest isolated temporary-register result (profile
 `phase5-tempreg-overloads`) passed with exact UAV readbacks:

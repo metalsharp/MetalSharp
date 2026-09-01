@@ -1684,7 +1684,7 @@ void as_main(uint3 group_id : SV_GroupID) {
 }
 
 [outputtopology("triangle")]
-[numthreads(32, 1, 1)]
+[numthreads(64, 1, 1)]
 void ms_main(in payload MeshPayload payload,
              out vertices MeshVertex vertices[3],
              out primitives MeshPrimitive primitives[1],
@@ -1724,7 +1724,7 @@ void ms_main(in payload MeshPayload payload,
                         group_thread_id == 24 ? payload.tail24 :
                         group_thread_id == 25 ? payload.tail25 :
                         group_thread_id == 26 ? payload.tail26 : payload.tail27;
-    mesh_output.Store(136 + group_thread_id * 4, payload_tail);
+    mesh_output.Store(264 + group_thread_id * 4, payload_tail);
   }
   if (group_thread_id == 0) {
     vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, payload.depth, 1.0);

@@ -3135,7 +3135,7 @@ static ProbeResult probe_mesh_shader_pso() {
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
-        D3D12_RESOURCE_DESC output_desc = buffer_desc(256);
+        D3D12_RESOURCE_DESC output_desc = buffer_desc(512);
         output_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         hr =
             device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
@@ -3143,7 +3143,7 @@ static ProbeResult probe_mesh_shader_pso() {
     }
     if (SUCCEEDED(hr)) {
         D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
-        D3D12_RESOURCE_DESC output_desc = buffer_desc(256);
+        D3D12_RESOURCE_DESC output_desc = buffer_desc(512);
         hr = device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
                                              D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                              IID_PPV_ARGS(&mesh_output_readback));
@@ -3155,7 +3155,7 @@ static ProbeResult probe_mesh_shader_pso() {
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
         uav.Format = DXGI_FORMAT_R32_TYPELESS;
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.NumElements = 64;
+        uav.Buffer.NumElements = 128;
         uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(mesh_output, nullptr, &uav, cpu);
     }
@@ -3271,7 +3271,7 @@ static ProbeResult probe_mesh_shader_pso() {
         D3D12_RESOURCE_BARRIER output_barrier =
             transition_barrier(mesh_output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list6->ResourceBarrier(1, &output_barrier);
-        list6->CopyBufferRegion(mesh_output_readback, 0, mesh_output, 0, 256);
+        list6->CopyBufferRegion(mesh_output_readback, 0, mesh_output, 0, 512);
         D3D12_RESOURCE_BARRIER barrier =
             transition_barrier(target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list6->ResourceBarrier(1, &barrier);
@@ -3449,7 +3449,7 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t wireframe_clear_pixels = 0;
     uint64_t wireframe_unexpected_pixels = 0;
     uint32_t mesh_output_value = 0;
-    uint32_t mesh_lane_values[32] = {};
+    uint32_t mesh_lane_values[64] = {};
     uint32_t mesh_payload_tail_values[28] = {};
     D3D12_QUERY_DATA_PIPELINE_STATISTICS1 pipeline_statistics1 = {};
     bool pipeline_statistics1_readback_ok = false;
@@ -3497,12 +3497,12 @@ static ProbeResult probe_mesh_shader_pso() {
 
     if (SUCCEEDED(hr)) {
         void* mapped = nullptr;
-        D3D12_RANGE read_range = {0, 256};
+        D3D12_RANGE read_range = {0, 512};
         hr = mesh_output_readback->Map(0, &read_range, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(&mesh_output_value, mapped, sizeof(mesh_output_value));
             std::memcpy(mesh_lane_values, static_cast<uint8_t*>(mapped) + 8, sizeof(mesh_lane_values));
-            std::memcpy(mesh_payload_tail_values, static_cast<uint8_t*>(mapped) + 136,
+            std::memcpy(mesh_payload_tail_values, static_cast<uint8_t*>(mapped) + 264,
                         sizeof(mesh_payload_tail_values));
             D3D12_RANGE written = {0, 0};
             mesh_output_readback->Unmap(0, &written);
@@ -3652,7 +3652,7 @@ static ProbeResult probe_mesh_shader_pso() {
     safe_release(device2);
     safe_release(device);
     bool mesh_lane_values_verified = true;
-    for (uint32_t lane = 0; lane < 32; lane++)
+    for (uint32_t lane = 0; lane < 64; lane++)
         mesh_lane_values_verified &= mesh_lane_values[lane] == 0x4153504c + lane;
     bool mesh_payload_tail_verified = true;
     for (uint32_t value = 0; value < 28; value++)
@@ -3737,7 +3737,7 @@ static ProbeResult probe_mesh_shader_pso() {
             ",\"wireframe_clear_pixels\":" + std::to_string(wireframe_clear_pixels) +
             ",\"wireframe_unexpected_pixels\":" + std::to_string(wireframe_unexpected_pixels) +
             ",\"mesh_output_value\":" + std::to_string(mesh_output_value) + ",\"mesh_texture_scale\":0.5" +
-            std::string(",\"mesh_threadgroup_width\":32") + std::string(",\"dispatch_mesh_groups_x\":2") +
+            std::string(",\"mesh_threadgroup_width\":64") + std::string(",\"dispatch_mesh_groups_x\":2") +
             ",\"mesh_lane_values_verified\":" + (mesh_lane_values_verified ? "true" : "false") +
             ",\"mesh_payload_bytes\":128,\"mesh_payload_tail_verified\":" +
             (mesh_payload_tail_verified ? "true" : "false") +
