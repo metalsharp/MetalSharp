@@ -1786,7 +1786,12 @@ void cs_main() {
   output.Store(140, asuint(committed_direction.x));
   output.Store(144, asuint(committed_direction.y));
   output.Store(148, asuint(committed_direction.z));
-  output.Store(156, 0xd3d12000);
+  RayQuery<RAY_FLAG_NONE> aborted;
+  aborted.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
+  while (aborted.Proceed()) {
+    aborted.Abort();
+  }
+  output.Store(156, aborted.CommittedStatus());
   output.Store(0, query.CommittedStatus());
 }
 HLSL

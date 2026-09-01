@@ -746,9 +746,10 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; 29 inline-RayQuery opcodes are now observed, including the exact
-candidate/committed state-accessor matrix, while broader DXR accessors,
-procedural/ray-generation paths, and state-object breadth remain open.
+ceiling; 30 inline-RayQuery opcodes are now observed, including the exact
+candidate/committed state-accessor and abort matrix, while broader DXR
+accessors, procedural/ray-generation paths, and state-object breadth remain
+open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1415,10 +1416,11 @@ whether the scoped FL12_2 gate is green.
 - Extended the inline-RayQuery lowering to dispatch the DXIL state-scalar and
   state-vector opcodes for candidate/committed front-face, barycentric,
   distance, instance/geometry/primitive, object-ray, world-ray, flag, and
-  procedural-state accessors. The isolated M4 profile now checks an exact
-  40-word candidate/committed readback, including committed object-ray values
-  and the triangle candidate's procedural-non-opaque false result.
-- Promoted 23 additional RayQuery opcode rows from runtime module-report and
-  exact-readback evidence; the exhaustive matrix is now 179 observed, 101 open,
+  procedural-state accessors, plus an explicit aborted query. The isolated M4
+  profile now checks an exact 40-word candidate/committed readback, including
+  committed object-ray values, the triangle candidate's procedural-non-opaque
+  false result, and an aborted query's empty committed status.
+- Promoted 24 additional RayQuery opcode rows from runtime module-report and
+  exact-readback evidence; the exhaustive matrix is now 180 observed, 100 open,
   and 32 reserved/not-applicable. Broader procedural geometry, transforms,
   ray-generation/state-object paths, and the Phase 5 exit gate remain open.
