@@ -728,6 +728,9 @@ struct LowerContext {
     std::vector<MSLType> value_types;
     std::vector<ValueRole> value_roles;
     std::unordered_map<uint32_t, std::string> buffer_origin;
+    // Retain private alloca/GEP pointee types so signless LLVM i32 loads
+    // preserve the signed long-vector lane kind for later conversions.
+    std::unordered_map<uint32_t, MSLType> pointer_pointee_types;
     std::unordered_map<uint32_t, uint32_t> vector_extract_origin;
     std::unordered_map<uint32_t, ResourceHandleRecord> resource_handles;
     std::optional<ResourceHandleRecord> pending_handle;
@@ -7870,6 +7873,11 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             auto scalar = result_type.kind == MSLTypeKind::Unknown
                 ? DXILIRBuilder::scalarType(vec_type)
                 : result_type;
+            // LLVM's signless i32 element type is commonly resolved as uint;
+            // the long-vector representation retains the DXIL lane kind and
+            // must win when extracting a signed lane for a later conversion.
+            if (DXILIRBuilder::isLongVectorType(vec_type))
+                scalar = DXILIRBuilder::scalarType(vec_type);
             emitTypedLine(scalar, result, expr);
             ctx.value_table[value_counter] = result;
             ctx.value_types[value_counter] = scalar;
@@ -8419,6 +8427,17 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         ensureValueTable(value_counter);
         ctx.value_table[value_counter] = "(" + storage_class + " char*)&" + alloca_name;
         ctx.value_types[value_counter] = {MSLTypeKind::DeviceCharPtr, 0, {}};
+        if (inst.type_id < ctx.mod.types.size()) {
+            const auto &allocated_type = ctx.mod.types[inst.type_id];
+            MSLType pointee;
+            if (allocated_type.kind == LLVMType::Pointer &&
+                !allocated_type.type_refs.empty())
+                pointee = DXILIRBuilder::resolveType(allocated_type.type_refs[0], ctx.mod);
+            else
+                pointee = DXILIRBuilder::resolveType(inst.type_id, ctx.mod);
+            if (isUsableType(pointee))
+                ctx.pointer_pointee_types[value_counter] = pointee;
+        }
         value_counter++;
         break;
     }
@@ -8550,6 +8569,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             }
             if (!isUsableType(result_type))
                 result_type = {MSLTypeKind::UInt, 0, {}};
+            auto pointee_it = ctx.pointer_pointee_types.find(inst.operands[0]);
+            if (pointee_it != ctx.pointer_pointee_types.end() &&
+                isUsableType(pointee_it->second))
+                result_type = pointee_it->second;
             std::string type_name = emitTypeName(result_type);
             std::string expr = defaultForType(result_type);
             const bool pointer_expression =
@@ -8589,6 +8612,10 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             auto val = getValue(inst.operands[1]);
             auto ptr_type = valueType(inst.operands[0]);
             auto val_type = operandType(inst.operands[1]);
+            if (isUsableType(val_type) &&
+                (DXILIRBuilder::isVectorType(val_type) ||
+                 DXILIRBuilder::isLongVectorType(val_type)))
+                ctx.pointer_pointee_types[inst.operands[0]] = val_type;
             MSLType ptr_name_type = typeForResolvedValueName(ctx, ptr);
             const bool group_i64 =
                 ctx.group_i64_globals.find(inst.operands[0]) !=
@@ -8657,6 +8684,16 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         }
         ctx.value_table[value_counter] = gep;
         ctx.value_types[value_counter] = {MSLTypeKind::DeviceCharPtr, 0, {}};
+        auto base_pointee_it = ctx.pointer_pointee_types.find(inst.operands[0]);
+        if (base_pointee_it != ctx.pointer_pointee_types.end()) {
+            MSLType pointee = base_pointee_it->second;
+            if ((DXILIRBuilder::isVectorType(pointee) ||
+                 DXILIRBuilder::isLongVectorType(pointee)) &&
+                inst.operands.size() >= 2)
+                pointee = DXILIRBuilder::scalarType(pointee);
+            if (isUsableType(pointee))
+                ctx.pointer_pointee_types[value_counter] = pointee;
+        }
         value_counter++;
         break;
     }

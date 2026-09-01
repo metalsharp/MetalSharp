@@ -888,6 +888,8 @@ int main() {
          {80u}, "sm69_long_vector_dynamic"},
         {"sm69_long_vector_dynamic_float", "probe_dxil_semantic_sm69_long_vector_dynamic_float.cso", {1u},
          {0x431c0000u}, "sm69_long_vector_dynamic_float"},
+        {"sm69_long_vector_conversion", "probe_dxil_semantic_sm69_long_vector_conversion.cso", {},
+         {0xc0800000u, 0xfffffffcu}, "sm69_long_vector_conversion"},
         {"sm69_long_vector_reduce", "probe_dxil_semantic_sm69_long_vector_reduce.cso", {1u},
          {1u, 1u}, "sm69_long_vector_reduce"},
         {"sm69_long_vector_unary", "probe_dxil_semantic_sm69_long_vector_unary.cso", {1u},
