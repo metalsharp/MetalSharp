@@ -1686,13 +1686,14 @@ struct VSOut {
 
 VSOut vs_main(uint vertex_id : SV_VertexID,
              int start_vertex : SV_StartVertexLocation,
-             uint start_instance : SV_StartInstanceLocation) {
+             uint start_instance : SV_StartInstanceLocation,
+             uint view_id : SV_ViewID) {
   float2 position = vertex_id == 4 ? float2(-0.8, -0.8) :
                     vertex_id == 5 ? float2(0.0, 0.8) :
                                       float2(0.8, -0.8);
   VSOut output;
   output.position = float4(position, 0.0, 1.0);
-  output.color = float4(start_vertex == 4 ? 1.0 : 0.0,
+  output.color = float4(start_vertex == 4 && view_id == 0 ? 1.0 : 0.0,
                         start_instance == 7 ? 0.5 : 0.0,
                         0.25, 1.0);
   return output;

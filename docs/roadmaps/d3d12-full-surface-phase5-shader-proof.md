@@ -241,14 +241,15 @@
   `RAY_FLAG_FORCE_OPAQUE` is rejected at PSO creation with exact `0x80004005`;
   no unsupported ray flag is silently discarded.
 
-- The dedicated `phase5-start-vertexstart` profile compiles a pinned SM6.8
-  vertex shader using `SV_StartVertexLocation` and
-  `SV_StartInstanceLocation`, issues `DrawInstanced(3, 1, 4, 7)`, and verifies
-  an exact 16x16 raster readback: 72 nonzero pixels, zero unexpected pixels,
-  and center pixel `0xff4080ff`. The source-staged DXIL report contains
-  opcodes 256 and 257 with zero unsupported intrinsics/opcodes; the command
-  replay preserves the original start-vertex value while Metal applies the
-  vertex offset through `[[vertex_id]]`.
+- The dedicated `phase5-viewid-default-final` profile compiles a pinned SM6.8
+  vertex shader using `SV_StartVertexLocation`, `SV_StartInstanceLocation`,
+  and `SV_ViewID`, issues `DrawInstanced(3, 1, 4, 7)`, and verifies an exact
+  16x16 raster readback: 72 nonzero pixels, zero unexpected pixels, and center
+  pixel `0xff4080ff`. The source-staged DXIL report contains opcodes 138, 256,
+  and 257 with zero unsupported intrinsics/opcodes; the default-view path
+  verifies `SV_ViewID=0`, while the command replay preserves the original
+  start-vertex value and Metal applies the vertex offset through `[[vertex_id]]`.
+  Per-view ViewID replay remains a separate breadth requirement.
 
 ## Exact evidence
 
@@ -293,8 +294,8 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --mini-only --no-winemetal-abi
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
-METALSHARP_PROBE_PROFILE=phase5-start-vertexstart \
-METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-start-vertexstart \
+METALSHARP_PROBE_PROFILE=phase5-viewid-default-final \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-viewid \
 METALSHARP_MINI_PROBE_FILTER=start_draw_info \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
@@ -327,7 +328,7 @@ It was run against the rebuilt runtime with `METAL_SHADER_CONVERTER=/nonexistent
 and a disposable Wine prefix.
 
 The latest isolated start-draw-information result (profile
-`phase5-start-vertexstart`) passed with an exact raster readback:
+`phase5-viewid-default-final`) passed with an exact raster readback:
 
 ```json
 {
@@ -337,7 +338,8 @@ The latest isolated start-draw-information result (profile
   "center_pixel": 4282417407,
   "expected_center_pixel": 4282417407,
   "start_vertex_location": 4,
-  "start_instance_location": 7
+  "start_instance_location": 7,
+  "view_id_default_verified": true
 }
 ```
 
@@ -401,9 +403,9 @@ exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
 exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 90 rows still missing after 38 exact inline-RayQuery plus
-two extended-command-information opcode observations, including the
-candidate/committed state-accessor, transform, contribution, procedural,
+remains open with 89 rows still missing after 38 exact inline-RayQuery,
+one ViewID, and two extended-command-information opcode observations, including
+the candidate/committed state-accessor, transform, contribution, procedural,
 AllocateRayQuery2, and abort matrix.
 The latest isolated
 texture-dimension result is profile

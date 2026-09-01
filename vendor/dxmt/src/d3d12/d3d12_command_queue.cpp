@@ -6823,8 +6823,13 @@ struct ReplayState {
       params.draw.startInstanceLocation = start_instance;
     }
 
-    const uint16_t draw_info =
-        indexed ? (uint16_t)((uint16_t)index_type + 1u) : kMSCNonIndexedDraw;
+    const uint32_t draw_info =
+        (indexed ? (uint32_t)((uint16_t)index_type + 1u)
+                 : (uint32_t)kMSCNonIndexedDraw) |
+        ((active_view_instance_index == kNoViewInstanceIndex
+              ? 0u
+              : active_view_instance_index)
+         << 16);
 
     msc_draw_args_buf = MakeTransientBuffer(device, sizeof(params));
     const uint32_t draw_args_slot =

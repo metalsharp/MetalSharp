@@ -3180,8 +3180,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-start-draw-info:view_id_default"
+      ],
       "negative_evidence": []
     },
     {
