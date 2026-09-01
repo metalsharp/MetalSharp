@@ -144,7 +144,8 @@
   all/any reduction, componentwise negation/absolute-value, min/max, tertiary
   mad, float/integer vector conversion, vector select, signed/unsigned divide,
   shift, and remainder readbacks (`120.0f`, `72.0f`, `40/0xffffffd4`, `80`,
-  `156.0f`, `1/1`, `44.0f`, `24/56/20.0f/52.0f`, `96/80.0f`, `56`, `52.0f`,
+  `156.0f`, `1/1`, `44.0f/36.0f`, `24/56/20.0f/52.0f`, `96/80.0f`, `56`,
+  `52.0f`,
   `-4.0f/0xfffffffc`, `20/88/8/20`, `0xfffffff0/0xffffffec/0xfffffff7`,
   `4.0f` for long-vector floating remainder, `10` for native-16
   sqrt/rsqrt/abs/min/max, and `816.0f` respectively). The compact
