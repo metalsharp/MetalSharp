@@ -252,7 +252,10 @@
   instance index `1`, instance ID `11`, and ray distance `2.0`. A non-identity
   x=`0.25` instance transform and exact inverse values are included, with the
   result recorded in `accessor_matrix_verified=true` and
-  `procedural_commit_verified=true`. A second legal DXIL shader using
+  `procedural_commit_verified=true`. The same exact 96-word matrix passes with
+  an R16 indexed triangle geometry (`indexed_r16_geometry_verified=true`) in
+  profile `phase5-dxr-indexed`; this covers indexed BLAS binding in addition
+  to the non-indexed triangle path. A second legal DXIL shader using
   `RAY_FLAG_FORCE_OPAQUE` is rejected at PSO creation with exact `0x80004005`;
   no unsupported ray flag is silently discarded.
 
@@ -342,6 +345,14 @@ METALSHARP_MINI_PROBE_FILTER=temp_registers \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
     --mini-only --no-winemetal-abi
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_PROBE_PROFILE=phase5-dxr-indexed \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-dxr-inline-recheck \
+METALSHARP_MINI_PROBE_FILTER=dxr_inline \
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
+    --mini-only --no-winemetal-abi
 ```
 
 The latest isolated inline-RayQuery result (profile
@@ -387,6 +398,11 @@ The latest isolated start-draw-information result (profile
 
 It was run against the rebuilt runtime with `METAL_SHADER_CONVERTER=/nonexistent`
 and a disposable Wine prefix.
+
+The indexed-BLAS rerun (profile `phase5-dxr-indexed`) also passed the same
+exact 96-word matrix, with `indexed_r16_geometry_verified=true`, the exact
+`768/256` BLAS sizes, and the exact `1280/256` TLAS sizes. It used a disposable
+Wine prefix and `METAL_SHADER_CONVERTER=/nonexistent`.
 
 The latest isolated temporary-register result (profile
 `phase5-tempreg-overloads`) passed with exact UAV readbacks:

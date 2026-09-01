@@ -1538,3 +1538,10 @@ whether the scoped FL12_2 gate is green.
   `METAL_SHADER_CONVERTER=/nonexistent`. All four core temporary-register rows
   are now observed; vector overloads, dynamic indexable min-precision
   addressing, and broader stage matrices remain open.
+
+### 2026-09-01 — Phase 5 indexed BLAS proof
+
+- Extended the native inline-RayQuery probe to use an R16 indexed triangle
+  BLAS rather than only a non-indexed vertex stream. The `phase5-dxr-indexed`
+  profile preserved the exact 96-word candidate/committed/accessor matrix and
+  the `768/256` BLAS plus `1280/256` TLAS size readbacks.

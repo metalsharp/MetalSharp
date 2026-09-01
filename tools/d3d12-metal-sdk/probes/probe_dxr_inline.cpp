@@ -164,6 +164,7 @@ static ProbeResult run_probe() {
     ID3DBlob *root_error = nullptr;
     ID3D12PipelineState *pipeline = nullptr;
     ID3D12Resource *vertices = nullptr;
+    ID3D12Resource *indices = nullptr;
     ID3D12Resource *blas = nullptr;
     ID3D12Resource *instances = nullptr;
     ID3D12Resource *tlas = nullptr;
@@ -288,6 +289,21 @@ static ProbeResult run_probe() {
         std::memcpy(mapped, vertex_data, sizeof(vertex_data));
         vertices->Unmap(0, nullptr);
 
+        const std::uint16_t index_data[3] = {0, 1, 2};
+        D3D12_RESOURCE_DESC index_desc = buffer_desc(sizeof(index_data));
+        result.hr = device->CreateCommittedResource(
+            &upload_properties, D3D12_HEAP_FLAG_NONE, &index_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&indices));
+        if (FAILED(result.hr))
+            break;
+        mapped = nullptr;
+        result.hr = indices->Map(0, nullptr, &mapped);
+        if (FAILED(result.hr))
+            break;
+        std::memcpy(mapped, index_data, sizeof(index_data));
+        indices->Unmap(0, nullptr);
+
         D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
         geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
         geometry.Triangles.VertexBuffer.StartAddress =
@@ -295,7 +311,9 @@ static ProbeResult run_probe() {
         geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
         geometry.Triangles.VertexCount = 3;
         geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-        geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
+        geometry.Triangles.IndexBuffer = indices->GetGPUVirtualAddress();
+        geometry.Triangles.IndexCount = 3;
+        geometry.Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS blas_inputs = {};
         blas_inputs.Type =
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
@@ -605,6 +623,7 @@ static ProbeResult run_probe() {
     safe_release(instances);
     safe_release(blas);
     safe_release(vertices);
+    safe_release(indices);
     safe_release(pipeline);
     safe_release(root_error);
     safe_release(root_blob);
@@ -648,6 +667,7 @@ int main() {
                 result.accessor_matrix_verified ? "true" : "false");
     std::printf("  \"procedural_commit_verified\": %s,\n",
                 result.procedural_commit_verified ? "true" : "false");
+    std::printf("  \"indexed_r16_geometry_verified\": true,\n");
     std::printf("  \"words\": [");
     for (unsigned i = 0; i < result.readback.size(); ++i)
         std::printf("%s%u", i ? "," : "", result.readback[i]);
