@@ -170,6 +170,14 @@ Options:
   --full-stress         Run the full Subnautica DXBC shader corpus stress probe.
   -h, --help            Show this help.
 
+Environment:
+  METALSHARP_NATIVE_IRCONVERTER=1
+                        Use the host libmetalirconverter provider to materialize
+                        native mesh/amplification cache libraries. This does not
+                        change the required METAL_SHADER_CONVERTER setting.
+  METALSHARP_IRCONVERTER_ROOT
+                        Header/library root for the native provider (default /usr/local).
+
 Examples:
   tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp
 
