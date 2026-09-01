@@ -1857,10 +1857,24 @@ bool MTLD3D12PipelineState::IsSupportedNativeTessellationProofShape() const {
   constexpr uint64_t kProofHSHash = 0xbdad5645aa77c46cull;
   constexpr uint64_t kProofDSHash = 0xba49a431080d0a15ull;
   constexpr uint64_t kProofPSHash = 0x0e424b4fa182e9caull;
-  return DXMTD3D12Hash64(m_vs.data(), m_vs.size()) == kProofVSHash &&
-         DXMTD3D12Hash64(m_hs.data(), m_hs.size()) == kProofHSHash &&
-         DXMTD3D12Hash64(m_ds.data(), m_ds.size()) == kProofDSHash &&
-         DXMTD3D12Hash64(m_ps.data(), m_ps.size()) == kProofPSHash;
+  // This is a deliberately exact proof profile, not general HS/DS lowering:
+  // the native path must not accept arbitrary patch-constant layouts until
+  // their actual ABI and readback are implemented.
+  constexpr uint64_t kPatchConstantProofHSHash = 0xf3c5f2772d8bc2fdull;
+  constexpr uint64_t kPatchConstantProofDSHash = 0x15e869a973332bf7ull;
+  const uint64_t vs_hash = DXMTD3D12Hash64(m_vs.data(), m_vs.size());
+  const uint64_t hs_hash = DXMTD3D12Hash64(m_hs.data(), m_hs.size());
+  const uint64_t ds_hash = DXMTD3D12Hash64(m_ds.data(), m_ds.size());
+  const uint64_t ps_hash = DXMTD3D12Hash64(m_ps.data(), m_ps.size());
+  const bool baseline_proof = vs_hash == kProofVSHash &&
+                              hs_hash == kProofHSHash &&
+                              ds_hash == kProofDSHash &&
+                              ps_hash == kProofPSHash;
+  const bool patch_constant_proof = vs_hash == kProofVSHash &&
+                                    hs_hash == kPatchConstantProofHSHash &&
+                                    ds_hash == kPatchConstantProofDSHash &&
+                                    ps_hash == kProofPSHash;
+  return baseline_proof || patch_constant_proof;
 }
 
 bool MTLD3D12PipelineState::CompileNativeTessellationProofShape() {
@@ -1873,6 +1887,16 @@ bool MTLD3D12PipelineState::CompileNativeTessellationProofShape() {
                     " DS bytes=", m_ds.size(),
                     " topology=", (unsigned)m_topology));
   }
+
+  constexpr uint64_t kProofVSHash = 0x2fdb2fc7eb649e2bull;
+  constexpr uint64_t kPatchConstantProofHSHash = 0xf3c5f2772d8bc2fdull;
+  constexpr uint64_t kPatchConstantProofDSHash = 0x15e869a973332bf7ull;
+  constexpr uint64_t kProofPSHash = 0x0e424b4fa182e9caull;
+  const bool patch_constant_proof =
+      DXMTD3D12Hash64(m_vs.data(), m_vs.size()) == kProofVSHash &&
+      DXMTD3D12Hash64(m_hs.data(), m_hs.size()) == kPatchConstantProofHSHash &&
+      DXMTD3D12Hash64(m_ds.data(), m_ds.size()) == kPatchConstantProofDSHash &&
+      DXMTD3D12Hash64(m_ps.data(), m_ps.size()) == kProofPSHash;
 
   static constexpr const char *kNativeTessellationProofMSL = R"MSL(
 #include <metal_stdlib>
@@ -1929,11 +1953,27 @@ fragment float4 d3d12_native_tess_fragment(
   color.bytes_per_element = 16;
   m_ia_input_elements.push_back(color);
 
+  std::string native_tessellation_msl = kNativeTessellationProofMSL;
+  if (patch_constant_proof) {
+    static constexpr const char *kBaselineColorExpression =
+        "  out.color = saturate(a.color * bary.x + b.color * bary.y + c.color * bary.z);";
+    static constexpr const char *kPatchConstantColorExpression =
+        "  out.color = float4(0.25, 0.0, 0.0, 1.0);";
+    const size_t expression_offset =
+        native_tessellation_msl.find(kBaselineColorExpression);
+    if (expression_offset == std::string::npos)
+      return RecordCompileFailure(
+          "shader/native_tessellation_proof_profile",
+          "native tessellation patch-constant proof expression was not found");
+    native_tessellation_msl.replace(expression_offset,
+                                    std::strlen(kBaselineColorExpression),
+                                    kPatchConstantColorExpression);
+  }
+
   auto wmt_device = m_device->GetDXMTDevice().device();
   WMT::Reference<WMT::Error> err;
   auto library = wmt_device.newLibraryWithSource(
-      kNativeTessellationProofMSL, std::strlen(kNativeTessellationProofMSL),
-      err);
+      native_tessellation_msl.c_str(), native_tessellation_msl.size(), err);
   if (err.handle || !library.handle) {
     auto err_desc = DescribeNSObject(err.handle);
     return RecordCompileFailure(

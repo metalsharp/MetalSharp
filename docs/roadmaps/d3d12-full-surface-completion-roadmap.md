@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (233/280 required opcode rows observed; 47 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (234/280 required opcode rows observed; 46 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -772,21 +772,22 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, ray-generation paths, and state-object
 breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 233 observed, 47 open, and 32
+The exhaustive Phase 5 matrix currently has 234 observed, 46 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
 compiled `EmitThenCutStream` form and a source-staged two-instance
-`GSInstanceID` readback, and the native SM5 tessellation proof exercises
-output-control-point input loads, patch constant stores, and domain-location
-interpolation.
-`LoadPatchConstant`, non-default geometry instance counts, DXIL
+`GSInstanceID` readback, and the native SM5 tessellation proofs exercise
+output-control-point input loads, patch-constant stores/loads, and
+`SV_DomainLocation` interpolation. The bounded `LoadPatchConstant` proof
+consumes an exact 0.25 inside factor and returns center pixel `0xff000040`.
+Broader patch-constant layouts, non-default geometry instance counts, DXIL
 geometry-provider breadth, vector overloads, and broader stage matrices remain
 open.
 
 **Phase 5 closeout plan (literal gate retained):** Work is now batched by the
 remaining matrix families rather than by ad-hoc probes. First close the
-stage-system/vector rows (`EmitStream`/tessellation state,
+stage-system/vector rows (`EmitStream`/remaining tessellation state,
 `AttributeAtVertex`, and the legacy cycle-counter boundary) with exact
 runtime/negative evidence. Then pull the Phase 8 ray-generation, shader-table,
 and state-object rows into one native-DXR batch. Finally implement the Phase 7
@@ -1654,5 +1655,15 @@ whether the scoped FL12_2 gate is green.
   `SV_TessFactor`/`SV_InsideTessFactor` stores, and `SV_DomainLocation`
   interpolation. Four corresponding rows were promoted:
   `LoadOutputControlPoint`, `DomainLocation`, `StorePatchConstant`, and
-  `OutputControlPointID`. `LoadPatchConstant` remains open because consuming
-  patch factors in the domain shader is not supported by the provider.
+  `OutputControlPointID`.
+
+### 2026-09-01 — Phase 5 bounded patch-constant load proof
+
+- Added the explicitly bounded `tessellation_patch_constant` profile. It
+  consumes a source-staged `0.25` `SV_InsideTessFactor` value in the domain
+  shader and requires exactly 1,352 nonzero pixels with center pixel
+  `0xff000040`.
+- Extended the native tessellation proof provider with a separate exact
+  shader-bytecode profile. The generic HS/DS path remains fail-closed; only the
+  readback-backed proof shape promotes `LoadPatchConstant`.
+- The opcode matrix now reports **234 observed / 46 open / 32 reserved**.

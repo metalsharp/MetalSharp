@@ -2459,8 +2459,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-tessellation_patch_constant:load_patch_constant"
+      ],
       "negative_evidence": []
     },
     {
