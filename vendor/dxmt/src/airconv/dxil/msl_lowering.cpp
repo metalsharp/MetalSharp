@@ -405,6 +405,10 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
         return DXOP_RayQueryCommitNonOpaqueTriangleHit;
     if (strncmp(s, "rayQuery_CommitProceduralPrimitiveHit", 37) == 0)
         return DXOP_RayQueryCommitProceduralPrimitiveHit;
+    if (strncmp(s, "rayQuery_StateMatrix", 20) == 0)
+        return 186;
+    if (strncmp(s, "rayQuery_StateVector", 20) == 0)
+        return 193;
     if (strncmp(s, "rayQuery_StateScalar", 20) == 0)
         return DXOP_RayQueryCandidateType;
     if (strncmp(s, "isSpecialFloat.", 14) == 0) return DXOP_SpecialFloat;
@@ -521,6 +525,35 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_RayQueryCommittedStatus:
     case DXOP_RayQueryCandidateType:
     case DXOP_AllocateRayQuery2:
+    case 186:
+    case 187:
+    case 188:
+    case 189:
+    case 190:
+    case 191:
+    case 192:
+    case 193:
+    case 194:
+    case 195:
+    case 196:
+    case 197:
+    case 198:
+    case 199:
+    case 200:
+    case 201:
+    case 202:
+    case 203:
+    case 204:
+    case 205:
+    case 206:
+    case 207:
+    case 208:
+    case 209:
+    case 210:
+    case 211:
+    case 212:
+    case 214:
+    case 215:
         return true;
     default:
         return false;
@@ -4444,7 +4477,39 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::Bool, 0, {}};
     case DXOP_RayQueryCandidateType:
     case DXOP_RayQueryCommittedStatus:
+    case 190:
+    case 191:
+    case 192:
+    case 195:
+    case 201:
+    case 202:
+    case 203:
+    case 204:
+    case 207:
+    case 208:
+    case 209:
+    case 210:
+    case 214:
+    case 215:
         return {MSLTypeKind::UInt, 0, {}};
+    case 193:
+    case 194:
+    case 196:
+    case 197:
+    case 205:
+    case 206:
+    case 211:
+    case 212:
+        return {MSLTypeKind::Float, 0, {}};
+    case 198:
+    case 199:
+    case 200:
+        return {MSLTypeKind::Float, 0, {}};
+    case 186:
+    case 187:
+    case 188:
+    case 189:
+        return declared;
     case DXOP_RayQueryTraceRayInline:
     case DXOP_RayQueryAbort:
     case DXOP_RayQueryCommitNonOpaqueTriangleHit:
@@ -4888,6 +4953,20 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         uint32_t value = 0;
         return parseUnsignedLiteral(text, value) && value == 0;
     };
+    auto rayQueryStateComponent = [&](const std::string &value,
+                                      uint32_t component_count,
+                                      const char *label) {
+        const uint32_t component =
+            literalArg(1, UINT32_MAX, label);
+        if (component >= component_count) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL RayQuery %s component is unsupported: %u",
+                             label, component);
+            return std::string("0.0f");
+        }
+        static const char *suffixes[] = {".x", ".y", ".z", ".w"};
+        return value + suffixes[component];
+    };
 
     switch (intrinsic_id) {
     case DXOP_CreateHandle: {
@@ -5087,6 +5166,105 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                ".get_committed_intersection_type() == intersection_type::triangle ? 1u : "
                "(" + valueArg(0, "v0") +
                ".get_committed_intersection_type() == intersection_type::bounding_box ? 2u : 0u))";
+    case 190:
+        if (args.empty()) return "0u";
+        return "(" + valueArg(0, "v0") +
+               ".is_candidate_non_opaque_bounding_box() ? 1u : 0u)";
+    case 191:
+        if (args.empty()) return "0u";
+        return "(" + valueArg(0, "v0") +
+               ".is_candidate_triangle_front_facing() ? 1u : 0u)";
+    case 192:
+        if (args.empty()) return "0u";
+        return "(" + valueArg(0, "v0") +
+               ".is_committed_triangle_front_facing() ? 1u : 0u)";
+    case 195:
+        // TraceRayInline currently accepts only RAY_FLAG_NONE, so the value
+        // is exactly the only supported flag set.
+        return "0u";
+    case 198:
+        if (args.empty()) return "0.0f";
+        return valueArg(0, "v0") + ".get_ray_min_distance()";
+    case 199:
+        if (args.empty()) return "0.0f";
+        return valueArg(0, "v0") + ".get_candidate_triangle_distance()";
+    case 200:
+        if (args.empty()) return "0.0f";
+        return valueArg(0, "v0") + ".get_committed_distance()";
+    case 201:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_candidate_instance_id()";
+    case 202:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_candidate_user_instance_id()";
+    case 203:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_candidate_geometry_id()";
+    case 204:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_candidate_primitive_id()";
+    case 207:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_committed_instance_id()";
+    case 208:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_committed_user_instance_id()";
+    case 209:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_committed_geometry_id()";
+    case 210:
+        if (args.empty()) return "0u";
+        return valueArg(0, "v0") + ".get_committed_primitive_id()";
+    case 193:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_candidate_triangle_barycentric_coord()",
+            2, "candidate barycentrics");
+    case 194:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_committed_triangle_barycentric_coord()",
+            2, "committed barycentrics");
+    case 196:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_world_space_ray_origin()", 3,
+            "world ray origin");
+    case 197:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_world_space_ray_direction()", 3,
+            "world ray direction");
+    case 205:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_candidate_ray_origin()", 3,
+            "candidate object ray origin");
+    case 206:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_candidate_ray_direction()", 3,
+            "candidate object ray direction");
+    case 211:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_committed_ray_origin()", 3,
+            "committed object ray origin");
+    case 212:
+        if (args.size() < 2) return "0.0f";
+        return rayQueryStateComponent(
+            valueArg(0, "v0") + ".get_committed_ray_direction()", 3,
+            "committed object ray direction");
+    case 186:
+    case 187:
+    case 188:
+    case 189:
+    case 214:
+    case 215:
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(ctx, "DXIL RayQuery state opcode %u is not lowered",
+                         intrinsic_id);
+        return "0";
     case DXOP_ThreadId: {
         ctx.uses_thread_id = true;
         uint32_t c = args.empty() ? 0 : literalArg(0, 0, "comp");
@@ -9322,6 +9500,67 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                 else if (callee < ctx.value_table.size()) callee_name = ctx.value_table[callee];
                 uint32_t intrinsic_id = intrinsicIdFromCalleeName(callee_name);
                 if (intrinsic_id != 0 && inst.operands.size() > 2) {
+                    // RayQuery state operations share one LLVM declaration
+                    // name.  Resolve their explicit DXIL opcode before the
+                    // pre-declaration pass so a scalar state result cannot
+                    // inherit the i1 type of a neighboring predicate.
+                    uint32_t explicit_opcode = 0;
+                    bool has_explicit_opcode = false;
+                    const uint32_t opcode_id = inst.operands[2];
+                    if (opcode_id < ctx.value_table.size())
+                        has_explicit_opcode = parseUnsignedLiteral(
+                            ctx.value_table[opcode_id], explicit_opcode);
+                    for (const auto &constant : module.constants) {
+                        if (!has_explicit_opcode && constant.id == opcode_id &&
+                            parseUnsignedLiteral(constant.constant_data,
+                                                 explicit_opcode)) {
+                            has_explicit_opcode = true;
+                            break;
+                        }
+                    }
+                    if (!has_explicit_opcode) {
+                        for (const auto &constant : fn.constants) {
+                            if (constant.id == opcode_id &&
+                                parseUnsignedLiteral(constant.constant_data,
+                                                     explicit_opcode)) {
+                                has_explicit_opcode = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (has_explicit_opcode) {
+                        switch (explicit_opcode) {
+                        case 193:
+                        case 194:
+                        case 196:
+                        case 197:
+                        case 205:
+                        case 206:
+                        case 211:
+                        case 212:
+                        case 198:
+                        case 199:
+                        case 200:
+                            return {MSLTypeKind::Float, 0, {}};
+                        case 190:
+                        case 191:
+                        case 192:
+                        case 195:
+                        case 201:
+                        case 202:
+                        case 203:
+                        case 204:
+                        case 207:
+                        case 208:
+                        case 209:
+                        case 210:
+                        case 214:
+                        case 215:
+                            return {MSLTypeKind::UInt, 0, {}};
+                        default:
+                            break;
+                        }
+                    }
                     std::vector<uint32_t> fn_args;
                     if (intrinsic_id == DXOP_Unary || intrinsic_id == DXOP_Binary ||
                         intrinsic_id == DXOP_Tertiary)
@@ -9331,7 +9570,9 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                     MSLType declared = DXILIRBuilder::resolveType(inst.type_id, module);
                     MSLType inferred = inferDXIntrinsicResultType(ctx, intrinsic_id, fn_args, declared,
                                                                   callee_name);
-                    if (inferred.kind != MSLTypeKind::Unknown && inferred.kind != MSLTypeKind::Void)
+                    if (inferred.kind == MSLTypeKind::Void)
+                        return inferred;
+                    if (inferred.kind != MSLTypeKind::Unknown)
                         return inferred;
                 }
             }

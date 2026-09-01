@@ -219,14 +219,18 @@
   existing-collection-by-key payloads are supported; broader compiler-session
   and state-object combinations remain in the exhaustive row.
 
-- The dedicated `phase5-dxr-inline-final2` profile executes a native Metal
-  `intersection_query<instancing, triangle_data>` over a built one-triangle
-  TLAS. It creates the exact BLAS/TLAS prebuild sizes `768/256` and
-  `1024/256`, binds the TLAS through the direct acceleration-structure buffer
-  slot, and reads back `1` from the raw UAV after the DXIL
-  `TraceRayInline`/`Proceed`/candidate-type/commit/status sequence. A second
-  legal DXIL shader using `RAY_FLAG_FORCE_OPAQUE` is rejected at PSO creation
-  with exact `0x80004005`; no unsupported ray flag is silently discarded.
+- The dedicated `phase5-dxr-inline-accessors-final4` profile executes a native
+  Metal `intersection_query<instancing, triangle_data>` over a built
+  one-triangle TLAS. It creates the exact BLAS/TLAS prebuild sizes `768/256`
+  and `1024/256`, binds the TLAS through the direct acceleration-structure
+  buffer slot, and reads back an exact 40-word matrix after the DXIL
+  `TraceRayInline`/`Proceed`/candidate-type/commit/status sequence. The matrix
+  covers candidate and committed triangle front-face, barycentric, distance,
+  instance/geometry/primitive, object-ray, world-ray, flag, and procedural
+  non-opaque state, with the expected identity-transform values recorded in
+  `accessor_matrix_verified=true`. A second legal DXIL shader using
+  `RAY_FLAG_FORCE_OPAQUE` is rejected at PSO creation with exact `0x80004005`;
+  no unsupported ray flag is silently discarded.
 
 ## Exact evidence
 
@@ -263,8 +267,8 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --agility-only --no-winemetal-abi
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
-METALSHARP_PROBE_PROFILE=phase5-dxr-inline-final2 \
-METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-dxr-inline-final2 \
+METALSHARP_PROBE_PROFILE=phase5-dxr-inline-accessors-final4 \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-dxr-accessors-final \
 METALSHARP_MINI_PROBE_FILTER=dxr_inline \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
@@ -272,11 +276,24 @@ METAL_SHADER_CONVERTER=/nonexistent \
 ```
 
 The latest isolated inline-RayQuery result (profile
-`phase5-dxr-inline-final2`) passed with `readback=1`, BLAS prebuild
-`768/256`, TLAS prebuild `1024/256`,
-`invalid_pipeline_rejected=true` with `invalid_pipeline_hr=0x80004005`,
-and `removed_reason=0x00000000`. It was run against the rebuilt runtime with
-`METAL_SHADER_CONVERTER=/nonexistent` and a disposable Wine prefix.
+`phase5-dxr-inline-accessors-final4`) passed with `readback=1`,
+`accessor_matrix_verified=true`, and the exact 40-word matrix:
+
+```json
+{
+  "words": [1,0,7,0,0,0,1073741824,1048576000,1056964608,0,0,3221225472,0,0,1065353216,1,0,7,0,0,0,1073741824,1048576000,1056964608,0,0,0,0,3221225472,0,0,1065353216,0,0,3221225472,0,0,1065353216,0,3553697792],
+  "blas_result_bytes": 768,
+  "blas_scratch_bytes": 256,
+  "tlas_result_bytes": 1024,
+  "tlas_scratch_bytes": 256,
+  "invalid_pipeline_rejected": true,
+  "invalid_pipeline_hr": "0x80004005",
+  "removed_reason": "0x00000000"
+}
+```
+
+It was run against the rebuilt runtime with `METAL_SHADER_CONVERTER=/nonexistent`
+and a disposable Wine prefix.
 
 The latest isolated semantic result (profile
 `phase5-vector-type-fix2`) passed with these exact lanes. It was run
@@ -322,8 +339,8 @@ The fail-closed coverage manifest is
 `tools/d3d12-metal-sdk/contracts/phase5-shader-coverage.json`. It records the
 closed semantic, WaveOps (including active/prefix bit counts), control-flow,
 double-arithmetic, atomic-binop, diagnostic, atomic/special-float,
-binding-baseline, resource-metadata/texture-dimension, narrow inline-RayQuery,
-and focused lowering-report-audit rows. The complete numeric inventory is now pinned in
+binding-baseline, resource-metadata/texture-dimension, inline-RayQuery
+accessor, and focused lowering-report-audit rows. The complete numeric inventory is now pinned in
 `tools/d3d12-metal-sdk/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json`:
 all 312 DXIL 1.9 opcode values (including 32 reserved values) are classified
 by first DXIL version, stage, and resource scope. The companion
@@ -335,8 +352,8 @@ exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
 exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 124 rows still missing after the six exact inline-RayQuery
-opcode observations.
+remains open with 101 rows still missing after 29 exact inline-RayQuery
+opcode observations, including the candidate/committed state-accessor matrix.
 The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact

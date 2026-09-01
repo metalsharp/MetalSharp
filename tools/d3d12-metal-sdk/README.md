@@ -172,8 +172,9 @@ recursion executing through direct `DispatchRays` and a focused DXR 1.1
 offset and an independent fourth-ray procedural readback, while keeping
 RaytracingTier conservative; broader shader-table matrices remain gated.
 The dedicated `dxr_inline` mini probe independently proves the typed
-no-converter `TraceRayInline`/`Proceed`/candidate-type/commit/status path over
-an exact one-triangle TLAS and rejects an unsupported ray flag at PSO creation.
+no-converter `TraceRayInline`/`Proceed` path over an exact one-triangle TLAS,
+including an exact candidate/committed RayQuery state-accessor matrix and
+procedural-state negative, and rejects an unsupported ray flag at PSO creation.
 Both remain breadth gates rather than general feature claims.
 
 For DXIL semantic coverage, run the reduced SM6 opcode-group probe:

@@ -746,9 +746,9 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; the six inline-RayQuery opcodes are observed, while broader DXR
-accessors, procedural/ray-generation paths, and state-object breadth remain
-open.
+ceiling; 29 inline-RayQuery opcodes are now observed, including the exact
+candidate/committed state-accessor matrix, while broader DXR accessors,
+procedural/ray-generation paths, and state-object breadth remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1398,7 +1398,7 @@ whether the scoped FL12_2 gate is green.
   counters cannot become successful placeholder PSOs.
 - Added the Phase 5 shader proof, lowering-report audit, and fail-closed
   `phase5-shader-coverage.json` manifest. Focused semantic, WaveOps,
-  diagnostic, binding-baseline, and narrow inline-RayQuery rows are closed;
+  diagnostic, binding-baseline, and inline-RayQuery core rows are closed;
   the exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row remains
   open.
 
@@ -1409,3 +1409,16 @@ whether the scoped FL12_2 gate is green.
   M4 run proves exact one-triangle TLAS hit readback and rejects a shader using
   an unsupported ray flag with `0x80004005`; the six corresponding opcode rows
   are now observed without claiming the broader DXR or Phase 5 exit gate.
+
+### 2026-08-31 — Phase 5 RayQuery state-accessor expansion
+
+- Extended the inline-RayQuery lowering to dispatch the DXIL state-scalar and
+  state-vector opcodes for candidate/committed front-face, barycentric,
+  distance, instance/geometry/primitive, object-ray, world-ray, flag, and
+  procedural-state accessors. The isolated M4 profile now checks an exact
+  40-word candidate/committed readback, including committed object-ray values
+  and the triangle candidate's procedural-non-opaque false result.
+- Promoted 23 additional RayQuery opcode rows from runtime module-report and
+  exact-readback evidence; the exhaustive matrix is now 179 observed, 101 open,
+  and 32 reserved/not-applicable. Broader procedural geometry, transforms,
+  ray-generation/state-object paths, and the Phase 5 exit gate remain open.

@@ -317,9 +317,10 @@
       "result": "probe-mini-dxr_inline",
       "checks": [
         ["ok"],
-        ["invalid_pipeline_rejected"]
+        ["invalid_pipeline_rejected"],
+        ["accessor_matrix_verified"]
       ],
-      "remaining": "The native Metal intersection_query path proves a compute-stage RayQuery over one exact triangle TLAS, including exact hit readback, direct acceleration-structure binding, and fail-closed rejection of an unsupported ray flag. Candidate/committed accessors beyond type/status, procedural hits, ray-generation dispatch, state-object growth, shader tables, mixed geometry, serialization, and broader DXR stage/resource combinations remain in the exhaustive row."
+      "remaining": "The native Metal intersection_query path proves a compute-stage RayQuery over one exact triangle TLAS, including exact hit readback, candidate/committed state accessors, direct acceleration-structure binding, and fail-closed rejection of an unsupported ray flag. Procedural hits beyond the proven triangle-state negative, ray-generation dispatch, state-object growth, shader tables, mixed geometry, serialization, and broader DXR stage/resource combinations remain in the exhaustive row."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
