@@ -60,6 +60,7 @@ MINI_PROBES=(
   descriptors
   graphics_pso
   geometry_shader_pso
+  geometry_system_matrix
   mesh_object_shader_pso
   texture_sample
   subnautica_geometry_dxil_replay

@@ -2323,8 +2323,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-geometry-system-matrix:emit_stream_readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -2339,8 +2341,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-geometry-system-matrix:cut_stream_readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -2513,8 +2517,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-geometry-system-matrix:primitive_id_readback"
+      ],
       "negative_evidence": []
     },
     {
