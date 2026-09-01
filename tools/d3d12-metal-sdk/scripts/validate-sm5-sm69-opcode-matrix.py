@@ -107,6 +107,8 @@ def resource_scope(opcode: int, name: str) -> list[str]:
 # The validator reports the remaining rows instead of treating this mapping as
 # proof for opcode variants that have not been emitted by a test.
 EVIDENCE: dict[int, list[str]] = {
+    4: ["probe-writable-msaa:graphics_stage"],
+    5: ["probe-writable-msaa:graphics_stage"],
     **{opcode: ["probe-dxil-semantics:core_opcode_matrix"] for opcode in range(6, 57)},
     57: ["probe-shader-corpus:resource_indexing"],
     58: ["probe-dxil-semantics:buffer_load_store"],

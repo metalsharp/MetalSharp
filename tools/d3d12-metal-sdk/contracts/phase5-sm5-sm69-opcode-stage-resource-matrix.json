@@ -109,8 +109,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:graphics_stage"
+      ],
       "negative_evidence": []
     },
     {
@@ -130,8 +132,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:graphics_stage"
+      ],
       "negative_evidence": []
     },
     {
