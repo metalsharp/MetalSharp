@@ -358,8 +358,8 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --mini-only --no-winemetal-abi
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
-METALSHARP_PROBE_PROFILE=phase7-mesh-native-final \
-METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase7-mesh-native \
+METALSHARP_PROBE_PROFILE=phase7-mesh-payload64 \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase7-mesh-payload64 \
 METALSHARP_MINI_PROBE_FILTER=mesh_object_shader_pso \
 METALSHARP_NATIVE_IRCONVERTER=1 \
 METAL_SHADER_CONVERTER=/nonexistent \
