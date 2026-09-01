@@ -130,7 +130,7 @@
   of `firstbitlow`/`firstbithigh`. The LLVM type reader now resolves vector
   element references from `type_refs` and rejects unsupported array values
   without recursive type resolution. The source-staged semantic run continues
-  to match `math_bits`, `math_intrinsics`, and all 57 semantic lanes, including
+  to match `math_bits`, `math_intrinsics`, and all 58 semantic lanes, including
   the four-lane vector aggregate shuffle, exact matrix aggregate arithmetic
   `[17,27,37,47]`, a three-helper source aggregate chain returning
   `[42,66,98,138]` after validated DXC entry-point optimization, and
