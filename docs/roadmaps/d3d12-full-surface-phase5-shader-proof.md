@@ -223,12 +223,13 @@
   Metal `intersection_query<instancing, triangle_data>` over a built
   one-triangle TLAS. It creates the exact BLAS/TLAS prebuild sizes `768/256`
   and `1024/256`, binds the TLAS through the direct acceleration-structure
-  buffer slot, and reads back an exact 40-word matrix after the DXIL
+  buffer slot, and reads back an exact 88-word matrix after the DXIL
   `TraceRayInline`/`Proceed`/candidate-type/commit/status sequence. The matrix
   covers candidate and committed triangle front-face, barycentric, distance,
-  instance/geometry/primitive, object-ray, world-ray, flag, and procedural
-  non-opaque state, and separately checks `Abort` leaves no committed hit,
-  with the expected identity-transform values recorded in
+  instance/geometry/primitive, object-ray, world-ray, flag, procedural
+  non-opaque state, and all four 3x4 object/world transform matrices; it also
+  checks `Abort` leaves no committed hit. A non-identity x=`0.25` instance
+  transform and exact inverse values are included, with the result recorded in
   `accessor_matrix_verified=true`. A second legal DXIL shader using
   `RAY_FLAG_FORCE_OPAQUE` is rejected at PSO creation with exact `0x80004005`;
   no unsupported ray flag is silently discarded.
@@ -268,8 +269,8 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --agility-only --no-winemetal-abi
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
-METALSHARP_PROBE_PROFILE=phase5-dxr-inline-accessors-final4 \
-METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-dxr-accessors-final \
+METALSHARP_PROBE_PROFILE=phase5-rq-matrix-final4 \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-rq-matrix-final \
 METALSHARP_MINI_PROBE_FILTER=dxr_inline \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
@@ -277,12 +278,12 @@ METAL_SHADER_CONVERTER=/nonexistent \
 ```
 
 The latest isolated inline-RayQuery result (profile
-`phase5-dxr-inline-accessors-final4`) passed with `readback=1`,
-`accessor_matrix_verified=true`, and the exact 40-word matrix:
+`phase5-rq-matrix-final4`) passed with `readback=1`,
+`accessor_matrix_verified=true`, and the exact 88-word matrix:
 
 ```json
 {
-  "words": [1,0,7,0,0,0,1073741824,1048576000,1056964608,0,0,3221225472,0,0,1065353216,1,0,7,0,0,0,1073741824,1048576000,1056964608,0,0,0,0,3221225472,0,0,1065353216,0,0,3221225472,0,0,1065353216,0,3553697792],
+  "words": [1,0,7,0,0,0,1073741824,1034594987,1056964608,3196059648,0,3221225472,0,0,1065353216,1,0,7,0,0,0,1073741824,1034594987,1056964608,0,0,0,0,3221225472,0,0,1065353216,3196059648,0,3221225472,0,0,1065353216,0,0,1065353216,0,0,1048576000,0,1065353216,0,0,0,0,1065353216,0,1065353216,0,0,3196059648,0,1065353216,0,2147483648,0,0,1065353216,2147483648,1065353216,0,0,1048576000,0,1065353216,0,0,0,0,1065353216,0,1065353216,0,0,3196059648,0,1065353216,0,2147483648,0,0,1065353216,2147483648],
   "blas_result_bytes": 768,
   "blas_scratch_bytes": 256,
   "tlas_result_bytes": 1024,
@@ -353,9 +354,9 @@ exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
 exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 100 rows still missing after 30 exact inline-RayQuery
-opcode observations, including the candidate/committed state-accessor and
-abort matrix.
+remains open with 96 rows still missing after 34 exact inline-RayQuery
+opcode observations, including the candidate/committed state-accessor,
+transform, and abort matrix.
 The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact
