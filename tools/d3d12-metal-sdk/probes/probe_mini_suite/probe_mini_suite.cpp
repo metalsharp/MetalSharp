@@ -1067,7 +1067,9 @@ static ProbeResult probe_start_draw_info() {
                 std::to_string(unexpected_pixels) +
                 ",\"center_pixel\":" + std::to_string(center_pixel) +
                 ",\"expected_center_pixel\":4282417407,"
-                "\"start_vertex_location\":4,\"start_instance_location\":7"};
+                "\"start_vertex_location\":4,\"start_instance_location\":7,"
+                "\"view_id_default_verified\":" +
+                (center_pixel == 0xff4080ffu ? "true" : "false")};
 }
 
 static ProbeResult probe_geometry_shader_pso() {

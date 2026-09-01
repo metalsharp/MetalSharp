@@ -330,9 +330,10 @@
       "checks": [
         ["ok"],
         ["center_pixel", 4282417407],
-        ["unexpected_pixels", 0]
+        ["unexpected_pixels", 0],
+        ["view_id_default_verified"]
       ],
-      "remaining": "The exact vertex-stage proof covers SV_StartVertexLocation and SV_StartInstanceLocation for one non-indexed DrawInstanced command with nonzero start values. Indexed, mesh/amplification, and broader extended-command-information combinations remain in the exhaustive row."
+      "remaining": "The exact vertex-stage proof covers SV_StartVertexLocation, SV_StartInstanceLocation, and the default SV_ViewID=0 value for one non-indexed DrawInstanced command with nonzero start values. Per-view ViewID replay, indexed, mesh/amplification, and broader extended-command-information combinations remain in the exhaustive row."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",

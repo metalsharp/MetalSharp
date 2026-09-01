@@ -746,11 +746,11 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; 38 inline-RayQuery opcodes and two SM6.8 extended-command-information
-opcodes are now observed, including the exact candidate/committed
-state-accessor, transform, contribution, procedural, AllocateRayQuery2, and
-abort matrix, while broader DXR accessors, ray-generation paths, and
-state-object breadth remain open.
+ceiling; 38 inline-RayQuery opcodes, one ViewID opcode, and two SM6.8
+extended-command-information opcodes are now observed, including the exact
+candidate/committed state-accessor, transform, contribution, procedural,
+AllocateRayQuery2, and abort matrix, while broader DXR accessors,
+ray-generation paths, and state-object breadth remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1487,3 +1487,13 @@ whether the scoped FL12_2 gate is green.
   and exact 96-word readback. The exhaustive matrix now has 190 observed, 90
   open, and 32 reserved/not-applicable rows; broader opacity-micromap data,
   contribution-table aliasing, and the Phase 5 exit gate remain open.
+
+### 2026-09-01 — Phase 5 default ViewID proof
+
+- Lowered the vertex-stage `SV_ViewID` system value through the per-draw
+  metadata slot and verified the default view's exact zero value in the
+  16x16 start-draw raster lane. The same source-staged DXIL report contains
+  ViewID opcode 138 with zero unsupported intrinsics/opcodes.
+- Promoted the default-view ViewID opcode row. The exhaustive matrix now has
+  191 observed, 89 open, and 32 reserved/not-applicable rows; per-view replay
+  and broader graphics-stage ViewID combinations remain open.

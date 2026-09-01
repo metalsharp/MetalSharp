@@ -126,6 +126,7 @@ enum DXIntrinsicOpcode {
   DXOP_AllocateRayQuery2 = 258,
   DXOP_StartVertexLocation = 256,
   DXOP_StartInstanceLocation = 257,
+  DXOP_ViewID = 138,
   // dx.op.isSpecialFloat carries the concrete operation (8..11) in its
   // opcode argument rather than in the intrinsic name.
   DXOP_SpecialFloat = 1000,
@@ -417,6 +418,8 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
         return DXOP_StartVertexLocation;
     if (strncmp(s, "startInstanceLocation", 21) == 0)
         return DXOP_StartInstanceLocation;
+    if (strncmp(s, "viewID", 6) == 0)
+        return DXOP_ViewID;
     if (strncmp(s, "isSpecialFloat.", 14) == 0) return DXOP_SpecialFloat;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
@@ -533,6 +536,7 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_AllocateRayQuery2:
     case DXOP_StartVertexLocation:
     case DXOP_StartInstanceLocation:
+    case DXOP_ViewID:
     case 186:
     case 187:
     case 188:
@@ -4660,6 +4664,8 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::UInt, 0, {}};
     case DXOP_StartVertexLocation:
         return {MSLTypeKind::Int, 0, {}};
+    case DXOP_ViewID:
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_WaveGetLaneIndex:
     case DXOP_WaveGetLaneCount:
     case DXOP_WaveAllBitCount:
@@ -5326,6 +5332,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return "(buf29 == nullptr ? 0u : (m12_is_indexed_draw(buf30) ? "
                "reinterpret_cast<device m12_draw_indexed_argument*>(buf29)->startInstanceLocation : "
                "reinterpret_cast<device m12_draw_argument*>(buf29)->startInstanceLocation))";
+    case DXOP_ViewID:
+        if (ctx.shader.kind != DxilShaderKind::Vertex) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL ViewID is only lowered for vertex-stage view replay");
+            return "0u";
+        }
+        return "(buf30 == nullptr ? 0u : uint(*reinterpret_cast<device ushort*>(buf30 + 2)))";
     case DXOP_ThreadId: {
         ctx.uses_thread_id = true;
         uint32_t c = args.empty() ? 0 : literalArg(0, 0, "comp");
@@ -7933,7 +7947,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         const bool no_arg_start_location =
             call_args.empty() &&
             (intrinsic_id == DXOP_StartVertexLocation ||
-             intrinsic_id == DXOP_StartInstanceLocation);
+             intrinsic_id == DXOP_StartInstanceLocation ||
+             intrinsic_id == DXOP_ViewID);
         if (intrinsic_id != 0 && call_args.empty() &&
             !no_arg_start_location) {
             ensureValueTable(value_counter);
