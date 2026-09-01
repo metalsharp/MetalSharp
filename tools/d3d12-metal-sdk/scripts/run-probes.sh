@@ -2858,9 +2858,13 @@ void cs_sm69_long_vector_integer(uint3 id : SV_DispatchThreadID) {
   vector<uint, 8> a = vector<uint, 8>(1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u);
   vector<uint, 8> b = vector<uint, 8>(8u, 7u, 6u, 5u, 4u, 3u, 2u, 1u);
   vector<uint, 8> mixed = a ^ b;
+  vector<uint, 8> inverted = ~a;
   uint total = mixed[0] + mixed[1] + mixed[2] + mixed[3] +
                mixed[4] + mixed[5] + mixed[6] + mixed[7];
+  uint inverted_total = inverted[0] + inverted[1] + inverted[2] + inverted[3] +
+                        inverted[4] + inverted[5] + inverted[6] + inverted[7];
   outbuf.Store(0, total);
+  outbuf.Store(4, inverted_total);
 }
 
 [numthreads(1, 1, 1)]

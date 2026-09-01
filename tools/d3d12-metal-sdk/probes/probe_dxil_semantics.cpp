@@ -883,7 +883,7 @@ int main() {
         {"sm69_long_vector_arithmetic", "probe_dxil_semantic_sm69_long_vector_arithmetic.cso", {},
          {0x42900000u}, "sm69_long_vector_arithmetic"},
         {"sm69_long_vector_integer", "probe_dxil_semantic_sm69_long_vector_integer.cso", {},
-         {40u}, "sm69_long_vector_integer"},
+         {40u, 0xffffffd4u}, "sm69_long_vector_integer"},
         {"sm69_long_vector_dynamic", "probe_dxil_semantic_sm69_long_vector_dynamic.cso", {1u},
          {80u}, "sm69_long_vector_dynamic"},
         {"sm69_long_vector_dynamic_float", "probe_dxil_semantic_sm69_long_vector_dynamic_float.cso", {1u},
