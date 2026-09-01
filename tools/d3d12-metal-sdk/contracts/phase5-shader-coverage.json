@@ -349,6 +349,19 @@
       "remaining": "The exact vertex-stage proof covers SV_StartVertexLocation and SV_StartInstanceLocation for one non-indexed DrawInstanced command with nonzero start values; the two-view SV_ViewID replay has its own exact row. Indexed, mesh/amplification, and broader extended-command-information combinations remain in the exhaustive row."
     },
     {
+      "id": "dxil-temporary-register-runtime",
+      "status": "closed",
+      "result": "probe-mini-temp_registers",
+      "checks": [
+        ["ok"],
+        ["value", 4661],
+        ["expected_value", 4661],
+        ["min_value", 1086324736],
+        ["expected_min_value", 1086324736]
+      ],
+      "remaining": "The exact compute fixture covers i32 TempRegLoad/TempRegStore plus the float MinPrecXRegLoad/Store pointer/component path with bounded private storage. Bool/half/vector overloads, dynamic indexable min-precision addressing, and cross-stage matrices remain in the exhaustive opcode row."
+    },
+    {
       "id": "dxil-view-id-instancing-runtime",
       "status": "closed",
       "result": "probe-mini-view_id_instancing",

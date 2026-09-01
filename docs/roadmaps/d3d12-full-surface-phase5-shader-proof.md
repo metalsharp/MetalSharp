@@ -82,6 +82,15 @@
   diagnostic and reject PSO creation rather than succeeding with fake values.
   Unknown/non-DXIL call sites likewise reject instead of becoming zero-valued
   temporaries until helper-function lowering is implemented.
+- The source-owned `probe_temp_registers.ll` DXIL-part fixture exercises the
+  otherwise cleanup-only core opcodes directly: `TempRegStore.i32(0, 4660)`
+  followed by `TempRegLoad.i32(0)` produces the exact `4661` UAV readback, and
+  `MinPrecXRegStore.f32`/`MinPrecXRegLoad.f32` over a private pointer base
+  produces exact `6.0` bits (`1086324736`) in profile
+  `phase5-tempregs4`, under `METAL_SHADER_CONVERTER=/nonexistent`. The
+  generated MSL uses separate per-invocation typed temporary storage, pointer
+  plus index/component addressing, and bounded dynamic register indices;
+  bool/half/vector overloads and broader stage matrices remain open.
 - The LLVM 3.7 DXIL metadata reader now resolves the named `!dx.resources`
   graph into class, register-space, range, resource-kind, structured stride,
   sample-count, and UAV-flag records. The typed lowerer uses those records for
@@ -321,6 +330,15 @@ METALSHARP_MINI_PROBE_FILTER=view_id_instancing \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
     --mini-only --no-winemetal-abi
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
+METALSHARP_PROBE_PROFILE=phase5-tempregs4 \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-tempregs4 \
+METALSHARP_MINI_PROBE_FILTER=temp_registers \
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
+    --mini-only --no-winemetal-abi
 ```
 
 The latest isolated inline-RayQuery result (profile
@@ -366,6 +384,24 @@ The latest isolated start-draw-information result (profile
 
 It was run against the rebuilt runtime with `METAL_SHADER_CONVERTER=/nonexistent`
 and a disposable Wine prefix.
+
+The latest isolated temporary-register result (profile
+`phase5-tempregs4`) passed with exact UAV readbacks:
+
+```json
+{
+  "ok": true,
+  "value": 4661,
+  "expected_value": 4661,
+  "min_value": 1086324736,
+  "expected_min_value": 1086324736
+}
+```
+
+The probe generated its DXIL-part fixture from the source-owned
+`tools/d3d12-metal-sdk/probes/probe_temp_registers.ll` using the pinned LLVM 15
+`llvm-as`, and ran against the rebuilt runtime with
+`METAL_SHADER_CONVERTER=/nonexistent` and a disposable Wine prefix.
 
 The latest isolated `InnerCoverage` result (profile
 `phase5-inner-coverage-final`) passed with exact conservative-raster readback:

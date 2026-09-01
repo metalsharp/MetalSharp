@@ -1291,6 +1291,144 @@ static ProbeResult probe_inner_coverage() {
                 ",\"expected_center_pixel\":4294967295"};
 }
 
+static ProbeResult probe_temp_registers() {
+    const std::string shader_path = getenv_string("D3D12_METAL_SDK_TEMP_REGISTERS").empty()
+        ? "probe_temp_registers.dxil"
+        : getenv_string("D3D12_METAL_SDK_TEMP_REGISTERS");
+    std::vector<uint8_t> shader;
+    if (!read_binary_file(shader_path, shader)) {
+        return {false, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND),
+                "temporary-register shader blob is missing",
+                "\"shader_path\":\"" + json_escape(shader_path) + "\""};
+    }
+
+    ID3D12Device* device = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* heap = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    std::string detail;
+    HRESULT hr = create_device(&device);
+
+    D3D12_DESCRIPTOR_RANGE range = {};
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    range.NumDescriptors = 1;
+    range.BaseShaderRegister = 0;
+    range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_ROOT_PARAMETER parameter = {};
+    parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameter.DescriptorTable.NumDescriptorRanges = 1;
+    parameter.DescriptorTable.pDescriptorRanges = &range;
+    D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+    root_desc.NumParameters = 1;
+    root_desc.pParameters = &parameter;
+    if (SUCCEEDED(hr))
+        hr = serialize_root_signature(root_desc, &root_blob, detail);
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                          root_blob->GetBufferSize(),
+                                          IID_PPV_ARGS(&root));
+    if (SUCCEEDED(hr)) {
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pso_desc = {};
+        pso_desc.pRootSignature = root;
+        pso_desc.CS = {shader.data(), shader.size()};
+        hr = device->CreateComputePipelineState(&pso_desc,
+                                                IID_PPV_ARGS(&pso));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                             IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                       allocator, pso, IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heap_desc.NumDescriptors = 1;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap = heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_RESOURCE_DESC output_desc =
+            buffer_desc(256, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&output));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap = heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(256);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_R32_TYPELESS;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 64;
+        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(
+            output, nullptr, &uav, heap->GetCPUDescriptorHandleForHeapStart());
+        ID3D12DescriptorHeap* heaps[] = {heap};
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetComputeRootSignature(root);
+        list->SetComputeRootDescriptorTable(
+            0, heap->GetGPUDescriptorHandleForHeapStart());
+        list->SetPipelineState(pso);
+        list->Dispatch(1, 1, 1);
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        barrier.UAV.pResource = output;
+        list->ResourceBarrier(1, &barrier);
+        list->CopyResource(readback, output);
+        hr = execute_and_wait(queue, list);
+    }
+    uint32_t value = 0;
+    uint32_t min_value = 0;
+    if (SUCCEEDED(hr)) {
+        uint32_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, 2 * sizeof(uint32_t)};
+        hr = readback->Map(0, &read_range,
+                           reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            value = mapped[0];
+            min_value = mapped[1];
+            readback->Unmap(0, nullptr);
+        }
+    }
+    const bool verified = SUCCEEDED(hr) && value == 4661u &&
+                          min_value == 1086324736u;
+    safe_release(readback);
+    safe_release(output);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(root_blob);
+    safe_release(heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(device);
+    return {verified, verified ? S_OK : hr,
+            verified ? "TempReg and MinPrecXReg load/store produced exact UAV readbacks"
+                     : (detail.empty() ? "temporary-register readback failed" : detail),
+            "\"value\":" + std::to_string(value) +
+                ",\"expected_value\":4661,\"min_value\":" +
+                std::to_string(min_value) +
+                ",\"expected_min_value\":1086324736,\"shader_path\":\"" +
+                json_escape(shader_path) + "\""};
+}
+
 static ProbeResult probe_view_id_instancing() {
     std::string vs_path = getenv_string("D3D12_METAL_SDK_VIEW_ID_VS");
     std::string ps_path = getenv_string("D3D12_METAL_SDK_VIEW_ID_PS");
@@ -5384,6 +5522,8 @@ static ProbeResult run_probe() {
         return probe_inner_coverage();
     case 20:
         return probe_view_id_instancing();
+    case 21:
+        return probe_temp_registers();
     default:
         return {false, E_INVALIDARG, "unknown mini probe case", ""};
     }

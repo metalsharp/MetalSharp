@@ -240,6 +240,7 @@ build_mini_probe 16 tessellation_shader_pso
 build_mini_probe 17 start_draw_info
 build_mini_probe 18 inner_coverage
 build_mini_probe 20 view_id_instancing
+build_mini_probe 21 temp_registers
 
 build_probe \
   "$SDK_DIR/probes/probe_dxr_inline.cpp" \
@@ -295,3 +296,4 @@ echo "$OUT_DIR/probe_mini_dxr_inline.exe"
 echo "$OUT_DIR/probe_mini_start_draw_info.exe"
 echo "$OUT_DIR/probe_mini_inner_coverage.exe"
 echo "$OUT_DIR/probe_mini_view_id_instancing.exe"
+echo "$OUT_DIR/probe_mini_temp_registers.exe"

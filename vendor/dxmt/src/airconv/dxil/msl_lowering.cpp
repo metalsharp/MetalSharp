@@ -12,6 +12,13 @@
 namespace dxmt::dxil {
 
 enum DXIntrinsicOpcode {
+  // DXIL opcodes 0..3 are valid operation identifiers, so keep their
+  // internal lowering IDs distinct from the zero sentinel used for an
+  // unknown callee name.
+  DXOP_TempRegLoad = 1001,
+  DXOP_TempRegStore = 1002,
+  DXOP_MinPrecXRegLoad = 1003,
+  DXOP_MinPrecXRegStore = 1004,
   DXOP_LoadInput = 4,
   DXOP_StoreOutput = 5,
   DXOP_CreateHandle = 57,
@@ -304,6 +311,10 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (name.size() < 6 || name[0] != 'd' || name[1] != 'x' || name[2] != '.' || name[3] != 'o' || name[4] != 'p' || name[5] != '.')
         return 0;
     const char *s = name.c_str() + 6;
+    if (strncmp(s, "tempRegLoad.", 12) == 0) return DXOP_TempRegLoad;
+    if (strncmp(s, "tempRegStore.", 13) == 0) return DXOP_TempRegStore;
+    if (strncmp(s, "minPrecXRegLoad.", 16) == 0) return DXOP_MinPrecXRegLoad;
+    if (strncmp(s, "minPrecXRegStore.", 17) == 0) return DXOP_MinPrecXRegStore;
     if (strncmp(s, "loadInput.", 10) == 0) return 4;
     if (strncmp(s, "storeOutput.", 12) == 0) return 5;
     if (strncmp(s, "createHandleFromBinding", 23) == 0) return 217;
@@ -440,8 +451,22 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     return 0;
 }
 
+static uint32_t canonicalDXIntrinsicId(uint32_t opcode) {
+    switch (opcode) {
+    case 0: return DXOP_TempRegLoad;
+    case 1: return DXOP_TempRegStore;
+    case 2: return DXOP_MinPrecXRegLoad;
+    case 3: return DXOP_MinPrecXRegStore;
+    default: return opcode;
+    }
+}
+
 static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     switch (opcode) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
     case DXOP_LoadInput:
     case DXOP_StoreOutput:
     case DXOP_CreateHandle:
@@ -852,6 +877,7 @@ struct LowerContext {
     bool uses_coverage = false;
     bool uses_interpolation = false;
     bool uses_sampler_feedback = false;
+    bool uses_temp_registers = false;
 };
 
 // DXIL ResourceKind values are part of the public DXIL ABI.  Keep the
@@ -1105,6 +1131,52 @@ static void emitDefaultVertexVaryingWrites(std::ostream &os,
         os << "  out.position = float4(m12_fullscreen_pos, 0.0, 1.0);\n";
         os << "  out.v1 = float4(m12_fullscreen_uv, 0.0, 0.0);\n";
     }
+}
+
+static const char *tempRegisterStorage(const MSLType &type) {
+    switch (type.kind) {
+    case MSLTypeKind::Bool:
+        return "m12_temp_bool";
+    case MSLTypeKind::Int:
+    case MSLTypeKind::Int2:
+    case MSLTypeKind::Int3:
+    case MSLTypeKind::Int4:
+    case MSLTypeKind::Short:
+        return "m12_temp_int";
+    case MSLTypeKind::UInt:
+    case MSLTypeKind::UInt2:
+    case MSLTypeKind::UInt3:
+    case MSLTypeKind::UInt4:
+    case MSLTypeKind::UShort:
+        return "m12_temp_uint";
+    case MSLTypeKind::Double:
+        return "m12_temp_ulong";
+    case MSLTypeKind::Long:
+        return "m12_temp_long";
+    case MSLTypeKind::Half:
+    case MSLTypeKind::Float:
+    case MSLTypeKind::Float2:
+    case MSLTypeKind::Float3:
+    case MSLTypeKind::Float4:
+    default:
+        return "m12_temp_float";
+    }
+}
+
+static void emitTempRegisterDeclarations(LowerContext &ctx) {
+    if (!ctx.uses_temp_registers)
+        return;
+    auto &os = ctx.os;
+    // DXBC-to-DXIL linearizes each temporary register component into the
+    // second operand of TempRegLoad/TempRegStore.  Keep separate typed
+    // per-invocation arrays so integer bit patterns and floating values are
+    // not coerced through a common type.
+    os << "  thread bool m12_temp_bool[4096] = {};\n";
+    os << "  thread int m12_temp_int[4096] = {};\n";
+    os << "  thread uint m12_temp_uint[4096] = {};\n";
+    os << "  thread float m12_temp_float[4096] = {};\n";
+    os << "  thread long m12_temp_long[4096] = {};\n";
+    os << "  thread ulong m12_temp_ulong[4096] = {};\n";
 }
 
 static void emitFunctionPrologue(LowerContext &ctx) {
@@ -2017,6 +2089,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  uint3 gsz [[threads_per_threadgroup]],\n";
         os << "  uint simd_lane [[thread_index_in_simdgroup]],\n";
         os << "  uint simd_count [[threads_per_simdgroup]]\n) {\n";
+        emitTempRegisterDeclarations(ctx);
         if (ctx.uses_group_atomic64_emulation) {
             os << "  threadgroup atomic_uint m12_atomic64_group_lock;\n";
             os << "  if (all(gtid == uint3(0))) atomic_store_explicit(&m12_atomic64_group_lock, 0u, memory_order_relaxed);\n";
@@ -2064,6 +2137,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << params[i] << (i + 1 == params.size() ? "\n" : ",\n");
         os << ") {\n";
         os << "  output_v out = {};\n";
+        emitTempRegisterDeclarations(ctx);
         emitDefaultVertexVaryingWrites(
             os, ctx.vertex_procedural_fullscreen_fallback,
             ctx.binding_plan.direct_buffer_count > 30,
@@ -2209,6 +2283,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                   "discard_fragment();\n";
         }
         os << "  float4 result = float4(0,0,0,1);\n";
+        emitTempRegisterDeclarations(ctx);
     } else {
         os << "kernel void unknown_main() {\n";
     }
@@ -4156,7 +4231,7 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
             if (!call_args.empty() && (callee_name.empty() || startsWith(callee_name, "dx.op."))) {
                 uint32_t opcode = literalFromValue(ctx, call_args[0], 0);
                 if (isOpcodePrefixedDXIntrinsic(opcode))
-                    intrinsic_id = opcode;
+                    intrinsic_id = canonicalDXIntrinsicId(opcode);
             }
             if (intrinsic_id == DXOP_SpecialFloat && !call_args.empty()) {
                 uint32_t opcode = literalFromValue(ctx, call_args[0], 0);
@@ -4486,6 +4561,20 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_AllocateRayQuery:
     case DXOP_AllocateRayQuery2:
         return {MSLTypeKind::RayQuery, 0, {}};
+    case DXOP_TempRegLoad:
+    case DXOP_MinPrecXRegLoad:
+        if (usableType(declared))
+            return declared;
+        if (callee_name.find(".i1") != std::string::npos)
+            return {MSLTypeKind::Bool, 0, {}};
+        if (callee_name.find(".i32") != std::string::npos)
+            return {MSLTypeKind::Int, 0, {}};
+        if (callee_name.find(".f16") != std::string::npos)
+            return {MSLTypeKind::Half, 0, {}};
+        return {MSLTypeKind::Float, 0, {}};
+    case DXOP_TempRegStore:
+    case DXOP_MinPrecXRegStore:
+        return {MSLTypeKind::Void, 0, {}};
     case DXOP_RayQueryProceed:
         return {MSLTypeKind::Bool, 0, {}};
     case DXOP_RayQueryCandidateType:
@@ -6629,6 +6718,89 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                handle + " + " + byte_offset + "), (uint)(" + compare_value +
                "), (uint)(" + new_value + "))";
     }
+    case DXOP_TempRegLoad:
+    case DXOP_MinPrecXRegLoad: {
+        if (args.empty())
+            return "0";
+        MSLType temp_type = {MSLTypeKind::Int, 0, {}};
+        if (callee_name.find(".i1") != std::string::npos)
+            temp_type = {MSLTypeKind::Bool, 0, {}};
+        else if (callee_name.find(".f16") != std::string::npos)
+            temp_type = {MSLTypeKind::Half, 0, {}};
+        else if (callee_name.find(".f32") != std::string::npos)
+            temp_type = {MSLTypeKind::Float, 0, {}};
+        if (intrinsic_id == DXOP_MinPrecXRegLoad) {
+            if (args.size() < 3)
+                return "0";
+            const std::string base = resolveValue(ctx, args[0]);
+            if (base.empty() || startsWith(base, "dx.") ||
+                !exprContainsPointerSyntax(base)) {
+                ctx.unsupported_intrinsics++;
+                recordDiagnostic(ctx, "DXIL min-precision register load has no pointer base");
+                return "0";
+            }
+            const std::string index = numericArg(1, "0");
+            const std::string component = numericArg(2, "0");
+            const char *address_space =
+                base.find("threadgroup") != std::string::npos ? "threadgroup" : "thread";
+            const std::string lane = "((" + index + ") * 4u + (" + component + "))";
+            const std::string lvalue =
+                "*reinterpret_cast<" + std::string(address_space) +
+                " float*>(" + base + " + (" + lane + ") * 4u)";
+            return temp_type.kind == MSLTypeKind::Half
+                       ? "half(" + lvalue + ")"
+                       : lvalue;
+        }
+        const char *storage = tempRegisterStorage(temp_type);
+        const std::string index = "min(uint(" + numericArg(0, "0") + "), 4095u)";
+        if (temp_type.kind == MSLTypeKind::Half)
+            return std::string("half(") + storage + "[" + index + "])";
+        return std::string(storage) + "[" + index + "]";
+    }
+    case DXOP_TempRegStore:
+    case DXOP_MinPrecXRegStore: {
+        if (args.size() < 2)
+            return {};
+        MSLType temp_type = {MSLTypeKind::Int, 0, {}};
+        if (callee_name.find(".i1") != std::string::npos)
+            temp_type = {MSLTypeKind::Bool, 0, {}};
+        else if (callee_name.find(".f16") != std::string::npos)
+            temp_type = {MSLTypeKind::Half, 0, {}};
+        else if (callee_name.find(".f32") != std::string::npos)
+            temp_type = {MSLTypeKind::Float, 0, {}};
+        if (intrinsic_id == DXOP_MinPrecXRegStore) {
+            if (args.size() < 4)
+                return {};
+            const std::string base = resolveValue(ctx, args[0]);
+            if (base.empty() || startsWith(base, "dx.") ||
+                !exprContainsPointerSyntax(base)) {
+                ctx.unsupported_intrinsics++;
+                recordDiagnostic(ctx, "DXIL min-precision register store has no pointer base");
+                return {};
+            }
+            const std::string index = numericArg(1, "0");
+            const std::string component = numericArg(2, "0");
+            const char *address_space =
+                base.find("threadgroup") != std::string::npos ? "threadgroup" : "thread";
+            const std::string lane = "((" + index + ") * 4u + (" + component + "))";
+            const std::string lvalue =
+                "*reinterpret_cast<" + std::string(address_space) +
+                " float*>(" + base + " + (" + lane + ") * 4u)";
+            std::string value = numericArg(3, "0");
+            if (temp_type.kind == MSLTypeKind::Half)
+                value = "float(" + value + ")";
+            return lvalue + " = " + value;
+        }
+        const char *storage = tempRegisterStorage(temp_type);
+        const std::string index = "min(uint(" + numericArg(0, "0") + "), 4095u)";
+        const size_t value_index = intrinsic_id == DXOP_MinPrecXRegStore
+                                       ? args.size() - 1
+                                       : 1;
+        std::string value = numericArg(value_index, "0");
+        if (temp_type.kind == MSLTypeKind::Half)
+            value = "float(" + value + ")";
+        return std::string(storage) + "[" + index + "] = " + value;
+    }
     case 75:
     case 76: {
         if (ctx.shader.kind != DxilShaderKind::Pixel) {
@@ -7937,7 +8109,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         if (!call_args.empty() && (callee_name.empty() || startsWith(callee_name, "dx.op."))) {
             uint32_t opcode = literalFromValue(ctx, call_args[0], 0);
             if (isOpcodePrefixedDXIntrinsic(opcode)) {
-                intrinsic_id = opcode;
+                intrinsic_id = canonicalDXIntrinsicId(opcode);
                 opcode_prefixed_intrinsic = true;
             }
         }
@@ -9363,6 +9535,15 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         if (decl.second.find("dx.op.writeSamplerFeedback") !=
             std::string::npos) {
             ctx.uses_sampler_feedback = true;
+            break;
+        }
+    }
+    for (const auto &decl : ctx.function_decls) {
+        if (decl.second.find("dx.op.tempRegLoad") != std::string::npos ||
+            decl.second.find("dx.op.tempRegStore") != std::string::npos ||
+            decl.second.find("dx.op.minPrecXRegLoad") != std::string::npos ||
+            decl.second.find("dx.op.minPrecXRegStore") != std::string::npos) {
+            ctx.uses_temp_registers = true;
             break;
         }
     }
