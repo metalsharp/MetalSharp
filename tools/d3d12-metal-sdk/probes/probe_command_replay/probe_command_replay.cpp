@@ -2223,7 +2223,9 @@ static CaseResult run_stream_output_case() {
     constexpr uint32_t kVertexCount = 4;
     constexpr uint32_t kDrawCount = 2;
     constexpr uint32_t kStride = sizeof(uint32_t) * 4;
-    constexpr uint32_t kOutputBytes = kVertexCount * kStride * kDrawCount;
+    constexpr uint32_t kInitialFilledSize = kStride;
+    constexpr uint32_t kPayloadBytes = kVertexCount * kStride * kDrawCount;
+    constexpr uint32_t kOutputBytes = kInitialFilledSize + kPayloadBytes;
     uint32_t expected[kVertexCount * kDrawCount][4] = {};
     for (uint32_t draw = 0; draw < kDrawCount; ++draw) {
         for (uint32_t vertex = 0; vertex < kVertexCount; ++vertex) {
@@ -2286,10 +2288,11 @@ static CaseResult run_stream_output_case() {
     if (SUCCEEDED(hr))
         hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, kOutputBytes, D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_STREAM_OUT, &output);
-    if (SUCCEEDED(hr))
-        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(uint32_t) * 2,
-                           D3D12_RESOURCE_FLAG_NONE,
-                           D3D12_RESOURCE_STATE_COPY_DEST, &filled_size);
+    if (SUCCEEDED(hr)) {
+        const uint32_t initial_counter[2] = {0, kInitialFilledSize};
+        hr = create_upload_buffer(device, initial_counter, sizeof(initial_counter),
+                                  &filled_size);
+    }
     if (SUCCEEDED(hr))
         hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, kOutputBytes, D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &output_readback);
@@ -2309,12 +2312,10 @@ static CaseResult run_stream_output_case() {
         // The target is full after two captures.  The provider must reject
         // this third draw before the SM50 epilogue can write past the view.
         list->DrawInstanced(kVertexCount, 1, 0, 0);
-        D3D12_RESOURCE_BARRIER barriers[2] = {};
-        barriers[0] = transition_barrier(output, D3D12_RESOURCE_STATE_STREAM_OUT,
-                                          D3D12_RESOURCE_STATE_COPY_SOURCE);
-        barriers[1] = transition_barrier(filled_size, D3D12_RESOURCE_STATE_COPY_DEST,
-                                          D3D12_RESOURCE_STATE_COPY_SOURCE);
-        list->ResourceBarrier(2, barriers);
+        D3D12_RESOURCE_BARRIER barrier =
+            transition_barrier(output, D3D12_RESOURCE_STATE_STREAM_OUT,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &barrier);
         list->CopyBufferRegion(output_readback, 0, output, 0, kOutputBytes);
         list->CopyBufferRegion(filled_size_readback, 0, filled_size,
                                sizeof(uint32_t), sizeof(uint32_t));
@@ -2325,13 +2326,18 @@ static CaseResult run_stream_output_case() {
         hr = execute_and_wait(device, queue, lists, 1, 1);
     }
 
-    uint32_t got[kVertexCount * kDrawCount][4] = {};
+    uint8_t captured[kOutputBytes] = {};
     uint32_t filled = 0;
-    const bool output_readback_ok = SUCCEEDED(hr) && readback_bytes(output_readback,
-                                                                      reinterpret_cast<uint8_t*>(got),
-                                                                      sizeof(got));
-    const bool filled_readback_ok = SUCCEEDED(hr) && readback_u32(filled_size_readback, &filled, 1);
-    const bool output_verified = output_readback_ok &&
+    const bool output_readback_ok = SUCCEEDED(hr) &&
+                                    readback_bytes(output_readback, captured,
+                                                   sizeof(captured));
+    const bool filled_readback_ok = SUCCEEDED(hr) &&
+                                    readback_u32(filled_size_readback, &filled, 1);
+    bool initial_region_untouched = output_readback_ok;
+    for (uint32_t i = 0; i < kInitialFilledSize; ++i)
+        initial_region_untouched &= captured[i] == 0;
+    const auto *got = reinterpret_cast<const uint32_t *>(captured + kInitialFilledSize);
+    const bool output_verified = output_readback_ok && initial_region_untouched &&
                                  std::memcmp(got, expected, sizeof(expected)) == 0;
     const bool filled_verified = filled_readback_ok && filled == kOutputBytes;
     result.pass = output_verified && filled_verified;
@@ -2341,15 +2347,18 @@ static CaseResult run_stream_output_case() {
                         : "stream-output capture or filled-size readback failed";
     char extra[512] = {};
     std::snprintf(extra, sizeof(extra),
-                  "\"output_verified\":%s,\"filled_size_verified\":%s,"
-                  "\"filled_size\":%u,\"expected_filled_size\":%u,"
+                  "\"output_verified\":%s,\"initial_region_untouched\":%s,"
+                  "\"filled_size_verified\":%s,\"filled_size\":%u,"
+                  "\"expected_filled_size\":%u,\"initial_filled_size\":%u,"
                   "\"filled_size_offset\":%u,\"stride\":%u,"
                   "\"vertex_count\":%u,\"draw_count\":%u,"
                   "\"captured_draw_count\":%u,\"overflow_guard_verified\":%s,"
                   "\"provider\":\"sm50_vertex_capture\"",
-                  output_verified ? "true" : "false", filled_verified ? "true" : "false",
-                  filled, kOutputBytes,
-                  static_cast<unsigned>(sizeof(uint32_t)), kStride, kVertexCount,
+                  output_verified ? "true" : "false",
+                  initial_region_untouched ? "true" : "false",
+                  filled_verified ? "true" : "false", filled, kOutputBytes,
+                  kInitialFilledSize, static_cast<unsigned>(sizeof(uint32_t)),
+                  kStride, kVertexCount,
                   kDrawCount + 1, kDrawCount,
                   (output_verified && filled_verified) ? "true" : "false");
     result.extra = extra;

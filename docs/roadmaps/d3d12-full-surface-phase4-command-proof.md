@@ -166,11 +166,13 @@ The isolated source-staged command probe passed with these behavior checks, incl
     "provider": "sm50_vertex_capture",
     "vertex_count": 4,
     "stride": 16,
-    "filled_size": 128,
+    "filled_size": 144,
+    "initial_filled_size": 16,
     "filled_size_offset": 4,
     "draw_count": 3,
     "captured_draw_count": 2,
     "overflow_guard_verified": true,
+    "initial_region_untouched": true,
     "output_verified": true,
     "filled_size_verified": true
   },
@@ -210,8 +212,10 @@ matrices remain tracked by the later phase lanes.
 ## Residual limitations carried into later phases
 
 The stream-output provider is limited to one non-rasterized DXBC vertex stream
-and still lacks multiple streams, nonzero-initial-counter/append semantics,
-overflow continuation, and downstream-consumer coverage. Broader
+and still lacks multiple streams, overflow continuation, DXIL/geometry-stage
+capture, and downstream-consumer coverage. The source-staged counter lane now
+starts at a nonzero filled size (`16` bytes), preserves that prefix, appends two
+exact draws, and reads back the final `144`-byte counter. Broader
 sample-count/pattern and indirect-work coverage remains in the later phase
 lanes. Protected-session/meta-command providers, markers/events with
 independent readback, nested ExecuteIndirect behavior, and broader command

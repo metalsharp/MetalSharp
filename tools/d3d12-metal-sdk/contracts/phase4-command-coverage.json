@@ -39,7 +39,7 @@
         ["pass"],
         ["coverage", "stream_output_capture_and_counter"]
       ],
-      "remaining": "The provider is intentionally limited to one non-rasterized DXBC vertex stream; multiple streams, nonzero-initial-counter/append semantics, overflow continuation, DXIL/geometry capture, and downstream consumption remain open."
+      "remaining": "The provider is intentionally limited to one non-rasterized DXBC vertex stream; the source-staged lane now proves a nonzero initial counter/prefix plus exact append accumulation and bounded overflow rejection. Multiple streams, overflow continuation, DXIL/geometry capture, and downstream consumption remain open."
     },
     {
       "id": "complete-indirect-argument-kind-matrix",
