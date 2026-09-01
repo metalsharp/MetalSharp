@@ -199,6 +199,8 @@ EVIDENCE: dict[int, list[str]] = {
     223: ["probe-sm66-capabilities:raw_gather"],
     224: ["probe-sm66-capabilities:sample_cmp_level"],
     225: ["probe-writable-msaa:texture_store_sample"],
+    254: ["probe-sm66-capabilities:sample_cmp_grad_sm68"],
+    255: ["probe-sm66-capabilities:sample_cmp_bias_sm68"],
     303: ["probe-dxil-semantics:raw_vector"],
     304: ["probe-dxil-semantics:raw_vector"],
     309: ["probe-dxil-semantics:vector_reductions"],

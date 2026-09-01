@@ -5138,8 +5138,10 @@
         "cube_array"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:sample_cmp_grad_sm68"
+      ],
       "negative_evidence": []
     },
     {
@@ -5167,8 +5169,10 @@
         "cube_array"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:sample_cmp_bias_sm68"
+      ],
       "negative_evidence": []
     },
     {
