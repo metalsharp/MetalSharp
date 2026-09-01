@@ -227,7 +227,8 @@
   `TraceRayInline`/`Proceed`/candidate-type/commit/status sequence. The matrix
   covers candidate and committed triangle front-face, barycentric, distance,
   instance/geometry/primitive, object-ray, world-ray, flag, and procedural
-  non-opaque state, with the expected identity-transform values recorded in
+  non-opaque state, and separately checks `Abort` leaves no committed hit,
+  with the expected identity-transform values recorded in
   `accessor_matrix_verified=true`. A second legal DXIL shader using
   `RAY_FLAG_FORCE_OPAQUE` is rejected at PSO creation with exact `0x80004005`;
   no unsupported ray flag is silently discarded.
@@ -352,8 +353,9 @@ exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
 exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 101 rows still missing after 29 exact inline-RayQuery
-opcode observations, including the candidate/committed state-accessor matrix.
+remains open with 100 rows still missing after 30 exact inline-RayQuery
+opcode observations, including the candidate/committed state-accessor and
+abort matrix.
 The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact

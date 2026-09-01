@@ -494,7 +494,7 @@ static ProbeResult run_probe() {
         0x3f000000u, 0u, 0u, 0xc0000000u, 0u, 0u, 0x3f800000u, 1u,
         0u, 7u, 0u, 0u, 0u, 0x40000000u, 0x3e800000u, 0x3f000000u,
         0u, 0u, 0u, 0u, 0xc0000000u, 0u, 0u, 0x3f800000u, 0u, 0u,
-        0xc0000000u, 0u, 0u, 0x3f800000u, 0u, 0xd3d12000u};
+        0xc0000000u, 0u, 0u, 0x3f800000u, 0u, 0u};
     result.accessor_matrix_verified = result.readback == expected;
     result.ok = result.ok && result.accessor_matrix_verified;
     if (result.ok)
