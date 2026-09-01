@@ -305,8 +305,13 @@ all 312 DXIL 1.9 opcode values (including 32 reserved values) are classified
 by first DXIL version, stage, and resource scope. The companion
 `validate-sm5-sm69-opcode-matrix.py` consumes the runtime's `dxil_opcodes`
 module-report section and has a strict mode for the eventual zero-missing
-exit gate; it intentionally reports the still-open rows today. The exhaustive
-SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore remains open.
+exit gate; it intentionally reports the still-open rows today. The latest
+exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
+`SampleCmpBias`, and the SM6.0 DXIL pixel-color mini probe now discards the
+left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
+words, promoting `Discard` from compilation-only to an execution proof. The
+exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
+remains open with 130 rows still missing.
 The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact

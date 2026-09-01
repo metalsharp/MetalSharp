@@ -300,6 +300,18 @@
       "remaining": "Profile phase5-eval-final executes pixel Texture2DMS.GetSamplePosition, render-target sample position/count, SV_SampleIndex, SV_Coverage, and centroid/sample/snapped attribute evaluation against exact per-sample and color readbacks. InnerCoverage, AttributeAtVertex, and broader non-constant interpolation/stage combinations remain in the exhaustive row."
     },
     {
+      "id": "dxil-pixel-discard-exact-runtime",
+      "status": "closed",
+      "result": "probe-mini-dxil_texture_color_output",
+      "checks": [
+        ["ok"],
+        ["discard_behavior_verified"],
+        ["nonzero_words", 1024],
+        ["nonzero_words_expected", 1024]
+      ],
+      "remaining": "The SM6.0 pixel shader discards the left half of a 64x64 full-screen triangle at SV_Position.x < 32 and returns exactly 1,024 surviving nonzero target words. Other discard control-flow shapes and interactions with depth, MSAA, UAV writes, and derivatives remain in the exhaustive row."
+    },
+    {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "open",
       "result": "probe-shader-corpus",

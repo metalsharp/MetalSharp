@@ -1834,13 +1834,17 @@ static ProbeResult probe_dxil_texture_color_output() {
     safe_release(queue);
     safe_release(device);
 
-    const bool ok = SUCCEEDED(hr) && nonzero_words > 0;
+    const bool discard_behavior_verified = SUCCEEDED(hr) && nonzero_words == 1024;
+    const bool ok = discard_behavior_verified;
     std::string extra = "\"nonzero_words\":" + std::to_string(nonzero_words) +
-                        ",\"rt_format\":\"R10G10B10A2_UNORM\",\"vs_path\":\"" + json_escape(vs_path) +
-                        "\",\"ps_path\":\"" + json_escape(ps_path) + "\"";
+                        ",\"nonzero_words_expected\":1024,\"discard_threshold_x\":32.0,"
+                        "\"discard_behavior_verified\":" +
+                        (discard_behavior_verified ? "true" : "false") +
+                        ",\"rt_format\":\"R10G10B10A2_UNORM\",\"vs_path\":\"" +
+                        json_escape(vs_path) + "\",\"ps_path\":\"" + json_escape(ps_path) + "\"";
     return {ok, ok ? S_OK : hr,
-            ok ? "SM6 DXIL textured triangle wrote nonzero R10 render-target color"
-               : (detail.empty() ? "DXIL color-output readback stayed black or failed" : detail),
+            ok ? "SM6 DXIL pixel discard produced the exact half-frame readback"
+               : (detail.empty() ? "DXIL discard readback did not match the exact half-frame result" : detail),
             extra};
 }
 

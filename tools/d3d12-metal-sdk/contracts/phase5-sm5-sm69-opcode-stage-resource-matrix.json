@@ -2033,8 +2033,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-dxil-texture-color-output:discard_half_frame"
+      ],
       "negative_evidence": []
     },
     {
