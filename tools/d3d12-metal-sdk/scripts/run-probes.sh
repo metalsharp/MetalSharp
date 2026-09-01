@@ -1599,6 +1599,18 @@ struct MeshPayload {
   uint signature;
   uint render_target_index;
   float depth;
+  uint tail0;
+  uint tail1;
+  uint tail2;
+  uint tail3;
+  uint tail4;
+  uint tail5;
+  uint tail6;
+  uint tail7;
+  uint tail8;
+  uint tail9;
+  uint tail10;
+  uint tail11;
 };
 
 groupshared MeshPayload payload;
@@ -1623,6 +1635,18 @@ void as_main(uint3 group_id : SV_GroupID) {
   payload.signature = 0x4153504c;
   payload.render_target_index = group_id.x & 1;
   payload.depth = (group_id.x & 1) ? 0.75 : 0.25;
+  payload.tail0 = 0x50415930;
+  payload.tail1 = 0x50415931;
+  payload.tail2 = 0x50415932;
+  payload.tail3 = 0x50415933;
+  payload.tail4 = 0x50415934;
+  payload.tail5 = 0x50415935;
+  payload.tail6 = 0x50415936;
+  payload.tail7 = 0x50415937;
+  payload.tail8 = 0x50415938;
+  payload.tail9 = 0x50415939;
+  payload.tail10 = 0x5041593a;
+  payload.tail11 = 0x5041593b;
   DispatchMesh(amplification_enabled * amplification_control.Load(0),
                1, 1, payload);
 }
@@ -1640,6 +1664,20 @@ void ms_main(in payload MeshPayload payload,
   mesh_output.Store(0, 0x4d534831);
   mesh_output.Store(8 + group_thread_id * 4,
                     payload.signature + group_thread_id);
+  if (group_thread_id < 12) {
+    uint payload_tail = group_thread_id == 0 ? payload.tail0 :
+                        group_thread_id == 1 ? payload.tail1 :
+                        group_thread_id == 2 ? payload.tail2 :
+                        group_thread_id == 3 ? payload.tail3 :
+                        group_thread_id == 4 ? payload.tail4 :
+                        group_thread_id == 5 ? payload.tail5 :
+                        group_thread_id == 6 ? payload.tail6 :
+                        group_thread_id == 7 ? payload.tail7 :
+                        group_thread_id == 8 ? payload.tail8 :
+                        group_thread_id == 9 ? payload.tail9 :
+                        group_thread_id == 10 ? payload.tail10 : payload.tail11;
+    mesh_output.Store(136 + group_thread_id * 4, payload_tail);
+  }
   if (group_thread_id == 0) {
     vertices[0].position = float4((-0.8 + payload.horizontal_offset) * resolved_scale, -0.8 * resolved_scale, payload.depth, 1.0);
     primitives[0].render_target_index = payload.render_target_index;

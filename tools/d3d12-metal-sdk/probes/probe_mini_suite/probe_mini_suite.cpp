@@ -3450,6 +3450,7 @@ static ProbeResult probe_mesh_shader_pso() {
     uint64_t wireframe_unexpected_pixels = 0;
     uint32_t mesh_output_value = 0;
     uint32_t mesh_lane_values[32] = {};
+    uint32_t mesh_payload_tail_values[12] = {};
     D3D12_QUERY_DATA_PIPELINE_STATISTICS1 pipeline_statistics1 = {};
     bool pipeline_statistics1_readback_ok = false;
     if (SUCCEEDED(hr)) {
@@ -3501,6 +3502,8 @@ static ProbeResult probe_mesh_shader_pso() {
         if (SUCCEEDED(hr)) {
             std::memcpy(&mesh_output_value, mapped, sizeof(mesh_output_value));
             std::memcpy(mesh_lane_values, static_cast<uint8_t*>(mapped) + 8, sizeof(mesh_lane_values));
+            std::memcpy(mesh_payload_tail_values, static_cast<uint8_t*>(mapped) + 136,
+                        sizeof(mesh_payload_tail_values));
             D3D12_RANGE written = {0, 0};
             mesh_output_readback->Unmap(0, &written);
         }
@@ -3651,6 +3654,9 @@ static ProbeResult probe_mesh_shader_pso() {
     bool mesh_lane_values_verified = true;
     for (uint32_t lane = 0; lane < 32; lane++)
         mesh_lane_values_verified &= mesh_lane_values[lane] == 0x4153504c + lane;
+    bool mesh_payload_tail_verified = true;
+    for (uint32_t value = 0; value < 12; value++)
+        mesh_payload_tail_verified &= mesh_payload_tail_values[value] == 0x50415930 + value;
     const bool indirect_mesh_behavior_verified =
         layer_indirect_pixels[0] >= 100 && layer_indirect_pixels[0] <= 400 &&
         layer_indirect_pixels[1] >= 100 && layer_indirect_pixels[1] <= 400;
@@ -3675,6 +3681,7 @@ static ProbeResult probe_mesh_shader_pso() {
         wireframe_layer_pixels[1] < layer_pixels[1] &&
         wireframe_clear_pixels + wireframe_layer_pixels[0] + wireframe_layer_pixels[1] == 64u * 64u * 2u &&
         wireframe_unexpected_pixels == 0 && mesh_output_value == 0x4d534831 && mesh_lane_values_verified &&
+        mesh_payload_tail_verified &&
         pipeline_statistics1_readback_ok && pipeline_statistics1.ASInvocations == 2 &&
         pipeline_statistics1.MSInvocations == 2 && pipeline_statistics1.MSPrimitives == 2;
     return {
@@ -3732,6 +3739,8 @@ static ProbeResult probe_mesh_shader_pso() {
             ",\"mesh_output_value\":" + std::to_string(mesh_output_value) + ",\"mesh_texture_scale\":0.5" +
             std::string(",\"mesh_threadgroup_width\":32") + std::string(",\"dispatch_mesh_groups_x\":2") +
             ",\"mesh_lane_values_verified\":" + (mesh_lane_values_verified ? "true" : "false") +
+            ",\"mesh_payload_bytes\":64,\"mesh_payload_tail_verified\":" +
+            (mesh_payload_tail_verified ? "true" : "false") +
             ",\"pipeline_statistics1_readback_ok\":" + (pipeline_statistics1_readback_ok ? "true" : "false") +
             ",\"pipeline_statistics1_as_invocations\":" + std::to_string(pipeline_statistics1.ASInvocations) +
             ",\"pipeline_statistics1_ms_invocations\":" + std::to_string(pipeline_statistics1.MSInvocations) +
