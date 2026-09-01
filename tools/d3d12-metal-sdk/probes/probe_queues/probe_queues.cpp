@@ -6,6 +6,7 @@
 
 #include <cinttypes>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -509,14 +510,42 @@ int main() {
     UINT64 direct_frequency = 0;
     UINT64 direct_gpu_clock = 0;
     UINT64 direct_cpu_clock = 0;
+    UINT64 second_gpu_clock = 0;
+    UINT64 second_cpu_clock = 0;
+    LARGE_INTEGER qpc_frequency = {};
     HRESULT timestamp_frequency_hr = direct_queue ? direct_queue->GetTimestampFrequency(&direct_frequency) : E_FAIL;
     HRESULT null_timestamp_frequency_hr = direct_queue ? direct_queue->GetTimestampFrequency(nullptr) : E_FAIL;
+    HRESULT qpc_frequency_hr = QueryPerformanceFrequency(&qpc_frequency) ? S_OK : E_FAIL;
     HRESULT clock_calibration_hr =
         direct_queue ? direct_queue->GetClockCalibration(&direct_gpu_clock, &direct_cpu_clock) : E_FAIL;
+    HRESULT second_clock_calibration_hr =
+        direct_queue ? direct_queue->GetClockCalibration(&second_gpu_clock, &second_cpu_clock) : E_FAIL;
+    UINT64 invalid_clock_gpu = 0;
     HRESULT null_clock_calibration_hr =
-        direct_queue ? direct_queue->GetClockCalibration(&direct_gpu_clock, nullptr) : E_FAIL;
+        direct_queue ? direct_queue->GetClockCalibration(&invalid_clock_gpu, nullptr) : E_FAIL;
     const bool clock_calibration_ok = SUCCEEDED(clock_calibration_hr) && direct_gpu_clock != 0 &&
                                       direct_cpu_clock != 0;
+    const bool clock_calibration_monotonic =
+        SUCCEEDED(second_clock_calibration_hr) && second_gpu_clock >= direct_gpu_clock &&
+        second_cpu_clock >= direct_cpu_clock && second_gpu_clock != 0 && second_cpu_clock != 0;
+    const long double gpu_seconds = direct_frequency
+                                        ? static_cast<long double>(direct_gpu_clock) /
+                                              static_cast<long double>(direct_frequency)
+                                        : 0.0L;
+    const long double cpu_seconds = qpc_frequency.QuadPart > 0
+                                        ? static_cast<long double>(direct_cpu_clock) /
+                                              static_cast<long double>(qpc_frequency.QuadPart)
+                                        : 0.0L;
+    const long double clock_domain_error = std::fabs(gpu_seconds - cpu_seconds);
+    const bool clock_domain_calibrated =
+        SUCCEEDED(qpc_frequency_hr) && qpc_frequency.QuadPart > 0 &&
+        std::isfinite(static_cast<double>(clock_domain_error)) &&
+        clock_domain_error <= 0.25L;
+    const bool queue_timing_verified =
+        SUCCEEDED(timestamp_frequency_hr) && direct_frequency == 1000000000ull &&
+        null_timestamp_frequency_hr == E_POINTER && clock_calibration_ok &&
+        clock_calibration_monotonic && clock_domain_calibrated &&
+        null_clock_calibration_hr == E_POINTER;
 
     bool queue_types_ok =
         direct_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT && present_desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT &&
@@ -552,9 +581,7 @@ int main() {
         SUCCEEDED(render_allocator_reset_hr) && SUCCEEDED(compute_allocator_reset_hr) &&
         SUCCEEDED(present_allocator_reset_hr) && SUCCEEDED(copy_list_reset_hr) && SUCCEEDED(render_list_reset_hr) &&
         SUCCEEDED(compute_list_reset_hr) && SUCCEEDED(present_list_reset_hr) && SUCCEEDED(map_readback_hr) &&
-        readback_ok && queue_types_ok && fences_ok && SUCCEEDED(timestamp_frequency_hr) &&
-        null_timestamp_frequency_hr == E_POINTER && clock_calibration_ok &&
-        null_clock_calibration_hr == E_POINTER && d3d12_residency_ok &&
+        readback_ok && queue_types_ok && fences_ok && queue_timing_verified && d3d12_residency_ok &&
         SUCCEEDED(factory_hr) && SUCCEEDED(adapter_hr) && SUCCEEDED(output_hr) &&
         vblank_verified && SUCCEEDED(timestamp_heap_hr) &&
         SUCCEEDED(timestamp_readback_hr) && copy_timestamps_ok;
@@ -588,6 +615,19 @@ int main() {
     print_hr("clock_calibration", clock_calibration_hr);
     print_hr("null_clock_calibration", null_clock_calibration_hr);
     std::printf("    \"timestamp_frequency_value\": %" PRIu64 ",\n", direct_frequency);
+    std::printf("    \"qpc_frequency_hr\": \"0x%08lx\",\n", static_cast<unsigned long>(qpc_frequency_hr));
+    std::printf("    \"qpc_frequency_value\": %" PRId64 ",\n", qpc_frequency.QuadPart);
+    std::printf("    \"second_clock_calibration\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(second_clock_calibration_hr));
+    std::printf("    \"second_clock_gpu\": %" PRIu64 ",\n", second_gpu_clock);
+    std::printf("    \"second_clock_cpu\": %" PRIu64 ",\n", second_cpu_clock);
+    std::printf("    \"clock_calibration_monotonic\": %s,\n",
+                clock_calibration_monotonic ? "true" : "false");
+    std::printf("    \"clock_domain_error_seconds\": %.9Lf,\n", clock_domain_error);
+    std::printf("    \"clock_domain_calibrated\": %s,\n",
+                clock_domain_calibrated ? "true" : "false");
+    std::printf("    \"queue_timing_verified\": %s,\n",
+                queue_timing_verified ? "true" : "false");
     std::printf("    \"copy_timestamp_heap_hr\": \"0x%08lx\",\n", static_cast<unsigned long>(timestamp_heap_hr));
     std::printf("    \"copy_timestamp_readback_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(timestamp_readback_hr));

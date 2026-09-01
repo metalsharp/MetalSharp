@@ -24,6 +24,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <thread>
 #include <vector>
 
 #define QTRACE(fmt, ...) DXMTD3D12Trace("Queue", fmt, ##__VA_ARGS__)
@@ -14655,6 +14656,10 @@ MTLD3D12CommandQueue::GetTimestampFrequency(UINT64 *frequency) {
          frequency);
   if (!frequency)
     return E_POINTER;
+  // winemetal converts Metal's command-buffer GPU times from seconds to
+  // nanoseconds, and the timestamp query path writes the same representation.
+  // Keep the advertised frequency coupled to that ABI rather than returning a
+  // device-independent placeholder in a different unit.
   *frequency = 1000000000;
   return S_OK;
 }
@@ -14671,19 +14676,42 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::GetClockCalibration(
   // Metal exposes GPU start/end times on completed command buffers in the
   // same host time domain used by its timestamp queries. Submit an empty
   // calibration buffer so the returned GPU value is a real queue timestamp,
-  // not a CPU placeholder or an unconditional zero.
+  // not a CPU placeholder or an unconditional zero. Poll the command-buffer
+  // status with a deadline: a wedged GPU must not turn this API into an
+  // unbounded CPU wait.
   std::lock_guard submit_lock(m_submit_mutex);
+  LARGE_INTEGER cpu_before = {};
+  if (!QueryPerformanceCounter(&cpu_before))
+    return E_FAIL;
   auto calibration = m_wmt_queue.commandBuffer();
   if (!calibration.handle)
     return E_FAIL;
   calibration.commit();
-  calibration.waitUntilCompleted();
+  const auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::seconds(5);
+  for (;;) {
+    const WMTCommandBufferStatus status = calibration.status();
+    if (status == WMTCommandBufferStatusCompleted)
+      break;
+    if (status == WMTCommandBufferStatusError ||
+        std::chrono::steady_clock::now() >= deadline)
+      return E_FAIL;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
   const uint64_t gpu = calibration.gpuEndTime();
-  LARGE_INTEGER qpc = {};
-  const uint64_t cpu = QueryPerformanceCounter(&qpc)
-                           ? static_cast<uint64_t>(qpc.QuadPart)
-                           : 0;
-  if (!gpu || !cpu)
+  LARGE_INTEGER cpu_after = {};
+  if (!QueryPerformanceCounter(&cpu_after))
+    return E_FAIL;
+  if (!gpu || cpu_before.QuadPart <= 0 || cpu_after.QuadPart <= 0 ||
+      cpu_after.QuadPart < cpu_before.QuadPart)
+    return E_FAIL;
+
+  // GPUEndTime is sampled between the two QPC reads. Returning their midpoint
+  // minimizes the queue-completion scheduling skew while preserving QPC units.
+  const uint64_t before = static_cast<uint64_t>(cpu_before.QuadPart);
+  const uint64_t after = static_cast<uint64_t>(cpu_after.QuadPart);
+  const uint64_t cpu = before + (after - before) / 2;
+  if (!cpu)
     return E_FAIL;
   *gpu_timestamp = gpu;
   *cpu_timestamp = cpu;

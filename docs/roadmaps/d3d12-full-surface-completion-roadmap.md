@@ -247,8 +247,10 @@ not in the unsupported ledger:
   trackers, meta commands, background processing, residency/priority
   bookkeeping, state-object database serialization, and unconditional device
   removal/stable-power responses.
-- `d3d12_command_queue.cpp`: CPU-zero `GetClockCalibration` and any queue
-  event path that logs without applying the required GPU/debug operation.
+- `d3d12_command_queue.cpp`: queue timestamp/calibration paths must use the
+  provider's GPU time domain, bounded completion, and a real CPU/GPU mapping;
+  any queue event path that logs without applying the required GPU/debug
+  operation remains a blocker.
 - `d3d12_dxgi_device.cpp`: `CreateSurface`, all-resident-only residency
   reporting, and empty `Trim`.
 - `dxgi_factory.cpp`: CoreWindow/composition swapchains, shared-resource LUID,
@@ -683,7 +685,10 @@ four-sample/four-pixel programmable-position MSAA resolve with exact per-pixel
 readback (`pixel1=[255,0,0,255]`, all other tested pixels clear), plus explicit
 command histograms/unknown-type accounting. The queue probe also verifies normal
 queue creation, explicit bundle/video/global-realtime/timeout validation results,
-clock calibration, and cross-queue event completion. Stream output remains a limited provider: multiple streams, overflow
+clock calibration, and cross-queue event completion. Its fresh source-staged
+queue-timing lane now checks a 1 GHz provider frequency, monotonic GPU/CPU
+calibration pairs, normalized host-domain agreement, exact null-pointer
+rejection, and a bounded five-second GPU completion wait. Stream output remains a limited provider: multiple streams, overflow
 continuation, DXIL/geometry-stage capture, and downstream consumption are not
 promoted; the single-stream lane now includes a nonzero initial counter/prefix
 and exact append accumulation. The Phase 4 command coverage
