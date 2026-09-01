@@ -69,6 +69,7 @@ MINI_PROBES=(
   dxr_acceleration_structures
   tessellation_shader_pso
   start_draw_info
+  inner_coverage
 )
 
 mini_probe_selected() {
@@ -1714,6 +1715,40 @@ HLSL
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
       -Fo probe_start_draw_ps.cso probe_start_draw_info.hlsl >/dev/null
+  )
+}
+
+prepare_inner_coverage_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_inner_coverage.hlsl"
+
+  cat > "$hlsl" <<'HLSL'
+struct VSOut {
+  float4 position : SV_Position;
+};
+
+VSOut vs_main(float3 position : POSITION) {
+  VSOut output;
+  output.position = float4(position, 1.0);
+  return output;
+}
+
+float4 ps_main(float4 position : SV_Position,
+               uint inner_coverage : SV_InnerCoverage) : SV_Target {
+  return inner_coverage != 0 ? float4(1.0, 1.0, 1.0, 1.0)
+                              : float4(0.0, 0.0, 0.0, 1.0);
+}
+HLSL
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E vs_main -T vs_6_0 \
+      -Fo probe_inner_coverage_vs.cso probe_inner_coverage.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_inner_coverage_ps.cso probe_inner_coverage.hlsl >/dev/null
   )
 }
 
@@ -3794,6 +3829,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   fi
   if mini_probe_selected start_draw_info; then
     prepare_start_draw_info_probe
+  fi
+  if mini_probe_selected inner_coverage; then
+    prepare_inner_coverage_probe
   fi
 fi
 if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then

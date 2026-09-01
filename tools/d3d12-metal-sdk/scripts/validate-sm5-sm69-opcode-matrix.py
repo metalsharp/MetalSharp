@@ -145,6 +145,7 @@ EVIDENCE: dict[int, list[str]] = {
     89: ["probe-writable-msaa:attribute_evaluation"],
     90: ["probe-writable-msaa:sample_index"],
     91: ["probe-writable-msaa:coverage"],
+    92: ["probe-inner-coverage:exact_conservative_raster"],
     93: ["probe-dxil-semantics:atomics_ids"],
     94: ["probe-dxil-semantics:atomics_ids"],
     95: ["probe-dxil-semantics:atomics_ids"],

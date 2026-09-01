@@ -2221,8 +2221,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-inner-coverage:exact_conservative_raster"
+      ],
       "negative_evidence": []
     },
     {
