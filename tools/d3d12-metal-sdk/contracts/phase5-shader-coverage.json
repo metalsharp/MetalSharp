@@ -357,9 +357,15 @@
         ["value", 4661],
         ["expected_value", 4661],
         ["min_value", 1086324736],
-        ["expected_min_value", 1086324736]
+        ["expected_min_value", 1086324736],
+        ["float_value", 1069547520],
+        ["expected_float_value", 1069547520],
+        ["bool_value", 1],
+        ["expected_bool_value", 1],
+        ["half_value", 1069547520],
+        ["expected_half_value", 1069547520]
       ],
-      "remaining": "The exact compute fixture covers i32 TempRegLoad/TempRegStore plus the float MinPrecXRegLoad/Store pointer/component path with bounded private storage. Bool/half/vector overloads, dynamic indexable min-precision addressing, and cross-stage matrices remain in the exhaustive opcode row."
+      "remaining": "The exact compute fixture covers i32 and float TempRegLoad/TempRegStore, bool and half overloads, plus the float MinPrecXRegLoad/Store pointer/component path with bounded private storage. Vector overloads, dynamic indexable min-precision addressing, and cross-stage matrices remain in the exhaustive opcode row."
     },
     {
       "id": "dxil-view-id-instancing-runtime",

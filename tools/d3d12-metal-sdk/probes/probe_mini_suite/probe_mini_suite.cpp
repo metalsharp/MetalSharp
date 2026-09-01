@@ -1396,19 +1396,27 @@ static ProbeResult probe_temp_registers() {
     }
     uint32_t value = 0;
     uint32_t min_value = 0;
+    uint32_t float_value = 0;
+    uint32_t bool_value = 0;
+    uint32_t half_value = 0;
     if (SUCCEEDED(hr)) {
         uint32_t* mapped = nullptr;
-        D3D12_RANGE read_range = {0, 2 * sizeof(uint32_t)};
+        D3D12_RANGE read_range = {0, 5 * sizeof(uint32_t)};
         hr = readback->Map(0, &read_range,
                            reinterpret_cast<void**>(&mapped));
         if (SUCCEEDED(hr)) {
             value = mapped[0];
             min_value = mapped[1];
+            float_value = mapped[2];
+            bool_value = mapped[3];
+            half_value = mapped[4];
             readback->Unmap(0, nullptr);
         }
     }
     const bool verified = SUCCEEDED(hr) && value == 4661u &&
-                          min_value == 1086324736u;
+                          min_value == 1086324736u &&
+                          float_value == 1069547520u && bool_value == 1u &&
+                          half_value == 1069547520u;
     safe_release(readback);
     safe_release(output);
     safe_release(pso);
@@ -1425,7 +1433,13 @@ static ProbeResult probe_temp_registers() {
             "\"value\":" + std::to_string(value) +
                 ",\"expected_value\":4661,\"min_value\":" +
                 std::to_string(min_value) +
-                ",\"expected_min_value\":1086324736,\"shader_path\":\"" +
+                ",\"expected_min_value\":1086324736,\"float_value\":" +
+                std::to_string(float_value) +
+                ",\"expected_float_value\":1069547520,\"bool_value\":" +
+                std::to_string(bool_value) +
+                ",\"expected_bool_value\":1,\"half_value\":" +
+                std::to_string(half_value) +
+                ",\"expected_half_value\":1069547520,\"shader_path\":\"" +
                 json_escape(shader_path) + "\""};
 }
 
