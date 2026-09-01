@@ -895,7 +895,7 @@ int main() {
         {"sm69_long_vector_reduce", "probe_dxil_semantic_sm69_long_vector_reduce.cso", {1u},
          {1u, 1u}, "sm69_long_vector_reduce"},
         {"sm69_long_vector_unary", "probe_dxil_semantic_sm69_long_vector_unary.cso", {1u},
-         {0x42300000u, 0x42100000u}, "sm69_long_vector_unary"},
+         {0x42300000u, 0x42100000u, 0x41000000u}, "sm69_long_vector_unary"},
         {"sm69_long_vector_minmax", "probe_dxil_semantic_sm69_long_vector_minmax.cso", {1u},
          {24u, 56u, 0x41a00000u, 0x42500000u}, "sm69_long_vector_minmax"},
         {"sm69_long_vector_tertiary", "probe_dxil_semantic_sm69_long_vector_tertiary.cso", {1u},
