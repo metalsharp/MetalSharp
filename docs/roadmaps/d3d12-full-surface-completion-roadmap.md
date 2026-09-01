@@ -752,7 +752,8 @@ opcode, two SM6.8 extended-command-information opcodes, and the InnerCoverage
 opcode are now observed, including exact temporary-register,
 candidate/committed state-accessor, transform, contribution, procedural,
 AllocateRayQuery2, abort, ViewID-default/instancing, conservative-raster, and
-native direct/indirect mesh matrices. The mesh proof uses an explicitly selected
+native direct/indirect mesh matrices, including a 64-byte amplification
+payload. The mesh proof uses an explicitly selected
 host `libmetalirconverter` cache provider while retaining the
 `METAL_SHADER_CONVERTER=/nonexistent` runtime setting; vector temporary
 breadth, broader DXR accessors, ray-generation paths, and state-object
@@ -1555,9 +1556,10 @@ whether the scoped FL12_2 gate is green.
 - Added an explicitly selected `libmetalirconverter` host provider for native
   mesh/amplification cache materialization; the runtime probe continues to set
   `METAL_SHADER_CONVERTER=/nonexistent`.
-- The `phase7-mesh-native-final` profile executes direct and GPU-only indirect
-  `DispatchMesh`, exact two-layer/depth/blend/wireframe readbacks, payload/UAV
-  lane values, and `PIPELINE_STATISTICS1` (`AS=2`, `MS=2`, primitives=2).
+- The `phase7-mesh-payload64` profile executes direct and GPU-only indirect
+  `DispatchMesh` with a 64-byte amplification payload, exact
+  two-layer/depth/blend/wireframe readbacks, payload/UAV lane values, and
+  `PIPELINE_STATISTICS1` (`AS=2`, `MS=2`, primitives=2).
   DXIL reports contain opcodes 168–173 with zero unsupported semantics. The
   broader mesh/work-graph matrix remains open and the host-specific provider
   does not change the fail-closed compiler-object boundary.

@@ -94,12 +94,13 @@
   plus index/component addressing, and bounded dynamic register indices;
   vector overloads, dynamic indexable min-precision addressing, and broader
   stage matrices remain open.
-- The `phase7-mesh-native-final` profile uses the Apple `libmetalirconverter`
+- The `phase7-mesh-payload64` profile uses the Apple `libmetalirconverter`
   host provider only to materialize the native Metal mesh/amplification
   libraries; the runtime still runs with `METAL_SHADER_CONVERTER=/nonexistent`.
-  It executes direct and GPU-only indirect `DispatchMesh` with the exact
-  `313`/`350` direct/indirect pixels, `0x4d534831` mesh UAV marker, exact two-
-  layer/depth/blend/wireframe readbacks, and `PIPELINE_STATISTICS1` values
+  It executes direct and GPU-only indirect `DispatchMesh` with a 64-byte
+  payload and the exact `313`/`350` direct/indirect pixels,
+  `0x4d534831` mesh UAV marker, exact two-layer/depth/blend/wireframe
+  readbacks, and `PIPELINE_STATISTICS1` values
   `AS=2`, `MS=2`, `primitives=2`. The DXIL reports contain opcodes 168–173
   with zero unsupported semantics. This is a host-specific native-IR cache
   provider; broader mesh payload/output/resource/barrier/VRS matrices remain
@@ -435,6 +436,8 @@ checks:
   "mesh_output_value": 1297303601,
   "indirect_mesh_behavior_verified": true,
   "mesh_lane_values_verified": true,
+  "mesh_payload_bytes": 64,
+  "mesh_payload_tail_verified": true,
   "pipeline_statistics1_as_invocations": 2,
   "pipeline_statistics1_ms_invocations": 2,
   "pipeline_statistics1_ms_primitives": 2
@@ -443,7 +446,9 @@ checks:
 
 The mesh libraries were produced by the explicitly selected host
 `libmetalirconverter` provider while `METAL_SHADER_CONVERTER=/nonexistent`
-remained set; the Wine prefix and runtime stage were disposable.
+remained set; the Wine prefix and runtime stage were disposable. The 64-byte
+payload result is recorded by profile `phase7-mesh-payload64`; additional
+payload sizes and mesh output/resource matrices remain open.
 
 The latest isolated temporary-register result (profile
 `phase5-tempreg-overloads`) passed with exact UAV readbacks:
