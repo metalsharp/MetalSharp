@@ -2091,6 +2091,52 @@ static ProbeResult probe_tessellation_shader_pso() {
     if (FAILED(hr))
         return {false, hr, "device creation failed", ""};
 
+#if MINI_PROBE_CASE == 24
+    const char* hlsl = R"HLSL(
+struct VSIn { float3 pos : POSITION; float4 color : COLOR0; };
+struct CP {
+  float3 world : POSITION;
+  float4 pos : SV_Position;
+  float4 color : COLOR0;
+};
+struct HSConst { float edge[3] : SV_TessFactor; float inside : SV_InsideTessFactor; };
+CP vs_main(VSIn input) {
+  CP output;
+  output.world = input.pos;
+  output.pos = float4(input.pos, 1.0);
+  output.color = input.color;
+  return output;
+}
+HSConst hs_constants(InputPatch<CP, 3> patch, uint patch_id : SV_PrimitiveID) {
+  HSConst output;
+  output.edge[0] = 1.0;
+  output.edge[1] = 1.0;
+  output.edge[2] = 1.0;
+  output.inside = 0.25;
+  return output;
+}
+[domain("tri")]
+[partitioning("integer")]
+[outputtopology("triangle_cw")]
+[outputcontrolpoints(3)]
+[patchconstantfunc("hs_constants")]
+CP hs_main(InputPatch<CP, 3> patch, uint point_id : SV_OutputControlPointID,
+           uint patch_id : SV_PrimitiveID) {
+  return patch[point_id];
+}
+[domain("tri")]
+CP ds_main(HSConst factors, const OutputPatch<CP, 3> patch,
+           float3 bary : SV_DomainLocation) {
+  CP output;
+  output.world = patch[0].world * bary.x + patch[1].world * bary.y +
+                 patch[2].world * bary.z;
+  output.pos = float4(output.world, 1.0);
+  output.color = float4(factors.inside, 0.0, 0.0, 1.0);
+  return output;
+}
+float4 ps_main(CP input) : SV_Target { return saturate(input.color); }
+)HLSL";
+#else
     const char* hlsl = R"HLSL(
 struct VSIn { float3 pos : POSITION; float4 color : COLOR0; };
 struct CP {
@@ -2136,6 +2182,7 @@ CP ds_main(HSConst factors, const OutputPatch<CP, 3> patch,
 }
 float4 ps_main(CP input) : SV_Target { return saturate(input.color); }
 )HLSL";
+#endif
 
     ID3DBlob* vs = nullptr;
     ID3DBlob* hs = nullptr;
@@ -2311,12 +2358,16 @@ float4 ps_main(CP input) : SV_Target { return saturate(input.color); }
     safe_release(vs);
     safe_release(device);
     constexpr uint64_t expected_nonzero_pixels = 1352;
-    constexpr uint32_t expected_center_pixel = 0xff407e81u;
+    const bool patch_constant_proof = MINI_PROBE_CASE == 24;
+    const uint32_t expected_center_pixel =
+        patch_constant_proof ? 0xff000040u : 0xff407e81u;
     bool verified = SUCCEEDED(hr) &&
                     nonzero_pixels == expected_nonzero_pixels &&
                     center_pixel == expected_center_pixel;
     return {verified, verified ? S_OK : hr,
-            verified ? "hull/domain tessellation matched exact raster readback"
+            verified ? (patch_constant_proof
+                            ? "hull/domain patch-constant load matched exact raster readback"
+                            : "hull/domain tessellation matched exact raster readback")
                      : (detail.empty() ? "hull/domain tessellation exact raster mismatch" : detail),
             "\"nonzero_pixels\":" + std::to_string(nonzero_pixels) +
                 ",\"expected_nonzero_pixels\":" +
@@ -2325,7 +2376,9 @@ float4 ps_main(CP input) : SV_Target { return saturate(input.color); }
                 ",\"expected_center_pixel\":" +
                 std::to_string(expected_center_pixel) +
                 ",\"tessellation_system_values_verified\":" +
-                (verified ? "true" : "false")};
+                (verified ? "true" : "false") +
+                ",\"load_patch_constant_verified\":" +
+                (patch_constant_proof && verified ? "true" : "false")};
 }
 
 static ProbeResult probe_subnautica_geometry_dxil_replay() {
@@ -5841,6 +5894,8 @@ static ProbeResult run_probe() {
     case 15:
         return probe_dxr_acceleration_structures();
     case 16:
+        return probe_tessellation_shader_pso();
+    case 24:
         return probe_tessellation_shader_pso();
     case 17:
         return probe_start_draw_info();

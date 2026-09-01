@@ -24,9 +24,11 @@
   loads, patch-constant stores, and `SV_DomainLocation` interpolation. These
   exact runtime results promote the corresponding four stage-system rows
   (`LoadOutputControlPoint`, `DomainLocation`, `StorePatchConstant`, and
-  `OutputControlPointID`) beyond PSO linking; `LoadPatchConstant` remains open
-  because the provider rejects a variant that consumes patch factors in the
-  domain shader.
+  `OutputControlPointID`) beyond PSO linking. A separate
+  `tessellation_patch_constant` profile consumes an exact `0.25`
+  `SV_InsideTessFactor` value and returns center pixel `0xff000040`, promoting
+  the bounded `LoadPatchConstant` proof; arbitrary patch-constant layouts and
+  broader HS/DS forms remain fail-closed.
 - Profile `geometry-system-v2` extends the SM5 DXBC/AIR geometry provider with
   two emitted strips, an explicit `RestartStrip`, `SV_PrimitiveID`, and a
   source-staged `dcl_gsinstances 2` declaration. The isolated M4 readback is
@@ -600,7 +602,7 @@ exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
 exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 47 rows still missing after the exact inline-RayQuery,
+remains open with 46 rows still missing after the exact inline-RayQuery,
 ViewID, extended-command-information, SM5 geometry stream/system, and
 SM5 tessellation-system observations, including the candidate/committed
 state-accessor, transform, contribution, procedural, AllocateRayQuery2, abort,

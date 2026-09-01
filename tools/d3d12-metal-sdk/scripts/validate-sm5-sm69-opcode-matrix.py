@@ -161,6 +161,7 @@ EVIDENCE: dict[int, list[str]] = {
     101: ["probe-dxil-semantics:double_bitcast"],
     102: ["probe-dxil-semantics:double_bitcast"],
     103: ["probe-mini-tessellation_shader_pso:load_output_control_point"],
+    104: ["probe-mini-tessellation_patch_constant:load_patch_constant"],
     105: ["probe-mini-tessellation_shader_pso:domain_location"],
     106: ["probe-mini-tessellation_shader_pso:store_patch_constant"],
     107: ["probe-mini-tessellation_shader_pso:output_control_point_id"],

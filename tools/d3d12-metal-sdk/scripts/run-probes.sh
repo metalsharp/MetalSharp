@@ -69,6 +69,7 @@ MINI_PROBES=(
   dxr_inline
   dxr_acceleration_structures
   tessellation_shader_pso
+  tessellation_patch_constant
   start_draw_info
   inner_coverage
   view_id_instancing
