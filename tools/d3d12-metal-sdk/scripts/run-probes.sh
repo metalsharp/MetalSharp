@@ -2995,12 +2995,22 @@ void cs_sm69_long_vector_divide_shift(uint3 id : SV_DispatchThreadID) {
                            signed_shifted[4] + signed_shifted[5] + signed_shifted[6] + signed_shifted[7];
   int signed_sum_remainder = signed_remainder[0] + signed_remainder[1] + signed_remainder[2] + signed_remainder[3] +
                              signed_remainder[4] + signed_remainder[5] + signed_remainder[6] + signed_remainder[7];
+  vector<float, 8> float_a = vector<float, 8>(2.0f, 3.0f, 4.0f, 5.0f,
+                                               6.0f, 7.0f, 8.0f, 9.0f);
+  vector<float, 8> float_two = vector<float, 8>(2.0f, 2.0f, 2.0f, 2.0f,
+                                                 2.0f, 2.0f, 2.0f, 2.0f);
+  vector<float, 8> float_quotient = float_a / float_two;
+  float float_sum = float_quotient[0] + float_quotient[1] +
+                    float_quotient[2] + float_quotient[3] +
+                    float_quotient[4] + float_quotient[5] +
+                    float_quotient[6] + float_quotient[7];
   outbuf.Store(0, sum_quotient);
   outbuf.Store(4, sum_shifted);
   outbuf.Store(8, sum_remainder);
   outbuf.Store(12, asuint(signed_sum_quotient));
   outbuf.Store(16, asuint(signed_sum_shifted));
   outbuf.Store(20, asuint(signed_sum_remainder));
+  outbuf.Store(24, asuint(float_sum));
 }
 
 [numthreads(1, 1, 1)]
