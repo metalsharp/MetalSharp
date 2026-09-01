@@ -396,7 +396,7 @@ with `append_counter_link=true` and rejects a two-counter shader with exact
 `AppendStructuredBuffer` heap shader and proves the unsupported counter mapping
 fails closed at PSO creation with exact `0x80004005`; `phase5-helper2` preserves
 all earlier semantic lanes with zero mismatches. Profile `phase5-rawvec4`
-passes all 43 current semantic lanes, including exact double payload words
+passes all 58 current semantic lanes, including exact double payload words
 `[0x54442d18,0x400921fb]`, dynamic add/subtract result
 `[0x00000000,0x400a0000]`, and the complete 16-word binary64 addition matrix.
 The same profile passes ordinary and IEEE-754 matrices for binary64
