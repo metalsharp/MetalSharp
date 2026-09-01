@@ -359,10 +359,10 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution
-- [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats
-- [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders
-- [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (202/280 required opcode rows observed; 78 open)
+- [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
+- [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
+- [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
 - [ ] Phase 9 — D3D12 video provider
 - [ ] Phase 10 — Protected resources and security-sensitive paths
 - [ ] Phase 11 — DSR and advanced display scaling
@@ -774,6 +774,30 @@ The exhaustive Phase 5 matrix currently has 202 observed, 78 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence; vector overloads and broader
 stage matrices remain open.
+
+**Phase 5 closeout plan (literal gate retained):** Work is now batched by the
+remaining matrix families rather than by ad-hoc probes. First close the
+stage-system/vector rows (`EmitStream`/tessellation state,
+`AttributeAtVertex`, and the legacy cycle-counter boundary) with exact
+runtime/negative evidence. Then pull the Phase 8 ray-generation, shader-table,
+and state-object rows into one native-DXR batch. Finally implement the Phase 7
+Work Graph/node and Phase 8 SER/OMM rows as explicit providers; compilation or
+interface presence alone cannot close them. Each batch must regenerate the
+opcode corpus, pass the strict matrix plus shader-engine audit, record exact
+readbacks/rejections, clean its disposable prefix/cache, and land as a
+checkpoint. No row will be changed to observed solely to improve the
+percentage.
+
+**Pull-forward evidence recorded without closing later phases:** Phase 6 has
+exact conservative-raster `InnerCoverage`, ViewID instancing, programmable
+sample-position/attribute-evaluation, writable-MSAA, and typed texture matrices,
+but broader raster/topology/ROV/depth-bias coverage remains open. Phase 7 has
+host-specific native mesh/amplification payload proofs for 64/128/256-byte
+payloads and a 64-thread group, while work graphs/node shaders remain open.
+Phase 8 has exact inline RayQuery state/accessor/transform/contribution/
+procedural/abort behavior and indexed R16 BLAS coverage, while full
+ray-generation/state-object execution, SER, OMM, and portable serialization
+remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
