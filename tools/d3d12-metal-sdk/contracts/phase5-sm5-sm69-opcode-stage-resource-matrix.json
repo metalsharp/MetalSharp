@@ -2377,8 +2377,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-geometry-system-matrix:gs_instance_id_default_zero"
+      ],
       "negative_evidence": []
     },
     {

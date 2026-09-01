@@ -261,6 +261,74 @@ static HRESULT compile_shader(const char* source, const char* entry, const char*
     return hr;
 }
 
+static bool patch_dxbc_gs_instance_count(ID3DBlob* blob, UINT instance_count,
+                                        std::vector<uint8_t>& patched) {
+    if (!blob || blob->GetBufferSize() < 40)
+        return false;
+    const auto* bytes = static_cast<const uint8_t*>(blob->GetBufferPointer());
+    auto read_u32 = [](const uint8_t* value) -> uint32_t {
+        return static_cast<uint32_t>(value[0]) |
+               (static_cast<uint32_t>(value[1]) << 8) |
+               (static_cast<uint32_t>(value[2]) << 16) |
+               (static_cast<uint32_t>(value[3]) << 24);
+    };
+    auto write_u32 = [](uint8_t* value, uint32_t number) {
+        value[0] = static_cast<uint8_t>(number);
+        value[1] = static_cast<uint8_t>(number >> 8);
+        value[2] = static_cast<uint8_t>(number >> 16);
+        value[3] = static_cast<uint8_t>(number >> 24);
+    };
+    const size_t blob_size = blob->GetBufferSize();
+    if (std::memcmp(bytes, "DXBC", 4) != 0)
+        return false;
+    const uint32_t chunk_count = read_u32(bytes + 28);
+    if (chunk_count == 0 || chunk_count > 64 || 32u + chunk_count * 4u > blob_size)
+        return false;
+    uint32_t shader_chunk = 0;
+    uint32_t shader_chunk_size = 0;
+    for (uint32_t i = 0; i < chunk_count; ++i) {
+        const uint32_t offset = read_u32(bytes + 32 + i * 4);
+        if (offset > blob_size || blob_size - offset < 8)
+            return false;
+        const uint32_t size = read_u32(bytes + offset + 4);
+        if (size > blob_size - offset - 8)
+            return false;
+        if ((std::memcmp(bytes + offset, "SHDR", 4) == 0 ||
+             std::memcmp(bytes + offset, "SHEX", 4) == 0) &&
+            shader_chunk == 0) {
+            shader_chunk = offset;
+            shader_chunk_size = size;
+        }
+    }
+    // A shader chunk starts with version and token-count words. Insert the
+    // two-word dcl_gs_instance_count declaration before its first declaration.
+    if (shader_chunk == 0 || shader_chunk_size < 8 ||
+        shader_chunk + 8 + 8 > blob_size)
+        return false;
+    const size_t insert_offset = static_cast<size_t>(shader_chunk) + 16;
+    patched.clear();
+    patched.reserve(blob_size + 8);
+    patched.insert(patched.end(), bytes, bytes + insert_offset);
+    const uint32_t declaration = (2u << 24) | 206u; // DCL_GS_INSTANCE_COUNT
+    const uint32_t clamped_count = instance_count == 0 ? 1 : instance_count;
+    for (uint32_t word : {declaration, clamped_count}) {
+        patched.push_back(static_cast<uint8_t>(word));
+        patched.push_back(static_cast<uint8_t>(word >> 8));
+        patched.push_back(static_cast<uint8_t>(word >> 16));
+        patched.push_back(static_cast<uint8_t>(word >> 24));
+    }
+    patched.insert(patched.end(), bytes + insert_offset, bytes + blob_size);
+    write_u32(patched.data() + 24, read_u32(bytes + 24) + 8);
+    write_u32(patched.data() + shader_chunk + 4, shader_chunk_size + 8);
+    write_u32(patched.data() + shader_chunk + 12, read_u32(bytes + shader_chunk + 12) + 2);
+    for (uint32_t i = 0; i < chunk_count; ++i) {
+        const uint32_t offset = read_u32(bytes + 32 + i * 4);
+        if (offset > shader_chunk)
+            write_u32(patched.data() + 32 + i * 4, offset + 8);
+    }
+    return true;
+}
+
 static HRESULT serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC& desc, ID3DBlob** blob, std::string& errors) {
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     D3D12SerializeRootSignatureFn serialize =
@@ -793,7 +861,8 @@ static ProbeResult probe_rtv_clear() {
 static HRESULT create_basic_graphics_pso(ID3D12Device* device, const char* vs_target, const char* ps_target,
                                          const char* gs_target, ID3D12PipelineState** pso_out,
                                          ID3D12RootSignature** root_out, std::string& detail,
-                                         const char* source_override = nullptr) {
+                                         const char* source_override = nullptr,
+                                         bool patch_gs_instance_count = false) {
     const char* hlsl = source_override ? source_override :
         "struct VSIn{float3 pos:POSITION;float2 uv:TEXCOORD0;};"
         "struct VSOut{float4 pos:SV_POSITION;float2 uv:TEXCOORD0;};"
@@ -810,6 +879,12 @@ static HRESULT create_basic_graphics_pso(ID3D12Device* device, const char* vs_ta
         hr = compile_shader(hlsl, "ps_main", ps_target, &ps, detail);
     if (SUCCEEDED(hr) && gs_target)
         hr = compile_shader(hlsl, "gs_main", gs_target, &gs, detail);
+    std::vector<uint8_t> patched_gs;
+    if (SUCCEEDED(hr) && patch_gs_instance_count && gs &&
+        !patch_dxbc_gs_instance_count(gs, 2, patched_gs)) {
+        detail = "failed to patch the DXBC geometry instance-count declaration";
+        hr = E_FAIL;
+    }
     if (FAILED(hr)) {
         safe_release(gs);
         safe_release(ps);
@@ -837,8 +912,10 @@ static HRESULT create_basic_graphics_pso(ID3D12Device* device, const char* vs_ta
         desc.PS.pShaderBytecode = ps->GetBufferPointer();
         desc.PS.BytecodeLength = ps->GetBufferSize();
         if (gs) {
-            desc.GS.pShaderBytecode = gs->GetBufferPointer();
-            desc.GS.BytecodeLength = gs->GetBufferSize();
+            desc.GS.pShaderBytecode = patched_gs.empty() ? gs->GetBufferPointer()
+                                                         : patched_gs.data();
+            desc.GS.BytecodeLength = patched_gs.empty() ? gs->GetBufferSize()
+                                                        : patched_gs.size();
         }
         desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
         desc.SampleMask = UINT_MAX;
@@ -1819,13 +1896,16 @@ VSOut vs_main(VSIn input) {
 struct GSOut { float4 pos : SV_Position; float4 color : COLOR0; };
 [maxvertexcount(6)]
 void gs_main(triangle VSOut input[3], inout TriangleStream<GSOut> output,
-             uint primitive_id : SV_PrimitiveID) {
+             uint primitive_id : SV_PrimitiveID,
+             uint instance_id : SV_GSInstanceID) {
     [unroll]
     for (uint i = 0; i < 3; ++i) {
         GSOut vertex;
         vertex.pos = input[i].pos;
         vertex.color = float4(1.0, 0.0,
-                              primitive_id == 0 ? 0.25 : 0.75, 1.0);
+                              (primitive_id == 0 ? 0.25 : 0.75) +
+                                  (instance_id == 0 ? 0.0 : 0.25),
+                              1.0);
         output.Append(vertex);
     }
     output.RestartStrip();
@@ -1834,7 +1914,9 @@ void gs_main(triangle VSOut input[3], inout TriangleStream<GSOut> output,
         GSOut vertex;
         vertex.pos = input[i].pos + float4(0.6, 0.0, 0.0, 0.0);
         vertex.color = float4(0.0, 1.0,
-                              primitive_id == 0 ? 0.25 : 0.75, 1.0);
+                              (primitive_id == 0 ? 0.25 : 0.75) +
+                                  (instance_id == 0 ? 0.0 : 0.25),
+                              1.0);
         output.Append(vertex);
     }
 }
@@ -1855,7 +1937,7 @@ float4 ps_main(GSOut input) : SV_Target0 { return input.color; }
     HRESULT hr = create_device(&device);
     if (SUCCEEDED(hr))
         hr = create_basic_graphics_pso(device, "vs_5_0", "ps_5_0", "gs_5_0",
-                                       &pso, &root, detail, hlsl);
+                                       &pso, &root, detail, hlsl, true);
 
     struct Vertex { float position[3]; float uv[2]; };
     const Vertex triangle[] = {
@@ -1985,8 +2067,8 @@ float4 ps_main(GSOut input) : SV_Target0 { return input.color; }
     safe_release(pso);
     safe_release(root);
     safe_release(device);
-    const bool left_ok = left.r == 255 && left.g == 0 && left.b == 64 && left.a == 255;
-    const bool right_ok = right.r == 0 && right.g == 255 && right.b == 64 && right.a == 255;
+    const bool left_ok = left.r == 255 && left.g == 0 && left.b == 128 && left.a == 255;
+    const bool right_ok = right.r == 0 && right.g == 255 && right.b == 128 && right.a == 255;
     const bool verified = SUCCEEDED(hr) && left_ok && right_ok && nonzero_pixels > 0;
     return {verified, verified ? S_OK : hr,
             verified ? "geometry system values and stream restart matched exact readback"
@@ -1998,6 +2080,8 @@ float4 ps_main(GSOut input) : SV_Target0 { return input.color; }
                 std::to_string(right.r) + "," + std::to_string(right.g) + "," +
                 std::to_string(right.b) + "," + std::to_string(right.a) +
                 "],\"emit_then_cut_stream_verified\":" +
+                (verified ? "true" : "false") +
+                ",\"gs_instance_id_matrix_verified\":" +
                 (verified ? "true" : "false")};
 }
 

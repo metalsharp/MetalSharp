@@ -1043,6 +1043,11 @@ handle_signature_gs(
     // auto MinPrecision = Inst.m_Operands[0].m_MinPrecision; // not used
     auto sgv = Inst.m_InputDeclSGV.Name;
     switch (sgv) {
+    case D3D10_SB_NAME_INSTANCE_ID:
+      // The generated geometry entry point receives the instance index from
+      // the threadgroup position in grid; the declaration itself does not
+      // add an AIR argument.
+      break;
     default:
       assert(0 && "Unexpected/unhandled geometry shader sgv");
       break;
@@ -1070,6 +1075,7 @@ handle_signature_gs(
       break;
     }
     case microsoft::D3D10_SB_OPERAND_TYPE_INPUT_PRIMITIVEID:
+    case microsoft::D3D11_SB_OPERAND_TYPE_INPUT_GS_INSTANCE_ID:
       break;
     default:
       assert(0 && "unhandled geometry shader input");

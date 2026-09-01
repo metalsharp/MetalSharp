@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (232/280 required opcode rows observed; 48 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (233/280 required opcode rows observed; 47 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -772,13 +772,15 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, ray-generation paths, and state-object
 breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 232 observed, 48 open, and 32
+The exhaustive Phase 5 matrix currently has 233 observed, 47 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
-compiled `EmitThenCutStream` form, and the native SM5 tessellation proof
-exercises output-control-point input loads, patch constant stores, and
-domain-location interpolation. `GSInstanceID`, `LoadPatchConstant`, DXIL
+compiled `EmitThenCutStream` form and a source-staged two-instance
+`GSInstanceID` readback, and the native SM5 tessellation proof exercises
+output-control-point input loads, patch constant stores, and domain-location
+interpolation.
+`LoadPatchConstant`, non-default geometry instance counts, DXIL
 geometry-provider breadth, vector overloads, and broader stage matrices remain
 open.
 
@@ -1628,12 +1630,17 @@ whether the scoped FL12_2 gate is green.
 ### 2026-09-01 — Phase 5 SM5 geometry stream/system readback
 
 - Added `geometry-system-v2`, an isolated Apple M4 execution of the SM5
-  DXBC/AIR geometry provider with two emitted strips, `RestartStrip`, and
-  `SV_PrimitiveID`. It requires exactly 1,062 nonzero pixels and left/right
-  RGBA samples `[255,0,64,255]` and `[0,255,64,255]`.
+  DXBC/AIR geometry provider with two emitted strips, `RestartStrip`,
+  `SV_PrimitiveID`, and a source-staged `dcl_gsinstances 2` declaration. It
+  requires exactly 1,062 nonzero pixels and left/right RGBA samples
+  `[255,0,128,255]` and `[0,255,128,255]`, proving both geometry-instance
+  values reach the output.
+- Hardened the DXBC geometry signature parser for the
+  `INPUT_GS_INSTANCE_ID` declaration and `INSTANCE_ID` system-value form; the
+  compiled probe now records `gs_instance_id_matrix_verified=true`.
 - Promoted the behavior-backed `EmitStream`, `CutStream`, `EmitThenCutStream`,
-  and first primitive `PrimitiveID` rows. `GSInstanceID`,
-  `LoadPatchConstant`, and the DXIL geometry-provider ABI remain open.
+  two-instance `GSInstanceID` input, and first primitive `PrimitiveID` rows.
+  `LoadPatchConstant` and the DXIL geometry-provider ABI remain open.
   `RestartStrip` is compiled by the pinned D3DCompile lane as the combined
   DXBC stream operation, and the result records
   `emit_then_cut_stream_verified=true`.
