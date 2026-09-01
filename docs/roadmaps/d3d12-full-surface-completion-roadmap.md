@@ -746,9 +746,9 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; 30 inline-RayQuery opcodes are now observed, including the exact
-candidate/committed state-accessor and abort matrix, while broader DXR
-accessors, procedural/ray-generation paths, and state-object breadth remain
+ceiling; 34 inline-RayQuery opcodes are now observed, including the exact
+candidate/committed state-accessor, transform, and abort matrix, while broader
+DXR accessors, procedural/ray-generation paths, and state-object breadth remain
 open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
@@ -1424,3 +1424,17 @@ whether the scoped FL12_2 gate is green.
   exact-readback evidence; the exhaustive matrix is now 180 observed, 100 open,
   and 32 reserved/not-applicable. Broader procedural geometry, transforms,
   ray-generation/state-object paths, and the Phase 5 exit gate remain open.
+
+### 2026-09-01 — Phase 5 RayQuery transform accessors
+
+- Extended the inline-RayQuery lowering to read all four native Metal
+  candidate/committed object-to-world and world-to-object `float3x4` matrices,
+  preserving DXIL row/column order and exact signed-zero payloads. The isolated
+  M4 profile now checks an exact 88-word matrix with an x=`0.25` instance
+  transform and its inverse, alongside the existing hit, state, and abort
+  values.
+- Promoted four additional RayQuery opcode rows from runtime module-report and
+  exact-readback evidence; the exhaustive matrix is now 184 observed, 96 open,
+  and 32 reserved/not-applicable. Contribution indices, broader procedural
+  geometry, ray-generation/state-object paths, and the Phase 5 exit gate remain
+  open.

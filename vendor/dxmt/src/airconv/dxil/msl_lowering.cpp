@@ -4967,6 +4967,22 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         static const char *suffixes[] = {".x", ".y", ".z", ".w"};
         return value + suffixes[component];
     };
+    auto rayQueryStateMatrixComponent = [&](const char *method,
+                                            const char *label) {
+        const uint32_t row = literalArg(1, UINT32_MAX, label);
+        const uint32_t column = literalArg(2, UINT32_MAX, label);
+        if (row >= 3 || column >= 4) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL RayQuery %s component is unsupported: %u,%u",
+                             label, row, column);
+            return std::string("0.0f");
+        }
+        // DXIL exposes a row-major 3x4 value.  Metal's float4x3 is indexed
+        // by column first, so the two indices are intentionally reversed.
+        return valueArg(0, "v0") + "." + method + "()[" +
+               std::to_string(column) + "][" + std::to_string(row) + "]";
+    };
 
     switch (intrinsic_id) {
     case DXOP_CreateHandle: {
@@ -5256,9 +5272,21 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             valueArg(0, "v0") + ".get_committed_ray_direction()", 3,
             "committed object ray direction");
     case 186:
+        return rayQueryStateMatrixComponent(
+            "get_candidate_object_to_world_transform",
+            "candidate object-to-world");
     case 187:
+        return rayQueryStateMatrixComponent(
+            "get_candidate_world_to_object_transform",
+            "candidate world-to-object");
     case 188:
+        return rayQueryStateMatrixComponent(
+            "get_committed_object_to_world_transform",
+            "committed object-to-world");
     case 189:
+        return rayQueryStateMatrixComponent(
+            "get_committed_world_to_object_transform",
+            "committed world-to-object");
     case 214:
     case 215:
         ctx.unsupported_intrinsics++;
