@@ -899,7 +899,7 @@ int main() {
         {"sm69_long_vector_tertiary", "probe_dxil_semantic_sm69_long_vector_tertiary.cso", {1u},
          {96u}, "sm69_long_vector_tertiary"},
         {"sm69_long_vector_divide_shift", "probe_dxil_semantic_sm69_long_vector_divide_shift.cso", {1u},
-         {20u, 88u, 8u, 4294967280u, 4294967276u, 4294967287u},
+         {20u, 88u, 8u, 20u, 4294967280u, 4294967276u, 4294967287u},
          "sm69_long_vector_divide_shift"},
         {"sm69_long_vector_float_remainder", "probe_dxil_semantic_sm69_long_vector_float_remainder.cso", {},
          {0x40800000u}, "sm69_long_vector_float_remainder"},
