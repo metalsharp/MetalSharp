@@ -8545,6 +8545,9 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   uint64_t fallback_compute_texture_slots = 0;
   uint64_t fallback_compute_sampler_slots = 0;
   bool compute_invalid_sampler = false;
+  bool compute_contribution_table_bound = false;
+  bool compute_uav_counter_bound = false;
+  bool compute_binding_conflict = false;
 
   auto append_cmd = [&](void *data, size_t sz) -> wmtcmd_base * {
     if (cmd_ptr + sz > cmd_buf + sizeof(cmd_buf)) {
@@ -8885,6 +8888,21 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
             res->GetMTLAccelerationStructure().handle, buf_slot);
         append_compute_useresource(res->GetMTLAccelerationStructure().handle,
                                    WMTResourceUsageRead);
+        if (auto contributions =
+                res->GetRaytracingInstanceContributionsBuffer();
+            contributions.handle) {
+          // Inline RayQuery state opcodes 214/215 address the D3D12 instance
+          // contribution table by candidate/committed instance index. Keep
+          // the table in the reserved direct slot 30 and fail closed if an
+          // external UAV counter already owns that slot.
+          if (compute_uav_counter_bound) {
+            compute_binding_conflict = true;
+          } else if (append_compute_setbuffer(contributions.handle, 0, 30)) {
+            compute_contribution_table_bound = true;
+            append_compute_useresource(contributions.handle,
+                                       WMTResourceUsageRead);
+          }
+        }
       } else if (res->GetMTLBuffer().handle) {
         uint64_t offset = 0;
         if (range_type == D3D12_DESCRIPTOR_RANGE_TYPE_CBV &&
@@ -8910,16 +8928,20 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
           auto *counter = static_cast<MTLD3D12Resource *>(
               desc->resource_uav_counter);
           if (counter->GetMTLBuffer().handle) {
-            append_compute_setbuffer(counter->GetMTLBuffer().handle,
-                                     desc->uav.Buffer.CounterOffsetInBytes,
-                                     30);
-            append_compute_useresource(
-                counter->GetMTLBuffer().handle,
-                (WMTResourceUsage)(WMTResourceUsageRead |
-                                   WMTResourceUsageWrite));
-            QTRACE("%s: table UAV counter u%u -> reserved slot=30 offset=%llu",
-                   trace_prefix, shader_register,
-                   (unsigned long long)desc->uav.Buffer.CounterOffsetInBytes);
+            if (compute_contribution_table_bound) {
+              compute_binding_conflict = true;
+            } else if (append_compute_setbuffer(
+                           counter->GetMTLBuffer().handle,
+                           desc->uav.Buffer.CounterOffsetInBytes, 30)) {
+              compute_uav_counter_bound = true;
+              append_compute_useresource(
+                  counter->GetMTLBuffer().handle,
+                  (WMTResourceUsage)(WMTResourceUsageRead |
+                                     WMTResourceUsageWrite));
+              QTRACE("%s: table UAV counter u%u -> reserved slot=30 offset=%llu",
+                     trace_prefix, shader_register,
+                     (unsigned long long)desc->uav.Buffer.CounterOffsetInBytes);
+            }
           }
         }
       } else if (auto tex = DescriptorTexture(desc, res); tex.handle) {
@@ -9094,6 +9116,12 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
   if (compute_invalid_sampler) {
     Logger::info(str::format(
         "M12 compute dispatch rejected invalid table sampler label=",
+        trace_prefix, " pso=", (void *)st.pso));
+    return;
+  }
+  if (compute_binding_conflict) {
+    Logger::info(str::format(
+        "M12 compute dispatch rejected contribution-table/UAV-counter slot alias label=",
         trace_prefix, " pso=", (void *)st.pso));
     return;
   }

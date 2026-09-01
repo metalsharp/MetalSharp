@@ -5299,11 +5299,13 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             "get_committed_world_to_object_transform",
             "committed world-to-object");
     case 214:
+        if (args.empty()) return "0u";
+        return "(buf30 == nullptr ? 0u : reinterpret_cast<device uint*>(buf30)[" +
+               valueArg(0, "v0") + ".get_candidate_instance_id()])";
     case 215:
-        ctx.unsupported_intrinsics++;
-        recordDiagnostic(ctx, "DXIL RayQuery state opcode %u is not lowered",
-                         intrinsic_id);
-        return "0";
+        if (args.empty()) return "0u";
+        return "(buf30 == nullptr ? 0u : reinterpret_cast<device uint*>(buf30)[" +
+               valueArg(0, "v0") + ".get_committed_instance_id()])";
     case DXOP_StartVertexLocation:
         if (ctx.shader.kind != DxilShaderKind::Vertex) {
             ctx.unsupported_intrinsics++;
