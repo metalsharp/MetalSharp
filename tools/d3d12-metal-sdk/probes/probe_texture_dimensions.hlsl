@@ -13,6 +13,7 @@ TextureCube<float4> texcube : register(t0);
 TextureCubeArray<float4> texcubea : register(t0);
 Texture2DMS<float4> texms : register(t0);
 Texture2DMSArray<float4> texmsa : register(t0);
+Texture2DMS<float4> texms_graphics : register(t4);
 #if defined(M12_TYPED_UINT)
 Texture2D<uint> tex_uint : register(t0);
 #elif defined(M12_TYPED_SINT)
@@ -51,6 +52,9 @@ LODVertexOutput vs_texture_lod(uint vertex_id : SV_VertexID) {
 }
 
 float4 ps_texture_lod(LODVertexOutput input) : SV_Target0 {
+  float2 sample_position = GetRenderTargetSamplePosition(0);
+  float2 texture_sample_position = texms_graphics.GetSamplePosition(0);
+  uint sample_count = GetRenderTargetSampleCount();
   float comparison = comparison_tex.SampleCmp(
       comparison_samp, float2(0.5, 0.5), 0.5);
   float comparison_level_zero = comparison_tex.SampleCmpLevelZero(
@@ -62,7 +66,11 @@ float4 ps_texture_lod(LODVertexOutput input) : SV_Target0 {
   return float4(tex1.CalculateLevelOfDetail(samp, input.coordinate),
                 tex1.CalculateLevelOfDetailUnclamped(samp, input.coordinate),
                 comparison + comparison_level_zero + comparison_1d +
-                    comparison_1d_array + input.comparison,
+                    comparison_1d_array + input.comparison +
+                    sample_position.x * 2.0 + sample_position.y +
+                    texture_sample_position.x * 8.0 +
+                    texture_sample_position.y * 4.0 +
+                    float(sample_count) * 4.0,
                 1.0);
 }
 

@@ -1450,8 +1450,10 @@
         "cube_array"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxil-semantics:texture_sampling_forms"
+      ],
       "negative_evidence": []
     },
     {
@@ -1541,8 +1543,10 @@
         "cube_array"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:comparison_sampling"
+      ],
       "negative_evidence": []
     },
     {
@@ -1570,8 +1574,10 @@
         "cube_array"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-sm66-capabilities:sample_cmp_level_sm67"
+      ],
       "negative_evidence": []
     },
     {
@@ -1625,8 +1631,10 @@
         "uav"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:typed_texture_store_matrix"
+      ],
       "negative_evidence": []
     },
     {
@@ -1845,8 +1853,10 @@
         "msaa"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:comparison_sampling"
+      ],
       "negative_evidence": []
     },
     {
@@ -1868,8 +1878,10 @@
         "msaa"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:comparison_sampling"
+      ],
       "negative_evidence": []
     },
     {
@@ -1891,8 +1903,10 @@
         "msaa"
       ],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-texture-dimensions:comparison_sampling"
+      ],
       "negative_evidence": []
     },
     {
@@ -2121,8 +2135,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:attribute_evaluation"
+      ],
       "negative_evidence": []
     },
     {
@@ -2135,8 +2151,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:attribute_evaluation"
+      ],
       "negative_evidence": []
     },
     {
@@ -2149,8 +2167,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:attribute_evaluation"
+      ],
       "negative_evidence": []
     },
     {
@@ -2163,8 +2183,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:sample_index"
+      ],
       "negative_evidence": []
     },
     {
@@ -2177,8 +2199,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-writable-msaa:coverage"
+      ],
       "negative_evidence": []
     },
     {

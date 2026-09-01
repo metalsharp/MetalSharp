@@ -329,10 +329,11 @@ clamped and unclamped `CalculateLevelOfDetail`, proving the logical 1D-to-Metal
 2D coordinate adaptation without relying on undefined compute derivatives.
 Profile `phase5-vs-cmp4` binds a regular sampled texture plus 2D, logical 1D,
 and logical 1D-array depth-comparison textures simultaneously. Vertex- and
-pixel-stage level-zero/implicit PCF across those views sum to exact `4.0f`
-(`0x40800000`). Vertex textures and samplers are now carried through the
-WineMetal render-command bridge, while per-slot depth typing preserves mixed
-regular/depth declarations and height-one backing.
+pixel-stage level-zero/implicit PCF across those views, together with
+render-target/sample-texture position and sample-count arithmetic, sum to exact
+`15.5f` (`0x41780000`). Vertex textures and samplers are now carried through
+the WineMetal render-command bridge, while per-slot depth typing preserves
+mixed regular/depth declarations and height-one backing.
 Clamp, wrap, mirror, border, and mirror-once address modes return distinct exact
 packed values, while transparent black, opaque black, and opaque white border
 colors return `0x00000000`, `0xff000000`, and `0xffffffff`. Dynamic sampler
