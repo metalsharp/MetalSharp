@@ -199,6 +199,8 @@ EVIDENCE: dict[int, list[str]] = {
     152: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_builtins"],
     153: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_builtins"],
     154: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_builtins"],
+    155: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_control_flow"],
+    156: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_control_flow"],
     157: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_builtins"],
     158: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_builtins"],
     159: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_builtins"],
