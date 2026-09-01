@@ -2985,7 +2985,17 @@ void cs_sm69_long_vector_select(uint3 id : SV_DispatchThreadID) {
   vector<uint, 8> selected = select(a > b, a, b);
   uint total = selected[0] + selected[1] + selected[2] + selected[3] +
                selected[4] + selected[5] + selected[6] + selected[7];
+  vector<float, 8> fa = vector<float, 8>(1.0f, 2.0f, 3.0f, 4.0f,
+                                         5.0f, 6.0f, 7.0f, 8.0f);
+  vector<float, 8> fb = vector<float, 8>(8.0f, 7.0f, 6.0f, 5.0f,
+                                         4.0f, 3.0f, 2.0f, 1.0f);
+  vector<float, 8> selected_float = select(fa > fb, fa, fb);
+  float total_float = selected_float[0] + selected_float[1] +
+                      selected_float[2] + selected_float[3] +
+                      selected_float[4] + selected_float[5] +
+                      selected_float[6] + selected_float[7];
   outbuf.Store(0, total);
+  outbuf.Store(4, asuint(total_float));
 }
 
 [numthreads(1, 1, 1)]
