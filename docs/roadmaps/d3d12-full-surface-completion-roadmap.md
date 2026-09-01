@@ -752,8 +752,8 @@ opcode, two SM6.8 extended-command-information opcodes, and the InnerCoverage
 opcode are now observed, including exact temporary-register,
 candidate/committed state-accessor, transform, contribution, procedural,
 AllocateRayQuery2, abort, ViewID-default/instancing, conservative-raster, and
-native direct/indirect mesh matrices, including a 64-byte amplification
-payload. The mesh proof uses an explicitly selected
+native direct/indirect mesh matrices, including 64-byte and 128-byte
+amplification payloads. The mesh proof uses an explicitly selected
 host `libmetalirconverter` cache provider while retaining the
 `METAL_SHADER_CONVERTER=/nonexistent` runtime setting; vector temporary
 breadth, broader DXR accessors, ray-generation paths, and state-object

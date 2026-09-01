@@ -94,14 +94,15 @@
   plus index/component addressing, and bounded dynamic register indices;
   vector overloads, dynamic indexable min-precision addressing, and broader
   stage matrices remain open.
-- The `phase7-mesh-payload64` profile uses the Apple `libmetalirconverter`
-  host provider only to materialize the native Metal mesh/amplification
-  libraries; the runtime still runs with `METAL_SHADER_CONVERTER=/nonexistent`.
-  It executes direct and GPU-only indirect `DispatchMesh` with a 64-byte
-  payload and the exact `313`/`350` direct/indirect pixels,
+- The `phase7-mesh-payload64` and `phase7-mesh-payload128` profiles use the
+  Apple `libmetalirconverter` host provider only to materialize the native
+  Metal mesh/amplification libraries; the runtime still runs with
+  `METAL_SHADER_CONVERTER=/nonexistent`. Both execute direct and GPU-only
+  indirect `DispatchMesh` with the exact `313`/`350` direct/indirect pixels,
   `0x4d534831` mesh UAV marker, exact two-layer/depth/blend/wireframe
-  readbacks, and `PIPELINE_STATISTICS1` values
-  `AS=2`, `MS=2`, `primitives=2`. The DXIL reports contain opcodes 168–173
+  readbacks, and `PIPELINE_STATISTICS1` values `AS=2`, `MS=2`, `primitives=2`.
+  The 128-byte profile additionally verifies all 28 payload-tail words and
+  reports `mesh_payload_bytes=128`. The DXIL reports contain opcodes 168–173
   with zero unsupported semantics. This is a host-specific native-IR cache
   provider; broader mesh payload/output/resource/barrier/VRS matrices remain
   open and no portable compiler-object provider is implied.
@@ -446,9 +447,11 @@ checks:
 
 The mesh libraries were produced by the explicitly selected host
 `libmetalirconverter` provider while `METAL_SHADER_CONVERTER=/nonexistent`
-remained set; the Wine prefix and runtime stage were disposable. The 64-byte
-payload result is recorded by profile `phase7-mesh-payload64`; additional
-payload sizes and mesh output/resource matrices remain open.
+remained set; the Wine prefix and runtime stage were disposable. Profiles
+`phase7-mesh-payload64` and `phase7-mesh-payload128` both pass the exact
+native direct/indirect matrix; the latter verifies all 28 payload-tail words
+and reports `mesh_payload_bytes=128`. Additional payload sizes and mesh
+output/resource matrices remain open.
 
 The latest isolated temporary-register result (profile
 `phase5-tempreg-overloads`) passed with exact UAV readbacks:
