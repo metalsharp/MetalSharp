@@ -32,6 +32,7 @@
       "profile": "geometry-system-v2",
       "checks": [
         ["ok"],
+        ["emit_then_cut_stream_verified"],
         ["nonzero_pixels", 1062],
         ["left_rgba", [255, 0, 64, 255]],
         ["right_rgba", [0, 255, 64, 255]]

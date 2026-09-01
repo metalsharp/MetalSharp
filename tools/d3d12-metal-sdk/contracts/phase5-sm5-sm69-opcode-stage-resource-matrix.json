@@ -2359,8 +2359,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-mini-geometry-system-matrix:emit_then_cut_stream_readback"
+      ],
       "negative_evidence": []
     },
     {
