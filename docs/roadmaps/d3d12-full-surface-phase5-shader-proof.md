@@ -94,6 +94,16 @@
   plus index/component addressing, and bounded dynamic register indices;
   vector overloads, dynamic indexable min-precision addressing, and broader
   stage matrices remain open.
+- The `phase7-mesh-native-final` profile uses the Apple `libmetalirconverter`
+  host provider only to materialize the native Metal mesh/amplification
+  libraries; the runtime still runs with `METAL_SHADER_CONVERTER=/nonexistent`.
+  It executes direct and GPU-only indirect `DispatchMesh` with the exact
+  `313`/`350` direct/indirect pixels, `0x4d534831` mesh UAV marker, exact two-
+  layer/depth/blend/wireframe readbacks, and `PIPELINE_STATISTICS1` values
+  `AS=2`, `MS=2`, `primitives=2`. The DXIL reports contain opcodes 168–173
+  with zero unsupported semantics. This is a host-specific native-IR cache
+  provider; broader mesh payload/output/resource/barrier/VRS matrices remain
+  open and no portable compiler-object provider is implied.
 - The LLVM 3.7 DXIL metadata reader now resolves the named `!dx.resources`
   graph into class, register-space, range, resource-kind, structured stride,
   sample-count, and UAV-flag records. The typed lowerer uses those records for
@@ -347,6 +357,15 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --mini-only --no-winemetal-abi
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_PROBE_PROFILE=phase7-mesh-native-final \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase7-mesh-native \
+METALSHARP_MINI_PROBE_FILTER=mesh_object_shader_pso \
+METALSHARP_NATIVE_IRCONVERTER=1 \
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
+    --mini-only --no-winemetal-abi
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
 METALSHARP_PROBE_PROFILE=phase5-dxr-indexed \
 METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-dxr-inline-recheck \
 METALSHARP_MINI_PROBE_FILTER=dxr_inline \
@@ -403,6 +422,28 @@ The indexed-BLAS rerun (profile `phase5-dxr-indexed`) also passed the same
 exact 96-word matrix, with `indexed_r16_geometry_verified=true`, the exact
 `768/256` BLAS sizes, and the exact `1280/256` TLAS sizes. It used a disposable
 Wine prefix and `METAL_SHADER_CONVERTER=/nonexistent`.
+
+The latest isolated native mesh/amplification result (profile
+`phase7-mesh-native-final`) passed with the exact direct/indirect and stage
+checks:
+
+```json
+{
+  "ok": true,
+  "direct_pixels": 313,
+  "indirect_pixels": 350,
+  "mesh_output_value": 1297303601,
+  "indirect_mesh_behavior_verified": true,
+  "mesh_lane_values_verified": true,
+  "pipeline_statistics1_as_invocations": 2,
+  "pipeline_statistics1_ms_invocations": 2,
+  "pipeline_statistics1_ms_primitives": 2
+}
+```
+
+The mesh libraries were produced by the explicitly selected host
+`libmetalirconverter` provider while `METAL_SHADER_CONVERTER=/nonexistent`
+remained set; the Wine prefix and runtime stage were disposable.
 
 The latest isolated temporary-register result (profile
 `phase5-tempreg-overloads`) passed with exact UAV readbacks:

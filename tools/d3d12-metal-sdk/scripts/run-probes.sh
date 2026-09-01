@@ -1483,6 +1483,40 @@ convert_dxil_shader_cache() {
   shopt -u nullglob
 }
 
+prepare_native_mesh_converter() {
+  local converter="$SDK_DIR/out/bin/compile-mesh-shader"
+  local ir_root="${METALSHARP_IRCONVERTER_ROOT:-/usr/local}"
+  if [[ -x "$converter" && "${METALSHARP_NATIVE_IRCONVERTER_REBUILD:-0}" != "1" ]]; then
+    printf '%s\n' "$converter"
+    return 0
+  fi
+  if [[ ! -f "$ir_root/include/metal_irconverter/metal_irconverter.h" ||
+        ! -f "$ir_root/lib/libmetalirconverter.dylib" ]]; then
+    echo "native Metal IRConverter mesh provider is unavailable under $ir_root" >&2
+    return 1
+  fi
+  DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
+    xcrun clang++ -std=c++17 -Wall -Wextra -Werror \
+      -I"$ir_root/include" "$SDK_DIR/scripts/compile-mesh-shader.cpp" \
+      -L"$ir_root/lib" -Wl,-rpath,"$ir_root/lib" \
+      -lmetalirconverter -o "$converter"
+  printf '%s\n' "$converter"
+}
+
+convert_mesh_shader_cache() {
+  local cache_dir="$1"
+  if [[ "${METALSHARP_NATIVE_IRCONVERTER:-0}" != "1" ]]; then
+    convert_dxil_shader_cache "$cache_dir"
+    return 0
+  fi
+  local converter
+  converter="$(prepare_native_mesh_converter)" || return 0
+  local ir_root="${METALSHARP_IRCONVERTER_ROOT:-/usr/local}"
+  DYLD_LIBRARY_PATH="$ir_root/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
+    METAL_SHADER_CONVERTER="$converter" \
+    convert_dxil_shader_cache "$cache_dir"
+}
+
 prepare_dxil_color_probe() {
   local hlsl="$SDK_DIR/out/bin/probe_dxil_color.hlsl"
   local vs="$SDK_DIR/out/bin/probe_dxil_color_vs.cso"
@@ -1643,7 +1677,7 @@ HLSL
       D3D12_METAL_SDK_PROFILE="$PROFILE" \
       "$WINE_BIN" probe_mini_mesh_object_shader_pso.exe >/dev/null || true
     )
-    convert_dxil_shader_cache "$SHADER_CACHE_DIR"
+    convert_mesh_shader_cache "$SHADER_CACHE_DIR"
   done
 }
 
