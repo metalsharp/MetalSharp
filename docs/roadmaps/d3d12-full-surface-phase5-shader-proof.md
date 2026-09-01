@@ -20,8 +20,13 @@
 - Profile `phase5-tess-runtime4` executes the SM5.0 vertex/hull/domain/pixel
   chain with integer partitioning, triangle topology, three control points,
   and factor one. It independently matches the exact 1,352-pixel raster and
-  center pixel `0xff407e81`, promoting the narrow native tessellation proof
-  from PSO linking to runtime behavior.
+  center pixel `0xff407e81`, exercising `SV_OutputControlPointID` input-patch
+  loads, patch-constant stores, and `SV_DomainLocation` interpolation. These
+  exact runtime results promote the corresponding four stage-system rows
+  (`LoadOutputControlPoint`, `DomainLocation`, `StorePatchConstant`, and
+  `OutputControlPointID`) beyond PSO linking; `LoadPatchConstant` remains open
+  because the provider rejects a variant that consumes patch factors in the
+  domain shader.
 - Profile `geometry-system-v2` extends the SM5 DXBC/AIR geometry provider with
   two emitted strips, an explicit `RestartStrip`, and `SV_PrimitiveID`; the
   isolated M4 readback is exact at `1,062` nonzero pixels with left/right

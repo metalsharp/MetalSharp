@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (227/280 required opcode rows observed; 53 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (231/280 required opcode rows observed; 49 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -772,11 +772,14 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, ray-generation paths, and state-object
 breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 227 observed, 53 open, and 32
+The exhaustive Phase 5 matrix currently has 231 observed, 49 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
-register forms have exact compute-UAV evidence, and the SM5 DXBC/AIR geometry
-provider now has an exact stream-restart/primitive-ID readback. DXIL geometry
-provider breadth, vector overloads, and broader stage matrices remain open.
+register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
+provider has an exact stream-restart/primitive-ID readback, and the native
+SM5 tessellation proof exercises output-control-point input loads, patch
+constant stores, and domain-location interpolation. `LoadPatchConstant`, DXIL
+geometry-provider breadth, vector overloads, and broader stage matrices remain
+open.
 
 **Phase 5 closeout plan (literal gate retained):** Work is now batched by the
 remaining matrix families rather than by ad-hoc probes. First close the
@@ -1630,3 +1633,15 @@ whether the scoped FL12_2 gate is green.
 - Promoted only the behavior-backed `EmitStream`, `CutStream`, and first
   primitive `PrimitiveID` rows. `EmitThenCutStream`, `GSInstanceID`, the
   tessellation-state rows, and the DXIL geometry-provider ABI remain open.
+
+### 2026-09-01 — Phase 5 tessellation system-value checkpoint
+
+- Re-ran `tessellation_shader_pso` after the geometry checkpoint with the
+  pinned runtime and `METAL_SHADER_CONVERTER=/nonexistent`; it matched exactly
+  1,352 nonzero pixels and center pixel `0xff407e81`.
+- The proof exercises `SV_OutputControlPointID`/input-patch loads,
+  `SV_TessFactor`/`SV_InsideTessFactor` stores, and `SV_DomainLocation`
+  interpolation. Four corresponding rows were promoted:
+  `LoadOutputControlPoint`, `DomainLocation`, `StorePatchConstant`, and
+  `OutputControlPointID`. `LoadPatchConstant` remains open because consuming
+  patch factors in the domain shader is not supported by the provider.
