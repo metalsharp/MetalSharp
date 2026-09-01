@@ -8044,14 +8044,38 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 value_counter++;
                 break;
             }
-            if (inst.opcode == LLVMInstruction::FRem &&
-                !DXILIRBuilder::isVectorType(result_type)) {
-                lhs = castExpr(lhs, {MSLTypeKind::Float, 0, {}});
-                rhs = castExpr(rhs, {MSLTypeKind::Float, 0, {}});
+            std::string expr;
+            if (DXILIRBuilder::isLongVectorType(result_type)) {
+                const MSLType lhs_type = operandType(inst.operands[0]);
+                const MSLType rhs_type = operandType(inst.operands[1]);
+                auto component = [&](const std::string &value, const MSLType &type,
+                                     uint32_t index) {
+                    if (DXILIRBuilder::isLongVectorType(type))
+                        return value + "[" + std::to_string(index) + "]";
+                    if (DXILIRBuilder::isVectorType(type))
+                        return componentAccess(value, index, type);
+                    return value;
+                };
+                expr = emitTypeName(result_type) + "{{";
+                for (uint32_t i = 0; i < result_type.vector_width; ++i) {
+                    if (i)
+                        expr += ", ";
+                    const std::string left = component(lhs, lhs_type, i);
+                    const std::string right = component(rhs, rhs_type, i);
+                    expr += inst.opcode == LLVMInstruction::FRem
+                                 ? "fmod(" + left + ", " + right + ")"
+                                 : left + std::string(" ") + fop + " " + right;
+                }
+                expr += "}}";
+            } else {
+                if (inst.opcode == LLVMInstruction::FRem)
+                    lhs = castExpr(lhs, {MSLTypeKind::Float, 0, {}});
+                if (inst.opcode == LLVMInstruction::FRem)
+                    rhs = castExpr(rhs, {MSLTypeKind::Float, 0, {}});
+                expr = inst.opcode == LLVMInstruction::FRem
+                    ? "fmod(" + lhs + ", " + rhs + ")"
+                    : lhs + std::string(" ") + fop + " " + rhs;
             }
-            std::string expr = inst.opcode == LLVMInstruction::FRem
-                ? "fmod(" + lhs + ", " + rhs + ")"
-                : lhs + std::string(" ") + fop + " " + rhs;
             emitTypedLine(result_type, result, expr);
             ctx.value_table[value_counter] = result;
             ctx.value_types[value_counter] = result_type;
