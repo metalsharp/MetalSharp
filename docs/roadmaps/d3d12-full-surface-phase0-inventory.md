@@ -3,10 +3,10 @@
 **State:** Phase 0 inventory complete; implementation and behavior gates remain open.
 **Stable baseline:** Microsoft DirectX Agility SDK 1.619.5 (`D3D12SDKVersion=619`)
 **Preview lane:** Agility SDK 1.721.3-preview (`D3D12SDKVersion=721`), opt-in only
-**Generated:** 2026-08-30T05:24:45.205935+00:00
-**Git HEAD:** `c3a988c554ef2fa246d32f846e0a96eb5c4156da`
-**Runtime source files scanned:** 166
-**Runtime source tree SHA-256:** `07b84995113735edf7673f579cc7ced1595b50d7c60e8d50bda663b108942dd6`
+**Generated:** 2026-09-01T16:00:44.346300+00:00
+**Git HEAD:** `fefef3cfcdd221d2f79339b692ba3ea48795ea49`
+**Runtime source files scanned:** 167
+**Runtime source tree SHA-256:** `f54f0236f1e800f7eefb1eb8e2b702efed5d13ef26308e8f98f5cfbc00886591`
 
 ## Interface census
 
@@ -17,76 +17,86 @@
 
 ## Static runtime findings
 
-- Total findings: **1437**
+- Total findings: **1493**
 - `capability_literal`: **92**
 - `empty_function_body`: **76**
-- `placeholder_return`: **634**
-- `success_or_zero_return`: **569**
-- `unsupported_return`: **66**
+- `placeholder_return`: **655**
+- `success_or_zero_return`: **602**
+- `unsupported_return`: **68**
 
 These findings are intentionally not suppressed. Later phases must attach a behavior probe and clear each legal-operation finding; expected invalid-input returns remain explicitly classified.
 
 ## Top findings
 
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:312` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:319` — `return nullptr;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:330` — `return nullptr;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:403` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:423` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:447` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:463` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:468` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:475` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:509` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:536` — `return S_OK;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:553` — `return nullptr;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:570` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:651` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:676` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:686` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:704` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:732` — `return S_OK;`
-- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:741` — `"version=%u subobjects=%u -> E_NOTIMPL",`
-- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:743` — `return E_NOTIMPL;`
-- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:750` — `"E_NOTIMPL",`
-- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:754` — `return E_NOTIMPL;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:765` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:797` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:842` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:864` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:891` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:914` — `return S_OK;`
-- `empty_function_body` `vendor/dxmt/src/d3d12/d3d12.cpp:1065` — `_RSBlob(std::vector<uint8_t> &&data) : m_data(std::move(data)) {}`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1071` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1103` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1108` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1136` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1141` — `return S_OK;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1179` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1187` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1192` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1211` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1226` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1244` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1264` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1269` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1282` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1336` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1369` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1374` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1385` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1401` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1432` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1460` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1466` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1495` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1517` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1523` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1622` — `return S_OK;`
-- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1674` — `return DXGI_ERROR_UNSUPPORTED;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1840` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1984` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2087` — `return TRUE;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:315` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:322` — `return nullptr;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:333` — `return nullptr;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:406` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:426` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:450` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:466` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:471` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:478` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:512` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:539` — `return S_OK;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:556` — `return nullptr;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:573` — `return S_OK;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:701` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:707` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:715` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:717` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:724` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:728` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:738` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:777` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:838` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:881` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:932` — `return S_OK;`
+- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1091` — `"version=%u subobject=%u type=%u -> E_NOTIMPL",`
+- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1094` — `return E_NOTIMPL;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1300` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1311` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1316` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1383` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1490` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1498` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1731` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1761` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1811` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1833` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1860` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:1883` — `return S_OK;`
+- `empty_function_body` `vendor/dxmt/src/d3d12/d3d12.cpp:2034` — `_RSBlob(std::vector<uint8_t> &&data) : m_data(std::move(data)) {}`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2040` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2072` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2077` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2105` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2110` — `return S_OK;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2148` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2156` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2161` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2180` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2195` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2213` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2233` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2238` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2251` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2305` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2338` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2343` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2354` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2370` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2401` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2429` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2435` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2464` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2486` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2492` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2591` — `return S_OK;`
+- `unsupported_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2643` — `return DXGI_ERROR_UNSUPPORTED;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2809` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:2953` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12.cpp:3056` — `return TRUE;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_binding_completeness.hpp:51` — `return 0;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_allocator.cpp:30` — `return S_OK;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_allocator.cpp:81` — `return S_OK;`
@@ -96,58 +106,48 @@ These findings are intentionally not suppressed. Later phases must attach a beha
 - `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2029` — `CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "`
 - `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2056` — `CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",`
 - `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2083` — `CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:137` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:139` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:364` — `return 0;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:418` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:430` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:434` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:516` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:146` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:148` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:373` — `return 0;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:427` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:439` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:443` — `return false;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:525` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:623` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:656` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:659` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:662` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:666` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:670` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:674` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:678` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:680` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:690` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:694` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:698` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:702` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:706` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:710` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:714` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:716` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:723` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:739` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:740` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:750` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:753` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:762` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:784` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:794` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:859` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:871` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:882` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:888` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:534` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:632` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:665` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:668` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:671` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:675` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:679` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:683` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:687` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:689` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:699` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:703` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:707` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:711` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:715` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:719` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:723` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:725` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:732` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:748` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:749` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:759` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:762` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:771` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:793` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:803` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:868` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:880` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:891` — `return 0;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:897` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:918` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:931` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:937` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:906` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:927` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:940` — `return 0;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:946` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1229` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1235` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1244` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1252` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1325` — `return nullptr;`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1404` — `bool geom_mesh = false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1470` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1477` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1479` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:1483` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:955` — `return 0;`
 
 ## Phase 0 artifacts
 

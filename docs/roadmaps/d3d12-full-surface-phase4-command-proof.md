@@ -188,7 +188,13 @@ The resource probe independently records `atomic_copy_verified=true` and
 `discard_verified=true`. The queue probe also passed with nonzero GPU/CPU clock
 calibration values, a 1 GHz timestamp frequency, high-priority queue
 round-trip validation, CoreVideo display-link VBlank completion, cross-queue
-fence ordering, and exact null-output `E_POINTER` validation. The Unix
+fence ordering, and exact null-output `E_POINTER` validation. A fresh
+source-staged `--queues-only` run additionally reports
+`queue_timing_verified=true`: two submitted empty calibration command buffers
+produce monotonic nonzero GPU/CPU pairs, QPC frequency `10,000,000`, and a
+`2.5e-8`-second normalized host-domain error in the latest run; the implementation polls
+completion with a five-second deadline and returns the midpoint QPC sample.
+The Unix
 Winemetal bridge now exposes the display-link wait with the same normal and
 WOW64 call-table index. With `DXMT_WINEMETAL_DEBUG=1`,
 the Unix provider log recorded `encoder_insert_debug_signpost`,

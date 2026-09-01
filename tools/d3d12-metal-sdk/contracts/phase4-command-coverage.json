@@ -80,6 +80,7 @@
         ["queues", "queue_validation_ok"],
         ["queues", "high_priority_ok"],
         ["queues", "clock_calibration_verified"],
+        ["queues", "queue_timing_verified"],
         ["synchronization", "enqueue_event_signaled_after_all_queues"],
         ["synchronization", "vblank_verified"]
       ]
