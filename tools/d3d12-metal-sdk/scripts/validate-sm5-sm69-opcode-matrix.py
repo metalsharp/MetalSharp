@@ -135,6 +135,7 @@ EVIDENCE: dict[int, list[str]] = {
     79: ["probe-dxil-semantics:atomic_uav"],
     80: ["probe-dxil-semantics:atomics_ids"],
     81: ["probe-texture-dimensions:calculate_lod"],
+    82: ["probe-mini-dxil-texture-color-output:discard_half_frame"],
     83: ["probe-writable-msaa:derivatives"],
     84: ["probe-writable-msaa:derivatives"],
     85: ["probe-writable-msaa:derivatives"],

@@ -1505,6 +1505,7 @@ VSOut vs_main(VSIn input) {
 }
 
 float4 ps_main(VSOut input) : SV_Target0 {
+  if (input.pos.x < 32.0) discard;
   return tx.Sample(smp, input.uv);
 }
 HLSL
