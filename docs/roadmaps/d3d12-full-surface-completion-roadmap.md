@@ -669,8 +669,9 @@ sample-position checks. The fail-closed manifest is
 `tools/d3d12-metal-sdk/contracts/phase4-command-coverage.json`; its command
 coverage rows are now closed after positive direct/indirect DISPATCH_RAYS and
 DISPATCH_MESH replay readbacks. The latest source-staged probe also verifies a
-bounded single-stream DXBC vertex capture (`filled_size=128`, two exact 4-vertex
-payloads with counter accumulation plus a bounded overflow rejection), GPU-only
+bounded single-stream DXBC vertex capture (`initial_filled_size=16`, final
+`filled_size=144`, preserved prefix, two exact 4-vertex payloads with counter
+accumulation plus a bounded overflow rejection), GPU-only
 indirect DRAW pixel readback (`[255,0,0,255]`), GPU-only indirect
 CBV/SRV/UAV+DISPATCH readback (`[31,32,33,34]`), GPU-only indirect
 VBV/IBV+DRAW_INDEXED pixel readback (`[255,0,0,255]`), nonzero indirect
@@ -682,9 +683,10 @@ four-sample/four-pixel programmable-position MSAA resolve with exact per-pixel
 readback (`pixel1=[255,0,0,255]`, all other tested pixels clear), plus explicit
 command histograms/unknown-type accounting. The queue probe also verifies normal
 queue creation, explicit bundle/video/global-realtime/timeout validation results,
-clock calibration, and cross-queue event completion. Stream output remains a limited provider: multiple streams,
-nonzero-initial-counter/append semantics, overflow continuation, and
-DXIL/geometry-stage capture are not promoted. The Phase 4 command coverage
+clock calibration, and cross-queue event completion. Stream output remains a limited provider: multiple streams, overflow
+continuation, DXIL/geometry-stage capture, and downstream consumption are not
+promoted; the single-stream lane now includes a nonzero initial counter/prefix
+and exact append accumulation. The Phase 4 command coverage
 manifest is closed and its focused gate passes; broader stream-output,
 indirect-work, and feature-family matrices continue in the later phases rather
 than being promoted by this phase.
