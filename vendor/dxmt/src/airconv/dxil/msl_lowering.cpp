@@ -115,6 +115,15 @@ enum DXIntrinsicOpcode {
   DXOP_WriteSamplerFeedbackBias = 175,
   DXOP_WriteSamplerFeedbackLevel = 176,
   DXOP_WriteSamplerFeedbackGrad = 177,
+  DXOP_AllocateRayQuery = 178,
+  DXOP_RayQueryTraceRayInline = 179,
+  DXOP_RayQueryProceed = 180,
+  DXOP_RayQueryAbort = 181,
+  DXOP_RayQueryCommitNonOpaqueTriangleHit = 182,
+  DXOP_RayQueryCommitProceduralPrimitiveHit = 183,
+  DXOP_RayQueryCommittedStatus = 184,
+  DXOP_RayQueryCandidateType = 185,
+  DXOP_AllocateRayQuery2 = 258,
   // dx.op.isSpecialFloat carries the concrete operation (8..11) in its
   // opcode argument rather than in the intrinsic name.
   DXOP_SpecialFloat = 1000,
@@ -140,7 +149,9 @@ enum DXILMathOpcode {
 };
 
 static const char *kMetalHeader = R"(#include <metal_stdlib>
+#include <metal_raytracing>
 using namespace metal;
+using namespace metal::raytracing;
 
 static inline uint m12_update_counter(device atomic_uint* counter, int delta) {
   uint original = atomic_fetch_add_explicit(counter, uint(delta),
@@ -386,6 +397,16 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "writeSamplerFeedbackGrad", 24) == 0) return 177;
     if (strncmp(s, "writeSamplerFeedbackBias", 24) == 0) return 175;
     if (strncmp(s, "writeSamplerFeedback", 20) == 0) return 174;
+    if (strncmp(s, "allocateRayQuery", 16) == 0) return DXOP_AllocateRayQuery;
+    if (strncmp(s, "rayQuery_TraceRayInline", 23) == 0) return DXOP_RayQueryTraceRayInline;
+    if (strncmp(s, "rayQuery_Proceed", 16) == 0) return DXOP_RayQueryProceed;
+    if (strncmp(s, "rayQuery_Abort", 14) == 0) return DXOP_RayQueryAbort;
+    if (strncmp(s, "rayQuery_CommitNonOpaqueTriangleHit", 35) == 0)
+        return DXOP_RayQueryCommitNonOpaqueTriangleHit;
+    if (strncmp(s, "rayQuery_CommitProceduralPrimitiveHit", 37) == 0)
+        return DXOP_RayQueryCommitProceduralPrimitiveHit;
+    if (strncmp(s, "rayQuery_StateScalar", 20) == 0)
+        return DXOP_RayQueryCandidateType;
     if (strncmp(s, "isSpecialFloat.", 14) == 0) return DXOP_SpecialFloat;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
@@ -491,6 +512,15 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_WriteSamplerFeedbackBias:
     case DXOP_WriteSamplerFeedbackLevel:
     case DXOP_WriteSamplerFeedbackGrad:
+    case DXOP_AllocateRayQuery:
+    case DXOP_RayQueryTraceRayInline:
+    case DXOP_RayQueryProceed:
+    case DXOP_RayQueryAbort:
+    case DXOP_RayQueryCommitNonOpaqueTriangleHit:
+    case DXOP_RayQueryCommitProceduralPrimitiveHit:
+    case DXOP_RayQueryCommittedStatus:
+    case DXOP_RayQueryCandidateType:
+    case DXOP_AllocateRayQuery2:
         return true;
     default:
         return false;
@@ -529,6 +559,10 @@ static std::string defaultForType(const MSLType &t) {
         return "tex0";
     case MSLTypeKind::Sampler:
         return "samp0";
+    case MSLTypeKind::InstanceAccelerationStructure:
+        return "as16";
+    case MSLTypeKind::RayQuery:
+        return "{}";
     case MSLTypeKind::LongVector:
         return "{}";
     default: return "0";
@@ -745,6 +779,7 @@ struct LowerContext {
     uint32_t next_binding = 0;
     uint32_t unsupported_intrinsics = 0;
     uint32_t unsupported_opcodes = 0;
+    uint32_t current_result_id = UINT32_MAX;
     bool uses_atomic32_emulation = false;
     uint32_t instruction_start_value = 0;
     const LLVMFunction *current_fn = nullptr;
@@ -780,6 +815,10 @@ struct LowerContext {
 // available.
 static bool isTextureResourceKind(uint32_t resource_kind) {
     return resource_kind >= 1u && resource_kind <= 9u;
+}
+
+static bool isAccelerationStructureResourceKind(uint32_t resource_kind) {
+    return resource_kind == 16u; // DXIL ResourceKind::RTAccelerationStructure
 }
 
 static bool isTextureArrayResourceKind(uint32_t resource_kind) {
@@ -856,6 +895,20 @@ static uint32_t resourceKindForTextureSlot(const LowerContext &ctx,
     // SRV and UAV register namespaces independent.  Match the existing
     // preference for the UAV declaration when both namespaces use a slot.
     return uav_kind ? uav_kind : srv_kind;
+}
+
+static bool accelerationStructureAtBufferSlot(const LowerContext &ctx,
+                                               uint32_t slot) {
+    for (const auto &range : ctx.binding_plan.ranges) {
+        if (range.kind != DescriptorRangePlan::Kind::SRV ||
+            !isAccelerationStructureResourceKind(range.resource_kind))
+            continue;
+        for (uint32_t i = 0; i < range.count; ++i) {
+            if (range.lower_bound + i + 16u == slot)
+                return true;
+        }
+    }
+    return false;
 }
 
 static bool textureSlotHasRangeKind(const LowerContext &ctx, uint32_t slot,
@@ -1826,8 +1879,14 @@ static void emitFunctionPrologue(LowerContext &ctx) {
 
     if (ctx.shader.kind == DxilShaderKind::Compute) {
         os << "kernel void cs_main(\n";
-        for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
-            os << "  device char* buf" << i << " [[buffer(" << i << ")]],\n";
+        for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++) {
+            if (accelerationStructureAtBufferSlot(ctx, i))
+                os << "  instance_acceleration_structure as" << i
+                   << " [[buffer(" << i << ")]],\n";
+            else
+                os << "  device char* buf" << i << " [[buffer(" << i
+                   << ")]],\n";
+        }
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
             bool comparison_slot = false;
             bool raw_gather_slot = false;
@@ -1923,9 +1982,15 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  uint vid [[vertex_id]],\n";
         os << "  uint iid [[instance_id]],\n";
         std::vector<std::string> params;
-        for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
-            params.push_back("  device char* buf" + std::to_string(i) +
-                             " [[buffer(" + std::to_string(i) + ")]]");
+        for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++) {
+            if (accelerationStructureAtBufferSlot(ctx, i))
+                params.push_back("  instance_acceleration_structure as" +
+                                 std::to_string(i) + " [[buffer(" +
+                                 std::to_string(i) + ")]]");
+            else
+                params.push_back("  device char* buf" + std::to_string(i) +
+                                 " [[buffer(" + std::to_string(i) + ")]]");
+        }
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
             uint32_t resource_kind = resourceKindForTextureSlot(ctx, i);
             uint32_t element_type = resourceElementTypeForTextureSlot(ctx, i);
@@ -1978,8 +2043,14 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  uint m12_sample_id [[sample_id]],\n";
         if (ctx.uses_coverage)
             os << "  uint m12_coverage [[sample_mask]],\n";
-        for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++)
-            os << "  device char* buf" << i << " [[buffer(" << i << ")]],\n";
+        for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++) {
+            if (accelerationStructureAtBufferSlot(ctx, i))
+                os << "  instance_acceleration_structure as" << i
+                   << " [[buffer(" << i << ")]],\n";
+            else
+                os << "  device char* buf" << i << " [[buffer(" << i
+                   << ")]],\n";
+        }
         if (ctx.options.conservative_rasterization)
             os << "  constant m12_conservative_data& m12_conservative [[buffer(26)]],\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_texture_count; i++) {
@@ -2136,7 +2207,7 @@ static bool exprLooksResourceHandle(const std::string &value) {
         return true;
     };
     return is_numbered_handle("tex") || is_numbered_handle("samp") ||
-           is_numbered_handle("buf");
+           is_numbered_handle("buf") || is_numbered_handle("as");
 }
 
 static bool exprContainsPointerSyntax(const std::string &value) {
@@ -2161,6 +2232,7 @@ static bool typeLooksResourceHandle(const MSLType &type) {
     case MSLTypeKind::RWTexture2DArray:
     case MSLTypeKind::RWTexture3D:
     case MSLTypeKind::Sampler:
+    case MSLTypeKind::InstanceAccelerationStructure:
         return true;
     default:
         return false;
@@ -3716,6 +3788,8 @@ static std::string writableMSAASlice(const LowerContext &ctx,
 
 static MSLType typeForResourceHandle(const LowerContext &ctx,
                                      const ResourceHandleRecord &handle) {
+    if (isAccelerationStructureResourceKind(handle.resource_kind))
+        return {MSLTypeKind::InstanceAccelerationStructure, 0, {}};
     if (handle.kind == DescriptorRangePlan::Kind::UAV) {
         // Writable MSAA textures use the existing flattened texture2d_array
         // ABI.  The sample index is folded into the array slice by the
@@ -3762,7 +3836,8 @@ static uint32_t directBufferBindingIndex(const LowerContext &ctx,
     // direct MSL ABI has one buffer namespace, so reserve 0..7 for UAVs,
     // 8..15 for CBVs, and 16..30 for SRVs.  Textures retain their texture
     // namespace and are unaffected.
-    if (std::strcmp(target_prefix, "buf") == 0) {
+    if (std::strcmp(target_prefix, "buf") == 0 ||
+        std::strcmp(target_prefix, "as") == 0) {
         if (handle.kind == DescriptorRangePlan::Kind::SRV)
             binding_index += 16;
         else if (handle.kind == DescriptorRangePlan::Kind::CBV)
@@ -3773,7 +3848,7 @@ static uint32_t directBufferBindingIndex(const LowerContext &ctx,
 
 static uint32_t cappedBindingIndex(const LowerContext &ctx, const char *prefix, uint32_t binding_index) {
     uint32_t limit = 0;
-    if (std::strcmp(prefix, "buf") == 0)
+    if (std::strcmp(prefix, "buf") == 0 || std::strcmp(prefix, "as") == 0)
         limit = ctx.binding_plan.direct_buffer_count;
     else if (std::strcmp(prefix, "tex") == 0)
         limit = ctx.binding_plan.direct_texture_count;
@@ -3788,10 +3863,16 @@ static uint32_t cappedBindingIndex(const LowerContext &ctx, const char *prefix, 
 static std::string materializeHandleName(const LowerContext &ctx,
                                          const ResourceHandleRecord &handle,
                                          const char *target_prefix = nullptr) {
-    const char *prefix = target_prefix ? target_prefix : bindingPrefixForKind(handle.kind);
-    uint32_t binding_index = target_prefix &&
-                                     std::strcmp(target_prefix, "buf") == 0
-                                 ? directBufferBindingIndex(ctx, handle, target_prefix)
+    const char *prefix = target_prefix
+                             ? target_prefix
+                             : (isAccelerationStructureResourceKind(
+                                    handle.resource_kind)
+                                    ? "as"
+                                    : bindingPrefixForKind(handle.kind));
+    const bool direct_buffer_binding =
+        std::strcmp(prefix, "buf") == 0 || std::strcmp(prefix, "as") == 0;
+    uint32_t binding_index = direct_buffer_binding
+                                 ? directBufferBindingIndex(ctx, handle, prefix)
                                  : handle.lower_bound + handle.binding_index;
     if (target_prefix && std::strcmp(target_prefix, "buf") == 0 &&
         (handle.kind == DescriptorRangePlan::Kind::SRV ||
@@ -4272,8 +4353,9 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         if (range.kind == DescriptorRangePlan::Kind::Sampler) {
             has_sampler = true;
             max_sampler = std::max(max_sampler, range.lower_bound + range.count);
-        } else if (range.kind == DescriptorRangePlan::Kind::SRV ||
-                   range.kind == DescriptorRangePlan::Kind::UAV) {
+        } else if ((range.kind == DescriptorRangePlan::Kind::SRV ||
+                    range.kind == DescriptorRangePlan::Kind::UAV) &&
+                   !isAccelerationStructureResourceKind(range.resource_kind)) {
             has_texture = true;
             max_texture = std::max(max_texture, range.lower_bound + range.count);
         }
@@ -4355,6 +4437,19 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return typeForHandleKind(ctx, sampler ? DescriptorRangePlan::Kind::Sampler
                                               : DescriptorRangePlan::Kind::SRV);
     }
+    case DXOP_AllocateRayQuery:
+    case DXOP_AllocateRayQuery2:
+        return {MSLTypeKind::RayQuery, 0, {}};
+    case DXOP_RayQueryProceed:
+        return {MSLTypeKind::Bool, 0, {}};
+    case DXOP_RayQueryCandidateType:
+    case DXOP_RayQueryCommittedStatus:
+        return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_RayQueryTraceRayInline:
+    case DXOP_RayQueryAbort:
+    case DXOP_RayQueryCommitNonOpaqueTriangleHit:
+    case DXOP_RayQueryCommitProceduralPrimitiveHit:
+        return {MSLTypeKind::Void, 0, {}};
     case DXOP_AnnotateHandle: {
         if (args.size() > 1) {
             auto properties = parseAggregateLiteral(resolveValue(ctx, args[1]));
@@ -4633,7 +4728,7 @@ static std::string resolveBindingName(const std::string &handle, const char *tar
         if (!parts.empty()) parseUnsignedLiteral(parts[0], lower_bound);
         return std::string(target_prefix) + std::to_string(lower_bound);
     }
-    for (auto *prefix : {"tex", "buf", "samp"}) {
+    for (auto *prefix : {"tex", "buf", "samp", "as"}) {
         if (startsWith(handle, prefix)) {
             return std::string(target_prefix) + std::string(handle.c_str() + std::strlen(prefix));
         }
@@ -4729,6 +4824,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
               type.kind == MSLTypeKind::RWTexture2D ||
               type.kind == MSLTypeKind::Texture2DArray ||
               type.kind == MSLTypeKind::RWTexture2DArray)) ||
+            (std::strcmp(prefix, "as") == 0 &&
+             type.kind == MSLTypeKind::InstanceAccelerationStructure) ||
             (std::strcmp(prefix, "samp") == 0 &&
              type.kind == MSLTypeKind::Sampler))
             return resolveBindingName(value, prefix);
@@ -4926,6 +5023,70 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         return handle;
     }
+    case DXOP_AllocateRayQuery:
+    case DXOP_AllocateRayQuery2:
+        if (ctx.current_result_id == UINT32_MAX) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL ray query allocation has no result slot");
+            return "";
+        }
+        return emitValue(ctx.current_result_id);
+    case DXOP_RayQueryTraceRayInline: {
+        // fn_args: query, acceleration structure, flags, mask, origin.xyz,
+        // direction.xyz, Tmin, Tmax.  The first native path intentionally
+        // supports the common RAY_FLAG_NONE form; other flags need explicit
+        // intersection_params/tag lowering rather than being ignored.
+        if (args.size() < 12) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL TraceRayInline has insufficient operands");
+            return "";
+        }
+        const uint32_t flags = literalArg(2, UINT32_MAX, "ray flags");
+        if (flags != 0u) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL TraceRayInline ray flags unsupported: %u",
+                             flags);
+            return "";
+        }
+        const std::string query = valueArg(0, "v0");
+        const std::string acceleration = handleArg(1, "as", "as16");
+        const uint32_t mask = literalArg(3, UINT32_MAX, "ray mask");
+        if (mask == UINT32_MAX) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx, "DXIL TraceRayInline requires a literal mask");
+            return "";
+        }
+        return query + ".reset(ray(float3(" + numericArg(4, "0.0f") + ", " +
+               numericArg(5, "0.0f") + ", " + numericArg(6, "0.0f") +
+               "), float3(" + numericArg(8, "0.0f") + ", " +
+               numericArg(9, "0.0f") + ", " + numericArg(10, "0.0f") +
+               "), " + numericArg(7, "0.0f") + ", " +
+               numericArg(11, "0.0f") + "), " + acceleration + ", " +
+               std::to_string(mask) + "u)";
+    }
+    case DXOP_RayQueryProceed:
+        if (args.empty()) return "false";
+        return valueArg(0, "v0") + ".next()";
+    case DXOP_RayQueryAbort:
+        if (args.empty()) return "";
+        return valueArg(0, "v0") + ".abort()";
+    case DXOP_RayQueryCommitNonOpaqueTriangleHit:
+        if (args.empty()) return "";
+        return valueArg(0, "v0") + ".commit_triangle_intersection()";
+    case DXOP_RayQueryCommitProceduralPrimitiveHit:
+        if (args.empty()) return "";
+        return valueArg(0, "v0") + ".commit_bounding_box_intersection(" +
+               numericArg(1, "0.0f") + ")";
+    case DXOP_RayQueryCandidateType:
+        if (args.empty()) return "0u";
+        return "(" + valueArg(0, "v0") +
+               ".get_candidate_intersection_type() == intersection_type::triangle ? 0u : 1u)";
+    case DXOP_RayQueryCommittedStatus:
+        if (args.empty()) return "0u";
+        return "(" + valueArg(0, "v0") +
+               ".get_committed_intersection_type() == intersection_type::triangle ? 1u : "
+               "(" + valueArg(0, "v0") +
+               ".get_committed_intersection_type() == intersection_type::bounding_box ? 2u : 0u))";
     case DXOP_ThreadId: {
         ctx.uses_thread_id = true;
         uint32_t c = args.empty() ? 0 : literalArg(0, 0, "comp");
@@ -7114,6 +7275,17 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             return value;
         };
 
+        // AllocateRayQuery is represented by a real thread-local Metal query
+        // object.  The DXIL value is an opaque token, so the normal
+        // self-assignment path must not emit an assignment (intersection_query
+        // deliberately has no copy assignment operator).
+        if (type.kind == MSLTypeKind::RayQuery &&
+            stripEnclosingParens(expr) == name) {
+            if (ctx.predeclared_names.find(name) == ctx.predeclared_names.end())
+                os << "  " << emitTypeName(type) << " " << name << " = {};\n";
+            return;
+        }
+
         std::string source_expr = stripEnclosingParens(expr) == name
             ? defaultForType(isUsableMSLType(type) ? type : MSLType{MSLTypeKind::Int, 0, {}})
             : expr;
@@ -7330,6 +7502,9 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
              target.kind == MSLTypeKind::RWTexture3D) &&
             !startsWith(value, "tex"))
             return defaultForType(target);
+        if (target.kind == MSLTypeKind::InstanceAccelerationStructure &&
+            !startsWith(value, "as"))
+            return defaultForType(target);
         if (target.kind == MSLTypeKind::Sampler && !startsWith(value, "samp"))
             return defaultForType(target);
         if ((exprLooksResourceHandle(value) || exprContainsRawResourceHandle(value) ||
@@ -7538,7 +7713,9 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             else
                 fn_args.assign(call_args.begin() + 1, call_args.end());
 
+            ctx.current_result_id = value_counter;
             std::string translated = translateDXIntrinsic(ctx, intrinsic_id, fn_args, callee_name);
+            ctx.current_result_id = UINT32_MAX;
             MSLType result_type = inferDXIntrinsicResultType(
                 ctx, intrinsic_id, fn_args, bestType(getTypeForInst(inst.type_id), translated),
                 callee_name);

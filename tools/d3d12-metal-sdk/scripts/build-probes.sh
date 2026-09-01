@@ -238,6 +238,10 @@ build_mini_probe 14 compute_first_use_dispatch
 build_mini_probe 15 dxr_acceleration_structures
 build_mini_probe 16 tessellation_shader_pso
 
+build_probe \
+  "$SDK_DIR/probes/probe_dxr_inline.cpp" \
+  -o "$OUT_DIR/probe_mini_dxr_inline.exe"
+
 echo "$OUT_DIR/probe_loader.exe"
 echo "$OUT_DIR/probe_agility_ue5.exe"
 echo "$OUT_DIR/probe_device_caps.exe"
@@ -284,3 +288,4 @@ echo "$OUT_DIR/probe_mini_subnautica_geometry_dxil_replay.exe"
 echo "$OUT_DIR/probe_mini_dxil_texture_color_output.exe"
 echo "$OUT_DIR/probe_mini_compute_first_use_dispatch.exe"
 echo "$OUT_DIR/probe_mini_dxr_acceleration_structures.exe"
+echo "$OUT_DIR/probe_mini_dxr_inline.exe"

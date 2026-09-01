@@ -2078,6 +2078,13 @@ _MTLComputeCommandEncoder_encodeCommands(void *obj) {
       [encoder setTexture:(id<MTLTexture>)body->texture atIndex:body->index];
       break;
     }
+    case WMTComputeCommandSetAccelerationStructure: {
+      struct wmtcmd_compute_setaccelerationstructure *body =
+          (struct wmtcmd_compute_setaccelerationstructure *)next;
+      [encoder setAccelerationStructure:(id<MTLAccelerationStructure>)body->acceleration_structure
+                           atBufferIndex:body->index];
+      break;
+    }
     case WMTComputeCommandSetSamplerState: {
       struct wmtcmd_compute_setsamplerstate *body = (struct wmtcmd_compute_setsamplerstate *)next;
       [encoder setSamplerState:(id<MTLSamplerState>)body->sampler atIndex:body->index];

@@ -65,6 +65,7 @@ MINI_PROBES=(
   subnautica_geometry_dxil_replay
   dxil_texture_color_output
   compute_first_use_dispatch
+  dxr_inline
   dxr_acceleration_structures
   tessellation_shader_pso
 )
@@ -1681,11 +1682,6 @@ prepare_dxr_acceleration_structure_probe() {
   local closest_hit_local_root="$SDK_DIR/out/bin/probe_dxr_closest_hit_local_root.json"
   local procedural_compiler="$SDK_DIR/out/bin/compile-procedural-raytracing"
 
-  DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
-    xcrun clang++ -std=c++17 -I/usr/local/include \
-      "$SDK_DIR/scripts/compile-procedural-raytracing.cpp" \
-      -L/usr/local/lib -lmetalirconverter -o "$procedural_compiler"
-
   cat > "$hlsl" <<'HLSL'
 RaytracingAccelerationStructure scene : register(t0);
 RWByteAddressBuffer output : register(u0);
@@ -1703,6 +1699,24 @@ void cs_main() {
     if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
       query.CommitNonOpaqueTriangleHit();
   }
+  output.Store(0, query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 1 : 0);
+}
+HLSL
+
+  local invalid_hlsl="$SDK_DIR/out/bin/probe_dxr_inline_invalid.hlsl"
+  cat > "$invalid_hlsl" <<'HLSL'
+RaytracingAccelerationStructure scene : register(t0);
+RWByteAddressBuffer output : register(u0);
+
+[numthreads(1, 1, 1)]
+void cs_main() {
+  RayQuery<RAY_FLAG_NONE> query;
+  RayDesc ray;
+  ray.Origin = float3(0.0, 0.0, -2.0);
+  ray.TMin = 0.0;
+  ray.Direction = float3(0.0, 0.0, 1.0);
+  ray.TMax = 10.0;
+  query.TraceRayInline(scene, RAY_FLAG_FORCE_OPAQUE, 0x01, ray);
   output.Store(0, query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 1 : 0);
 }
 HLSL
@@ -1964,9 +1978,22 @@ HLSL
       -Fo probe_dxr_inline.cso probe_dxr_inline.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_5 \
+      -Fo probe_dxr_inline_invalid.cso probe_dxr_inline_invalid.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -T lib_6_5 \
       -Fo probe_dxr_raygen.cso probe_dxr_raygen.hlsl >/dev/null
   )
+
+  if [[ "${DXR_INLINE_ONLY:-0}" == "1" ]]; then
+    return
+  fi
+
+  DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
+    xcrun clang++ -std=c++17 -I/usr/local/include \
+      "$SDK_DIR/scripts/compile-procedural-raytracing.cpp" \
+      -L/usr/local/lib -lmetalirconverter -o "$procedural_compiler"
 
   mkdir -p "$SHADER_CACHE_DIR"
   for _dxr_warmup_pass in 1 2; do
@@ -3571,6 +3598,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   fi
   if mini_probe_selected dxr_acceleration_structures; then
     prepare_dxr_acceleration_structure_probe
+  fi
+  if mini_probe_selected dxr_inline; then
+    DXR_INLINE_ONLY=1 prepare_dxr_acceleration_structure_probe
   fi
 fi
 if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then

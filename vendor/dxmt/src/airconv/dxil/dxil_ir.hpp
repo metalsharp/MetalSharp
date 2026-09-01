@@ -42,6 +42,8 @@ enum class MSLTypeKind : uint8_t {
     RWTexture2DArray,
     RWTexture3D,
     Sampler,
+    InstanceAccelerationStructure,
+    RayQuery,
     Struct,
     Unknown,
 };

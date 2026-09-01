@@ -1426,6 +1426,7 @@ enum WMTComputeCommandType : uint16_t {
   WMTComputeCommandWaitForFence,
   WMTComputeCommandUpdateFence,
   WMTComputeCommandMemoryBarrier,
+  WMTComputeCommandSetAccelerationStructure,
 };
 
 struct wmtcmd_compute_nop {
@@ -1502,6 +1503,14 @@ struct wmtcmd_compute_settexture {
   uint16_t reserved[3];
   struct WMTMemoryPointer next;
   obj_handle_t texture;
+  uint8_t index;
+};
+
+struct wmtcmd_compute_setaccelerationstructure {
+  enum WMTComputeCommandType type;
+  uint16_t reserved[3];
+  struct WMTMemoryPointer next;
+  obj_handle_t acceleration_structure;
   uint8_t index;
 };
 
