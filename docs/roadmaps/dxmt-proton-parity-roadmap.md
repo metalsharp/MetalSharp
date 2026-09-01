@@ -374,7 +374,10 @@ Struct-aware InsertValue:
 
 ### 6B. Stream Output
 
-**Current state:** `SOSetTargets` is empty (line 524). Stream output (transform feedback) is not implemented.
+**Current state:** `SOSetTargets` records state and a bounded SM50 provider
+captures one or two non-rasterized DXBC vertex streams with independent
+filled-size counters. Overflow continuation, DXIL/geometry capture, and
+downstream consumption remain unimplemented.
 
 **Impact:** Games using SO for particle systems or GPU-driven rendering.
 

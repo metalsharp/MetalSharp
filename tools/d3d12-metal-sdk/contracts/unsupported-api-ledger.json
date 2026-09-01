@@ -95,7 +95,7 @@
         "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp",
         "tools/d3d12-metal-sdk/probes/probe_command_replay"
       ],
-      "reason": "A bounded SM50 provider now captures one non-rasterized DXBC vertex stream into one output buffer and updates its filled-size location through an ordered blit. Multiple streams, append/counter accumulation, overflow continuation, DXIL/geometry-stage capture, and downstream-consumer coverage remain unproven and stay fail-closed.",
+      "reason": "A bounded SM50 provider now captures one or two non-rasterized DXBC vertex streams into independent output buffers and updates each filled-size location through ordered blits. Independent prefixes/counters and append accumulation are exact; overflow continuation, DXIL/geometry-stage capture, and downstream-consumer coverage remain unproven and stay fail-closed.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

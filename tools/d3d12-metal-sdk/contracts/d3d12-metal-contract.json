@@ -635,8 +635,8 @@
           "SOSetTargets": {
             "difficulty": "very hard",
             "metal": "SM50 vertex-shader lowering / ordered blit counter update",
-            "notes": "Metal has no native stream output. The proven provider rewrites bounded non-rasterized DXBC vertex output through the SM50 stream-output lowering, binds one output slot, and updates BufferFilledSizeLocation after the draw. Multiple streams, append/overflow continuation, and DXIL/geometry-stage capture remain unsupported.",
-            "translation": "SM50 stream-output epilogue -> buffer slot 20; blit filled-size update"
+            "notes": "Metal has no native stream output. The proven provider rewrites bounded non-rasterized DXBC vertex output through the SM50 stream-output lowering, binds one to four output slots (20–23), and updates each BufferFilledSizeLocation after the draw. Overflow continuation, DXIL/geometry-stage capture, and downstream consumption remain unsupported.",
+            "translation": "SM50 stream-output epilogue -> buffer slots 20–23; ordered blit filled-size updates"
           },
           "SetComputeRoot32BitConstant": {
             "difficulty": "easy",

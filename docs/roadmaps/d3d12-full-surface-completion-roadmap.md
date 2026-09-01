@@ -194,7 +194,7 @@ roadmap. The following rows are the starting gap inventory.
 | State objects | Foundational DXR state objects pass | Independently linked collections, new-library growth, every valid table layout/count/stride/local-root form, and complete cache serialization |
 | Amplification shaders | Four-byte payload and narrow resource proof | Full AS-to-MS payload/resource/barrier/thread-group/pattern coverage and derivatives |
 | Node shaders | Absent as part of work graphs | Full node shader execution and graph node properties |
-| Stream output | No output buffer recording/replay | Declarations, strides, multiple streams, counters, overflow behavior, capture buffers, and downstream consumption |
+| Stream output | One/two non-rasterized DXBC vertex streams with independent counters and bounded overflow rejection | Declarations, all legal strides/streams, overflow continuation, DXIL/geometry capture, capture buffers, and downstream consumption |
 | Sparse/reserved resources | Focused native sparse textures/buffers pass | All legal dimensions, formats, packed/partial mips, physical page ownership, mapping copies, queue ordering, residency, aliases, and `CopyTiles` |
 | Shared resources | Pointer-free named/unnamed buffer, heap, fence, and one committed RGBA8 texture provider; broader formats/placements remain limited | Portable cross-process resource/heap/event transport for every legal resource shape, names, LUIDs, synchronization, lifetime, and security validation |
 | Geometry shaders | Narrow SM5 vertex/geometry proof | General topology, resource, stream, primitive, state, and multi-stage coverage |
@@ -673,7 +673,9 @@ coverage rows are now closed after positive direct/indirect DISPATCH_RAYS and
 DISPATCH_MESH replay readbacks. The latest source-staged probe also verifies a
 bounded single-stream DXBC vertex capture (`initial_filled_size=16`, final
 `filled_size=144`, preserved prefix, two exact 4-vertex payloads with counter
-accumulation plus a bounded overflow rejection), GPU-only
+accumulation plus a bounded overflow rejection) and a two-stream capture with
+independent prefixes (`16`/`32` bytes), exact payloads, and final counters
+`144`/`160`, GPU-only
 indirect DRAW pixel readback (`[255,0,0,255]`), GPU-only indirect
 CBV/SRV/UAV+DISPATCH readback (`[31,32,33,34]`), GPU-only indirect
 VBV/IBV+DRAW_INDEXED pixel readback (`[255,0,0,255]`), nonzero indirect
@@ -688,10 +690,11 @@ queue creation, explicit bundle/video/global-realtime/timeout validation results
 clock calibration, and cross-queue event completion. Its fresh source-staged
 queue-timing lane now checks a 1 GHz provider frequency, monotonic GPU/CPU
 calibration pairs, normalized host-domain agreement, exact null-pointer
-rejection, and a bounded five-second GPU completion wait. Stream output remains a limited provider: multiple streams, overflow
-continuation, DXIL/geometry-stage capture, and downstream consumption are not
-promoted; the single-stream lane now includes a nonzero initial counter/prefix
-and exact append accumulation. The Phase 4 command coverage
+rejection, and a bounded five-second GPU completion wait. Stream output remains
+a limited provider: overflow continuation, DXIL/geometry-stage capture, and
+downstream consumption are not promoted; the one- and two-stream lanes now
+include independent nonzero prefixes/counters and exact append accumulation.
+The Phase 4 command coverage
 manifest is closed and its focused gate passes; broader stream-output,
 indirect-work, and feature-family matrices continue in the later phases rather
 than being promoted by this phase.

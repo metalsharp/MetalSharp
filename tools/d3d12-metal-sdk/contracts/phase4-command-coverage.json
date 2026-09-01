@@ -37,9 +37,10 @@
       "result": "probe-command-replay",
       "checks": [
         ["pass"],
-        ["coverage", "stream_output_capture_and_counter"]
+        ["coverage", "stream_output_capture_and_counter"],
+        ["coverage", "stream_output_multi_stream_capture"]
       ],
-      "remaining": "The provider is intentionally limited to one non-rasterized DXBC vertex stream; the source-staged lane now proves a nonzero initial counter/prefix plus exact append accumulation and bounded overflow rejection. Multiple streams, overflow continuation, DXIL/geometry capture, and downstream consumption remain open."
+      "remaining": "The provider is intentionally limited to non-rasterized DXBC vertex streams; the source-staged lanes prove one- and two-stream capture, independent nonzero prefixes/counters, exact append accumulation, and bounded overflow rejection. Overflow continuation, DXIL/geometry capture, and downstream consumption remain open."
     },
     {
       "id": "complete-indirect-argument-kind-matrix",

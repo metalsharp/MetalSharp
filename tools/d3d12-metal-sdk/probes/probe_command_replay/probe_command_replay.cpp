@@ -2375,6 +2375,210 @@ static CaseResult run_stream_output_case() {
     return result;
 }
 
+static CaseResult run_multi_stream_output_case() {
+    CaseResult result = {"stream_output_multi_stream_capture", false, E_FAIL, "", ""};
+    const char* hlsl =
+        "struct VSOut { float4 position : SV_Position; uint4 stream0 : TEXCOORD0; "
+        "uint4 stream1 : TEXCOORD1; };"
+        "VSOut main(uint id : SV_VertexID) { VSOut o; "
+        "o.position = float4(0.0, 0.0, 0.0, 1.0); "
+        "o.stream0 = uint4(id + 101, id + 111, id + 121, id + 131); "
+        "o.stream1 = uint4(id + 201, id + 211, id + 221, id + 231); return o; }";
+    constexpr uint32_t kVertexCount = 4;
+    constexpr uint32_t kDrawCount = 2;
+    constexpr uint32_t kStride = sizeof(uint32_t) * 4;
+    constexpr uint32_t kInitialFilledSize0 = kStride;
+    constexpr uint32_t kInitialFilledSize1 = kStride * 2;
+    constexpr uint32_t kPayloadBytes = kVertexCount * kStride * kDrawCount;
+    constexpr uint32_t kOutputBytes0 = kInitialFilledSize0 + kPayloadBytes;
+    constexpr uint32_t kOutputBytes1 = kInitialFilledSize1 + kPayloadBytes;
+    uint32_t expected0[kVertexCount * kDrawCount][4] = {};
+    uint32_t expected1[kVertexCount * kDrawCount][4] = {};
+    for (uint32_t draw = 0; draw < kDrawCount; ++draw) {
+        for (uint32_t vertex = 0; vertex < kVertexCount; ++vertex) {
+            const uint32_t record = draw * kVertexCount + vertex;
+            expected0[record][0] = vertex + 101;
+            expected0[record][1] = vertex + 111;
+            expected0[record][2] = vertex + 121;
+            expected0[record][3] = vertex + 131;
+            expected1[record][0] = vertex + 201;
+            expected1[record][1] = vertex + 211;
+            expected1[record][2] = vertex + 221;
+            expected1[record][3] = vertex + 231;
+        }
+    }
+
+    ID3D12Device* device = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3DBlob* vs = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12Resource* output0 = nullptr;
+    ID3D12Resource* output1 = nullptr;
+    ID3D12Resource* filled0 = nullptr;
+    ID3D12Resource* filled1 = nullptr;
+    ID3D12Resource* output_readback0 = nullptr;
+    ID3D12Resource* output_readback1 = nullptr;
+    ID3D12Resource* filled_readback0 = nullptr;
+    ID3D12Resource* filled_readback1 = nullptr;
+    std::string detail;
+
+    HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr))
+        hr = compile_vertex_shader(hlsl, "main", &vs, detail);
+    if (SUCCEEDED(hr)) {
+        D3D12_SO_DECLARATION_ENTRY declarations[2] = {};
+        declarations[0].Stream = 0;
+        declarations[0].SemanticName = "TEXCOORD";
+        declarations[0].SemanticIndex = 0;
+        declarations[0].StartComponent = 0;
+        declarations[0].ComponentCount = 4;
+        declarations[0].OutputSlot = 0;
+        declarations[1] = declarations[0];
+        declarations[1].SemanticIndex = 1;
+        declarations[1].OutputSlot = 1;
+        UINT strides[2] = {kStride, kStride};
+        D3D12_STREAM_OUTPUT_DESC stream_output = {};
+        stream_output.pSODeclaration = declarations;
+        stream_output.NumEntries = 2;
+        stream_output.pBufferStrides = strides;
+        stream_output.NumStrides = 2;
+        stream_output.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
+
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+        desc.VS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+        desc.StreamOutput = stream_output;
+        desc.SampleMask = UINT_MAX;
+        desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        desc.RasterizerState.DepthClipEnable = TRUE;
+        desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+        desc.SampleDesc.Count = 1;
+        hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pso));
+    }
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, kOutputBytes0,
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT, &output0);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, kOutputBytes1,
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_STREAM_OUT, &output1);
+    if (SUCCEEDED(hr)) {
+        const uint32_t initial = kInitialFilledSize0;
+        hr = create_upload_buffer(device, &initial, sizeof(initial), &filled0);
+    }
+    if (SUCCEEDED(hr)) {
+        const uint32_t initial = kInitialFilledSize1;
+        hr = create_upload_buffer(device, &initial, sizeof(initial), &filled1);
+    }
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, kOutputBytes0,
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST, &output_readback0);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, kOutputBytes1,
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST, &output_readback1);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t),
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST, &filled_readback0);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t),
+                           D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST, &filled_readback1);
+
+    if (SUCCEEDED(hr)) {
+        D3D12_STREAM_OUTPUT_BUFFER_VIEW views[2] = {};
+        views[0].BufferLocation = output0->GetGPUVirtualAddress();
+        views[0].SizeInBytes = kOutputBytes0;
+        views[0].BufferFilledSizeLocation = filled0->GetGPUVirtualAddress();
+        views[1].BufferLocation = output1->GetGPUVirtualAddress();
+        views[1].SizeInBytes = kOutputBytes1;
+        views[1].BufferFilledSizeLocation = filled1->GetGPUVirtualAddress();
+        list->SetPipelineState(pso);
+        list->SOSetTargets(0, 2, views);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+        list->DrawInstanced(kVertexCount, 1, 0, 0);
+        list->DrawInstanced(kVertexCount, 1, 0, 0);
+        D3D12_RESOURCE_BARRIER barriers[2] = {
+            transition_barrier(output0, D3D12_RESOURCE_STATE_STREAM_OUT,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition_barrier(output1, D3D12_RESOURCE_STATE_STREAM_OUT,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE),
+        };
+        list->ResourceBarrier(2, barriers);
+        list->CopyBufferRegion(output_readback0, 0, output0, 0, kOutputBytes0);
+        list->CopyBufferRegion(output_readback1, 0, output1, 0, kOutputBytes1);
+        list->CopyBufferRegion(filled_readback0, 0, filled0, 0, sizeof(uint32_t));
+        list->CopyBufferRegion(filled_readback1, 0, filled1, 0, sizeof(uint32_t));
+        hr = list->Close();
+    }
+    if (SUCCEEDED(hr)) {
+        ID3D12CommandList* lists[] = {list};
+        hr = execute_and_wait(device, queue, lists, 1, 1);
+    }
+
+    uint8_t captured0[kOutputBytes0] = {};
+    uint8_t captured1[kOutputBytes1] = {};
+    uint32_t filled_value0 = 0;
+    uint32_t filled_value1 = 0;
+    const bool output_readback_ok =
+        SUCCEEDED(hr) && readback_bytes(output_readback0, captured0, sizeof(captured0)) &&
+        readback_bytes(output_readback1, captured1, sizeof(captured1));
+    const bool filled_readback_ok =
+        SUCCEEDED(hr) && readback_u32(filled_readback0, &filled_value0, 1) &&
+        readback_u32(filled_readback1, &filled_value1, 1);
+    bool prefix0_untouched = output_readback_ok;
+    bool prefix1_untouched = output_readback_ok;
+    for (uint32_t i = 0; i < kInitialFilledSize0; ++i)
+        prefix0_untouched &= captured0[i] == 0;
+    for (uint32_t i = 0; i < kInitialFilledSize1; ++i)
+        prefix1_untouched &= captured1[i] == 0;
+    const bool payload0_verified =
+        output_readback_ok && prefix0_untouched &&
+        std::memcmp(captured0 + kInitialFilledSize0, expected0, sizeof(expected0)) == 0;
+    const bool payload1_verified =
+        output_readback_ok && prefix1_untouched &&
+        std::memcmp(captured1 + kInitialFilledSize1, expected1, sizeof(expected1)) == 0;
+    const bool counters_verified = filled_readback_ok && filled_value0 == kOutputBytes0 &&
+                                   filled_value1 == kOutputBytes1;
+    result.pass = payload0_verified && payload1_verified && counters_verified;
+    result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
+    result.detail = result.pass
+                        ? "two-stream DXBC vertex capture, independent prefixes/counters, exact payloads, and bounded append accumulation verified"
+                        : "multi-stream capture or independent counter readback failed";
+    result.extra = std::string("\"provider\":\"sm50_vertex_capture_multi_stream\",\"output_slots\":2,")
+                   + "\"payload0_verified\":" + (payload0_verified ? "true" : "false") +
+                   ",\"payload1_verified\":" + (payload1_verified ? "true" : "false") +
+                   ",\"prefix0_untouched\":" + (prefix0_untouched ? "true" : "false") +
+                   ",\"prefix1_untouched\":" + (prefix1_untouched ? "true" : "false") +
+                   ",\"counter0\":" + std::to_string(filled_value0) +
+                   ",\"counter1\":" + std::to_string(filled_value1) +
+                   ",\"expected_counter0\":" + std::to_string(kOutputBytes0) +
+                   ",\"expected_counter1\":" + std::to_string(kOutputBytes1) +
+                   ",\"counters_verified\":" + (counters_verified ? "true" : "false");
+
+    safe_release(filled_readback1);
+    safe_release(filled_readback0);
+    safe_release(output_readback1);
+    safe_release(output_readback0);
+    safe_release(filled1);
+    safe_release(filled0);
+    safe_release(output1);
+    safe_release(output0);
+    safe_release(pso);
+    safe_release(vs);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(device);
+    return result;
+}
+
 static CaseResult run_execute_indirect_rays_case() {
     CaseResult result = {"execute_indirect_dispatch_rays", false, E_FAIL, "", ""};
     const std::string shader_path = getenv_string("D3D12_METAL_SDK_COMMAND_RAY_CSO").empty()
@@ -3114,6 +3318,7 @@ int main() {
         cases.push_back(run_multi_pixel_sample_positions_case());
         cases.push_back(run_execute_indirect_root_descriptors_case());
         cases.push_back(run_stream_output_case());
+        cases.push_back(run_multi_stream_output_case());
         cases.push_back(run_execute_indirect_rays_case());
         cases.push_back(run_execute_indirect_mesh_case());
         cases.push_back(run_enhanced_barrier_case());
@@ -3149,6 +3354,8 @@ int main() {
         }
         return false;
     };
+    std::printf("    \"stream_output_multi_stream_capture\": %s,\n",
+                case_pass("stream_output_multi_stream_capture") ? "true" : "false");
     std::printf("    \"execute_indirect_dispatch_rays_readback\": %s,\n",
                 case_pass("execute_indirect_dispatch_rays") ? "true" : "false");
     std::printf("    \"execute_indirect_dispatch_mesh_readback\": %s,\n",
