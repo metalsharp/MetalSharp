@@ -33,11 +33,12 @@
       "checks": [
         ["ok"],
         ["emit_then_cut_stream_verified"],
+        ["gs_instance_id_matrix_verified"],
         ["nonzero_pixels", 1062],
-        ["left_rgba", [255, 0, 64, 255]],
-        ["right_rgba", [0, 255, 64, 255]]
+        ["left_rgba", [255, 0, 128, 255]],
+        ["right_rgba", [0, 255, 128, 255]]
       ],
-      "remaining": "The SM5 DXBC/AIR geometry provider executes two emitted strips with RestartStrip and SV_PrimitiveID. EmitThenCutStream, GSInstanceID, DXIL geometry-provider ABI, and broader topology/resource/adjacency combinations remain open."
+      "remaining": "The SM5 DXBC/AIR geometry provider executes two emitted strips with RestartStrip and SV_PrimitiveID, and a source-staged two-instance dcl_gsinstances variant returns distinct exact RGBA readbacks through SV_GSInstanceID. Broader instance counts, DXIL geometry-provider ABI, and broader topology/resource/adjacency combinations remain open."
     },
     {
       "id": "sm50-hull-domain-stage-exact-runtime",

@@ -157,6 +157,7 @@ EVIDENCE: dict[int, list[str]] = {
     97: ["probe-mini-geometry-system-matrix:emit_stream_readback"],
     98: ["probe-mini-geometry-system-matrix:cut_stream_readback"],
     99: ["probe-mini-geometry-system-matrix:emit_then_cut_stream_readback"],
+    100: ["probe-mini-geometry-system-matrix:gs_instance_id_two_instances"],
     101: ["probe-dxil-semantics:double_bitcast"],
     102: ["probe-dxil-semantics:double_bitcast"],
     103: ["probe-mini-tessellation_shader_pso:load_output_control_point"],
