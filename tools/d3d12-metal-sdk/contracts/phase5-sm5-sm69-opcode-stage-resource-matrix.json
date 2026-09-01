@@ -5264,8 +5264,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-start-draw-info:exact_raster"
+      ],
       "negative_evidence": []
     },
     {
@@ -5285,8 +5287,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-start-draw-info:exact_raster"
+      ],
       "negative_evidence": []
     },
     {

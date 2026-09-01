@@ -323,6 +323,17 @@
       "remaining": "The native Metal intersection_query path proves a compute-stage RayQuery over one exact triangle TLAS, including exact hit readback, candidate/committed state accessors, direct acceleration-structure binding, and fail-closed rejection of an unsupported ray flag. Procedural hits beyond the proven triangle-state negative, ray-generation dispatch, state-object growth, shader tables, mixed geometry, serialization, and broader DXR stage/resource combinations remain in the exhaustive row."
     },
     {
+      "id": "dxil-extended-command-information-runtime",
+      "status": "closed",
+      "result": "probe-mini-start_draw_info",
+      "checks": [
+        ["ok"],
+        ["center_pixel", 4282417407],
+        ["unexpected_pixels", 0]
+      ],
+      "remaining": "The exact vertex-stage proof covers SV_StartVertexLocation and SV_StartInstanceLocation for one non-indexed DrawInstanced command with nonzero start values. Indexed, mesh/amplification, and broader extended-command-information combinations remain in the exhaustive row."
+    },
+    {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "open",
       "result": "probe-shader-corpus",

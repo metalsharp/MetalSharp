@@ -746,10 +746,10 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; 34 inline-RayQuery opcodes are now observed, including the exact
-candidate/committed state-accessor, transform, and abort matrix, while broader
-DXR accessors, procedural/ray-generation paths, and state-object breadth remain
-open.
+ceiling; 34 inline-RayQuery opcodes and two SM6.8 extended-command-information
+opcodes are now observed, including the exact candidate/committed
+state-accessor, transform, and abort matrix, while broader DXR accessors,
+procedural/ray-generation paths, and state-object breadth remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1438,3 +1438,15 @@ whether the scoped FL12_2 gate is green.
   and 32 reserved/not-applicable. Contribution indices, broader procedural
   geometry, ray-generation/state-object paths, and the Phase 5 exit gate remain
   open.
+
+### 2026-09-01 — Phase 5 extended command-information proof
+
+- Added native vertex-pull handling for DXIL `StartVertexLocation` and
+  `StartInstanceLocation`, preserving D3D12's original draw arguments while
+  retaining Metal's vertex-ID offset behavior. The isolated M4 profile issues
+  `DrawInstanced(3, 1, 4, 7)` and verifies 72 exact raster pixels with center
+  `0xff4080ff` and zero unexpected pixels.
+- Promoted both SM6.8 extended-command-information opcode rows from the
+  runtime module report and exact raster readback. The exhaustive matrix now
+  has 186 observed, 94 open, and 32 reserved/not-applicable rows; the Phase 5
+  exit gate remains open.

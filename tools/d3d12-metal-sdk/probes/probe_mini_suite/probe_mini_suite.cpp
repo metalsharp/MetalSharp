@@ -877,6 +877,199 @@ static ProbeResult probe_graphics_pso() {
     return {SUCCEEDED(hr), hr, SUCCEEDED(hr) ? "vertex/pixel graphics PSO created" : detail, ""};
 }
 
+static ProbeResult probe_start_draw_info() {
+    std::string vs_path = getenv_string("D3D12_METAL_SDK_START_DRAW_VS");
+    std::string ps_path = getenv_string("D3D12_METAL_SDK_START_DRAW_PS");
+    if (vs_path.empty())
+        vs_path = "probe_start_draw_vs.cso";
+    if (ps_path.empty())
+        ps_path = "probe_start_draw_ps.cso";
+
+    std::vector<uint8_t> vs_blob;
+    std::vector<uint8_t> ps_blob;
+    if (!read_binary_file(vs_path, vs_blob) || !read_binary_file(ps_path, ps_blob)) {
+        return {false, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND),
+                "start-draw shader blobs are missing",
+                "\"vs_path\":\"" + json_escape(vs_path) +
+                    "\",\"ps_path\":\"" + json_escape(ps_path) + "\""};
+    }
+
+    ID3D12Device* device = nullptr;
+    HRESULT hr = create_device(&device);
+    if (FAILED(hr))
+        return {false, hr, "device creation failed", ""};
+
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12Resource* target = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    std::string detail;
+    UINT64 readback_bytes = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+    UINT rows = 0;
+    UINT64 row_bytes = 0;
+
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                             IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       allocator, nullptr, IID_PPV_ARGS(&list));
+    D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+    root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    if (SUCCEEDED(hr))
+        hr = serialize_root_signature(root_desc, &root_blob, detail);
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                          root_blob->GetBufferSize(),
+                                          IID_PPV_ARGS(&root));
+    if (SUCCEEDED(hr)) {
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+        desc.pRootSignature = root;
+        desc.VS = {vs_blob.data(), vs_blob.size()};
+        desc.PS = {ps_blob.data(), ps_blob.size()};
+        desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
+            D3D12_COLOR_WRITE_ENABLE_ALL;
+        desc.SampleMask = UINT_MAX;
+        desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        desc.RasterizerState.DepthClipEnable = TRUE;
+        desc.DepthStencilState.DepthEnable = FALSE;
+        desc.DepthStencilState.StencilEnable = FALSE;
+        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        desc.NumRenderTargets = 1;
+        desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pso));
+    }
+    D3D12_RESOURCE_DESC target_desc =
+        texture_desc(16, 16, DXGI_FORMAT_R8G8B8A8_UNORM,
+                     D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_CLEAR_VALUE clear = {};
+        clear.Format = target_desc.Format;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
+            IID_PPV_ARGS(&target));
+    }
+    if (SUCCEEDED(hr)) {
+        device->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint,
+                                      &rows, &row_bytes, &readback_bytes);
+        D3D12_HEAP_PROPERTIES readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(readback_bytes);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    }
+
+    if (SUCCEEDED(hr)) {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+            rtv_heap ? rtv_heap->GetCPUDescriptorHandleForHeapStart()
+                     : D3D12_CPU_DESCRIPTOR_HANDLE{};
+        if (!rtv_heap) {
+            D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+            heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+            heap_desc.NumDescriptors = 1;
+            hr = device->CreateDescriptorHeap(&heap_desc,
+                                               IID_PPV_ARGS(&rtv_heap));
+            if (SUCCEEDED(hr))
+                rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        }
+        if (SUCCEEDED(hr)) {
+            device->CreateRenderTargetView(target, nullptr, rtv);
+            list->SetGraphicsRootSignature(root);
+            list->SetPipelineState(pso);
+            list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            D3D12_VIEWPORT viewport = {0.0f, 0.0f, 16.0f, 16.0f, 0.0f,
+                                       1.0f};
+            D3D12_RECT scissor = {0, 0, 16, 16};
+            list->RSSetViewports(1, &viewport);
+            list->RSSetScissorRects(1, &scissor);
+            list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            const float clear[4] = {};
+            list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+            list->DrawInstanced(3, 1, 4, 7);
+            D3D12_RESOURCE_BARRIER barrier = transition_barrier(
+                target, D3D12_RESOURCE_STATE_RENDER_TARGET,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+            list->ResourceBarrier(1, &barrier);
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint = footprint;
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+            hr = execute_and_wait(queue, list);
+        }
+    }
+
+    uint64_t nonzero_pixels = 0;
+    uint64_t unexpected_pixels = 0;
+    uint32_t center_pixel = 0;
+    if (SUCCEEDED(hr)) {
+        uint8_t* mapped = nullptr;
+        D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_bytes)};
+        hr = readback->Map(0, &read_range,
+                           reinterpret_cast<void**>(&mapped));
+        if (SUCCEEDED(hr)) {
+            for (UINT y = 0; y < 16; ++y) {
+                const uint32_t* row = reinterpret_cast<const uint32_t*>(
+                    mapped + footprint.Footprint.RowPitch * y);
+                for (UINT x = 0; x < 16; ++x) {
+                    if (row[x] != 0)
+                        nonzero_pixels++;
+                    if (row[x] != 0 && row[x] != 0xff4080ffu)
+                        unexpected_pixels++;
+                    if (x == 8 && y == 8)
+                        center_pixel = row[x];
+                }
+            }
+            readback->Unmap(0, nullptr);
+        }
+    }
+
+    safe_release(root_blob);
+    safe_release(readback);
+    safe_release(target);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(rtv_heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(device);
+
+    const bool verified = SUCCEEDED(hr) && nonzero_pixels > 0 &&
+                          unexpected_pixels == 0 &&
+                          center_pixel == 0xff4080ffu;
+    return {verified, verified ? S_OK : hr,
+            verified
+                ? "SM6.8 start draw-information semantics matched exact raster readback"
+                : (detail.empty()
+                       ? "start draw-information exact raster readback failed"
+                       : detail),
+            "\"nonzero_pixels\":" + std::to_string(nonzero_pixels) +
+                ",\"unexpected_pixels\":" +
+                std::to_string(unexpected_pixels) +
+                ",\"center_pixel\":" + std::to_string(center_pixel) +
+                ",\"expected_center_pixel\":4282417407,"
+                "\"start_vertex_location\":4,\"start_instance_location\":7"};
+}
+
 static ProbeResult probe_geometry_shader_pso() {
     ID3D12Device* device = nullptr;
     HRESULT hr = create_device(&device);
@@ -4751,6 +4944,8 @@ static ProbeResult run_probe() {
         return probe_dxr_acceleration_structures();
     case 16:
         return probe_tessellation_shader_pso();
+    case 17:
+        return probe_start_draw_info();
     default:
         return {false, E_INVALIDARG, "unknown mini probe case", ""};
     }
