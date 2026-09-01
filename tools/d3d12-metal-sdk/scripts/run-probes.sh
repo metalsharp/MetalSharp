@@ -2976,6 +2976,7 @@ void cs_sm69_long_vector_divide_shift(uint3 id : SV_DispatchThreadID) {
   vector<uint, 8> three = vector<uint, 8>(3u, 3u, 3u, 3u, 3u, 3u, 3u, 3u);
   vector<uint, 8> quotient = a / two;
   vector<uint, 8> shifted = a << 1u;
+  vector<uint, 8> shifted_right = a >> 1u;
   vector<uint, 8> remainder = a % three;
   uint sum_quotient = quotient[0] + quotient[1] + quotient[2] + quotient[3] +
                        quotient[4] + quotient[5] + quotient[6] + quotient[7];
@@ -2983,6 +2984,10 @@ void cs_sm69_long_vector_divide_shift(uint3 id : SV_DispatchThreadID) {
                      shifted[4] + shifted[5] + shifted[6] + shifted[7];
   uint sum_remainder = remainder[0] + remainder[1] + remainder[2] + remainder[3] +
                        remainder[4] + remainder[5] + remainder[6] + remainder[7];
+  uint sum_shifted_right = shifted_right[0] + shifted_right[1] +
+                           shifted_right[2] + shifted_right[3] +
+                           shifted_right[4] + shifted_right[5] +
+                           shifted_right[6] + shifted_right[7];
   vector<int, 8> signed_a = vector<int, 8>(-8, -7, -6, -5, -4, -3, -2, -1);
   vector<int, 8> signed_two = vector<int, 8>(2, 2, 2, 2, 2, 2, 2, 2);
   vector<int, 8> signed_three = vector<int, 8>(3, 3, 3, 3, 3, 3, 3, 3);
@@ -2998,9 +3003,10 @@ void cs_sm69_long_vector_divide_shift(uint3 id : SV_DispatchThreadID) {
   outbuf.Store(0, sum_quotient);
   outbuf.Store(4, sum_shifted);
   outbuf.Store(8, sum_remainder);
-  outbuf.Store(12, asuint(signed_sum_quotient));
-  outbuf.Store(16, asuint(signed_sum_shifted));
-  outbuf.Store(20, asuint(signed_sum_remainder));
+  outbuf.Store(12, sum_shifted_right);
+  outbuf.Store(16, asuint(signed_sum_quotient));
+  outbuf.Store(20, asuint(signed_sum_shifted));
+  outbuf.Store(24, asuint(signed_sum_remainder));
 }
 
 [numthreads(1, 1, 1)]
