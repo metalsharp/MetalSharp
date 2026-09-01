@@ -2963,8 +2963,20 @@ void cs_sm69_long_vector_minmax(uint3 id : SV_DispatchThreadID) {
   vector<uint, 8> hi = max(a, b);
   uint total_lo = lo[0] + lo[1] + lo[2] + lo[3] + lo[4] + lo[5] + lo[6] + lo[7];
   uint total_hi = hi[0] + hi[1] + hi[2] + hi[3] + hi[4] + hi[5] + hi[6] + hi[7];
+  vector<float, 8> float_a = vector<float, 8>(1.0f, 2.0f, 3.0f, 4.0f,
+                                                5.0f, 6.0f, 7.0f, 8.0f);
+  vector<float, 8> float_b = vector<float, 8>(8.0f, 7.0f, 6.0f, 5.0f,
+                                                4.0f, 3.0f, 2.0f, 1.0f);
+  vector<float, 8> float_lo = min(float_a, float_b);
+  vector<float, 8> float_hi = max(float_a, float_b);
+  float float_total_lo = float_lo[0] + float_lo[1] + float_lo[2] + float_lo[3] +
+                         float_lo[4] + float_lo[5] + float_lo[6] + float_lo[7];
+  float float_total_hi = float_hi[0] + float_hi[1] + float_hi[2] + float_hi[3] +
+                         float_hi[4] + float_hi[5] + float_hi[6] + float_hi[7];
   outbuf.Store(0, total_lo);
   outbuf.Store(4, total_hi);
+  outbuf.Store(8, asuint(float_total_lo));
+  outbuf.Store(12, asuint(float_total_hi));
 }
 
 [numthreads(1, 1, 1)]
