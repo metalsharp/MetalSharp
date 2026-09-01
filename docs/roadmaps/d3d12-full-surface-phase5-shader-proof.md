@@ -113,8 +113,11 @@
   The shader lowering maps pixel-stage sample position to Metal
   `get_sample_position`, sample count to `get_num_samples`, `SampleIndex` to
   `[[sample_id]]`, `Coverage` to `[[sample_mask]]`, and evaluated varyings to
-  Metal perspective `interpolant` methods; non-pixel use and `InnerCoverage`
-  remain fail-closed.
+  Metal perspective `interpolant` methods; non-pixel use remains fail-closed.
+  The conservative-raster reference provider also maps pixel `InnerCoverage`
+  to an exact four-corner triangle test and passes the dedicated
+  `phase5-inner-coverage-final` readback with 1,200 fully covered and 204
+  edge-only pixels.
 - The shader diagnostic probe proves malformed DXIL is rejected with a
   stage-specific `shader/bitcode_parse` diagnostic and no PSO object, while
   valid DXBC/DXIL caches and D3DCompile/DXC provenance remain observable. The
@@ -300,6 +303,14 @@ METALSHARP_MINI_PROBE_FILTER=start_draw_info \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
     --mini-only --no-winemetal-abi
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_PROBE_PROFILE=phase5-inner-coverage-final \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-inner-coverage \
+METALSHARP_MINI_PROBE_FILTER=inner_coverage \
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
+    --mini-only --no-winemetal-abi
 ```
 
 The latest isolated inline-RayQuery result (profile
@@ -340,6 +351,25 @@ The latest isolated start-draw-information result (profile
   "start_vertex_location": 4,
   "start_instance_location": 7,
   "view_id_default_verified": true
+}
+```
+
+It was run against the rebuilt runtime with `METAL_SHADER_CONVERTER=/nonexistent`
+and a disposable Wine prefix.
+
+The latest isolated `InnerCoverage` result (profile
+`phase5-inner-coverage-final`) passed with exact conservative-raster readback:
+
+```json
+{
+  "ok": true,
+  "inner_pixels": 1200,
+  "expected_inner_pixels": 1200,
+  "outer_pixels": 204,
+  "expected_outer_pixels": 204,
+  "unexpected_pixels": 0,
+  "center_pixel": 4294967295,
+  "expected_center_pixel": 4294967295
 }
 ```
 

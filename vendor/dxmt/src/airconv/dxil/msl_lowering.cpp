@@ -2075,6 +2075,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "struct m12_conservative_data { float2 p0; float2 p1; float2 p2; uint width; uint height; uint enabled; uint pad; };\n";
             os << "static inline float m12_cons_cross(float2 a, float2 b, float2 c) { return (b.x-a.x)*(c.y-a.y) - (b.y-a.y)*(c.x-a.x); }\n";
             os << "static inline bool m12_cons_point_in_tri(float2 p, float2 a, float2 b, float2 c) { float e=1.0e-5f; float s0=m12_cons_cross(a,b,p), s1=m12_cons_cross(b,c,p), s2=m12_cons_cross(c,a,p); return (s0 >= -e && s1 >= -e && s2 >= -e) || (s0 <= e && s1 <= e && s2 <= e); }\n";
+            os << "static inline bool m12_cons_inner_triangle_pixel(float2 a, float2 b, float2 c, float2 lo) { float2 hi=lo+1.0f; return m12_cons_point_in_tri(lo,a,b,c) && m12_cons_point_in_tri(float2(hi.x,lo.y),a,b,c) && m12_cons_point_in_tri(hi,a,b,c) && m12_cons_point_in_tri(float2(lo.x,hi.y),a,b,c); }\n";
             os << "static inline bool m12_cons_point_in_box(float2 p, float2 lo, float2 hi) { return p.x >= lo.x-1.0e-5f && p.x <= hi.x+1.0e-5f && p.y >= lo.y-1.0e-5f && p.y <= hi.y+1.0e-5f; }\n";
             os << "static inline bool m12_cons_seg_intersects(float2 a, float2 b, float2 c, float2 d) { float e=1.0e-5f; float ab_c=m12_cons_cross(a,b,c), ab_d=m12_cons_cross(a,b,d), cd_a=m12_cons_cross(c,d,a), cd_b=m12_cons_cross(c,d,b); return ((ab_c >= -e && ab_d <= e) || (ab_c <= e && ab_d >= -e)) && ((cd_a >= -e && cd_b <= e) || (cd_a <= e && cd_b >= -e)); }\n";
             os << "static inline bool m12_cons_triangle_pixel(float2 a, float2 b, float2 c, float2 lo) { float2 hi=lo+1.0f; float2 q0=float2(lo.x,lo.y), q1=float2(hi.x,lo.y), q2=float2(hi.x,hi.y), q3=float2(lo.x,hi.y); if (m12_cons_point_in_box(a,lo,hi) || m12_cons_point_in_box(b,lo,hi) || m12_cons_point_in_box(c,lo,hi)) return true; if (m12_cons_point_in_tri(q0,a,b,c) || m12_cons_point_in_tri(q1,a,b,c) || m12_cons_point_in_tri(q2,a,b,c) || m12_cons_point_in_tri(q3,a,b,c)) return true; return m12_cons_seg_intersects(a,b,q0,q1) || m12_cons_seg_intersects(a,b,q1,q2) || m12_cons_seg_intersects(a,b,q2,q3) || m12_cons_seg_intersects(a,b,q3,q0) || m12_cons_seg_intersects(b,c,q0,q1) || m12_cons_seg_intersects(b,c,q1,q2) || m12_cons_seg_intersects(b,c,q2,q3) || m12_cons_seg_intersects(b,c,q3,q0) || m12_cons_seg_intersects(c,a,q0,q1) || m12_cons_seg_intersects(c,a,q1,q2) || m12_cons_seg_intersects(c,a,q2,q3) || m12_cons_seg_intersects(c,a,q3,q0); }\n";
@@ -6660,8 +6661,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         return "m12_coverage";
     case DXOP_InnerCoverage:
+        if (ctx.shader.kind == DxilShaderKind::Pixel &&
+            ctx.options.conservative_rasterization)
+            return "(m12_conservative.enabled != 0u && m12_cons_inner_triangle_pixel(m12_conservative.p0, m12_conservative.p1, m12_conservative.p2, floor(in.position.xy)) ? 1u : 0u)";
         ctx.unsupported_intrinsics++;
-        recordDiagnostic(ctx, "DXIL inner-coverage intrinsic has no Metal equivalent");
+        recordDiagnostic(ctx,
+                         "DXIL inner-coverage intrinsic requires the conservative raster reference provider");
         return "0u";
     case DXOP_EvalSnapped:
     case DXOP_EvalSampleIndex:
