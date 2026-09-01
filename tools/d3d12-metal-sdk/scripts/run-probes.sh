@@ -2966,10 +2966,22 @@ void cs_sm69_long_vector_unary(uint3 id : SV_DispatchThreadID) {
   vector<float, 8> powers = exp2(logarithms);
   float power_total = powers[0] + powers[1] + powers[2] + powers[3] +
                       powers[4] + powers[5] + powers[6] + powers[7];
+  vector<float, 8> zeros = vector<float, 8>(seed - seed, seed - seed,
+                                              seed - seed, seed - seed,
+                                              seed - seed, seed - seed,
+                                              seed - seed, seed - seed);
+  vector<float, 8> sines = sin(zeros);
+  vector<float, 8> cosines = cos(zeros);
+  float sine_total = sines[0] + sines[1] + sines[2] + sines[3] +
+                     sines[4] + sines[5] + sines[6] + sines[7];
+  float cosine_total = cosines[0] + cosines[1] + cosines[2] + cosines[3] +
+                       cosines[4] + cosines[5] + cosines[6] + cosines[7];
   outbuf.Store(0, asuint(total));
   outbuf.Store(4, asuint(root_total));
   outbuf.Store(8, asuint(reciprocal_total));
   outbuf.Store(12, asuint(power_total));
+  outbuf.Store(16, asuint(sine_total));
+  outbuf.Store(20, asuint(cosine_total));
 }
 
 [numthreads(1, 1, 1)]
