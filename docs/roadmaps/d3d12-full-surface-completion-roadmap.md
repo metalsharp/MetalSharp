@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (231/280 required opcode rows observed; 49 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (232/280 required opcode rows observed; 48 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -772,12 +772,13 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, ray-generation paths, and state-object
 breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 231 observed, 49 open, and 32
+The exhaustive Phase 5 matrix currently has 232 observed, 48 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
-provider has an exact stream-restart/primitive-ID readback, and the native
-SM5 tessellation proof exercises output-control-point input loads, patch
-constant stores, and domain-location interpolation. `LoadPatchConstant`, DXIL
+provider has an exact stream-restart/primitive-ID readback including the
+compiled `EmitThenCutStream` form, and the native SM5 tessellation proof
+exercises output-control-point input loads, patch constant stores, and
+domain-location interpolation. `GSInstanceID`, `LoadPatchConstant`, DXIL
 geometry-provider breadth, vector overloads, and broader stage matrices remain
 open.
 
@@ -1630,9 +1631,12 @@ whether the scoped FL12_2 gate is green.
   DXBC/AIR geometry provider with two emitted strips, `RestartStrip`, and
   `SV_PrimitiveID`. It requires exactly 1,062 nonzero pixels and left/right
   RGBA samples `[255,0,64,255]` and `[0,255,64,255]`.
-- Promoted only the behavior-backed `EmitStream`, `CutStream`, and first
-  primitive `PrimitiveID` rows. `EmitThenCutStream`, `GSInstanceID`, the
-  tessellation-state rows, and the DXIL geometry-provider ABI remain open.
+- Promoted the behavior-backed `EmitStream`, `CutStream`, `EmitThenCutStream`,
+  and first primitive `PrimitiveID` rows. `GSInstanceID`,
+  `LoadPatchConstant`, and the DXIL geometry-provider ABI remain open.
+  `RestartStrip` is compiled by the pinned D3DCompile lane as the combined
+  DXBC stream operation, and the result records
+  `emit_then_cut_stream_verified=true`.
 
 ### 2026-09-01 — Phase 5 tessellation system-value checkpoint
 

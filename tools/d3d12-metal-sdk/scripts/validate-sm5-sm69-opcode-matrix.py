@@ -156,6 +156,7 @@ EVIDENCE: dict[int, list[str]] = {
     96: ["probe-dxil-semantics:atomics_ids"],
     97: ["probe-mini-geometry-system-matrix:emit_stream_readback"],
     98: ["probe-mini-geometry-system-matrix:cut_stream_readback"],
+    99: ["probe-mini-geometry-system-matrix:emit_then_cut_stream_readback"],
     101: ["probe-dxil-semantics:double_bitcast"],
     102: ["probe-dxil-semantics:double_bitcast"],
     103: ["probe-mini-tessellation_shader_pso:load_output_control_point"],

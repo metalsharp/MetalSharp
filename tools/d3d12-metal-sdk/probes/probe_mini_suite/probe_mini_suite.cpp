@@ -1997,7 +1997,8 @@ float4 ps_main(GSOut input) : SV_Target0 { return input.color; }
                 std::to_string(left.a) + "],\"right_rgba\":[" +
                 std::to_string(right.r) + "," + std::to_string(right.g) + "," +
                 std::to_string(right.b) + "," + std::to_string(right.a) +
-                "]"};
+                "],\"emit_then_cut_stream_verified\":" +
+                (verified ? "true" : "false")};
 }
 
 static ProbeResult probe_tessellation_shader_pso() {
