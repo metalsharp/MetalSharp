@@ -346,7 +346,20 @@
         ["unexpected_pixels", 0],
         ["view_id_default_verified"]
       ],
-      "remaining": "The exact vertex-stage proof covers SV_StartVertexLocation, SV_StartInstanceLocation, and the default SV_ViewID=0 value for one non-indexed DrawInstanced command with nonzero start values. Per-view ViewID replay, indexed, mesh/amplification, and broader extended-command-information combinations remain in the exhaustive row."
+      "remaining": "The exact vertex-stage proof covers SV_StartVertexLocation and SV_StartInstanceLocation for one non-indexed DrawInstanced command with nonzero start values; the two-view SV_ViewID replay has its own exact row. Indexed, mesh/amplification, and broader extended-command-information combinations remain in the exhaustive row."
+    },
+    {
+      "id": "dxil-view-id-instancing-runtime",
+      "status": "closed",
+      "result": "probe-mini-view_id_instancing",
+      "checks": [
+        ["ok"],
+        ["slice0_red"],
+        ["slice1_green"],
+        ["slice0_rgba", [255, 0, 0, 255]],
+        ["slice1_rgba", [0, 255, 0, 255]]
+      ],
+      "remaining": "The exact two-view array-layer replay covers SV_ViewID values 0 and 1 with view-instance masks 0x1 and 0x2. Broader view counts, viewport/render-target location permutations, non-vertex stages, and interactions with mesh, tessellation, VRS, and MSAA remain in the exhaustive row."
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",

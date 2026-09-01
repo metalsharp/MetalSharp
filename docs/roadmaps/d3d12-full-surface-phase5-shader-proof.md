@@ -252,7 +252,9 @@
   and 257 with zero unsupported intrinsics/opcodes; the default-view path
   verifies `SV_ViewID=0`, while the command replay preserves the original
   start-vertex value and Metal applies the vertex offset through `[[vertex_id]]`.
-  Per-view ViewID replay remains a separate breadth requirement.
+  The separate `phase5-viewid-instancing` profile replays two masked view
+  instances and verifies exact array-layer colors: slice 0 is `[255,0,0,255]`
+  for `SV_ViewID=0`, and slice 1 is `[0,255,0,255]` for `SV_ViewID=1`.
 
 ## Exact evidence
 
@@ -308,6 +310,14 @@ DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
 METALSHARP_PROBE_PROFILE=phase5-inner-coverage-final \
 METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-inner-coverage \
 METALSHARP_MINI_PROBE_FILTER=inner_coverage \
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
+    --mini-only --no-winemetal-abi
+
+DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
+METALSHARP_PROBE_PROFILE=phase5-viewid-instancing \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-viewid-instancing \
+METALSHARP_MINI_PROBE_FILTER=view_id_instancing \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
     --mini-only --no-winemetal-abi
@@ -370,6 +380,22 @@ The latest isolated `InnerCoverage` result (profile
   "unexpected_pixels": 0,
   "center_pixel": 4294967295,
   "expected_center_pixel": 4294967295
+}
+```
+
+It was run against the rebuilt runtime with `METAL_SHADER_CONVERTER=/nonexistent`
+and a disposable Wine prefix.
+
+The latest isolated ViewID-instancing result (profile
+`phase5-viewid-instancing`) passed with exact array-layer readbacks:
+
+```json
+{
+  "ok": true,
+  "slice0_red": true,
+  "slice1_green": true,
+  "slice0_rgba": [255,0,0,255],
+  "slice1_rgba": [0,255,0,255]
 }
 ```
 

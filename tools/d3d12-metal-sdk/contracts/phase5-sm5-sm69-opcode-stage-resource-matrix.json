@@ -3184,7 +3184,7 @@
       "required": true,
       "status": "observed",
       "positive_evidence": [
-        "probe-start-draw-info:view_id_default"
+        "probe-view-id-instancing:array_layers"
       ],
       "negative_evidence": []
     },

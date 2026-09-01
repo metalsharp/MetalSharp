@@ -70,6 +70,7 @@ MINI_PROBES=(
   tessellation_shader_pso
   start_draw_info
   inner_coverage
+  view_id_instancing
 )
 
 mini_probe_selected() {
@@ -1749,6 +1750,44 @@ HLSL
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
       -Fo probe_inner_coverage_ps.cso probe_inner_coverage.hlsl >/dev/null
+  )
+}
+
+prepare_view_id_instancing_probe() {
+  local hlsl="$SDK_DIR/out/bin/probe_view_id_instancing.hlsl"
+
+  cat > "$hlsl" <<'HLSL'
+struct VSOut {
+  float4 position : SV_Position;
+  float4 color : COLOR0;
+};
+
+VSOut vs_main(uint vertex_id : SV_VertexID, uint view_id : SV_ViewID) {
+  float2 position = vertex_id == 0 ? float2(-1.0, -1.0) :
+                    vertex_id == 1 ? float2(3.0, -1.0) :
+                                      float2(-1.0, 3.0);
+  VSOut output;
+  output.position = float4(position, 0.0, 1.0);
+  output.color = view_id == 0 ? float4(1.0, 0.0, 0.0, 1.0)
+                              : float4(0.0, 1.0, 0.0, 1.0);
+  return output;
+}
+
+float4 ps_main(VSOut input) : SV_Target {
+  return input.color;
+}
+HLSL
+
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E vs_main -T vs_6_8 \
+      -Fo probe_view_id_instancing_vs.cso probe_view_id_instancing.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_view_id_instancing_ps.cso probe_view_id_instancing.hlsl >/dev/null
   )
 }
 
@@ -3832,6 +3871,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   fi
   if mini_probe_selected inner_coverage; then
     prepare_inner_coverage_probe
+  fi
+  if mini_probe_selected view_id_instancing; then
+    prepare_view_id_instancing_probe
   fi
 fi
 if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then

@@ -1499,6 +1499,15 @@ whether the scoped FL12_2 gate is green.
   191 observed, 89 open, and 32 reserved/not-applicable rows; per-view replay
   and broader graphics-stage ViewID combinations remain open.
 
+### 2026-09-01 — Phase 5 ViewID instancing proof
+
+- Added a two-view native view-instancing replay using masks `0x1` and `0x2`.
+  The vertex-stage `SV_ViewID` values 0 and 1 select exact red and green
+  array-layer readbacks (`[255,0,0,255]` and `[0,255,0,255]`) on the Apple M4.
+- The ViewID row now has exact per-view behavior evidence; broader view counts,
+  viewport/render-target permutations, non-vertex stages, and mesh/tessellation/
+  VRS/MSAA interactions remain open.
+
 ### 2026-09-01 — Phase 5 InnerCoverage proof
 
 - Added a conservative-raster reference-provider four-corner test for

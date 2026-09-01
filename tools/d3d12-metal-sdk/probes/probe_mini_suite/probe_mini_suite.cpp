@@ -1291,6 +1291,219 @@ static ProbeResult probe_inner_coverage() {
                 ",\"expected_center_pixel\":4294967295"};
 }
 
+static ProbeResult probe_view_id_instancing() {
+    std::string vs_path = getenv_string("D3D12_METAL_SDK_VIEW_ID_VS");
+    std::string ps_path = getenv_string("D3D12_METAL_SDK_VIEW_ID_PS");
+    if (vs_path.empty())
+        vs_path = "probe_view_id_instancing_vs.cso";
+    if (ps_path.empty())
+        ps_path = "probe_view_id_instancing_ps.cso";
+    std::vector<uint8_t> vs_blob;
+    std::vector<uint8_t> ps_blob;
+    if (!read_binary_file(vs_path, vs_blob) || !read_binary_file(ps_path, ps_blob)) {
+        return {false, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND),
+                "view-ID shader blobs are missing",
+                "\"vs_path\":\"" + json_escape(vs_path) +
+                    "\",\"ps_path\":\"" + json_escape(ps_path) + "\""};
+    }
+
+    ID3D12Device* device = nullptr;
+    ID3D12Device2* device2 = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12GraphicsCommandList1* list1 = nullptr;
+    ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12RootSignature* root = nullptr;
+    ID3D12PipelineState* pso = nullptr;
+    ID3D12Resource* target = nullptr;
+    ID3D12Resource* readback = nullptr;
+    ID3DBlob* root_blob = nullptr;
+    std::string detail;
+    HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr))
+        hr = device->QueryInterface(IID_PPV_ARGS(&device2));
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                             IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                       allocator, nullptr, IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr))
+        hr = list->QueryInterface(IID_PPV_ARGS(&list1));
+
+    D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+    root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    if (SUCCEEDED(hr))
+        hr = serialize_root_signature(root_desc, &root_blob, detail);
+    if (SUCCEEDED(hr))
+        hr = device->CreateRootSignature(0, root_blob->GetBufferPointer(),
+                                          root_blob->GetBufferSize(),
+                                          IID_PPV_ARGS(&root));
+    D3D12_VIEW_INSTANCE_LOCATION locations[2] = {{0, 0}, {1, 1}};
+    if (SUCCEEDED(hr)) {
+        struct alignas(void*) ViewPipelineStream {
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE,
+                                    ID3D12RootSignature*> root;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS,
+                                    D3D12_SHADER_BYTECODE> vs;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS,
+                                    D3D12_SHADER_BYTECODE> ps;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_BLEND,
+                                    D3D12_BLEND_DESC> blend;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_MASK,
+                                    UINT> sample_mask;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER,
+                                    D3D12_RASTERIZER_DESC> rasterizer;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL1,
+                                    D3D12_DEPTH_STENCIL_DESC1> depth_stencil;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY,
+                                    D3D12_PRIMITIVE_TOPOLOGY_TYPE> topology;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS,
+                                    D3D12_RT_FORMAT_ARRAY> render_targets;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SAMPLE_DESC,
+                                    DXGI_SAMPLE_DESC> sample_desc;
+            PipelineStreamSubobject<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VIEW_INSTANCING,
+                                    D3D12_VIEW_INSTANCING_DESC> view_instancing;
+        } stream = {};
+        stream.root.value = root;
+        stream.vs.value = {vs_blob.data(), vs_blob.size()};
+        stream.ps.value = {ps_blob.data(), ps_blob.size()};
+        stream.blend.value.RenderTarget[0].RenderTargetWriteMask =
+            D3D12_COLOR_WRITE_ENABLE_ALL;
+        stream.sample_mask.value = UINT_MAX;
+        stream.rasterizer.value.FillMode = D3D12_FILL_MODE_SOLID;
+        stream.rasterizer.value.CullMode = D3D12_CULL_MODE_NONE;
+        stream.rasterizer.value.DepthClipEnable = TRUE;
+        stream.topology.value = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        stream.render_targets.value.NumRenderTargets = 1;
+        stream.render_targets.value.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        stream.sample_desc.value.Count = 1;
+        stream.view_instancing.value.ViewInstanceCount = 2;
+        stream.view_instancing.value.pViewInstanceLocations = locations;
+        stream.view_instancing.value.Flags =
+            D3D12_VIEW_INSTANCING_FLAG_ENABLE_VIEW_INSTANCE_MASKING;
+        D3D12_PIPELINE_STATE_STREAM_DESC stream_desc = {sizeof(stream), &stream};
+        hr = device2->CreatePipelineState(&stream_desc, IID_PPV_ARGS(&pso));
+    }
+
+    D3D12_RESOURCE_DESC target_desc =
+        texture_desc(1, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
+                     D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+    target_desc.DepthOrArraySize = 2;
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES default_heap =
+            heap_props(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_CLEAR_VALUE clear = {};
+        clear.Format = target_desc.Format;
+        clear.Color[3] = 1.0f;
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
+            IID_PPV_ARGS(&target));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES readback_heap =
+            heap_props(D3D12_HEAP_TYPE_READBACK);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(512);
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        heap_desc.NumDescriptors = 1;
+        hr = device->CreateDescriptorHeap(&heap_desc,
+                                          IID_PPV_ARGS(&rtv_heap));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+            rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+        rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+        rtv_desc.Texture2DArray.ArraySize = 2;
+        device->CreateRenderTargetView(target, &rtv_desc, rtv);
+        const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+        D3D12_VIEWPORT viewports[2] = {{0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f},
+                                       {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f}};
+        D3D12_RECT scissors[2] = {{0, 0, 1, 1}, {0, 0, 1, 1}};
+        list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+        list->SetPipelineState(pso);
+        list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        list->RSSetViewports(2, viewports);
+        list->RSSetScissorRects(2, scissors);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list1->SetViewInstanceMask(0x3u);
+        list->DrawInstanced(3, 1, 0, 0);
+        D3D12_RESOURCE_BARRIER barrier = transition_barrier(
+            target, D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &barrier);
+        for (UINT slice = 0; slice < 2; ++slice) {
+            D3D12_TEXTURE_COPY_LOCATION dst = {};
+            dst.pResource = readback;
+            dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            dst.PlacedFootprint.Offset = slice * 256;
+            dst.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            dst.PlacedFootprint.Footprint.Width = 1;
+            dst.PlacedFootprint.Footprint.Height = 1;
+            dst.PlacedFootprint.Footprint.Depth = 1;
+            dst.PlacedFootprint.Footprint.RowPitch = 256;
+            D3D12_TEXTURE_COPY_LOCATION src = {};
+            src.pResource = target;
+            src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            src.SubresourceIndex = slice;
+            list->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        }
+        hr = execute_and_wait(queue, list);
+    }
+    uint8_t bytes[512] = {};
+    if (SUCCEEDED(hr)) {
+        void* mapped = nullptr;
+        D3D12_RANGE read_range = {0, sizeof(bytes)};
+        hr = readback->Map(0, &read_range, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(bytes, mapped, sizeof(bytes));
+            readback->Unmap(0, nullptr);
+        }
+    }
+    const bool slice0_red = bytes[0] == 255 && bytes[1] == 0 &&
+                            bytes[2] == 0 && bytes[3] == 255;
+    const bool slice1_green = bytes[256] == 0 && bytes[257] == 255 &&
+                              bytes[258] == 0 && bytes[259] == 255;
+    const bool verified = SUCCEEDED(hr) && slice0_red && slice1_green;
+    safe_release(root_blob);
+    safe_release(readback);
+    safe_release(target);
+    safe_release(pso);
+    safe_release(root);
+    safe_release(rtv_heap);
+    safe_release(list1);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(device2);
+    safe_release(device);
+    return {verified, verified ? S_OK : hr,
+            verified ? "SV_ViewID view-instancing readback matched exact array layers"
+                     : "SV_ViewID view-instancing readback failed",
+            "\"slice0_red\":" + std::string(slice0_red ? "true" : "false") +
+                ",\"slice1_green\":" +
+                std::string(slice1_green ? "true" : "false") +
+                ",\"slice0_rgba\":[" + std::to_string(bytes[0]) + "," +
+                std::to_string(bytes[1]) + "," + std::to_string(bytes[2]) +
+                "," + std::to_string(bytes[3]) + "],\"slice1_rgba\":[" +
+                std::to_string(bytes[256]) + "," +
+                std::to_string(bytes[257]) + "," +
+                std::to_string(bytes[258]) + "," +
+                std::to_string(bytes[259]) + "]"};
+}
+
 static ProbeResult probe_geometry_shader_pso() {
     ID3D12Device* device = nullptr;
     HRESULT hr = create_device(&device);
@@ -5169,6 +5382,8 @@ static ProbeResult run_probe() {
         return probe_start_draw_info();
     case 18:
         return probe_inner_coverage();
+    case 20:
+        return probe_view_id_instancing();
     default:
         return {false, E_INVALIDARG, "unknown mini probe case", ""};
     }
