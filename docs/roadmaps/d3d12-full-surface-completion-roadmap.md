@@ -749,9 +749,9 @@ opcode/stage/resource/cache/session row remains open, so
 ceiling; 38 inline-RayQuery opcodes, one ViewID opcode, two SM6.8
 extended-command-information opcodes, and the InnerCoverage opcode are now
 observed, including the exact candidate/committed state-accessor, transform,
-contribution, procedural, AllocateRayQuery2, abort, and conservative-raster
-matrices, while broader DXR accessors, ray-generation paths, and state-object
-breadth remain open.
+contribution, procedural, AllocateRayQuery2, abort, ViewID-default, and
+conservative-raster matrices, while broader DXR accessors, ray-generation
+paths, and state-object breadth remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1498,6 +1498,17 @@ whether the scoped FL12_2 gate is green.
 - Promoted the default-view ViewID opcode row. The exhaustive matrix now has
   191 observed, 89 open, and 32 reserved/not-applicable rows; per-view replay
   and broader graphics-stage ViewID combinations remain open.
+
+### 2026-09-01 — Phase 5 InnerCoverage proof
+
+- Added a conservative-raster reference-provider four-corner test for
+  `SV_InnerCoverage`. The isolated M4 profile renders the pinned 64x64
+  triangle and reads back exactly 1,200 fully covered pixels, 204 edge-only
+  pixels, zero unexpected values, and a white center pixel.
+- Promoted the `InnerCoverage` opcode row from the runtime module report and
+  exact conservative-raster readback. The exhaustive matrix now has 192
+  observed, 88 open, and 32 reserved/not-applicable rows; AttributeAtVertex,
+  broader conservative-raster rules, and the Phase 5 exit gate remain open.
 
 ### 2026-09-01 — Phase 5 InnerCoverage proof
 
