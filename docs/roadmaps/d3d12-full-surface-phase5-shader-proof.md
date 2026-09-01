@@ -137,14 +137,15 @@
   signed/unsigned/float native-16 arithmetic
   `[65085,65096,65107,65118]`. The SM6.9 vectorized `FDot` opcode is also
   lowered to a native MSL `dot` and returns exact float bits for the
-  four-component case. Profile `phase5-long-select` passes 57/57
+  four-component case. Profile `phase5-long-signed-revert` passes 58/58
   semantic lanes: the core opcode lane returns 36 exact float/int/bitwise
   results, while SM6.9 eight- and sixteen-component float/uint vectors
   preserve exact FDot, add, xor, dynamic construction, element addressing,
   all/any reduction, componentwise negation/absolute-value, min/max, tertiary
-  mad, vector select, and divide/shift/remainder readbacks (`120.0f`, `72.0f`,
-  `40`, `80`, `156.0f`, `1/1`, `44.0f`, `24/56`, `96`, `56`, `20/88/8`,
-  and `816.0f` respectively). The compact
+  mad, vector select, signed/unsigned divide, shift, and remainder readbacks
+  (`120.0f`, `72.0f`, `40`, `80`, `156.0f`, `1/1`, `44.0f`, `24/56`, `96`,
+  `56`, `20/88/8`, `0xfffffff0/0xffffffec/0xfffffff7`, and `816.0f`
+  respectively). The compact
   LLVM INSERTELT record form is decoded as three value operands, and private
   vector scratch GEPs scale 32-bit lanes by four bytes.
 - Bounded descriptor indexing selects `ByteAddressBuffer[2]`,

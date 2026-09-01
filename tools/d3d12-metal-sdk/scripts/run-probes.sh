@@ -2956,9 +2956,24 @@ void cs_sm69_long_vector_divide_shift(uint3 id : SV_DispatchThreadID) {
                      shifted[4] + shifted[5] + shifted[6] + shifted[7];
   uint sum_remainder = remainder[0] + remainder[1] + remainder[2] + remainder[3] +
                        remainder[4] + remainder[5] + remainder[6] + remainder[7];
+  vector<int, 8> signed_a = vector<int, 8>(-8, -7, -6, -5, -4, -3, -2, -1);
+  vector<int, 8> signed_two = vector<int, 8>(2, 2, 2, 2, 2, 2, 2, 2);
+  vector<int, 8> signed_three = vector<int, 8>(3, 3, 3, 3, 3, 3, 3, 3);
+  vector<int, 8> signed_quotient = signed_a / signed_two;
+  vector<int, 8> signed_shifted = signed_a >> 1;
+  vector<int, 8> signed_remainder = signed_a % signed_three;
+  int signed_sum_quotient = signed_quotient[0] + signed_quotient[1] + signed_quotient[2] + signed_quotient[3] +
+                             signed_quotient[4] + signed_quotient[5] + signed_quotient[6] + signed_quotient[7];
+  int signed_sum_shifted = signed_shifted[0] + signed_shifted[1] + signed_shifted[2] + signed_shifted[3] +
+                           signed_shifted[4] + signed_shifted[5] + signed_shifted[6] + signed_shifted[7];
+  int signed_sum_remainder = signed_remainder[0] + signed_remainder[1] + signed_remainder[2] + signed_remainder[3] +
+                             signed_remainder[4] + signed_remainder[5] + signed_remainder[6] + signed_remainder[7];
   outbuf.Store(0, sum_quotient);
   outbuf.Store(4, sum_shifted);
   outbuf.Store(8, sum_remainder);
+  outbuf.Store(12, asuint(signed_sum_quotient));
+  outbuf.Store(16, asuint(signed_sum_shifted));
+  outbuf.Store(20, asuint(signed_sum_remainder));
 }
 
 [numthreads(1, 1, 1)]
@@ -2967,7 +2982,7 @@ void cs_sm69_long_vector_select(uint3 id : SV_DispatchThreadID) {
   vector<uint, 8> a = vector<uint, 8>(seed + 1u, seed + 2u, seed + 3u, seed + 4u,
                                       seed + 5u, seed + 6u, seed + 7u, seed + 8u);
   vector<uint, 8> b = vector<uint, 8>(8u, 7u, 6u, 5u, 4u, 3u, 2u, 1u);
-  vector<uint, 8> selected = a > b ? a : b;
+  vector<uint, 8> selected = select(a > b, a, b);
   uint total = selected[0] + selected[1] + selected[2] + selected[3] +
                selected[4] + selected[5] + selected[6] + selected[7];
   outbuf.Store(0, total);
@@ -2984,6 +2999,22 @@ void cs_sm69_long_vector_16(uint3 id : SV_DispatchThreadID) {
                                            8.0f, 7.0f, 6.0f, 5.0f,
                                            4.0f, 3.0f, 2.0f, 1.0f);
   outbuf.Store(0, asuint(dot(a, b)));
+}
+
+[numthreads(1, 1, 1)]
+void cs_sm69_long_vector_16_dynamic(uint3 id : SV_DispatchThreadID) {
+  uint seed = inbuf.Load(0);
+  vector<uint, 16> a = vector<uint, 16>(
+      seed + 1u, seed + 2u, seed + 3u, seed + 4u,
+      seed + 5u, seed + 6u, seed + 7u, seed + 8u,
+      seed + 9u, seed + 10u, seed + 11u, seed + 12u,
+      seed + 13u, seed + 14u, seed + 15u, seed + 16u);
+  vector<uint, 16> doubled = a + a;
+  uint total = doubled[0] + doubled[1] + doubled[2] + doubled[3] +
+               doubled[4] + doubled[5] + doubled[6] + doubled[7] +
+               doubled[8] + doubled[9] + doubled[10] + doubled[11] +
+               doubled[12] + doubled[13] + doubled[14] + doubled[15];
+  outbuf.Store(0, total);
 }
 HLSL_SM69
 
@@ -3237,6 +3268,10 @@ HLSL_TEXTURE
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_16 -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
       -Fo probe_dxil_semantic_sm69_long_vector_16.cso probe_dxil_semantic_sm69.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_sm69_long_vector_16_dynamic -T cs_6_9 -HV 2021 -Od -enable-16bit-types \
+      -Fo probe_dxil_semantic_sm69_long_vector_16_dynamic.cso probe_dxil_semantic_sm69.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_texture_ops -T cs_6_9 -HV 2021 \

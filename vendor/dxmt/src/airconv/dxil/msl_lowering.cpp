@@ -620,9 +620,26 @@ static std::string aggregateConstructor(const std::string &literal, MSLType type
         return part;
     };
 
+    const bool signed_32 =
+        type.kind == MSLTypeKind::Int || type.kind == MSLTypeKind::Int2 ||
+        type.kind == MSLTypeKind::Int3 || type.kind == MSLTypeKind::Int4 ||
+        (type.kind == MSLTypeKind::LongVector &&
+         type.vector_element_kind == MSLTypeKind::Int);
+    auto normalize_signed_literal = [&](const std::string &part) {
+        if (!signed_32)
+            return part;
+        char *end = nullptr;
+        const unsigned long long raw = std::strtoull(part.c_str(), &end, 10);
+        if (!end || *end != '\0' || raw > 0xffffffffull)
+            return part;
+        return std::to_string(static_cast<int32_t>(static_cast<uint32_t>(raw)));
+    };
     for (size_t i = 0; i < parts.size(); i++) {
         if (i) args += ", ";
-        args += DXILIRBuilder::isVectorType(type) ? scalarize_vector_part(parts[i]) : parts[i];
+        const std::string part = DXILIRBuilder::isVectorType(type)
+                                      ? scalarize_vector_part(parts[i])
+                                      : parts[i];
+        args += normalize_signed_literal(part);
     }
     if (DXILIRBuilder::isLongVectorType(type))
         return type_name + "{{" + args + "}}";
