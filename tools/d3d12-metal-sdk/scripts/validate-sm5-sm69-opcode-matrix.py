@@ -179,7 +179,7 @@ EVIDENCE: dict[int, list[str]] = {
     134: ["probe-dxil-semantics:double_integer_conversions"],
     135: ["probe-wave-ops:active_prefix_bit_count"],
     136: ["probe-wave-ops:active_prefix_bit_count"],
-    138: ["probe-start-draw-info:view_id_default"],
+    138: ["probe-view-id-instancing:array_layers"],
     139: ["probe-dxil-semantics:raw_vector"],
     140: ["probe-dxil-semantics:raw_vector"],
     162: ["probe-dxil-semantics:dot2add_half"],
