@@ -219,12 +219,15 @@
   existing-collection-by-key payloads are supported; broader compiler-session
   and state-object combinations remain in the exhaustive row.
 
-- The dedicated `phase5-rq-procedural-combined3` profile executes native Metal
+- The dedicated `phase5-rq2-allocate-final` profile executes native Metal
   `intersection_query<instancing, triangle_data>` queries over a two-instance
-  TLAS containing one translated triangle and one procedural AABB. It creates
-  exact triangle/AABB BLAS sizes `768/256` and a combined TLAS size
-  `1280/256`, binds the TLAS and its instance-contribution table through the
-  direct compute ABI, and reads back an exact 96-word matrix after the DXIL
+  TLAS containing one translated triangle and one procedural AABB. Its
+  nonzero `RAYQUERY_FLAG_ALLOW_OPACITY_MICROMAPS` construction flag emits and
+  executes DXIL `AllocateRayQuery2` while the runtime preserves the supported
+  `RAY_FLAG_NONE` trace. It creates exact triangle/AABB BLAS sizes `768/256`
+  and a combined TLAS size `1280/256`, binds the TLAS and its
+  instance-contribution table through the direct compute ABI, and reads back an
+  exact 96-word matrix after the DXIL
   `TraceRayInline`/`Proceed`/candidate-type/commit/status sequence. The matrix
   covers candidate and committed triangle front-face, barycentric, distance,
   instance/geometry/primitive, object-ray, world-ray, flag, procedural
@@ -282,8 +285,8 @@ METAL_SHADER_CONVERTER=/nonexistent \
     --agility-only --no-winemetal-abi
 
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
-METALSHARP_PROBE_PROFILE=phase5-rq-procedural-combined3 \
-METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-rq-procedural-combined \
+METALSHARP_PROBE_PROFILE=phase5-rq2-allocate-final \
+METALSHARP_DXMT_RUNTIME=/Users/averyfelts/.metalsharp/runtime/wine/lib/phase5-rq2-allocate-test \
 METALSHARP_MINI_PROBE_FILTER=dxr_inline \
 METAL_SHADER_CONVERTER=/nonexistent \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh \
@@ -299,12 +302,14 @@ METAL_SHADER_CONVERTER=/nonexistent \
 ```
 
 The latest isolated inline-RayQuery result (profile
-`phase5-rq-procedural-combined3`) passed with `readback=1`,
+`phase5-rq2-allocate-final`) passed with `readback=1`,
 `accessor_matrix_verified=true`, `procedural_commit_verified=true`, and the
 exact 96-word matrix:
 
 ```json
 {
+  "accessor_matrix_verified": true,
+  "procedural_commit_verified": true,
   "words": [1,0,7,0,0,0,1073741824,1034594987,1056964608,3196059648,0,3221225472,0,0,1065353216,1,0,7,0,0,0,1073741824,1034594987,1056964608,0,0,0,0,3221225472,0,0,1065353216,3196059648,0,3221225472,0,0,1065353216,0,0,1065353216,0,0,1048576000,0,1065353216,0,0,0,0,1065353216,0,1065353216,0,0,3196059648,0,1065353216,0,2147483648,0,0,1065353216,2147483648,1065353216,0,0,1048576000,0,1065353216,0,0,0,0,1065353216,0,1065353216,0,0,3196059648,0,1065353216,0,2147483648,0,0,1065353216,2147483648,23,23,1,11,2,1,1073741824,3553697792],
   "blas_result_bytes": 768,
   "blas_scratch_bytes": 256,
@@ -396,10 +401,10 @@ exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
 exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 91 rows still missing after 37 exact inline-RayQuery plus
+remains open with 90 rows still missing after 38 exact inline-RayQuery plus
 two extended-command-information opcode observations, including the
-candidate/committed state-accessor, transform, contribution, procedural, and
-abort matrix.
+candidate/committed state-accessor, transform, contribution, procedural,
+AllocateRayQuery2, and abort matrix.
 The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact
