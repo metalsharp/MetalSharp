@@ -1721,6 +1721,76 @@ void cs_main() {
 }
 HLSL
 
+  local accessor_hlsl="$SDK_DIR/out/bin/probe_dxr_inline_accessors.hlsl"
+  cat > "$accessor_hlsl" <<'HLSL'
+RaytracingAccelerationStructure scene : register(t0);
+RWByteAddressBuffer output : register(u0);
+
+[numthreads(1, 1, 1)]
+void cs_main() {
+  RayQuery<RAY_FLAG_NONE> query;
+  RayDesc ray;
+  ray.Origin = float3(0.0, 0.0, -2.0);
+  ray.TMin = 0.0;
+  ray.Direction = float3(0.0, 0.0, 1.0);
+  ray.TMax = 10.0;
+  query.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
+  while (query.Proceed()) {
+    if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE) {
+      output.Store(4, query.CandidateInstanceIndex());
+      output.Store(8, query.CandidateInstanceID());
+      output.Store(12, query.CandidateGeometryIndex());
+      output.Store(16, query.CandidatePrimitiveIndex());
+      output.Store(20, query.CandidateTriangleFrontFace() ? 1 : 0);
+      output.Store(24, asuint(query.CandidateTriangleRayT()));
+      float2 bary = query.CandidateTriangleBarycentrics();
+      output.Store(28, asuint(bary.x));
+      output.Store(32, asuint(bary.y));
+      float3 origin = query.CandidateObjectRayOrigin();
+      output.Store(36, asuint(origin.x));
+      output.Store(40, asuint(origin.y));
+      output.Store(44, asuint(origin.z));
+      float3 direction = query.CandidateObjectRayDirection();
+      output.Store(48, asuint(direction.x));
+      output.Store(52, asuint(direction.y));
+      output.Store(56, asuint(direction.z));
+      output.Store(152, query.CandidateProceduralPrimitiveNonOpaque() ? 1 : 0);
+    }
+    query.CommitNonOpaqueTriangleHit();
+  }
+  output.Store(60, query.CommittedStatus());
+  output.Store(64, query.CommittedInstanceIndex());
+  output.Store(68, query.CommittedInstanceID());
+  output.Store(72, query.CommittedGeometryIndex());
+  output.Store(76, query.CommittedPrimitiveIndex());
+  output.Store(80, query.CommittedTriangleFrontFace() ? 1 : 0);
+  output.Store(84, asuint(query.CommittedRayT()));
+  float2 committed_bary = query.CommittedTriangleBarycentrics();
+  output.Store(88, asuint(committed_bary.x));
+  output.Store(92, asuint(committed_bary.y));
+  output.Store(96, query.RayFlags());
+  output.Store(100, asuint(query.RayTMin()));
+  float3 world_origin = query.WorldRayOrigin();
+  output.Store(104, asuint(world_origin.x));
+  output.Store(108, asuint(world_origin.y));
+  output.Store(112, asuint(world_origin.z));
+  float3 world_direction = query.WorldRayDirection();
+  output.Store(116, asuint(world_direction.x));
+  output.Store(120, asuint(world_direction.y));
+  output.Store(124, asuint(world_direction.z));
+  float3 committed_origin = query.CommittedObjectRayOrigin();
+  output.Store(128, asuint(committed_origin.x));
+  output.Store(132, asuint(committed_origin.y));
+  output.Store(136, asuint(committed_origin.z));
+  float3 committed_direction = query.CommittedObjectRayDirection();
+  output.Store(140, asuint(committed_direction.x));
+  output.Store(144, asuint(committed_direction.y));
+  output.Store(148, asuint(committed_direction.z));
+  output.Store(156, 0xd3d12000);
+  output.Store(0, query.CommittedStatus());
+}
+HLSL
+
   cat > "$raygen_root" <<'JSON'
 {
   "RootSignature": {
@@ -1980,6 +2050,10 @@ HLSL
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_5 \
       -Fo probe_dxr_inline_invalid.cso probe_dxr_inline_invalid.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_5 \
+      -Fo probe_dxr_inline_accessors.cso probe_dxr_inline_accessors.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -T lib_6_5 \

@@ -2,6 +2,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <cstdint>
 #include <cstdio>
@@ -105,7 +106,8 @@ struct ProbeResult {
     UINT64 blas_scratch_bytes = 0;
     UINT64 tlas_result_bytes = 0;
     UINT64 tlas_scratch_bytes = 0;
-    UINT readback = 0;
+    std::array<UINT, 40> readback = {};
+    bool accessor_matrix_verified = false;
     bool invalid_pipeline_rejected = false;
     HRESULT invalid_pipeline_hr = E_FAIL;
 };
@@ -250,7 +252,7 @@ static ProbeResult run_probe() {
         }
 
         std::vector<std::uint8_t> shader;
-        if (!read_binary_file("probe_dxr_inline.cso", shader)) {
+        if (!read_binary_file("probe_dxr_inline_accessors.cso", shader)) {
             result.hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
             break;
         }
@@ -378,7 +380,7 @@ static ProbeResult run_probe() {
         if (FAILED(result.hr))
             break;
         D3D12_RESOURCE_DESC output_desc =
-            buffer_desc(16, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+            buffer_desc(160, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         result.hr = device->CreateCommittedResource(
             &default_properties, D3D12_HEAP_FLAG_NONE, &output_desc,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
@@ -387,7 +389,7 @@ static ProbeResult run_probe() {
             break;
         D3D12_HEAP_PROPERTIES readback_properties =
             heap_properties(D3D12_HEAP_TYPE_READBACK);
-        D3D12_RESOURCE_DESC readback_desc = buffer_desc(16);
+        D3D12_RESOURCE_DESC readback_desc = buffer_desc(160);
         result.hr = device->CreateCommittedResource(
             &readback_properties, D3D12_HEAP_FLAG_NONE, &readback_desc,
             D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
@@ -419,7 +421,7 @@ static ProbeResult run_probe() {
         D3D12_UNORDERED_ACCESS_VIEW_DESC output_view = {};
         output_view.Format = DXGI_FORMAT_R32_TYPELESS;
         output_view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        output_view.Buffer.NumElements = 4;
+        output_view.Buffer.NumElements = 40;
         output_view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(output, nullptr, &output_view,
                                           cpu_handle);
@@ -445,7 +447,7 @@ static ProbeResult run_probe() {
         list4->SetComputeRootDescriptorTable(
             0, descriptor_heap->GetGPUDescriptorHandleForHeapStart());
         list4->Dispatch(1, 1, 1);
-        list4->CopyBufferRegion(readback, 0, output, 0, 16);
+        list4->CopyBufferRegion(readback, 0, output, 0, 160);
         result.hr = list4->Close();
         if (FAILED(result.hr))
             break;
@@ -476,7 +478,8 @@ static ProbeResult run_probe() {
         mapped = nullptr;
         result.hr = readback->Map(0, nullptr, &mapped);
         if (SUCCEEDED(result.hr)) {
-            std::memcpy(&result.readback, mapped, sizeof(result.readback));
+            std::memcpy(result.readback.data(), mapped,
+                        result.readback.size() * sizeof(result.readback[0]));
             readback->Unmap(0, nullptr);
         }
     } while (false);
@@ -485,10 +488,18 @@ static ProbeResult run_probe() {
     result.ok = SUCCEEDED(result.hr) && SUCCEEDED(result.removed_reason) &&
                 result.blas_result_bytes > 0 && result.blas_scratch_bytes > 0 &&
                 result.tlas_result_bytes > 0 && result.tlas_scratch_bytes > 0 &&
-                result.readback == 1 && result.invalid_pipeline_rejected;
+                result.readback[0] == 1 && result.invalid_pipeline_rejected;
+    static const std::array<UINT, 40> expected = {
+        1u, 0u, 7u, 0u, 0u, 0u, 0x40000000u, 0x3e800000u,
+        0x3f000000u, 0u, 0u, 0xc0000000u, 0u, 0u, 0x3f800000u, 1u,
+        0u, 7u, 0u, 0u, 0u, 0x40000000u, 0x3e800000u, 0x3f000000u,
+        0u, 0u, 0u, 0u, 0xc0000000u, 0u, 0u, 0x3f800000u, 0u, 0u,
+        0xc0000000u, 0u, 0u, 0x3f800000u, 0u, 0xd3d12000u};
+    result.accessor_matrix_verified = result.readback == expected;
+    result.ok = result.ok && result.accessor_matrix_verified;
     if (result.ok)
         result.detail = "DXIL RayQuery TraceRayInline exact TLAS hit readback";
-    else if (SUCCEEDED(result.hr) && result.readback != 1)
+    else if (SUCCEEDED(result.hr) && result.readback[0] != 1)
         result.hr = E_FAIL;
 
     if (event_handle)
@@ -536,7 +547,13 @@ int main() {
                 static_cast<unsigned long long>(result.tlas_result_bytes));
     std::printf("  \"tlas_scratch_bytes\": %llu,\n",
                 static_cast<unsigned long long>(result.tlas_scratch_bytes));
-    std::printf("  \"readback\": %u,\n", result.readback);
+    std::printf("  \"readback\": %u,\n", result.readback[0]);
+    std::printf("  \"accessor_matrix_verified\": %s,\n",
+                result.accessor_matrix_verified ? "true" : "false");
+    std::printf("  \"words\": [");
+    for (unsigned i = 0; i < result.readback.size(); ++i)
+        std::printf("%s%u", i ? "," : "", result.readback[i]);
+    std::printf("],\n");
     std::printf("  \"invalid_pipeline_rejected\": %s,\n",
                 result.invalid_pipeline_rejected ? "true" : "false");
     std::printf("  \"invalid_pipeline_hr\": \"%s\",\n",
