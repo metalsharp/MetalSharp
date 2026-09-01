@@ -2950,7 +2950,13 @@ void cs_sm69_long_vector_unary(uint3 id : SV_DispatchThreadID) {
   vector<float, 8> magnitude = abs(-a);
   float total = magnitude[0] + magnitude[1] + magnitude[2] + magnitude[3] +
                 magnitude[4] + magnitude[5] + magnitude[6] + magnitude[7];
+  vector<float, 8> squares = vector<float, 8>(1.0f, 4.0f, 9.0f, 16.0f,
+                                                25.0f, 36.0f, 49.0f, 64.0f);
+  vector<float, 8> roots = sqrt(squares);
+  float root_total = roots[0] + roots[1] + roots[2] + roots[3] +
+                     roots[4] + roots[5] + roots[6] + roots[7];
   outbuf.Store(0, asuint(total));
+  outbuf.Store(4, asuint(root_total));
 }
 
 [numthreads(1, 1, 1)]
