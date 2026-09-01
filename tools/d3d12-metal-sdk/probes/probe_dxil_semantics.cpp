@@ -900,7 +900,7 @@ int main() {
          {20u, 88u, 8u, 4294967280u, 4294967276u, 4294967287u},
          "sm69_long_vector_divide_shift"},
         {"sm69_long_vector_select", "probe_dxil_semantic_sm69_long_vector_select.cso", {1u},
-         {56u}, "sm69_long_vector_select"},
+         {56u, 0x42500000u}, "sm69_long_vector_select"},
         {"sm69_long_vector_16", "probe_dxil_semantic_sm69_long_vector_16.cso", {},
          {0x444c0000u}, "sm69_long_vector_16"},
         {"sm69_long_vector_16_dynamic", "probe_dxil_semantic_sm69_long_vector_16_dynamic.cso", {1u},
