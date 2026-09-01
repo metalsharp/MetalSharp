@@ -5316,8 +5316,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-dxr-inline:allocate_ray_query2"
+      ],
       "negative_evidence": []
     },
     {

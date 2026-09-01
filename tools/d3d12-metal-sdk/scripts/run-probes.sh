@@ -1770,7 +1770,7 @@ RWByteAddressBuffer output : register(u0);
 
 [numthreads(1, 1, 1)]
 void cs_main() {
-  RayQuery<RAY_FLAG_NONE> query;
+  RayQuery<RAY_FLAG_NONE, RAYQUERY_FLAG_ALLOW_OPACITY_MICROMAPS> query;
   RayDesc ray;
   ray.Origin = float3(0.0, 0.0, -2.0);
   ray.TMin = 0.0;
@@ -1882,13 +1882,13 @@ void cs_main() {
   output.Store(344, asuint(committed_world_to_object[2][2]));
   output.Store(348, asuint(committed_world_to_object[2][3]));
   output.Store(356, query.CommittedInstanceContributionToHitGroupIndex());
-  RayQuery<RAY_FLAG_NONE> aborted;
+  RayQuery<RAY_FLAG_NONE, RAYQUERY_FLAG_ALLOW_OPACITY_MICROMAPS> aborted;
   aborted.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
   while (aborted.Proceed()) {
     aborted.Abort();
   }
   output.Store(156, aborted.CommittedStatus());
-  RayQuery<RAY_FLAG_NONE> procedural_query;
+  RayQuery<RAY_FLAG_NONE, RAYQUERY_FLAG_ALLOW_OPACITY_MICROMAPS> procedural_query;
   procedural_query.TraceRayInline(scene, RAY_FLAG_NONE, 0x01, ray);
   uint procedural_candidate = 0;
   while (procedural_query.Proceed()) {
@@ -2167,7 +2167,7 @@ HLSL
       -Fo probe_dxr_inline_invalid.cso probe_dxr_inline_invalid.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-    "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_5 \
+    "$WINE_BIN" dxc.exe -nologo -E cs_main -T cs_6_9 \
       -Fo probe_dxr_inline_accessors.cso probe_dxr_inline_accessors.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \

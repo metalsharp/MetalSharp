@@ -746,11 +746,11 @@ numeric opcode inventory is
 and is checked by `validate-sm5-sm69-opcode-matrix.py`. Its exhaustive
 opcode/stage/resource/cache/session row remains open, so
 `D3D12_FEATURE_SHADER_MODEL` continues to report only the behavior-backed 6.7
-ceiling; 37 inline-RayQuery opcodes and two SM6.8 extended-command-information
+ceiling; 38 inline-RayQuery opcodes and two SM6.8 extended-command-information
 opcodes are now observed, including the exact candidate/committed
-state-accessor, transform, contribution, procedural, and abort matrix, while
-broader DXR accessors, ray-generation paths, and state-object breadth remain
-open.
+state-accessor, transform, contribution, procedural, AllocateRayQuery2, and
+abort matrix, while broader DXR accessors, ray-generation paths, and
+state-object breadth remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1476,3 +1476,14 @@ whether the scoped FL12_2 gate is green.
   reserved/not-applicable rows; broader procedural geometry, contribution-table
   aliasing, ray-generation/state-object paths, and the Phase 5 exit gate remain
   open.
+
+### 2026-09-01 — Phase 5 AllocateRayQuery2 proof
+
+- Compiled the inline-RayQuery accessor lane as SM6.9 with the nonzero
+  `RAYQUERY_FLAG_ALLOW_OPACITY_MICROMAPS` construction flag, causing DXIL
+  `AllocateRayQuery2` to be emitted and lowered to the same native Metal query
+  allocation while preserving exact triangle/procedural readbacks.
+- Promoted the `AllocateRayQuery2` opcode row from the runtime module report
+  and exact 96-word readback. The exhaustive matrix now has 190 observed, 90
+  open, and 32 reserved/not-applicable rows; broader opacity-micromap data,
+  contribution-table aliasing, and the Phase 5 exit gate remain open.
