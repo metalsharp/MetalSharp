@@ -499,16 +499,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -696,7 +696,7 @@
             },
             {
               "lines": [
-                8027
+                8030
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2146,16 +2146,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2280,7 +2280,7 @@
                 4823,
                 4826,
                 4828,
-                5575
+                5578
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2317,10 +2317,10 @@
           "source_references": [
             {
               "lines": [
-                5996,
-                6033,
-                6044,
-                6065
+                5999,
+                6036,
+                6047,
+                6068
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2350,8 +2350,8 @@
           "source_references": [
             {
               "lines": [
-                6057,
-                6062
+                6060,
+                6065
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2414,8 +2414,8 @@
               "lines": [
                 4804,
                 4808,
-                8035,
-                8036
+                8038,
+                8039
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2447,8 +2447,8 @@
               "lines": [
                 4622,
                 4624,
-                8802,
-                8803
+                8805,
+                8806
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2478,8 +2478,8 @@
           "source_references": [
             {
               "lines": [
-                7204,
-                7210
+                7207,
+                7213
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2509,14 +2509,14 @@
           "source_references": [
             {
               "lines": [
-                6227,
-                6232,
-                6237,
-                6261,
-                6274,
+                6230,
+                6235,
+                6240,
+                6264,
                 6277,
-                8059,
-                8609
+                6280,
+                8062,
+                8612
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2550,7 +2550,7 @@
                 4758,
                 4785,
                 4792,
-                7934
+                7937
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2580,9 +2580,9 @@
           "source_references": [
             {
               "lines": [
-                5638,
                 5641,
-                5642
+                5644,
+                5645
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2612,11 +2612,11 @@
           "source_references": [
             {
               "lines": [
-                5834,
                 5837,
                 5840,
-                5851,
-                5860
+                5843,
+                5854,
+                5863
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2646,15 +2646,15 @@
           "source_references": [
             {
               "lines": [
-                5583,
-                5587,
-                5588,
-                5592,
+                5586,
+                5590,
+                5591,
                 5595,
-                5597,
+                5598,
                 5600,
                 5603,
-                5606
+                5606,
+                5609
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2684,8 +2684,8 @@
           "source_references": [
             {
               "lines": [
-                6986,
-                7001
+                6989,
+                7004
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2748,10 +2748,10 @@
           "source_references": [
             {
               "lines": [
-                6285,
-                6287,
-                6323,
-                8072
+                6288,
+                6290,
+                6326,
+                8075
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2781,14 +2781,14 @@
           "source_references": [
             {
               "lines": [
-                6330,
-                6335,
-                6370,
-                6378,
-                6401,
-                6500,
-                6506,
-                8640
+                6333,
+                6338,
+                6373,
+                6381,
+                6404,
+                6503,
+                6509,
+                8643
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2818,9 +2818,9 @@
           "source_references": [
             {
               "lines": [
-                7181,
-                7183,
-                7192
+                7184,
+                7186,
+                7195
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2850,12 +2850,12 @@
           "source_references": [
             {
               "lines": [
-                5791,
                 5794,
                 5797,
-                5808,
-                5817,
-                5825
+                5800,
+                5811,
+                5820,
+                5828
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2885,14 +2885,14 @@
           "source_references": [
             {
               "lines": [
-                6512,
-                6516,
+                6515,
                 6519,
-                6554,
-                6566,
-                6572,
-                8084,
-                8956
+                6522,
+                6557,
+                6569,
+                6575,
+                8087,
+                8959
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2922,9 +2922,9 @@
           "source_references": [
             {
               "lines": [
-                5622,
                 5625,
-                5633
+                5628,
+                5636
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2954,11 +2954,11 @@
           "source_references": [
             {
               "lines": [
-                5871,
-                5884,
-                5954,
-                8993,
-                8995
+                5874,
+                5887,
+                5957,
+                8996,
+                8998
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2988,12 +2988,12 @@
           "source_references": [
             {
               "lines": [
-                5660,
                 5663,
                 5666,
                 5669,
-                5679,
-                5691
+                5672,
+                5682,
+                5694
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3023,20 +3023,20 @@
           "source_references": [
             {
               "lines": [
-                6577,
-                6610,
-                6622,
-                6627,
-                6643,
-                6648,
-                6661,
-                6690,
-                6705,
-                6710,
-                6728,
-                6733,
-                6750,
-                6779
+                6580,
+                6613,
+                6625,
+                6630,
+                6646,
+                6651,
+                6664,
+                6693,
+                6708,
+                6713,
+                6731,
+                6736,
+                6753,
+                6782
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3087,11 +3087,11 @@
           "source_references": [
             {
               "lines": [
-                5734,
-                5738,
-                5743,
+                5737,
+                5741,
                 5746,
-                5757
+                5749,
+                5760
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3127,12 +3127,12 @@
             },
             {
               "lines": [
-                6954,
-                6955,
-                6968,
+                6957,
+                6958,
                 6971,
                 6974,
-                6977
+                6977,
+                6980
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3199,9 +3199,9 @@
           "source_references": [
             {
               "lines": [
-                7395,
-                7396,
-                7400
+                7398,
+                7399,
+                7403
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3252,9 +3252,9 @@
           "source_references": [
             {
               "lines": [
-                7013,
-                7018,
-                8734
+                7016,
+                7021,
+                8737
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3284,8 +3284,8 @@
           "source_references": [
             {
               "lines": [
-                6196,
-                6199
+                6199,
+                6202
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3315,9 +3315,9 @@
           "source_references": [
             {
               "lines": [
-                5615,
-                5617,
-                6004
+                5618,
+                5620,
+                6007
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3347,8 +3347,8 @@
           "source_references": [
             {
               "lines": [
-                7008,
-                7009
+                7011,
+                7012
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3409,12 +3409,12 @@
             {
               "lines": [
                 619,
-                6071,
                 6074,
-                6110,
-                6125,
-                6187,
-                6364
+                6077,
+                6113,
+                6128,
+                6190,
+                6367
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3450,8 +3450,8 @@
             },
             {
               "lines": [
-                7221,
-                7229
+                7224,
+                7232
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3487,13 +3487,13 @@
             },
             {
               "lines": [
-                6920,
-                6922,
-                6935,
+                6923,
+                6925,
                 6938,
                 6941,
                 6944,
-                8024
+                6947,
+                8027
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3561,11 +3561,11 @@
           "source_references": [
             {
               "lines": [
-                6672,
-                6784,
-                6795,
-                6836,
-                6859
+                6675,
+                6787,
+                6798,
+                6839,
+                6862
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3595,8 +3595,8 @@
           "source_references": [
             {
               "lines": [
-                6841,
-                6885
+                6844,
+                6888
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3626,8 +3626,8 @@
           "source_references": [
             {
               "lines": [
-                7198,
-                7199
+                7201,
+                7202
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3665,9 +3665,9 @@
           "source_references": [
             {
               "lines": [
-                7443,
-                7445,
-                7461
+                7446,
+                7448,
+                7464
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3697,8 +3697,8 @@
           "source_references": [
             {
               "lines": [
-                7492,
-                7495
+                7495,
+                7498
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3734,12 +3734,12 @@
             },
             {
               "lines": [
-                7548,
                 7551,
-                7567,
-                7571,
-                7575,
-                7579
+                7554,
+                7570,
+                7574,
+                7578,
+                7582
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3795,10 +3795,10 @@
           "source_references": [
             {
               "lines": [
-                8886,
-                8894,
-                8900,
-                8905
+                8889,
+                8897,
+                8903,
+                8908
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3828,9 +3828,9 @@
           "source_references": [
             {
               "lines": [
-                8919,
-                8927,
-                8932
+                8922,
+                8930,
+                8935
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3860,8 +3860,8 @@
           "source_references": [
             {
               "lines": [
-                8945,
-                8951
+                8948,
+                8954
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3899,9 +3899,9 @@
           "source_references": [
             {
               "lines": [
-                8968,
                 8971,
-                8992
+                8974,
+                8995
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3940,8 +3940,8 @@
           "source_references": [
             {
               "lines": [
-                9000,
-                9006
+                9003,
+                9009
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4262,22 +4262,22 @@
             {
               "lines": [
                 2637,
-                7589,
                 7592,
-                7828,
-                7843,
-                7856,
-                7869,
-                7890,
+                7595,
+                7831,
+                7846,
+                7859,
+                7872,
                 7893,
-                7902,
-                7911,
-                7918,
-                7931,
-                7939,
-                7949,
-                7964,
-                7968
+                7896,
+                7905,
+                7914,
+                7921,
+                7934,
+                7942,
+                7952,
+                7967,
+                7971
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4315,8 +4315,8 @@
           "source_references": [
             {
               "lines": [
-                8016,
-                8019
+                8019,
+                8022
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4346,9 +4346,9 @@
           "source_references": [
             {
               "lines": [
-                7978,
-                7980,
-                7991
+                7981,
+                7983,
+                7994
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4378,9 +4378,9 @@
           "source_references": [
             {
               "lines": [
-                7996,
-                7998,
-                8011
+                7999,
+                8001,
+                8014
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4418,8 +4418,8 @@
           "source_references": [
             {
               "lines": [
-                8032,
-                8035
+                8035,
+                8038
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4449,8 +4449,8 @@
           "source_references": [
             {
               "lines": [
-                8047,
-                8055
+                8050,
+                8058
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4480,8 +4480,8 @@
           "source_references": [
             {
               "lines": [
-                8065,
-                8069
+                8068,
+                8072
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4511,8 +4511,8 @@
           "source_references": [
             {
               "lines": [
-                8040,
-                8043
+                8043,
+                8046
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4542,8 +4542,8 @@
           "source_references": [
             {
               "lines": [
-                8075,
-                8080
+                8078,
+                8083
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4573,8 +4573,8 @@
           "source_references": [
             {
               "lines": [
-                8089,
-                8093
+                8092,
+                8096
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4612,8 +4612,8 @@
           "source_references": [
             {
               "lines": [
-                8479,
-                8490
+                8482,
+                8493
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4643,8 +4643,8 @@
           "source_references": [
             {
               "lines": [
-                8101,
-                8103
+                8104,
+                8106
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4674,8 +4674,8 @@
           "source_references": [
             {
               "lines": [
-                8127,
-                8131
+                8130,
+                8134
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4705,8 +4705,8 @@
           "source_references": [
             {
               "lines": [
-                8135,
-                8137
+                8138,
+                8140
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4736,8 +4736,8 @@
           "source_references": [
             {
               "lines": [
-                8119,
-                8123
+                8122,
+                8126
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4767,8 +4767,8 @@
           "source_references": [
             {
               "lines": [
-                8111,
-                8113
+                8114,
+                8116
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4798,8 +4798,8 @@
           "source_references": [
             {
               "lines": [
-                8271,
-                8274
+                8274,
+                8277
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4829,8 +4829,8 @@
           "source_references": [
             {
               "lines": [
-                8107,
-                8108
+                8110,
+                8111
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4868,8 +4868,8 @@
           "source_references": [
             {
               "lines": [
-                8500,
-                8503
+                8503,
+                8506
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4907,8 +4907,8 @@
           "source_references": [
             {
               "lines": [
-                8509,
-                8512
+                8512,
+                8515
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4938,8 +4938,8 @@
           "source_references": [
             {
               "lines": [
-                8532,
-                8535
+                8535,
+                8538
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4977,9 +4977,9 @@
           "source_references": [
             {
               "lines": [
-                8589,
-                8603,
-                8907
+                8592,
+                8606,
+                8910
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5009,8 +5009,8 @@
           "source_references": [
             {
               "lines": [
-                8627,
-                8934
+                8630,
+                8937
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5040,7 +5040,7 @@
           "source_references": [
             {
               "lines": [
-                8658
+                8661
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5070,7 +5070,7 @@
           "source_references": [
             {
               "lines": [
-                8727
+                8730
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5100,9 +5100,9 @@
           "source_references": [
             {
               "lines": [
-                8563,
-                8567,
-                9009
+                8566,
+                8570,
+                9012
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5140,8 +5140,8 @@
           "source_references": [
             {
               "lines": [
-                8798,
-                8802
+                8801,
+                8805
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5171,10 +5171,10 @@
           "source_references": [
             {
               "lines": [
-                8740,
-                8751,
-                8755,
-                8761
+                8743,
+                8754,
+                8758,
+                8764
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5204,9 +5204,9 @@
           "source_references": [
             {
               "lines": [
-                8767,
-                8782,
-                8792
+                8770,
+                8785,
+                8795
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5350,16 +5350,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -6080,8 +6080,8 @@
           "source_references": [
             {
               "lines": [
-                7506,
-                7540
+                7509,
+                7543
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -6128,8 +6128,8 @@
           "source_references": [
             {
               "lines": [
-                7480,
-                7541
+                7483,
+                7544
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -6188,7 +6188,7 @@
             },
             {
               "lines": [
-                8027
+                8030
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -9162,6 +9162,12 @@
                 265
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_stats.hpp"
+            },
+            {
+              "lines": [
+                5183
+              ],
+              "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
           ]
         }
@@ -10191,16 +10197,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -11685,16 +11691,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -11971,16 +11977,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -12115,11 +12121,11 @@
               "lines": [
                 1403,
                 1417,
-                7407,
-                7417,
-                8177,
-                8198,
-                8256
+                7410,
+                7420,
+                8180,
+                8201,
+                8259
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -12800,16 +12806,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -14585,16 +14591,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -14789,16 +14795,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -14917,7 +14923,7 @@
                 4823,
                 4826,
                 4828,
-                5575
+                5578
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -16481,16 +16487,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -16678,16 +16684,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -16874,16 +16880,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -18340,16 +18346,16 @@
                 2397,
                 4091,
                 4221,
-                5689,
-                5704,
-                5755,
-                5771,
-                5806,
-                5849,
-                7249,
-                7434,
-                8681,
-                8682
+                5692,
+                5707,
+                5758,
+                5774,
+                5809,
+                5852,
+                7252,
+                7437,
+                8684,
+                8685
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -18942,7 +18948,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "612bef3d782ffa30dcb1593426e50cb16d3a1aee",
+    "git_head": "ae422c3a077468809c95bfae8a6d8af150d6387c",
     "runtime_file_count": 167,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
@@ -18951,7 +18957,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "7c029325c23803599509936162ab60c56ba1f7d1cf94dd628eb75901f186c830"
+    "runtime_tree_sha256": "7442924c86d70da40d3cafaed64fe591ccd59c0000182cade265d230011157f1"
   },
   "state": "phase0_inventory",
   "summary": {

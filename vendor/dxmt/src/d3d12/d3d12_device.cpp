@@ -5179,7 +5179,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
             D3D12_COMMAND_LIST_SUPPORT_FLAG_DIRECT |
             D3D12_COMMAND_LIST_SUPPORT_FLAG_COMPUTE |
             D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE);
-    o->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
+    // View instancing is implemented by command replay over the validated
+    // per-view viewport/render-target locations and SetViewInstanceMask.
+    // Barycentric system values remain a separate unsupported provider.
+    o->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_1;
     o->BarycentricsSupported = FALSE;
     TRACE("  OPTIONS3: CopyQueueTS=%d CastFullyTyped=%d WriteBufImm=0x%x "
           "ViewInstTier=%u Bary=%d",

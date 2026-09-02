@@ -66,6 +66,26 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS3_VIEW_INSTANCING": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_command_replay",
+        "tools/d3d12-metal-sdk/probes/probe_mini_suite"
+      ],
+      "probe_status": "view_instancing_mask_and_two_array_slice_SV_ViewID_readback_passed",
+      "reported": "partial",
+      "required_fields": [
+        "ViewInstancingTier"
+      ],
+      "proven_subset": [
+        "two-view per-location viewport/render-target array replay",
+        "SetViewInstanceMask routing",
+        "SV_ViewID per-slice output"
+      ],
+      "risk": "View instancing Tier 1 is implemented by bounded command replay and is not a claim for barycentrics or arbitrary view counts/layouts.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS4_NATIVE16": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
       "behavior_probes": [

@@ -45,7 +45,10 @@ bit-level emulation and does not claim native Metal double-precision ALU.
 The same semantic run passes native16 arithmetic and math cases through Metal
 half operations. `D3D12_OPTIONS4.Native16BitShaderOpsSupported` is promoted
 from that provider, while `MSAA64KBAlignedTextureSupported` remains false. The
-remaining minimum-precision report stays conservative pending a dedicated
+bounded view-instancing provider also passes the two-view mask/array-slice
+matrix with exact red/green `SV_ViewID` output and now reports
+`ViewInstancingTier=1`; barycentrics remain false. The remaining
+minimum-precision report stays conservative pending a dedicated
 conversion/rounding matrix. The semantic reproduction is:
 
 ```bash

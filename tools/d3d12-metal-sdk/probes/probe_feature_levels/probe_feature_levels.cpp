@@ -224,6 +224,7 @@ int main() {
         options.MaxGPUVirtualAddressBitsPerResource >= 40 && SUCCEEDED(options1_hr) && options1.WaveOps &&
         options1.Int64ShaderOps && SUCCEEDED(options2_hr) && options2.DepthBoundsTestSupported &&
         SUCCEEDED(options3_hr) && options3.CopyQueueTimestampQueriesSupported &&
+        options3.ViewInstancingTier >= D3D12_VIEW_INSTANCING_TIER_1 &&
         SUCCEEDED(options4_hr) && options4.Native16BitShaderOpsSupported &&
         options3.CastingFullyTypedFormatSupported &&
         (options3.WriteBufferImmediateSupportFlags & required_write_immediate) == required_write_immediate &&
@@ -285,6 +286,8 @@ int main() {
     std::printf("    \"feature_level\": \"%s\",\n", feature_level_name(levels.MaxSupportedFeatureLevel));
     std::printf("    \"shader_model\": \"%s\",\n", shader_model_name(shader_model.HighestShaderModel));
     std::printf("    \"resource_binding_tier\": %u,\n", static_cast<unsigned>(options.ResourceBindingTier));
+    std::printf("    \"view_instancing_tier\": %u,\n", static_cast<unsigned>(options3.ViewInstancingTier));
+    std::printf("    \"barycentrics_supported\": %s,\n", options3.BarycentricsSupported ? "true" : "false");
     std::printf("    \"rovs_supported\": %s,\n", options.ROVsSupported ? "true" : "false");
     std::printf("    \"output_merger_logic_op\": %s,\n", options.OutputMergerLogicOp ? "true" : "false");
     std::printf("    \"double_precision_float_shader_ops\": %s,\n",
