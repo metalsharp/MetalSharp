@@ -1242,7 +1242,8 @@ not check its children.
 - [ ] `AtomicCopyBufferUINT64` is atomic and honors dependent ranges.
 - [x] Bounded four-pixel/four-sample `SetSamplePositions` changes raster/MSAA
       coverage; broader sample patterns remain open.
-- [ ] `SetViewInstanceMask` affects view-instanced output.
+- [x] Bounded `SetViewInstanceMask` routes the exact two-view output; broader
+      masks/layouts remain open.
 - [ ] Protected command-list association is stored and enforced.
 - [ ] Meta-command initialization/execution has real providers.
 - [x] `Unmap` flushes/commits the correct CPU writes.
