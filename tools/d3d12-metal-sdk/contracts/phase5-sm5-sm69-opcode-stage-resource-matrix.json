@@ -5504,8 +5504,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-from-ray-query: exact IsHit=1, world-origin-x=0x40a00000, and RayTCurrent=0x40000000 readback after inline RayQuery commit"
+      ],
       "negative_evidence": []
     },
     {

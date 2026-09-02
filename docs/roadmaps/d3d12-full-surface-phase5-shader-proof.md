@@ -796,8 +796,8 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=24`: `256` rows are
-observed, `24` remain open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=23`: `257` rows are
+observed, `23` remain open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
@@ -810,9 +810,9 @@ object-to-world translation `+5`, and world-to-object translation `-5`; the
 constructor probes return `MakeMiss: IsMiss=1, shader-table-index=3` and
 `MakeNop: IsNop=1`.
 
-This is a bounded provider, not Phase 5 closeout. `FromRayQuery` (263–264),
-`Invoke` and scheduling (267–268), and local-root-table/attribute accessors
-288–289 still require exact providers/readbacks. CycleCounterLegacy 109,
+This is a bounded provider, not Phase 5 closeout. `FromRayQueryWithAttrs`
+(264), `Invoke` and scheduling (267–268), and local-root-table/attribute
+accessors 288–289 still require exact providers/readbacks. CycleCounterLegacy 109,
 AttributeAtVertex 137, and Work Graph/node 238–253 remain open. The legacy
 converter continues to reject the HitObject/SER family fail-closed; its
 negative result is not used to invalidate the typed provider's positive
