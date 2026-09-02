@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (256/280 required opcode rows observed; 24 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (257/280 required opcode rows observed; 23 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -772,7 +772,7 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, the bounded GPU HitObject provider, and
 state-object breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 256 observed, 24 open, and 32
+The exhaustive Phase 5 matrix currently has 257 observed, 23 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
@@ -1789,18 +1789,19 @@ whether the scoped FL12_2 gate is green.
   The runtime tests use a freshly rebuilt matching Winemetal PE/Unix pair and
   `METAL_SHADER_CONVERTER=/nonexistent`; no binary, cache, prefix, or log is
   part of the repository change.
-- The provider now executes `HitObject_TraceRay` (262), `MakeMiss` (265),
-  `MakeNop` (266), `IsMiss`/`IsHit`/`IsNop` (269–271), `RayFlags`/`RayTMin` /
-  `RayTCurrent` (272–274), world/object ray origin and direction (275–278),
-  both 3x4 transforms (279–280), and scalar geometry/instance/primitive,
-  hit-kind, and shader-table accessors (281–287). Exact readbacks include
+- The provider now executes `HitObject_TraceRay` (262), `FromRayQuery` (263),
+  `MakeMiss` (265), `MakeNop` (266), `IsMiss`/`IsHit`/`IsNop` (269–271),
+  `RayFlags`/`RayTMin`/`RayTCurrent` (272–274), world/object ray origin and
+  direction (275–278), both 3x4 transforms (279–280), and scalar
+  geometry/instance/primitive, hit-kind, and shader-table accessors (281–287).
+  Exact readbacks include
   world origin `[0x40a00000,0,0xc0000000]`, object origin
   `[0,0,0xc0000000]`, object direction `[0,0,0x3f800000]`, object-to-world
   `[1.0,5.0,1.0]`, and world-to-object `[1.0,-5.0,1.0]`; constructor/state
   probes also return `MakeMiss: IsMiss=1, shader-table-index=3` and
   `MakeNop: IsNop=1`.
-- The strict opcode validator now reports **256 observed / 24 open / 32
-  reserved**. This is not Phase 5 closeout: `FromRayQuery` (263–264),
+- The strict opcode validator now reports **257 observed / 23 open / 32
+  reserved**. This is not Phase 5 closeout: `FromRayQueryWithAttrs` (264),
   `Invoke`/SER scheduling (267–268), local-root-table/attribute accessors
   (288–289), along with CycleCounterLegacy, AttributeAtVertex, and Work
   Graph/node rows, still require exact behavior-backed evidence.
