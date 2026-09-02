@@ -1667,3 +1667,22 @@ whether the scoped FL12_2 gate is green.
   shader-bytecode profile. The generic HS/DS path remains fail-closed; only the
   readback-backed proof shape promotes `LoadPatchConstant`.
 - The opcode matrix now reports **234 observed / 46 open / 32 reserved**.
+
+### 2026-09-01 — Phase 5 strict closeout checkpoint
+
+- Re-ran the contract, full-surface, interface-census, shader-engine, and
+  opcode-matrix validators after cleaning the failed AttributeAtVertex
+  experiment. The opcode validator reports `312` total values, `280` required
+  rows, `234` observed rows, `46` open rows, and `32` reserved/not-applicable
+  rows.
+- The 46 open required rows are explicitly retained as four blocker families:
+  `109 CycleCounterLegacy`, `137 AttributeAtVertex`, Work Graph/node
+  operations `238–253`, and SER/HitObject operations `262–289`. The matrix
+  and Phase 5 coverage manifest remain open; no row was reclassified solely to
+  improve the count.
+- The failed Metal 4 `vertex_value<T>` AttributeAtVertex path returned no
+  behavior-backed readback and its source changes, rebuilt binaries, caches,
+  prefixes, and logs were reverted or removed. Phase 5 remains unchecked and
+  `D3D12_FEATURE_SHADER_MODEL` remains capped at the behavior-backed 6.7
+  value. Later Work Graph/node and SER/HitObject implementation is deferred
+  until the two Phase-5-local rows have exact positive and negative evidence.

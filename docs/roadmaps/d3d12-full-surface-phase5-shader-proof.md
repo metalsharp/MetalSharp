@@ -743,3 +743,35 @@ stages remain fail-closed until their exact
 readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.
+
+## Strict Phase 5 closeout checkpoint — 2026-09-01
+
+This is a documentation and accounting checkpoint, not a completion claim.
+The literal Phase 5 exit gate remains open because the opcode matrix still has
+required rows without behavior-backed positive and negative evidence. The
+canonical accounting from
+`tools/d3d12-metal-sdk/scripts/validate-sm5-sm69-opcode-matrix.py` is:
+
+| Matrix class | Opcode IDs | Required rows | State and blocker |
+| --- | ---: | ---: | --- |
+| Legacy stage-system counter | `109` — `CycleCounterLegacy` | 1 | Open; the attempted `clock()`/cycle-counter paths did not produce exact DXIL-to-runtime readback evidence. |
+| Pixel attribute lookup | `137` — `AttributeAtVertex` | 1 | Open; exact operand/signature mapping and runtime readback are not established. The reverted Metal 4 `vertex_value<T>` experiment failed the staged fragment/PSO behavior gate and returned the clear/zero result. |
+| Work Graph/node operations | `238–253` — `AllocateNodeOutputRecords`, `GetNodeRecordPtr`, `IncrementOutputCount`, `OutputComplete`, `GetInputRecordCount`, `FinishedCrossGroupSharing`, `BarrierByMemoryType`, `BarrierByMemoryHandle`, `BarrierByNodeRecordHandle`, `CreateNodeOutputHandle`, `IndexNodeHandle`, `AnnotateNodeHandle`, `CreateNodeInputRecordHandle`, `AnnotateNodeRecordHandle`, `NodeOutputIsValid`, `GetRemainingRecursionLevels` | 16 | Open; no node scheduler/provider or exact node execution readback exists. Interface presence is not shader behavior. |
+| SER/HitObject operations | `262–289` — `HitObject_TraceRay` through `HitObject_Attributes` | 28 | Open; the required HitObject/SER behavior and exact readbacks are not implemented. Focused native ray-generation and inline-RayQuery evidence does not substitute for these rows. |
+| **Required total** |  | **46** | **Open** |
+
+Thus `312` total opcode values = `234` observed + `46` open required + `32`
+reserved/not-applicable, and `280` required rows = `234` observed + `46`
+open. The final validator run reported
+`opcode_rows=312 required=280 open=46` and enumerated exactly the IDs above.
+No open row was reclassified to improve the percentage, and the 32 reserved
+IDs remain outside the required denominator. The coverage manifest and
+numeric matrix intentionally remain `open`; `D3D12_FEATURE_SHADER_MODEL`
+remains capped at the behavior-backed 6.7 value, and Phase 5 remains
+unchecked on the completion roadmap.
+
+The failed AttributeAtVertex experiment and its rebuilt binaries, caches,
+prefixes, and logs were removed or reverted before this checkpoint. No
+experimental artifact is part of the closeout change. The next Phase 5 batch
+must close the two stage-system rows with exact runtime/negative evidence
+before the Work Graph/node and SER/HitObject provider work proceeds.
