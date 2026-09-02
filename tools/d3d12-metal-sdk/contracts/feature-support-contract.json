@@ -92,14 +92,16 @@
       "probe_status": "view_instancing_mask_and_two_array_slice_SV_ViewID_readback_passed",
       "reported": "partial",
       "required_fields": [
-        "ViewInstancingTier"
+        "ViewInstancingTier",
+        "BarycentricsSupported"
       ],
       "proven_subset": [
         "two-view per-location viewport/render-target array replay",
         "SetViewInstanceMask routing",
-        "SV_ViewID per-slice output"
+        "SV_ViewID per-slice output",
+        "default perspective SV_Barycentrics fragment input"
       ],
-      "risk": "View instancing Tier 1 is implemented by bounded command replay and is not a claim for barycentrics or arbitrary view counts/layouts.",
+      "risk": "View instancing Tier 1 is implemented by bounded command replay; barycentrics are limited to the default perspective fragment builtin and are not a claim for noperspective, centroid, sample, or arbitrary view counts/layouts.",
       "state": "required",
       "tier": "required"
     },

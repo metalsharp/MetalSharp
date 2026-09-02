@@ -154,6 +154,10 @@ build_probe \
   -o "$OUT_DIR/probe_rov.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_barycentrics/probe_barycentrics.cpp" \
+  -o "$OUT_DIR/probe_barycentrics.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_vrs/probe_vrs.cpp" \
   -o "$OUT_DIR/probe_vrs.exe"
 
@@ -277,6 +281,7 @@ echo "$OUT_DIR/probe_shader_corpus.exe"
 echo "$OUT_DIR/probe_sm66_capabilities.exe"
 echo "$OUT_DIR/probe_writable_msaa.exe"
 echo "$OUT_DIR/probe_rov.exe"
+echo "$OUT_DIR/probe_barycentrics.exe"
 echo "$OUT_DIR/probe_vrs.exe"
 echo "$OUT_DIR/probe_sampler_feedback.exe"
 echo "$OUT_DIR/probe_sampler_feedback_pixel.exe"

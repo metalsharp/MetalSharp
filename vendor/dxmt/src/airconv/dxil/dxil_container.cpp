@@ -67,6 +67,11 @@ static void parse_signature(const uint8_t *data, size_t size, bool input,
         shader.render_target_array_index_output_register = register_index;
         shader.render_target_array_index_output_id = static_cast<int32_t>(i);
       }
+    } else if (system_value == 23 && input) {
+      // DxilProgramSigSemantic::Barycentrics. The bounded provider uses the
+      // default perspective barycentric coordinate; noperspective/sample
+      // variants remain outside this field's contract.
+      shader.barycentrics_input_id = static_cast<int32_t>(i);
     }
   }
 }

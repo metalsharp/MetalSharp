@@ -261,6 +261,9 @@ The current honest shader feature posture is:
 - `probe-command-replay` proves a four-pixel/four-sample programmable
   `SetSamplePositions` pattern with exact black/red resolve coverage, backing
   the bounded Tier-1 sample-position report; broader patterns remain gated.
+- `probe-barycentrics` proves the default perspective `SV_Barycentrics`
+  builtin with exact `[128,64,64,255]` RGBA8 output. Noperspective, centroid,
+  sample, and additional-input variants remain gated.
 - The opt-in `probe-vrs` path records the 1x2/2x1/2x2/2x4/4x2/4x4
   `RSSetShadingRate` matrix and attaches Metal rasterization-rate maps. The
   2x2 case also passes a MAX/PASSTHROUGH combiner pair. A clean 64x64 pass

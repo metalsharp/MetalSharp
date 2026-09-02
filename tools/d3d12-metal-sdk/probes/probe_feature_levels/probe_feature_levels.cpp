@@ -227,6 +227,7 @@ int main() {
         options1.Int64ShaderOps && SUCCEEDED(options2_hr) && options2.DepthBoundsTestSupported &&
         SUCCEEDED(options3_hr) && options3.CopyQueueTimestampQueriesSupported &&
         options3.ViewInstancingTier >= D3D12_VIEW_INSTANCING_TIER_1 &&
+        options3.BarycentricsSupported &&
         SUCCEEDED(options4_hr) && options4.Native16BitShaderOpsSupported &&
         options3.CastingFullyTypedFormatSupported &&
         (options3.WriteBufferImmediateSupportFlags & required_write_immediate) == required_write_immediate &&
