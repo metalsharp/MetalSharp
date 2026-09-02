@@ -4786,7 +4786,8 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         return {MSLTypeKind::Void, 0, {}};
     case DXOP_HitObjectOrSER:
         if (callee_name.find("maybeReorderThread") != std::string::npos ||
-            callee_name.find("hitObject_Invoke") != std::string::npos)
+            callee_name.find("hitObject_Invoke") != std::string::npos ||
+            callee_name.find("hitObject_Attributes") != std::string::npos)
             return {MSLTypeKind::Void, 0, {}};
         if (callee_name.find("hitObject_SetShaderTableIndex") !=
             std::string::npos && declared.kind == MSLTypeKind::Void)
