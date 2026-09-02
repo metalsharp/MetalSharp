@@ -263,6 +263,8 @@ EVIDENCE: dict[int, list[str]] = {
     256: ["probe-start-draw-info:exact_raster"],
     257: ["probe-start-draw-info:exact_raster"],
     258: ["probe-dxr-inline:allocate_ray_query2"],
+    **{opcode: ["probe-workgraph:bounded_gpu_native_node_kernel_readback"]
+       for opcode in range(238, 254)},
     # The descending HitObject lane is maintained as one bounded GPU provider;
     # individual runtime profiles and the contract matrix carry the exact
     # operation-specific readback description.

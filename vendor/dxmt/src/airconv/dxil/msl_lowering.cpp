@@ -118,6 +118,22 @@ enum DXIntrinsicOpcode {
   DXOP_EvalSampleIndex = 88,
   DXOP_EvalCentroid = 89,
   DXOP_AttributeAtVertex = 137,
+  DXOP_AllocateNodeOutputRecords = 238,
+  DXOP_GetNodeRecordPtr = 239,
+  DXOP_IncrementOutputCount = 240,
+  DXOP_OutputComplete = 241,
+  DXOP_GetInputRecordCount = 242,
+  DXOP_FinishedCrossGroupSharing = 243,
+  DXOP_BarrierByMemoryType = 244,
+  DXOP_BarrierByMemoryHandle = 245,
+  DXOP_BarrierByNodeRecordHandle = 246,
+  DXOP_CreateNodeOutputHandle = 247,
+  DXOP_IndexNodeHandle = 248,
+  DXOP_AnnotateNodeHandle = 249,
+  DXOP_CreateNodeInputRecordHandle = 250,
+  DXOP_AnnotateNodeRecordHandle = 251,
+  DXOP_NodeOutputIsValid = 252,
+  DXOP_GetRemainingRecursionLevels = 253,
   DXOP_WriteSamplerFeedback = 174,
   DXOP_WriteSamplerFeedbackBias = 175,
   DXOP_WriteSamplerFeedbackLevel = 176,
@@ -198,6 +214,14 @@ static bool entryPointMatches(const std::string &function_name,
 }
 
 static bool parseUnsignedLiteral(const std::string &text, uint32_t &value) {
+    if (text == "true") {
+        value = 1u;
+        return true;
+    }
+    if (text == "false") {
+        value = 0u;
+        return true;
+    }
     if (text.empty()) return false;
     char *end = nullptr;
     unsigned long parsed = std::strtoul(text.c_str(), &end, 10);
@@ -373,6 +397,22 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "dot2AddHalf.", 12) == 0) return DXOP_Dot2AddHalf;
     if (strncmp(s, "dot4AddI8Packed.", 16) == 0) return DXOP_Dot4AddI8Packed;
     if (strncmp(s, "dot4AddU8Packed.", 16) == 0) return DXOP_Dot4AddU8Packed;
+    if (strncmp(s, "allocateNodeOutputRecords", 25) == 0) return DXOP_AllocateNodeOutputRecords;
+    if (strncmp(s, "getNodeRecordPtr", 16) == 0) return DXOP_GetNodeRecordPtr;
+    if (strncmp(s, "incrementOutputCount", 20) == 0) return DXOP_IncrementOutputCount;
+    if (strncmp(s, "outputComplete", 15) == 0) return DXOP_OutputComplete;
+    if (strncmp(s, "getInputRecordCount", 19) == 0) return DXOP_GetInputRecordCount;
+    if (strncmp(s, "finishedCrossGroupSharing", 25) == 0) return DXOP_FinishedCrossGroupSharing;
+    if (strncmp(s, "barrierByMemoryType", 19) == 0) return DXOP_BarrierByMemoryType;
+    if (strncmp(s, "barrierByMemoryHandle", 21) == 0) return DXOP_BarrierByMemoryHandle;
+    if (strncmp(s, "barrierByNodeRecordHandle", 25) == 0) return DXOP_BarrierByNodeRecordHandle;
+    if (strncmp(s, "createNodeOutputHandle", 22) == 0) return DXOP_CreateNodeOutputHandle;
+    if (strncmp(s, "indexNodeHandle", 15) == 0) return DXOP_IndexNodeHandle;
+    if (strncmp(s, "annotateNodeHandle", 18) == 0) return DXOP_AnnotateNodeHandle;
+    if (strncmp(s, "createNodeInputRecordHandle", 27) == 0) return DXOP_CreateNodeInputRecordHandle;
+    if (strncmp(s, "annotateNodeRecordHandle", 24) == 0) return DXOP_AnnotateNodeRecordHandle;
+    if (strncmp(s, "nodeOutputIsValid", 17) == 0) return DXOP_NodeOutputIsValid;
+    if (strncmp(s, "getRemainingRecursionLevels", 27) == 0) return DXOP_GetRemainingRecursionLevels;
     if (strncmp(s, "barrier", 7) == 0) return 80;
     if (strncmp(s, "discard", 7) == 0) return DXOP_Discard;
     if (strncmp(s, "checkAccessFullyMapped", 22) == 0) return 71;
@@ -525,6 +565,22 @@ static bool isOpcodePrefixedDXIntrinsic(uint32_t opcode) {
     case DXOP_EvalSampleIndex:
     case DXOP_EvalCentroid:
     case DXOP_AttributeAtVertex:
+    case DXOP_AllocateNodeOutputRecords:
+    case DXOP_GetNodeRecordPtr:
+    case DXOP_IncrementOutputCount:
+    case DXOP_OutputComplete:
+    case DXOP_GetInputRecordCount:
+    case DXOP_FinishedCrossGroupSharing:
+    case DXOP_BarrierByMemoryType:
+    case DXOP_BarrierByMemoryHandle:
+    case DXOP_BarrierByNodeRecordHandle:
+    case DXOP_CreateNodeOutputHandle:
+    case DXOP_IndexNodeHandle:
+    case DXOP_AnnotateNodeHandle:
+    case DXOP_CreateNodeInputRecordHandle:
+    case DXOP_AnnotateNodeRecordHandle:
+    case DXOP_NodeOutputIsValid:
+    case DXOP_GetRemainingRecursionLevels:
     case DXOP_BufferLoad:
     case DXOP_BufferStore:
     case DXOP_RawBufferLoad:
@@ -918,6 +974,10 @@ struct LowerContext {
     uint32_t next_hit_object_query_slot = 0;
 };
 
+static bool isComputeLikeShader(DxilShaderKind kind) {
+    return kind == DxilShaderKind::Compute || kind == DxilShaderKind::Node;
+}
+
 // DXIL ResourceKind values are part of the public DXIL ABI.  Keep the
 // dimension test in one place so descriptor declarations and intrinsic
 // lowering cannot silently fall back to a 2D texture when resource metadata is
@@ -1087,7 +1147,7 @@ static void recordDiagnostic(LowerContext &ctx, const char *fmt, ...) {
 
 static void emitBindings(LowerContext &ctx) {
     auto &os = ctx.os;
-    if (ctx.shader.kind == DxilShaderKind::Compute) {
+    if (isComputeLikeShader(ctx.shader.kind)) {
         ctx.uses_thread_id = true;
         ctx.uses_group_id = true;
         ctx.uses_group_thread_id = true;
@@ -1919,6 +1979,19 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         }
         os << "}\n\n";
     }
+    if (ctx.shader.kind == DxilShaderKind::Node) {
+        os << "static inline uint m12_node_create_output_handle(uint metadata, uint array_index) {\n";
+        os << "  return metadata == 0xffffffffu || array_index == 0xffffffffu ? 0u : (metadata + 1u);\n";
+        os << "}\n";
+        os << "static inline uint m12_node_allocate_record_handle(uint output, uint count, uint per_thread) {\n";
+        os << "  if (output == 0u || count == 0u) return 0u;\n";
+        os << "  return (output & 0xffffu) | ((count & 0xffu) << 16) | ((per_thread & 1u) << 24);\n";
+        os << "}\n";
+        os << "static inline device char *m12_node_record_ptr(device char *backing, uint record, uint index) {\n";
+        os << "  if (backing == nullptr || record == 0u || index >= 256u) return nullptr;\n";
+        os << "  return backing + ((ulong)(index) * 256ul);\n";
+        os << "}\n\n";
+    }
     os << "struct input_v {\n";
     os << "  float4 position [[position]];\n";
     auto emitInputField = [&](const char *type, const char *name,
@@ -2177,8 +2250,11 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  thread uint m12_hit_primitive_indices[32] = {};\n";
         os << "  thread uint m12_hit_kinds[32] = {};\n";
 
-    } else if (ctx.shader.kind == DxilShaderKind::Compute) {
-        os << "kernel void cs_main(\n";
+    } else if (ctx.shader.kind == DxilShaderKind::Compute ||
+               ctx.shader.kind == DxilShaderKind::Node) {
+        os << "kernel void "
+           << (ctx.shader.kind == DxilShaderKind::Node ? "node_main" : "cs_main")
+           << "(\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++) {
             if (accelerationStructureAtBufferSlot(ctx, i))
                 os << "  instance_acceleration_structure as" << i
@@ -2273,6 +2349,14 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  uint simd_lane [[thread_index_in_simdgroup]],\n";
         os << "  uint simd_count [[threads_per_simdgroup]]\n) {\n";
         emitTempRegisterDeclarations(ctx);
+        if (ctx.shader.kind == DxilShaderKind::Node) {
+            os << "  thread uint m12_node_next_handle = 1u;\n";
+            os << "  thread uint m12_node_output_count = 0u;\n";
+            os << "  thread uint m12_node_output_complete = 0u;\n";
+            os << "  thread uint m12_node_input_record_count = 1u;\n";
+            os << "  thread uint m12_node_remaining_recursion_levels = 32u;\n";
+            os << "  thread uchar m12_node_record_storage[256] = {};\n";
+        }
         if (ctx.uses_group_atomic64_emulation) {
             os << "  threadgroup atomic_uint m12_atomic64_group_lock;\n";
             os << "  if (all(gtid == uint3(0))) atomic_store_explicit(&m12_atomic64_group_lock, 0u, memory_order_relaxed);\n";
@@ -3404,7 +3488,8 @@ static std::string coerceResolvedValue(const std::string &value, const MSLType &
         resolved.find("char*") == std::string::npos &&
         resolved.find("char *") == std::string::npos &&
         resolved.find("thread") == std::string::npos &&
-        resolved.find("device") == std::string::npos) {
+        resolved.find("device") == std::string::npos &&
+        resolved.find("m12_node_record_ptr") == std::string::npos) {
         return defaultForType(target);
     }
     if (exprLooksSideEffectOnly(resolved))
@@ -4047,7 +4132,7 @@ static MSLType typeForHandleKind(const LowerContext &ctx, DescriptorRangePlan::K
     if (kind == DescriptorRangePlan::Kind::UAV &&
         ctx.texture_store_sample_shader)
         return {MSLTypeKind::RWTexture2DArray, 0, {}};
-    if (ctx.shader.kind == DxilShaderKind::Compute &&
+    if (isComputeLikeShader(ctx.shader.kind) &&
         (ctx.compute_texture_store_shader ||
          !ctx.compute_texture_sample_shader) &&
         type.kind == MSLTypeKind::Texture2D)
@@ -4707,9 +4792,9 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         }
     }
     if (has_texture) {
-        uint32_t texture_limit = ctx.shader.kind == DxilShaderKind::Compute ? 8 : 16;
+        uint32_t texture_limit = isComputeLikeShader(ctx.shader.kind) ? 8 : 16;
         plan.direct_texture_count = std::max<uint32_t>(1, std::min<uint32_t>(max_texture, texture_limit));
-        if (ctx.shader.kind != DxilShaderKind::Compute)
+        if (!isComputeLikeShader(ctx.shader.kind))
             plan.direct_sampler_count = std::max<uint32_t>(plan.direct_sampler_count, 1);
     }
     if (has_sampler)
@@ -4841,7 +4926,27 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_RayQueryAbort:
     case DXOP_RayQueryCommitNonOpaqueTriangleHit:
     case DXOP_RayQueryCommitProceduralPrimitiveHit:
+    case DXOP_IncrementOutputCount:
+    case DXOP_OutputComplete:
+    case DXOP_BarrierByMemoryType:
+    case DXOP_BarrierByMemoryHandle:
+    case DXOP_BarrierByNodeRecordHandle:
         return {MSLTypeKind::Void, 0, {}};
+    case DXOP_FinishedCrossGroupSharing:
+    case DXOP_NodeOutputIsValid:
+        return {MSLTypeKind::Bool, 0, {}};
+    case DXOP_GetInputRecordCount:
+    case DXOP_GetRemainingRecursionLevels:
+        return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_AllocateNodeOutputRecords:
+    case DXOP_CreateNodeOutputHandle:
+    case DXOP_IndexNodeHandle:
+    case DXOP_AnnotateNodeHandle:
+    case DXOP_CreateNodeInputRecordHandle:
+    case DXOP_AnnotateNodeRecordHandle:
+        return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_GetNodeRecordPtr:
+        return {MSLTypeKind::DeviceCharPtr, 0, {}};
     case DXOP_HitObjectOrSER:
         if (callee_name.find("maybeReorderThread") != std::string::npos ||
             callee_name.find("hitObject_Invoke") != std::string::npos ||
@@ -6634,7 +6739,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             coord = "float2(" + c0 + ", " + c1 + ")";
             break;
         }
-        if (ctx.shader.kind == DxilShaderKind::Compute &&
+        if (isComputeLikeShader(ctx.shader.kind) &&
             (resource_kind == 1u || resource_kind == 6u)) {
             std::string sample;
             if (resource_kind == 1u)
@@ -6754,7 +6859,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             if (binding.resource_class == 1 && binding.has_counter)
                 ++counter_bindings;
         const uint32_t reserved_srv_register =
-            ctx.shader.kind == DxilShaderKind::Compute ? 14u : 9u;
+            isComputeLikeShader(ctx.shader.kind) ? 14u : 9u;
         bool reserved_srv_used = false;
         for (const auto &range : ctx.binding_plan.ranges)
             if (range.kind == DescriptorRangePlan::Kind::SRV &&
@@ -6762,7 +6867,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 range.lower_bound <= reserved_srv_register &&
                 range.count > reserved_srv_register - range.lower_bound)
                 reserved_srv_used = true;
-        if ((ctx.shader.kind != DxilShaderKind::Compute &&
+        if ((!isComputeLikeShader(ctx.shader.kind) &&
              ctx.shader.kind != DxilShaderKind::Vertex &&
              ctx.shader.kind != DxilShaderKind::Pixel) ||
             counter_bindings != 1 || reserved_srv_used ||
@@ -6778,7 +6883,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         auto delta = ensureScalarIndex(numericArg(1, "1"));
         const char *counter_buffer =
-            ctx.shader.kind == DxilShaderKind::Compute ? "buf30" : "buf25";
+            isComputeLikeShader(ctx.shader.kind) ? "buf30" : "buf25";
         return "m12_update_counter(reinterpret_cast<device atomic_uint*>(" +
                std::string(counter_buffer) + "), (int)(" + delta + "))";
     }
@@ -7191,6 +7296,135 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         ctx.unsupported_intrinsics++;
         recordDiagnostic(ctx, "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
         return "0";
+    case DXOP_AllocateNodeOutputRecords:
+    case DXOP_GetNodeRecordPtr:
+    case DXOP_IncrementOutputCount:
+    case DXOP_OutputComplete:
+    case DXOP_GetInputRecordCount:
+    case DXOP_FinishedCrossGroupSharing:
+    case DXOP_BarrierByMemoryType:
+    case DXOP_BarrierByMemoryHandle:
+    case DXOP_BarrierByNodeRecordHandle:
+    case DXOP_CreateNodeOutputHandle:
+    case DXOP_IndexNodeHandle:
+    case DXOP_AnnotateNodeHandle:
+    case DXOP_CreateNodeInputRecordHandle:
+    case DXOP_AnnotateNodeRecordHandle:
+    case DXOP_NodeOutputIsValid:
+    case DXOP_GetRemainingRecursionLevels: {
+        auto reject_node = [&](const char *reason) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL Work Graph intrinsic rejected: opcode=%u reason=%s",
+                             explicit_opcode, reason);
+            return std::string("0");
+        };
+        if (ctx.shader.kind != DxilShaderKind::Node)
+            return reject_node("node shader provider is required");
+        switch (intrinsic_id) {
+        case DXOP_CreateNodeOutputHandle: {
+            if (args.empty())
+                return reject_node("malformed CreateNodeOutputHandle operands");
+            const uint32_t metadata =
+                literalArg(0, UINT32_MAX, "node output metadata index");
+            const uint32_t array_index = args.size() > 1
+                                             ? literalArg(1, UINT32_MAX,
+                                                          "node output array index")
+                                             : 0u;
+            if (metadata == UINT32_MAX || array_index == UINT32_MAX)
+                return reject_node("node output handle operands must be literal");
+            return "m12_node_create_output_handle(" +
+                   std::to_string(metadata) + "u, " +
+                   std::to_string(array_index) + "u)";
+        }
+        case DXOP_AnnotateNodeHandle:
+        case DXOP_AnnotateNodeRecordHandle:
+            if (args.empty())
+                return reject_node("malformed node-handle annotation operands");
+            return valueArg(0, "0u");
+        case DXOP_IndexNodeHandle: {
+            if (args.size() < 2)
+                return reject_node("malformed IndexNodeHandle operands");
+            const uint32_t index =
+                literalArg(1, UINT32_MAX, "node handle index");
+            if (index == UINT32_MAX)
+                return reject_node("node handle index must be literal");
+            return valueArg(0, "0u");
+        }
+        case DXOP_CreateNodeInputRecordHandle: {
+            if (args.empty())
+                return reject_node("malformed CreateNodeInputRecordHandle operands");
+            const uint32_t metadata =
+                literalArg(0, UINT32_MAX, "node input metadata index");
+            if (metadata == UINT32_MAX)
+                return reject_node("node input metadata index must be literal");
+            return "m12_node_create_output_handle(" +
+                   std::to_string(metadata) + "u, 0u)";
+        }
+        case DXOP_AllocateNodeOutputRecords: {
+            if (args.size() < 3)
+                return reject_node("malformed AllocateNodeOutputRecords operands");
+            const uint32_t count =
+                literalArg(1, UINT32_MAX, "node output record count");
+            uint32_t per_thread =
+                literalArg(2, UINT32_MAX, "node output per-thread flag");
+            if (per_thread == UINT32_MAX && valueArg(2, "") == "-1")
+                per_thread = 1u;
+            if (count == UINT32_MAX || per_thread > 1u)
+                return reject_node("node output record operands must be literal");
+            return "m12_node_allocate_record_handle((uint)(" +
+                   valueArg(0, "0u") + "), " + std::to_string(count) +
+                   "u, " + std::to_string(per_thread) + "u)";
+        }
+        case DXOP_GetNodeRecordPtr: {
+            if (args.size() < 2)
+                return reject_node("malformed GetNodeRecordPtr operands");
+            const uint32_t index =
+                literalArg(1, UINT32_MAX, "node record index");
+            if (index == UINT32_MAX || index >= 256u)
+                return reject_node("node record index is outside the bounded storage");
+            return "m12_node_record_ptr(buf30 != nullptr ? buf30 : buf0, (uint)(" +
+                   valueArg(0, "0u") + "), " + std::to_string(index) + "u)";
+        }
+        case DXOP_IncrementOutputCount: {
+            if (args.size() < 3)
+                return reject_node("malformed IncrementOutputCount operands");
+            const uint32_t count =
+                literalArg(1, UINT32_MAX, "node output count");
+            uint32_t per_thread =
+                literalArg(2, UINT32_MAX, "node output per-thread flag");
+            if (per_thread == UINT32_MAX && valueArg(2, "") == "-1")
+                per_thread = 1u;
+            if (count == UINT32_MAX || per_thread > 1u)
+                return reject_node("node output count operands must be literal");
+            return "m12_node_output_count += " + std::to_string(count) + "u";
+        }
+        case DXOP_OutputComplete:
+            if (args.empty())
+                return reject_node("malformed OutputComplete operands");
+            return "m12_node_output_complete = 1u";
+        case DXOP_GetInputRecordCount:
+            return "m12_node_input_record_count";
+        case DXOP_FinishedCrossGroupSharing:
+            if (args.empty())
+                return reject_node("malformed FinishedCrossGroupSharing operands");
+            return "true";
+        case DXOP_BarrierByMemoryType:
+        case DXOP_BarrierByMemoryHandle:
+        case DXOP_BarrierByNodeRecordHandle:
+            if (args.empty())
+                return reject_node("malformed node barrier operands");
+            return "threadgroup_barrier(mem_flags::mem_threadgroup)";
+        case DXOP_NodeOutputIsValid:
+            if (args.empty())
+                return reject_node("malformed NodeOutputIsValid operands");
+            return "((uint)(" + valueArg(0, "0u") + ") != 0u)";
+        case DXOP_GetRemainingRecursionLevels:
+            return "m12_node_remaining_recursion_levels";
+        default:
+            return reject_node("unsupported Work Graph opcode");
+        }
+    }
     case DXOP_HitObjectOrSER: {
         const bool is_trace_ray =
             callee_name.find("hitObject_TraceRay") != std::string::npos;
@@ -8422,7 +8656,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             forward_source_id < ctx.value_table.size() &&
             ctx.value_table[forward_source_id].empty())
             source_expr = defaultForType(isUsableMSLType(type) ? type : MSLType{MSLTypeKind::Int, 0, {}});
-        if (ctx.shader.kind != DxilShaderKind::Compute &&
+        if (!isComputeLikeShader(ctx.shader.kind) &&
             type.kind == MSLTypeKind::RWTexture2D)
             type = {MSLTypeKind::Texture2D, 0, {}};
         if (type.kind == MSLTypeKind::Unknown || type.kind == MSLTypeKind::Void ||
@@ -8446,7 +8680,7 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 os << "  " << name << " = " << source_expr << ";\n";
                 return;
             }
-            if (ctx.shader.kind != DxilShaderKind::Compute &&
+            if (!isComputeLikeShader(ctx.shader.kind) &&
                 declared_type.kind == MSLTypeKind::RWTexture2D)
                 declared_type = {MSLTypeKind::Texture2D, 0, {}};
             std::string assigned = coerceResolvedValue(ctx, source_expr, declared_type);
@@ -10091,7 +10325,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
     LowerContext ctx{os, module, shader, options};
     ctx.ray_generation = options.ray_generation ||
                          shader.kind == DxilShaderKind::RayGeneration;
-    ctx.compute_wave_shader = shader.kind == DxilShaderKind::Compute;
+    ctx.compute_wave_shader = isComputeLikeShader(shader.kind);
     if (ctx.compute_wave_shader) {
         ctx.compute_wave_shader = false;
         for (const auto &decl : module.functions) {
@@ -10101,7 +10335,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             }
         }
     }
-    ctx.compute_raw_gather_shader = shader.kind == DxilShaderKind::Compute;
+    ctx.compute_raw_gather_shader = isComputeLikeShader(shader.kind);
     if (ctx.compute_raw_gather_shader) {
         ctx.compute_raw_gather_shader = false;
         for (const auto &decl : module.functions) {
@@ -10111,7 +10345,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             }
         }
     }
-    ctx.compute_texture_store_shader = shader.kind == DxilShaderKind::Compute;
+    ctx.compute_texture_store_shader = isComputeLikeShader(shader.kind);
     if (ctx.compute_texture_store_shader) {
         ctx.compute_texture_store_shader = false;
         for (const auto &decl : module.functions) {
@@ -10135,9 +10369,9 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             break;
         }
     }
-    ctx.compute_sample_cmp_shader = shader.kind == DxilShaderKind::Compute &&
+    ctx.compute_sample_cmp_shader = isComputeLikeShader(shader.kind) &&
                                     ctx.sample_cmp_shader;
-    ctx.compute_texture_sample_shader = shader.kind == DxilShaderKind::Compute;
+    ctx.compute_texture_sample_shader = isComputeLikeShader(shader.kind);
     if (ctx.compute_texture_sample_shader) {
         ctx.compute_texture_sample_shader = false;
         for (const auto &decl : module.functions) {
@@ -10149,7 +10383,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             }
         }
     }
-    ctx.uses_atomic64_emulation = shader.kind == DxilShaderKind::Compute;
+    ctx.uses_atomic64_emulation = isComputeLikeShader(shader.kind);
     if (ctx.uses_atomic64_emulation) {
         ctx.uses_atomic64_emulation = false;
         for (const auto &decl : module.functions) {
@@ -10162,7 +10396,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             }
         }
     }
-    ctx.uses_atomic32_emulation = shader.kind == DxilShaderKind::Compute;
+    ctx.uses_atomic32_emulation = isComputeLikeShader(shader.kind);
     if (ctx.uses_atomic32_emulation) {
         ctx.uses_atomic32_emulation = false;
         for (const auto &decl : module.functions) {
@@ -10183,7 +10417,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             break;
         }
     }
-    if (shader.kind == DxilShaderKind::Compute) {
+    if (isComputeLikeShader(shader.kind)) {
         for (const auto &candidate : module.functions) {
             for (const auto &block : candidate.blocks) {
                 for (const auto &inst : block.instructions) {
@@ -10849,7 +11083,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             break;
         }
         MSLType type = DXILIRBuilder::resolveType(inst.type_id, module);
-        if (ctx.shader.kind != DxilShaderKind::Compute &&
+        if (!isComputeLikeShader(ctx.shader.kind) &&
             type.kind == MSLTypeKind::RWTexture2D)
             type = {MSLTypeKind::Texture2D, 0, {}};
         if (type.kind == MSLTypeKind::Unknown || type.kind == MSLTypeKind::Struct)
@@ -11037,7 +11271,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                 }
                 if (produces_value) {
                     MSLType pre_type = static_type;
-                    if (ctx.shader.kind != DxilShaderKind::Compute &&
+                    if (!isComputeLikeShader(ctx.shader.kind) &&
                         pre_type.kind == MSLTypeKind::RWTexture2D)
                         pre_type = {MSLTypeKind::Texture2D, 0, {}};
                     std::string name = emitValue(vc);

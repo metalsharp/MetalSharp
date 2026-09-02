@@ -41,6 +41,7 @@ RUN_REFLECTION_ABI=1
 RUN_GRAPHICS_PSO=1
 RUN_COMPUTE_PSO=1
 RUN_COMMAND_REPLAY=1
+RUN_WORK_GRAPH=0
 RUN_BARRIERS_RENDER_PASS=1
 RUN_RESOURCE_VIEWS_FORMATS=1
 RUN_RENDER_HEADLESS=1
@@ -152,6 +153,8 @@ Options:
   --compute-pso-only    Run only the compute PSO matrix probe.
   --no-command-replay   Skip probe_command_replay.
   --command-replay-only Run only the command recording/replay probe.
+  --work-graph       Run the bounded GPU-native node shader opcode probe.
+  --work-graph-only  Run only the bounded GPU-native node shader opcode probe.
   --no-barriers-render-pass
                         Skip probe_barriers_render_pass.
   --barriers-render-pass-only
@@ -389,6 +392,7 @@ while [[ $# -gt 0 ]]; do
       RUN_GRAPHICS_PSO=1
       RUN_COMPUTE_PSO=1
       RUN_COMMAND_REPLAY=1
+      RUN_WORK_GRAPH=1
       RUN_BARRIERS_RENDER_PASS=1
       RUN_RESOURCE_VIEWS_FORMATS=1
       RUN_RENDER_HEADLESS=1
@@ -842,6 +846,43 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-command-replay)
       RUN_COMMAND_REPLAY=0
+      shift
+      ;;
+    --work-graph)
+      RUN_WORK_GRAPH=1
+      shift
+      ;;
+    --work-graph-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=1
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
       shift
       ;;
     --command-replay-only)
@@ -1369,6 +1410,7 @@ HITOBJECT_LOCAL_ROOT_RESULT_FILE="$RESULTS_DIR/probe-hitobject-local-root-${PROF
 HITOBJECT_INVOKE_RESULT_FILE="$RESULTS_DIR/probe-hitobject-invoke-${PROFILE}.json"
 HITOBJECT_ATTRIBUTES_RESULT_FILE="$RESULTS_DIR/probe-hitobject-attributes-${PROFILE}.json"
 HITOBJECT_REORDER_RESULT_FILE="$RESULTS_DIR/probe-hitobject-reorder-${PROFILE}.json"
+WORK_GRAPH_RESULT_FILE="$RESULTS_DIR/probe-workgraph-${PROFILE}.json"
 BARRIERS_RENDER_PASS_RESULT_FILE="$RESULTS_DIR/probe-barriers-render-pass-${PROFILE}.json"
 RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${PROFILE}.json"
 RENDER_HEADLESS_RESULT_FILE="$RESULTS_DIR/probe-render-headless-${PROFILE}.json"
@@ -3005,6 +3047,101 @@ JSON
         >"$invoke_miss_path.msc.log" 2>&1 || true
     fi
   fi
+}
+
+prepare_work_graph_probe() {
+  local node_source_dir="$SDK_DIR/probes/probe_workgraph"
+  local work_dir="$RESULTS_DIR/workgraph-generated"
+  local node_compiler="$SDK_DIR/out/bin/compile-node-workgraph"
+  local node_probe="$SDK_DIR/out/bin/probe-node-workgraph"
+  local aggregate="$WORK_GRAPH_RESULT_FILE"
+  mkdir -p "$work_dir"
+
+  if ! DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
+    xcrun clang++ -std=c++17 -I"$ROOT_DIR" \
+      -I"$ROOT_DIR/vendor/dxmt/src/airconv/dxil" \
+      "$SDK_DIR/scripts/compile-node-workgraph.cpp" \
+      "$ROOT_DIR/vendor/dxmt/src/airconv/dxil/msl_lowering.cpp" \
+      "$ROOT_DIR/vendor/dxmt/src/airconv/dxil/dxil_ir.cpp" \
+      "$ROOT_DIR/vendor/dxmt/src/airconv/dxil/llvm_bitcode.cpp" \
+      "$ROOT_DIR/vendor/dxmt/src/airconv/dxil/dxil_container.cpp" \
+      -o "$node_compiler"; then
+    echo "failed to build node DXIL lowering helper" >&2
+    return 1
+  fi
+  if ! DEVELOPER_DIR="${DEVELOPER_DIR:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}" \
+    xcrun clang++ -std=c++17 "$SDK_DIR/scripts/probe-node-workgraph.mm" \
+      -framework Foundation -framework Metal -o "$node_probe"; then
+    echo "failed to build node Metal probe" >&2
+    return 1
+  fi
+
+  local -a node_cases=(
+    "node_handles|1|240,247,248,249,252"
+    "node_system|1,32|242,253"
+    "node_records|2882400001,305419896|238,239,241,251"
+    "node_finished|1|243,250,251"
+    "node_barriers|610800471|244,245"
+    "node_record_barrier|324478056|238,239,241,246,251"
+  )
+  local case_spec stem expected opcode_list cso metal result
+  local -a result_files=()
+  for case_spec in "${node_cases[@]}"; do
+    IFS='|' read -r stem expected opcode_list <<< "$case_spec"
+    cso="$work_dir/$stem.cso"
+    metal="$work_dir/$stem.metal"
+    result="$work_dir/$stem.json"
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+        "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -Fo "$cso" \
+        "$node_source_dir/$stem.hlsl" >/dev/null
+    )
+    [[ -s "$cso" ]] || {
+      echo "node shader compilation produced no bytecode: $stem" >&2
+      return 1
+    }
+    DXMT_LOG_PATH="$work_dir" "$node_compiler" "$cso" node_main "$metal"
+    [[ -s "$metal" ]] || {
+      echo "node lowering produced no Metal source: $stem" >&2
+      return 1
+    }
+    if ! "$node_probe" "$metal" "$expected" > "$result"; then
+      echo "node runtime probe failed: $stem" >&2
+      cat "$result" >&2 || true
+      return 1
+    fi
+    result_files+=("$result|$opcode_list")
+  done
+
+  python3 - "$aggregate" "${result_files[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+aggregate = Path(sys.argv[1])
+cases = []
+opcodes = set()
+for item in sys.argv[2:]:
+    result_path, opcode_text = item.split("|", 1)
+    result = json.loads(Path(result_path).read_text(encoding="utf-8"))
+    result["name"] = Path(result_path).stem
+    result["opcodes"] = [int(value) for value in opcode_text.split(",")]
+    opcodes.update(result["opcodes"])
+    cases.append(result)
+
+aggregate.write_text(json.dumps({
+    "schema": "metalsharp.d3d12-metal.workgraph-opcode-probe.v1",
+    "provider": "bounded_gpu_native_node_kernel",
+    "d3d12_work_graph_api_supported": False,
+    "cpu_scheduler": False,
+    "pass": all(case.get("pass", False) for case in cases),
+    "opcode_rows": sorted(opcodes),
+    "opcode_count": len(opcodes),
+    "cases": cases,
+}, indent=2) + "\n", encoding="utf-8")
+PY
+  echo "$aggregate"
 }
 
 prepare_dxil_semantic_probes() {
@@ -4909,6 +5046,10 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
     )
     echo "$HITOBJECT_REORDER_RESULT_FILE"
   fi
+fi
+
+if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
+  prepare_work_graph_probe
 fi
 
 if [[ "$RUN_BARRIERS_RENDER_PASS" == "1" ]]; then
