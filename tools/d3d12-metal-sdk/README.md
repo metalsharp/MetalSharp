@@ -254,6 +254,10 @@ The current honest shader feature posture is:
   R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM subset; both
   Options14 capability fields remain conservative pending additional formats,
   render-target, and broader resolve matrices.
+- The typed DXIL provider reports double-precision shader support from its exact
+  binary64 emulation matrix and native16 support from exact Metal half
+  arithmetic/math cases. These are behavior-backed provider claims; native
+  Metal double ALU and 64-KB MSAA alignment remain unadvertised.
 - The opt-in `probe-vrs` path records the 1x2/2x1/2x2/2x4/4x2/4x4
   `RSSetShadingRate` matrix and attaches Metal rasterization-rate maps. The
   2x2 case also passes a MAX/PASSTHROUGH combiner pair. A clean 64x64 pass

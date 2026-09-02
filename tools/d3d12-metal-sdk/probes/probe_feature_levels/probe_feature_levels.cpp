@@ -157,6 +157,7 @@ int main() {
     D3D12_FEATURE_DATA_D3D12_OPTIONS1 options1 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3 = {};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 options4 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
@@ -173,6 +174,7 @@ int main() {
     HRESULT options1_hr = E_NOINTERFACE;
     HRESULT options2_hr = E_NOINTERFACE;
     HRESULT options3_hr = E_NOINTERFACE;
+    HRESULT options4_hr = E_NOINTERFACE;
     HRESULT options5_hr = E_NOINTERFACE;
     HRESULT options6_hr = E_NOINTERFACE;
     HRESULT options7_hr = E_NOINTERFACE;
@@ -191,6 +193,7 @@ int main() {
         CHECK_FEATURE(options1, D3D12_OPTIONS1);
         CHECK_FEATURE(options2, D3D12_OPTIONS2);
         CHECK_FEATURE(options3, D3D12_OPTIONS3);
+        CHECK_FEATURE(options4, D3D12_OPTIONS4);
         CHECK_FEATURE(options5, D3D12_OPTIONS5);
         CHECK_FEATURE(options6, D3D12_OPTIONS6);
         CHECK_FEATURE(options7, D3D12_OPTIONS7);
@@ -221,6 +224,7 @@ int main() {
         options.MaxGPUVirtualAddressBitsPerResource >= 40 && SUCCEEDED(options1_hr) && options1.WaveOps &&
         options1.Int64ShaderOps && SUCCEEDED(options2_hr) && options2.DepthBoundsTestSupported &&
         SUCCEEDED(options3_hr) && options3.CopyQueueTimestampQueriesSupported &&
+        SUCCEEDED(options4_hr) && options4.Native16BitShaderOpsSupported &&
         options3.CastingFullyTypedFormatSupported &&
         (options3.WriteBufferImmediateSupportFlags & required_write_immediate) == required_write_immediate &&
         SUCCEEDED(options5_hr) && options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 && SUCCEEDED(options6_hr) &&
@@ -264,6 +268,7 @@ int main() {
     std::printf("    \"options1\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(options1_hr)));
     std::printf("    \"options2\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(options2_hr)));
     std::printf("    \"options3\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(options3_hr)));
+    std::printf("    \"options4\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(options4_hr)));
     std::printf("    \"options5\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(options5_hr)));
     std::printf("    \"options6\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(options6_hr)));
     std::printf("    \"options7\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(options7_hr)));
@@ -284,6 +289,8 @@ int main() {
     std::printf("    \"output_merger_logic_op\": %s,\n", options.OutputMergerLogicOp ? "true" : "false");
     std::printf("    \"double_precision_float_shader_ops\": %s,\n",
                 options.DoublePrecisionFloatShaderOps ? "true" : "false");
+    std::printf("    \"native16_bit_shader_ops\": %s,\n",
+                options4.Native16BitShaderOpsSupported ? "true" : "false");
     std::printf("    \"raytracing_tier\": %u,\n", static_cast<unsigned>(options5.RaytracingTier));
     std::printf("    \"srv_only_tiled_resource_tier3\": %s,\n", options5.SRVOnlyTiledResourceTier3 ? "true" : "false");
     std::printf("    \"vrs_tier\": %u,\n", static_cast<unsigned>(options6.VariableShadingRateTier));

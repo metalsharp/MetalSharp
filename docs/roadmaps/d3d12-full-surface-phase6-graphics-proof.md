@@ -42,7 +42,10 @@ special-value predicates, and FMA. The runtime reports
 `DoublePrecisionFloatShaderOps` from the emulation provider. This is exact
 bit-level emulation and does not claim native Metal double-precision ALU.
 
-The remaining minimum-precision report stays conservative pending a dedicated
+The same semantic run passes native16 arithmetic and math cases through Metal
+half operations. `D3D12_OPTIONS4.Native16BitShaderOpsSupported` is promoted
+from that provider, while `MSAA64KBAlignedTextureSupported` remains false. The
+remaining minimum-precision report stays conservative pending a dedicated
 conversion/rounding matrix. The semantic reproduction is:
 
 ```bash

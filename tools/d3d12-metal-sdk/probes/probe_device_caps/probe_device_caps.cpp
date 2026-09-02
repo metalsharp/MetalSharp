@@ -152,6 +152,7 @@ int main() {
     D3D12_FEATURE_DATA_D3D12_OPTIONS1 options1 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3 = {};
+    D3D12_FEATURE_DATA_D3D12_OPTIONS4 options4 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS5 options5 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS9 options9 = {};
@@ -167,6 +168,7 @@ int main() {
     HRESULT options1_hr = E_FAIL;
     HRESULT options2_hr = E_FAIL;
     HRESULT options3_hr = E_FAIL;
+    HRESULT options4_hr = E_FAIL;
     HRESULT options5_hr = E_FAIL;
     HRESULT options7_hr = E_FAIL;
     HRESULT options9_hr = E_FAIL;
@@ -189,6 +191,7 @@ int main() {
         options1_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS1, &options1, sizeof(options1));
         options2_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS2, &options2, sizeof(options2));
         options3_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS3, &options3, sizeof(options3));
+        options4_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS4, &options4, sizeof(options4));
         options5_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS5, &options5, sizeof(options5));
         options7_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS7, &options7, sizeof(options7));
         options9_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS9, &options9, sizeof(options9));
@@ -246,6 +249,7 @@ int main() {
     bool atomic64_conservative = SUCCEEDED(options9_hr) && options9.AtomicInt64OnTypedResourceSupported &&
                                  options9.AtomicInt64OnGroupSharedSupported && SUCCEEDED(options11_hr) &&
                                  options11.AtomicInt64OnDescriptorHeapResourceSupported;
+    bool native16_reported = SUCCEEDED(options4_hr) && options4.Native16BitShaderOpsSupported;
     bool advanced_features_reported =
         SUCCEEDED(options5_hr) && options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 && SUCCEEDED(options7_hr) &&
         options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 &&
@@ -261,7 +265,7 @@ int main() {
     bool feature_query_validation = invalid_feature_hr == E_INVALIDARG && zero_size_feature_hr == E_INVALIDARG &&
                                     null_data_feature_hr == E_POINTER && null_feature_level_list_hr == E_INVALIDARG;
     bool pass = SUCCEEDED(create_hr) && feature_level_ok && shader_model_target_ok && binding_tier_ok &&
-                double_precision_reported && wave_ops_proven_reported && atomic64_conservative && advanced_features_reported &&
+                double_precision_reported && native16_reported && wave_ops_proven_reported && atomic64_conservative && advanced_features_reported &&
                 gpu_upload_supported && stream_output_conservative && reserved_resources_unsupported &&
                 state_objects_unsupported &&
                 feature_query_validation;
@@ -310,6 +314,11 @@ int main() {
     std::printf("  \"advanced_features\": {\n");
     print_hr("options2", options2_hr);
     print_hr("options3", options3_hr);
+    print_hr("options4", options4_hr);
+    std::printf("    \"native16_bit_shader_ops\": %s,\n",
+                options4.Native16BitShaderOpsSupported ? "true" : "false");
+    std::printf("    \"msaa64kb_aligned_texture\": %s,\n",
+                options4.MSAA64KBAlignedTextureSupported ? "true" : "false");
     print_hr("options5", options5_hr);
     std::printf("    \"raytracing_tier\": %u,\n", static_cast<unsigned>(options5.RaytracingTier));
     print_hr("options7", options7_hr);
@@ -356,6 +365,8 @@ int main() {
     std::printf("    \"shader_model_6_5_or_better\": %s,\n", shader_model_target_ok ? "true" : "false");
     std::printf("    \"shader_model_6_6_or_better\": %s,\n", shader_model_6_6_or_better ? "true" : "false");
     std::printf("    \"binding_tier_3\": %s,\n", binding_tier_ok ? "true" : "false");
+    std::printf("    \"double_precision_reported\": %s,\n", double_precision_reported ? "true" : "false");
+    std::printf("    \"native16_reported\": %s,\n", native16_reported ? "true" : "false");
     std::printf("    \"wave_ops_proven_reported\": %s,\n", wave_ops_proven_reported ? "true" : "false");
     std::printf("    \"atomic64_conservative\": %s,\n", atomic64_conservative ? "true" : "false");
     std::printf("    \"advanced_features_reported\": %s,\n", advanced_features_reported ? "true" : "false");

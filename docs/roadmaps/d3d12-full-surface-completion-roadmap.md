@@ -211,7 +211,8 @@ for feature families that this roadmap must implement before reporting support:
   unavailable.
 - Programmable sample positions.
 - View instancing and barycentrics.
-- 64-KB MSAA alignment and native 16-bit shader operations.
+- 64-KB MSAA alignment; native 16-bit shader operations now have a bounded
+  Metal-half provider and report.
 - Full RT-array index range and derivatives in mesh/amplification stages.
 - Mesh per-primitive VRS.
 - Triangle fan, dynamic strip-cut, dynamic depth bias, and GPU-upload format
@@ -863,9 +864,9 @@ full table breadth, SER, OMM, and portable serialization remain open.
 - Remove hardcoded format assumptions, including display format selection,
   typed UAV support, castable formats, compressed formats, planes, and
   format-specific atomics.
-- Implement dynamic depth bias, native 16-bit operations, double precision,
-  minimum precision, and all Options 13/15/16/17/19 fields whose support is
-  reported.
+- Implement dynamic depth bias, complete MSAA alignment, minimum precision,
+  and all Options 13/15/16/17/19 fields whose support is reported. Native16
+  and binary64 now have bounded behavior-backed providers.
 
 **Exit gate:**
 
@@ -1260,7 +1261,8 @@ not check its children.
 - [ ] Minimum precision is backed by conversion/rounding readback.
 - [ ] Programmable sample positions are backed by sample coverage readback.
 - [ ] View instancing and barycentrics are backed by per-view/primitive output.
-- [ ] MSAA alignment/native16 reports match actual allocations/ALU behavior.
+- [x] Native16 reports match the exact typed Metal-half arithmetic/math
+      readbacks; 64-KB MSAA alignment remains conservative.
 - [ ] Full RT-array and mesh/amplification derivative fields are tested.
 - [ ] Mesh per-primitive VRS is tested and reported correctly.
 - [ ] Options 13/15/16/17/19/20/21/22 fields are each implemented or the
@@ -1994,5 +1996,7 @@ whether the scoped FL12_2 gate is green.
   typed binary64 emulation provider rather than claiming native Metal double
   instructions; native Metal double ALU remains unadvertised.
 - `probe-device-caps` and the feature-level probe expose and validate the
-  behavior-backed double-precision report. Minimum precision remains
+  behavior-backed double-precision report. The same semantic gate backs
+  `Options4.Native16BitShaderOpsSupported` through Metal half arithmetic while
+  `MSAA64KBAlignedTextureSupported` remains false. Minimum precision remains
   conservative until its conversion/rounding matrix is independently closed.
