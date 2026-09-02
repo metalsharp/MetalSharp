@@ -22,6 +22,18 @@
       "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource."
     },
     {
+      "id": "native16-bit-shader-ops",
+      "status": "observed_bounded",
+      "result": "probe-dxil-semantics;probe-device-caps",
+      "checks": [
+        ["result", "sm69_native16_arithmetic"],
+        ["result", "sm69_native16_math"],
+        ["report", "Native16BitShaderOpsSupported=true"],
+        ["negative", "MSAA64KBAlignedTextureSupported=false"]
+      ],
+      "scope": "The typed provider executes the native16 arithmetic and math cases through Metal half operations. The Options4 report promotes only native16; 64-KB MSAA texture alignment remains fail-closed."
+    },
+    {
       "id": "binary64-emulation",
       "status": "observed_bounded",
       "result": "probe-dxil-semantics",

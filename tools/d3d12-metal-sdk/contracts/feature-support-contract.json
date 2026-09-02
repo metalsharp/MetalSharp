@@ -66,6 +66,23 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS4_NATIVE16": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_dxil_semantics"
+      ],
+      "probe_status": "SM6.9_native16_arithmetic_and_math_exact_readback_passed",
+      "reported": "partial",
+      "required_fields": [
+        "Native16BitShaderOpsSupported"
+      ],
+      "proven_subset": [
+        "typed DXIL native16 arithmetic and math compute readback"
+      ],
+      "risk": "The report is derived from the Metal half-operation provider and the exact native16 semantic cases; 64-KB MSAA alignment remains false until its allocation matrix is proven.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_METAL_RAYTRACING_HARDWARE": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
       "probe_status": "metal_hardware_query_and_DXR_behavior_gate_passed",

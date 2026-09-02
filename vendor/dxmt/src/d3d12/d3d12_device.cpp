@@ -5196,7 +5196,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     o->MSAA64KBAlignedTextureSupported = FALSE;
     o->SharedResourceCompatibilityTier =
         D3D12_SHARED_RESOURCE_COMPATIBILITY_TIER_0;
-    o->Native16BitShaderOpsSupported = FALSE;
+    // The typed DXIL provider lowers native 16-bit scalar/vector arithmetic to
+    // Metal half operations. Keep the 64-KB MSAA alignment report separate;
+    // that allocation contract is still unproven.
+    o->Native16BitShaderOpsSupported =
+        GetHostCapabilities().device_available &&
+        GetHostCapabilities().apple_family7 &&
+        GetHostCapabilities().supports_compute_emulation;
     return S_OK;
   }
   case D3D12_FEATURE_SERIALIZATION: {
