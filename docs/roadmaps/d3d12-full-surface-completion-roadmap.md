@@ -1724,6 +1724,9 @@ whether the scoped FL12_2 gate is green.
   rejects the shader before MSL/PSO creation rather than silently producing a
   false value.
 - Rebuilt `src/d3d12/d3d12.dll` from the pinned MetalSharp build with the
-  change. This is a safety correction, not positive CycleCounterLegacy
-  evidence; the row remains open pending an exact counter readback or a
-  semantically equivalent provider.
+  change. An isolated ABI-matched staging of that rebuild passes the complete
+  Winemetal export gate; the direct DXIL probe then reports
+  `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and
+  `CreateComputePipelineState=0x80004005`. This is an exact fail-closed
+  negative, not positive CycleCounterLegacy evidence; the row remains open
+  pending an exact counter readback or a semantically equivalent provider.

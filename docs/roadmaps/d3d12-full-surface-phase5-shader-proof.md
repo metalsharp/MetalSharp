@@ -754,7 +754,7 @@ canonical accounting from
 
 | Matrix class | Opcode IDs | Required rows | State and blocker |
 | --- | ---: | ---: | --- |
-| Legacy stage-system counter | `109` — `CycleCounterLegacy` | 1 | Open; the tracked native `probe-metal-cycle-counter.mm` confirms Metal 4.0 rejects `clock()` on Apple M4 with `use of undeclared identifier 'clock'`. Both DXIL lowerers now count the intrinsic as unsupported and reject the shader before PSO creation, but no exact DXIL-to-runtime counter readback or semantically equivalent provider exists. |
+| Legacy stage-system counter | `109` — `CycleCounterLegacy` | 1 | Open; the tracked native `probe-metal-cycle-counter.mm` confirms Metal 4.0 rejects `clock()` on Apple M4 with `use of undeclared identifier 'clock'`. With a freshly rebuilt/staged ABI-matched runtime, the direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`; both DXIL lowerers therefore fail closed before PSO creation, but no exact DXIL-to-runtime counter readback or semantically equivalent provider exists. |
 | Pixel attribute lookup | `137` — `AttributeAtVertex` | 1 | Open; the exact DXIL operand mapping is now recorded as `(input-element-id, row, column, vertex-index)` with `i32/i32/i8/i8` overload operands, but there is no positive readback. The native `probe-metal-vertex-value.mm` negative boundary on Apple M4/Apple9 reports `supports_apple10=false`, exact constant-control readback `[255,0,0,255]`, and `vertex_value<T>` PSO completion with exact `[0,0,0,0]` readback. Metal's pre-raster per-vertex feature is therefore unavailable on the stable device; this remains diagnostic and does not promote opcode 137. |
 | Work Graph/node operations | `238–253` — `AllocateNodeOutputRecords`, `GetNodeRecordPtr`, `IncrementOutputCount`, `OutputComplete`, `GetInputRecordCount`, `FinishedCrossGroupSharing`, `BarrierByMemoryType`, `BarrierByMemoryHandle`, `BarrierByNodeRecordHandle`, `CreateNodeOutputHandle`, `IndexNodeHandle`, `AnnotateNodeHandle`, `CreateNodeInputRecordHandle`, `AnnotateNodeRecordHandle`, `NodeOutputIsValid`, `GetRemainingRecursionLevels` | 16 | Open; no node scheduler/provider or exact node execution readback exists. Interface presence is not shader behavior. |
 | SER/HitObject operations | `262–289` — `HitObject_TraceRay` through `HitObject_Attributes` | 28 | Open; the required HitObject/SER behavior and exact readbacks are not implemented. Focused native ray-generation and inline-RayQuery evidence does not substitute for these rows. |
@@ -778,9 +778,12 @@ capability diagnostic, not a positive DXIL proof. No experimental binary,
 cache, prefix, or log is part of the closeout change. The tracked native
 `tools/d3d12-metal-sdk/scripts/probe-metal-cycle-counter.mm` also records
 Metal 4.0's exact `clock()` rejection on Apple M4; this is a native-provider
-negative, not a DXIL runtime proof. Both DXIL lowerers now record
-`cycle-counter intrinsic is unsupported; rejecting shader` and the pipeline
-rejects the resulting unsupported-semantic report before PSO creation.
-CycleCounterLegacy still has no exact runtime readback. The next Phase 5 batch must close the two stage-system rows
+negative, not a DXIL runtime proof. With a freshly rebuilt ABI-matched runtime,
+the direct DXIL probe records `unsupported_intrinsics=1`,
+`unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`; both
+DXIL lowerers record `cycle-counter intrinsic is unsupported; rejecting shader`
+and the pipeline rejects the resulting unsupported-semantic report before PSO
+creation. CycleCounterLegacy still has no exact runtime readback. The next
+Phase 5 batch must close the two stage-system rows
 with exact runtime/negative evidence before the Work Graph/node and
 SER/HitObject provider work proceeds.
