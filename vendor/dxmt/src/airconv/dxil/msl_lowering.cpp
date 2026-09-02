@@ -6873,6 +6873,40 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         }
         return evaluated + componentSuffix(component);
     }
+    case DXOP_AttributeAtVertex: {
+        // DXIL's AttributeAtVertex signature is
+        //   (input-element-id, row, column, vertex-index),
+        // with the last three scalar operands encoded as i32/i8/i8 in the
+        // overloaded declaration.  It is valid only for a pixel input whose
+        // interpolation mode is nointerpolation.  Metal's vertex_value<T>
+        // path is unavailable on the Apple 9 M4 device used by this runtime,
+        // so keep the operation explicitly fail-closed rather than emitting
+        // a zero-valued placeholder that could reach a PSO.
+        if (ctx.shader.kind != DxilShaderKind::Pixel || args.size() != 4) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(
+                ctx,
+                "DXIL AttributeAtVertex requires pixel operands input_id,row,col,vertex");
+            return "0";
+        }
+        const uint32_t input_id = literalArg(0, 0, "attribute input");
+        const uint32_t row = literalArg(1, 0, "attribute row");
+        const uint32_t col = literalArg(2, 0, "attribute column");
+        const uint32_t vertex = literalArg(3, 0xffu, "attribute vertex");
+        if (vertex > 2u) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(ctx,
+                             "DXIL AttributeAtVertex vertex index out of range: %u",
+                             vertex);
+            return "0";
+        }
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(
+            ctx,
+            "DXIL AttributeAtVertex unsupported on Apple 9 M4: input=%u row=%u col=%u vertex=%u; requires Metal pre-raster per-vertex values",
+            input_id, row, col, vertex);
+        return "0";
+    }
     case 97:
     case 98:
         ctx.unsupported_intrinsics++;

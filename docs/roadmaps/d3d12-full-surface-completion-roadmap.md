@@ -1682,7 +1682,29 @@ whether the scoped FL12_2 gate is green.
   improve the count.
 - The failed Metal 4 `vertex_value<T>` AttributeAtVertex path returned no
   behavior-backed readback and its source changes, rebuilt binaries, caches,
-  prefixes, and logs were reverted or removed. Phase 5 remains unchecked and
-  `D3D12_FEATURE_SHADER_MODEL` remains capped at the behavior-backed 6.7
-  value. Later Work Graph/node and SER/HitObject implementation is deferred
-  until the two Phase-5-local rows have exact positive and negative evidence.
+  prefixes, and logs were reverted or removed. The tracked native
+  `tools/d3d12-metal-sdk/scripts/probe-metal-vertex-value.mm` now records the
+  exact negative boundary: Apple M4/Apple9 reports `supports_apple10=false`,
+  the constant fragment control returns `[255,0,0,255]`, and the
+  `vertex_value<T>` path completes with `[0,0,0,0]`. This establishes no
+  positive opcode evidence and does not close row 137. Phase 5 remains
+  unchecked and `D3D12_FEATURE_SHADER_MODEL` remains capped at the
+  behavior-backed 6.7 value. Later Work Graph/node and SER/HitObject
+  implementation is deferred until the two Phase-5-local rows have exact
+  positive and negative evidence.
+
+### 2026-09-01 — Phase 5 AttributeAtVertex hardware-boundary checkpoint
+
+- Confirmed the DXIL ABI from the pinned DXC sources:
+  `attributeAtVertex.<overload>(i32 137, i32 input-element-id, i32 row,
+  i8 column, i8 vertex-index)`, with vertex indices restricted to `0..2` and
+  the input signature required to be `nointerpolation`.
+- Added the standalone native Metal 4 control probe
+  `tools/d3d12-metal-sdk/scripts/probe-metal-vertex-value.mm`. Under Xcode 27
+  beta 6 it compiles both functions and creates both PSOs, but on the Apple M4
+  (Apple9) exact readback is `constant=[255,0,0,255]` and
+  `vertex_value=[0,0,0,0]`; `MTLGPUFamilyApple10` is not reported. The probe
+  exits successfully only for this explicitly identified negative boundary.
+- This is a hardware capability/rejection proof, not a behavior-backed
+  `AttributeAtVertex` promotion. The opcode matrix remains
+  **234 observed / 46 open / 32 reserved**, and Phase 5 remains open.

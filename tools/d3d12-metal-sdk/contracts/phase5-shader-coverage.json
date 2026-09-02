@@ -325,7 +325,7 @@
         ["summary", "writable_msaa_subset_complete"],
         ["summary", "options14_behavior_complete"]
       ],
-      "remaining": "Profile phase5-eval-final executes pixel Texture2DMS.GetSamplePosition, render-target sample position/count, SV_SampleIndex, SV_Coverage, and centroid/sample/snapped attribute evaluation against exact per-sample and color readbacks. AttributeAtVertex and broader non-constant interpolation/stage combinations remain in the exhaustive row."
+      "remaining": "Profile phase5-eval-final executes pixel Texture2DMS.GetSamplePosition, render-target sample position/count, SV_SampleIndex, SV_Coverage, and centroid/sample/snapped attribute evaluation against exact per-sample and color readbacks. The standalone native Metal 4 vertex-value control records the Apple M4/Apple9 negative boundary (`supports_apple10=false`, constant `[255,0,0,255]`, vertex_value `[0,0,0,0]`), but supplies no positive AttributeAtVertex readback; broader non-constant interpolation/stage combinations remain in the exhaustive row."
     },
     {
       "id": "dxil-inner-coverage-exact-runtime",
@@ -452,7 +452,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "Strict closeout accounting remains open at 234/280 required opcode rows observed, 46 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy; opcode 137 AttributeAtVertex; opcodes 238-253 Work Graph/node operations; and opcodes 262-289 SER/HitObject operations. Positive and negative evidence is still incomplete for those rows and the broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix."
+      "remaining": "Strict closeout accounting remains open at 234/280 required opcode rows observed, 46 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy; opcode 137 AttributeAtVertex; opcodes 238-253 Work Graph/node operations; and opcodes 262-289 SER/HitObject operations. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback; CycleCounterLegacy, Work Graph/node, and SER/HitObject positive/negative behavior remain incomplete, as does the broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix."
     }
   ]
 }
