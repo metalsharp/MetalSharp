@@ -2553,26 +2553,26 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                      resource_kind == 5u || resource_kind == 6u ||
                      resource_kind == 7u || resource_kind == 9u))
                     os << "  " << depthTextureBindingType(resource_kind)
-                       << " tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                       << " tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
                 else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
                     os << "  " << textureBindingType(resource_kind, false, false, true)
-                       << " tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                       << " tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
                 else
                     os << "  " << textureBindingType(
                                resource_kind, texture_uav_slot, integer_element,
                                !texture_uav_slot, writable_msaa, signed_integer)
-                       << " tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                       << " tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
             } else if (comparison_slot && srv_slot && !uav_slot)
-                os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
             else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
-                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
             else if (uav_slot && (ctx.texture_store_sample_shader ||
                                   ctx.writable_msaa_texture_slots.count(i)))
-                os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
             else if (uav_slot)
-                os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
             else
-                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")" << rov_attribute << "]],\n";
         }
         if (ctx.options.vrs_per_primitive)
             os << "  texture2d<float, access::write> m12_vrs_mask [[texture(125)]],\n";
