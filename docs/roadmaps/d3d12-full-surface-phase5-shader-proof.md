@@ -757,7 +757,7 @@ canonical accounting from
 | Legacy stage-system counter | `109` — `CycleCounterLegacy` | 1 | Open; the tracked native `probe-metal-cycle-counter.mm` confirms Metal 4.0 rejects `clock()` on Apple M4 with `use of undeclared identifier 'clock'`. With a freshly rebuilt/staged ABI-matched runtime, the direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`; both DXIL lowerers therefore fail closed before PSO creation, but no exact DXIL-to-runtime counter readback or semantically equivalent provider exists. |
 | Pixel attribute lookup | `137` — `AttributeAtVertex` | 1 | Open; the exact DXIL operand mapping is recorded as `(input-element-id, row, column, vertex-index)` with `i32/i32/i8/i8` overload operands, but there is no positive readback. The native `probe-metal-vertex-value.mm` boundary on Apple M4/Apple9 reports `supports_apple10=false`, exact constant-control readback `[255,0,0,255]`, and `vertex_value<T>` completion with `[0,0,0,0]`. An ABI-matched direct D3D12 graphics probe compiles the pixel DXIL containing opcode 137 and records `unsupported_intrinsics=12`, `unsupported_opcodes=0`, and `CreateGraphicsPipelineState=0x80004005`; Metal's pre-raster per-vertex feature is unavailable on the stable device, so this remains diagnostic and does not promote opcode 137. |
 | Work Graph/node operations | `238–253` — `AllocateNodeOutputRecords`, `GetNodeRecordPtr`, `IncrementOutputCount`, `OutputComplete`, `GetInputRecordCount`, `FinishedCrossGroupSharing`, `BarrierByMemoryType`, `BarrierByMemoryHandle`, `BarrierByNodeRecordHandle`, `CreateNodeOutputHandle`, `IndexNodeHandle`, `AnnotateNodeHandle`, `CreateNodeInputRecordHandle`, `AnnotateNodeRecordHandle`, `NodeOutputIsValid`, `GetRemainingRecursionLevels` | 16 | Open; no node scheduler/provider or exact node execution readback exists. Interface presence is not shader behavior. |
-| SER/HitObject operations | `262–289` — `HitObject_TraceRay` through `HitObject_Attributes` | 28 | Open; the required HitObject/SER behavior and exact readbacks are not implemented. Focused native ray-generation and inline-RayQuery evidence does not substitute for these rows. |
+| SER/HitObject operations | `262–289` — `HitObject_TraceRay` through `HitObject_Attributes` | 28 | Open; the required HitObject/SER behavior and exact readbacks are not implemented. Focused native ray-generation and inline-RayQuery evidence does not substitute for these rows. The descending pass now starts at row 280: a minimal pinned `lib_6_9` shader containing `HitObject_WorldToObject3x4` reaches both DXIL lowerers and is rejected with `unsupported_intrinsics=5`, `unsupported_opcodes=0`, including three explicit opcode-280 diagnostics; this is fail-closed negative evidence only. |
 | **Required total** |  | **46** | **Open** |
 
 Thus `312` total opcode values = `234` observed + `46` open required + `32`
@@ -787,7 +787,8 @@ the direct DXIL probe records `unsupported_intrinsics=1`,
 `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`; both
 DXIL lowerers record `cycle-counter intrinsic is unsupported; rejecting shader`
 and the pipeline rejects the resulting unsupported-semantic report before PSO
-creation. CycleCounterLegacy still has no exact runtime readback. The next
-Phase 5 batch must close the two stage-system rows
-with exact runtime/negative evidence before the Work Graph/node and
-SER/HitObject provider work proceeds.
+creation. CycleCounterLegacy still has no exact runtime readback. The remaining opcode
+work now proceeds in the requested descending order, beginning with row 280
+and continuing toward row 234; the row-280 rejection is not a promotion and
+must be followed by exact positive behavior or an explicitly validated
+semantically equivalent provider.

@@ -137,6 +137,10 @@ enum DXIntrinsicOpcode {
   // dx.op.isSpecialFloat carries the concrete operation (8..11) in its
   // opcode argument rather than in the intrinsic name.
   DXOP_SpecialFloat = 1000,
+  // HitObject and SER operations carry their concrete DXIL opcode in the
+  // first call operand, so this internal sentinel keeps the operation
+  // fail-closed while preserving that operand for diagnostics.
+  DXOP_HitObjectOrSER = 1100,
 };
 
 enum DXILMathOpcode {
@@ -432,6 +436,9 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
     if (strncmp(s, "viewID", 6) == 0)
         return DXOP_ViewID;
     if (strncmp(s, "isSpecialFloat.", 14) == 0) return DXOP_SpecialFloat;
+    if (strncmp(s, "hitObject_", 10) == 0 ||
+        strncmp(s, "maybeReorderThread", 18) == 0)
+        return DXOP_HitObjectOrSER;
     if (strncmp(s, "cycleCounterLegacy", 18) == 0) return 109;
     if (strncmp(s, "texture2DMSGetSamplePosition", 27) == 0) return 75;
     if (strncmp(s, "renderTargetGetSamplePosition", 29) == 0) return 76;
@@ -4910,7 +4917,8 @@ static std::string resolveBindingName(const std::string &handle, const char *tar
 
 static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id,
                                           const std::vector<uint32_t> &args,
-                                          const std::string &callee_name = {}) {
+                                          const std::string &callee_name = {},
+                                          uint32_t explicit_opcode = 0) {
     ctx.pending_handle.reset();
 
     auto valueArg = [&](size_t arg, const char *fallback) -> std::string {
@@ -6916,6 +6924,13 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         ctx.unsupported_intrinsics++;
         recordDiagnostic(ctx, "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
         return "0";
+    case DXOP_HitObjectOrSER:
+        ctx.unsupported_intrinsics++;
+        recordDiagnostic(
+            ctx,
+            "DXIL HitObject/SER intrinsic is unsupported; rejecting shader (opcode=%u)",
+            explicit_opcode);
+        return "0";
     case 80: return "threadgroup_barrier(mem_flags::mem_threadgroup)";
     case DXOP_Discard:
         return "discard_fragment()";
@@ -8186,7 +8201,11 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 fn_args.assign(call_args.begin() + 1, call_args.end());
 
             ctx.current_result_id = value_counter;
-            std::string translated = translateDXIntrinsic(ctx, intrinsic_id, fn_args, callee_name);
+            const uint32_t explicit_opcode =
+                call_args.empty() ? 0u : literalFromValue(ctx, call_args[0], 0u);
+            std::string translated =
+                translateDXIntrinsic(ctx, intrinsic_id, fn_args, callee_name,
+                                     explicit_opcode);
             ctx.current_result_id = UINT32_MAX;
             MSLType result_type = inferDXIntrinsicResultType(
                 ctx, intrinsic_id, fn_args, bestType(getTypeForInst(inst.type_id), translated),
