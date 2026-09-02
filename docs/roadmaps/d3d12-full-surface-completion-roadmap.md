@@ -842,6 +842,9 @@ full table breadth, SER, OMM, and portable serialization remain open.
   winding, factors, indexing, resources, and all legal render states.
 - Implement ROV semantics with Metal raster-order groups or a deterministic
   compute/replay provider, including interlock ordering and UAV visibility.
+- Implement independent per-render-target blend/logic-operation state; a
+  Metal-global logic operation must not cause valid D3D12 attachment state to
+  be rejected or applied to the wrong render target.
 - Implement all conservative-rasterization rules: edge/inner coverage,
   top-left and degenerate triangles, winding, clipping, viewport/scissor,
   depth, blend, VRS, arrays, lines, and MSAA sample coverage.
@@ -1246,7 +1249,10 @@ not check its children.
 
 ### 5.2 Feature-query completion
 
-- [ ] ROV support is backed by ordered UAV readback.
+- [x] Bounded ROV buffer/structured/typed-texture access is backed by ordered
+      UAV readback; full public ROV breadth remains open.
+- [x] Independent per-render-target logic operations are backed by exact
+      two-target XOR/AND readback through target-specific pipeline variants.
 - [ ] Double precision is backed by arithmetic readback.
 - [ ] Minimum precision is backed by conversion/rounding readback.
 - [ ] Programmable sample positions are backed by sample coverage readback.
@@ -1945,15 +1951,34 @@ whether the scoped FL12_2 gate is green.
 
 ### 2026-09-02 — Phase 6 bounded rasterizer-ordered UAV provider (intermediate)
 
-- Added the source-owned `probe_rov` DXIL fixture and runtime lane. A pixel
-  `RasterizerOrderedByteAddressBuffer` performs an ordered load/increment/store
-  for three overlapping primitives at one pixel and returns the exact UAV value
-  `3` with `METAL_SHADER_CONVERTER=/nonexistent`.
+- Added the source-owned `probe_rov` DXIL fixture and runtime lane. Pixel
+  `RasterizerOrderedByteAddressBuffer`,
+  `RasterizerOrderedStructuredBuffer`, and
+  `RasterizerOrderedTexture2D<uint>` shaders perform ordered
+  load/increment/stores for three overlapping primitives at one pixel and each
+  return the exact UAV value `3` with `METAL_SHADER_CONVERTER=/nonexistent`.
 - The DXIL resource metadata ROV bit is now carried through the direct binding
   plan. Marked pixel UAV buffers and textures receive Metal's
   `raster_order_group(0)` qualifier; non-pixel ROV uses remain fail-closed.
 - This checkpoint does not promote `ROVsSupported`: the public report remains
-  conservative until typed/structured resources and the complete ROV graphics
-  state/format matrix have independent behavior evidence. VRS, conservative
+  conservative until the complete ROV graphics state/format matrix has
+  independent behavior evidence. VRS, conservative
   raster, geometry/tessellation, sample-position, formats, depth-bias, and
   broader MSAA work also remain open, so Phase 6 is not complete.
+
+### 2026-09-02 — Phase 6 independent render-target logic-operation provider
+
+- Removed the old valid-state rejection for differing
+  `IndependentBlendEnable` logic operations. Metal's global logic-operation
+  descriptor is now emulated with one target-write-mask pipeline variant per
+  attachment, repeated draw encoding, depth/stencil state-only replay when
+  needed, and restoration of the base pipeline. Pixel shaders with UAV side
+  effects remain explicitly fail-closed rather than being executed repeatedly.
+- `probe-graphics-pso` now executes an exact two-target matrix with a D32
+  depth attachment and depth writes enabled: target 0 XOR returns
+  `0xaaffff3c`, target 1 AND returns `0x550a0c30`. The formerly rejected
+  `logic_op_mrt_independent_variants` case now creates successfully, and the
+  depth/stencil state-only replay is exercised.
+- This closes the independent per-render-target logic-operation row in the
+  Phase 6 bounded coverage contract. Other Phase 6 graphics matrices remain
+  open and no full Phase 6 promotion is claimed.

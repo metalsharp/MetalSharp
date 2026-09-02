@@ -53,6 +53,17 @@ static std::string getenv_string(const char *key) {
     return value;
 }
 
+static std::string json_escape(const std::string &value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 8);
+    for (char c : value) {
+        if (c == '\\' || c == '"')
+            escaped += '\\';
+        escaped += c;
+    }
+    return escaped;
+}
+
 static std::string hr_hex(HRESULT hr) {
     char buffer[16] = {};
     std::snprintf(buffer, sizeof(buffer), "0x%08lx",
@@ -175,22 +186,391 @@ static HRESULT execute_and_wait(ID3D12Device *device,
     return hr;
 }
 
+static HRESULT create_graphics_pso(ID3D12Device *device,
+                                   ID3D12RootSignature *root,
+                                   const std::vector<uint8_t> &vertex_shader,
+                                   const std::vector<uint8_t> &pixel_shader,
+                                   ID3D12PipelineState **pso) {
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+    desc.pRootSignature = root;
+    desc.VS = {vertex_shader.data(), vertex_shader.size()};
+    desc.PS = {pixel_shader.data(), pixel_shader.size()};
+    desc.BlendState = blend_desc();
+    desc.SampleMask = UINT_MAX;
+    desc.RasterizerState = rasterizer_desc();
+    desc.DepthStencilState = depth_stencil_desc();
+    desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    desc.NumRenderTargets = 1;
+    desc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    desc.SampleDesc.Count = 1;
+    return device->CreateGraphicsPipelineState(
+        &desc, IID_PPV_ARGS(pso));
+}
+
+struct CaseResult {
+    const char *name = "";
+    HRESULT pso_hr = E_FAIL;
+    HRESULT execute_hr = E_FAIL;
+    bool readback = false;
+    uint32_t value = 0;
+    bool exact = false;
+};
+
+static void create_common_objects(ID3D12Device *device,
+                                  ID3D12CommandQueue **queue,
+                                  ID3D12CommandAllocator **allocator,
+                                  ID3D12GraphicsCommandList **list,
+                                  HRESULT &hr) {
+    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(queue));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(
+            D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, *allocator, nullptr,
+            IID_PPV_ARGS(list));
+}
+
+static void record_draw(ID3D12GraphicsCommandList *list,
+                        ID3D12PipelineState *pso,
+                        ID3D12RootSignature *root,
+                        ID3D12DescriptorHeap *uav_heap,
+                        ID3D12DescriptorHeap *rtv_heap,
+                        ID3D12Resource *target) {
+    D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+        rtv_heap->GetCPUDescriptorHandleForHeapStart();
+    const float clear_color[4] = {};
+    list->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+    list->SetPipelineState(pso);
+    list->SetGraphicsRootSignature(root);
+    ID3D12DescriptorHeap *heaps[] = {uav_heap};
+    list->SetDescriptorHeaps(1, heaps);
+    list->SetGraphicsRootDescriptorTable(
+        0, uav_heap->GetGPUDescriptorHandleForHeapStart());
+    D3D12_VIEWPORT viewport = {0, 0, 1, 1, 0, 1};
+    D3D12_RECT scissor = {0, 0, 1, 1};
+    list->RSSetViewports(1, &viewport);
+    list->RSSetScissorRects(1, &scissor);
+    list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    // Three identical overlapping primitives exercise an ordered
+    // load/increment/store at one pixel.
+    list->DrawInstanced(9, 1, 0, 0);
+    (void)target;
+}
+
+static CaseResult run_buffer_case(ID3D12Device *device,
+                                  ID3D12RootSignature *root,
+                                  const std::vector<uint8_t> &vertex_shader,
+                                  const std::vector<uint8_t> &pixel_shader,
+                                  const char *name, bool structured) {
+    CaseResult result = {};
+    result.name = name;
+    ID3D12PipelineState *pso = nullptr;
+    result.pso_hr = create_graphics_pso(
+        device, root, vertex_shader, pixel_shader, &pso);
+    if (FAILED(result.pso_hr) || !pso)
+        return result;
+
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12CommandAllocator *allocator = nullptr;
+    ID3D12GraphicsCommandList *list = nullptr;
+    ID3D12DescriptorHeap *uav_heap = nullptr;
+    ID3D12DescriptorHeap *rtv_heap = nullptr;
+    ID3D12Resource *output = nullptr;
+    ID3D12Resource *readback = nullptr;
+    ID3D12Resource *target = nullptr;
+    HRESULT hr = S_OK;
+    create_common_objects(device, &queue, &allocator, &list, hr);
+
+    D3D12_DESCRIPTOR_HEAP_DESC uav_heap_desc = {};
+    uav_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    uav_heap_desc.NumDescriptors = 1;
+    uav_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(
+            &uav_heap_desc, IID_PPV_ARGS(&uav_heap));
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.NumDescriptors = 1;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(
+            &rtv_heap_desc, IID_PPV_ARGS(&rtv_heap));
+
+    const D3D12_RESOURCE_DESC output_desc =
+        buffer_desc(64, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    const D3D12_RESOURCE_DESC readback_desc = buffer_desc(64);
+    D3D12_HEAP_PROPERTIES default_heap =
+        heap_properties(D3D12_HEAP_TYPE_DEFAULT);
+    D3D12_HEAP_PROPERTIES readback_heap =
+        heap_properties(D3D12_HEAP_TYPE_READBACK);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&output));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
+
+    D3D12_RESOURCE_DESC target_desc = {};
+    target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    target_desc.Width = 1;
+    target_desc.Height = 1;
+    target_desc.DepthOrArraySize = 1;
+    target_desc.MipLevels = 1;
+    target_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    target_desc.SampleDesc.Count = 1;
+    target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&target));
+
+    if (SUCCEEDED(hr)) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = structured ? 1 : 16;
+        if (structured) {
+            uav.Format = DXGI_FORMAT_UNKNOWN;
+            uav.Buffer.StructureByteStride = sizeof(uint32_t);
+        } else {
+            uav.Format = DXGI_FORMAT_R32_TYPELESS;
+            uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        }
+        device->CreateUnorderedAccessView(
+            output, nullptr, &uav,
+            uav_heap->GetCPUDescriptorHandleForHeapStart());
+        device->CreateRenderTargetView(
+            target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
+        const UINT clear_uav[4] = {};
+        list->SetDescriptorHeaps(1, &uav_heap);
+        list->ClearUnorderedAccessViewUint(
+            uav_heap->GetGPUDescriptorHandleForHeapStart(),
+            uav_heap->GetCPUDescriptorHandleForHeapStart(), output, clear_uav, 0,
+            nullptr);
+        record_draw(list, pso, root, uav_heap, rtv_heap, target);
+
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = output;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        list->ResourceBarrier(1, &barrier);
+        list->CopyBufferRegion(readback, 0, output, 0, sizeof(uint32_t));
+        result.execute_hr = execute_and_wait(device, queue, list);
+    } else {
+        result.execute_hr = hr;
+    }
+
+    if (SUCCEEDED(result.execute_hr) && readback) {
+        void *mapped = nullptr;
+        D3D12_RANGE range = {0, sizeof(result.value)};
+        result.readback = SUCCEEDED(readback->Map(0, &range, &mapped)) && mapped;
+        if (result.readback) {
+            std::memcpy(&result.value, mapped, sizeof(result.value));
+            readback->Unmap(0, nullptr);
+        }
+    }
+    result.exact = result.readback && result.value == 3u;
+
+    safe_release(target);
+    safe_release(readback);
+    safe_release(output);
+    safe_release(rtv_heap);
+    safe_release(uav_heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(pso);
+    return result;
+}
+
+static CaseResult run_texture_case(ID3D12Device *device,
+                                   ID3D12RootSignature *root,
+                                   const std::vector<uint8_t> &vertex_shader,
+                                   const std::vector<uint8_t> &pixel_shader) {
+    CaseResult result = {};
+    result.name = "typed_texture2d_uint";
+    ID3D12PipelineState *pso = nullptr;
+    result.pso_hr = create_graphics_pso(
+        device, root, vertex_shader, pixel_shader, &pso);
+    if (FAILED(result.pso_hr) || !pso)
+        return result;
+
+    ID3D12CommandQueue *queue = nullptr;
+    ID3D12CommandAllocator *allocator = nullptr;
+    ID3D12GraphicsCommandList *list = nullptr;
+    ID3D12DescriptorHeap *uav_heap = nullptr;
+    ID3D12DescriptorHeap *rtv_heap = nullptr;
+    ID3D12Resource *output = nullptr;
+    ID3D12Resource *readback = nullptr;
+    ID3D12Resource *target = nullptr;
+    HRESULT hr = S_OK;
+    create_common_objects(device, &queue, &allocator, &list, hr);
+
+    D3D12_DESCRIPTOR_HEAP_DESC uav_heap_desc = {};
+    uav_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    uav_heap_desc.NumDescriptors = 1;
+    uav_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(
+            &uav_heap_desc, IID_PPV_ARGS(&uav_heap));
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.NumDescriptors = 1;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(
+            &rtv_heap_desc, IID_PPV_ARGS(&rtv_heap));
+
+    D3D12_RESOURCE_DESC output_desc = {};
+    output_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    output_desc.Width = 1;
+    output_desc.Height = 1;
+    output_desc.DepthOrArraySize = 1;
+    output_desc.MipLevels = 1;
+    output_desc.Format = DXGI_FORMAT_R32_UINT;
+    output_desc.SampleDesc.Count = 1;
+    output_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    output_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    D3D12_RESOURCE_DESC target_desc = {};
+    target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    target_desc.Width = 1;
+    target_desc.Height = 1;
+    target_desc.DepthOrArraySize = 1;
+    target_desc.MipLevels = 1;
+    target_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    target_desc.SampleDesc.Count = 1;
+    target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    D3D12_HEAP_PROPERTIES default_heap =
+        heap_properties(D3D12_HEAP_TYPE_DEFAULT);
+    D3D12_HEAP_PROPERTIES readback_heap =
+        heap_properties(D3D12_HEAP_TYPE_READBACK);
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+    UINT rows = 0;
+    UINT64 row_size = 0;
+    UINT64 total_bytes = 0;
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&output));
+    if (SUCCEEDED(hr)) {
+        device->GetCopyableFootprints(&output_desc, 0, 1, 0, &footprint,
+                                      &rows, &row_size, &total_bytes);
+        if (total_bytes == 0)
+            hr = E_FAIL;
+    }
+    const D3D12_RESOURCE_DESC readback_desc = buffer_desc(total_bytes);
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&target));
+
+    if (SUCCEEDED(hr)) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_R32_UINT;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        uav.Texture2D.MipSlice = 0;
+        uav.Texture2D.PlaneSlice = 0;
+        device->CreateUnorderedAccessView(
+            output, nullptr, &uav,
+            uav_heap->GetCPUDescriptorHandleForHeapStart());
+        device->CreateRenderTargetView(
+            target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
+        const UINT clear_uav[4] = {};
+        list->SetDescriptorHeaps(1, &uav_heap);
+        list->ClearUnorderedAccessViewUint(
+            uav_heap->GetGPUDescriptorHandleForHeapStart(),
+            uav_heap->GetCPUDescriptorHandleForHeapStart(), output, clear_uav, 0,
+            nullptr);
+        record_draw(list, pso, root, uav_heap, rtv_heap, target);
+
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = output;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        list->ResourceBarrier(1, &barrier);
+        D3D12_TEXTURE_COPY_LOCATION source = {};
+        source.pResource = output;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION destination = {};
+        destination.pResource = readback;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint = footprint;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+        result.execute_hr = execute_and_wait(device, queue, list);
+    } else {
+        result.execute_hr = hr;
+    }
+
+    if (SUCCEEDED(result.execute_hr) && readback) {
+        void *mapped = nullptr;
+        D3D12_RANGE range = {0, total_bytes};
+        result.readback = SUCCEEDED(readback->Map(0, &range, &mapped)) && mapped;
+        if (result.readback) {
+            std::memcpy(&result.value, mapped, sizeof(result.value));
+            readback->Unmap(0, nullptr);
+        }
+    }
+    result.exact = result.readback && result.value == 3u;
+
+    safe_release(target);
+    safe_release(readback);
+    safe_release(output);
+    safe_release(rtv_heap);
+    safe_release(uav_heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(pso);
+    return result;
+}
+
+static void print_case(const CaseResult &result, bool last) {
+    std::printf(
+        "    {\"name\":\"%s\",\"pso\":\"%s\",\"execute\":\"%s\","
+        "\"readback\":%s,\"uav_value\":%u,\"expected_uav_value\":3,"
+        "\"exact\":%s}%s\n",
+        result.name, hr_hex(result.pso_hr).c_str(),
+        hr_hex(result.execute_hr).c_str(), result.readback ? "true" : "false",
+        result.value, result.exact ? "true" : "false", last ? "" : ",");
+}
+
 int main(int argc, char **argv) {
-    if (argc != 1 && argc != 3) {
-        std::fprintf(stderr, "usage: probe_rov [<vs.cso> <ps.cso>]\n");
+    if (argc != 1 && argc != 5) {
+        std::fprintf(stderr,
+                     "usage: probe_rov [<vs.cso> <raw-ps.cso> "
+                     "<texture-ps.cso> <structured-ps.cso>]\n");
         return 2;
     }
 
-    const char *vertex_path = argc == 3 ? argv[1] : "probe_rov_vs.cso";
-    const char *pixel_path = argc == 3 ? argv[2] : "probe_rov_ps.cso";
-    const std::vector<uint8_t> vertex_shader = read_binary_file(vertex_path);
-    const std::vector<uint8_t> pixel_shader = read_binary_file(pixel_path);
+    const char *vertex_path = argc == 5 ? argv[1] : "probe_rov_vs.cso";
+    const char *raw_path = argc == 5 ? argv[2] : "probe_rov_raw_ps.cso";
+    const char *texture_path = argc == 5 ? argv[3] : "probe_rov_texture_ps.cso";
+    const char *structured_path =
+        argc == 5 ? argv[4] : "probe_rov_structured_ps.cso";
+    const auto vertex_shader = read_binary_file(vertex_path);
+    const auto raw_shader = read_binary_file(raw_path);
+    const auto texture_shader = read_binary_file(texture_path);
+    const auto structured_shader = read_binary_file(structured_path);
 
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     using CreateDeviceFn = HRESULT(WINAPI *)(IUnknown *, D3D_FEATURE_LEVEL,
                                               REFIID, void **);
     auto create_device = load_proc<CreateDeviceFn>(d3d12, "D3D12CreateDevice");
-
     ID3D12Device *device = nullptr;
     HRESULT create_hr = create_device
                             ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0,
@@ -206,192 +586,54 @@ int main(int argc, char **argv) {
             0, root_blob->GetBufferPointer(), root_blob->GetBufferSize(),
             IID_PPV_ARGS(&root));
 
-    ID3D12PipelineState *pso = nullptr;
-    HRESULT pso_hr = E_FAIL;
-    if (SUCCEEDED(create_hr) && SUCCEEDED(root_hr) && !vertex_shader.empty() &&
-        !pixel_shader.empty()) {
-        D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
-        desc.pRootSignature = root;
-        desc.VS = {vertex_shader.data(), vertex_shader.size()};
-        desc.PS = {pixel_shader.data(), pixel_shader.size()};
-        desc.BlendState = blend_desc();
-        desc.SampleMask = UINT_MAX;
-        desc.RasterizerState = rasterizer_desc();
-        desc.DepthStencilState = depth_stencil_desc();
-        desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-        desc.NumRenderTargets = 1;
-        desc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
-        desc.SampleDesc.Count = 1;
-        pso_hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&pso));
+    CaseResult raw = {};
+    raw.name = "byte_address_buffer";
+    CaseResult texture = {};
+    texture.name = "typed_texture2d_uint";
+    CaseResult structured = {};
+    structured.name = "structured_buffer";
+    if (SUCCEEDED(create_hr) && SUCCEEDED(root_hr)) {
+        if (!vertex_shader.empty() && !raw_shader.empty())
+            raw = run_buffer_case(device, root, vertex_shader, raw_shader,
+                                  "byte_address_buffer", false);
+        if (!vertex_shader.empty() && !texture_shader.empty())
+            texture = run_texture_case(device, root, vertex_shader,
+                                       texture_shader);
+        if (!vertex_shader.empty() && !structured_shader.empty())
+            structured = run_buffer_case(device, root, vertex_shader,
+                                         structured_shader, "structured_buffer",
+                                         true);
     }
 
-    ID3D12CommandQueue *queue = nullptr;
-    ID3D12CommandAllocator *allocator = nullptr;
-    ID3D12GraphicsCommandList *list = nullptr;
-    ID3D12DescriptorHeap *uav_heap = nullptr;
-    ID3D12DescriptorHeap *rtv_heap = nullptr;
-    ID3D12Resource *output = nullptr;
-    ID3D12Resource *readback = nullptr;
-    ID3D12Resource *target = nullptr;
-
-    HRESULT execute_hr = pso_hr;
-    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateCommandQueue(
-            &queue_desc, IID_PPV_ARGS(&queue));
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateCommandAllocator(
-            D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateCommandList(
-            0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
-            IID_PPV_ARGS(&list));
-
-    D3D12_DESCRIPTOR_HEAP_DESC uav_heap_desc = {};
-    uav_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    uav_heap_desc.NumDescriptors = 1;
-    uav_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateDescriptorHeap(
-            &uav_heap_desc, IID_PPV_ARGS(&uav_heap));
-
-    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
-    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-    rtv_heap_desc.NumDescriptors = 1;
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateDescriptorHeap(
-            &rtv_heap_desc, IID_PPV_ARGS(&rtv_heap));
-
-    const D3D12_RESOURCE_DESC output_desc =
-        buffer_desc(64, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-    const D3D12_RESOURCE_DESC readback_desc = buffer_desc(64);
-    D3D12_HEAP_PROPERTIES default_heap =
-        heap_properties(D3D12_HEAP_TYPE_DEFAULT);
-    D3D12_HEAP_PROPERTIES readback_heap =
-        heap_properties(D3D12_HEAP_TYPE_READBACK);
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE, &output_desc,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-            IID_PPV_ARGS(&output));
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateCommittedResource(
-            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
-            D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
-
-    D3D12_RESOURCE_DESC target_desc = {};
-    target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-    target_desc.Width = 1;
-    target_desc.Height = 1;
-    target_desc.DepthOrArraySize = 1;
-    target_desc.MipLevels = 1;
-    target_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    target_desc.SampleDesc.Count = 1;
-    target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-    if (SUCCEEDED(execute_hr))
-        execute_hr = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
-            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&target));
-
-    if (SUCCEEDED(execute_hr)) {
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        uav.Format = DXGI_FORMAT_R32_TYPELESS;
-        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.NumElements = 16;
-        uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
-        device->CreateUnorderedAccessView(
-            output, nullptr, &uav,
-            uav_heap->GetCPUDescriptorHandleForHeapStart());
-        device->CreateRenderTargetView(
-            target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
-
-        D3D12_CPU_DESCRIPTOR_HANDLE rtv =
-            rtv_heap->GetCPUDescriptorHandleForHeapStart();
-        const float clear_color[4] = {};
-        list->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
-        const UINT clear_uav[4] = {};
-        list->ClearUnorderedAccessViewUint(
-            uav_heap->GetGPUDescriptorHandleForHeapStart(),
-            uav_heap->GetCPUDescriptorHandleForHeapStart(), output, clear_uav, 0,
-            nullptr);
-        list->SetPipelineState(pso);
-        list->SetGraphicsRootSignature(root);
-        ID3D12DescriptorHeap *heaps[] = {uav_heap};
-        list->SetDescriptorHeaps(1, heaps);
-        list->SetGraphicsRootDescriptorTable(
-            0, uav_heap->GetGPUDescriptorHandleForHeapStart());
-        D3D12_VIEWPORT viewport = {0, 0, 1, 1, 0, 1};
-        D3D12_RECT scissor = {0, 0, 1, 1};
-        list->RSSetViewports(1, &viewport);
-        list->RSSetScissorRects(1, &scissor);
-        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-        // Three identical overlapping primitives exercise an ordered load,
-        // increment, and store at one pixel.  A plain UAV can lose updates;
-        // the ROV provider must produce exactly three.
-        list->DrawInstanced(9, 1, 0, 0);
-
-        D3D12_RESOURCE_BARRIER barrier = {};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.pResource = output;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        list->ResourceBarrier(1, &barrier);
-        list->CopyBufferRegion(readback, 0, output, 0, 64);
-        execute_hr = execute_and_wait(device, queue, list);
-    }
-
-    uint32_t value = 0;
-    bool readback_ok = false;
-    if (SUCCEEDED(execute_hr) && readback) {
-        void *mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(value)};
-        readback_ok = SUCCEEDED(readback->Map(0, &range, &mapped)) && mapped;
-        if (readback_ok) {
-            std::memcpy(&value, mapped, sizeof(value));
-            readback->Unmap(0, nullptr);
-        }
-    }
-
-    const bool exact = readback_ok && value == 3u;
+    const bool all_exact = raw.exact && texture.exact && structured.exact;
     const std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
     std::printf(
         "{\n"
-        "  \"schema\": \"metalsharp.d3d12-metal.rov.v1\",\n"
+        "  \"schema\": \"metalsharp.d3d12-metal.rov.v2\",\n"
         "  \"profile\": \"%s\",\n"
         "  \"provider\": \"metal_raster_order_group\",\n"
         "  \"create_device\": \"%s\",\n"
         "  \"root_signature\": \"%s\",\n"
-        "  \"pso\": \"%s\",\n"
-        "  \"execute\": \"%s\",\n"
-        "  \"readback\": %s,\n"
         "  \"overlap_triangles\": 3,\n"
-        "  \"uav_value\": %u,\n"
-        "  \"expected_uav_value\": 3,\n"
+        "  \"cases\": [\n",
+        json_escape(profile).c_str(), hr_hex(create_hr).c_str(),
+        hr_hex(root_hr).c_str());
+    print_case(raw, false);
+    print_case(texture, false);
+    print_case(structured, true);
+    std::printf(
+        "  ],\n"
         "  \"exact\": %s,\n"
-        "  \"bounded_scope\": \"pixel RasterizerOrderedByteAddressBuffer; one-pixel three-primitive load/store ordering\"\n"
+        "  \"bounded_scope\": \"pixel ROV buffer and typed texture resources; one-pixel three-primitive ordered load/store\"\n"
         "}\n",
-        profile.c_str(), hr_hex(create_hr).c_str(), hr_hex(root_hr).c_str(),
-        hr_hex(pso_hr).c_str(), hr_hex(execute_hr).c_str(),
-        readback_ok ? "true" : "false", value, exact ? "true" : "false");
+        all_exact ? "true" : "false");
     std::fflush(stdout);
 
-    // Do not run late CRT teardown after the provider has completed; the Wine
-    // Metal bridge owns worker state that is intentionally process-scoped.
-    TerminateProcess(GetCurrentProcess(), exact ? 0u : 1u);
-    safe_release(target);
-    safe_release(readback);
-    safe_release(output);
-    safe_release(rtv_heap);
-    safe_release(uav_heap);
-    safe_release(list);
-    safe_release(allocator);
-    safe_release(queue);
-    safe_release(pso);
+    // Avoid late CRT teardown after the Wine Metal bridge has completed its
+    // process-scoped worker and command-buffer cleanup.
+    TerminateProcess(GetCurrentProcess(), all_exact ? 0u : 1u);
     safe_release(root);
     safe_release(root_blob);
     safe_release(device);
-    return exact ? 0 : 1;
+    return all_exact ? 0 : 1;
 }

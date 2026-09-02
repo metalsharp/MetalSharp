@@ -28,9 +28,10 @@
       ],
       "proven_subset": [
         "D3D12_LOGIC_OP_XOR render-target execution and exact readback",
+        "Independent per-render-target XOR/AND logic operations with exact two-target readback",
         "Pixel RasterizerOrderedByteAddressBuffer load/increment/store ordering with Metal raster_order_group(0)"
       ],
-      "risk": "Output-merger logic operations are backed by an exact XOR render/readback proof for render target 0; independent per-render-target logic-operation state remains rejected. The Metal raster_order_group provider is proven for the bounded raw-buffer pixel shape, while the public ROV report remains false until the complete ROV resource/stage/state matrix is closed; conservative rasterization is restricted to validated rasterizer descriptions.",
+      "risk": "Output-merger logic operations are backed by exact XOR render/readback and an independent per-render-target XOR/AND readback. Metal's global logic-operation state is emulated with one target-write-mask pipeline variant per attachment and repeated draw encoding (with depth/stencil state-only replay); pixel shaders with UAV side effects remain fail-closed rather than duplicated. The Metal raster_order_group provider is proven for bounded byte-address, structured-buffer, and typed-texture pixel shapes, while the public ROV report remains false until the complete ROV resource/stage/state matrix is closed; conservative rasterization is restricted to validated rasterizer descriptions.",
       "state": "required",
       "tier": "required"
     },

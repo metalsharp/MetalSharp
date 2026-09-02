@@ -3226,11 +3226,17 @@ prepare_attribute_at_vertex_probe() {
 }
 
 prepare_rov_probe() {
-  local source="$SDK_DIR/probes/probe_rov/rov.hlsl"
-  local staged_source="$SDK_DIR/out/bin/probe_rov.hlsl"
+  local source_dir="$SDK_DIR/probes/probe_rov"
+  local vertex_source="$SDK_DIR/out/bin/probe_rov.hlsl"
+  local texture_source="$SDK_DIR/out/bin/probe_rov_texture.hlsl"
+  local structured_source="$SDK_DIR/out/bin/probe_rov_structured.hlsl"
   local vertex_shader="$SDK_DIR/out/bin/probe_rov_vs.cso"
-  local pixel_shader="$SDK_DIR/out/bin/probe_rov_ps.cso"
-  cp "$source" "$staged_source"
+  local raw_shader="$SDK_DIR/out/bin/probe_rov_raw_ps.cso"
+  local texture_shader="$SDK_DIR/out/bin/probe_rov_texture_ps.cso"
+  local structured_shader="$SDK_DIR/out/bin/probe_rov_structured_ps.cso"
+  cp "$source_dir/rov.hlsl" "$vertex_source"
+  cp "$source_dir/rov_texture.hlsl" "$texture_source"
+  cp "$source_dir/rov_structured.hlsl" "$structured_source"
   if ! (
     cd "$SDK_DIR/out/bin"
     if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
@@ -3240,14 +3246,25 @@ prepare_rov_probe() {
     fi
     if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
       "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
-      -Fo probe_rov_ps.cso probe_rov.hlsl >/dev/null; then
+      -Fo probe_rov_raw_ps.cso probe_rov.hlsl >/dev/null; then
+      exit 1
+    fi
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_rov_texture_ps.cso probe_rov_texture.hlsl >/dev/null; then
+      exit 1
+    fi
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_rov_structured_ps.cso probe_rov_structured.hlsl >/dev/null; then
       exit 1
     fi
   ); then
     echo "failed to compile rasterizer-ordered UAV DXIL fixtures" >&2
     return 1
   fi
-  [[ -s "$vertex_shader" && -s "$pixel_shader" ]] || {
+  [[ -s "$vertex_shader" && -s "$raw_shader" && -s "$texture_shader" &&
+     -s "$structured_shader" ]] || {
     echo "rasterizer-ordered UAV DXIL fixtures are missing" >&2
     return 1
   }

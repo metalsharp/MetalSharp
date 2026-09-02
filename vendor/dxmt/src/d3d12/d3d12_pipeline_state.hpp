@@ -117,6 +117,27 @@ public:
   WMT::Reference<WMT::RenderPipelineState> GetRenderPSO() const {
     return m_render_pso;
   }
+  bool UsesIndependentLogicOpEmulation() const {
+    return m_uses_independent_logic_op_emulation;
+  }
+  WMT::Reference<WMT::RenderPipelineState>
+  GetIndependentLogicOpRenderPSO(UINT render_target) const {
+    if (render_target < m_independent_logic_op_render_psos.size() &&
+        m_independent_logic_op_render_psos[render_target].handle)
+      return m_independent_logic_op_render_psos[render_target];
+    return m_render_pso;
+  }
+  bool UsesIndependentLogicOpDepthReplay() const {
+    return m_uses_independent_logic_op_depth_replay;
+  }
+  WMT::Reference<WMT::RenderPipelineState>
+  GetIndependentLogicOpDepthOnlyPSO() const {
+    return m_independent_logic_op_depth_only_pso;
+  }
+  WMT::Reference<WMT::DepthStencilState>
+  GetIndependentLogicOpNoWriteDepthState() const {
+    return m_independent_logic_op_no_write_depth_state;
+  }
   WMT::Reference<WMT::RenderPipelineState>
   GetNativeTessellationIndexedRenderPSO() const {
     return m_native_tessellation_indexed_render_pso;
@@ -321,6 +342,8 @@ private:
   bool m_uses_conservative_rasterization_reference_model = false;
   bool m_uses_attribute_at_vertex = false;
   uint32_t m_attribute_at_vertex_input_id = UINT32_MAX;
+  bool m_uses_independent_logic_op_emulation = false;
+  bool m_uses_independent_logic_op_depth_replay = false;
   bool m_uses_direct_resource_descriptor_heap = false;
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;
@@ -351,6 +374,12 @@ private:
   std::vector<uint8_t> m_cached_pso_blob;
 
   WMT::Reference<WMT::RenderPipelineState> m_render_pso;
+  std::vector<WMT::Reference<WMT::RenderPipelineState>>
+      m_independent_logic_op_render_psos;
+  WMT::Reference<WMT::RenderPipelineState>
+      m_independent_logic_op_depth_only_pso;
+  WMT::Reference<WMT::DepthStencilState>
+      m_independent_logic_op_no_write_depth_state;
   WMT::Reference<WMT::Library> m_conservative_vertex_library;
   WMT::Reference<WMT::Function> m_conservative_vertex_function;
   WMT::Reference<WMT::RenderPipelineState>

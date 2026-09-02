@@ -329,16 +329,20 @@ The default required probe groups prove:
 - `probe-vrs` (opt-in): the per-draw shading-rate matrix, a copied constant
   `R8_UINT` image attachment, reduced-invocation readback, and command-list
   reset/reuse.
-- `probe-rov` (opt-in): a bounded pixel `RasterizerOrderedByteAddressBuffer`
-  load/increment/store proof. Three overlapping primitives at one pixel return
-  the exact ordered UAV value `3`; the typed lowering maps the DXIL ROV flag to
-  Metal `raster_order_group(0)`. The public ROV capability remains conservative
-  until the complete resource/state matrix is closed.
+- `probe-rov` (opt-in): bounded pixel ROV buffer and typed-texture
+  load/increment/store proofs. `RasterizerOrderedByteAddressBuffer`,
+  `RasterizerOrderedStructuredBuffer`, and `RasterizerOrderedTexture2D<uint>`
+  each return the exact ordered UAV value `3` for three overlapping primitives;
+  the typed lowering maps each DXIL ROV flag to Metal
+  `raster_order_group(0)`. The public ROV capability remains conservative until
+  the complete resource/state matrix is closed.
 - `probe-wave-ops`: WaveOps audit and reporting denial/proof.
 - `probe-reflection-abi`: reflected shader bindings against the descriptor and
   root-signature ABI.
-- `probe-graphics-pso`: graphics PSO matrix behavior, logic-op PSO creation,
-  and unsupported-stage rejection.
+- `probe-graphics-pso`: graphics PSO matrix behavior, independent per-render-
+  target XOR/AND logic-operation variants with a D32 depth attachment and
+  exact two-target readback, logic-op PSO creation, and unsupported-stage
+  rejection.
 - `probe-render-headless`: required offscreen execution/readback, including
   `D3D12_LOGIC_OP_XOR` on render target 0.
 - `probe-compute-pso`: compute PSO matrix behavior.
@@ -382,7 +386,8 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp --no-loader \
 
 For graphics PSO coverage, run the matrix probe. It validates vertex-only,
 vertex/pixel, depth-only, color-only, color+depth, MSAA, blend, write-mask,
-multi-render-target pixel outputs, logic-op PSO creation, cached PSO blob
+multi-render-target pixel outputs, independent per-render-target logic-op
+variants/readback, logic-op PSO creation, cached PSO blob
 behavior, complex input layouts, and explicit rejection of stream output and
 HS/DS tessellation:
 

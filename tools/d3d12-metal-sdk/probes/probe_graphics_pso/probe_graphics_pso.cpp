@@ -512,6 +512,265 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
     return all_ok;
 }
 
+struct IndependentLogicOpProbeResult {
+    bool passed = false;
+    HRESULT compile_hr = E_FAIL;
+    HRESULT execute_hr = E_FAIL;
+    uint32_t target0 = 0;
+    uint32_t target1 = 0;
+};
+
+static IndependentLogicOpProbeResult run_independent_logic_op_probe(
+    ID3D12Device* device, ID3D12RootSignature* root) {
+    IndependentLogicOpProbeResult result;
+    if (!device || !root)
+        return result;
+
+    const char* hlsl = R"HLSL(
+struct VSOut { float4 position : SV_Position; };
+VSOut logic_vs(uint vertex_id : SV_VertexID) {
+    VSOut output;
+    output.position = vertex_id == 0
+        ? float4(-1.0, -1.0, 0.0, 1.0)
+        : (vertex_id == 1 ? float4(3.0, -1.0, 0.0, 1.0)
+                          : float4(-1.0, 3.0, 0.0, 1.0));
+    return output;
+}
+struct PSOut {
+    float4 target0 : SV_Target0;
+    float4 target1 : SV_Target1;
+};
+PSOut logic_ps(VSOut input) {
+    PSOut output;
+    output.target0 = float4(51.0 / 255.0, 15.0 / 255.0,
+                            85.0 / 255.0, 1.0);
+    output.target1 = float4(60.0 / 255.0, 60.0 / 255.0,
+                            15.0 / 255.0, 1.0);
+    return output;
+}
+)HLSL";
+    std::string errors;
+    ID3DBlob* vs = nullptr;
+    ID3DBlob* ps = nullptr;
+    HRESULT vs_hr = compile_shader(hlsl, "logic_vs", "vs_5_0", &vs, errors);
+    HRESULT ps_hr = compile_shader(hlsl, "logic_ps", "ps_5_0", &ps, errors);
+    result.compile_hr = FAILED(vs_hr) ? vs_hr : ps_hr;
+    if (FAILED(result.compile_hr) || !vs || !ps) {
+        safe_release(ps);
+        safe_release(vs);
+        return result;
+    }
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC pso_desc = {};
+    pso_desc.pRootSignature = root;
+    pso_desc.VS = {vs->GetBufferPointer(), vs->GetBufferSize()};
+    pso_desc.PS = {ps->GetBufferPointer(), ps->GetBufferSize()};
+    pso_desc.BlendState = default_blend_desc();
+    pso_desc.BlendState.IndependentBlendEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].LogicOpEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_XOR;
+    pso_desc.BlendState.RenderTarget[1].LogicOpEnable = TRUE;
+    pso_desc.BlendState.RenderTarget[1].LogicOp = D3D12_LOGIC_OP_AND;
+    pso_desc.SampleMask = UINT_MAX;
+    pso_desc.RasterizerState = default_rasterizer_desc();
+    pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    pso_desc.DepthStencilState = default_depth_stencil_desc();
+    pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    pso_desc.NumRenderTargets = 2;
+    pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.RTVFormats[1] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    pso_desc.SampleDesc.Count = 1;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+    ID3D12PipelineState* pso = nullptr;
+    result.compile_hr = device->CreateGraphicsPipelineState(
+        &pso_desc, IID_PPV_ARGS(&pso));
+    if (FAILED(result.compile_hr) || !pso) {
+        safe_release(pso);
+        safe_release(ps);
+        safe_release(vs);
+        return result;
+    }
+
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12GraphicsCommandList* list = nullptr;
+    ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12DescriptorHeap* dsv_heap = nullptr;
+    ID3D12Resource* targets[2] = {};
+    ID3D12Resource* readbacks[2] = {};
+    ID3D12Resource* depth = nullptr;
+    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+    HRESULT hr = device->CreateCommandQueue(
+        &queue_desc, IID_PPV_ARGS(&queue));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(
+            D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+            IID_PPV_ARGS(&list));
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    heap_desc.NumDescriptors = 2;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&rtv_heap));
+    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc = {};
+    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsv_heap_desc.NumDescriptors = 1;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(&dsv_heap_desc,
+                                          IID_PPV_ARGS(&dsv_heap));
+
+    D3D12_RESOURCE_DESC target_desc = {};
+    target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    target_desc.Width = 1;
+    target_desc.Height = 1;
+    target_desc.DepthOrArraySize = 1;
+    target_desc.MipLevels = 1;
+    target_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    target_desc.SampleDesc.Count = 1;
+    target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    D3D12_RESOURCE_DESC depth_desc = target_desc;
+    depth_desc.Format = DXGI_FORMAT_D32_FLOAT;
+    depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    D3D12_CLEAR_VALUE depth_clear = {};
+    depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+    depth_clear.DepthStencil.Depth = 1.0f;
+    D3D12_HEAP_PROPERTIES default_heap = {};
+    default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_HEAP_PROPERTIES readback_heap = {};
+    readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+    UINT row_count = 0;
+    UINT64 row_size = 0;
+    UINT64 total_bytes = 0;
+    device->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint,
+                                  &row_count, &row_size, &total_bytes);
+    if (total_bytes == 0)
+        hr = E_FAIL;
+    for (UINT i = 0; i < 2 && SUCCEEDED(hr); ++i) {
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+            IID_PPV_ARGS(&targets[i]));
+        if (SUCCEEDED(hr)) {
+            D3D12_RESOURCE_DESC readback_desc = {};
+            readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            readback_desc.Width = total_bytes;
+            readback_desc.Height = 1;
+            readback_desc.DepthOrArraySize = 1;
+            readback_desc.MipLevels = 1;
+            readback_desc.SampleDesc.Count = 1;
+            readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            hr = device->CreateCommittedResource(
+                &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+                D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                IID_PPV_ARGS(&readbacks[i]));
+        }
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &depth_desc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, &depth_clear,
+            IID_PPV_ARGS(&depth));
+
+    if (SUCCEEDED(hr)) {
+        const UINT descriptor_size = device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2] = {
+            rtv_heap->GetCPUDescriptorHandleForHeapStart(), {0}};
+        rtvs[1].ptr = rtvs[0].ptr + descriptor_size;
+        for (UINT i = 0; i < 2; ++i)
+            device->CreateRenderTargetView(targets[i], nullptr, rtvs[i]);
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+            dsv_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateDepthStencilView(depth, nullptr, dsv);
+        const float clear0[4] = {15.0f / 255.0f, 240.0f / 255.0f,
+                                 170.0f / 255.0f, 85.0f / 255.0f};
+        const float clear1[4] = {240.0f / 255.0f, 204.0f / 255.0f,
+                                 170.0f / 255.0f, 85.0f / 255.0f};
+        list->ClearRenderTargetView(rtvs[0], clear0, 0, nullptr);
+        list->ClearRenderTargetView(rtvs[1], clear1, 0, nullptr);
+        list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0,
+                                    0, nullptr);
+        list->SetPipelineState(pso);
+        list->SetGraphicsRootSignature(root);
+        D3D12_VIEWPORT viewport = {0, 0, 1, 1, 0, 1};
+        D3D12_RECT scissor = {0, 0, 1, 1};
+        list->RSSetViewports(1, &viewport);
+        list->RSSetScissorRects(1, &scissor);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list->OMSetRenderTargets(2, rtvs, FALSE, &dsv);
+        list->DrawInstanced(3, 1, 0, 0);
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+        for (UINT i = 0; i < 2; ++i) {
+            barriers[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barriers[i].Transition.pResource = targets[i];
+            barriers[i].Transition.Subresource =
+                D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            barriers[i].Transition.StateBefore =
+                D3D12_RESOURCE_STATE_RENDER_TARGET;
+            barriers[i].Transition.StateAfter =
+                D3D12_RESOURCE_STATE_COPY_SOURCE;
+        }
+        list->ResourceBarrier(2, barriers);
+        for (UINT i = 0; i < 2; ++i) {
+            D3D12_TEXTURE_COPY_LOCATION source = {};
+            source.pResource = targets[i];
+            source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_TEXTURE_COPY_LOCATION destination = {};
+            destination.pResource = readbacks[i];
+            destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            destination.PlacedFootprint = footprint;
+            list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+        }
+        result.execute_hr = execute_and_wait(device, queue, list);
+    } else {
+        result.execute_hr = hr;
+    }
+
+    if (SUCCEEDED(result.execute_hr)) {
+        for (UINT i = 0; i < 2; ++i) {
+            void* mapped = nullptr;
+            D3D12_RANGE range = {0, total_bytes};
+            bool mapped_ok = SUCCEEDED(readbacks[i]->Map(
+                0, &range, &mapped)) && mapped;
+            if (!mapped_ok) {
+                result.execute_hr = E_FAIL;
+                break;
+            }
+            std::memcpy(i == 0 ? &result.target0 : &result.target1, mapped,
+                        sizeof(uint32_t));
+            readbacks[i]->Unmap(0, nullptr);
+        }
+    }
+    result.passed = SUCCEEDED(result.compile_hr) &&
+                    SUCCEEDED(result.execute_hr) &&
+                    result.target0 == 0xaaffff3cu &&
+                    result.target1 == 0x550a0c30u;
+
+    for (auto*& resource : readbacks)
+        safe_release(resource);
+    for (auto*& resource : targets)
+        safe_release(resource);
+    safe_release(depth);
+    safe_release(dsv_heap);
+    safe_release(rtv_heap);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+    safe_release(pso);
+
+    safe_release(ps);
+    safe_release(vs);
+    return result;
+}
+
 int main() {
     const std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
 
@@ -676,7 +935,7 @@ float4 tess_ps(TessCP input) : SV_Target {
         logic_op_mrt.BlendState.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_XOR;
         logic_op_mrt.BlendState.RenderTarget[1].LogicOpEnable = TRUE;
         logic_op_mrt.BlendState.RenderTarget[1].LogicOp = D3D12_LOGIC_OP_AND;
-        run_case(device, "logic_op_mrt_rejected", logic_op_mrt, false, results);
+        run_case(device, "logic_op_mrt_independent_variants", logic_op_mrt, true, results);
 
         run_cached_blob_case(device, "cached_blob_roundtrip", base, results);
 
@@ -726,6 +985,9 @@ float4 tess_ps(TessCP input) : SV_Target {
     const bool conservative_rasterization_ok = run_conservative_coverage_probe(
         device, root, conservative_vs, conservative_ps, conservative_case_count, conservative_rendered_pixels);
     pass = pass && conservative_rasterization_ok;
+    const IndependentLogicOpProbeResult independent_logic_op =
+        run_independent_logic_op_probe(device, root);
+    pass = pass && independent_logic_op.passed;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-graphics-pso.v1\",\n");
@@ -761,7 +1023,13 @@ float4 tess_ps(TessCP input) : SV_Target {
     std::printf("    \"msaa\": true,\n");
     std::printf("    \"blend\": true,\n");
     std::printf("    \"logic_op_xor\": true,\n");
-    std::printf("    \"logic_op_mrt_rejected\": true,\n");
+    std::printf("    \"logic_op_mrt_independent_variants\": true,\n");
+    std::printf("    \"logic_op_independent_readback\": %s,\n",
+                independent_logic_op.passed ? "true" : "false");
+    std::printf("    \"logic_op_independent_target0\": %u,\n",
+                independent_logic_op.target0);
+    std::printf("    \"logic_op_independent_target1\": %u,\n",
+                independent_logic_op.target1);
     std::printf("    \"write_mask\": true,\n");
     std::printf("    \"input_layout_semantics\": true,\n");
     std::printf("    \"input_layout_per_instance_step_rate\": 2,\n");
