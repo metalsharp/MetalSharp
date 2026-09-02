@@ -22,6 +22,19 @@
       "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource."
     },
     {
+      "id": "binary64-emulation",
+      "status": "observed_bounded",
+      "result": "probe-dxil-semantics",
+      "checks": [
+        ["result", "ok=true"],
+        ["readback", "double_arithmetic"],
+        ["readback", "double_ieee754_add_multiply_divide_remainder_compare_matrices"],
+        ["readback", "double_conversion_unary_predicate_fma"],
+        ["provider", "typed_DXIL_binary64_bit_level_emulation"]
+      ],
+      "scope": "The compute semantic probe passes all declared binary64 arithmetic, IEEE-754 edge, comparison, conversion, unary, predicate, and FMA cases. This is emulation, not native Metal double ALU, and the public report is tied to this provider."
+    },
+    {
       "id": "independent-per-render-target-logic-ops",
       "status": "observed_bounded",
       "result": "probe-graphics-pso",
@@ -56,6 +69,11 @@
     }
   ],
   "feature_reporting": {
+    "DoublePrecisionFloatShaderOps": {
+      "reported": true,
+      "provider": "typed_binary64_emulation",
+      "evidence": "probe-dxil-semantics exact binary64 matrix"
+    },
     "ROVsSupported": {
       "reported": false,
       "reason": "The ordered UAV provider is implemented and positively probed for the bounded raw-buffer shape, but the public capability remains conservative until the complete ROV resource/stage/state matrix is closed."

@@ -213,7 +213,8 @@ int main() {
 
     const bool fl12_2_caps =
         SUCCEEDED(levels_hr) && levels.MaxSupportedFeatureLevel >= D3D_FEATURE_LEVEL_12_2 && SUCCEEDED(options_hr) &&
-        options.OutputMergerLogicOp && options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3 &&
+        options.OutputMergerLogicOp && options.DoublePrecisionFloatShaderOps &&
+        options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3 &&
         options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3 &&
         options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_3 &&
         options.VPAndRTArrayIndexFromAnyShaderFeedingRasterizerSupportedWithoutGSEmulation &&
@@ -281,6 +282,8 @@ int main() {
     std::printf("    \"resource_binding_tier\": %u,\n", static_cast<unsigned>(options.ResourceBindingTier));
     std::printf("    \"rovs_supported\": %s,\n", options.ROVsSupported ? "true" : "false");
     std::printf("    \"output_merger_logic_op\": %s,\n", options.OutputMergerLogicOp ? "true" : "false");
+    std::printf("    \"double_precision_float_shader_ops\": %s,\n",
+                options.DoublePrecisionFloatShaderOps ? "true" : "false");
     std::printf("    \"raytracing_tier\": %u,\n", static_cast<unsigned>(options5.RaytracingTier));
     std::printf("    \"srv_only_tiled_resource_tier3\": %s,\n", options5.SRVOnlyTiledResourceTier3 ? "true" : "false");
     std::printf("    \"vrs_tier\": %u,\n", static_cast<unsigned>(options6.VariableShadingRateTier));

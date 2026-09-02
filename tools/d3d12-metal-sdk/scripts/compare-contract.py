@@ -477,6 +477,7 @@ def check_feature_contract(results: dict[str, dict[str, Any]], contract: dict[st
 def field_to_options_value(options: dict[str, Any], field: str) -> Any:
     mapping = {
         "ResourceBindingTier": options.get("resource_binding_tier"),
+        "DoublePrecisionFloatShaderOps": options.get("double_precision_float_shader_ops"),
         "ROVsSupported": options.get("rovs_supported"),
         "ConservativeRasterizationTier": options.get("conservative_rasterization_tier"),
         "OutputMergerLogicOp": options.get("output_merger_logic_op"),

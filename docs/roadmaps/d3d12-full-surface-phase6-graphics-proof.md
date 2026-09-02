@@ -33,6 +33,29 @@ The implementation remains fail-closed for an ROV resource outside the pixel
 UAV provider. `ROVsSupported` remains `FALSE` until the complete resource,
 format, state, and graphics matrix is independently closed.
 
+## Binary64 emulation report
+
+The typed DXIL semantic corpus passes all 18 binary64 cases, including basic
+arithmetic, bitcast/make/split, dynamic arithmetic, IEEE-754 add/multiply/
+divide/remainder/compare matrices, float and integer conversions, unary and
+special-value predicates, and FMA. The runtime reports
+`DoublePrecisionFloatShaderOps` from the emulation provider. This is exact
+bit-level emulation and does not claim native Metal double-precision ALU.
+
+The remaining minimum-precision report stays conservative pending a dedicated
+conversion/rounding matrix. The semantic reproduction is:
+
+```bash
+METAL_SHADER_CONVERTER=/nonexistent \
+tools/d3d12-metal-sdk/scripts/run-probes.sh \
+  --profile standalone-wine \
+  --wine /Users/averyfelts/.metalsharp/runtime/wine/bin/wine \
+  --prefix /Users/averyfelts/.metalsharp/prefix-steam \
+  --dxmt-runtime /Users/averyfelts/.metalsharp/runtime/wine/lib/dxmt_m12 \
+  --results-dir /private/tmp/phase6-semantic-current \
+  --semantic-only
+```
+
 ## Independent render-target logic operations
 
 Metal exposes one logic operation on a render pipeline, while D3D12 permits

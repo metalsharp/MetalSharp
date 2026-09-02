@@ -4837,7 +4837,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *opts = (D3D12_FEATURE_DATA_D3D12_OPTIONS *)feature_data;
     if (feature_data_size < sizeof(*opts))
       return E_INVALIDARG;
-    opts->DoublePrecisionFloatShaderOps = FALSE;
+    // The Metal device has no native double ALU, but the typed DXIL provider
+    // implements binary64 arithmetic as exact IEEE-754 bit-level emulation.
+    // This report is tied to the emulation provider rather than native Metal
+    // feature bits; unsupported operations still reject during lowering.
+    opts->DoublePrecisionFloatShaderOps =
+        GetHostCapabilities().device_available &&
+        GetHostCapabilities().supports_compute_emulation;
     opts->OutputMergerLogicOp = TRUE;
     opts->MinPrecisionSupport = D3D12_SHADER_MIN_PRECISION_SUPPORT_NONE;
     opts->TiledResourcesTier = D3D12_TILED_RESOURCES_TIER_3;

@@ -240,6 +240,7 @@ int main() {
     bool shader_model_target_ok = SUCCEEDED(sm_hr) && shader_model.HighestShaderModel >= D3D_SHADER_MODEL_6_5;
     bool shader_model_6_6_or_better = SUCCEEDED(sm_hr) && shader_model.HighestShaderModel >= D3D_SHADER_MODEL_6_6;
     bool binding_tier_ok = SUCCEEDED(options_hr) && options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3;
+    bool double_precision_reported = SUCCEEDED(options_hr) && options.DoublePrecisionFloatShaderOps;
     bool wave_ops_proven_reported = SUCCEEDED(options1_hr) && options1.WaveOps && options1.WaveLaneCountMin == 32 &&
                                     options1.WaveLaneCountMax == 32;
     bool atomic64_conservative = SUCCEEDED(options9_hr) && options9.AtomicInt64OnTypedResourceSupported &&
@@ -260,7 +261,7 @@ int main() {
     bool feature_query_validation = invalid_feature_hr == E_INVALIDARG && zero_size_feature_hr == E_INVALIDARG &&
                                     null_data_feature_hr == E_POINTER && null_feature_level_list_hr == E_INVALIDARG;
     bool pass = SUCCEEDED(create_hr) && feature_level_ok && shader_model_target_ok && binding_tier_ok &&
-                wave_ops_proven_reported && atomic64_conservative && advanced_features_reported &&
+                double_precision_reported && wave_ops_proven_reported && atomic64_conservative && advanced_features_reported &&
                 gpu_upload_supported && stream_output_conservative && reserved_resources_unsupported &&
                 state_objects_unsupported &&
                 feature_query_validation;
@@ -292,6 +293,8 @@ int main() {
     std::printf("    \"resource_binding_tier\": %u,\n", static_cast<unsigned>(options.ResourceBindingTier));
     std::printf("    \"resource_heap_tier\": %u,\n", static_cast<unsigned>(options.ResourceHeapTier));
     std::printf("    \"output_merger_logic_op\": %s,\n", options.OutputMergerLogicOp ? "true" : "false");
+    std::printf("    \"double_precision_float_shader_ops\": %s,\n",
+                options.DoublePrecisionFloatShaderOps ? "true" : "false");
     std::printf("    \"rovs_supported\": %s,\n", options.ROVsSupported ? "true" : "false");
     std::printf("    \"conservative_rasterization_tier\": %u\n",
                 static_cast<unsigned>(options.ConservativeRasterizationTier));

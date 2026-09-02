@@ -206,7 +206,9 @@ The runtime still returns false, zero, partial, or otherwise conservative values
 for feature families that this roadmap must implement before reporting support:
 
 - ROVs and ordered pixel UAV access.
-- Double precision and minimum-precision shader behavior.
+- Minimum-precision shader behavior; binary64 arithmetic is now exposed through
+  the exact typed emulation provider, while native Metal double ALU remains
+  unavailable.
 - Programmable sample positions.
 - View instancing and barycentrics.
 - 64-KB MSAA alignment and native 16-bit shader operations.
@@ -1253,7 +1255,8 @@ not check its children.
       UAV readback; full public ROV breadth remains open.
 - [x] Independent per-render-target logic operations are backed by exact
       two-target XOR/AND readback through target-specific pipeline variants.
-- [ ] Double precision is backed by arithmetic readback.
+- [x] Binary64 emulation is backed by arithmetic/IEEE-754 conversion readback;
+      native Metal double ALU is not claimed.
 - [ ] Minimum precision is backed by conversion/rounding readback.
 - [ ] Programmable sample positions are backed by sample coverage readback.
 - [ ] View instancing and barycentrics are backed by per-view/primitive output.
@@ -1982,3 +1985,14 @@ whether the scoped FL12_2 gate is green.
 - This closes the independent per-render-target logic-operation row in the
   Phase 6 bounded coverage contract. Other Phase 6 graphics matrices remain
   open and no full Phase 6 promotion is claimed.
+
+### 2026-09-02 — Phase 6 binary64 emulation report and readback checkpoint
+
+- The exact 61-case DXIL semantic run passes all binary64 arithmetic,
+  IEEE-754 edge, comparison, conversion, unary, predicate, and FMA cases.
+  `D3D12_OPTIONS.DoublePrecisionFloatShaderOps` now follows the available
+  typed binary64 emulation provider rather than claiming native Metal double
+  instructions; native Metal double ALU remains unadvertised.
+- `probe-device-caps` and the feature-level probe expose and validate the
+  behavior-backed double-precision report. Minimum precision remains
+  conservative until its conversion/rounding matrix is independently closed.
