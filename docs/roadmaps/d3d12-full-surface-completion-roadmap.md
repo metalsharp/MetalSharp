@@ -1698,13 +1698,19 @@ whether the scoped FL12_2 gate is green.
 - Confirmed the DXIL ABI from the pinned DXC sources:
   `attributeAtVertex.<overload>(i32 137, i32 input-element-id, i32 row,
   i8 column, i8 vertex-index)`, with vertex indices restricted to `0..2` and
-  the input signature required to be `nointerpolation`.
+  the input signature required to be `nointerpolation`. The lowerer now emits
+  stage-, operand-, and vertex-index-specific diagnostics and rejects the
+  unsupported operation before MSL/PSO creation.
 - Added the standalone native Metal 4 control probe
   `tools/d3d12-metal-sdk/scripts/probe-metal-vertex-value.mm`. Under Xcode 27
   beta 6 it compiles both functions and creates both PSOs, but on the Apple M4
   (Apple9) exact readback is `constant=[255,0,0,255]` and
   `vertex_value=[0,0,0,0]`; `MTLGPUFamilyApple10` is not reported. The probe
   exits successfully only for this explicitly identified negative boundary.
-- This is a hardware capability/rejection proof, not a behavior-backed
-  `AttributeAtVertex` promotion. The opcode matrix remains
-  **234 observed / 46 open / 32 reserved**, and Phase 5 remains open.
+- Added `tools/d3d12-metal-sdk/scripts/probe-metal-cycle-counter.mm` as the
+  matching native-provider negative. Metal 4.0 rejects `clock()` on Apple M4
+  with the exact compiler diagnostic `use of undeclared identifier 'clock'`;
+  this does not establish CycleCounterLegacy behavior.
+- These are hardware capability/rejection proofs, not behavior-backed
+  `AttributeAtVertex` or `CycleCounterLegacy` promotions. The opcode matrix
+  remains **234 observed / 46 open / 32 reserved**, and Phase 5 remains open.

@@ -452,7 +452,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "Strict closeout accounting remains open at 234/280 required opcode rows observed, 46 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy; opcode 137 AttributeAtVertex; opcodes 238-253 Work Graph/node operations; and opcodes 262-289 SER/HitObject operations. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback; CycleCounterLegacy, Work Graph/node, and SER/HitObject positive/negative behavior remain incomplete, as does the broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix."
+      "remaining": "Strict closeout accounting remains open at 234/280 required opcode rows observed, 46 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy; opcode 137 AttributeAtVertex; opcodes 238-253 Work Graph/node operations; and opcodes 262-289 SER/HitObject operations. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback. CycleCounterLegacy now has an exact native Metal 4.0 clock-rejection negative, but no exact DXIL runtime readback or semantically equivalent provider. Work Graph/node and SER/HitObject positive/negative behavior remain incomplete, as does the broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix."
     }
   ]
 }
