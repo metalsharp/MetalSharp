@@ -52,6 +52,23 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_FEATURE_D3D12_OPTIONS2_SAMPLE_POSITIONS": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_command_replay"
+      ],
+      "probe_status": "four_pixel_four_sample_programmable_pattern_exact_resolve_readback_passed",
+      "reported": "partial",
+      "required_fields": [
+        "ProgrammableSamplePositionsTier"
+      ],
+      "proven_subset": [
+        "four-sample per-pixel programmable positions affecting raster coverage"
+      ],
+      "risk": "The report promotes the validated Tier 1 four-pixel pattern only; broader sample counts, patterns, and interactions remain open.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS3_WRITE_BUFFER_IMMEDIATE": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_command_replay",
       "probe_status": "copy_timestamp_and_write_immediate_readbacks_passed",

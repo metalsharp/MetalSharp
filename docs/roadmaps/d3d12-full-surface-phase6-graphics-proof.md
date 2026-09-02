@@ -47,8 +47,10 @@ half operations. `D3D12_OPTIONS4.Native16BitShaderOpsSupported` is promoted
 from that provider, while `MSAA64KBAlignedTextureSupported` remains false. The
 bounded view-instancing provider also passes the two-view mask/array-slice
 matrix with exact red/green `SV_ViewID` output and now reports
-`ViewInstancingTier=1`; barycentrics remain false. The remaining
-minimum-precision report stays conservative pending a dedicated
+`ViewInstancingTier=1`; barycentrics remain false. The command replay probe
+also passes a four-pixel/four-sample programmable sample-position pattern with
+exact black/red resolve output, backing `ProgrammableSamplePositionsTier=1`.
+The remaining minimum-precision report stays conservative pending a dedicated
 conversion/rounding matrix. The semantic reproduction is:
 
 ```bash
