@@ -1730,3 +1730,14 @@ whether the scoped FL12_2 gate is green.
   `CreateComputePipelineState=0x80004005`. This is an exact fail-closed
   negative, not positive CycleCounterLegacy evidence; the row remains open
   pending an exact counter readback or a semantically equivalent provider.
+
+### 2026-09-01 — Phase 5 AttributeAtVertex runtime rejection checkpoint
+
+- Compiled a pinned DXC `ps_6_1` shader whose pixel DXIL contains twelve
+  `attributeAtVertex.f32` calls (opcode 137) across three no-interpolation
+  inputs and vertex indices `0..2`; its vertex companion compiled successfully.
+- With the freshly rebuilt/staged ABI-matched runtime, device and root-signature
+  creation returned `S_OK`, while graphics PSO creation returned exactly
+  `0x80004005` after the DXIL report recorded `unsupported_intrinsics=12` and
+  `unsupported_opcodes=0`. This confirms fail-closed runtime behavior without
+  claiming a positive readback; row 137 remains open.
