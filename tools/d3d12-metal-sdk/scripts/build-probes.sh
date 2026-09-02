@@ -178,6 +178,10 @@ build_probe \
   -o "$OUT_DIR/probe_attribute_at_vertex.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_cycle_counter/probe_cycle_counter.cpp" \
+  -o "$OUT_DIR/probe_cycle_counter.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_compute_pso/probe_compute_pso.cpp" \
   -o "$OUT_DIR/probe_compute_pso.exe"
 

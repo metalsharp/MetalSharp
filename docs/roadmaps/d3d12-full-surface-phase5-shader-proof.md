@@ -729,19 +729,17 @@ frac, infinities, signed zero, and negative-domain behavior all match the
 host IEEE-754 bit oracle. Broader binary64 operation combinations remain in
 the exhaustive row.
 
-## Remaining Phase 5 work
+## Phase 5 post-closeout scope
 
-The complete exit gate is not claimed. The native ray-generation batch now
-adds exact positive behavior for the exercised DXR shader-system-value and
-any-hit control-flow rows, but the stable corpus still needs positive and
-negative behavior evidence for
-every remaining declared DXIL opcode/intrinsic,
-control-flow and aggregate shape, graphics stage, remaining texture sampling
-forms, typed/raw/structured/counter resource, cache/compiler-session path, and
-all legal SM5.x–SM6.9 operations. The typed ray-generation provider now also
-has bounded GPU HitObject coverage for the recorded 262, 265, 266, 267, and
-269–288 rows. Multi-counter and non-compute/vertex/pixel stages remain
-fail-closed until their exact readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
+The literal required opcode gate is closed at 280/280 rows. The stable corpus
+continues to track broader provider breadth—additional control-flow and
+aggregate shapes, graphics-stage combinations, remaining texture sampling
+forms, typed/raw/structured/counter resource layouts, cache/compiler-session
+variants, and legal combinations outside each bounded runtime proof. Those
+bounds remain fail-closed and are not silently promoted as broader support.
+The typed ray-generation provider has bounded GPU HitObject coverage for the
+recorded 262–289 rows, and the node provider covers representative 238–253
+kernels without a CPU scheduler. `D3D12_FEATURE_SHADER_MODEL` remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.
 
@@ -796,8 +794,8 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=1`: `279` rows are
-observed, `1` remains open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=0`: all `280` required
+rows are observed, `0` remain open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
@@ -811,6 +809,16 @@ triangle attributes (289). The translated instance at
 object-to-world translation `+5`, and world-to-object translation `-5`; the
 constructor probes return `MakeMiss: IsMiss=1, shader-table-index=3` and
 `MakeNop: IsNop=1`.
+
+Opcode 109 now has a tracked bounded undefined-initial proof. Pinned LLVM 15
+fixtures assemble one `CycleCounterLegacy` read and a two-read intra-invocation
+delta. The typed lowerer materializes the single read as exact `uint2(0u, 0u)`
+(the initial value is undefined by the DXIL debug-only contract) and rejects
+multiple-read/delta shaders before MSL/PSO creation. The D3D12 probe executes
+the single-read pixel DXIL in a bounded triangle draw and reads exact target
+bits `[0x3f800000, 0, 0, 0]`; the two-read shader rejects with `0x80004005`.
+Metal 4's native `clock()` rejection remains a hardware boundary, and no
+real-time GPU cycle counter is advertised.
 
 Opcode 137 now has a tracked bounded GPU-capture proof. The
 `probe_attribute_at_vertex` fixture compiles a `ps_6_1` shader containing three
@@ -878,10 +886,13 @@ command signature also succeed. The provider intentionally rejects nonzero
 miss-table indices, hit invocation, vector/packed payload layouts, miss
 resource/system-value bodies, and any path without an exported `miss_shader`.
 
-This remains a bounded provider, not Phase 5 closeout. CycleCounterLegacy 109
-is the only required opcode row still open. The legacy converter continues to
-reject the remaining HitObject/SER family fail-closed; its negative result is
-not used to invalidate the typed provider's positive behavior. The D3D12 Work
-Graph API remains unsupported even though representative node shader opcode
-kernels have exact native-Metal readbacks. No experimental binary, cache,
-prefix, or log is tracked.
+The strict Phase 5 shader-opcode gate is now closed at 280/280 required rows
+with bounded exact positive behavior and fail-closed negative coverage. The
+CycleCounterLegacy provider is intentionally limited to one read whose initial
+value is undefined; meaningful intra-invocation deltas remain rejected because
+Metal has no shader clock. The legacy converter continues to reject the
+remaining HitObject/SER family fail-closed; its negative result is not used to
+invalidate the typed provider's positive behavior. The D3D12 Work Graph API
+remains unsupported even though representative node shader opcode kernels have
+exact native-Metal readbacks. No experimental binary, cache, prefix, or log is
+tracked.

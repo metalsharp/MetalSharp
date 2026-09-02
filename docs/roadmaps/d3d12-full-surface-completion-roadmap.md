@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (279/280 required opcode rows observed; 1 open)
+- [x] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (280/280 required opcode rows observed; 0 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -778,13 +778,16 @@ one-node kernel provider covers representative Work Graph opcodes 238–253
 without adding a CPU scheduler; D3D12 Work Graph API execution remains
 unsupported and is not promoted.
 
-The exhaustive Phase 5 matrix currently has 279 observed, 1 open, and 32
+The exhaustive Phase 5 matrix now has 280 observed, 0 open, and 32
 reserved/not-applicable rows. The bounded AttributeAtVertex provider captures
 one validated float32 `nointerpolation` vertex output into a transient GPU
 buffer and returns exact three-vertex readbacks for a triangle-list draw on
 Apple M4/Metal 4; other signature/type, operand, indexed/strip, multi-instance,
 geometry/tessellation, and depth-bounds combinations remain fail-closed. The
-core temporary-register and min-precision
+bounded CycleCounterLegacy provider accepts the debug-only single-read form,
+materializes its undefined initial value as zero, and rejects meaningful
+multiple-read/delta forms before PSO creation because Metal has no shader
+clock. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
 compiled `EmitThenCutStream` form and a source-staged two-instance
@@ -796,13 +799,14 @@ Broader patch-constant layouts, non-default geometry instance counts, DXIL
 geometry-provider breadth, vector overloads, and broader stage matrices remain
 open.
 
-**Phase 5 closeout plan (literal gate retained):** Work is now batched by the
-remaining matrix families rather than by ad-hoc probes. First close the
-remaining stage-system cycle-counter boundary with exact runtime/negative
-evidence; `AttributeAtVertex` now has a bounded positive GPU-capture proof. The shader-opcode portion of the Phase 7
-Work Graph/node family now has an explicit GPU-native one-node provider, but
-D3D12 Work Graph state objects and multi-node scheduling remain a later API
-provider gap. Compilation or interface presence alone cannot close that gap.
+**Phase 5 closeout:** The literal shader-opcode gate is closed at 280/280
+required rows with exact bounded positive behavior and fail-closed negative
+coverage. The CycleCounterLegacy provider is intentionally limited to one read
+whose initial value is undefined; meaningful intra-invocation deltas remain
+rejected on Metal 4. The shader-opcode portion of the Phase 7 Work Graph/node
+family now has an explicit GPU-native one-node provider, but D3D12 Work Graph
+state objects and multi-node scheduling remain a later API provider gap.
+Compilation or interface presence alone cannot close that gap.
 The bounded Phase 8 HitObject provider now covers the recorded 262–289 forms,
 with optional SER scheduling represented by a documented no-reorder
 continuation provider rather than a CPU scheduler.
@@ -816,7 +820,9 @@ exact conservative-raster `InnerCoverage`, ViewID instancing, programmable
 sample-position/attribute-evaluation, writable-MSAA, and typed texture matrices,
 but broader raster/topology/ROV/depth-bias coverage remains open. Phase 7 has
 host-specific native mesh/amplification payload proofs for 64/128/256-byte
-payloads and a 64-thread group, while work graphs/node shaders remain open.
+payloads and a 64-thread group, while D3D12 Work Graph state-object and
+multi-node API execution remain open despite the closed bounded node-shader
+opcode lane.
 Phase 8 has exact inline RayQuery state/accessor/transform/contribution/
 procedural/abort behavior, indexed R16 BLAS coverage, and a host-specific
 native ray-generation system-value and any-hit control-flow matrix, while
@@ -1877,7 +1883,7 @@ whether the scoped FL12_2 gate is green.
   **262 observed / 18 open / 32 reserved**; only CycleCounterLegacy,
   AttributeAtVertex, and Work Graph/node opcodes remain open in the matrix.
 
-### 2026-09-02 — Phase 5 GPU-native Work Graph opcode batch
+### 2026-09-02 — Phase 5 GPU-native Work Graph opcode batch (intermediate)
 
 - Added source-owned SM6.8 node fixtures under
   `tools/d3d12-metal-sdk/probes/probe_workgraph/`, a pinned-DXIL node lowering
@@ -1896,7 +1902,7 @@ whether the scoped FL12_2 gate is green.
   itself remains open until those rows have exact positive or semantically
   equivalent runtime evidence.
 
-### 2026-09-02 — Phase 5 bounded AttributeAtVertex GPU-capture proof
+### 2026-09-02 — Phase 5 bounded AttributeAtVertex GPU-capture proof (intermediate)
 
 - Added a source-owned `ps_6_1`/`vs_6_0` fixture and the
   `probe_attribute_at_vertex` runtime lane. The fixture uses one
@@ -1916,5 +1922,23 @@ whether the scoped FL12_2 gate is green.
   and depth-bounds slot conflicts. It does not depend on Apple-9
   `vertex_value<T>` support or introduce a CPU scheduler.
 - The strict opcode validator is now **279 observed / 1 open / 32 reserved**;
-  only CycleCounterLegacy `109` remains open, so Phase 5 is still intentionally
-  not marked complete.
+  only CycleCounterLegacy `109` remains open at this intermediate checkpoint.
+
+### 2026-09-02 — Phase 5 bounded CycleCounterLegacy undefined-initial proof
+
+- Added pinned LLVM 15 source fixtures for one `CycleCounterLegacy` read and
+  for a two-read intra-invocation delta. The typed lowerer materializes the
+  single-read counter's undefined initial value as `uint2(0u)` and rejects
+  multiple reads before MSL/PSO creation; the standalone legacy converter
+  remains fail-closed.
+- The tracked D3D12 probe creates a pixel PSO from the assembled single-read
+  DXIL, executes a bounded triangle draw with a 15-second fence wait, and
+  reads exact target bits `[0x3f800000, 0, 0, 0]`. The two-read shader is
+  rejected with `0x80004005`, proving the meaningful-delta boundary remains
+  fail-closed rather than pretending Metal has a shader clock.
+- The native Metal 4 `clock()` rejection remains recorded as a hardware
+  boundary. This provider is debug-only and does not advertise a real-time
+  GPU cycle counter or alter the behavior-backed shader-model ceiling.
+- The strict opcode validator is now **280 observed / 0 open / 32 reserved**;
+  the required Phase 5 shader-opcode gate is closed and Phase 5 is marked
+  complete. Broader provider bounds and later phases remain separately open.

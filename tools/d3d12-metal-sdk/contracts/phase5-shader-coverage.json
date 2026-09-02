@@ -2,7 +2,7 @@
   "schema": "metalsharp.d3d12.phase5-shader-coverage.v1",
   "phase": 5,
   "profile": "metalsharp-isolated",
-  "status": "open",
+  "status": "closed",
   "rows": [
     {
       "id": "shader-model-progression-sm50-sm69",
@@ -526,12 +526,16 @@
     },
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
-      "status": "open",
-      "result": "probe-shader-corpus",
+      "status": "closed",
+      "result": "probe-shader-corpus;probe-attribute-at-vertex;probe-cycle-counter;probe-workgraph",
       "checks": [
-        ["pass"]
+        ["pass"],
+        ["required_rows", 280],
+        ["open_rows", 0],
+        ["cycle_counter_single_read_exact", true],
+        ["cycle_counter_multiple_read_rejected", true]
       ],
-      "remaining": "Strict closeout accounting remains open at 279/280 required opcode rows observed, 1 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy. The bounded AttributeAtVertex provider now captures one validated float32 nointerpolation vertex output into a transient GPU buffer and returns exact three-vertex readbacks on Apple M4/Metal 4; other signature/type, operand, indexed/strip, multi-instance, geometry/tessellation, and depth-bounds combinations remain fail-closed. CycleCounterLegacy still has an exact native Metal 4.0 clock-rejection negative; an ABI-matched direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`, with both DXIL lowerers failing closed before PSO creation. The descending SER/HitObject pass now has typed GPU-provider positive readbacks for opcodes 262-289, including bounded scalar MakeMiss/miss-shader Invoke, optional MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes barycentrics, local-root constants, state, ray-vector, transform, and scalar accessors. The bounded node-shader provider also executes representative opcodes 238-253 as GPU-native one-node kernels without a CPU scheduler; D3D12 Work Graph API execution, multi-node scheduling, and feature promotion remain unsupported. Under the documented runtime/provider boundaries, observed rows use exact GPU readbacks; the standalone legacy converter and unsupported API paths remain separately fail-closed. The broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix remains incomplete."
+      "remaining": "Strict closeout accounting is now 280/280 required opcode rows observed, 0 open, and 32 reserved/not-applicable. The bounded AttributeAtVertex provider captures one validated float32 nointerpolation vertex output into a transient GPU buffer and returns exact three-vertex readbacks on Apple M4/Metal 4; other signature/type, operand, indexed/strip, multi-instance, geometry/tessellation, and depth-bounds combinations remain fail-closed. CycleCounterLegacy is covered by the debug-only undefined-initial provider: a single read materializes as exact zero and multiple-read/delta shaders reject before PSO creation because Metal 4 has no shader clock. The descending SER/HitObject pass has typed GPU-provider positive readbacks for opcodes 262-289, including bounded scalar MakeMiss/miss-shader Invoke, optional MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes barycentrics, local-root constants, state, ray-vector, transform, and scalar accessors. The bounded node-shader provider executes representative opcodes 238-253 as GPU-native one-node kernels without a CPU scheduler; D3D12 Work Graph API execution, multi-node scheduling, and feature promotion remain unsupported. Under the documented runtime/provider boundaries, observed rows use exact GPU readbacks or exact fail-closed negatives; the standalone legacy converter and unsupported API paths remain separately fail-closed. Broader legal combinations outside each recorded provider bound remain tracked as fail-closed scope rather than open required opcode rows."
     }
   ]
 }

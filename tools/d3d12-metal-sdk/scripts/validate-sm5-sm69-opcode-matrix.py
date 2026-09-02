@@ -166,6 +166,7 @@ EVIDENCE: dict[int, list[str]] = {
     106: ["probe-mini-tessellation_shader_pso:store_patch_constant"],
     107: ["probe-mini-tessellation_shader_pso:output_control_point_id"],
     108: ["probe-mini-geometry-system-matrix:primitive_id_readback"],
+    109: ["probe-cycle-counter:single_read_undefined_initial_zero_readback"],
     110: ["probe-wave-ops:wave_matrix"],
     111: ["probe-wave-ops:wave_matrix"],
     112: ["probe-wave-ops:wave_matrix"],

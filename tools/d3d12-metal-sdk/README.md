@@ -337,6 +337,9 @@ The default required probe groups prove:
 - `probe-attribute-at-vertex` (opt-in): bounded SM6.1 `AttributeAtVertex`
   execution using a GPU vertex-output capture buffer, exact three-vertex
   readback, and fail-closed bounds for unsupported draw/provider shapes.
+- `probe-cycle-counter` (opt-in): bounded SM5/SM6 `CycleCounterLegacy` single-
+  read behavior, with the undefined initial value materialized as zero and
+  multi-read/delta shaders rejected before PSO creation.
 - `probe-barriers-render-pass`: barrier, render-pass, UAV, present, and
   readback visibility.
 - `probe-resource-views-formats`: resource/view/format coverage.
@@ -411,6 +414,15 @@ for all three vertices on Apple M4/Metal 4:
 ```bash
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
   --attribute-at-vertex-only
+```
+
+For bounded `CycleCounterLegacy` coverage, run the single-read provider probe.
+It uses pinned LLVM 15 to assemble the DXIL fixture, verifies an exact
+undefined-initial zero readback, and verifies multi-read/delta rejection:
+
+```bash
+tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
+  --cycle-counter-only
 ```
 
 For resource barrier and render-pass coverage, run the barrier/render-pass
