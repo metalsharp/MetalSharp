@@ -16,12 +16,14 @@
       "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
       "behavior_probes": [
         "tools/d3d12-metal-sdk/probes/probe_render_headless",
-        "tools/d3d12-metal-sdk/probes/probe_rov"
+        "tools/d3d12-metal-sdk/probes/probe_rov",
+        "tools/d3d12-metal-sdk/probes/probe_dxil_semantics"
       ],
-      "probe_status": "output_merger_logic_op_xor_and_bounded_rasterizer_ordered_uav_execution_readback_passed",
+      "probe_status": "output_merger_logic_op_xor_independent_logic_op_bounded_rov_and_binary64_execution_readbacks_passed",
       "reported": "supported",
       "required_fields": [
         "ResourceBindingTier",
+        "DoublePrecisionFloatShaderOps",
         "ROVsSupported",
         "ConservativeRasterizationTier",
         "OutputMergerLogicOp"
@@ -29,9 +31,10 @@
       "proven_subset": [
         "D3D12_LOGIC_OP_XOR render-target execution and exact readback",
         "Independent per-render-target XOR/AND logic operations with exact two-target readback",
+        "binary64 emulation arithmetic/IEEE-754/conversion/predicate/FMA readback",
         "Pixel RasterizerOrderedByteAddressBuffer load/increment/store ordering with Metal raster_order_group(0)"
       ],
-      "risk": "Output-merger logic operations are backed by exact XOR render/readback and an independent per-render-target XOR/AND readback. Metal's global logic-operation state is emulated with one target-write-mask pipeline variant per attachment and repeated draw encoding (with depth/stencil state-only replay); pixel shaders with UAV side effects remain fail-closed rather than duplicated. The Metal raster_order_group provider is proven for bounded byte-address, structured-buffer, and typed-texture pixel shapes, while the public ROV report remains false until the complete ROV resource/stage/state matrix is closed; conservative rasterization is restricted to validated rasterizer descriptions.",
+      "risk": "Output-merger logic operations are backed by exact XOR render/readback and an independent per-render-target XOR/AND readback. Metal's global logic-operation state is emulated with one target-write-mask pipeline variant per attachment and repeated draw encoding (with depth/stencil state-only replay); pixel shaders with UAV side effects remain fail-closed rather than duplicated. Binary64 is a typed bit-level emulation provider with an exact compute IEEE-754 matrix, not native Metal double ALU. The Metal raster_order_group provider is proven for bounded byte-address, structured-buffer, and typed-texture pixel shapes, while the public ROV report remains false until the complete ROV resource/stage/state matrix is closed; conservative rasterization is restricted to validated rasterizer descriptions.",
       "state": "required",
       "tier": "required"
     },
