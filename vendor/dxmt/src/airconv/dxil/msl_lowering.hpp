@@ -40,6 +40,15 @@ struct MSLVertexInputElement {
 };
 
 struct MSLLoweringOptions {
+  // Emit the stable IRConverter-compatible ray-generation visible-function
+  // ABI instead of a graphics/compute entry point.  This is used by the
+  // custom HitObject provider when Metal Shader Converter cannot consume
+  // DXIL 1.9 SER operations.
+  bool ray_generation = false;
+  // Library functions are DXIL-mangled (for example `?raygen@@...`).
+  // When a caller selects one export, use this source-level name to locate
+  // that function instead of relying on module order.
+  std::string entry_point;
   std::vector<MSLVertexInputElement> vertex_inputs;
   bool depth_bounds_test = false;
   bool depth_bounds_multisample = false;

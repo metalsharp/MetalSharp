@@ -11,6 +11,8 @@
 #include "d3d12_pipeline_state.hpp"
 #include "d3d12_query_heap.hpp"
 #include "d3d12_resource.hpp"
+#include "dxil/dxil_ir.hpp"
+#include "dxil/msl_lowering.hpp"
 
 #define TRACE(fmt, ...) DXMTD3D12Trace("Device", fmt, ##__VA_ARGS__)
 #define PLTRACE(fmt, ...) TRACE(fmt, ##__VA_ARGS__)
@@ -27,6 +29,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
+#include <cwctype>
 #include <limits>
 #include <mutex>
 #include <new>
@@ -2719,6 +2722,193 @@ private:
   bool m_valid = true;
 };
 
+static bool ExtractDXILBlob(const D3D12_SHADER_BYTECODE &bytecode,
+                             std::vector<uint8_t> &dxil) {
+  dxil.clear();
+  if (!bytecode.pShaderBytecode || bytecode.BytecodeLength < 8)
+    return false;
+  const auto *bytes = static_cast<const uint8_t *>(bytecode.pShaderBytecode);
+  const uint32_t magic = *reinterpret_cast<const uint32_t *>(bytes);
+  if (magic == dxmt::dxil::DXIL_FOURCC) {
+    dxil.assign(bytes, bytes + bytecode.BytecodeLength);
+    return true;
+  }
+  if (magic != dxmt::dxil::DXBC_FOURCC || bytecode.BytecodeLength < 32)
+    return false;
+  const uint32_t container_size =
+      std::min<uint32_t>(*reinterpret_cast<const uint32_t *>(bytes + 24),
+                         static_cast<uint32_t>(bytecode.BytecodeLength));
+  const uint32_t part_count = *reinterpret_cast<const uint32_t *>(bytes + 28);
+  if (part_count > 128 || 32u + part_count * 4u > container_size)
+    return false;
+  for (uint32_t i = 0; i < part_count; ++i) {
+    const uint32_t offset =
+        *reinterpret_cast<const uint32_t *>(bytes + 32u + i * 4u);
+    if (offset > container_size || offset + 8u > container_size)
+      continue;
+    const uint32_t part_size =
+        *reinterpret_cast<const uint32_t *>(bytes + offset + 4u);
+    if (part_size > container_size - offset - 8u)
+      continue;
+    if (*reinterpret_cast<const uint32_t *>(bytes + offset) !=
+        dxmt::dxil::DXIL_FOURCC)
+      continue;
+    dxil.assign(bytes + offset + 8u, bytes + offset + 8u + part_size);
+    return true;
+  }
+  return false;
+}
+
+static bool DXILUsesHitObject(const D3D12_SHADER_BYTECODE &bytecode) {
+  std::vector<uint8_t> dxil;
+  if (!ExtractDXILBlob(bytecode, dxil))
+    return false;
+  auto container = dxmt::dxil::DXILContainer::parse(dxil.data(), dxil.size());
+  if (!container)
+    return false;
+  auto shader = container->shader();
+  auto module = dxmt::dxil::BitcodeReader::parse(shader.bitcode.data,
+                                                  shader.bitcode.size);
+  if (!module)
+    return false;
+  for (const auto &function : module->functions) {
+    if (function.name.find("hitObject_") != std::string::npos ||
+        function.name.find("maybeReorderThread") != std::string::npos)
+      return true;
+  }
+  return false;
+}
+
+static bool BuildHitObjectRaygenLibrary(
+    MTLD3D12Device *device, const D3D12_SHADER_BYTECODE &bytecode,
+    const std::wstring &entry_point, WMT::Reference<WMT::Library> &library,
+    std::string &failure) {
+  std::vector<uint8_t> dxil;
+  if (!ExtractDXILBlob(bytecode, dxil)) {
+    failure = "DXIL blob extraction failed";
+    return false;
+  }
+  auto container = dxmt::dxil::DXILContainer::parse(dxil.data(), dxil.size());
+  if (!container) {
+    failure = "DXIL container parse failed";
+    return false;
+  }
+  auto shader = container->shader();
+  shader.kind = dxmt::dxil::DxilShaderKind::RayGeneration;
+  shader.entry_point = std::string(entry_point.begin(), entry_point.end());
+  auto module = dxmt::dxil::BitcodeReader::parse(shader.bitcode.data,
+                                                  shader.bitcode.size);
+  if (!module) {
+    failure = "DXIL bitcode parse failed";
+    return false;
+  }
+  dxmt::dxil::MSLLoweringOptions options = {};
+  options.ray_generation = true;
+  options.entry_point = shader.entry_point;
+  auto lowered = dxmt::dxil::MSLLowering::lower(*module, shader, options);
+  if (!lowered) {
+    failure = "ray-generation lowering failed";
+    return false;
+  }
+  if (lowered->unsupported_intrinsics || lowered->unsupported_opcodes) {
+    for (const auto &diagnostic : lowered->diagnostics)
+      TRACE("HitObject lowering diagnostic: %s", diagnostic.c_str());
+    failure = str::format(
+        "ray-generation lowering rejected unsupported semantics: intrinsics=",
+        lowered->unsupported_intrinsics, " opcodes=",
+        lowered->unsupported_opcodes);
+    return false;
+  }
+  WMT::Reference<WMT::Error> error;
+  library = device->GetDXMTDevice().device().newLibraryWithSource(
+      lowered->source.c_str(), lowered->source.size(), error);
+  if (!library.handle || error.handle) {
+    const std::string error_description =
+        error.handle
+            ? WMT::String{NSObject_description(error.handle)}.getUTF8String()
+            : "unknown";
+    failure = str::format("ray-generation MSL compilation failed: ",
+                          error_description);
+    return false;
+  }
+  return true;
+}
+
+static constexpr const char *kHitObjectRayDispatchMSL = R"MSL(
+#include <metal_stdlib>
+#include <metal_raytracing>
+using namespace metal;
+using namespace metal::raytracing;
+struct IRShaderIdentifier { ulong intersectionShaderHandle; ulong shaderHandle; ulong localRootSignatureSamplersBuffer; ulong pad0; };
+struct IRVirtualAddressRange { ulong StartAddress; ulong SizeInBytes; };
+struct IRVirtualAddressRangeAndStride { ulong StartAddress; ulong SizeInBytes; ulong StrideInBytes; };
+struct IRDispatchRaysDescriptor {
+  IRVirtualAddressRange RayGenerationShaderRecord;
+  IRVirtualAddressRangeAndStride MissShaderTable;
+  IRVirtualAddressRangeAndStride HitGroupTable;
+  IRVirtualAddressRangeAndStride CallableShaderTable;
+  uint Width;
+  uint Height;
+  uint Depth;
+  uint pad;
+};
+struct top_level_global_ab;
+struct top_level_local_ab { uchar unused; };
+struct res_desc_heap_ab { uchar unused; };
+struct smp_desc_heap_ab { uchar unused; };
+struct IRDispatchRaysArgument;
+using RaygenFunctionType = void(constant top_level_global_ab *,
+                                constant top_level_local_ab *,
+                                constant res_desc_heap_ab *,
+                                constant smp_desc_heap_ab *,
+                                constant IRDispatchRaysArgument *, uint3);
+using RaygenFunctionPointerTable = visible_function_table<RaygenFunctionType>;
+struct IRDispatchRaysArgument {
+  IRDispatchRaysDescriptor DispatchRaysDesc;
+  ulong GRS;
+  ulong ResDescHeap;
+  ulong SmpDescHeap;
+  RaygenFunctionPointerTable VisibleFunctionTable;
+  ulong IntersectionFunctionTable;
+  ulong IntersectionFunctionTables;
+};
+struct top_level_global_ab { constant ulong *table [[id(0)]]; };
+
+kernel void RaygenIndirection(
+    constant IRDispatchRaysArgument *dispatch [[buffer(3)]],
+    uint3 thread_id [[thread_position_in_grid]]) {
+  constant IRShaderIdentifier *identifier = reinterpret_cast<constant IRShaderIdentifier *>(
+      dispatch->DispatchRaysDesc.RayGenerationShaderRecord.StartAddress);
+  constant top_level_global_ab *grs =
+      reinterpret_cast<constant top_level_global_ab *>(dispatch->GRS);
+  constant top_level_local_ab *local = nullptr;
+  constant res_desc_heap_ab *res =
+      reinterpret_cast<constant res_desc_heap_ab *>(dispatch->ResDescHeap);
+  constant smp_desc_heap_ab *smp =
+      reinterpret_cast<constant smp_desc_heap_ab *>(dispatch->SmpDescHeap);
+  dispatch->VisibleFunctionTable[uint(identifier->shaderHandle)](
+      grs, local, res, smp, dispatch, thread_id);
+}
+)MSL";
+
+static bool BuildHitObjectRayDispatchLibrary(
+    MTLD3D12Device *device, WMT::Reference<WMT::Library> &library,
+    std::string &failure) {
+  WMT::Reference<WMT::Error> error;
+  library = device->GetDXMTDevice().device().newLibraryWithSource(
+      kHitObjectRayDispatchMSL, std::strlen(kHitObjectRayDispatchMSL), error);
+  if (!library.handle || error.handle) {
+    const std::string error_description =
+        error.handle
+            ? WMT::String{NSObject_description(error.handle)}.getUTF8String()
+            : "unknown";
+    failure = str::format("ray-dispatch MSL compilation failed: ",
+                          error_description);
+    return false;
+  }
+  return true;
+}
+
 class MTLD3D12StateObject : public ID3D12StateObject,
                             public ID3D12StateObjectProperties2Compat {
 public:
@@ -3010,6 +3200,26 @@ public:
                   L"procedural_closest_hit") != m_exports.end() &&
         std::find(m_exports.begin(), m_exports.end(),
                   L"procedural_hit_group") != m_exports.end();
+    const bool custom_hitobject_raygen = DXILUsesHitObject(raytracing_library);
+    std::wstring raygen_export = L"raygen";
+    if (custom_hitobject_raygen &&
+        std::find(m_exports.begin(), m_exports.end(), raygen_export) ==
+            m_exports.end()) {
+      raygen_export.clear();
+      for (const auto &export_name : m_exports) {
+        std::wstring lower = export_name;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](wchar_t c) { return std::towlower(c); });
+        if (lower.find(L"raygen") != std::wstring::npos) {
+          raygen_export = export_name;
+          break;
+        }
+      }
+      if (raygen_export.empty()) {
+        TRACE("StateObject HitObject library has no ray-generation export");
+        return false;
+      }
+    }
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC compute_desc = {};
     compute_desc.pRootSignature = m_global_root_signature;
@@ -3068,8 +3278,20 @@ public:
     std::vector<uint8_t> procedural_intersection_data;
     std::vector<uint8_t> procedural_closest_hit_data;
     std::vector<uint8_t> procedural_wrapper_data;
-    if (!read_file(raygen_path, raygen_data) ||
-        !read_file(dispatch_path, dispatch_data) ||
+    WMT::Reference<WMT::Library> custom_raygen_library;
+    if (custom_hitobject_raygen) {
+      std::string failure;
+      if (!BuildHitObjectRaygenLibrary(m_device, raytracing_library,
+                                       raygen_export, custom_raygen_library,
+                                       failure)) {
+        TRACE("StateObject custom HitObject ray-generation compile failed: %s",
+              failure.c_str());
+        pipeline->Release();
+        return false;
+      }
+    }
+    if ((!custom_hitobject_raygen && !read_file(raygen_path, raygen_data)) ||
+        (!custom_hitobject_raygen && !read_file(dispatch_path, dispatch_data)) ||
         (has_miss_shader && !read_file(miss_path, miss_data)) ||
         (has_closest_hit_shader &&
          !read_file(closest_hit_path, closest_hit_data)) ||
@@ -3083,7 +3305,8 @@ public:
           !read_file(procedural_closest_hit_path,
                      procedural_closest_hit_data) ||
           !read_file(procedural_wrapper_path, procedural_wrapper_data)))) {
-      pipeline->RequestCompile(false);
+      if (!custom_hitobject_raygen)
+        pipeline->RequestCompile(false);
       TRACE("StateObject raygen cache miss visible=%s dispatch=%s miss=%s",
             raygen_path.c_str(), dispatch_path.c_str(), miss_path.c_str());
       pipeline->Release();
@@ -3093,13 +3316,29 @@ public:
 
     auto metal_device = m_device->GetMTLDevice();
     WMT::Reference<WMT::Error> error;
-    auto raygen_library_handle = metal_device.newLibrary(
-        raygen_data.data(), raygen_data.size(), error);
+    WMT::Reference<WMT::Library> raygen_library_handle;
+    if (custom_hitobject_raygen) {
+      raygen_library_handle = custom_raygen_library;
+    } else {
+      raygen_library_handle = metal_device.newLibrary(
+          raygen_data.data(), raygen_data.size(), error);
+    }
     if (!raygen_library_handle.handle || error.handle)
       return false;
-    error = nullptr;
-    auto dispatch_library_handle = metal_device.newLibrary(
-        dispatch_data.data(), dispatch_data.size(), error);
+    error.handle = 0;
+    WMT::Reference<WMT::Library> dispatch_library_handle;
+    if (custom_hitobject_raygen) {
+      std::string failure;
+      if (!BuildHitObjectRayDispatchLibrary(m_device,
+                                            dispatch_library_handle, failure)) {
+        TRACE("StateObject custom HitObject ray-dispatch compile failed: %s",
+              failure.c_str());
+        return false;
+      }
+    } else {
+      dispatch_library_handle = metal_device.newLibrary(
+          dispatch_data.data(), dispatch_data.size(), error);
+    }
     if (!dispatch_library_handle.handle || error.handle)
       return false;
     WMT::Reference<WMT::Library> miss_library_handle;

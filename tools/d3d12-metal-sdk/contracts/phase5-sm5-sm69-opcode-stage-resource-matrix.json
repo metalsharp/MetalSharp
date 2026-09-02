@@ -5488,8 +5488,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-trace-raygen: ABI-matched Metal 4 triangle TraceRay provider with RAY_FLAG_NONE and literal mask returns exact downstream HitObject readback under METAL_SHADER_CONVERTER=/nonexistent"
+      ],
       "negative_evidence": []
     },
     {
@@ -5530,8 +5532,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-make-miss: exact IsMiss=1, IsHit=0, shader-table-index=3 readback for a literal MakeMiss ray under METAL_SHADER_CONVERTER=/nonexistent"
+      ],
       "negative_evidence": []
     },
     {
@@ -5544,8 +5548,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-make-nop: exact IsNop=1, IsHit=0, IsMiss=0 readback under METAL_SHADER_CONVERTER=/nonexistent"
+      ],
       "negative_evidence": []
     },
     {
@@ -5586,8 +5592,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-is-miss: TraceRay hit-state provider returns exact IsMiss=0 readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5600,8 +5608,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-is-hit: ABI-matched TraceRay query returns exact IsHit=1 readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5614,8 +5624,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-is-nop: ABI-matched TraceRay query returns exact IsNop=0 readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5628,8 +5640,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-ray-flags: exact RAY_FLAG_NONE value 0 readback from TraceRay HitObject"
+      ],
       "negative_evidence": []
     },
     {
@@ -5642,8 +5656,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-ray-t-min: exact 0.0f readback from TraceRay HitObject"
+      ],
       "negative_evidence": []
     },
     {
@@ -5656,8 +5672,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-ray-t-current: exact 2.0f (0x40000000) triangle-hit readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5670,8 +5688,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-world-ray-origin: exact float bits [0x40a00000,0x00000000,0xc0000000] readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5684,8 +5704,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-world-ray-direction: exact float bits [0x00000000,0x00000000,0x3f800000] readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5698,8 +5720,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-object-ray-origin: translated committed object-space ray origin returns exact [0x00000000,0x00000000,0xc0000000] bits for a translated TLAS instance"
+      ],
       "negative_evidence": []
     },
     {
@@ -5712,10 +5736,12 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-object-ray-direction: exact float bits [0x00000000,0x00000000,0x3f800000] readback through the typed GPU query provider"
+      ],
       "negative_evidence": [
-        "probe-hitobject-object-ray-direction:DXIL opcode 278 reaches both lowerers and is rejected with unsupported_intrinsics=5, unsupported_opcodes=0"
+        "legacy-lowerer-boundary: standalone legacy DXILToMSL path still rejects opcode 278 with unsupported_intrinsics=5, unsupported_opcodes=0"
       ]
     },
     {
@@ -5728,10 +5754,12 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-object-to-world: exact matrix bits [1.0,5.0,1.0] from a translated TLAS instance through the typed GPU query provider"
+      ],
       "negative_evidence": [
-        "probe-hitobject-object-to-world:DXIL opcode 279 reaches both lowerers and is rejected with unsupported_intrinsics=5, unsupported_opcodes=0"
+        "legacy-lowerer-boundary: standalone legacy DXILToMSL path still rejects opcode 279 with unsupported_intrinsics=5, unsupported_opcodes=0"
       ]
     },
     {
@@ -5744,10 +5772,12 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-world-to-object: exact matrix bits [1.0,-5.0,1.0] from a translated TLAS instance through the typed GPU query provider"
+      ],
       "negative_evidence": [
-        "probe-hitobject-world-to-object:DXIL opcode 280 reaches both lowerers and is rejected with unsupported_intrinsics=5, unsupported_opcodes=0"
+        "legacy-lowerer-boundary: standalone legacy DXILToMSL path still rejects opcode 280 with unsupported_intrinsics=5, unsupported_opcodes=0"
       ]
     },
     {
