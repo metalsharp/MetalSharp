@@ -3578,6 +3578,11 @@ bool MTLD3D12PipelineState::Compile() {
 
   m_uses_geometry_mesh_pipeline = false;
   m_uses_native_mesh_pipeline = false;
+  m_uses_independent_logic_op_emulation = false;
+  m_uses_independent_logic_op_depth_replay = false;
+  m_independent_logic_op_render_psos.clear();
+  m_independent_logic_op_depth_only_pso = nullptr;
+  m_independent_logic_op_no_write_depth_state = nullptr;
   if (!m_ms.empty()) {
     if (!m_vs.empty() || !m_gs.empty() || !m_hs.empty() || !m_ds.empty()) {
       return RecordCompileFailure(
@@ -3634,6 +3639,18 @@ bool MTLD3D12PipelineState::Compile() {
       return false;
   }
 
+  // Replaying a draw once per attachment is only semantics-preserving when
+  // the fragment shader has no UAV side effects.  A repeated atomic/store or
+  // ROV access would otherwise execute multiple times. Reject that valid but
+  // not-yet-modeled combination instead of silently duplicating side effects.
+  if (m_uses_independent_logic_op_emulation &&
+      m_ps_reflection.UAVSlotMask != 0) {
+    return RecordCompileFailure(
+        "pso/independent_logic_op_side_effects",
+        "Independent per-render-target logic-op emulation requires a pixel "
+        "shader without UAV side effects");
+  }
+
   WMTRenderPipelineInfo info;
   WMT::InitializeRenderPipelineInfo(info);
 
@@ -3659,23 +3676,21 @@ bool MTLD3D12PipelineState::Compile() {
       info.stencil_pixel_format = depth_fmt;
   }
 
-  for (UINT i = 0; i < m_num_render_targets && i < 8; ++i) {
-    if (m_blend_desc.RenderTarget[i].LogicOpEnable && i != 0) {
-      return RecordCompileFailure(
-          "pso/unsupported_logic_op",
-          str::format("logic operation on render target ", i,
-                      " is unsupported; only render target 0 is mapped"));
-    }
-  }
-  if (m_blend_desc.RenderTarget[0].LogicOpEnable) {
+  // Metal exposes one logic operation for the render pipeline, whereas
+  // D3D12's IndependentBlendEnable allows each color attachment to select its
+  // own operation (including disabled logic ops).  Such a pipeline is
+  // emulated by one render-pipeline variant per attachment; the replay path
+  // binds only that attachment's write mask for each repeated draw.  Do not
+  // reject the valid D3D12 state merely because the base Metal descriptor is
+  // global.
+  if (m_blend_desc.IndependentBlendEnable && m_num_render_targets > 1) {
+    const auto &first = m_blend_desc.RenderTarget[0];
     for (UINT i = 1; i < m_num_render_targets && i < 8; ++i) {
       const auto &rt = m_blend_desc.RenderTarget[i];
-      if (!rt.LogicOpEnable ||
-          rt.LogicOp != m_blend_desc.RenderTarget[0].LogicOp) {
-        return RecordCompileFailure(
-            "pso/unsupported_logic_op",
-            "per-render-target logic operations differ; the Metal global "
-            "logic operation cannot represent this pipeline");
+      if (rt.LogicOpEnable != first.LogicOpEnable ||
+          (rt.LogicOpEnable && rt.LogicOp != first.LogicOp)) {
+        m_uses_independent_logic_op_emulation = true;
+        break;
       }
     }
   }
@@ -3706,7 +3721,8 @@ bool MTLD3D12PipelineState::Compile() {
         map_logic_op(m_blend_desc.RenderTarget[0].LogicOp);
   }
 
-  if (m_blend_desc.RenderTarget[0].BlendEnable) {
+  if (m_blend_desc.IndependentBlendEnable ||
+      m_blend_desc.RenderTarget[0].BlendEnable) {
     for (UINT i = 0; i < m_num_render_targets && i < 8; i++) {
       auto &rt = m_blend_desc.RenderTarget[i];
       info.colors[i].blending_enabled = rt.BlendEnable ? true : false;
@@ -4059,6 +4075,105 @@ bool MTLD3D12PipelineState::Compile() {
                                              : "pso/metal_render_pso"),
         str::format("Metal render PSO creation failed: ", render_err_desc));
   }
+
+  if (m_uses_independent_logic_op_emulation) {
+    m_independent_logic_op_render_psos.resize(m_num_render_targets);
+    for (UINT target = 0; target < m_num_render_targets && target < 8;
+         ++target) {
+      const auto &target_blend = m_blend_desc.RenderTarget[target];
+      WMTRenderPipelineInfo variant_info = info;
+      variant_info.logic_operation_enabled = target_blend.LogicOpEnable;
+      variant_info.logic_operation = map_logic_op(target_blend.LogicOp);
+      for (UINT attachment = 0; attachment < 8; ++attachment) {
+        if (attachment != target)
+          variant_info.colors[attachment].write_mask =
+              WMTColorWriteMaskNone;
+      }
+
+      WMTMeshRenderPipelineInfo variant_mesh_info = mesh_info;
+      if (m_uses_geometry_mesh_pipeline) {
+        variant_mesh_info.logic_operation_enabled =
+            variant_info.logic_operation_enabled;
+        variant_mesh_info.logic_operation = variant_info.logic_operation;
+        memcpy(variant_mesh_info.colors, variant_info.colors,
+               sizeof(variant_mesh_info.colors));
+      }
+
+      WMT::Reference<WMT::Error> variant_error;
+      std::string variant_error_desc = "unknown";
+      WMT::Reference<WMT::RenderPipelineState> variant;
+      for (uint32_t attempt = 0; attempt < 4; ++attempt) {
+        variant_error = nullptr;
+        variant = m_uses_geometry_mesh_pipeline
+                      ? wmt_device.newRenderPipelineState(variant_mesh_info,
+                                                          variant_error)
+                      : wmt_device.newRenderPipelineState(variant_info,
+                                                          variant_error);
+        if (variant.handle)
+          break;
+        variant_error_desc = DescribeNSObject(variant_error.handle);
+        if (!IsTransientMetalCompilerError(variant_error_desc) || attempt == 3)
+          break;
+        Sleep(50 * (attempt + 1));
+      }
+      if (!variant.handle) {
+        Logger::err(str::format(
+            "Failed to create independent logic-op render PSO target=",
+            target, ": ", variant_error_desc));
+        return RecordCompileFailure(
+            "pso/independent_logic_op_variant",
+            str::format("Metal independent logic-op render PSO target=", target,
+                        " creation failed: ", variant_error_desc));
+      }
+      m_independent_logic_op_render_psos[target] = variant;
+      PSTRACE("D3D12 independent logic-op variant target=%u handle=%llu "
+              "enabled=%u op=%u",
+              target, (unsigned long long)variant.handle,
+              target_blend.LogicOpEnable ? 1u : 0u,
+              (unsigned)target_blend.LogicOp);
+    }
+
+    // When the original depth/stencil state writes, all color variants must
+    // test against the same pre-draw depth/stencil contents.  Create a
+    // color-disabled variant for the final state-only replay; the command
+    // queue uses a no-write depth state for the color passes and restores the
+    // original state for this final draw.
+    WMTRenderPipelineInfo depth_only_info = info;
+    depth_only_info.logic_operation_enabled = false;
+    for (UINT attachment = 0; attachment < 8; ++attachment)
+      depth_only_info.colors[attachment].write_mask = WMTColorWriteMaskNone;
+    WMTMeshRenderPipelineInfo depth_only_mesh_info = mesh_info;
+    if (m_uses_geometry_mesh_pipeline) {
+      depth_only_mesh_info.logic_operation_enabled = false;
+      depth_only_mesh_info.logic_operation = WMTLogicOperationNoOp;
+      memcpy(depth_only_mesh_info.colors, depth_only_info.colors,
+             sizeof(depth_only_mesh_info.colors));
+    }
+    WMT::Reference<WMT::Error> depth_only_error;
+    std::string depth_only_error_desc = "unknown";
+    for (uint32_t attempt = 0; attempt < 4; ++attempt) {
+      depth_only_error = nullptr;
+      m_independent_logic_op_depth_only_pso =
+          m_uses_geometry_mesh_pipeline
+              ? wmt_device.newRenderPipelineState(depth_only_mesh_info,
+                                                  depth_only_error)
+              : wmt_device.newRenderPipelineState(depth_only_info,
+                                                  depth_only_error);
+      if (m_independent_logic_op_depth_only_pso.handle)
+        break;
+      depth_only_error_desc = DescribeNSObject(depth_only_error.handle);
+      if (!IsTransientMetalCompilerError(depth_only_error_desc) || attempt == 3)
+        break;
+      Sleep(50 * (attempt + 1));
+    }
+    if (!m_independent_logic_op_depth_only_pso.handle) {
+      return RecordCompileFailure(
+          "pso/independent_logic_op_depth_variant",
+          str::format("Metal independent logic-op depth variant creation "
+                      "failed: ",
+                      depth_only_error_desc));
+    }
+  }
   {
     size_t pso_manifest_hash = ComputeRenderPSOManifestHash(
         vs_hash, ps_hash, gs_hash, m_num_render_targets, m_rtv_formats,
@@ -4113,6 +4228,25 @@ bool MTLD3D12PipelineState::Compile() {
     ds_info.back_stencil.read_mask = m_depth_stencil_desc.StencilReadMask;
   }
   m_depth_stencil_state = wmt_device.newDepthStencilState(ds_info);
+  m_uses_independent_logic_op_depth_replay =
+      m_uses_independent_logic_op_emulation &&
+      ((m_depth_stencil_desc.DepthEnable &&
+        m_depth_stencil_desc.DepthWriteMask == D3D12_DEPTH_WRITE_MASK_ALL) ||
+       (m_depth_stencil_desc.StencilEnable &&
+        m_depth_stencil_desc.StencilWriteMask != 0));
+  if (m_uses_independent_logic_op_depth_replay) {
+    WMTDepthStencilInfo no_write_info = ds_info;
+    no_write_info.depth_write_enabled = false;
+    no_write_info.front_stencil.write_mask = 0;
+    no_write_info.back_stencil.write_mask = 0;
+    m_independent_logic_op_no_write_depth_state =
+        wmt_device.newDepthStencilState(no_write_info);
+    if (!m_independent_logic_op_no_write_depth_state.handle) {
+      return RecordCompileFailure(
+          "pso/independent_logic_op_depth_state",
+          "Metal independent logic-op no-write depth state creation failed");
+    }
+  }
 
   {
     PTRACE("VS_ARGS_DEBUG: shader=%llu NumCB=%u NumArgs=%u CBufBindIdx=%u "

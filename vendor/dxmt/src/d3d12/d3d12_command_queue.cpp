@@ -4834,8 +4834,8 @@ struct ReplayState {
     draw.warp_count = warp_count;
     draw.instance_count = instance_count;
     draw.vertex_per_warp = vertex_per_warp;
-    EncodeRenderCommands(reinterpret_cast<const wmtcmd_render_nop *>(&draw),
-                         "geometry_draw");
+    EncodeIndependentLogicOpDraw(
+        reinterpret_cast<const wmtcmd_render_nop *>(&draw), "geometry_draw");
     QTRACE("EncodeGeometryDraw v=%u i=%u start=%u instance_start=%u "
            "warp=%u vertex_per_warp=%u",
            vertex_count, instance_count, start_vertex, start_instance,
@@ -4973,7 +4973,7 @@ struct ReplayState {
     draw.threadgroup_per_grid = {(uint64_t)x, (uint64_t)y, (uint64_t)z};
     draw.object_threadgroup_size = object_size;
     draw.mesh_threadgroup_size = mesh_size;
-    if (!EncodeRenderCommands(
+    if (!EncodeIndependentLogicOpDraw(
             reinterpret_cast<const wmtcmd_render_nop *>(&draw),
             "native_mesh_dispatch"))
       return false;
@@ -5075,7 +5075,7 @@ struct ReplayState {
     draw.patch_index_buffer_offset = 0;
     draw.instance_count = instance_count;
     draw.base_instance = start_instance;
-    if (!EncodeRenderCommands(
+    if (!EncodeIndependentLogicOpDraw(
             reinterpret_cast<const wmtcmd_render_nop *>(&draw),
             "native_tessellation_draw_patches"))
       return false;
@@ -5205,7 +5205,7 @@ struct ReplayState {
     draw.control_point_index_buffer_offset = index_buffer_offset;
     draw.instance_count = instance_count;
     draw.base_instance = start_instance;
-    if (!EncodeRenderCommands(
+    if (!EncodeIndependentLogicOpDraw(
             reinterpret_cast<const wmtcmd_render_nop *>(&draw),
             "native_tessellation_draw_indexed_patches"))
       return false;
@@ -5274,8 +5274,9 @@ struct ReplayState {
     draw.warp_count = warp_count;
     draw.instance_count = instance_count;
     draw.vertex_per_warp = vertex_per_warp;
-    EncodeRenderCommands(reinterpret_cast<const wmtcmd_render_nop *>(&draw),
-                         "geometry_draw_indexed");
+    EncodeIndependentLogicOpDraw(
+        reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+        "geometry_draw_indexed");
     render_enc.useResource(ib_res->GetMTLBuffer(), WMTResourceUsageRead,
                            WMTRenderStageObject);
     RetainMTLObjectForCompletion(ib_res->GetMTLBuffer());
@@ -5787,6 +5788,73 @@ struct ReplayState {
            label ? label : "render_encode");
     CloseRenderEncoder();
     return false;
+  }
+
+  bool EncodeIndependentLogicOpDraw(const wmtcmd_render_nop *cmd,
+                                    const char *label) {
+    if (!pso || !pso->UsesIndependentLogicOpEmulation())
+      return EncodeRenderCommands(cmd, label);
+    const UINT target_count = std::min<UINT>(pso->GetNumRenderTargets(), 8);
+    if (target_count == 0)
+      return EncodeRenderCommands(cmd, label);
+
+    const auto original_depth = pso->GetDepthStencilState();
+    const bool depth_replay = pso->UsesIndependentLogicOpDepthReplay();
+    if (depth_replay) {
+      auto no_write_depth = pso->GetIndependentLogicOpNoWriteDepthState();
+      if (!no_write_depth.handle) {
+        QTRACE("%s: independent logic-op no-write depth state is missing",
+               label ? label : "render_encode");
+        return false;
+      }
+      render_enc.setDepthStencilState(no_write_depth);
+      RetainMTLObjectForCompletion(no_write_depth);
+    }
+
+    for (UINT target = 0; target < target_count; ++target) {
+      auto variant = pso->GetIndependentLogicOpRenderPSO(target);
+      if (!variant.handle) {
+        QTRACE("%s: independent logic-op target=%u has no pipeline variant",
+               label ? label : "render_encode", target);
+        return false;
+      }
+      render_enc.setRenderPipelineState(variant);
+      RetainMTLObjectForCompletion(variant);
+      if (!EncodeRenderCommands(cmd, label))
+        return false;
+    }
+
+    // If the original draw updates depth/stencil, replay it once with no
+    // color writes after all target color passes.  This keeps every target's
+    // comparison against the original contents without multiplying depth or
+    // stencil writes by the number of attachments.
+    if (depth_replay) {
+      auto depth_only = pso->GetIndependentLogicOpDepthOnlyPSO();
+      if (!depth_only.handle)
+        return false;
+      render_enc.setRenderPipelineState(depth_only);
+      RetainMTLObjectForCompletion(depth_only);
+      if (original_depth.handle) {
+        render_enc.setDepthStencilState(original_depth);
+        RetainMTLObjectForCompletion(original_depth);
+      }
+      if (!EncodeRenderCommands(cmd, label))
+        return false;
+    }
+
+    // The repeated variants only apply to this draw. Restore the ordinary
+    // all-attachment pipeline and depth state before the next command in the
+    // same encoder.
+    auto base = pso->GetRenderPSO();
+    if (base.handle) {
+      render_enc.setRenderPipelineState(base);
+      RetainMTLObjectForCompletion(base);
+    }
+    if (original_depth.handle) {
+      render_enc.setDepthStencilState(original_depth);
+      RetainMTLObjectForCompletion(original_depth);
+    }
+    return true;
   }
 
   WMTPrimitiveType GetMetalPrimitiveType() {
@@ -10639,7 +10707,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 cmd->instance_count, cmd->start_vertex, cmd->start_instance);
             st.BindMissingNonStageInVertexBuffers(m_device);
             st.BindDirectFragmentCompleteness(m_device, "draw_instanced");
-            if (!st.EncodeRenderCommands(
+            if (!st.EncodeIndependentLogicOpDraw(
                     reinterpret_cast<const wmtcmd_render_nop *>(&draw),
                     "draw_instanced"))
               return false;
@@ -10975,7 +11043,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                                       cmd->instance_count);
           st.BindMissingNonStageInVertexBuffers(m_device);
           st.BindDirectFragmentCompleteness(m_device, "draw_indexed_instanced");
-          if (st.EncodeRenderCommands(
+          if (st.EncodeIndependentLogicOpDraw(
                   reinterpret_cast<const wmtcmd_render_nop *>(&draw),
                   "draw_indexed_instanced")) {
             st.MarkSwapchainWorkEncoded();
@@ -12238,7 +12306,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             st.BindMissingNonStageInVertexBuffers(m_device);
             st.BindDirectFragmentCompleteness(m_device,
                                               "execute_indirect_draw");
-            if (st.EncodeRenderCommands(
+            if (st.EncodeIndependentLogicOpDraw(
                     reinterpret_cast<const wmtcmd_render_nop *>(&draw),
                     "execute_indirect_draw")) {
               if (!st.UpdateStreamOutputFilledSize(
@@ -12356,7 +12424,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 st.BindDirectFragmentCompleteness(
                     m_device, "execute_indirect_draw_indexed");
                 if (st.render_enc_open)
-                  st.EncodeRenderCommands(
+                  st.EncodeIndependentLogicOpDraw(
                       reinterpret_cast<const wmtcmd_render_nop *>(&draw),
                       "execute_indirect_draw_indexed");
               } else {

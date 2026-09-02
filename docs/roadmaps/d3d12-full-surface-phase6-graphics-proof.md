@@ -5,28 +5,56 @@ provider without promoting the full graphics claim.
 
 ## Rasterizer-ordered UAV checkpoint
 
-`tools/d3d12-metal-sdk/probes/probe_rov` compiles a pinned DXIL pixel shader
-containing `RasterizerOrderedByteAddressBuffer` and executes it through the
-Metal 4 runtime with `METAL_SHADER_CONVERTER=/nonexistent`. The pixel shader
+`tools/d3d12-metal-sdk/probes/probe_rov` compiles pinned DXIL pixel shaders
+containing `RasterizerOrderedByteAddressBuffer`,
+`RasterizerOrderedTexture2D<uint>`, and
+`RasterizerOrderedStructuredBuffer<ROVValue>`, then executes them through the
+Metal 4 runtime with `METAL_SHADER_CONVERTER=/nonexistent`. Each pixel shader
 performs a load/increment/store at one pixel for three overlapping primitives.
 The exact result is:
 
-- `create_device`, root signature, PSO, and execution: `0x00000000`;
-- readback: `true`;
-- `uav_value=3`, `expected_uav_value=3`, `exact=true`;
+- all three create-device/root-signature/PSO/execute HRESULTs:
+  `0x00000000`;
+- all three readbacks: `true`;
+- `byte_address_buffer=3`, `typed_texture2d_uint=3`, and
+  `structured_buffer=3`, each with `expected_uav_value=3` and `exact=true`;
 - provider: `metal_raster_order_group`.
 
 The generated MSL report contains the DXIL resource metadata and the direct
 parameter qualifier:
 
 ```text
-range kind=uav ... resource_kind=11 ... rasterizer_ordered=1
+range kind=uav ... rasterizer_ordered=1
  device char* buf0 [[buffer(0), raster_order_group(0)]]
+ texture2d<uint, access::read_write> tex0 [[texture(0), raster_order_group(0)]]
 ```
 
 The implementation remains fail-closed for an ROV resource outside the pixel
 UAV provider. `ROVsSupported` remains `FALSE` until the complete resource,
 format, state, and graphics matrix is independently closed.
+
+## Independent render-target logic operations
+
+Metal exposes one logic operation on a render pipeline, while D3D12 permits
+independent logic-operation state for each color attachment. The graphics PSO
+provider now creates one pipeline variant per render target. Each variant keeps
+only its target's color write mask, selects that target's global Metal logic
+operation, and the replay path encodes the draw once for each target before
+restoring the base pipeline.
+
+The exact two-target readback uses `IndependentBlendEnable=TRUE`, a D32 depth
+attachment with depth writes enabled, XOR on target 0, AND on target 1, and
+distinct initialized RGBA8 values:
+
+- target 0: `0xaaffff3c` (`clear XOR shader output`);
+- target 1: `0x550a0c30` (`clear AND shader output`).
+
+The formerly rejected `logic_op_mrt_independent_variants` PSO case now creates
+successfully, and `logic_op_independent_readback=true` is required by
+`probe-graphics-pso`. The replay variant is deliberately fail-closed for pixel
+shaders with UAV side effects, because repeating a draw would repeat those
+side effects; depth/stencil writes use a no-write color pass plus one final
+state-only replay, which is exercised by the D32 depth case.
 
 ## Reproduction
 
@@ -43,6 +71,10 @@ tools/d3d12-metal-sdk/scripts/run-probes.sh \
 
 The generated JSON is disposable and is not committed:
 `/private/tmp/phase6-rov-proof/probe-rov-standalone-wine.json`.
+
+The independent render-target logic-operation proof is in the graphics PSO
+probe. Its disposable result is:
+`/private/tmp/phase6-logic-depth-proof/probe-graphics-pso-standalone-wine.json`.
 
 ## Remaining Phase 6 work
 
