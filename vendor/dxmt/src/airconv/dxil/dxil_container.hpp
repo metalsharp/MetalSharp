@@ -76,6 +76,7 @@ struct DxilParsedShader {
   int32_t render_target_array_index_output_id = -1;
   int32_t viewport_index_input_register = -1;
   int32_t render_target_array_index_input_register = -1;
+  int32_t barycentrics_input_id = -1;
 };
 
 class DXILContainer {

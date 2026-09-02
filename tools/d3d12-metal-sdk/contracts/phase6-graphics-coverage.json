@@ -45,6 +45,18 @@
       "scope": "Two-view pipeline-stream instancing replays validated viewport/render-target array locations and SetViewInstanceMask, with exact per-slice SV_ViewID output. Arbitrary view count/layout and barycentric values remain outside this bounded provider."
     },
     {
+      "id": "barycentrics-default-perspective",
+      "status": "observed_bounded",
+      "result": "probe-barycentrics",
+      "checks": [
+        ["result", "pass"],
+        ["readback", "rgba=128,64,64,255"],
+        ["report", "BarycentricsSupported=true"],
+        ["provider", "Metal_barycentric_coord"]
+      ],
+      "scope": "Default perspective SV_Barycentrics at the center of a one-pixel full-screen triangle. Noperspective, centroid, sample, and additional barycentric inputs remain fail-closed/outside scope."
+    },
+    {
       "id": "native16-bit-shader-ops",
       "status": "observed_bounded",
       "result": "probe-dxil-semantics;probe-device-caps",

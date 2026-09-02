@@ -2496,6 +2496,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
         os << "fragment float4 ps_main(\n";
         os << "  input_v in [[stage_in]],\n";
+        if (ctx.shader.barycentrics_input_id >= 0)
+            os << "  float3 m12_barycentrics [[barycentric_coord]],\n";
         if (ctx.attribute_at_vertex_provider) {
             os << "  uint m12_attribute_at_vertex_primitive [[primitive_id]],\n";
             os << "  device float4* m12_attribute_at_vertex_capture [[buffer(28)]],\n";
@@ -8352,6 +8354,10 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         uint32_t input_id = literalArg(0, 0, "input");
         uint32_t comp = literalArg(2, 0, "comp");
         if (ctx.shader.kind == DxilShaderKind::Pixel) {
+            if (ctx.shader.barycentrics_input_id >= 0 &&
+                static_cast<int32_t>(input_id) ==
+                    ctx.shader.barycentrics_input_id)
+                return std::string("m12_barycentrics") + componentSuffix(comp);
             if (ctx.shader.shading_rate_input_register >= 0 &&
                 static_cast<int32_t>(input_id) ==
                     ctx.shader.shading_rate_input_register)

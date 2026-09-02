@@ -5181,9 +5181,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
             D3D12_COMMAND_LIST_SUPPORT_FLAG_BUNDLE);
     // View instancing is implemented by command replay over the validated
     // per-view viewport/render-target locations and SetViewInstanceMask.
-    // Barycentric system values remain a separate unsupported provider.
+    // The default perspective SV_Barycentrics value is provided directly by
+    // Metal's fragment barycentric builtin; other interpolation variants stay
+    // outside the bounded provider.
     o->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_1;
-    o->BarycentricsSupported = FALSE;
+    o->BarycentricsSupported =
+        GetHostCapabilities().device_available &&
+        GetHostCapabilities().apple_family7 &&
+        GetHostCapabilities().supports_compute_emulation;
     TRACE("  OPTIONS3: CopyQueueTS=%d CastFullyTyped=%d WriteBufImm=0x%x "
           "ViewInstTier=%u Bary=%d",
           o->CopyQueueTimestampQueriesSupported,

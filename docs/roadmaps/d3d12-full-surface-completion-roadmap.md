@@ -210,7 +210,8 @@ for feature families that this roadmap must implement before reporting support:
   the exact typed emulation provider, while native Metal double ALU remains
   unavailable.
 - Programmable sample positions.
-- View instancing and barycentrics.
+- Broader view-instancing and barycentric interpolation variants; bounded
+  Tier-1 view replay and default perspective barycentrics are now proven.
 - 64-KB MSAA alignment; native 16-bit shader operations now have a bounded
   Metal-half provider and report.
 - Full RT-array index range and derivatives in mesh/amplification stages.
@@ -1263,7 +1264,9 @@ not check its children.
 - [x] Tier-1 programmable sample positions are backed by exact four-pixel
       sample-coverage/resolve readback; broader matrices remain open.
 - [x] Bounded view instancing is backed by exact per-view array output and
-      SetViewInstanceMask routing; barycentrics remain conservative.
+      SetViewInstanceMask routing; default perspective barycentrics also have
+      exact fragment readback, while other interpolation variants remain
+      conservative.
 - [x] Native16 reports match the exact typed Metal-half arithmetic/math
       readbacks; 64-KB MSAA alignment remains conservative.
 - [ ] Full RT-array and mesh/amplification derivative fields are tested.
@@ -2003,3 +2006,13 @@ whether the scoped FL12_2 gate is green.
   `Options4.Native16BitShaderOpsSupported` through Metal half arithmetic while
   `MSAA64KBAlignedTextureSupported` remains false. Minimum precision remains
   conservative until its conversion/rounding matrix is independently closed.
+
+### 2026-09-02 — Phase 6 bounded barycentrics provider
+
+- Added the source-owned `probe_barycentrics` DXIL graphics fixture. The typed
+  DXIL parser carries the default perspective `SV_Barycentrics` input-signature
+  ID to the MSL fragment ABI's `barycentric_coord` builtin.
+- On Apple M4/Metal 4, the one-pixel full-screen triangle returns exact RGBA8
+  `[128,64,64,255]` (`[0.5,0.25,0.25,1]`), and the device/feature-level probes
+  report `BarycentricsSupported=true`. Noperspective, centroid, sample, and
+  additional-input variants remain outside the bounded provider.
