@@ -258,6 +258,9 @@ The current honest shader feature posture is:
   binary64 emulation matrix and native16 support from exact Metal half
   arithmetic/math cases. These are behavior-backed provider claims; native
   Metal double ALU and 64-KB MSAA alignment remain unadvertised.
+- `probe-command-replay` proves a four-pixel/four-sample programmable
+  `SetSamplePositions` pattern with exact black/red resolve coverage, backing
+  the bounded Tier-1 sample-position report; broader patterns remain gated.
 - The opt-in `probe-vrs` path records the 1x2/2x1/2x2/2x4/4x2/4x4
   `RSSetShadingRate` matrix and attaches Metal rasterization-rate maps. The
   2x2 case also passes a MAX/PASSTHROUGH combiner pair. A clean 64x64 pass

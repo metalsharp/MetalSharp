@@ -22,6 +22,17 @@
       "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource."
     },
     {
+      "id": "programmable-sample-positions-tier1",
+      "status": "observed_bounded",
+      "result": "probe-command-replay",
+      "checks": [
+        ["result", "multi_pixel_sample_positions"],
+        ["readback", "four_pixel_four_sample_exact_resolve"],
+        ["report", "ProgrammableSamplePositionsTier=1"]
+      ],
+      "scope": "A four-pixel, four-sample programmable pattern changes raster coverage and resolves to an exact black/red pixel matrix. Broader sample-count/pattern and state interactions remain open."
+    },
+    {
       "id": "view-instancing-tier1",
       "status": "observed_bounded",
       "result": "probe-mini-view_id_instancing;probe-command-replay",

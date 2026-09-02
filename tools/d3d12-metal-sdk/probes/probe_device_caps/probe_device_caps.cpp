@@ -252,6 +252,10 @@ int main() {
     bool native16_reported = SUCCEEDED(options4_hr) && options4.Native16BitShaderOpsSupported;
     bool view_instancing_reported = SUCCEEDED(options3_hr) &&
                                      options3.ViewInstancingTier >= D3D12_VIEW_INSTANCING_TIER_1;
+    bool programmable_sample_positions_reported =
+        SUCCEEDED(options2_hr) &&
+        options2.ProgrammableSamplePositionsTier >=
+            D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_1;
     bool advanced_features_reported =
         SUCCEEDED(options5_hr) && options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 && SUCCEEDED(options7_hr) &&
         options7.MeshShaderTier >= D3D12_MESH_SHADER_TIER_1 &&
@@ -268,7 +272,8 @@ int main() {
                                     null_data_feature_hr == E_POINTER && null_feature_level_list_hr == E_INVALIDARG;
     bool pass = SUCCEEDED(create_hr) && feature_level_ok && shader_model_target_ok && binding_tier_ok &&
                 double_precision_reported && native16_reported && view_instancing_reported &&
-                wave_ops_proven_reported && atomic64_conservative && advanced_features_reported &&
+                programmable_sample_positions_reported && wave_ops_proven_reported &&
+                atomic64_conservative && advanced_features_reported &&
                 gpu_upload_supported && stream_output_conservative && reserved_resources_unsupported &&
                 state_objects_unsupported &&
                 feature_query_validation;
@@ -316,6 +321,8 @@ int main() {
     std::printf("  },\n");
     std::printf("  \"advanced_features\": {\n");
     print_hr("options2", options2_hr);
+    std::printf("    \"programmable_sample_positions_tier\": %u,\n",
+                static_cast<unsigned>(options2.ProgrammableSamplePositionsTier));
     print_hr("options3", options3_hr);
     std::printf("    \"view_instancing_tier\": %u,\n",
                 static_cast<unsigned>(options3.ViewInstancingTier));
@@ -375,6 +382,8 @@ int main() {
     std::printf("    \"double_precision_reported\": %s,\n", double_precision_reported ? "true" : "false");
     std::printf("    \"native16_reported\": %s,\n", native16_reported ? "true" : "false");
     std::printf("    \"view_instancing_reported\": %s,\n", view_instancing_reported ? "true" : "false");
+    std::printf("    \"programmable_sample_positions_reported\": %s,\n",
+                programmable_sample_positions_reported ? "true" : "false");
     std::printf("    \"wave_ops_proven_reported\": %s,\n", wave_ops_proven_reported ? "true" : "false");
     std::printf("    \"atomic64_conservative\": %s,\n", atomic64_conservative ? "true" : "false");
     std::printf("    \"advanced_features_reported\": %s,\n", advanced_features_reported ? "true" : "false");

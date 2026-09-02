@@ -1239,7 +1239,8 @@ not check its children.
 - [x] Command-list markers/events and queue markers/events reach the provider.
 - [ ] `AtomicCopyBufferUINT` is atomic and honors dependent ranges.
 - [ ] `AtomicCopyBufferUINT64` is atomic and honors dependent ranges.
-- [ ] `SetSamplePositions` affects raster/MSAA behavior.
+- [x] Bounded four-pixel/four-sample `SetSamplePositions` changes raster/MSAA
+      coverage; broader sample patterns remain open.
 - [ ] `SetViewInstanceMask` affects view-instanced output.
 - [ ] Protected command-list association is stored and enforced.
 - [ ] Meta-command initialization/execution has real providers.
@@ -1259,7 +1260,8 @@ not check its children.
 - [x] Binary64 emulation is backed by arithmetic/IEEE-754 conversion readback;
       native Metal double ALU is not claimed.
 - [ ] Minimum precision is backed by conversion/rounding readback.
-- [ ] Programmable sample positions are backed by sample coverage readback.
+- [x] Tier-1 programmable sample positions are backed by exact four-pixel
+      sample-coverage/resolve readback; broader matrices remain open.
 - [x] Bounded view instancing is backed by exact per-view array output and
       SetViewInstanceMask routing; barycentrics remain conservative.
 - [x] Native16 reports match the exact typed Metal-half arithmetic/math

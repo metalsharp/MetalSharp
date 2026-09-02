@@ -217,6 +217,8 @@ int main() {
     const bool fl12_2_caps =
         SUCCEEDED(levels_hr) && levels.MaxSupportedFeatureLevel >= D3D_FEATURE_LEVEL_12_2 && SUCCEEDED(options_hr) &&
         options.OutputMergerLogicOp && options.DoublePrecisionFloatShaderOps &&
+        options2.ProgrammableSamplePositionsTier >=
+            D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_1 &&
         options.TiledResourcesTier >= D3D12_TILED_RESOURCES_TIER_3 &&
         options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3 &&
         options.ConservativeRasterizationTier >= D3D12_CONSERVATIVE_RASTERIZATION_TIER_3 &&
@@ -285,6 +287,8 @@ int main() {
     std::printf("  \"reported\": {\n");
     std::printf("    \"feature_level\": \"%s\",\n", feature_level_name(levels.MaxSupportedFeatureLevel));
     std::printf("    \"shader_model\": \"%s\",\n", shader_model_name(shader_model.HighestShaderModel));
+    std::printf("    \"programmable_sample_positions_tier\": %u,\n",
+                static_cast<unsigned>(options2.ProgrammableSamplePositionsTier));
     std::printf("    \"resource_binding_tier\": %u,\n", static_cast<unsigned>(options.ResourceBindingTier));
     std::printf("    \"view_instancing_tier\": %u,\n", static_cast<unsigned>(options3.ViewInstancingTier));
     std::printf("    \"barycentrics_supported\": %s,\n", options3.BarycentricsSupported ? "true" : "false");
