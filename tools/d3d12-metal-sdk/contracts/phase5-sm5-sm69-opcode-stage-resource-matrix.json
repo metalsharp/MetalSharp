@@ -2558,6 +2558,7 @@
       "positive_evidence": [],
       "negative_evidence": [
         "probe-metal-cycle-counter:metal4_clock_undeclared",
+        "probe-cycle-counter-dxil:unsupported_semantics_hr_0x80004005",
         "dxil-to-msl:cycle_counter_unsupported_semantic_rejection"
       ]
     },
