@@ -3196,7 +3196,8 @@
       "status": "open",
       "positive_evidence": [],
       "negative_evidence": [
-        "probe-metal-vertex-value:apple9_no_pre_raster_per_vertex_values"
+        "probe-metal-vertex-value:apple9_no_pre_raster_per_vertex_values",
+        "probe-attribute-at-vertex-dxil:unsupported_semantics_hr_0x80004005"
       ]
     },
     {
