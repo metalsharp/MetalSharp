@@ -47,6 +47,7 @@ enum class DxilShaderKind : uint32_t {
   Callable = 12,
   Mesh = 13,
   Amplification = 14,
+  Node = 15,
   Invalid = 0xFFFFFFFF,
 };
 

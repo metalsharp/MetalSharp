@@ -796,8 +796,8 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=18`: `262` rows are
-observed, `18` remain open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=2`: `278` rows are
+observed, `2` remain open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
@@ -841,6 +841,17 @@ models ABI-compatible scalar/vector attribute record layouts for
 `FromRayQueryWithAttrs` copies, while custom shader bodies and broader
 attribute forms remain bounded and fail-closed.
 
+The Work Graph/node opcode batch has a tracked GPU-native proof. Representative
+SM6.8 node shaders exercise all sixteen opcodes `238–253` across output/input
+handles, record allocation/pointers/completion, counts, sharing, barriers,
+indexed outputs, validity, and recursion depth. The compiler helper forces the
+node shader kind only after extracting the pinned DXIL, and the Metal 4 native
+probe runs each generated `node_main` kernel with a bounded 15-second wait and
+exact readbacks. The aggregate reports `opcode_count=16`,
+`d3d12_work_graph_api_supported=false`, and `cpu_scheduler=false`: this closes
+only the shader-opcode provider lane, not D3D12 Work Graph state-object or
+multi-node scheduling support.
+
 Opcode 267 now has a tracked bounded behavior probe. The command-replay
 probe compiles a pinned `lib_6_9` library containing a scalar `[raypayload]`
 `Payload`, `MakeMiss(0, 0, ray)`, and one exported `miss_shader` that writes
@@ -854,8 +865,10 @@ command signature also succeed. The provider intentionally rejects nonzero
 miss-table indices, hit invocation, vector/packed payload layouts, miss
 resource/system-value bodies, and any path without an exported `miss_shader`.
 
-This remains a bounded provider, not Phase 5 closeout. CycleCounterLegacy 109,
-AttributeAtVertex 137, and Work Graph/node 238–253 remain open. The legacy
-converter continues to reject the remaining HitObject/SER family fail-closed;
-its negative result is not used to invalidate the typed provider's positive
-behavior. No experimental binary, cache, prefix, or log is tracked.
+This remains a bounded provider, not Phase 5 closeout. CycleCounterLegacy 109
+and AttributeAtVertex 137 remain open. The legacy converter continues to
+reject the remaining HitObject/SER family fail-closed; its negative result is
+not used to invalidate the typed provider's positive behavior. The D3D12 Work
+Graph API remains unsupported even though representative node shader opcode
+kernels have exact native-Metal readbacks. No experimental binary, cache,
+prefix, or log is tracked.

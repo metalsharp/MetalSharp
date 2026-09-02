@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (262/280 required opcode rows observed; 18 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (278/280 required opcode rows observed; 2 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -773,9 +773,12 @@ breadth, broader DXR accessors, and state-object breadth remain open. The
 bounded GPU HitObject provider now covers the recorded 262–289 forms,
 including scalar MakeMiss/miss-shader Invoke, permitted no-reorder
 MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes,
-local-root constants, and exact ray state/accessors.
+local-root constants, and exact ray state/accessors. A separate GPU-native
+one-node kernel provider covers representative Work Graph opcodes 238–253
+without adding a CPU scheduler; D3D12 Work Graph API execution remains
+unsupported and is not promoted.
 
-The exhaustive Phase 5 matrix currently has 262 observed, 18 open, and 32
+The exhaustive Phase 5 matrix currently has 278 observed, 2 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
@@ -791,11 +794,13 @@ open.
 **Phase 5 closeout plan (literal gate retained):** Work is now batched by the
 remaining matrix families rather than by ad-hoc probes. First close the
 stage-system rows (`AttributeAtVertex` and the legacy cycle-counter boundary)
-with exact runtime/negative evidence. Then implement the Phase 7 Work
-Graph/node rows as an explicit GPU-side provider; compilation or interface
-presence alone cannot close them. The bounded Phase 8 HitObject provider now
-covers the recorded 262–289 forms, with optional SER scheduling represented by
-a documented no-reorder continuation provider rather than a CPU scheduler.
+with exact runtime/negative evidence. The shader-opcode portion of the Phase 7
+Work Graph/node family now has an explicit GPU-native one-node provider, but
+D3D12 Work Graph state objects and multi-node scheduling remain a later API
+provider gap. Compilation or interface presence alone cannot close that gap.
+The bounded Phase 8 HitObject provider now covers the recorded 262–289 forms,
+with optional SER scheduling represented by a documented no-reorder
+continuation provider rather than a CPU scheduler.
 Each batch must regenerate the opcode corpus, pass the strict matrix plus
 shader-engine audit, record exact readbacks/rejections, clean its disposable
 prefix/cache, and land as a checkpoint. No row will be changed to observed
@@ -1866,3 +1871,22 @@ whether the scoped FL12_2 gate is green.
   misidentified after vector attribute access. The strict validator is now
   **262 observed / 18 open / 32 reserved**; only CycleCounterLegacy,
   AttributeAtVertex, and Work Graph/node opcodes remain open in the matrix.
+
+### 2026-09-02 — Phase 5 GPU-native Work Graph opcode batch
+
+- Added source-owned SM6.8 node fixtures under
+  `tools/d3d12-metal-sdk/probes/probe_workgraph/`, a pinned-DXIL node lowering
+  helper, and a native Metal 4 probe with a bounded 15-second completion wait.
+  The six fixture lanes exercise all sixteen required node opcodes `238–253`
+  and return exact GPU readbacks for output/input handles, record pointers and
+  completion, counts, sharing, barriers, indexed outputs, validity, and
+  recursion depth.
+- The provider is explicitly GPU-native and does not add a CPU scheduler. The
+  aggregate proof reports `opcode_count=16`, `d3d12_work_graph_api_supported=false`,
+  and `cpu_scheduler=false`; D3D12 Work Graph state objects, backing-memory
+  binding, `SetProgram`, `DispatchGraph`, multi-node execution, and feature
+  promotion remain unsupported and fail-closed.
+- The strict opcode validator is now **278 observed / 2 open / 32 reserved**;
+  only CycleCounterLegacy `109` and AttributeAtVertex `137` remain open. Phase 5
+  itself remains open until those rows have exact positive or semantically
+  equivalent runtime evidence.

@@ -446,6 +446,20 @@
       "remaining": "The exact Apple M4/Metal 4 native mesh provider covers 64-byte, 128-byte, and 256-byte SM6.5 amplification-to-mesh payloads, including a 64-thread group, direct and GPU-only indirect dispatch, one triangle, two render-target-array layers, depth/blend/wireframe variants, stage CBV/SRV/UAV/sampler bindings, and PIPELINE_STATISTICS1. Additional payload sizes, mesh output counts/topologies, other thread-group shapes, barriers, resource ranges, VRS, and amplification patterns remain in the exhaustive row; the native libmetalirconverter cache provider is host-specific and is not a portable compiler-object provider."
     },
     {
+      "id": "dxil-workgraph-node-opcodes-bounded-gpu-runtime",
+      "status": "closed",
+      "result": "probe-workgraph",
+      "profile": "phase5-workgraph",
+      "checks": [
+        ["pass"],
+        ["provider", "bounded_gpu_native_node_kernel"],
+        ["d3d12_work_graph_api_supported", false],
+        ["cpu_scheduler", false],
+        ["opcode_count", 16]
+      ],
+      "remaining": "The tracked probe lowers representative SM6.8 node shaders for opcodes 238–253 and executes their bounded one-node kernels on Apple M4/Metal 4 with exact GPU readbacks and bounded waits. This is node-shader lowering/runtime evidence only: D3D12 Work Graph state objects, backing-memory ABI, DispatchGraph, multi-node scheduling, cross-group sharing beyond one group, and feature promotion remain explicitly unsupported."
+    },
+    {
       "id": "dxil-hitobject-reorder-continuation-exact-runtime",
       "status": "closed",
       "result": "probe-hitobject-reorder",
@@ -504,7 +518,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "Strict closeout accounting remains open at 262/280 required opcode rows observed, 18 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy; opcode 137 AttributeAtVertex; and opcodes 238-253 Work Graph/node operations. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback. CycleCounterLegacy now has an exact native Metal 4.0 clock-rejection negative; an ABI-matched direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`, with both DXIL lowerers failing closed before PSO creation. The descending SER/HitObject pass now has typed GPU-provider positive readbacks for opcodes 262-289, including bounded scalar MakeMiss/miss-shader Invoke, optional MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes barycentrics, local-root constants, state, ray-vector, transform, and scalar accessors. Under an ABI-matched PE/Unix bridge and `METAL_SHADER_CONVERTER=/nonexistent`, these rows use exact direct and ExecuteIndirect GPU readbacks; the standalone legacy conversion path remains separately fail-closed. Invoke remains bounded to one scalar MakeMiss/miss-shader form, MaybeReorderThread intentionally declines to reorder, and Attributes remains bounded to triangle barycentrics plus ABI-compatible copied records. Work Graph/node and the broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix remain incomplete."
+      "remaining": "Strict closeout accounting remains open at 278/280 required opcode rows observed, 2 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy and opcode 137 AttributeAtVertex. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback. CycleCounterLegacy now has an exact native Metal 4.0 clock-rejection negative; an ABI-matched direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`, with both DXIL lowerers failing closed before PSO creation. The descending SER/HitObject pass now has typed GPU-provider positive readbacks for opcodes 262-289, including bounded scalar MakeMiss/miss-shader Invoke, optional MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes barycentrics, local-root constants, state, ray-vector, transform, and scalar accessors. The bounded node-shader provider also executes representative opcodes 238-253 as GPU-native one-node kernels without a CPU scheduler; D3D12 Work Graph API execution, multi-node scheduling, and feature promotion remain unsupported. Under the documented runtime/provider boundaries, observed rows use exact GPU readbacks; the standalone legacy converter and unsupported API paths remain separately fail-closed. The broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix remains incomplete."
     }
   ]
 }

@@ -5070,8 +5070,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_records exact GPU-native record allocation/readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5084,8 +5086,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_records exact GPU-native record pointer/readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5098,8 +5102,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_handles exact group/thread output-count continuation"
+      ],
       "negative_evidence": []
     },
     {
@@ -5112,8 +5118,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_records exact OutputComplete continuation"
+      ],
       "negative_evidence": []
     },
     {
@@ -5126,8 +5134,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_system exact input record count readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5140,8 +5150,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_finished exact FinishedCrossGroupSharing readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5154,8 +5166,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_barriers exact GPU barrier continuation"
+      ],
       "negative_evidence": []
     },
     {
@@ -5168,8 +5182,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_barriers exact GPU resource barrier continuation"
+      ],
       "negative_evidence": []
     },
     {
@@ -5182,8 +5198,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_record_barrier exact node-record barrier continuation"
+      ],
       "negative_evidence": []
     },
     {
@@ -5196,8 +5214,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_handles exact output-handle readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5210,8 +5230,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_handles exact indexed output-handle readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5224,8 +5246,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_handles exact annotated output-handle readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5238,8 +5262,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_system exact input-record-handle readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5252,8 +5278,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_records exact annotated record-handle readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5266,8 +5294,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_handles exact NodeOutputIsValid readback"
+      ],
       "negative_evidence": []
     },
     {
@@ -5280,8 +5310,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-workgraph: node_system exact remaining-recursion-level readback"
+      ],
       "negative_evidence": []
     },
     {
