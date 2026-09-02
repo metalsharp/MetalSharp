@@ -1741,3 +1741,18 @@ whether the scoped FL12_2 gate is green.
   `0x80004005` after the DXIL report recorded `unsupported_intrinsics=12` and
   `unsupported_opcodes=0`. This confirms fail-closed runtime behavior without
   claiming a positive readback; row 137 remains open.
+
+### 2026-09-01 — Phase 5 descending HitObject opcode-280 boundary
+
+- Started the remaining-opcode pass at row 280 as requested. A minimal pinned
+  DXC `lib_6_9` ray-generation shader emits `HitObject_MakeNop` (266),
+  `HitObject_SetShaderTableIndex` (287), and three
+  `HitObject_WorldToObject3x4` (280) matrix accesses.
+- Both `DXILToMSL` and the typed `MSLLowering` now recognize the HitObject/SER
+  declaration family, preserve the explicit DXIL opcode for diagnostics, and
+  increment `unsupported_intrinsics` rather than silently emitting literal
+  zero values. The direct converter checks report
+  `unsupported_intrinsics=5`, `unsupported_opcodes=0`, with three explicit
+  `opcode=280` rejection diagnostics. This is negative fail-closed evidence
+  only; row 280 remains open until exact world-to-object readback or a
+  semantically equivalent provider is implemented.

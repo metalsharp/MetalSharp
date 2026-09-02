@@ -69,7 +69,8 @@ private:
   static void emitBindings(EmitContext &ctx);
   static void emitInstruction(EmitContext &ctx, const LLVMInstruction &inst, uint32_t &value_counter);
   static std::string translateDXIntrinsic(EmitContext &ctx, uint32_t intrinsic_id,
-                                           const std::vector<uint32_t> &args);
+                                           const std::vector<uint32_t> &args,
+                                           uint32_t explicit_opcode = 0);
   static void recordDiagnostic(EmitContext &ctx, const char *fmt, ...);
 };
 

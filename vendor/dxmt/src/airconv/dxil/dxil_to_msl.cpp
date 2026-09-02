@@ -97,6 +97,10 @@ enum DXIntrinsicOpcode {
   DXOP_QuadReadLaneAt = 122,
   DXOP_LegacyF16ToF32 = 131,
   DXOP_LegacyF32ToF16 = 132,
+  // HitObject and SER operations intentionally use an internal sentinel.
+  // Their DXIL opcode is carried by the first call operand and is passed
+  // separately to translateDXIntrinsic for fail-closed diagnostics.
+  DXOP_HitObjectOrSER = 1100,
 };
 
 enum DXILMathOpcode {
@@ -382,6 +386,9 @@ static uint32_t intrinsicIdFromCalleeName(const std::string &name) {
   if (strncmp(s, "threadIdInGroup", 15) == 0) return DXOP_ThreadIDInGroup;
   if (strncmp(s, "unaryBits.", 10) == 0) return DXOP_Unary;
   if (strncmp(s, "isSpecialFloat", 14) == 0) return 0;
+  if (strncmp(s, "hitObject_", 10) == 0 ||
+      strncmp(s, "maybeReorderThread", 18) == 0)
+    return DXOP_HitObjectOrSER;
   if (strncmp(s, "cycleCounterLegacy", 18) == 0) return DXOP_CycleCounterLegacy;
   return 0;
 }
@@ -617,7 +624,8 @@ void DXILToMSL::emitFunctionPrologue(EmitContext &ctx) {
 }
 
 std::string DXILToMSL::translateDXIntrinsic(EmitContext &ctx, uint32_t intrinsic_id,
-                                              const std::vector<uint32_t> &args) {
+                                              const std::vector<uint32_t> &args,
+                                              uint32_t explicit_opcode) {
   auto valueArg = [&](size_t arg, const char *fallback) -> std::string {
     if (arg >= args.size())
       return fallback;
@@ -1000,6 +1008,14 @@ std::string DXILToMSL::translateDXIntrinsic(EmitContext &ctx, uint32_t intrinsic
                      "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
     return "0";
 
+  case DXOP_HitObjectOrSER:
+    ctx.unsupported_intrinsics++;
+    recordDiagnostic(
+        ctx,
+        "DXIL HitObject/SER intrinsic is unsupported; rejecting shader (opcode=%u)",
+        explicit_opcode);
+    return "0";
+
   case DXOP_Barrier: {
     return "threadgroup_barrier(mem_flags::mem_threadgroup)";
   }
@@ -1319,7 +1335,11 @@ void DXILToMSL::emitInstruction(EmitContext &ctx, const LLVMInstruction &inst, u
         fn_args.assign(call_args.begin() + 1, call_args.end());
       }
 
-      std::string translated = translateDXIntrinsic(ctx, intrinsic_id, fn_args);
+      uint32_t explicit_opcode = 0;
+      if (!call_args.empty())
+        parseUnsignedLiteral(getValue(call_args[0]), explicit_opcode);
+      std::string translated =
+          translateDXIntrinsic(ctx, intrinsic_id, fn_args, explicit_opcode);
 
       if (inst.type_id == 0) {
         ensureValueTable(value_counter);
