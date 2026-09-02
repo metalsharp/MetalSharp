@@ -114,6 +114,7 @@ enum DXIntrinsicOpcode {
   DXOP_SampleIndex = 90,
   DXOP_Coverage = 91,
   DXOP_InnerCoverage = 92,
+  DXOP_CycleCounterLegacy = 109,
   DXOP_EvalSnapped = 87,
   DXOP_EvalSampleIndex = 88,
   DXOP_EvalCentroid = 89,
@@ -957,6 +958,7 @@ struct LowerContext {
     uint32_t attribute_at_vertex_input_id = UINT32_MAX;
     bool uses_sampler_feedback = false;
     bool uses_temp_registers = false;
+    uint32_t cycle_counter_call_count = 0;
     bool ray_generation = false;
     std::unordered_map<uint32_t, uint32_t> hit_object_query_slots;
     std::unordered_map<uint32_t, std::string> hit_object_query_expressions;
@@ -1297,6 +1299,11 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
     os << kMetalHeader;
     emitBindingManifest(ctx);
+    if (ctx.cycle_counter_call_count == 1u) {
+        os << "static inline uint2 m12_cycle_counter_undefined() {\n";
+        os << "  return uint2(0u);\n";
+        os << "}\n\n";
+    }
 
     std::map<std::pair<uint32_t, uint32_t>, uint32_t>
         dynamic_buffer_ranges;
@@ -5087,6 +5094,8 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_Coverage:
     case DXOP_InnerCoverage:
         return {MSLTypeKind::UInt, 0, {}};
+    case DXOP_CycleCounterLegacy:
+        return {MSLTypeKind::UInt2, 0, {}};
     case DXOP_EvalSnapped:
     case DXOP_EvalSampleIndex:
     case DXOP_EvalCentroid:
@@ -7334,10 +7343,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         ctx.unsupported_intrinsics++;
         recordDiagnostic(ctx, "DXIL geometry stream intrinsic requires geometry-stage lowering");
         return "0";
-    case 109:
+    case DXOP_CycleCounterLegacy:
+        if (ctx.cycle_counter_call_count == 1u)
+            return "m12_cycle_counter_undefined()";
         ctx.unsupported_intrinsics++;
-        recordDiagnostic(ctx, "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
-        return "0";
+        recordDiagnostic(
+            ctx,
+            "DXIL CycleCounterLegacy requires the bounded single-read undefined-initial provider; %u reads are unsupported",
+            ctx.cycle_counter_call_count);
+        return "uint2(0u)";
     case DXOP_AllocateNodeOutputRecords:
     case DXOP_GetNodeRecordPtr:
     case DXOP_IncrementOutputCount:
@@ -10605,6 +10619,19 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         ctx.attribute_at_vertex_provider = saw_attribute && valid_provider &&
                                             ctx.attribute_at_vertex_input_id !=
                                                 UINT32_MAX;
+    }
+
+    for (const auto &block : fn.blocks) {
+        for (const auto &inst : block.instructions) {
+            if (inst.opcode != LLVMInstruction::Call ||
+                inst.operands.empty())
+                continue;
+            auto decl = ctx.function_decls.find(inst.operands[0]);
+            if (decl != ctx.function_decls.end() &&
+                intrinsicIdFromCalleeName(decl->second) ==
+                    DXOP_CycleCounterLegacy)
+                ctx.cycle_counter_call_count++;
+        }
     }
 
     bool attribute_layout_seen = false;

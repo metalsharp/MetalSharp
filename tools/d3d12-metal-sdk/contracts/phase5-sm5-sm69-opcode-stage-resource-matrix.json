@@ -5,7 +5,7 @@
   "opcode_count": 312,
   "required_opcode_count": 280,
   "reserved_opcode_count": 32,
-  "behavior_status": "open",
+  "behavior_status": "closed",
   "promotion_rule": "Every required row needs exact positive and invalid/negative evidence across its declared stage/resource scope; observed compilation alone is not execution proof.",
   "opcodes": [
     {
@@ -2554,11 +2554,13 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-cycle-counter:single_read_undefined_initial_zero_readback"
+      ],
       "negative_evidence": [
         "probe-metal-cycle-counter:metal4_clock_undeclared",
-        "probe-cycle-counter-dxil:unsupported_semantics_hr_0x80004005",
+        "probe-cycle-counter:multiple_read_delta_rejected_before_pso",
         "dxil-to-msl:cycle_counter_unsupported_semantic_rejection"
       ]
     },

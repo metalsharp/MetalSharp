@@ -43,6 +43,7 @@ RUN_COMPUTE_PSO=1
 RUN_COMMAND_REPLAY=1
 RUN_WORK_GRAPH=0
 RUN_ATTRIBUTE_AT_VERTEX=0
+RUN_CYCLE_COUNTER=0
 RUN_BARRIERS_RENDER_PASS=1
 RUN_RESOURCE_VIEWS_FORMATS=1
 RUN_RENDER_HEADLESS=1
@@ -160,6 +161,8 @@ Options:
                         Run the bounded GPU vertex-capture AttributeAtVertex probe.
   --attribute-at-vertex-only
                         Run only the bounded GPU vertex-capture AttributeAtVertex probe.
+  --cycle-counter       Run the bounded single-read CycleCounterLegacy probe.
+  --cycle-counter-only  Run only the bounded single-read CycleCounterLegacy probe.
   --no-barriers-render-pass
                         Skip probe_barriers_render_pass.
   --barriers-render-pass-only
@@ -399,6 +402,7 @@ while [[ $# -gt 0 ]]; do
       RUN_COMMAND_REPLAY=1
       RUN_WORK_GRAPH=1
       RUN_ATTRIBUTE_AT_VERTEX=1
+      RUN_CYCLE_COUNTER=1
       RUN_BARRIERS_RENDER_PASS=1
       RUN_RESOURCE_VIEWS_FORMATS=1
       RUN_RENDER_HEADLESS=1
@@ -930,6 +934,46 @@ while [[ $# -gt 0 ]]; do
       RUN_FULL_STRESS=0
       shift
       ;;
+    --cycle-counter)
+      RUN_CYCLE_COUNTER=1
+      shift
+      ;;
+    --cycle-counter-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_TEXTURE_DIMENSIONS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=1
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
     --command-replay-only)
       RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
@@ -1314,6 +1358,7 @@ GRAPHICS_PSO_PROBE_EXE="$SDK_DIR/out/bin/probe_graphics_pso.exe"
 COMPUTE_PSO_PROBE_EXE="$SDK_DIR/out/bin/probe_compute_pso.exe"
 COMMAND_REPLAY_PROBE_EXE="$SDK_DIR/out/bin/probe_command_replay.exe"
 ATTRIBUTE_AT_VERTEX_PROBE_EXE="$SDK_DIR/out/bin/probe_attribute_at_vertex.exe"
+CYCLE_COUNTER_PROBE_EXE="$SDK_DIR/out/bin/probe_cycle_counter.exe"
 BARRIERS_RENDER_PASS_PROBE_EXE="$SDK_DIR/out/bin/probe_barriers_render_pass.exe"
 RESOURCE_VIEWS_FORMATS_PROBE_EXE="$SDK_DIR/out/bin/probe_resource_views_formats.exe"
 RENDER_HEADLESS_PROBE_EXE="$SDK_DIR/out/bin/probe_render_headless.exe"
@@ -1360,7 +1405,7 @@ if [[ "$WINDOWS_DIR" == *"/gptk/"* || "$WINDOWS_DIR" == *"/lib/gptk/"* ]]; then
 fi
 
 NEED_BUILD=0
-if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$TEXTURE_DIMENSIONS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$ATTRIBUTE_AT_VERTEX_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$TEXTURE_DIMENSIONS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$ATTRIBUTE_AT_VERTEX_PROBE_EXE" || ! -f "$CYCLE_COUNTER_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
 
@@ -1457,6 +1502,7 @@ HITOBJECT_INVOKE_RESULT_FILE="$RESULTS_DIR/probe-hitobject-invoke-${PROFILE}.jso
 HITOBJECT_ATTRIBUTES_RESULT_FILE="$RESULTS_DIR/probe-hitobject-attributes-${PROFILE}.json"
 HITOBJECT_REORDER_RESULT_FILE="$RESULTS_DIR/probe-hitobject-reorder-${PROFILE}.json"
 ATTRIBUTE_AT_VERTEX_RESULT_FILE="$RESULTS_DIR/probe-attribute-at-vertex-${PROFILE}.json"
+CYCLE_COUNTER_RESULT_FILE="$RESULTS_DIR/probe-cycle-counter-${PROFILE}.json"
 WORK_GRAPH_RESULT_FILE="$RESULTS_DIR/probe-workgraph-${PROFILE}.json"
 BARRIERS_RENDER_PASS_RESULT_FILE="$RESULTS_DIR/probe-barriers-render-pass-${PROFILE}.json"
 RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${PROFILE}.json"
@@ -3120,6 +3166,73 @@ prepare_attribute_at_vertex_probe() {
   fi
   [[ -s "$vertex_shader" && -s "$pixel_shader" ]] || {
     echo "AttributeAtVertex DXIL fixtures are missing" >&2
+    return 1
+  }
+}
+
+prepare_cycle_counter_probe() {
+  local source_dir="$SDK_DIR/probes/probe_cycle_counter"
+  local llvm_root="${METALSHARP_X86_LLVM_ROOT:-/Volumes/AverySSD/toolchains}/clang+llvm-15.0.7-x86_64-apple-darwin21.0"
+  local llvm_as="$llvm_root/bin/llvm-as"
+  if [[ ! -x "$llvm_as" ]]; then
+    echo "missing pinned llvm-as for CycleCounterLegacy probe: $llvm_as" >&2
+    return 1
+  fi
+
+  cp "$source_dir/cycle_counter_vertex.hlsl" \
+    "$SDK_DIR/out/bin/probe_cycle_counter_vertex.hlsl"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E vs_main -T vs_6_0 \
+      -Fo probe_cycle_counter_vs.cso probe_cycle_counter_vertex.hlsl >/dev/null; then
+      exit 1
+    fi
+  ); then
+    echo "failed to compile CycleCounterLegacy vertex fixture" >&2
+    return 1
+  fi
+
+  local stem raw output
+  for stem in single multiple; do
+    raw="$SDK_DIR/out/bin/probe_cycle_counter_${stem}.bc"
+    output="$SDK_DIR/out/bin/probe_cycle_counter_${stem}.cso"
+    if ! "$llvm_as" "$source_dir/cycle_counter_${stem}.ll" -o "$raw"; then
+      echo "failed to assemble CycleCounterLegacy fixture: $stem" >&2
+      return 1
+    fi
+    if ! python3 - "$raw" "$output" <<'PY'
+import struct
+import sys
+
+raw_path, output_path = sys.argv[1:]
+bitcode = open(raw_path, "rb").read()
+if not bitcode or len(bitcode) % 4:
+    raise SystemExit("invalid LLVM bitcode size")
+program_version = (0 << 16) | (6 << 4)  # pixel, SM 6.0
+program = struct.pack(
+    "<II4sHHII", program_version, (24 + len(bitcode)) // 4,
+    b"DXIL", 0, 1, 16, len(bitcode)
+) + bitcode
+part_offset = 36
+chunk = struct.pack("<4sI", b"DXIL", len(program)) + program
+container_size = part_offset + len(chunk)
+container = (
+    b"DXBC" + b"\0" * 16 + struct.pack("<III", 1, container_size, 1) +
+    struct.pack("<I", part_offset) + chunk
+)
+open(output_path, "wb").write(container)
+PY
+    then
+      echo "failed to wrap CycleCounterLegacy fixture: $stem" >&2
+      return 1
+    fi
+  done
+
+  [[ -s "$SDK_DIR/out/bin/probe_cycle_counter_vs.cso" &&
+     -s "$SDK_DIR/out/bin/probe_cycle_counter_single.cso" &&
+     -s "$SDK_DIR/out/bin/probe_cycle_counter_multiple.cso" ]] || {
+    echo "CycleCounterLegacy fixture outputs are missing" >&2
     return 1
   }
 }
@@ -5131,6 +5244,11 @@ if [[ "$RUN_ATTRIBUTE_AT_VERTEX" == "1" ]]; then
   prepare_attribute_at_vertex_probe
   run_probe_exe "$ATTRIBUTE_AT_VERTEX_PROBE_EXE" \
     "$ATTRIBUTE_AT_VERTEX_RESULT_FILE"
+fi
+
+if [[ "$RUN_CYCLE_COUNTER" == "1" ]]; then
+  prepare_cycle_counter_probe
+  run_probe_exe "$CYCLE_COUNTER_PROBE_EXE" "$CYCLE_COUNTER_RESULT_FILE"
 fi
 
 if [[ "$RUN_BARRIERS_RENDER_PASS" == "1" ]]; then
