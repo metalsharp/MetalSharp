@@ -901,6 +901,7 @@ struct LowerContext {
     bool ray_generation = false;
     std::unordered_map<uint32_t, uint32_t> hit_object_query_slots;
     std::unordered_map<uint32_t, std::string> hit_object_query_expressions;
+    std::set<uint32_t> hit_object_explicit_hit_kind_slots;
     uint32_t next_hit_object_query_slot = 0;
 };
 
@@ -7172,6 +7173,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                     return reject("FromRayQuery hit kind must be literal");
                 expression += ", m12_hit_kinds[" + index + "] = " +
                               std::to_string(hit_kind) + "u";
+                ctx.hit_object_explicit_hit_kind_slots.insert(*slot);
             }
             return expression + ")";
         }
@@ -7382,6 +7384,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                                ".get_committed_primitive_id() : 0u)"
                          : "m12_hit_primitive_indices[" + index + "]";
             case 285:
+              if (ctx.hit_object_explicit_hit_kind_slots.count(*slot))
+                return "m12_hit_kinds[" + index + "]";
               return has_query
                          ? "(" + state + " == 2u ? (" + query +
                                ".is_committed_triangle_front_facing() ? 254u : 255u) : 0u)"
