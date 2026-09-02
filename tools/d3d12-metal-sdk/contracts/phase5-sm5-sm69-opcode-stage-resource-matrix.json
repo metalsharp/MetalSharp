@@ -2557,7 +2557,8 @@
       "status": "open",
       "positive_evidence": [],
       "negative_evidence": [
-        "probe-metal-cycle-counter:metal4_clock_undeclared"
+        "probe-metal-cycle-counter:metal4_clock_undeclared",
+        "dxil-to-msl:cycle_counter_unsupported_semantic_rejection"
       ]
     },
     {

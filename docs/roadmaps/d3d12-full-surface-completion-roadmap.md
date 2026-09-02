@@ -1714,3 +1714,16 @@ whether the scoped FL12_2 gate is green.
 - These are hardware capability/rejection proofs, not behavior-backed
   `AttributeAtVertex` or `CycleCounterLegacy` promotions. The opcode matrix
   remains **234 observed / 46 open / 32 reserved**, and Phase 5 remains open.
+
+### 2026-09-01 — Phase 5 cycle-counter fail-closed hardening
+
+- The legacy `DXILToMSL` fallback previously translated
+  `cycleCounterLegacy` to a literal zero without incrementing its unsupported
+  semantic count. It now records the same explicit rejection diagnostic as the
+  typed lowerer and increments `unsupported_intrinsics`, so the D3D12 pipeline
+  rejects the shader before MSL/PSO creation rather than silently producing a
+  false value.
+- Rebuilt `src/d3d12/d3d12.dll` from the pinned MetalSharp build with the
+  change. This is a safety correction, not positive CycleCounterLegacy
+  evidence; the row remains open pending an exact counter readback or a
+  semantically equivalent provider.

@@ -995,6 +995,9 @@ std::string DXILToMSL::translateDXIntrinsic(EmitContext &ctx, uint32_t intrinsic
     return "1";
 
   case DXOP_CycleCounterLegacy:
+    ctx.unsupported_intrinsics++;
+    recordDiagnostic(ctx,
+                     "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
     return "0";
 
   case DXOP_Barrier: {
