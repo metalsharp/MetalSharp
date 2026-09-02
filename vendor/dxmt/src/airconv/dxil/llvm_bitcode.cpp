@@ -1482,12 +1482,21 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
       break;
     }
     case kFuncCode_InstExtractElt: {
-      if (cur_block < fn.blocks.size() && ops.size() >= 4) {
+      if (cur_block < fn.blocks.size() && ops.size() >= 3) {
         LLVMInstruction inst;
         inst.opcode = LLVMInstruction::ExtractElement;
-        inst.type_id = (uint32_t)ops[2];
-        inst.operands.push_back(value(ops[1]));
-        inst.operands.push_back(value(ops[3]));
+        if (ops.size() >= 4) {
+          inst.type_id = (uint32_t)ops[2];
+          inst.operands.push_back(value(ops[1]));
+          inst.operands.push_back(value(ops[3]));
+        } else {
+          // Newer LLVM bitcode omits the redundant vector type from the
+          // compact EXTRACTELT record: [opcode, vector, index].  Recover the
+          // result type during lowering from the vector operand.
+          inst.type_id = 0;
+          inst.operands.push_back(value(ops[1]));
+          inst.operands.push_back(value(ops[2]));
+        }
         fn.blocks[cur_block].instructions.push_back(inst);
         noteResult();
       }

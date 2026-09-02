@@ -903,12 +903,18 @@ struct LowerContext {
     std::unordered_map<uint32_t, std::string> hit_object_query_expressions;
     std::set<uint32_t> hit_object_explicit_hit_kind_slots;
     std::set<uint32_t> hit_object_make_miss_slots;
+    std::unordered_map<uint32_t, std::string> hit_object_attribute_expressions;
     bool hit_object_invoke_seen = false;
     bool hit_object_invoke_payload_supported = false;
     bool hit_object_invoke_miss_body_supported = false;
     uint32_t hit_object_invoke_payload_type_id = 0;
     std::string hit_object_invoke_payload_name;
     std::vector<std::string> hit_object_invoke_payload_fields;
+    bool hit_object_attributes_seen = false;
+    bool hit_object_attributes_supported = false;
+    uint32_t hit_object_attribute_type_id = 0;
+    std::string hit_object_attribute_name;
+    std::vector<std::string> hit_object_attribute_fields;
     uint32_t next_hit_object_query_slot = 0;
 };
 
@@ -2066,6 +2072,24 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  m12_miss_table[2](grs, local, res, smp, &fat, nullptr, t_current, t_min, ray_flags, world_direction, world_origin, 0u, 0u, 0u);\n";
             os << "  if (payload != nullptr) *payload = fat.payload;\n";
             os << "}\n\n";
+        }
+        if (ctx.hit_object_attributes_supported) {
+            os << "struct " << ctx.hit_object_attribute_name << " {\n";
+            for (size_t field = 0; field < ctx.hit_object_attribute_fields.size(); ++field)
+                os << "  " << ctx.hit_object_attribute_fields[field] << " field" << field << ";\n";
+            os << "};\n";
+            if (ctx.hit_object_attribute_name ==
+                    "BuiltInTriangleIntersectionAttributes" &&
+                ctx.hit_object_attribute_fields.size() == 1 &&
+                ctx.hit_object_attribute_fields[0] == "float2") {
+                os << "static inline void m12_hit_object_write_triangle_attributes(thread intersection_query<instancing, triangle_data> &query, uint state, thread "
+                   << ctx.hit_object_attribute_name << " *attributes) {\n";
+                os << "  if (attributes == nullptr) return;\n";
+                os << "  " << ctx.hit_object_attribute_name << " value = {};\n";
+                os << "  if (state == 2u) value.field0 = query.get_committed_triangle_barycentric_coord();\n";
+                os << "  *attributes = value;\n";
+                os << "}\n\n";
+            }
         }
 
         os << "static inline uint m12_hit_local_root_constant(constant IRDispatchRaysArgument *dispatch, uint state, uint table_index, uint offset, uint valid) {\n";
@@ -7176,11 +7200,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             callee_name.find("hitObject_MakeNop") != std::string::npos;
         const bool is_invoke =
             callee_name.find("hitObject_Invoke") != std::string::npos;
+        const bool is_maybe_reorder =
+            callee_name.find("maybeReorderThread") != std::string::npos;
         const bool is_from_ray_query =
             callee_name.find("hitObject_FromRayQuery") != std::string::npos;
         const bool is_from_ray_query_with_attrs =
             callee_name.find("hitObject_FromRayQueryWithAttrs") !=
             std::string::npos;
+        const bool is_attributes =
+            callee_name.find("hitObject_Attributes") != std::string::npos;
         const bool is_set_shader_table_index =
             callee_name.find("hitObject_SetShaderTableIndex") !=
             std::string::npos;
@@ -7204,6 +7232,26 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         if (!ctx.ray_generation)
             return reject("ray-generation provider is required");
 
+        if (is_maybe_reorder) {
+            // MaybeReorderThread is a scheduling hint: the DXIL contract
+            // permits the implementation to decline to reorder.  This
+            // provider deliberately preserves the current lane and therefore
+            // has no observable state transition or CPU-side scheduler.
+            if (args.size() < 3)
+                return reject("malformed MaybeReorderThread operands");
+            if (!hitObjectSlotForValue(args[0]))
+                return reject("MaybeReorderThread HitObject has no query slot");
+            const uint32_t hint_bits =
+                literalArg(2, UINT32_MAX, "MaybeReorderThread hint bit count");
+            if (hint_bits == UINT32_MAX || hint_bits > 32u)
+                return reject("MaybeReorderThread hint bit count must be literal 0..32");
+            if (hint_bits != 0u &&
+                literalArg(1, UINT32_MAX, "MaybeReorderThread coherence hint") ==
+                    UINT32_MAX)
+                return reject("coherence hint must be literal when hint bits are nonzero");
+            return {};
+        }
+
         if (is_from_ray_query || is_from_ray_query_with_attrs) {
             if (args.empty())
                 return reject("malformed FromRayQuery operands");
@@ -7224,8 +7272,47 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 expression += ", m12_hit_kinds[" + index + "] = " +
                               std::to_string(hit_kind) + "u";
                 ctx.hit_object_explicit_hit_kind_slots.insert(*slot);
+                if (args.size() < 3 || !ctx.hit_object_attributes_supported)
+                    return reject("FromRayQuery attributes type is outside the bounded provider");
+                ctx.hit_object_attribute_expressions[*slot] =
+                    valueArg(2, "nullptr");
             }
             return expression + ")";
+        }
+
+        if (is_attributes) {
+            if (args.size() < 2)
+                return reject("malformed HitObject_Attributes operands");
+            auto slot = hitObjectSlotForValue(args[0]);
+            if (!slot)
+                return reject("HitObject token has no query slot");
+            if (!ctx.hit_object_attributes_supported)
+                return reject("attributes type is outside the bounded provider");
+            const std::string destination = valueArg(1, "nullptr");
+            if (destination == "nullptr")
+                return reject("HitObject_Attributes destination is not a local pointer");
+            const std::string target = "reinterpret_cast<thread " +
+                                       ctx.hit_object_attribute_name +
+                                       " *>(" + destination + ")";
+            auto source = ctx.hit_object_attribute_expressions.find(*slot);
+            if (source != ctx.hit_object_attribute_expressions.end()) {
+                const std::string source_ptr = source->second;
+                if (source_ptr == "nullptr")
+                    return reject("FromRayQuery attributes source is not a local pointer");
+                return "*" + target + " = *reinterpret_cast<thread " +
+                       ctx.hit_object_attribute_name + " *>(" + source_ptr + ")";
+            }
+            if (ctx.hit_object_attribute_name ==
+                    "BuiltInTriangleIntersectionAttributes" &&
+                ctx.hit_object_attribute_fields.size() == 1 &&
+                ctx.hit_object_attribute_fields[0] == "float2" &&
+                ctx.hit_object_query_expressions.find(*slot) !=
+                    ctx.hit_object_query_expressions.end()) {
+                return "m12_hit_object_write_triangle_attributes(" +
+                       hitObjectQueryForSlot(*slot) + ", m12_hit_states[" +
+                       std::to_string(*slot) + "], " + target + ")";
+            }
+            return reject("attributes require a triangle query or FromRayQueryWithAttrs source");
         }
 
         if (is_make_miss || is_make_nop) {
@@ -7243,7 +7330,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 literalArg(1, UINT32_MAX, "HitObject miss shader table index");
             if (flags == UINT32_MAX || shader_table_index == UINT32_MAX)
                 return reject("MakeMiss flags and shader table index must be literal");
-            if (shader_table_index != 0u)
+            if (shader_table_index != 0u && ctx.hit_object_invoke_seen)
                 return reject("Invoke provider supports only miss shader table index zero");
             ctx.hit_object_make_miss_slots.insert(*slot);
             return "(m12_hit_states[" + index + "] = 1u, "
@@ -10183,6 +10270,123 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             break;
         }
     }
+
+    bool attribute_layout_seen = false;
+    bool attribute_layout_invalid = false;
+    for (const auto &block : fn.blocks) {
+        for (const auto &inst : block.instructions) {
+            if (inst.opcode != LLVMInstruction::Call || inst.operands.size() < 2)
+                continue;
+            auto decl = ctx.function_decls.find(inst.operands[0]);
+            if (decl == ctx.function_decls.end())
+                continue;
+            const bool is_get_attributes =
+                decl->second.find("hitObject_Attributes") != std::string::npos;
+            const bool is_from_query_with_attributes =
+                decl->second.find("hitObject_FromRayQueryWithAttrs") !=
+                std::string::npos;
+            if (!is_get_attributes && !is_from_query_with_attributes)
+                continue;
+            ctx.hit_object_attributes_seen = true;
+            const uint32_t function_type_id = inst.operands[1];
+            if (function_type_id >= module.types.size() ||
+                module.types[function_type_id].kind != LLVMType::Function ||
+                module.types[function_type_id].type_refs.size() < 3) {
+                attribute_layout_invalid = true;
+                continue;
+            }
+            const auto &function_type = module.types[function_type_id];
+            const uint32_t attribute_pointer_type = function_type.type_refs.back();
+            if (attribute_pointer_type >= module.types.size() ||
+                module.types[attribute_pointer_type].kind != LLVMType::Pointer ||
+                module.types[attribute_pointer_type].type_refs.empty()) {
+                attribute_layout_invalid = true;
+                continue;
+            }
+            const uint32_t attribute_type_id =
+                module.types[attribute_pointer_type].type_refs[0];
+            if (attribute_type_id >= module.types.size() ||
+                module.types[attribute_type_id].kind != LLVMType::Struct ||
+                module.types[attribute_type_id].type_refs.empty()) {
+                attribute_layout_invalid = true;
+                continue;
+            }
+            const std::string marker = "struct.";
+            const size_t marker_pos = decl->second.rfind(marker);
+            const std::string attribute_name =
+                marker_pos == std::string::npos
+                    ? std::string()
+                    : decl->second.substr(marker_pos + marker.size());
+            bool valid_name = !attribute_name.empty() &&
+                              ((attribute_name[0] >= 'A' && attribute_name[0] <= 'Z') ||
+                               (attribute_name[0] >= 'a' && attribute_name[0] <= 'z') ||
+                               attribute_name[0] == '_');
+            for (char c : attribute_name) {
+                if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                      (c >= '0' && c <= '9') || c == '_')) {
+                    valid_name = false;
+                    break;
+                }
+            }
+            std::vector<std::string> fields;
+            if (valid_name) {
+                for (uint32_t field_type_id :
+                     module.types[attribute_type_id].type_refs) {
+                    if (field_type_id >= module.types.size()) {
+                        valid_name = false;
+                        break;
+                    }
+                    const MSLType field_type =
+                        DXILIRBuilder::resolveType(field_type_id, module);
+                    switch (field_type.kind) {
+                    case MSLTypeKind::Bool:
+                    case MSLTypeKind::Float:
+                    case MSLTypeKind::Float2:
+                    case MSLTypeKind::Float3:
+                    case MSLTypeKind::Float4:
+                    case MSLTypeKind::Int:
+                    case MSLTypeKind::Int2:
+                    case MSLTypeKind::Int3:
+                    case MSLTypeKind::Int4:
+                    case MSLTypeKind::UInt:
+                    case MSLTypeKind::UInt2:
+                    case MSLTypeKind::UInt3:
+                    case MSLTypeKind::UInt4:
+                    case MSLTypeKind::Half:
+                    case MSLTypeKind::Short:
+                    case MSLTypeKind::UShort:
+                        fields.emplace_back(DXILIRBuilder::mslTypeName(field_type));
+                        break;
+                    default:
+                        valid_name = false;
+                        break;
+                    }
+                    if (!valid_name)
+                        break;
+                }
+            }
+            if (!valid_name || fields.empty()) {
+                attribute_layout_invalid = true;
+                continue;
+            }
+            if (attribute_layout_seen &&
+                (ctx.hit_object_attribute_type_id != attribute_type_id ||
+                 ctx.hit_object_attribute_name != attribute_name ||
+                 ctx.hit_object_attribute_fields != fields)) {
+                attribute_layout_invalid = true;
+                continue;
+            }
+            if (!attribute_layout_seen) {
+                ctx.hit_object_attribute_type_id = attribute_type_id;
+                ctx.hit_object_attribute_name = attribute_name;
+                ctx.hit_object_attribute_fields = std::move(fields);
+                attribute_layout_seen = true;
+            }
+        }
+    }
+    ctx.hit_object_attributes_supported =
+        ctx.hit_object_attributes_seen && attribute_layout_seen &&
+        !attribute_layout_invalid;
 
     // HitObject_Invoke needs a concrete payload layout for the visible
     // miss-shader function ABI.  Keep the first provider deliberately

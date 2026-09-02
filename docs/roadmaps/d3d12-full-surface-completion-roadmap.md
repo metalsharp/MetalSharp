@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (260/280 required opcode rows observed; 20 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (262/280 required opcode rows observed; 18 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -769,11 +769,13 @@ pixels), 64-byte, 128-byte, and 256-byte amplification payloads plus a
 uses an explicitly selected
 host `libmetalirconverter` cache provider while retaining the
 `METAL_SHADER_CONVERTER=/nonexistent` runtime setting; vector temporary
-breadth, broader DXR accessors, the bounded GPU HitObject provider (including
-one scalar MakeMiss/miss-shader Invoke form), and state-object breadth remain
-open.
+breadth, broader DXR accessors, and state-object breadth remain open. The
+bounded GPU HitObject provider now covers the recorded 262–289 forms,
+including scalar MakeMiss/miss-shader Invoke, permitted no-reorder
+MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes,
+local-root constants, and exact ray state/accessors.
 
-The exhaustive Phase 5 matrix currently has 260 observed, 20 open, and 32
+The exhaustive Phase 5 matrix currently has 262 observed, 18 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
@@ -788,17 +790,16 @@ open.
 
 **Phase 5 closeout plan (literal gate retained):** Work is now batched by the
 remaining matrix families rather than by ad-hoc probes. First close the
-stage-system/vector rows (`EmitStream`/remaining tessellation state,
-`AttributeAtVertex`, and the legacy cycle-counter boundary) with exact
-runtime/negative evidence. Then pull the Phase 8 ray-generation, shader-table,
-and state-object rows into one native-DXR batch, extending the bounded
-MakeMiss Invoke proof to the remaining legal payload and hit forms. Finally
-implement the Phase 7 Work Graph/node and Phase 8 SER/OMM rows as explicit
-providers; compilation or interface presence alone cannot close them. Each batch must regenerate the
-opcode corpus, pass the strict matrix plus shader-engine audit, record exact
-readbacks/rejections, clean its disposable prefix/cache, and land as a
-checkpoint. No row will be changed to observed solely to improve the
-percentage.
+stage-system rows (`AttributeAtVertex` and the legacy cycle-counter boundary)
+with exact runtime/negative evidence. Then implement the Phase 7 Work
+Graph/node rows as an explicit GPU-side provider; compilation or interface
+presence alone cannot close them. The bounded Phase 8 HitObject provider now
+covers the recorded 262–289 forms, with optional SER scheduling represented by
+a documented no-reorder continuation provider rather than a CPU scheduler.
+Each batch must regenerate the opcode corpus, pass the strict matrix plus
+shader-engine audit, record exact readbacks/rejections, clean its disposable
+prefix/cache, and land as a checkpoint. No row will be changed to observed
+solely to improve the percentage.
 
 **Pull-forward evidence recorded without closing later phases:** Phase 6 has
 exact conservative-raster `InnerCoverage`, ViewID instancing, programmable
@@ -1842,3 +1843,26 @@ whether the scoped FL12_2 gate is green.
   `miss_shader` exports. Opcode 267 is now observed only for this bounded
   provider; opcode 268 and 289 remain open. The strict validator is now
   **260 observed / 20 open / 32 reserved**.
+
+### 2026-09-02 — Phase 5 HitObject attributes and no-reorder continuation
+
+- Added tracked `probe_command_replay` modes for `HitObject_Attributes` and
+  `MaybeReorderThread`. The attributes mode builds a one-triangle TLAS,
+  traverses it through the typed GPU provider, and reads both
+  `BuiltInTriangleIntersectionAttributes.barycentrics` words. Direct and
+  `ExecuteIndirect` DispatchRays return exact `[0x3e800000, 0x3f000000]`
+  (`0.25, 0.5`) with `METAL_SHADER_CONVERTER=/nonexistent`.
+- The typed lowerer now preserves ABI-compatible scalar/vector attribute
+  records for `FromRayQueryWithAttrs`, copies those records for
+  `HitObject_Attributes`, and maps built-in triangle attributes to the
+  committed Metal intersection-query barycentrics. Unsupported attribute
+  layouts and sources remain fail-closed.
+- `MaybeReorderThread` is implemented as its permitted no-reorder behavior:
+  literal coherence hints are validated, the current GPU lane is preserved,
+  and no CPU scheduler is introduced. Direct and `ExecuteIndirect` probes
+  both return an exact continuation marker of `1`.
+- Fixed compact LLVM 3.7 `EXTRACTELT` decoding so omitted vector type fields
+  still consume an SSA result ID; this prevents later DXIL calls from being
+  misidentified after vector attribute access. The strict validator is now
+  **262 observed / 18 open / 32 reserved**; only CycleCounterLegacy,
+  AttributeAtVertex, and Work Graph/node opcodes remain open in the matrix.

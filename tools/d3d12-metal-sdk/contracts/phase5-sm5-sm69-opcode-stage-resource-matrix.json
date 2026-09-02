@@ -5584,8 +5584,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-reorder: bounded ray-generation scheduling hint may decline to reorder; exact continuation readback matched on direct and ExecuteIndirect DispatchRays under METAL_SHADER_CONVERTER=/nonexistent"
+      ],
       "negative_evidence": []
     },
     {
@@ -5926,8 +5928,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-attributes: built-in triangle barycentrics [0.25, 0.5] matched on direct and ExecuteIndirect DispatchRays under METAL_SHADER_CONVERTER=/nonexistent"
+      ],
       "negative_evidence": []
     },
     {
