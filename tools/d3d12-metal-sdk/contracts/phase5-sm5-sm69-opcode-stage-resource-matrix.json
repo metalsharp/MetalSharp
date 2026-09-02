@@ -5728,7 +5728,9 @@
       "required": true,
       "status": "open",
       "positive_evidence": [],
-      "negative_evidence": []
+      "negative_evidence": [
+        "probe-hitobject-object-to-world:DXIL opcode 279 reaches both lowerers and is rejected with unsupported_intrinsics=5, unsupported_opcodes=0"
+      ]
     },
     {
       "id": 280,

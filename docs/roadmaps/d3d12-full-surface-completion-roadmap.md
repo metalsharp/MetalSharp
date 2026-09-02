@@ -1756,3 +1756,14 @@ whether the scoped FL12_2 gate is green.
   `opcode=280` rejection diagnostics. This is negative fail-closed evidence
   only; row 280 remains open until exact world-to-object readback or a
   semantically equivalent provider is implemented.
+
+### 2026-09-01 — Phase 5 descending HitObject opcode-279 boundary
+
+- Continued downward from row 280. A minimal pinned DXC `lib_6_9`
+  ray-generation shader emits `HitObject_ObjectToWorld3x4` (opcode 279) in
+  addition to the required HitObject construction operations.
+- Both DXIL lowerers reject the shader with
+  `unsupported_intrinsics=5`, `unsupported_opcodes=0`, including three
+  explicit `opcode=279` diagnostics. Row 279 remains open: this hardening
+  prevents a literal-zero fallback but supplies no positive transform
+  readback or HitObject provider.
