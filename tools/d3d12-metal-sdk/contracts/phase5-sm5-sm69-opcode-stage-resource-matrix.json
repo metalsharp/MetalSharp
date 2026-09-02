@@ -5714,7 +5714,9 @@
       "required": true,
       "status": "open",
       "positive_evidence": [],
-      "negative_evidence": []
+      "negative_evidence": [
+        "probe-hitobject-object-ray-direction:DXIL opcode 278 reaches both lowerers and is rejected with unsupported_intrinsics=5, unsupported_opcodes=0"
+      ]
     },
     {
       "id": 279,

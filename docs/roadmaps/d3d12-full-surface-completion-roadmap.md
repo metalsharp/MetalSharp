@@ -1767,3 +1767,14 @@ whether the scoped FL12_2 gate is green.
   explicit `opcode=279` diagnostics. Row 279 remains open: this hardening
   prevents a literal-zero fallback but supplies no positive transform
   readback or HitObject provider.
+
+### 2026-09-01 — Phase 5 descending HitObject opcode-278 boundary
+
+- Continued downward through `HitObject_ObjectRayDirection` (opcode 278) with
+  a minimal pinned DXC `lib_6_9` ray-generation shader covering all three
+  vector components.
+- Both lowerers reject the shader with
+  `unsupported_intrinsics=5`, `unsupported_opcodes=0`, including three
+  explicit `opcode=278` diagnostics. Row 278 remains open because this is
+  fail-closed negative evidence only and does not provide an object-ray
+  direction readback.
