@@ -2033,7 +2033,16 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "struct IRVirtualAddressRangeAndStride { ulong StartAddress; ulong SizeInBytes; ulong StrideInBytes; };\n";
         os << "struct IRDispatchRaysDescriptor { IRVirtualAddressRange RayGenerationShaderRecord; IRVirtualAddressRangeAndStride MissShaderTable; IRVirtualAddressRangeAndStride HitGroupTable; IRVirtualAddressRangeAndStride CallableShaderTable; uint Width; uint Height; uint Depth; uint pad; };\n";
         os << "struct IRDispatchRaysArgument { IRDispatchRaysDescriptor DispatchRaysDesc; ulong GRS; ulong ResDescHeap; ulong SmpDescHeap; ulong VisibleFunctionTable; ulong IntersectionFunctionTable; ulong IntersectionFunctionTables; };\n";
-        os << "struct IRRaytracingAccelerationStructureGPUHeader { instance_acceleration_structure accelerationStructureID; device uint *addressOfInstanceContributions; ulong pad0[4]; uint3 pad1; };\n\n";
+        os << "struct IRRaytracingAccelerationStructureGPUHeader { instance_acceleration_structure accelerationStructureID; device uint *addressOfInstanceContributions; ulong pad0[4]; uint3 pad1; };\n";
+        os << "static inline uint m12_hit_local_root_constant(constant IRDispatchRaysArgument *dispatch, uint state, uint table_index, uint offset, uint valid) {\n";
+        os << "  if (dispatch == nullptr || valid == 0u || state == 0u) return 0u;\n";
+        os << "  IRVirtualAddressRangeAndStride table = state == 1u ? dispatch->DispatchRaysDesc.MissShaderTable : dispatch->DispatchRaysDesc.HitGroupTable;\n";
+        os << "  if (table.StartAddress == 0ul || table.StrideInBytes < 36ul || table.SizeInBytes < table.StrideInBytes) return 0u;\n";
+        os << "  ulong record_index = state == 1u ? ulong(table_index & 0xffffu) : ulong(table_index);\n";
+        os << "  if (record_index >= table.SizeInBytes / table.StrideInBytes || ulong(offset) > table.StrideInBytes - 36ul) return 0u;\n";
+        os << "  constant uchar *record = reinterpret_cast<constant uchar *>(table.StartAddress + record_index * table.StrideInBytes);\n";
+        os << "  return *reinterpret_cast<constant uint *>(record + 32ul + ulong(offset));\n";
+        os << "}\n\n";
         os << "static inline device char* m12_raygen_buffer(constant IRDescriptorTableEntry *table, uint index) {\n";
         os << "  return table == nullptr ? nullptr : reinterpret_cast<device char*>(table[index].gpuVA);\n";
         os << "}\n";
@@ -2048,7 +2057,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  query.commit_triangle_intersection();\n";
         os << "  return 2u;\n";
         os << "}\n\n";
-        os << "[[visible]] void raygen(constant top_level_global_ab *grs, constant top_level_local_ab *, constant res_desc_heap_ab *, constant smp_desc_heap_ab *, constant IRDispatchRaysArgument *, uint3 mtl_ray_index) {\n";
+        os << "[[visible]] void raygen(constant top_level_global_ab *grs, constant top_level_local_ab *, constant res_desc_heap_ab *, constant smp_desc_heap_ab *, constant IRDispatchRaysArgument *dispatch, uint3 mtl_ray_index) {\n";
         os << "  (void)mtl_ray_index;\n";
         os << "  constant IRDescriptorTableEntry *m12_raygen_table = grs == nullptr ? nullptr : grs->table;\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; ++i)
@@ -2098,6 +2107,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  thread intersection_query<instancing, triangle_data> m12_hit_queries[32] = {};\n";
         os << "  thread uint m12_hit_states[32] = {}; // 0=nop, 1=miss, 2=hit\n";
         os << "  thread uint m12_hit_shader_table_indices[32] = {};\n";
+        os << "  thread uint m12_hit_shader_table_valid[32] = {};\n";
         os << "  thread uint m12_hit_ray_flags[32] = {};\n";
         os << "  thread float3 m12_hit_world_origins[32] = {};\n";
         os << "  thread float3 m12_hit_world_directions[32] = {};\n";
@@ -7143,6 +7153,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             callee_name.find("hitObject_StateVector") != std::string::npos;
         const bool is_state_scalar =
             callee_name.find("hitObject_StateScalar") != std::string::npos;
+        const bool is_load_local_root_table_constant =
+            callee_name.find("hitObject_LoadLocalRootTableConstant") !=
+            std::string::npos;
         auto reject = [&](const char *reason) {
             ctx.unsupported_intrinsics++;
             recordDiagnostic(
@@ -7198,6 +7211,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                    std::to_string(flags) + "u, "
                    "m12_hit_shader_table_indices[" + index + "] = " +
                    std::to_string(shader_table_index) + "u, "
+                   "m12_hit_shader_table_valid[" + index + "] = 1u, "
                    "m12_hit_world_origins[" + index + "] = float3(" +
                    numericArg(2, "0.0f") + ", " + numericArg(3, "0.0f") +
                    ", " + numericArg(4, "0.0f") + "), "
@@ -7221,8 +7235,26 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             ctx.hit_object_query_slots[ctx.current_result_id] = *slot;
             return "(m12_hit_shader_table_indices[" +
                    std::to_string(*slot) + "] = " +
-                   std::to_string(table_index) + "u, m12_hit_states[" +
+                   std::to_string(table_index) + "u, m12_hit_shader_table_valid[" +
+                   std::to_string(*slot) + "] = 1u, m12_hit_states[" +
                    std::to_string(*slot) + "])";
+        }
+
+        if (is_load_local_root_table_constant) {
+            if (args.size() < 2)
+                return reject("malformed LoadLocalRootTableConstant operands");
+            auto slot = hitObjectSlotForValue(args[0]);
+            if (!slot)
+                return reject("HitObject token has no query slot");
+            const uint32_t offset =
+                literalArg(1, UINT32_MAX, "HitObject local-root offset");
+            if (offset == UINT32_MAX || (offset & 3u) != 0u)
+                return reject("local-root offset must be a literal multiple of four");
+            return "m12_hit_local_root_constant(dispatch, m12_hit_states[" +
+                   std::to_string(*slot) + "], m12_hit_shader_table_indices[" +
+                   std::to_string(*slot) + "], " + std::to_string(offset) +
+                   "u, m12_hit_shader_table_valid[" + std::to_string(*slot) +
+                   "])";
         }
 
         if (is_trace_ray) {

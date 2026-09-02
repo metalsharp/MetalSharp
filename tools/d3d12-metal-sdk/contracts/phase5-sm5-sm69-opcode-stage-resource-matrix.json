@@ -5906,9 +5906,13 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
-      "negative_evidence": []
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-local-root: exact 0xa1b2c3d4 readback from a MakeMiss HitObject local-root table constant through direct and ExecuteIndirect DISPATCH_RAYS under METAL_SHADER_CONVERTER=/nonexistent"
+      ],
+      "negative_evidence": [
+        "probe-hitobject-local-root: a NOP HitObject with an explicit table index returns exact zero for the same local-root lookup"
+      ]
     },
     {
       "id": 289,
