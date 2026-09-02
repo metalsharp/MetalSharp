@@ -902,6 +902,13 @@ struct LowerContext {
     std::unordered_map<uint32_t, uint32_t> hit_object_query_slots;
     std::unordered_map<uint32_t, std::string> hit_object_query_expressions;
     std::set<uint32_t> hit_object_explicit_hit_kind_slots;
+    std::set<uint32_t> hit_object_make_miss_slots;
+    bool hit_object_invoke_seen = false;
+    bool hit_object_invoke_payload_supported = false;
+    bool hit_object_invoke_miss_body_supported = false;
+    uint32_t hit_object_invoke_payload_type_id = 0;
+    std::string hit_object_invoke_payload_name;
+    std::vector<std::string> hit_object_invoke_payload_fields;
     uint32_t next_hit_object_query_slot = 0;
 };
 
@@ -2032,8 +2039,35 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "struct IRVirtualAddressRange { ulong StartAddress; ulong SizeInBytes; };\n";
         os << "struct IRVirtualAddressRangeAndStride { ulong StartAddress; ulong SizeInBytes; ulong StrideInBytes; };\n";
         os << "struct IRDispatchRaysDescriptor { IRVirtualAddressRange RayGenerationShaderRecord; IRVirtualAddressRangeAndStride MissShaderTable; IRVirtualAddressRangeAndStride HitGroupTable; IRVirtualAddressRangeAndStride CallableShaderTable; uint Width; uint Height; uint Depth; uint pad; };\n";
-        os << "struct IRDispatchRaysArgument { IRDispatchRaysDescriptor DispatchRaysDesc; ulong GRS; ulong ResDescHeap; ulong SmpDescHeap; ulong VisibleFunctionTable; ulong IntersectionFunctionTable; ulong IntersectionFunctionTables; };\n";
+        os << "struct IRDispatchRaysArgument;\n";
+        os << "using m12_raygen_function_type = void(constant top_level_global_ab *, constant top_level_local_ab *, constant res_desc_heap_ab *, constant smp_desc_heap_ab *, constant IRDispatchRaysArgument *, uint3);\n";
+        os << "using m12_raygen_function_table = visible_function_table<m12_raygen_function_type>;\n";
+        os << "struct IRDispatchRaysArgument { IRDispatchRaysDescriptor DispatchRaysDesc; ulong GRS; ulong ResDescHeap; ulong SmpDescHeap; m12_raygen_function_table VisibleFunctionTable; ulong IntersectionFunctionTable; ulong IntersectionFunctionTables; };\n";
         os << "struct IRRaytracingAccelerationStructureGPUHeader { instance_acceleration_structure accelerationStructureID; device uint *addressOfInstanceContributions; ulong pad0[4]; uint3 pad1; };\n";
+        if (ctx.hit_object_invoke_payload_supported) {
+            os << "struct DispatchRaysArgument { IRDispatchRaysArgument base; uint a; uint b; uint c; uint d; uint e; constant metal::raytracing::intersection_function_table<> *ift; device uchar *ptr; };\n";
+            os << "struct m12_fat_payload_meta { constant DispatchRaysArgument *dispatch; constant uint *payload; uint a; uint b; uint c; ushort d; uchar e; uchar f; uchar extra0[8]; uchar extra1[8]; };\n";
+            os << "struct " << ctx.hit_object_invoke_payload_name << " {\n";
+            for (size_t field = 0; field < ctx.hit_object_invoke_payload_fields.size(); ++field)
+                os << "  " << ctx.hit_object_invoke_payload_fields[field] << " field" << field << ";\n";
+            os << "};\n";
+            os << "struct m12_fat_payload { m12_fat_payload_meta meta; "
+               << ctx.hit_object_invoke_payload_name << " payload; };\n";
+            os << "using m12_miss_function_type = void(constant top_level_global_ab *, constant top_level_local_ab *, constant res_desc_heap_ab *, constant smp_desc_heap_ab *, thread m12_fat_payload *, constant DispatchRaysArgument *, float, float, uint, float3, float3, uint, uint, uint);\n";
+            os << "using m12_miss_function_table = visible_function_table<m12_miss_function_type>;\n";
+            os << "static inline void m12_hit_object_invoke_miss(constant top_level_global_ab *grs, constant top_level_local_ab *local, constant res_desc_heap_ab *res, constant smp_desc_heap_ab *smp, constant IRDispatchRaysArgument *dispatch, thread "
+               << ctx.hit_object_invoke_payload_name << " *payload, float t_current, float t_min, uint ray_flags, float3 world_direction, float3 world_origin) {\n";
+            os << "  if (dispatch == nullptr) return;\n";
+            os << "  m12_raygen_function_table m12_raygen_table = {};\n";
+            os << "  m12_raygen_table = dispatch->VisibleFunctionTable;\n";
+            os << "  m12_miss_function_table m12_miss_table = m12_miss_function_table::__get_from_opaque_handle(m12_raygen_table.__get_opaque_handle());\n";
+            os << "  m12_fat_payload fat = {};\n";
+            os << "  if (payload != nullptr) fat.payload = *payload;\n";
+            os << "  m12_miss_table[2](grs, local, res, smp, &fat, nullptr, t_current, t_min, ray_flags, world_direction, world_origin, 0u, 0u, 0u);\n";
+            os << "  if (payload != nullptr) *payload = fat.payload;\n";
+            os << "}\n\n";
+        }
+
         os << "static inline uint m12_hit_local_root_constant(constant IRDispatchRaysArgument *dispatch, uint state, uint table_index, uint offset, uint valid) {\n";
         os << "  if (dispatch == nullptr || valid == 0u || state == 0u) return 0u;\n";
         os << "  IRVirtualAddressRangeAndStride table = state == 1u ? dispatch->DispatchRaysDesc.MissShaderTable : dispatch->DispatchRaysDesc.HitGroupTable;\n";
@@ -2057,7 +2091,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  query.commit_triangle_intersection();\n";
         os << "  return 2u;\n";
         os << "}\n\n";
-        os << "[[visible]] void raygen(constant top_level_global_ab *grs, constant top_level_local_ab *, constant res_desc_heap_ab *, constant smp_desc_heap_ab *, constant IRDispatchRaysArgument *dispatch, uint3 mtl_ray_index) {\n";
+        os << "[[visible]] void raygen(constant top_level_global_ab *grs, constant top_level_local_ab *local, constant res_desc_heap_ab *res, constant smp_desc_heap_ab *smp, constant IRDispatchRaysArgument *dispatch, uint3 mtl_ray_index) {\n";
         os << "  (void)mtl_ray_index;\n";
         os << "  constant IRDescriptorTableEntry *m12_raygen_table = grs == nullptr ? nullptr : grs->table;\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; ++i)
@@ -7140,6 +7174,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             callee_name.find("hitObject_MakeMiss") != std::string::npos;
         const bool is_make_nop =
             callee_name.find("hitObject_MakeNop") != std::string::npos;
+        const bool is_invoke =
+            callee_name.find("hitObject_Invoke") != std::string::npos;
         const bool is_from_ray_query =
             callee_name.find("hitObject_FromRayQuery") != std::string::npos;
         const bool is_from_ray_query_with_attrs =
@@ -7207,6 +7243,9 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 literalArg(1, UINT32_MAX, "HitObject miss shader table index");
             if (flags == UINT32_MAX || shader_table_index == UINT32_MAX)
                 return reject("MakeMiss flags and shader table index must be literal");
+            if (shader_table_index != 0u)
+                return reject("Invoke provider supports only miss shader table index zero");
+            ctx.hit_object_make_miss_slots.insert(*slot);
             return "(m12_hit_states[" + index + "] = 1u, "
                    "m12_hit_ray_flags[" + index + "] = " +
                    std::to_string(flags) + "u, "
@@ -7221,6 +7260,27 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                    ", " + numericArg(8, "0.0f") + "), "
                    "m12_hit_tmins[" + index + "] = " + numericArg(5, "0.0f") +", "
                    "m12_hit_tcurrents[" + index + "] = " + numericArg(9, "0.0f") + ")";
+        }
+
+        if (is_invoke) {
+            if (args.size() < 2)
+                return reject("malformed Invoke operands");
+            auto slot = hitObjectSlotForValue(args[0]);
+            if (!slot)
+                return reject("HitObject token has no query slot");
+            if (!ctx.hit_object_make_miss_slots.count(*slot))
+                return reject("Invoke provider only supports MakeMiss states");
+            if (!ctx.hit_object_invoke_payload_supported)
+                return reject("Invoke payload type is outside the bounded provider");
+            const std::string payload = valueArg(1, "nullptr");
+            const std::string index = std::to_string(*slot);
+            return "m12_hit_object_invoke_miss(grs, local, res, smp, dispatch, "
+                   "reinterpret_cast<thread " +
+                   ctx.hit_object_invoke_payload_name + " *>(" + payload +
+                   "), m12_hit_tcurrents[" + index + "], m12_hit_tmins[" +
+                   index + "], m12_hit_ray_flags[" + index + "], "
+                   "m12_hit_world_directions[" + index + "], "
+                   "m12_hit_world_origins[" + index + "])";
         }
 
         if (is_set_shader_table_index) {
@@ -10123,6 +10183,128 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             break;
         }
     }
+
+    // HitObject_Invoke needs a concrete payload layout for the visible
+    // miss-shader function ABI.  Keep the first provider deliberately
+    // narrow: scalar 32-bit payload members have identical DXIL/MSL layout,
+    // while vectors/packed aggregates need a separate ABI proof.
+    bool invoke_payload_layout_seen = false;
+    bool invoke_payload_layout_invalid = false;
+    for (const auto &block : fn.blocks) {
+        for (const auto &inst : block.instructions) {
+            if (inst.opcode != LLVMInstruction::Call || inst.operands.size() < 2)
+                continue;
+            auto decl = ctx.function_decls.find(inst.operands[0]);
+            if (decl == ctx.function_decls.end() ||
+                decl->second.find("hitObject_Invoke") == std::string::npos)
+                continue;
+            ctx.hit_object_invoke_seen = true;
+            const uint32_t function_type_id = inst.operands[1];
+            if (function_type_id >= module.types.size() ||
+                module.types[function_type_id].kind != LLVMType::Function ||
+                module.types[function_type_id].type_refs.size() < 3) {
+                invoke_payload_layout_invalid = true;
+                continue;
+            }
+            const auto &function_type = module.types[function_type_id];
+            const uint32_t payload_pointer_type = function_type.type_refs.back();
+            if (payload_pointer_type >= module.types.size() ||
+                module.types[payload_pointer_type].kind != LLVMType::Pointer ||
+                module.types[payload_pointer_type].type_refs.empty()) {
+                invoke_payload_layout_invalid = true;
+                continue;
+            }
+            const uint32_t payload_type_id =
+                module.types[payload_pointer_type].type_refs[0];
+            if (payload_type_id >= module.types.size() ||
+                module.types[payload_type_id].kind != LLVMType::Struct ||
+                module.types[payload_type_id].type_refs.empty()) {
+                invoke_payload_layout_invalid = true;
+                continue;
+            }
+            const std::string marker = "struct.";
+            const size_t marker_pos = decl->second.rfind(marker);
+            const std::string payload_name =
+                marker_pos == std::string::npos
+                    ? std::string()
+                    : decl->second.substr(marker_pos + marker.size());
+            bool valid_name = !payload_name.empty() &&
+                              ((payload_name[0] >= 'A' && payload_name[0] <= 'Z') ||
+                               (payload_name[0] >= 'a' && payload_name[0] <= 'z') ||
+                               payload_name[0] == '_');
+            for (char c : payload_name) {
+                if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                      (c >= '0' && c <= '9') || c == '_')) {
+                    valid_name = false;
+                    break;
+                }
+            }
+            std::vector<std::string> fields;
+            if (valid_name) {
+                for (uint32_t field_type_id :
+                     module.types[payload_type_id].type_refs) {
+                    if (field_type_id >= module.types.size()) {
+                        valid_name = false;
+                        break;
+                    }
+                    const auto &field_type = module.types[field_type_id];
+                    if (field_type.kind == LLVMType::Integer &&
+                        field_type.bit_width == 32)
+                        fields.emplace_back("uint");
+                    else if (field_type.kind == LLVMType::Float &&
+                             field_type.bit_width == 32)
+                        fields.emplace_back("float");
+                    else {
+                        valid_name = false;
+                        break;
+                    }
+                }
+            }
+            if (!valid_name || fields.empty()) {
+                invoke_payload_layout_invalid = true;
+                continue;
+            }
+            if (invoke_payload_layout_seen &&
+                (ctx.hit_object_invoke_payload_type_id != payload_type_id ||
+                 ctx.hit_object_invoke_payload_name != payload_name ||
+                 ctx.hit_object_invoke_payload_fields != fields)) {
+                invoke_payload_layout_invalid = true;
+                continue;
+            }
+            if (!invoke_payload_layout_seen) {
+                ctx.hit_object_invoke_payload_type_id = payload_type_id;
+                ctx.hit_object_invoke_payload_name = payload_name;
+                ctx.hit_object_invoke_payload_fields = std::move(fields);
+                invoke_payload_layout_seen = true;
+            }
+        }
+    }
+    for (const auto &candidate : module.functions) {
+        if (candidate.is_declaration ||
+            !entryPointMatches(candidate.name, "miss_shader"))
+            continue;
+        bool valid_miss_body = !candidate.blocks.empty();
+        for (const auto &block : candidate.blocks) {
+            for (const auto &inst : block.instructions) {
+                // This bounded Invoke provider passes no synthesized
+                // DispatchRaysArgument/resource payload members to the miss
+                // shader.  A payload-only GEP/store miss is safe; any call or
+                // other side effect must remain fail-closed until its ABI is
+                // modeled and read back.
+                if (inst.opcode != LLVMInstruction::GetElementPtr &&
+                    inst.opcode != LLVMInstruction::GEP &&
+                    inst.opcode != LLVMInstruction::Store &&
+                    inst.opcode != LLVMInstruction::Ret)
+                    valid_miss_body = false;
+            }
+        }
+        ctx.hit_object_invoke_miss_body_supported = valid_miss_body;
+        break;
+    }
+    ctx.hit_object_invoke_payload_supported =
+        ctx.hit_object_invoke_seen && invoke_payload_layout_seen &&
+        !invoke_payload_layout_invalid &&
+        ctx.hit_object_invoke_miss_body_supported;
 
     bool module_has_double = false;
     for (const auto &decl : ctx.function_decls) {

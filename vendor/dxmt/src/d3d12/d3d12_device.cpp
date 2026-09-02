@@ -2759,7 +2759,10 @@ static bool ExtractDXILBlob(const D3D12_SHADER_BYTECODE &bytecode,
   return false;
 }
 
-static bool DXILUsesHitObject(const D3D12_SHADER_BYTECODE &bytecode) {
+static bool DXILUsesHitObjectFunction(const D3D12_SHADER_BYTECODE &bytecode,
+                                       const char *needle) {
+  if (!needle || !needle[0])
+    return false;
   std::vector<uint8_t> dxil;
   if (!ExtractDXILBlob(bytecode, dxil))
     return false;
@@ -2772,11 +2775,19 @@ static bool DXILUsesHitObject(const D3D12_SHADER_BYTECODE &bytecode) {
   if (!module)
     return false;
   for (const auto &function : module->functions) {
-    if (function.name.find("hitObject_") != std::string::npos ||
-        function.name.find("maybeReorderThread") != std::string::npos)
+    if (function.name.find(needle) != std::string::npos)
       return true;
   }
   return false;
+}
+
+static bool DXILUsesHitObject(const D3D12_SHADER_BYTECODE &bytecode) {
+  return DXILUsesHitObjectFunction(bytecode, "hitObject_") ||
+         DXILUsesHitObjectFunction(bytecode, "maybeReorderThread");
+}
+
+static bool DXILUsesHitObjectInvoke(const D3D12_SHADER_BYTECODE &bytecode) {
+  return DXILUsesHitObjectFunction(bytecode, "hitObject_Invoke");
 }
 
 static bool BuildHitObjectRaygenLibrary(
@@ -3201,6 +3212,12 @@ public:
         std::find(m_exports.begin(), m_exports.end(),
                   L"procedural_hit_group") != m_exports.end();
     const bool custom_hitobject_raygen = DXILUsesHitObject(raytracing_library);
+    const bool custom_hitobject_invoke =
+        DXILUsesHitObjectInvoke(raytracing_library);
+    if (custom_hitobject_invoke && !has_miss_shader) {
+      TRACE("StateObject HitObject_Invoke requires a miss_shader export");
+      return false;
+    }
     std::wstring raygen_export = L"raygen";
     if (custom_hitobject_raygen &&
         std::find(m_exports.begin(), m_exports.end(), raygen_export) ==

@@ -5568,8 +5568,10 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-hitobject-invoke: ABI-matched GPU visible-function miss invocation returns exact 0x5678 payload on direct and ExecuteIndirect DispatchRays under METAL_SHADER_CONVERTER=/nonexistent"
+      ],
       "negative_evidence": []
     },
     {
