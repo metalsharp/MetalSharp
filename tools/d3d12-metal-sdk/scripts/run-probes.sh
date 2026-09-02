@@ -1367,6 +1367,8 @@ COMPUTE_PSO_RESULT_FILE="$RESULTS_DIR/probe-compute-pso-${PROFILE}.json"
 COMMAND_REPLAY_RESULT_FILE="$RESULTS_DIR/probe-command-replay-${PROFILE}.json"
 HITOBJECT_LOCAL_ROOT_RESULT_FILE="$RESULTS_DIR/probe-hitobject-local-root-${PROFILE}.json"
 HITOBJECT_INVOKE_RESULT_FILE="$RESULTS_DIR/probe-hitobject-invoke-${PROFILE}.json"
+HITOBJECT_ATTRIBUTES_RESULT_FILE="$RESULTS_DIR/probe-hitobject-attributes-${PROFILE}.json"
+HITOBJECT_REORDER_RESULT_FILE="$RESULTS_DIR/probe-hitobject-reorder-${PROFILE}.json"
 BARRIERS_RENDER_PASS_RESULT_FILE="$RESULTS_DIR/probe-barriers-render-pass-${PROFILE}.json"
 RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${PROFILE}.json"
 RENDER_HEADLESS_RESULT_FILE="$RESULTS_DIR/probe-render-headless-${PROFILE}.json"
@@ -1433,6 +1435,8 @@ run_probe_exe() {
     D3D12_METAL_SDK_COMMAND_RAY_CSO="${D3D12_METAL_SDK_COMMAND_RAY_CSO:-}" \
     D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT="${D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT:-}" \
     D3D12_METAL_SDK_COMMAND_RAY_INVOKE="${D3D12_METAL_SDK_COMMAND_RAY_INVOKE:-}" \
+    D3D12_METAL_SDK_COMMAND_RAY_ATTRIBUTES="${D3D12_METAL_SDK_COMMAND_RAY_ATTRIBUTES:-}" \
+    D3D12_METAL_SDK_COMMAND_RAY_REORDER="${D3D12_METAL_SDK_COMMAND_RAY_REORDER:-}" \
     "$WINE_BIN" "$exe" > "$result_file"
   )
   echo "$result_file"
@@ -2782,6 +2786,44 @@ void miss_shader(inout Payload payload) {
 }
 HLSL
 
+  local hitobject_reorder_hlsl="$SDK_DIR/out/bin/probe_command_replay_hitobject_reorder.hlsl"
+  cat > "$hitobject_reorder_hlsl" <<'HLSL'
+RWByteAddressBuffer output : register(u0);
+
+[shader("raygeneration")]
+void raygen() {
+  dx::HitObject hit;
+  dx::MaybeReorderThread(0xf2, 7);
+  dx::MaybeReorderThread(hit, 0xf1, 3);
+  output.Store(0, hit.IsNop() ? 1u : 0u);
+}
+HLSL
+
+  local hitobject_attributes_hlsl="$SDK_DIR/out/bin/probe_command_replay_hitobject_attributes.hlsl"
+  cat > "$hitobject_attributes_hlsl" <<'HLSL'
+RaytracingAccelerationStructure Scene : register(t0);
+RWByteAddressBuffer output : register(u0);
+
+struct [raypayload] Payload {
+  uint value : read(caller, closesthit, miss) : write(caller, closesthit, miss);
+};
+
+[shader("raygeneration")]
+void raygen() {
+  RayDesc ray;
+  ray.Origin = float3(0.0, 0.0, -2.0);
+  ray.TMin = 0.0;
+  ray.Direction = float3(0.0, 0.0, 1.0);
+  ray.TMax = 10.0;
+  Payload payload = {0};
+  dx::HitObject hit = dx::HitObject::TraceRay(Scene, RAY_FLAG_NONE, 0xff, 0, 1, 0, ray, payload);
+  BuiltInTriangleIntersectionAttributes attributes;
+  hit.GetAttributes(attributes);
+  output.Store(0, asuint(attributes.barycentrics.x));
+  output.Store(4, asuint(attributes.barycentrics.y));
+}
+HLSL
+
   cat > "$mesh_hlsl" <<'HLSL'
 RWByteAddressBuffer output : register(u0);
 
@@ -2866,6 +2908,16 @@ JSON
     "$WINE_BIN" dxc.exe -nologo -E raygen -T lib_6_9 \
       -Fo probe_command_replay_hitobject_invoke.cso \
       probe_command_replay_hitobject_invoke.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E raygen -T lib_6_9 \
+      -Fo probe_command_replay_hitobject_attributes.cso \
+      probe_command_replay_hitobject_attributes.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E raygen -T lib_6_9 \
+      -Fo probe_command_replay_hitobject_reorder.cso \
+      probe_command_replay_hitobject_reorder.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E ms_main -T ms_6_5 \
@@ -4811,7 +4863,7 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
       cd "$SDK_DIR/out/bin"
       WINEPREFIX="$WINE_PREFIX" \
       WINEDLLPATH="$PROBE_WINEDLLPATH" \
-      WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+      WINEDLOVERRIDES="$DLL_OVERRIDES" \
       DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
       DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
       DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
@@ -4822,6 +4874,40 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
       "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$HITOBJECT_INVOKE_RESULT_FILE"
     )
     echo "$HITOBJECT_INVOKE_RESULT_FILE"
+  fi
+  if [[ -f "$SDK_DIR/out/bin/probe_command_replay_hitobject_attributes.cso" ]]; then
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      D3D12_METAL_SDK_COMMAND_RAY_CSO="$SDK_DIR/out/bin/probe_command_replay_hitobject_attributes.cso" \
+      D3D12_METAL_SDK_COMMAND_RAY_ATTRIBUTES=1 \
+      METAL_SHADER_CONVERTER=/nonexistent \
+      "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$HITOBJECT_ATTRIBUTES_RESULT_FILE"
+    )
+    echo "$HITOBJECT_ATTRIBUTES_RESULT_FILE"
+  fi
+  if [[ -f "$SDK_DIR/out/bin/probe_command_replay_hitobject_reorder.cso" ]]; then
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      D3D12_METAL_SDK_COMMAND_RAY_CSO="$SDK_DIR/out/bin/probe_command_replay_hitobject_reorder.cso" \
+      D3D12_METAL_SDK_COMMAND_RAY_REORDER=1 \
+      METAL_SHADER_CONVERTER=/nonexistent \
+      "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$HITOBJECT_REORDER_RESULT_FILE"
+    )
+    echo "$HITOBJECT_REORDER_RESULT_FILE"
   fi
 fi
 

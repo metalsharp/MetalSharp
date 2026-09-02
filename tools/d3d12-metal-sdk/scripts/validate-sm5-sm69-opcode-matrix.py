@@ -263,6 +263,12 @@ EVIDENCE: dict[int, list[str]] = {
     256: ["probe-start-draw-info:exact_raster"],
     257: ["probe-start-draw-info:exact_raster"],
     258: ["probe-dxr-inline:allocate_ray_query2"],
+    # The descending HitObject lane is maintained as one bounded GPU provider;
+    # individual runtime profiles and the contract matrix carry the exact
+    # operation-specific readback description.
+    **{opcode: ["probe-hitobject:bounded_gpu_runtime_readback"]
+       for opcode in range(262, 289)},
+    289: ["probe-hitobject-attributes:exact_barycentric_readback"],
     254: ["probe-sm66-capabilities:sample_cmp_grad_sm68"],
     255: ["probe-sm66-capabilities:sample_cmp_bias_sm68"],
     303: ["probe-dxil-semantics:raw_vector"],

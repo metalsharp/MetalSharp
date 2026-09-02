@@ -796,15 +796,17 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=20`: `260` rows are
-observed, `20` remain open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=18`: `262` rows are
+observed, `18` remain open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
-`HitObject_TraceRay` (262), `MakeMiss` (265), `MakeNop` (266), state predicates
+`HitObject_TraceRay` (262), `MakeMiss` (265), `MakeNop` (266),
+`HitObject_Invoke` (267), `MaybeReorderThread` (268), state predicates
 269–271, ray flags and distances 272–274, world/object ray vectors 275–278,
 and 3x4 transforms 279–280, plus scalar geometry/instance/primitive,
-hit-kind, and shader-table accessors 281–287. The translated instance at
+hit-kind, and shader-table accessors 281–287, local-root constants (288), and
+triangle attributes (289). The translated instance at
 `x=5` returns object origin `[0,0,-2]`, object direction `[0,0,1]`,
 object-to-world translation `+5`, and world-to-object translation `-5`; the
 constructor probes return `MakeMiss: IsMiss=1, shader-table-index=3` and
@@ -821,6 +823,24 @@ command-signature, and both dispatch paths successful under
 shader identifier/local-root tail, applies the miss-table 16-bit index rule,
 and returns zero for NOP or unset-table-index objects.
 
+Opcode 268 now has a tracked bounded behavior probe. A ray-generation shader
+issues literal coherence-hint forms of `MaybeReorderThread` and writes a
+continuation marker after both calls. The provider intentionally declines the
+optional scheduling request rather than introducing a CPU scheduler; direct
+and `ExecuteIndirect` `DispatchRays` both return the exact marker `1` under
+`METAL_SHADER_CONVERTER=/nonexistent`. This proves the permitted no-reorder
+behavior and continuation boundary, not cross-lane scheduling or a claim that
+Apple M4 performs SER.
+
+Opcode 289 now has a tracked triangle-attribute behavior probe. A one-triangle
+TLAS is traversed through the typed GPU provider and
+`BuiltInTriangleIntersectionAttributes.barycentrics` is copied to the output.
+The exact direct and indirect readbacks are `[0x3e800000, 0x3f000000]`
+(`0.25, 0.5`) under `METAL_SHADER_CONVERTER=/nonexistent`. The provider also
+models ABI-compatible scalar/vector attribute record layouts for
+`FromRayQueryWithAttrs` copies, while custom shader bodies and broader
+attribute forms remain bounded and fail-closed.
+
 Opcode 267 now has a tracked bounded behavior probe. The command-replay
 probe compiles a pinned `lib_6_9` library containing a scalar `[raypayload]`
 `Payload`, `MakeMiss(0, 0, ray)`, and one exported `miss_shader` that writes
@@ -834,9 +854,8 @@ command signature also succeed. The provider intentionally rejects nonzero
 miss-table indices, hit invocation, vector/packed payload layouts, miss
 resource/system-value bodies, and any path without an exported `miss_shader`.
 
-This remains a bounded provider, not Phase 5 closeout. `MaybeReorderThread`
-268, `HitObject_Attributes` 289, CycleCounterLegacy 109, AttributeAtVertex 137,
-and Work Graph/node 238–253 remain open. The legacy converter continues to
-reject the remaining HitObject/SER family fail-closed; its negative result is
-not used to invalidate the typed provider's positive behavior. No experimental
-binary, cache, prefix, or log is tracked.
+This remains a bounded provider, not Phase 5 closeout. CycleCounterLegacy 109,
+AttributeAtVertex 137, and Work Graph/node 238–253 remain open. The legacy
+converter continues to reject the remaining HitObject/SER family fail-closed;
+its negative result is not used to invalidate the typed provider's positive
+behavior. No experimental binary, cache, prefix, or log is tracked.

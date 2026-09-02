@@ -2588,8 +2588,16 @@ static CaseResult run_execute_indirect_rays_case() {
         getenv_string("D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT") == "1";
     const bool invoke_probe =
         getenv_string("D3D12_METAL_SDK_COMMAND_RAY_INVOKE") == "1";
+    const bool attributes_probe =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_ATTRIBUTES") == "1";
+    const bool reorder_probe =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_REORDER") == "1";
     const UINT expected_ray_value =
-        invoke_probe ? 0x5678u : local_root_probe ? 0xa1b2c3d4u : 0x52415931u;
+        reorder_probe ? 1u
+        : attributes_probe ? 0x3e800000u
+        : invoke_probe ? 0x5678u
+        : local_root_probe ? 0xa1b2c3d4u
+                           : 0x52415931u;
     std::vector<uint8_t> shader;
     if (!read_binary_file(shader_path.c_str(), shader)) {
         result.hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
@@ -2614,6 +2622,12 @@ static CaseResult run_execute_indirect_rays_case() {
     ID3D12Resource* indirect_readback = nullptr;
     ID3D12Resource* shader_table = nullptr;
     ID3D12Resource* arguments = nullptr;
+    ID3D12Resource* attribute_vertices = nullptr;
+    ID3D12Resource* attribute_indices = nullptr;
+    ID3D12Resource* attribute_blas = nullptr;
+    ID3D12Resource* attribute_instances = nullptr;
+    ID3D12Resource* attribute_tlas = nullptr;
+    ID3D12Resource* attribute_scratch = nullptr;
     HRESULT hr = create_device(&device);
     HRESULT state_hr = E_FAIL;
     HRESULT signature_hr = E_FAIL;
@@ -2667,7 +2681,7 @@ static CaseResult run_execute_indirect_rays_case() {
     D3D12_GLOBAL_ROOT_SIGNATURE global_root = {root};
     D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
     shader_config.MaxPayloadSizeInBytes = 4;
-    shader_config.MaxAttributeSizeInBytes = 0;
+    shader_config.MaxAttributeSizeInBytes = attributes_probe ? 8 : 0;
     D3D12_RAYTRACING_PIPELINE_CONFIG pipeline_config = {};
     pipeline_config.MaxTraceRecursionDepth = 1;
     D3D12_STATE_SUBOBJECT subobjects[4] = {};
@@ -2695,17 +2709,119 @@ static CaseResult run_execute_indirect_rays_case() {
         heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&heap));
     }
+    const UINT ray_output_bytes = attributes_probe ? 8u : sizeof(uint32_t);
     if (SUCCEEDED(hr))
-        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(uint32_t),
+        hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, ray_output_bytes,
                            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &output);
     if (SUCCEEDED(hr))
-        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE,
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, ray_output_bytes, D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &direct_readback);
     if (SUCCEEDED(hr))
-        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE,
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, ray_output_bytes, D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &indirect_readback);
-    if (SUCCEEDED(hr)) {
+    if (SUCCEEDED(hr) && attributes_probe) {
+        // The attribute lane uses the same one-triangle TLAS geometry as the
+        // inline RayQuery proof.  Keep the ray through the triangle centroid
+        // so the expected barycentrics are exactly (0.25, 0.5).
+        const float vertex_data[9] = {
+            -1.0f, -1.0f, 0.0f,
+             1.0f, -1.0f, 0.0f,
+             0.0f,  1.0f, 0.0f};
+        const uint16_t index_data[3] = {0, 1, 2};
+        hr = create_upload_buffer(device, vertex_data, sizeof(vertex_data),
+                                  &attribute_vertices);
+        if (SUCCEEDED(hr))
+            hr = create_upload_buffer(device, index_data, sizeof(index_data),
+                                      &attribute_indices);
+        D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
+        geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geometry.Triangles.VertexBuffer.StartAddress =
+            attribute_vertices ? attribute_vertices->GetGPUVirtualAddress() : 0;
+        geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
+        geometry.Triangles.VertexCount = 3;
+        geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geometry.Triangles.IndexBuffer =
+            attribute_indices ? attribute_indices->GetGPUVirtualAddress() : 0;
+        geometry.Triangles.IndexCount = 3;
+        geometry.Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS blas_inputs = {};
+        blas_inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        blas_inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        blas_inputs.NumDescs = 1;
+        blas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        blas_inputs.pGeometryDescs = &geometry;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO blas_info = {};
+        if (SUCCEEDED(hr))
+            device5->GetRaytracingAccelerationStructurePrebuildInfo(&blas_inputs, &blas_info);
+        if (!blas_info.ResultDataMaxSizeInBytes || !blas_info.ScratchDataSizeInBytes)
+            hr = E_FAIL;
+        if (SUCCEEDED(hr))
+            hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT,
+                               blas_info.ResultDataMaxSizeInBytes,
+                               D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                               &attribute_blas);
+
+        D3D12_RAYTRACING_INSTANCE_DESC instance_data = {};
+        instance_data.Transform[0][0] = 1.0f;
+        instance_data.Transform[1][1] = 1.0f;
+        instance_data.Transform[2][2] = 1.0f;
+        instance_data.InstanceID = 7;
+        instance_data.InstanceMask = 1;
+        instance_data.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
+        instance_data.AccelerationStructure =
+            attribute_blas ? attribute_blas->GetGPUVirtualAddress() : 0;
+        if (SUCCEEDED(hr))
+            hr = create_upload_buffer(device, &instance_data, sizeof(instance_data),
+                                      &attribute_instances);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs = {};
+        tlas_inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+        tlas_inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        tlas_inputs.NumDescs = 1;
+        tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        tlas_inputs.InstanceDescs = attribute_instances
+                                        ? attribute_instances->GetGPUVirtualAddress()
+                                        : 0;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlas_info = {};
+        if (SUCCEEDED(hr))
+            device5->GetRaytracingAccelerationStructurePrebuildInfo(&tlas_inputs, &tlas_info);
+        if (!tlas_info.ResultDataMaxSizeInBytes || !tlas_info.ScratchDataSizeInBytes)
+            hr = E_FAIL;
+        if (SUCCEEDED(hr)) {
+            const UINT64 scratch_size =
+                std::max(blas_info.ScratchDataSizeInBytes,
+                         tlas_info.ScratchDataSizeInBytes);
+            hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, scratch_size,
+                               D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               &attribute_scratch);
+        }
+        if (SUCCEEDED(hr))
+            hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT,
+                               tlas_info.ResultDataMaxSizeInBytes,
+                               D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                               &attribute_tlas);
+        if (SUCCEEDED(hr)) {
+            const UINT increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+            D3D12_CPU_DESCRIPTOR_HANDLE srv_handle = heap->GetCPUDescriptorHandleForHeapStart();
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+            srv.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.RaytracingAccelerationStructure.Location =
+                attribute_tlas->GetGPUVirtualAddress();
+            device->CreateShaderResourceView(nullptr, &srv, srv_handle);
+            D3D12_CPU_DESCRIPTOR_HANDLE uav_handle = srv_handle;
+            uav_handle.ptr += increment;
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+            uav.Format = DXGI_FORMAT_R32_TYPELESS;
+            uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav.Buffer.NumElements = attributes_probe ? 2 : 1;
+            uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+            device->CreateUnorderedAccessView(output, nullptr, &uav, uav_handle);
+        }
+    } else if (SUCCEEDED(hr)) {
         const UINT increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_CPU_DESCRIPTOR_HANDLE srv_handle = heap->GetCPUDescriptorHandleForHeapStart();
         D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
@@ -2720,7 +2836,7 @@ static CaseResult run_execute_indirect_rays_case() {
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
         uav.Format = DXGI_FORMAT_R32_TYPELESS;
         uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-        uav.Buffer.NumElements = 1;
+        uav.Buffer.NumElements = attributes_probe ? 2 : 1;
         uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
         device->CreateUnorderedAccessView(output, nullptr, &uav, uav_handle);
     }
@@ -2785,6 +2901,39 @@ static CaseResult run_execute_indirect_rays_case() {
         hr = arguments_hr;
     }
 
+    if (SUCCEEDED(hr) && attributes_probe) {
+        D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
+        geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geometry.Triangles.VertexBuffer.StartAddress = attribute_vertices->GetGPUVirtualAddress();
+        geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
+        geometry.Triangles.VertexCount = 3;
+        geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geometry.Triangles.IndexBuffer = attribute_indices->GetGPUVirtualAddress();
+        geometry.Triangles.IndexCount = 3;
+        geometry.Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS blas_inputs = {};
+        blas_inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        blas_inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        blas_inputs.NumDescs = 1;
+        blas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        blas_inputs.pGeometryDescs = &geometry;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build = {};
+        build.DestAccelerationStructureData = attribute_blas->GetGPUVirtualAddress();
+        build.ScratchAccelerationStructureData = attribute_scratch->GetGPUVirtualAddress();
+        build.Inputs = blas_inputs;
+        list4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs = {};
+        tlas_inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+        tlas_inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        tlas_inputs.NumDescs = 1;
+        tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        tlas_inputs.InstanceDescs = attribute_instances->GetGPUVirtualAddress();
+        build = {};
+        build.DestAccelerationStructureData = attribute_tlas->GetGPUVirtualAddress();
+        build.ScratchAccelerationStructureData = attribute_scratch->GetGPUVirtualAddress();
+        build.Inputs = tlas_inputs;
+        list4->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+    }
     if (SUCCEEDED(hr)) {
         ID3D12DescriptorHeap* heaps[] = {heap};
         list4->SetDescriptorHeaps(1, heaps);
@@ -2796,7 +2945,7 @@ static CaseResult run_execute_indirect_rays_case() {
         D3D12_RESOURCE_BARRIER to_copy = transition_barrier(
             output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
         list4->ResourceBarrier(1, &to_copy);
-        list4->CopyBufferRegion(direct_readback, 0, output, 0, sizeof(uint32_t));
+        list4->CopyBufferRegion(direct_readback, 0, output, 0, ray_output_bytes);
         D3D12_RESOURCE_BARRIER to_uav = transition_barrier(
             output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         list4->ResourceBarrier(1, &to_uav);
@@ -2812,7 +2961,7 @@ static CaseResult run_execute_indirect_rays_case() {
         list4->ExecuteIndirect(signature, 1, arguments, argument_offset, nullptr, 0);
         indirect_recorded = true;
         list4->ResourceBarrier(1, &to_copy);
-        list4->CopyBufferRegion(indirect_readback, 0, output, 0, sizeof(uint32_t));
+        list4->CopyBufferRegion(indirect_readback, 0, output, 0, ray_output_bytes);
         hr = list4->Close();
     }
     if (SUCCEEDED(hr)) {
@@ -2822,15 +2971,46 @@ static CaseResult run_execute_indirect_rays_case() {
 
     uint32_t direct_value = 0;
     uint32_t indirect_value = 0;
-    const bool direct_readback_ok = SUCCEEDED(hr) && readback_u32(direct_readback, &direct_value, 1);
-    const bool indirect_readback_ok = SUCCEEDED(hr) && readback_u32(indirect_readback, &indirect_value, 1);
-    const bool direct_verified = direct_readback_ok && direct_value == expected_ray_value;
-    const bool indirect_verified = indirect_readback_ok && indirect_value == expected_ray_value;
+    uint32_t direct_attribute_y = 0;
+    uint32_t indirect_attribute_y = 0;
+    bool direct_readback_ok = false;
+    bool indirect_readback_ok = false;
+    if (attributes_probe) {
+        uint32_t direct_attributes[2] = {};
+        uint32_t indirect_attributes[2] = {};
+        direct_readback_ok = SUCCEEDED(hr) &&
+                             readback_u32(direct_readback, direct_attributes, 2);
+        indirect_readback_ok = SUCCEEDED(hr) &&
+                               readback_u32(indirect_readback, indirect_attributes, 2);
+        if (direct_readback_ok) {
+            direct_value = direct_attributes[0];
+            direct_attribute_y = direct_attributes[1];
+        }
+        if (indirect_readback_ok) {
+            indirect_value = indirect_attributes[0];
+            indirect_attribute_y = indirect_attributes[1];
+        }
+    } else {
+        direct_readback_ok = SUCCEEDED(hr) &&
+                             readback_u32(direct_readback, &direct_value, 1);
+        indirect_readback_ok = SUCCEEDED(hr) &&
+                               readback_u32(indirect_readback, &indirect_value, 1);
+    }
+    const bool direct_verified = direct_readback_ok &&
+                                 direct_value == expected_ray_value &&
+                                 (!attributes_probe || direct_attribute_y == 0x3f000000u);
+    const bool indirect_verified = indirect_readback_ok &&
+                                   indirect_value == expected_ray_value &&
+                                   (!attributes_probe || indirect_attribute_y == 0x3f000000u);
     result.pass = SUCCEEDED(hr) && SUCCEEDED(state_hr) && SUCCEEDED(signature_hr) && SUCCEEDED(arguments_hr) &&
                   direct_recorded && indirect_recorded && direct_verified && indirect_verified;
     result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
     result.detail = result.pass
-                        ? (invoke_probe
+                        ? (reorder_probe
+                               ? "direct and ExecuteIndirect DISPATCH_RAYS MaybeReorderThread continuation readbacks matched"
+                               : attributes_probe
+                               ? "direct and ExecuteIndirect DISPATCH_RAYS HitObject_Attributes barycentric readbacks matched"
+                               : invoke_probe
                                ? "direct and ExecuteIndirect DISPATCH_RAYS HitObject_Invoke miss-payload readbacks matched"
                                : local_root_probe
                                ? "direct and ExecuteIndirect DISPATCH_RAYS local-root constant readbacks matched"
@@ -2839,6 +3019,8 @@ static CaseResult run_execute_indirect_rays_case() {
     result.extra = "\"shader_path\":\"" + json_escape(shader_path) +
                    "\",\"local_root_probe\":" + (local_root_probe ? "true" : "false") +
                    ",\"invoke_probe\":" + (invoke_probe ? "true" : "false") +
+                   ",\"attributes_probe\":" + (attributes_probe ? "true" : "false") +
+                   ",\"reorder_probe\":" + (reorder_probe ? "true" : "false") +
                    ",\"expected_value\":" + std::to_string(expected_ray_value) +
                    ",\"state_object_created\":" + (SUCCEEDED(state_hr) ? "true" : "false") +
                    ",\"signature_hr\":\"" + hr_hex(signature_hr) + "\",\"arguments_hr\":\"" +
@@ -2846,10 +3028,18 @@ static CaseResult run_execute_indirect_rays_case() {
                    (direct_recorded ? "true" : "false") + ",\"indirect_dispatch_recorded\":" +
                    (indirect_recorded ? "true" : "false") + ",\"direct_value\":" +
                    std::to_string(direct_value) + ",\"indirect_value\":" + std::to_string(indirect_value) +
+                   ",\"direct_attribute_y\":" + std::to_string(direct_attribute_y) +
+                   ",\"indirect_attribute_y\":" + std::to_string(indirect_attribute_y) +
                    ",\"direct_behavior_verified\":" + (direct_verified ? "true" : "false") +
                    ",\"indirect_behavior_verified\":" + (indirect_verified ? "true" : "false") +
                    ",\"argument_offset\":" + std::to_string(argument_offset);
 
+    safe_release(attribute_scratch);
+    safe_release(attribute_tlas);
+    safe_release(attribute_instances);
+    safe_release(attribute_blas);
+    safe_release(attribute_indices);
+    safe_release(attribute_vertices);
     safe_release(arguments);
     safe_release(shader_table);
     safe_release(indirect_readback);
@@ -3332,9 +3522,14 @@ int main() {
         getenv_string("D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT") == "1";
     const bool hitobject_invoke_only =
         getenv_string("D3D12_METAL_SDK_COMMAND_RAY_INVOKE") == "1";
+    const bool hitobject_attributes_only =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_ATTRIBUTES") == "1";
+    const bool hitobject_reorder_only =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_REORDER") == "1";
     if (!g_create_device || !g_serialize_root_signature || !g_compile) {
         cases.push_back({"loader", false, E_FAIL, "required D3D12 or D3DCompile entry points missing", ""});
-    } else if (hitobject_local_root_only || hitobject_invoke_only) {
+    } else if (hitobject_local_root_only || hitobject_invoke_only ||
+               hitobject_attributes_only || hitobject_reorder_only) {
         cases.push_back(run_execute_indirect_rays_case());
     } else {
         cases.push_back(run_command_list_reuse_case());
