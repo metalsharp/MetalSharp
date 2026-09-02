@@ -334,6 +334,9 @@ The default required probe groups prove:
   `D3D12_LOGIC_OP_XOR` on render target 0.
 - `probe-compute-pso`: compute PSO matrix behavior.
 - `probe-command-replay`: command-list, indirect, bundle, and replay behavior.
+- `probe-attribute-at-vertex` (opt-in): bounded SM6.1 `AttributeAtVertex`
+  execution using a GPU vertex-output capture buffer, exact three-vertex
+  readback, and fail-closed bounds for unsupported draw/provider shapes.
 - `probe-barriers-render-pass`: barrier, render-pass, UAV, present, and
   readback visibility.
 - `probe-resource-views-formats`: resource/view/format coverage.
@@ -398,6 +401,16 @@ barrier support:
 ```bash
 tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
   --command-replay-only
+```
+
+For bounded `AttributeAtVertex` coverage, run the source-staged SM6.1 probe.
+It compiles the pixel DXIL containing opcode 137, captures one validated
+float32 `nointerpolation` vertex output on the GPU, and verifies exact values
+for all three vertices on Apple M4/Metal 4:
+
+```bash
+tools/d3d12-metal-sdk/scripts/run-probes.sh --profile metalsharp \
+  --attribute-at-vertex-only
 ```
 
 For resource barrier and render-pass coverage, run the barrier/render-pass

@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (278/280 required opcode rows observed; 2 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (279/280 required opcode rows observed; 1 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -778,8 +778,13 @@ one-node kernel provider covers representative Work Graph opcodes 238–253
 without adding a CPU scheduler; D3D12 Work Graph API execution remains
 unsupported and is not promoted.
 
-The exhaustive Phase 5 matrix currently has 278 observed, 2 open, and 32
-reserved/not-applicable rows. The core temporary-register and min-precision
+The exhaustive Phase 5 matrix currently has 279 observed, 1 open, and 32
+reserved/not-applicable rows. The bounded AttributeAtVertex provider captures
+one validated float32 `nointerpolation` vertex output into a transient GPU
+buffer and returns exact three-vertex readbacks for a triangle-list draw on
+Apple M4/Metal 4; other signature/type, operand, indexed/strip, multi-instance,
+geometry/tessellation, and depth-bounds combinations remain fail-closed. The
+core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
 compiled `EmitThenCutStream` form and a source-staged two-instance
@@ -793,8 +798,8 @@ open.
 
 **Phase 5 closeout plan (literal gate retained):** Work is now batched by the
 remaining matrix families rather than by ad-hoc probes. First close the
-stage-system rows (`AttributeAtVertex` and the legacy cycle-counter boundary)
-with exact runtime/negative evidence. The shader-opcode portion of the Phase 7
+remaining stage-system cycle-counter boundary with exact runtime/negative
+evidence; `AttributeAtVertex` now has a bounded positive GPU-capture proof. The shader-opcode portion of the Phase 7
 Work Graph/node family now has an explicit GPU-native one-node provider, but
 D3D12 Work Graph state objects and multi-node scheduling remain a later API
 provider gap. Compilation or interface presence alone cannot close that gap.
@@ -1890,3 +1895,26 @@ whether the scoped FL12_2 gate is green.
   only CycleCounterLegacy `109` and AttributeAtVertex `137` remain open. Phase 5
   itself remains open until those rows have exact positive or semantically
   equivalent runtime evidence.
+
+### 2026-09-02 — Phase 5 bounded AttributeAtVertex GPU-capture proof
+
+- Added a source-owned `ps_6_1`/`vs_6_0` fixture and the
+  `probe_attribute_at_vertex` runtime lane. The fixture uses one
+  `nointerpolation float4` input whose three vertex outputs are distinct
+  (`0.125`, `0.5`, and `0.875`) and issues literal DXIL opcode-137 calls for
+  vertex IDs 0, 1, and 2.
+- The typed DXIL lowerer now emits a paired vertex/fragment capture ABI. The
+  vertex stage writes the selected output to a transient GPU buffer at slot 28;
+  the pixel stage reads the current primitive's three records using
+  `primitive_id`. The D3D12 probe uses a bounded three-vertex triangle-list,
+  one-instance draw and returns exact bit patterns
+  `[0x3e000000, 0x3f000000, 0x3f600000]`.
+- The provider is forced onto the typed lowering path rather than a cached
+  converter object, includes the capture variant in shader cache identity, and
+  rejects unsupported signatures/types, dynamic row/column/vertex operands,
+  indexed/strip/multi-instance breadth, geometry/tessellation combinations,
+  and depth-bounds slot conflicts. It does not depend on Apple-9
+  `vertex_value<T>` support or introduce a CPU scheduler.
+- The strict opcode validator is now **279 observed / 1 open / 32 reserved**;
+  only CycleCounterLegacy `109` remains open, so Phase 5 is still intentionally
+  not marked complete.

@@ -1151,6 +1151,7 @@ struct ReplayState {
   uint64_t fallback_fragment_buffer_slots = 0;
   uint64_t fallback_fragment_texture_slots = 0;
   uint64_t fallback_fragment_sampler_slots = 0;
+  bool attribute_at_vertex_capture_ready = true;
 
   ~ReplayState() { CloseRenderEncoder(); }
 
@@ -2381,6 +2382,7 @@ struct ReplayState {
   WMT::Reference<WMT::SamplerState> null_direct_sampler;
   VertexBufferEntry vertex_table_data[kVertexBufferSlotCount] = {};
   WMT::Reference<WMT::Buffer> vertex_table_buf;
+  WMT::Reference<WMT::Buffer> attribute_at_vertex_capture_buf;
   WMT::Reference<WMT::Buffer> transient_table_slab;
   uint64_t transient_table_slab_offset = 0;
   uint64_t transient_table_slab_gpu_address = 0;
@@ -2968,6 +2970,7 @@ struct ReplayState {
   }
 
   void ResetTrackedRenderBindings() {
+    attribute_at_vertex_capture_ready = true;
     bound_vertex_buffer_slots = 0;
     bound_fragment_buffer_slots = 0;
     bound_fragment_texture_slots = 0;
@@ -5759,6 +5762,13 @@ struct ReplayState {
   }
 
   bool EncodeRenderCommands(const wmtcmd_render_nop *cmd, const char *label) {
+    if (pso && pso->UsesAttributeAtVertex() &&
+        !attribute_at_vertex_capture_ready) {
+      QTRACE("%s: AttributeAtVertex draw rejected because the bounded "
+             "capture ABI was not prepared",
+             label ? label : "render_encode");
+      return false;
+    }
     if (!render_enc_open || !render_enc.handle) {
       QTRACE("%s: skipped because render encoder is not open",
              label ? label : "render_encode");
@@ -5837,6 +5847,8 @@ struct ReplayState {
   void EnsureRenderEncoder(MTLD3D12Device *device) {
     if (render_enc_open)
       return;
+    attribute_at_vertex_capture_ready =
+        !(pso && pso->UsesAttributeAtVertex());
 
     const bool stream_output_only = pso && pso->HasStreamOutput() &&
                                     rt_count == 0;
@@ -6782,10 +6794,58 @@ struct ReplayState {
     }
   }
 
+  bool BindAttributeAtVertexCapture(MTLD3D12Device *device,
+                                    uint32_t element_count,
+                                    uint32_t instance_count,
+                                    uint32_t start_element,
+                                    int32_t base_vertex, bool indexed) {
+    if (!pso || !pso->UsesAttributeAtVertex())
+      return true;
+    if (!render_enc_open || !device || element_count != 3u ||
+        instance_count != 1u || start_element != 0u || base_vertex != 0 ||
+        topology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST ||
+        (indexed && !ib.BufferLocation) || pso->UsesGeometryMeshPipeline() ||
+        pso->GetViewInstanceCount() > 1u ||
+        (pso->GetIAInputSlotMask() & (1u << 28)) != 0) {
+      QTRACE("AttributeAtVertex capture rejected draw elements=%u instances=%u "
+             "start=%u base=%d indexed=%u topology=%u geometry_mesh=%u "
+             "views=%u ia_mask=0x%x",
+             element_count, instance_count, start_element, base_vertex,
+             indexed ? 1u : 0u, (unsigned)topology,
+             pso->UsesGeometryMeshPipeline() ? 1u : 0u,
+             pso->GetViewInstanceCount(), pso->GetIAInputSlotMask());
+      return false;
+    }
+
+    float zeros[12] = {};
+    attribute_at_vertex_capture_buf = MakeTransientBuffer(device, sizeof(zeros));
+    if (!attribute_at_vertex_capture_buf.handle) {
+      QTRACE("AttributeAtVertex capture buffer allocation failed");
+      return false;
+    }
+    attribute_at_vertex_capture_buf.updateContents(0, zeros, sizeof(zeros));
+    if (!SetVertexBufferTracked(attribute_at_vertex_capture_buf, 0, 28) ||
+        !SetFragmentBufferTracked(attribute_at_vertex_capture_buf, 0, 28)) {
+      QTRACE("AttributeAtVertex capture buffer binding failed");
+      return false;
+    }
+    const WMTResourceUsage usage = static_cast<WMTResourceUsage>(
+        WMTResourceUsageRead | WMTResourceUsageWrite);
+    render_enc.useResource(attribute_at_vertex_capture_buf, usage,
+                           static_cast<WMTRenderStages>(
+                               WMTRenderStageVertex | WMTRenderStageFragment));
+    QTRACE("AttributeAtVertex capture buffer bound slot=28 handle=%llu",
+           (unsigned long long)attribute_at_vertex_capture_buf.handle);
+    return true;
+  }
+
   void BindMSCDrawParameters(MTLD3D12Device *device, uint32_t element_count,
                              uint32_t instance_count, uint32_t start_element,
                              int32_t base_vertex, uint32_t start_instance,
                              bool indexed, WMTIndexType index_type) {
+    attribute_at_vertex_capture_ready =
+        BindAttributeAtVertexCapture(device, element_count, instance_count,
+                                     start_element, base_vertex, indexed);
     if (!render_enc_open || !pso)
       return;
 
@@ -7314,6 +7374,8 @@ struct ReplayState {
 
   void PrepareRenderDraw(MTLD3D12Device *device) {
     EnsureRenderEncoder(device);
+    attribute_at_vertex_capture_ready =
+        !(pso && pso->UsesAttributeAtVertex());
     ApplyRootBindings(device);
     BuildVertexConstantBufferTable(device);
     BuildVertexArgumentBuffer(device);

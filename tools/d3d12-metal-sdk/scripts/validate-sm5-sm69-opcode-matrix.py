@@ -193,6 +193,7 @@ EVIDENCE: dict[int, list[str]] = {
     134: ["probe-dxil-semantics:double_integer_conversions"],
     135: ["probe-wave-ops:active_prefix_bit_count"],
     136: ["probe-wave-ops:active_prefix_bit_count"],
+    137: ["probe-attribute-at-vertex:gpu_vertex_capture_buffer_exact_readback"],
     138: ["probe-view-id-instancing:array_layers"],
     139: ["probe-dxil-semantics:raw_vector"],
     141: ["probe-mini-dxr-acceleration-structures:tier1_1_ray_shader_builtins"],

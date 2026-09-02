@@ -3193,11 +3193,12 @@
       ],
       "resources": [],
       "required": true,
-      "status": "open",
-      "positive_evidence": [],
+      "status": "observed",
+      "positive_evidence": [
+        "probe-attribute-at-vertex:gpu_vertex_capture_buffer_exact_readback"
+      ],
       "negative_evidence": [
-        "probe-metal-vertex-value:apple9_no_pre_raster_per_vertex_values",
-        "probe-attribute-at-vertex-dxil:unsupported_semantics_hr_0x80004005"
+        "probe-metal-vertex-value:apple9_no_pre_raster_per_vertex_values"
       ]
     },
     {

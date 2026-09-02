@@ -952,6 +952,9 @@ struct LowerContext {
     bool uses_sample_index = false;
     bool uses_coverage = false;
     bool uses_interpolation = false;
+    bool attribute_at_vertex_capture = false;
+    bool attribute_at_vertex_provider = false;
+    uint32_t attribute_at_vertex_input_id = UINT32_MAX;
     bool uses_sampler_feedback = false;
     bool uses_temp_registers = false;
     bool ray_generation = false;
@@ -1289,6 +1292,9 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         ctx.shader.kind == DxilShaderKind::Pixel)
         ctx.binding_plan.direct_buffer_count =
             std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 26);
+    if (ctx.attribute_at_vertex_capture)
+        ctx.binding_plan.direct_buffer_count =
+            std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
     os << kMetalHeader;
     emitBindingManifest(ctx);
 
@@ -2020,6 +2026,12 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     emitInputField("float4", "color1", 13);
     emitInputField("float4", "color2", 14);
     emitInputField("float4", "color3", 15);
+    if (ctx.attribute_at_vertex_capture &&
+        ctx.attribute_at_vertex_input_id != UINT32_MAX) {
+        os << "  float4 m12_attribute_at_vertex_v0 [[user(locn17)]];\n";
+        os << "  float4 m12_attribute_at_vertex_v1 [[user(locn18)]];\n";
+        os << "  float4 m12_attribute_at_vertex_v2 [[user(locn19)]];\n";
+    }
     if (ctx.shader.kind == DxilShaderKind::Pixel &&
         ctx.shader.shading_rate_input_register >= 0)
         os << "  uint shading_rate [[user(locn16)]];\n";
@@ -2041,6 +2053,12 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     os << "  float2 uv2 [[user(locn10)]]; float2 uv3 [[user(locn11)]];\n";
     os << "  float4 color0 [[user(locn12)]]; float4 color1 [[user(locn13)]];\n";
     os << "  float4 color2 [[user(locn14)]]; float4 color3 [[user(locn15)]];\n";
+    if (ctx.attribute_at_vertex_capture &&
+        ctx.attribute_at_vertex_input_id != UINT32_MAX) {
+        os << "  float4 m12_attribute_at_vertex_v0 [[user(locn17)]];\n";
+        os << "  float4 m12_attribute_at_vertex_v1 [[user(locn18)]];\n";
+        os << "  float4 m12_attribute_at_vertex_v2 [[user(locn19)]];\n";
+    }
     if (ctx.shader.kind == DxilShaderKind::Vertex &&
         ctx.shader.shading_rate_output_register >= 0)
         os << "  uint shading_rate [[user(locn16)]];\n";
@@ -2051,6 +2069,19 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         ctx.shader.render_target_array_index_output_register >= 0)
         os << "  uint render_target_array_index [[render_target_array_index]];\n";
     os << "};\n\n";
+
+    if (ctx.attribute_at_vertex_capture &&
+        ctx.attribute_at_vertex_input_id != UINT32_MAX &&
+        ctx.shader.kind == DxilShaderKind::Vertex) {
+        const std::string source =
+            varyingField("out", ctx.attribute_at_vertex_input_id);
+        os << "static inline void m12_capture_attribute_at_vertex("
+              "thread output_v& out, uint vid, device float4* capture) {\n";
+        os << "  if (capture == nullptr || vid >= 3u) return;\n";
+        os << "  float4 value = " << source << ";\n";
+        os << "  capture[vid] = value;\n";
+        os << "}\n\n";
+    }
 
     if (ctx.shader.kind == DxilShaderKind::Vertex) {
         os << "struct m12_vertex_buffer_entry { ulong buffer_handle; uint stride; uint length; };\n";
@@ -2400,6 +2431,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         for (uint32_t i = 0; i < ctx.binding_plan.direct_sampler_count; i++)
             params.push_back("  sampler samp" + std::to_string(i) +
                              " [[sampler(" + std::to_string(i) + ")]]");
+        if (ctx.attribute_at_vertex_capture)
+            params.push_back("  device float4* m12_attribute_at_vertex_capture [[buffer(28)]]");
         for (size_t i = 0; i < params.size(); i++)
             os << params[i] << (i + 1 == params.size() ? "\n" : ",\n");
         os << ") {\n";
@@ -2426,6 +2459,10 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
         os << "fragment float4 ps_main(\n";
         os << "  input_v in [[stage_in]],\n";
+        if (ctx.attribute_at_vertex_provider) {
+            os << "  uint m12_attribute_at_vertex_primitive [[primitive_id]],\n";
+            os << "  device float4* m12_attribute_at_vertex_capture [[buffer(28)]],\n";
+        }
         if (ctx.uses_sample_index)
             os << "  uint m12_sample_id [[sample_id]],\n";
         if (ctx.uses_coverage)
@@ -7257,11 +7294,11 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         // DXIL's AttributeAtVertex signature is
         //   (input-element-id, row, column, vertex-index),
         // with the last three scalar operands encoded as i32/i8/i8 in the
-        // overloaded declaration.  It is valid only for a pixel input whose
-        // interpolation mode is nointerpolation.  Metal's vertex_value<T>
-        // path is unavailable on the Apple 9 M4 device used by this runtime,
-        // so keep the operation explicitly fail-closed rather than emitting
-        // a zero-valued placeholder that could reach a PSO.
+        // overloaded declaration.  The bounded provider captures the
+        // selected vertex-shader output in a transient GPU buffer and the
+        // pixel shader reads the primitive's three records directly.  This
+        // avoids Metal's Apple-9 vertex_value<T> hardware requirement while
+        // preserving the per-vertex value rather than returning a placeholder.
         if (ctx.shader.kind != DxilShaderKind::Pixel || args.size() != 4) {
             ctx.unsupported_intrinsics++;
             recordDiagnostic(
@@ -7269,21 +7306,26 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 "DXIL AttributeAtVertex requires pixel operands input_id,row,col,vertex");
             return "0";
         }
-        const uint32_t input_id = literalArg(0, 0, "attribute input");
-        const uint32_t row = literalArg(1, 0, "attribute row");
-        const uint32_t col = literalArg(2, 0, "attribute column");
-        const uint32_t vertex = literalArg(3, 0xffu, "attribute vertex");
-        if (vertex > 2u) {
-            ctx.unsupported_intrinsics++;
-            recordDiagnostic(ctx,
-                             "DXIL AttributeAtVertex vertex index out of range: %u",
-                             vertex);
-            return "0";
+        const uint32_t input_id = literalArg(0, UINT32_MAX, "attribute input");
+        const uint32_t row = literalArg(1, UINT32_MAX, "attribute row");
+        const uint32_t col = literalArg(2, UINT32_MAX, "attribute column");
+        const uint32_t vertex = literalArg(3, UINT32_MAX, "attribute vertex");
+        const bool bounded =
+            ctx.attribute_at_vertex_provider &&
+            input_id == ctx.attribute_at_vertex_input_id && row == 0u &&
+            col < 4u && vertex < 3u &&
+            callee_name.find(".f32") != std::string::npos;
+        if (bounded) {
+            const std::string index =
+                "(m12_attribute_at_vertex_primitive * 3u + " +
+                std::to_string(vertex) + "u)";
+            return "m12_attribute_at_vertex_capture[" + index + "]" +
+                   componentSuffix(col);
         }
         ctx.unsupported_intrinsics++;
         recordDiagnostic(
             ctx,
-            "DXIL AttributeAtVertex unsupported on Apple 9 M4: input=%u row=%u col=%u vertex=%u; requires Metal pre-raster per-vertex values",
+            "DXIL AttributeAtVertex rejected outside bounded GPU capture provider: input=%u row=%u col=%u vertex=%u",
             input_id, row, col, vertex);
         return "0";
     }
@@ -10505,6 +10547,66 @@ std::optional<TypedMSLShader> MSLLowering::lower(
         }
     }
 
+    ctx.attribute_at_vertex_capture = options.attribute_at_vertex_capture;
+    if (ctx.attribute_at_vertex_capture &&
+        options.attribute_at_vertex_input_id != UINT32_MAX)
+        ctx.attribute_at_vertex_input_id =
+            options.attribute_at_vertex_input_id;
+
+    if (shader.kind == DxilShaderKind::Pixel &&
+        ctx.attribute_at_vertex_capture) {
+        bool valid_provider = true;
+        bool saw_attribute = false;
+        uint32_t detected_input_id = UINT32_MAX;
+        for (const auto &block : fn.blocks) {
+            for (const auto &inst : block.instructions) {
+                if (inst.opcode != LLVMInstruction::Call ||
+                    inst.operands.size() < 3)
+                    continue;
+                auto decl = ctx.function_decls.find(inst.operands[0]);
+                if (decl == ctx.function_decls.end())
+                    continue;
+                const uint32_t intrinsic =
+                    intrinsicIdFromCalleeName(decl->second);
+                if (intrinsic != DXOP_AttributeAtVertex)
+                    continue;
+                saw_attribute = true;
+                std::vector<uint32_t> call_args(inst.operands.begin() + 2,
+                                                 inst.operands.end());
+                if (call_args.size() != 5 ||
+                    decl->second.find(".f32") == std::string::npos) {
+                    valid_provider = false;
+                    continue;
+                }
+                const uint32_t input_id =
+                    literalFromValue(ctx, call_args[1], UINT32_MAX);
+                if (input_id < 1u || input_id > 8u) {
+                    valid_provider = false;
+                    continue;
+                }
+                if (detected_input_id == UINT32_MAX)
+                    detected_input_id = input_id;
+                else if (detected_input_id != input_id)
+                    valid_provider = false;
+            }
+        }
+        if (saw_attribute && detected_input_id != UINT32_MAX &&
+            (ctx.attribute_at_vertex_input_id == UINT32_MAX ||
+             ctx.attribute_at_vertex_input_id == detected_input_id)) {
+            ctx.attribute_at_vertex_input_id = detected_input_id;
+        } else if (saw_attribute) {
+            valid_provider = false;
+        }
+        // Slot 28 is also used by the depth-bounds runtime ABI.  Do not
+        // create a mixed signature; the ordinary fail-closed path handles
+        // that combination until a separate slot contract is proven.
+        if (options.depth_bounds_test)
+            valid_provider = false;
+        ctx.attribute_at_vertex_provider = saw_attribute && valid_provider &&
+                                            ctx.attribute_at_vertex_input_id !=
+                                                UINT32_MAX;
+    }
+
     bool attribute_layout_seen = false;
     bool attribute_layout_invalid = false;
     for (const auto &block : fn.blocks) {
@@ -10788,6 +10890,19 @@ std::optional<TypedMSLShader> MSLLowering::lower(
 
     analyzeBindingPlan(ctx, fn);
     analyzeVertexInputs(ctx, fn);
+    if (ctx.attribute_at_vertex_provider) {
+        for (const auto &range : ctx.binding_plan.ranges) {
+            const uint64_t range_end =
+                static_cast<uint64_t>(range.lower_bound) + range.count;
+            if (range.lower_bound <= 28u && range_end > 28u) {
+                ctx.attribute_at_vertex_provider = false;
+                recordDiagnostic(
+                    ctx,
+                    "DXIL AttributeAtVertex capture rejected: resource range overlaps reserved buffer slot 28");
+                break;
+            }
+        }
+    }
     bool has_argumentless_load_input_f32_decl =
         hasArgumentlessLoadInputF32Declaration(module);
     ctx.vertex_procedural_fullscreen_fallback =
@@ -11349,8 +11464,12 @@ std::optional<TypedMSLShader> MSLLowering::lower(
             }
 
             if (inst.opcode == LLVMInstruction::Ret) {
-                if (ctx.shader.kind == DxilShaderKind::Vertex) os << "    return out;\n";
-                else if (ctx.shader.kind == DxilShaderKind::Pixel) {
+                if (ctx.shader.kind == DxilShaderKind::Vertex) {
+                    if (ctx.attribute_at_vertex_capture &&
+                        ctx.attribute_at_vertex_input_id != UINT32_MAX)
+                        os << "    m12_capture_attribute_at_vertex(out, vid, m12_attribute_at_vertex_capture);\n";
+                    os << "    return out;\n";
+                } else if (ctx.shader.kind == DxilShaderKind::Pixel) {
                     if (!inst.operands.empty()) os << "    result.color0 = float4(" << resolveValue(ctx, inst.operands[0]) << ");\n";
                     os << "    return result;\n";
                 } else {

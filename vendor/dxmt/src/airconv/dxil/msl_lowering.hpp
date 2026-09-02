@@ -49,6 +49,12 @@ struct MSLLoweringOptions {
   // When a caller selects one export, use this source-level name to locate
   // that function instead of relying on module order.
   std::string entry_point;
+  // Inject the bounded GPU capture ABI needed to emulate pixel
+  // AttributeAtVertex on devices without Metal's vertex_value<T> support.
+  // The pipeline binds a transient three-record buffer at slot 28 and only
+  // enables this variant for a validated single triangle draw.
+  bool attribute_at_vertex_capture = false;
+  uint32_t attribute_at_vertex_input_id = UINT32_MAX;
   std::vector<MSLVertexInputElement> vertex_inputs;
   bool depth_bounds_test = false;
   bool depth_bounds_multisample = false;

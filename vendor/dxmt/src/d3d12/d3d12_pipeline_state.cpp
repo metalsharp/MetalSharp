@@ -297,6 +297,87 @@ bool DXBCShaderUsesDirectResourceHeap(const void *bytecode, SIZE_T size) {
   return false;
 }
 
+bool DXBCShaderUsesAttributeAtVertex(const void *bytecode, SIZE_T size,
+                                     uint32_t *input_id_out) {
+  if (input_id_out)
+    *input_id_out = UINT32_MAX;
+  using namespace microsoft;
+  CDXBCParser parser;
+  if (FAILED(parser.ReadDXBC(bytecode, size)))
+    return false;
+
+  auto parse_literal = [](const std::string &text, uint32_t &value) {
+    if (text.empty())
+      return false;
+    char *end = nullptr;
+    unsigned long parsed = std::strtoul(text.c_str(), &end, 10);
+    if (!end || *end != '\0')
+      return false;
+    value = static_cast<uint32_t>(parsed);
+    return true;
+  };
+
+  for (UINT32 i = 0; i < parser.GetBlobCount(); i++) {
+    if (parser.GetBlobFourCC(i) != dxmt::dxil::DXIL_FOURCC)
+      continue;
+    auto container = dxmt::dxil::DXILContainer::parse(
+        parser.GetBlob(i), parser.GetBlobSize(i));
+    if (!container)
+      return false;
+    auto module = dxmt::dxil::BitcodeReader::parse(
+        container->shader().bitcode.data, container->shader().bitcode.size);
+    if (!module)
+      return false;
+
+    for (const auto &fn : module->functions) {
+      for (const auto &block : fn.blocks) {
+        for (const auto &inst : block.instructions) {
+          if (inst.opcode != dxmt::dxil::LLVMInstruction::Call ||
+              inst.operands.size() < 3)
+            continue;
+
+          std::string callee_name;
+          for (const auto &candidate : module->functions) {
+            if (candidate.value_id == inst.operands[0]) {
+              callee_name = candidate.name;
+              break;
+            }
+          }
+
+          uint32_t opcode = 0;
+          bool is_attribute_at_vertex =
+              callee_name.find("attributeAtVertex") != std::string::npos;
+          if (!is_attribute_at_vertex) {
+            const uint32_t opcode_id = inst.operands[2];
+            for (const auto &constant : module->constants) {
+              if (constant.id == opcode_id &&
+                  parse_literal(constant.constant_data, opcode)) {
+                is_attribute_at_vertex = opcode == 137u;
+                break;
+              }
+            }
+          }
+          if (!is_attribute_at_vertex)
+            continue;
+
+          if (input_id_out && inst.operands.size() > 3) {
+            uint32_t input_id = UINT32_MAX;
+            for (const auto &constant : module->constants) {
+              if (constant.id == inst.operands[3] &&
+                  parse_literal(constant.constant_data, input_id))
+                break;
+            }
+            if (*input_id_out == UINT32_MAX)
+              *input_id_out = input_id;
+          }
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 bool ExtractPSV0ComputeThreadgroupSize(const void *bytecode, SIZE_T size,
                                        uint32_t out[3]) {
   if (!bytecode || size < 36)
@@ -1513,6 +1594,11 @@ size_t MTLD3D12PipelineState::ApplyShaderVariantHash(
   }
   if (type == ShaderType::Pixel && m_uses_conservative_rasterization)
     hash ^= 0xc0a5e2a7f4b19d31ull;
+  if (m_uses_attribute_at_vertex &&
+      (type == ShaderType::Vertex || type == ShaderType::Pixel)) {
+    hash ^= 0xa7e7c4a7f4b19d31ull;
+    hash = hash * 131 + m_attribute_at_vertex_input_id;
+  }
   return hash;
 }
 
@@ -1531,8 +1617,10 @@ std::string MTLD3D12PipelineState::GetVSCacheHash() const {
     return {};
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%016zx",
-           ComputeShaderCacheHash(m_vs.data(), m_vs.size(), ShaderType::Vertex,
-                                  &m_input_layout));
+           ApplyShaderVariantHash(
+               ComputeShaderCacheHash(m_vs.data(), m_vs.size(),
+                                      ShaderType::Vertex, &m_input_layout),
+               ShaderType::Vertex));
   return buffer;
 }
 
@@ -2081,6 +2169,9 @@ bool MTLD3D12PipelineState::CompileShader(
       DXBCShaderUsesSamplerFeedback(bytecode, size);
   const bool requires_sample_cmp_level_custom =
       type == ShaderType::Compute && DXBCShaderUsesSampleCmpLevel(bytecode, size);
+  const bool requires_attribute_at_vertex_custom =
+      m_uses_attribute_at_vertex &&
+      (type == ShaderType::Vertex || type == ShaderType::Pixel);
   if (requires_int64_custom)
     m_uses_atomic64_emulation = true;
   if (requires_sampler_feedback_custom)
@@ -2222,6 +2313,13 @@ bool MTLD3D12PipelineState::CompileShader(
             fclose(mf);
             mf = nullptr;
           }
+          if (mf && requires_attribute_at_vertex_custom) {
+            // AttributeAtVertex uses the paired vertex/fragment capture ABI
+            // emitted by the typed lowerer.  A converter-produced cache does
+            // not contain the hidden capture buffer signature.
+            fclose(mf);
+            mf = nullptr;
+          }
           if (!mf) {
             PSTRACE("  metallib not cached, attempting DXIL->MSL compilation");
 
@@ -2282,6 +2380,10 @@ bool MTLD3D12PipelineState::CompileShader(
             lowering_options.conservative_rasterization =
                 type == ShaderType::Pixel &&
                 m_uses_conservative_rasterization_reference_model;
+            lowering_options.attribute_at_vertex_capture =
+                requires_attribute_at_vertex_custom;
+            lowering_options.attribute_at_vertex_input_id =
+                m_attribute_at_vertex_input_id;
             if (type == ShaderType::Vertex) {
               lowering_options.vertex_inputs.reserve(
                   m_ia_input_elements.size());
@@ -3315,6 +3417,12 @@ bool MTLD3D12PipelineState::Compile() {
       m_input_elements[0].InputSlotClass ==
           D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA &&
       !m_ps.empty() && DXBCContainerHasChunk(m_ps.data(), m_ps.size(), "DXIL");
+  m_attribute_at_vertex_input_id = UINT32_MAX;
+  m_uses_attribute_at_vertex =
+      !m_is_compute && !m_vs.empty() && !m_ps.empty() && m_gs.empty() &&
+      m_ms.empty() &&
+      DXBCShaderUsesAttributeAtVertex(m_ps.data(), m_ps.size(),
+                                      &m_attribute_at_vertex_input_id);
   lock.unlock();
 
   auto wmt_device = m_device->GetDXMTDevice().device();
@@ -3416,9 +3524,11 @@ bool MTLD3D12PipelineState::Compile() {
                                                 nullptr)
                        : (m_vs.empty()
                               ? 0
-                              : ComputeShaderCacheHash(
-                                    m_vs.data(), m_vs.size(),
-                                    ShaderType::Vertex, &m_input_layout));
+                              : ApplyShaderVariantHash(
+                                    ComputeShaderCacheHash(
+                                        m_vs.data(), m_vs.size(),
+                                        ShaderType::Vertex, &m_input_layout),
+                                    ShaderType::Vertex));
   size_t ps_hash = m_ps.empty()
                        ? 0
                        : ApplyShaderVariantHash(
