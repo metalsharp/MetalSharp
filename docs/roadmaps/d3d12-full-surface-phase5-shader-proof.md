@@ -745,7 +745,7 @@ fail-closed until their exact readback matrices pass. `D3D12_FEATURE_SHADER_MODE
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.
 
-## Strict Phase 5 closeout checkpoint — 2026-09-01
+## Historical strict Phase 5 checkpoint — 2026-09-01 (superseded)
 
 This is a documentation and accounting checkpoint, not a completion claim.
 The literal Phase 5 exit gate remains open because the opcode matrix still has
@@ -796,8 +796,8 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=2`: `278` rows are
-observed, `2` remain open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=1`: `279` rows are
+observed, `1` remains open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
@@ -811,6 +811,19 @@ triangle attributes (289). The translated instance at
 object-to-world translation `+5`, and world-to-object translation `-5`; the
 constructor probes return `MakeMiss: IsMiss=1, shader-table-index=3` and
 `MakeNop: IsNop=1`.
+
+Opcode 137 now has a tracked bounded GPU-capture proof. The
+`probe_attribute_at_vertex` fixture compiles a `ps_6_1` shader containing three
+literal `GetAttributeAtVertex` calls over one `nointerpolation float4` input.
+The typed DXIL path captures the vertex-stage output into a transient three-record
+GPU buffer at slot 28, and the pixel stage reads the three records using
+`primitive_id`. With an ABI-matched runtime and `METAL_SHADER_CONVERTER=/nonexistent`,
+the direct Apple M4/Metal 4 triangle-list draw returns exact bit patterns
+`[0x3e000000, 0x3f000000, 0x3f600000]` (`0.125`, `0.5`, `0.875`). The provider
+rejects other signatures/types, dynamic row/column/vertex operands,
+indexed/strip/multi-instance breadth, geometry/tessellation combinations, and
+depth-bounds slot conflicts; the native Apple 9 `vertex_value<T>` negative is
+not used by this provider.
 
 Opcode 288 now has a tracked behavior probe. The command-replay probe builds a
 pinned `lib_6_9` `MakeMiss` shader, places `0xa1b2c3d4` in the miss-record local
@@ -866,7 +879,7 @@ miss-table indices, hit invocation, vector/packed payload layouts, miss
 resource/system-value bodies, and any path without an exported `miss_shader`.
 
 This remains a bounded provider, not Phase 5 closeout. CycleCounterLegacy 109
-and AttributeAtVertex 137 remain open. The legacy converter continues to
+is the only required opcode row still open. The legacy converter continues to
 reject the remaining HitObject/SER family fail-closed; its negative result is
 not used to invalidate the typed provider's positive behavior. The D3D12 Work
 Graph API remains unsupported even though representative node shader opcode

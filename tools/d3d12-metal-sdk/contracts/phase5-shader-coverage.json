@@ -325,7 +325,20 @@
         ["summary", "writable_msaa_subset_complete"],
         ["summary", "options14_behavior_complete"]
       ],
-      "remaining": "Profile phase5-eval-final executes pixel Texture2DMS.GetSamplePosition, render-target sample position/count, SV_SampleIndex, SV_Coverage, and centroid/sample/snapped attribute evaluation against exact per-sample and color readbacks. The standalone native Metal 4 vertex-value control records the Apple M4/Apple9 negative boundary (`supports_apple10=false`, constant `[255,0,0,255]`, vertex_value `[0,0,0,0]`), and an ABI-matched direct D3D12 graphics probe rejects the opcode-137 PSO with `unsupported_intrinsics=12`, `unsupported_opcodes=0`, and `0x80004005`; these supply no positive AttributeAtVertex readback, and broader non-constant interpolation/stage combinations remain in the exhaustive row."
+      "remaining": "Profile phase5-eval-final executes pixel Texture2DMS.GetSamplePosition, render-target sample position/count, SV_SampleIndex, SV_Coverage, and centroid/sample/snapped attribute evaluation against exact per-sample and color readbacks. The standalone native Metal 4 vertex-value control records the Apple M4/Apple9 negative boundary (`supports_apple10=false`, constant `[255,0,0,255]`, vertex_value `[0,0,0,0]`), and an ABI-matched direct D3D12 graphics probe rejects the opcode-137 PSO with `unsupported_intrinsics=12`, `unsupported_opcodes=0`, and `0x80004005`; the native `vertex_value<T>` boundary remains diagnostic, while the separate bounded GPU capture provider supplies the positive opcode-137 readback. Broader non-constant interpolation/stage combinations remain in the exhaustive row."
+    },
+    {
+      "id": "dxil-attribute-at-vertex-bounded-gpu-capture",
+      "status": "closed",
+      "result": "probe-attribute-at-vertex",
+      "profile": "phase5-attribute-provider",
+      "checks": [
+        ["exact"],
+        ["provider", "gpu_vertex_capture_buffer"],
+        ["bounded_draw", "triangle_list_3_vertices_1_instance"],
+        ["values", [1040187392, 1056964608, 1063256064]]
+      ],
+      "remaining": "The typed DXIL path captures one validated float32 nointerpolation output signature from the vertex stage into a transient GPU buffer at slot 28 and reads all three triangle records from the pixel stage using primitive_id. Direct Apple M4/Metal 4 D3D12 execution returns the exact per-vertex bit patterns for a three-vertex triangle-list draw. Other signatures/types, dynamic row/column/vertex operands, indexed/strip/multi-instance breadth, geometry/tessellation stages, and depth-bounds slot combinations remain fail-closed. Metal vertex_value<T> remains unavailable on Apple 9, so this provider does not depend on that feature."
     },
     {
       "id": "dxil-inner-coverage-exact-runtime",
@@ -518,7 +531,7 @@
       "checks": [
         ["pass"]
       ],
-      "remaining": "Strict closeout accounting remains open at 278/280 required opcode rows observed, 2 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy and opcode 137 AttributeAtVertex. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback. CycleCounterLegacy now has an exact native Metal 4.0 clock-rejection negative; an ABI-matched direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`, with both DXIL lowerers failing closed before PSO creation. The descending SER/HitObject pass now has typed GPU-provider positive readbacks for opcodes 262-289, including bounded scalar MakeMiss/miss-shader Invoke, optional MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes barycentrics, local-root constants, state, ray-vector, transform, and scalar accessors. The bounded node-shader provider also executes representative opcodes 238-253 as GPU-native one-node kernels without a CPU scheduler; D3D12 Work Graph API execution, multi-node scheduling, and feature promotion remain unsupported. Under the documented runtime/provider boundaries, observed rows use exact GPU readbacks; the standalone legacy converter and unsupported API paths remain separately fail-closed. The broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix remains incomplete."
+      "remaining": "Strict closeout accounting remains open at 279/280 required opcode rows observed, 1 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy. The bounded AttributeAtVertex provider now captures one validated float32 nointerpolation vertex output into a transient GPU buffer and returns exact three-vertex readbacks on Apple M4/Metal 4; other signature/type, operand, indexed/strip, multi-instance, geometry/tessellation, and depth-bounds combinations remain fail-closed. CycleCounterLegacy still has an exact native Metal 4.0 clock-rejection negative; an ABI-matched direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`, with both DXIL lowerers failing closed before PSO creation. The descending SER/HitObject pass now has typed GPU-provider positive readbacks for opcodes 262-289, including bounded scalar MakeMiss/miss-shader Invoke, optional MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes barycentrics, local-root constants, state, ray-vector, transform, and scalar accessors. The bounded node-shader provider also executes representative opcodes 238-253 as GPU-native one-node kernels without a CPU scheduler; D3D12 Work Graph API execution, multi-node scheduling, and feature promotion remain unsupported. Under the documented runtime/provider boundaries, observed rows use exact GPU readbacks; the standalone legacy converter and unsupported API paths remain separately fail-closed. The broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix remains incomplete."
     }
   ]
 }

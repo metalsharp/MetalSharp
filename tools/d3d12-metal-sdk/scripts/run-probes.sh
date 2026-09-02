@@ -42,6 +42,7 @@ RUN_GRAPHICS_PSO=1
 RUN_COMPUTE_PSO=1
 RUN_COMMAND_REPLAY=1
 RUN_WORK_GRAPH=0
+RUN_ATTRIBUTE_AT_VERTEX=0
 RUN_BARRIERS_RENDER_PASS=1
 RUN_RESOURCE_VIEWS_FORMATS=1
 RUN_RENDER_HEADLESS=1
@@ -155,6 +156,10 @@ Options:
   --command-replay-only Run only the command recording/replay probe.
   --work-graph       Run the bounded GPU-native node shader opcode probe.
   --work-graph-only  Run only the bounded GPU-native node shader opcode probe.
+  --attribute-at-vertex
+                        Run the bounded GPU vertex-capture AttributeAtVertex probe.
+  --attribute-at-vertex-only
+                        Run only the bounded GPU vertex-capture AttributeAtVertex probe.
   --no-barriers-render-pass
                         Skip probe_barriers_render_pass.
   --barriers-render-pass-only
@@ -393,6 +398,7 @@ while [[ $# -gt 0 ]]; do
       RUN_COMPUTE_PSO=1
       RUN_COMMAND_REPLAY=1
       RUN_WORK_GRAPH=1
+      RUN_ATTRIBUTE_AT_VERTEX=1
       RUN_BARRIERS_RENDER_PASS=1
       RUN_RESOURCE_VIEWS_FORMATS=1
       RUN_RENDER_HEADLESS=1
@@ -885,6 +891,45 @@ while [[ $# -gt 0 ]]; do
       RUN_FULL_STRESS=0
       shift
       ;;
+    --attribute-at-vertex)
+      RUN_ATTRIBUTE_AT_VERTEX=1
+      shift
+      ;;
+    --attribute-at-vertex-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_TEXTURE_DIMENSIONS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=1
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
     --command-replay-only)
       RUN_LEGACY_REGRESSION=0
       RUN_LOADER=0
@@ -1268,6 +1313,7 @@ REFLECTION_ABI_PROBE_EXE="$SDK_DIR/out/bin/probe_reflection_abi.exe"
 GRAPHICS_PSO_PROBE_EXE="$SDK_DIR/out/bin/probe_graphics_pso.exe"
 COMPUTE_PSO_PROBE_EXE="$SDK_DIR/out/bin/probe_compute_pso.exe"
 COMMAND_REPLAY_PROBE_EXE="$SDK_DIR/out/bin/probe_command_replay.exe"
+ATTRIBUTE_AT_VERTEX_PROBE_EXE="$SDK_DIR/out/bin/probe_attribute_at_vertex.exe"
 BARRIERS_RENDER_PASS_PROBE_EXE="$SDK_DIR/out/bin/probe_barriers_render_pass.exe"
 RESOURCE_VIEWS_FORMATS_PROBE_EXE="$SDK_DIR/out/bin/probe_resource_views_formats.exe"
 RENDER_HEADLESS_PROBE_EXE="$SDK_DIR/out/bin/probe_render_headless.exe"
@@ -1314,7 +1360,7 @@ if [[ "$WINDOWS_DIR" == *"/gptk/"* || "$WINDOWS_DIR" == *"/lib/gptk/"* ]]; then
 fi
 
 NEED_BUILD=0
-if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$TEXTURE_DIMENSIONS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$TEXTURE_DIMENSIONS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$ATTRIBUTE_AT_VERTEX_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
 
@@ -1410,6 +1456,7 @@ HITOBJECT_LOCAL_ROOT_RESULT_FILE="$RESULTS_DIR/probe-hitobject-local-root-${PROF
 HITOBJECT_INVOKE_RESULT_FILE="$RESULTS_DIR/probe-hitobject-invoke-${PROFILE}.json"
 HITOBJECT_ATTRIBUTES_RESULT_FILE="$RESULTS_DIR/probe-hitobject-attributes-${PROFILE}.json"
 HITOBJECT_REORDER_RESULT_FILE="$RESULTS_DIR/probe-hitobject-reorder-${PROFILE}.json"
+ATTRIBUTE_AT_VERTEX_RESULT_FILE="$RESULTS_DIR/probe-attribute-at-vertex-${PROFILE}.json"
 WORK_GRAPH_RESULT_FILE="$RESULTS_DIR/probe-workgraph-${PROFILE}.json"
 BARRIERS_RENDER_PASS_RESULT_FILE="$RESULTS_DIR/probe-barriers-render-pass-${PROFILE}.json"
 RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${PROFILE}.json"
@@ -3047,6 +3094,34 @@ JSON
         >"$invoke_miss_path.msc.log" 2>&1 || true
     fi
   fi
+}
+
+prepare_attribute_at_vertex_probe() {
+  local source="$SDK_DIR/probes/probe_attribute_at_vertex/attribute_at_vertex.hlsl"
+  local staged_source="$SDK_DIR/out/bin/probe_attribute_at_vertex.hlsl"
+  local vertex_shader="$SDK_DIR/out/bin/probe_attribute_at_vertex_vs.cso"
+  local pixel_shader="$SDK_DIR/out/bin/probe_attribute_at_vertex_ps.cso"
+  cp "$source" "$staged_source"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E vs_main -T vs_6_0 \
+      -Fo probe_attribute_at_vertex_vs.cso probe_attribute_at_vertex.hlsl >/dev/null; then
+      exit 1
+    fi
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_1 \
+      -Fo probe_attribute_at_vertex_ps.cso probe_attribute_at_vertex.hlsl >/dev/null; then
+      exit 1
+    fi
+  ); then
+    echo "failed to compile AttributeAtVertex DXIL fixtures" >&2
+    return 1
+  fi
+  [[ -s "$vertex_shader" && -s "$pixel_shader" ]] || {
+    echo "AttributeAtVertex DXIL fixtures are missing" >&2
+    return 1
+  }
 }
 
 prepare_work_graph_probe() {
@@ -5050,6 +5125,12 @@ fi
 
 if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
   prepare_work_graph_probe
+fi
+
+if [[ "$RUN_ATTRIBUTE_AT_VERTEX" == "1" ]]; then
+  prepare_attribute_at_vertex_probe
+  run_probe_exe "$ATTRIBUTE_AT_VERTEX_PROBE_EXE" \
+    "$ATTRIBUTE_AT_VERTEX_RESULT_FILE"
 fi
 
 if [[ "$RUN_BARRIERS_RENDER_PASS" == "1" ]]; then

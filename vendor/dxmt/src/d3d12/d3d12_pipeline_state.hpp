@@ -244,6 +244,7 @@ public:
   bool UsesConservativeRasterizationReferenceModel() const {
     return m_uses_conservative_rasterization_reference_model;
   }
+  bool UsesAttributeAtVertex() const { return m_uses_attribute_at_vertex; }
   bool UsesDirectResourceDescriptorHeap() const {
     return m_uses_direct_resource_descriptor_heap;
   }
@@ -318,6 +319,8 @@ private:
   bool m_uses_vrs_runtime_state = false;
   bool m_uses_conservative_rasterization = false;
   bool m_uses_conservative_rasterization_reference_model = false;
+  bool m_uses_attribute_at_vertex = false;
+  uint32_t m_attribute_at_vertex_input_id = UINT32_MAX;
   bool m_uses_direct_resource_descriptor_heap = false;
   D3D12_INPUT_LAYOUT_DESC m_input_layout = {};
   std::vector<D3D12_INPUT_ELEMENT_DESC> m_input_elements;

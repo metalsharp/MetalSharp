@@ -174,6 +174,10 @@ build_probe \
   -o "$OUT_DIR/probe_graphics_pso.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_attribute_at_vertex/probe_attribute_at_vertex.cpp" \
+  -o "$OUT_DIR/probe_attribute_at_vertex.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_compute_pso/probe_compute_pso.cpp" \
   -o "$OUT_DIR/probe_compute_pso.exe"
 
