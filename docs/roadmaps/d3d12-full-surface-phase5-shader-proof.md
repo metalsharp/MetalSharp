@@ -755,7 +755,7 @@ canonical accounting from
 | Matrix class | Opcode IDs | Required rows | State and blocker |
 | --- | ---: | ---: | --- |
 | Legacy stage-system counter | `109` — `CycleCounterLegacy` | 1 | Open; the attempted `clock()`/cycle-counter paths did not produce exact DXIL-to-runtime readback evidence. |
-| Pixel attribute lookup | `137` — `AttributeAtVertex` | 1 | Open; exact operand/signature mapping and runtime readback are not established. The reverted Metal 4 `vertex_value<T>` experiment failed the staged fragment/PSO behavior gate and returned the clear/zero result. |
+| Pixel attribute lookup | `137` — `AttributeAtVertex` | 1 | Open; the exact DXIL operand mapping is now recorded as `(input-element-id, row, column, vertex-index)` with `i32/i32/i8/i8` overload operands, but there is no positive readback. The native `probe-metal-vertex-value.mm` negative boundary on Apple M4/Apple9 reports `supports_apple10=false`, exact constant-control readback `[255,0,0,255]`, and `vertex_value<T>` PSO completion with exact `[0,0,0,0]` readback. Metal's pre-raster per-vertex feature is therefore unavailable on the stable device; this remains diagnostic and does not promote opcode 137. |
 | Work Graph/node operations | `238–253` — `AllocateNodeOutputRecords`, `GetNodeRecordPtr`, `IncrementOutputCount`, `OutputComplete`, `GetInputRecordCount`, `FinishedCrossGroupSharing`, `BarrierByMemoryType`, `BarrierByMemoryHandle`, `BarrierByNodeRecordHandle`, `CreateNodeOutputHandle`, `IndexNodeHandle`, `AnnotateNodeHandle`, `CreateNodeInputRecordHandle`, `AnnotateNodeRecordHandle`, `NodeOutputIsValid`, `GetRemainingRecursionLevels` | 16 | Open; no node scheduler/provider or exact node execution readback exists. Interface presence is not shader behavior. |
 | SER/HitObject operations | `262–289` — `HitObject_TraceRay` through `HitObject_Attributes` | 28 | Open; the required HitObject/SER behavior and exact readbacks are not implemented. Focused native ray-generation and inline-RayQuery evidence does not substitute for these rows. |
 | **Required total** |  | **46** | **Open** |
@@ -771,7 +771,11 @@ remains capped at the behavior-backed 6.7 value, and Phase 5 remains
 unchecked on the completion roadmap.
 
 The failed AttributeAtVertex experiment and its rebuilt binaries, caches,
-prefixes, and logs were removed or reverted before this checkpoint. No
-experimental artifact is part of the closeout change. The next Phase 5 batch
-must close the two stage-system rows with exact runtime/negative evidence
-before the Work Graph/node and SER/HitObject provider work proceeds.
+prefixes, and logs were removed or reverted before this checkpoint. The
+tracked native negative-boundary source is
+`tools/d3d12-metal-sdk/scripts/probe-metal-vertex-value.mm`; its output is a
+capability diagnostic, not a positive DXIL proof. No experimental binary,
+cache, prefix, or log is part of the closeout change. CycleCounterLegacy still
+has no exact runtime readback. The next Phase 5 batch must close the two
+stage-system rows with exact runtime/negative evidence before the Work
+Graph/node and SER/HitObject provider work proceeds.

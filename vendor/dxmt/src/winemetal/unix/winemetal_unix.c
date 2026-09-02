@@ -87,6 +87,46 @@ winemetal_nsstring_utf8(NSString *value) {
   return value ? [value UTF8String] : "<nil>";
 }
 
+// Native Metal rejects NSArray construction when one of the handles supplied
+// by the Windows half is null.  Keep the bridge fail-closed for stale or
+// partially populated linked-function/archive arrays instead of allowing an
+// Objective-C exception to terminate the Wine process.
+static NSArray *
+winemetal_array_from_handles(const obj_handle_t *handles, uint32_t count,
+                             const char *label) {
+  if (!handles || !count)
+    return nil;
+
+  NSMutableArray *array = [NSMutableArray arrayWithCapacity:count];
+  uint32_t skipped = 0;
+  for (uint32_t i = 0; i < count; i++) {
+    id object = (id)handles[i];
+    if (object) {
+      [array addObject:object];
+    } else {
+      skipped++;
+      FILE *dl = winemetal_critical_log();
+      if (dl) {
+        fprintf(dl,
+                "[winemetal] filtered nil NSArray object label=%s index=%u count=%u\n",
+                label ? label : "<unknown>", i, count);
+        fclose(dl);
+      }
+    }
+  }
+
+  if (!array.count && skipped) {
+    FILE *dl = winemetal_critical_log();
+    if (dl) {
+      fprintf(dl,
+              "[winemetal] NSArray construction skipped all nil objects label=%s count=%u\n",
+              label ? label : "<unknown>", count);
+      fclose(dl);
+    }
+  }
+  return array.count ? array : nil;
+}
+
 static const char *
 winemetal_render_command_name(uint16_t type) {
   switch ((enum WMTRenderCommandType)type) {
@@ -1294,14 +1334,26 @@ _MTLDevice_newComputePipelineState(void *obj) {
       descriptor.buffers[i].mutability = MTLMutabilityImmutable;
   }
   if (info->num_binary_archives_for_lookup && info->binary_archives_for_lookup.ptr)
-    descriptor.binaryArchives = [NSArray arrayWithObjects:(id<MTLBinaryArchive> *)info->binary_archives_for_lookup.ptr
-                                                    count:info->num_binary_archives_for_lookup];
+    descriptor.binaryArchives = winemetal_array_from_handles(
+        (const obj_handle_t *)info->binary_archives_for_lookup.ptr,
+        info->num_binary_archives_for_lookup, "compute.binaryArchives");
   MTLPipelineOption options =
       info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
-  params->ret_pso =
-      (obj_handle_t)[device newComputePipelineStateWithDescriptor:descriptor options:options reflection:nil error:&err];
+  @try {
+    params->ret_pso =
+        (obj_handle_t)[device newComputePipelineStateWithDescriptor:descriptor options:options reflection:nil error:&err];
+  } @catch (NSException *exception) {
+    params->ret_pso = 0;
+    FILE *dl = winemetal_critical_log();
+    if (dl) {
+      fprintf(dl, "[winemetal] compute PSO ObjC exception: %s reason=%s\n",
+              winemetal_nsstring_utf8([exception name]),
+              winemetal_nsstring_utf8([exception reason]));
+      fclose(dl);
+    }
+  }
   params->ret_error = (obj_handle_t)err;
-  if (!err && info->binary_archive_for_serialization) {
+  if (params->ret_pso && !err && info->binary_archive_for_serialization) {
     [(id<MTLBinaryArchive>)info->binary_archive_for_serialization addComputePipelineFunctionsWithDescriptor:descriptor
                                                                                                       error:&err];
   }
@@ -1714,15 +1766,17 @@ _MTLDevice_newRenderPipelineState(void *obj) {
   if (@available(macOS 13, *)) {
     if (info->num_vertex_linked_functions && info->vertex_linked_functions.ptr) {
       MTLLinkedFunctions *linked = [[MTLLinkedFunctions alloc] init];
-      linked.functions = [NSArray arrayWithObjects:(id<MTLFunction> *)info->vertex_linked_functions.ptr
-                                             count:info->num_vertex_linked_functions];
+      linked.functions = winemetal_array_from_handles(
+          (const obj_handle_t *)info->vertex_linked_functions.ptr,
+          info->num_vertex_linked_functions, "render.vertexLinkedFunctions");
       descriptor.vertexLinkedFunctions = linked;
       [linked release];
     }
     if (info->num_fragment_linked_functions && info->fragment_linked_functions.ptr) {
       MTLLinkedFunctions *linked = [[MTLLinkedFunctions alloc] init];
-      linked.functions = [NSArray arrayWithObjects:(id<MTLFunction> *)info->fragment_linked_functions.ptr
-                                             count:info->num_fragment_linked_functions];
+      linked.functions = winemetal_array_from_handles(
+          (const obj_handle_t *)info->fragment_linked_functions.ptr,
+          info->num_fragment_linked_functions, "render.fragmentLinkedFunctions");
       descriptor.fragmentLinkedFunctions = linked;
       [linked release];
     }
@@ -1753,17 +1807,33 @@ _MTLDevice_newRenderPipelineState(void *obj) {
   }
 
   if (info->num_binary_archives_for_lookup && info->binary_archives_for_lookup.ptr)
-    descriptor.binaryArchives = [NSArray arrayWithObjects:(id<MTLBinaryArchive> *)info->binary_archives_for_lookup.ptr
-                                                    count:info->num_binary_archives_for_lookup];
+    descriptor.binaryArchives = winemetal_array_from_handles(
+        (const obj_handle_t *)info->binary_archives_for_lookup.ptr,
+        info->num_binary_archives_for_lookup, "render.binaryArchives");
   NSError *err = NULL;
   MTLPipelineOption options =
       info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
-  params->ret_pso = (obj_handle_t)[(id<MTLDevice>)params->device newRenderPipelineStateWithDescriptor:descriptor
-                                                                                              options:options
-                                                                                           reflection:nil
-                                                                                                error:&err];
+  @try {
+    params->ret_pso = (obj_handle_t)[(id<MTLDevice>)params->device newRenderPipelineStateWithDescriptor:descriptor
+                                                                                                  options:options
+                                                                                               reflection:nil
+                                                                                                    error:&err];
+  } @catch (NSException *exception) {
+    params->ret_pso = 0;
+    FILE *dl = winemetal_critical_log();
+    if (dl) {
+      fprintf(dl,
+              "[winemetal] render PSO ObjC exception: %s reason=%s vertex=%p fragment=%p rt0=%u depth=%u stencil=%u samples=%u\n",
+              winemetal_nsstring_utf8([exception name]),
+              winemetal_nsstring_utf8([exception reason]),
+              (void *)info->vertex_function, (void *)info->fragment_function,
+              info->colors[0].pixel_format, info->depth_pixel_format,
+              info->stencil_pixel_format, info->raster_sample_count);
+      fclose(dl);
+    }
+  }
   params->ret_error = (obj_handle_t)err;
-  if (!err && info->binary_archive_for_serialization) {
+  if (params->ret_pso && !err && info->binary_archive_for_serialization) {
     [(id<MTLBinaryArchive>)info->binary_archive_for_serialization addRenderPipelineFunctionsWithDescriptor:descriptor
                                                                                                      error:&err];
   }
@@ -1819,22 +1889,25 @@ _MTLDevice_newMeshRenderPipelineState(void *obj) {
   if (@available(macOS 13, *)) {
     if (info->num_object_linked_functions && info->object_linked_functions.ptr) {
       MTLLinkedFunctions *linked = [[MTLLinkedFunctions alloc] init];
-      linked.functions = [NSArray arrayWithObjects:(id<MTLFunction> *)info->object_linked_functions.ptr
-                                             count:info->num_object_linked_functions];
+      linked.functions = winemetal_array_from_handles(
+          (const obj_handle_t *)info->object_linked_functions.ptr,
+          info->num_object_linked_functions, "mesh.objectLinkedFunctions");
       descriptor.objectLinkedFunctions = linked;
       [linked release];
     }
     if (info->num_mesh_linked_functions && info->mesh_linked_functions.ptr) {
       MTLLinkedFunctions *linked = [[MTLLinkedFunctions alloc] init];
-      linked.functions = [NSArray arrayWithObjects:(id<MTLFunction> *)info->mesh_linked_functions.ptr
-                                             count:info->num_mesh_linked_functions];
+      linked.functions = winemetal_array_from_handles(
+          (const obj_handle_t *)info->mesh_linked_functions.ptr,
+          info->num_mesh_linked_functions, "mesh.meshLinkedFunctions");
       descriptor.meshLinkedFunctions = linked;
       [linked release];
     }
     if (info->num_fragment_linked_functions && info->fragment_linked_functions.ptr) {
       MTLLinkedFunctions *linked = [[MTLLinkedFunctions alloc] init];
-      linked.functions = [NSArray arrayWithObjects:(id<MTLFunction> *)info->fragment_linked_functions.ptr
-                                             count:info->num_fragment_linked_functions];
+      linked.functions = winemetal_array_from_handles(
+          (const obj_handle_t *)info->fragment_linked_functions.ptr,
+          info->num_fragment_linked_functions, "mesh.fragmentLinkedFunctions");
       descriptor.fragmentLinkedFunctions = linked;
       [linked release];
     }
@@ -1848,8 +1921,9 @@ _MTLDevice_newMeshRenderPipelineState(void *obj) {
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
   if (@available(macOS 15, *)) {
     if (info->num_binary_archives_for_lookup && info->binary_archives_for_lookup.ptr)
-      descriptor.binaryArchives = [NSArray arrayWithObjects:(id<MTLBinaryArchive> *)info->binary_archives_for_lookup.ptr
-                                                      count:info->num_binary_archives_for_lookup];
+      descriptor.binaryArchives = winemetal_array_from_handles(
+          (const obj_handle_t *)info->binary_archives_for_lookup.ptr,
+          info->num_binary_archives_for_lookup, "mesh.binaryArchives");
     options = info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
   }
 #endif
@@ -1896,7 +1970,7 @@ _MTLDevice_newMeshRenderPipelineState(void *obj) {
   }
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
   if (@available(macOS 15, *)) {
-    if (!err && info->binary_archive_for_serialization) {
+    if (params->ret_pso && !err && info->binary_archive_for_serialization) {
       [(id<MTLBinaryArchive>)info->binary_archive_for_serialization
           addMeshRenderPipelineFunctionsWithDescriptor:descriptor
                                                  error:&err];
@@ -5324,8 +5398,9 @@ _MTLDevice_newTileRenderPipelineState(void *obj) {
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
   if (@available(macOS 15, *)) {
     if (info->num_binary_archives_for_lookup && info->binary_archives_for_lookup.ptr)
-      descriptor.binaryArchives = [NSArray arrayWithObjects:(id<MTLBinaryArchive> *)info->binary_archives_for_lookup.ptr
-                                                      count:info->num_binary_archives_for_lookup];
+      descriptor.binaryArchives = winemetal_array_from_handles(
+          (const obj_handle_t *)info->binary_archives_for_lookup.ptr,
+          info->num_binary_archives_for_lookup, "tile.binaryArchives");
     options = info->fail_on_binary_archive_miss ? MTLPipelineOptionFailOnBinaryArchiveMiss : MTLPipelineOptionNone;
   }
 #endif

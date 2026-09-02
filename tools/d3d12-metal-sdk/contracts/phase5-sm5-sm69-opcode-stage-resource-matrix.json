@@ -3191,7 +3191,9 @@
       "required": true,
       "status": "open",
       "positive_evidence": [],
-      "negative_evidence": []
+      "negative_evidence": [
+        "probe-metal-vertex-value:apple9_no_pre_raster_per_vertex_values"
+      ]
     },
     {
       "id": 138,
