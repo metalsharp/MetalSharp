@@ -796,21 +796,23 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=31`: `249` rows are
-observed, `31` remain open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=24`: `256` rows are
+observed, `24` remain open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
 `HitObject_TraceRay` (262), `MakeMiss` (265), `MakeNop` (266), state predicates
 269–271, ray flags and distances 272–274, world/object ray vectors 275–278,
-and 3x4 transforms 279–280. The translated instance at `x=5` returns object
-origin `[0,0,-2]`, object direction `[0,0,1]`, object-to-world translation
-`+5`, and world-to-object translation `-5`; the constructor probes return
-`MakeMiss: IsMiss=1, shader-table-index=3` and `MakeNop: IsNop=1`.
+and 3x4 transforms 279–280, plus scalar geometry/instance/primitive,
+hit-kind, and shader-table accessors 281–287. The translated instance at
+`x=5` returns object origin `[0,0,-2]`, object direction `[0,0,1]`,
+object-to-world translation `+5`, and world-to-object translation `-5`; the
+constructor probes return `MakeMiss: IsMiss=1, shader-table-index=3` and
+`MakeNop: IsNop=1`.
 
 This is a bounded provider, not Phase 5 closeout. `FromRayQuery` (263–264),
-`Invoke` and scheduling (267–268), and remaining HitObject accessors 281–289
-still require exact providers/readbacks. CycleCounterLegacy 109,
+`Invoke` and scheduling (267–268), and local-root-table/attribute accessors
+288–289 still require exact providers/readbacks. CycleCounterLegacy 109,
 AttributeAtVertex 137, and Work Graph/node 238–253 remain open. The legacy
 converter continues to reject the HitObject/SER family fail-closed; its
 negative result is not used to invalidate the typed provider's positive
