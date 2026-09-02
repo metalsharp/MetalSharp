@@ -446,13 +446,29 @@
       "remaining": "The exact Apple M4/Metal 4 native mesh provider covers 64-byte, 128-byte, and 256-byte SM6.5 amplification-to-mesh payloads, including a 64-thread group, direct and GPU-only indirect dispatch, one triangle, two render-target-array layers, depth/blend/wireframe variants, stage CBV/SRV/UAV/sampler bindings, and PIPELINE_STATISTICS1. Additional payload sizes, mesh output counts/topologies, other thread-group shapes, barriers, resource ranges, VRS, and amplification patterns remain in the exhaustive row; the native libmetalirconverter cache provider is host-specific and is not a portable compiler-object provider."
     },
     {
+      "id": "dxil-hitobject-invoke-miss-payload-exact-runtime",
+      "status": "closed",
+      "result": "probe-hitobject-invoke",
+      "profile": "phase5-hitobject-invoke",
+      "checks": [
+        ["pass"],
+        ["state_object_created", true],
+        ["direct_dispatch_recorded", true],
+        ["indirect_dispatch_recorded", true],
+        ["direct_value", 22136],
+        ["indirect_value", 22136],
+        ["metal_shader_converter", "/nonexistent"]
+      ],
+      "remaining": "The bounded GPU visible-function provider invokes one exported miss shader from a MakeMiss HitObject with a scalar 32-bit payload and literal miss-table index zero; direct and ExecuteIndirect DispatchRays both return 0x5678. Hit invocation, multiple miss records, closest-hit invocation, resource/system-value miss bodies, vector/packed payloads, and SER scheduling remain in the exhaustive rows."
+    },
+    {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "open",
       "result": "probe-shader-corpus",
       "checks": [
         ["pass"]
       ],
-      "remaining": "Strict closeout accounting remains open at 259/280 required opcode rows observed, 21 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy; opcode 137 AttributeAtVertex; opcodes 238-253 Work Graph/node operations; and the remaining opcodes in the 262-289 SER/HitObject family. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback. CycleCounterLegacy now has an exact native Metal 4.0 clock-rejection negative; an ABI-matched direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`, with both DXIL lowerers failing closed before PSO creation. The descending SER/HitObject pass now has typed GPU-provider positive readbacks for opcodes 262, 265, 266, and 269-288. Under an ABI-matched PE/Unix bridge and `METAL_SHADER_CONVERTER=/nonexistent`, the bounded triangle provider returns exact state, ray-vector, transform, scalar, and local-root-table results; the standalone legacy conversion path remains separately fail-closed. Rows 267-268 and 289 remain open pending exact invocation/reordering and attribute behavior. Work Graph/node and the remaining SER/HitObject positive behavior remain incomplete, as does the broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix."
+      "remaining": "Strict closeout accounting remains open at 260/280 required opcode rows observed, 20 open, and 32 reserved/not-applicable: opcode 109 CycleCounterLegacy; opcode 137 AttributeAtVertex; opcodes 238-253 Work Graph/node operations; and the remaining opcodes in the 262-289 SER/HitObject family. AttributeAtVertex now has an exact ABI mapping and a native Apple9 hardware-boundary negative, but no positive readback. CycleCounterLegacy now has an exact native Metal 4.0 clock-rejection negative; an ABI-matched direct DXIL probe records `unsupported_intrinsics=1`, `unsupported_opcodes=0`, and `CreateComputePipelineState=0x80004005`, with both DXIL lowerers failing closed before PSO creation. The descending SER/HitObject pass now has typed GPU-provider positive readbacks for opcodes 262, 265, 266, and 269-288, plus bounded GPU visible-function miss invocation for opcode 267. Under an ABI-matched PE/Unix bridge and `METAL_SHADER_CONVERTER=/nonexistent`, the bounded provider returns exact state, ray-vector, transform, scalar, local-root-table, and MakeMiss payload results; the standalone legacy conversion path remains separately fail-closed. Row 268 remains open pending exact reordering behavior, row 289 remains open pending exact attribute behavior, and hit invocation remains bounded to one scalar MakeMiss/miss-shader form. Work Graph/node and the remaining SER/HitObject positive behavior remain incomplete, as does the broader stable SM5.x-DXBC through SM6.9-DXIL opcode/intrinsic, graphics-stage, texture-dimension, multi-counter, cache, and compiler-session matrix."
     }
   ]
 }

@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (259/280 required opcode rows observed; 21 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (260/280 required opcode rows observed; 20 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -769,10 +769,11 @@ pixels), 64-byte, 128-byte, and 256-byte amplification payloads plus a
 uses an explicitly selected
 host `libmetalirconverter` cache provider while retaining the
 `METAL_SHADER_CONVERTER=/nonexistent` runtime setting; vector temporary
-breadth, broader DXR accessors, the bounded GPU HitObject provider, and
-state-object breadth remain open.
+breadth, broader DXR accessors, the bounded GPU HitObject provider (including
+one scalar MakeMiss/miss-shader Invoke form), and state-object breadth remain
+open.
 
-The exhaustive Phase 5 matrix currently has 259 observed, 21 open, and 32
+The exhaustive Phase 5 matrix currently has 260 observed, 20 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
@@ -790,9 +791,10 @@ remaining matrix families rather than by ad-hoc probes. First close the
 stage-system/vector rows (`EmitStream`/remaining tessellation state,
 `AttributeAtVertex`, and the legacy cycle-counter boundary) with exact
 runtime/negative evidence. Then pull the Phase 8 ray-generation, shader-table,
-and state-object rows into one native-DXR batch. Finally implement the Phase 7
-Work Graph/node and Phase 8 SER/OMM rows as explicit providers; compilation or
-interface presence alone cannot close them. Each batch must regenerate the
+and state-object rows into one native-DXR batch, extending the bounded
+MakeMiss Invoke proof to the remaining legal payload and hit forms. Finally
+implement the Phase 7 Work Graph/node and Phase 8 SER/OMM rows as explicit
+providers; compilation or interface presence alone cannot close them. Each batch must regenerate the
 opcode corpus, pass the strict matrix plus shader-engine audit, record exact
 readbacks/rejections, clean its disposable prefix/cache, and land as a
 checkpoint. No row will be changed to observed solely to improve the
@@ -1824,3 +1826,19 @@ whether the scoped FL12_2 gate is green.
   reserved**. Phase 5 remains open because CycleCounterLegacy, AttributeAtVertex,
   Work Graph/node operations, SER scheduling, and HitObject attributes still
   lack complete exact behavior evidence.
+
+### 2026-09-02 — Phase 5 bounded HitObject_Invoke miss proof
+
+- Added a tracked `probe_command_replay` Invoke mode and a pinned `lib_6_9`
+  library containing one scalar 32-bit `[raypayload]`, `MakeMiss(0, 0, ray)`,
+  and an exported `miss_shader` that writes `0x5678`.
+- The typed GPU provider now uses the Metal visible-function table to invoke
+  the linked miss function, with the converter's 48-byte metadata/payload
+  wrapper and exact payload copy-in/copy-out. An ABI-matched runtime returned
+  `direct_value=22136` and `indirect_value=22136` for direct and
+  `ExecuteIndirect` DispatchRays with `METAL_SHADER_CONVERTER=/nonexistent`.
+- The provider fails closed for hit invocation, nonzero miss-table indices,
+  vector/packed payloads, miss resource/system-value bodies, and missing
+  `miss_shader` exports. Opcode 267 is now observed only for this bounded
+  provider; opcode 268 and 289 remain open. The strict validator is now
+  **260 observed / 20 open / 32 reserved**.

@@ -2586,7 +2586,10 @@ static CaseResult run_execute_indirect_rays_case() {
                                         : getenv_string("D3D12_METAL_SDK_COMMAND_RAY_CSO");
     const bool local_root_probe =
         getenv_string("D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT") == "1";
-    const UINT expected_ray_value = local_root_probe ? 0xa1b2c3d4u : 0x52415931u;
+    const bool invoke_probe =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_INVOKE") == "1";
+    const UINT expected_ray_value =
+        invoke_probe ? 0x5678u : local_root_probe ? 0xa1b2c3d4u : 0x52415931u;
     std::vector<uint8_t> shader;
     if (!read_binary_file(shader_path.c_str(), shader)) {
         result.hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
@@ -2654,12 +2657,13 @@ static CaseResult run_execute_indirect_rays_case() {
                                          IID_PPV_ARGS(&root));
     safe_release(root_blob);
 
-    D3D12_EXPORT_DESC export_desc = {};
-    export_desc.Name = L"raygen";
+    D3D12_EXPORT_DESC export_descs[2] = {};
+    export_descs[0].Name = L"raygen";
+    export_descs[1].Name = L"miss_shader";
     D3D12_DXIL_LIBRARY_DESC library_desc = {};
     library_desc.DXILLibrary = {shader.data(), shader.size()};
-    library_desc.NumExports = 1;
-    library_desc.pExports = &export_desc;
+    library_desc.NumExports = invoke_probe ? 2 : 1;
+    library_desc.pExports = export_descs;
     D3D12_GLOBAL_ROOT_SIGNATURE global_root = {root};
     D3D12_RAYTRACING_SHADER_CONFIG shader_config = {};
     shader_config.MaxPayloadSizeInBytes = 4;
@@ -2826,12 +2830,15 @@ static CaseResult run_execute_indirect_rays_case() {
                   direct_recorded && indirect_recorded && direct_verified && indirect_verified;
     result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
     result.detail = result.pass
-                        ? (local_root_probe
+                        ? (invoke_probe
+                               ? "direct and ExecuteIndirect DISPATCH_RAYS HitObject_Invoke miss-payload readbacks matched"
+                               : local_root_probe
                                ? "direct and ExecuteIndirect DISPATCH_RAYS local-root constant readbacks matched"
                                : "direct and ExecuteIndirect DISPATCH_RAYS command replay produced exact raygen UAV readbacks")
                         : "DISPATCH_RAYS direct/indirect command replay or readback failed";
     result.extra = "\"shader_path\":\"" + json_escape(shader_path) +
                    "\",\"local_root_probe\":" + (local_root_probe ? "true" : "false") +
+                   ",\"invoke_probe\":" + (invoke_probe ? "true" : "false") +
                    ",\"expected_value\":" + std::to_string(expected_ray_value) +
                    ",\"state_object_created\":" + (SUCCEEDED(state_hr) ? "true" : "false") +
                    ",\"signature_hr\":\"" + hr_hex(signature_hr) + "\",\"arguments_hr\":\"" +
@@ -3323,9 +3330,11 @@ int main() {
     std::vector<CaseResult> cases;
     const bool hitobject_local_root_only =
         getenv_string("D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT") == "1";
+    const bool hitobject_invoke_only =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_INVOKE") == "1";
     if (!g_create_device || !g_serialize_root_signature || !g_compile) {
         cases.push_back({"loader", false, E_FAIL, "required D3D12 or D3DCompile entry points missing", ""});
-    } else if (hitobject_local_root_only) {
+    } else if (hitobject_local_root_only || hitobject_invoke_only) {
         cases.push_back(run_execute_indirect_rays_case());
     } else {
         cases.push_back(run_command_list_reuse_case());

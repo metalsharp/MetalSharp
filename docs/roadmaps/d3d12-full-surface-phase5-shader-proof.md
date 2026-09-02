@@ -739,8 +739,8 @@ every remaining declared DXIL opcode/intrinsic,
 control-flow and aggregate shape, graphics stage, remaining texture sampling
 forms, typed/raw/structured/counter resource, cache/compiler-session path, and
 all legal SM5.x–SM6.9 operations. The typed ray-generation provider now also
-has bounded GPU HitObject coverage for the recorded 262, 265, 266, and
-269–280 rows. Multi-counter and non-compute/vertex/pixel stages remain
+has bounded GPU HitObject coverage for the recorded 262, 265, 266, 267, and
+269–288 rows. Multi-counter and non-compute/vertex/pixel stages remain
 fail-closed until their exact readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.
@@ -796,8 +796,8 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=21`: `259` rows are
-observed, `21` remain open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=20`: `260` rows are
+observed, `20` remain open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
@@ -821,9 +821,22 @@ command-signature, and both dispatch paths successful under
 shader identifier/local-root tail, applies the miss-table 16-bit index rule,
 and returns zero for NOP or unset-table-index objects.
 
-This is a bounded provider, not Phase 5 closeout. `Invoke` and scheduling
-(267–268), `HitObject_Attributes` 289, CycleCounterLegacy 109,
-AttributeAtVertex 137, and Work Graph/node 238–253 remain open. The legacy
-converter continues to reject the HitObject/SER family fail-closed; its
-negative result is not used to invalidate the typed provider's positive
-behavior. No experimental binary, cache, prefix, or log is tracked.
+Opcode 267 now has a tracked bounded behavior probe. The command-replay
+probe compiles a pinned `lib_6_9` library containing a scalar `[raypayload]`
+`Payload`, `MakeMiss(0, 0, ray)`, and one exported `miss_shader` that writes
+`0x5678`. The typed GPU provider materializes the visible miss function through
+the Metal function table and copies the ABI-compatible 48-byte converter
+metadata prefix plus scalar payload into and out of the miss call. Under an
+ABI-matched PE/Unix bridge and `METAL_SHADER_CONVERTER=/nonexistent`, both
+ordinary and `ExecuteIndirect` `DispatchRays` return the exact
+`direct_value=22136` and `indirect_value=22136`; state-object creation and the
+command signature also succeed. The provider intentionally rejects nonzero
+miss-table indices, hit invocation, vector/packed payload layouts, miss
+resource/system-value bodies, and any path without an exported `miss_shader`.
+
+This remains a bounded provider, not Phase 5 closeout. `MaybeReorderThread`
+268, `HitObject_Attributes` 289, CycleCounterLegacy 109, AttributeAtVertex 137,
+and Work Graph/node 238–253 remain open. The legacy converter continues to
+reject the remaining HitObject/SER family fail-closed; its negative result is
+not used to invalidate the typed provider's positive behavior. No experimental
+binary, cache, prefix, or log is tracked.

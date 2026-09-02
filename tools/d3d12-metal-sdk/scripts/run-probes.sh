@@ -1366,6 +1366,7 @@ GRAPHICS_PSO_RESULT_FILE="$RESULTS_DIR/probe-graphics-pso-${PROFILE}.json"
 COMPUTE_PSO_RESULT_FILE="$RESULTS_DIR/probe-compute-pso-${PROFILE}.json"
 COMMAND_REPLAY_RESULT_FILE="$RESULTS_DIR/probe-command-replay-${PROFILE}.json"
 HITOBJECT_LOCAL_ROOT_RESULT_FILE="$RESULTS_DIR/probe-hitobject-local-root-${PROFILE}.json"
+HITOBJECT_INVOKE_RESULT_FILE="$RESULTS_DIR/probe-hitobject-invoke-${PROFILE}.json"
 BARRIERS_RENDER_PASS_RESULT_FILE="$RESULTS_DIR/probe-barriers-render-pass-${PROFILE}.json"
 RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${PROFILE}.json"
 RENDER_HEADLESS_RESULT_FILE="$RESULTS_DIR/probe-render-headless-${PROFILE}.json"
@@ -1429,6 +1430,9 @@ run_probe_exe() {
     DXMT_D3D12_FAIL_DEFERRED_PSO="$strict_deferred_pso" \
     DXMT_D3D12_TRACE="$d3d12_trace" \
     D3D12_METAL_SDK_PROFILE="$PROFILE" \
+    D3D12_METAL_SDK_COMMAND_RAY_CSO="${D3D12_METAL_SDK_COMMAND_RAY_CSO:-}" \
+    D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT="${D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT:-}" \
+    D3D12_METAL_SDK_COMMAND_RAY_INVOKE="${D3D12_METAL_SDK_COMMAND_RAY_INVOKE:-}" \
     "$WINE_BIN" "$exe" > "$result_file"
   )
   echo "$result_file"
@@ -2754,6 +2758,30 @@ void raygen() {
 }
 HLSL
 
+  local hitobject_invoke_hlsl="$SDK_DIR/out/bin/probe_command_replay_hitobject_invoke.hlsl"
+  cat > "$hitobject_invoke_hlsl" <<'HLSL'
+RWByteAddressBuffer output : register(u0);
+
+struct [raypayload] Payload {
+  uint value : read(caller, miss) : write(caller, miss);
+};
+
+[shader("raygeneration")]
+void raygen() {
+  RayDesc ray = {{0.0, 0.0, -2.0}, {0.0, 0.0, 1.0}, 0.0, 10.0};
+  Payload payload;
+  payload.value = 0x1234;
+  dx::HitObject miss = dx::HitObject::MakeMiss(0, 0, ray);
+  dx::HitObject::Invoke(miss, payload);
+  output.Store(0, payload.value);
+}
+
+[shader("miss")]
+void miss_shader(inout Payload payload) {
+  payload.value = 0x5678;
+}
+HLSL
+
   cat > "$mesh_hlsl" <<'HLSL'
 RWByteAddressBuffer output : register(u0);
 
@@ -2835,6 +2863,11 @@ JSON
       probe_command_replay_hitobject_local_root.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E raygen -T lib_6_9 \
+      -Fo probe_command_replay_hitobject_invoke.cso \
+      probe_command_replay_hitobject_invoke.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E ms_main -T ms_6_5 \
       -Fo probe_command_replay_mesh_ms.cso probe_command_replay_mesh.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
@@ -2879,6 +2912,47 @@ JSON
     done
     shopt -u nullglob
   done
+
+  # The custom HitObject provider compiles ray generation in-process, so the
+  # miss stage must be materialized separately under the exact cache key that
+  # MTLD3D12StateObject computes for this DXIL library.  Run one intentionally
+  # cache-cold probe to expose that key, then use the pinned host converter to
+  # materialize only the visible miss function.  The final proof can therefore
+  # run with METAL_SHADER_CONVERTER=/nonexistent.
+  local invoke_cso="$SDK_DIR/out/bin/probe_command_replay_hitobject_invoke.cso"
+  if [[ -f "$invoke_cso" ]]; then
+    rm -f "$SDK_DIR/out/bin/dxmt-d3d12-trace.log"
+    export D3D12_METAL_SDK_COMMAND_RAY_CSO="$invoke_cso"
+    export D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT=
+    export D3D12_METAL_SDK_COMMAND_RAY_INVOKE=1
+    export DXMT_D3D12_TRACE=1
+    export DXMT_LOG_PATH="$RESULTS_DIR"
+    run_probe_exe "$COMMAND_REPLAY_PROBE_EXE" \
+      "$RESULTS_DIR/probe-command-replay-invoke-warmup-$PROFILE.json" || true
+    local invoke_miss_path=""
+    local invoke_trace=""
+    invoke_trace="$(find "$RESULTS_DIR" -maxdepth 1 -type f \
+      -name '*dxmt-d3d12-trace.log' -print -quit 2>/dev/null || true)"
+    if [[ -n "$invoke_trace" ]]; then
+      invoke_miss_path="$(grep -oE 'miss=[^ ]+\\.miss\\.metallib' \
+        "$invoke_trace" | tail -1 | cut -d= -f2- || true)"
+    fi
+    unset D3D12_METAL_SDK_COMMAND_RAY_CSO
+    unset D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT
+    unset D3D12_METAL_SDK_COMMAND_RAY_INVOKE
+    unset DXMT_D3D12_TRACE
+    unset DXMT_LOG_PATH
+    local converter_for_invoke="$METAL_SHADER_CONVERTER"
+    if [[ -z "$converter_for_invoke" || ! -x "$converter_for_invoke" ]]; then
+      converter_for_invoke="$(command -v metal-shaderconverter || true)"
+    fi
+    if [[ -n "$invoke_miss_path" && -n "$converter_for_invoke" &&
+          -x "$converter_for_invoke" ]]; then
+      DYLD_LIBRARY_PATH=/usr/local/lib "$ray_compiler" \
+        "$invoke_cso" "$raygen_root" miss_shader "$invoke_miss_path" \
+        >"$invoke_miss_path.msc.log" 2>&1 || true
+    fi
+  fi
 }
 
 prepare_dxil_semantic_probes() {
@@ -4731,6 +4805,23 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
       "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$HITOBJECT_LOCAL_ROOT_RESULT_FILE"
     )
     echo "$HITOBJECT_LOCAL_ROOT_RESULT_FILE"
+  fi
+  if [[ -f "$SDK_DIR/out/bin/probe_command_replay_hitobject_invoke.cso" ]]; then
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      D3D12_METAL_SDK_COMMAND_RAY_CSO="$SDK_DIR/out/bin/probe_command_replay_hitobject_invoke.cso" \
+      D3D12_METAL_SDK_COMMAND_RAY_INVOKE=1 \
+      METAL_SHADER_CONVERTER=/nonexistent \
+      "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$HITOBJECT_INVOKE_RESULT_FILE"
+    )
+    echo "$HITOBJECT_INVOKE_RESULT_FILE"
   fi
 fi
 
