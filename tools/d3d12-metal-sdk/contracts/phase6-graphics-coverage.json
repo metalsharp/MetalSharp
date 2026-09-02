@@ -39,10 +39,9 @@
       "checks": [
         ["result", "view_instancing_mask_side_effect"],
         ["readback", "SV_ViewID_slice0_red_slice1_green"],
-        ["report", "ViewInstancingTier=1"],
-        ["negative", "BarycentricsSupported=false"]
+        ["report", "ViewInstancingTier=1"]
       ],
-      "scope": "Two-view pipeline-stream instancing replays validated viewport/render-target array locations and SetViewInstanceMask, with exact per-slice SV_ViewID output. Arbitrary view count/layout and barycentric values remain outside this bounded provider."
+      "scope": "Two-view pipeline-stream instancing replays validated viewport/render-target array locations and SetViewInstanceMask, with exact per-slice SV_ViewID output. Arbitrary view count/layouts remain outside this bounded provider; barycentric interpolation has its own default-perspective row."
     },
     {
       "id": "barycentrics-default-perspective",
