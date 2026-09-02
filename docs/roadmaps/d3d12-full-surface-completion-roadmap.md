@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (258/280 required opcode rows observed; 22 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (259/280 required opcode rows observed; 21 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -772,7 +772,7 @@ host `libmetalirconverter` cache provider while retaining the
 breadth, broader DXR accessors, the bounded GPU HitObject provider, and
 state-object breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 258 observed, 22 open, and 32
+The exhaustive Phase 5 matrix currently has 259 observed, 21 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
@@ -1805,3 +1805,22 @@ whether the scoped FL12_2 gate is green.
   local-root-table/attribute accessors (288–289), along with CycleCounterLegacy,
   AttributeAtVertex, and Work Graph/node rows, still require exact
   behavior-backed evidence.
+
+### 2026-09-02 — Phase 5 HitObject local-root-table proof
+
+- Added the tracked `probe_command_replay` local-root mode and its pinned
+  `lib_6_9` shader fixture. A `MakeMiss` HitObject reads a constant from the
+  miss shader-table local-root tail; the probe places `0xa1b2c3d4` at the
+  record's first local-root DWORD and verifies exact direct and
+  `ExecuteIndirect` readbacks (`2712847316` in both paths) under
+  `METAL_SHADER_CONVERTER=/nonexistent`.
+- Extended the typed ray-generation ABI with bounded shader-table record
+  walking: the provider selects the miss table for miss objects, applies the
+  16-bit miss-record index rule, skips the 32-byte shader identifier, bounds
+  the requested four-byte root constant, and returns zero for NOP or
+  unset-index objects. Opcode 288 is now observed; `HitObject_Attributes`
+  289 and `HitObject_Invoke`/`MaybeReorderThread` 267–268 remain open.
+- The strict opcode validator now reports **259 observed / 21 open / 32
+  reserved**. Phase 5 remains open because CycleCounterLegacy, AttributeAtVertex,
+  Work Graph/node operations, SER scheduling, and HitObject attributes still
+  lack complete exact behavior evidence.

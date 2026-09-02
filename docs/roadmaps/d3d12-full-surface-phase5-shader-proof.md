@@ -796,8 +796,8 @@ equivalent provider before promotion.
 ## Latest Phase 5 accounting — 2026-09-02
 
 The previous strict checkpoint is retained as historical evidence. The current
-validator result is `opcode_rows=312 required=280 open=22`: `258` rows are
-observed, `22` remain open, and `32` are reserved/not applicable. The typed
+validator result is `opcode_rows=312 required=280 open=21`: `259` rows are
+observed, `21` remain open, and `32` are reserved/not applicable. The typed
 DXIL ray-generation provider runs a bounded triangle `intersection_query`
 under the matching Winemetal PE/Unix ABI and
 `METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
@@ -810,9 +810,19 @@ object-to-world translation `+5`, and world-to-object translation `-5`; the
 constructor probes return `MakeMiss: IsMiss=1, shader-table-index=3` and
 `MakeNop: IsNop=1`.
 
+Opcode 288 now has a tracked behavior probe. The command-replay probe builds a
+pinned `lib_6_9` `MakeMiss` shader, places `0xa1b2c3d4` in the miss-record local
+root arguments, and reads that value through
+`HitObject::LoadLocalRootTableConstant(0)` on both direct and
+`ExecuteIndirect` dispatches. The exact result is
+`direct_value=2712847316`, `indirect_value=2712847316`, with state-object,
+command-signature, and both dispatch paths successful under
+`METAL_SHADER_CONVERTER=/nonexistent`. The provider bounds the read to the
+shader identifier/local-root tail, applies the miss-table 16-bit index rule,
+and returns zero for NOP or unset-table-index objects.
+
 This is a bounded provider, not Phase 5 closeout. `Invoke` and scheduling
-(267–268), and local-root-table/attribute accessors 288–289 still require
-exact providers/readbacks. CycleCounterLegacy 109,
+(267–268), `HitObject_Attributes` 289, CycleCounterLegacy 109,
 AttributeAtVertex 137, and Work Graph/node 238–253 remain open. The legacy
 converter continues to reject the HitObject/SER family fail-closed; its
 negative result is not used to invalidate the typed provider's positive

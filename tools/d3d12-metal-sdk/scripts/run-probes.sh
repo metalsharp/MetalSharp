@@ -1365,6 +1365,7 @@ REFLECTION_ABI_RESULT_FILE="$RESULTS_DIR/probe-reflection-abi-${PROFILE}.json"
 GRAPHICS_PSO_RESULT_FILE="$RESULTS_DIR/probe-graphics-pso-${PROFILE}.json"
 COMPUTE_PSO_RESULT_FILE="$RESULTS_DIR/probe-compute-pso-${PROFILE}.json"
 COMMAND_REPLAY_RESULT_FILE="$RESULTS_DIR/probe-command-replay-${PROFILE}.json"
+HITOBJECT_LOCAL_ROOT_RESULT_FILE="$RESULTS_DIR/probe-hitobject-local-root-${PROFILE}.json"
 BARRIERS_RENDER_PASS_RESULT_FILE="$RESULTS_DIR/probe-barriers-render-pass-${PROFILE}.json"
 RESOURCE_VIEWS_FORMATS_RESULT_FILE="$RESULTS_DIR/probe-resource-views-formats-${PROFILE}.json"
 RENDER_HEADLESS_RESULT_FILE="$RESULTS_DIR/probe-render-headless-${PROFILE}.json"
@@ -2734,6 +2735,25 @@ void raygen() {
 }
 HLSL
 
+  local hitobject_local_root_hlsl="$SDK_DIR/out/bin/probe_command_replay_hitobject_local_root.hlsl"
+  cat > "$hitobject_local_root_hlsl" <<'HLSL'
+RWByteAddressBuffer output : register(u0);
+
+[shader("raygeneration")]
+void raygen() {
+  dx::HitObject nop;
+  nop.SetShaderTableIndex(0);
+  const uint nop_value = nop.LoadLocalRootTableConstant(0);
+
+  RayDesc ray = {{0.0, 0.0, 0.0}, {0.0, 0.0, 1.0}, 0.0, 100.0};
+  dx::HitObject miss = dx::HitObject::MakeMiss(0, 0, ray);
+  const uint miss_value = miss.LoadLocalRootTableConstant(0);
+  output.Store(0, nop_value == 0u && miss_value == 0xa1b2c3d4u
+                        ? 0xa1b2c3d4u
+                        : 0u);
+}
+HLSL
+
   cat > "$mesh_hlsl" <<'HLSL'
 RWByteAddressBuffer output : register(u0);
 
@@ -2808,6 +2828,11 @@ JSON
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E raygen -T lib_6_5 \
       -Fo probe_command_replay_raygen.cso probe_command_replay_raygen.hlsl >/dev/null
+    WINEPREFIX="$WINE_PREFIX" \
+    WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+    "$WINE_BIN" dxc.exe -nologo -E raygen -T lib_6_9 \
+      -Fo probe_command_replay_hitobject_local_root.cso \
+      probe_command_replay_hitobject_local_root.hlsl >/dev/null
     WINEPREFIX="$WINE_PREFIX" \
     WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
     "$WINE_BIN" dxc.exe -nologo -E ms_main -T ms_6_5 \
@@ -4691,6 +4716,22 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
     "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$COMMAND_REPLAY_RESULT_FILE"
   )
   echo "$COMMAND_REPLAY_RESULT_FILE"
+  if [[ -f "$SDK_DIR/out/bin/probe_command_replay_hitobject_local_root.cso" ]]; then
+    (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLPATH="$PROBE_WINEDLLPATH" \
+      WINEDLLOVERRIDES="$DLL_OVERRIDES" \
+      DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH" \
+      DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME" \
+      DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR" \
+      D3D12_METAL_SDK_PROFILE="$PROFILE" \
+      D3D12_METAL_SDK_COMMAND_RAY_CSO="$SDK_DIR/out/bin/probe_command_replay_hitobject_local_root.cso" \
+      D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT=1 \
+      "$WINE_BIN" "$COMMAND_REPLAY_PROBE_EXE" > "$HITOBJECT_LOCAL_ROOT_RESULT_FILE"
+    )
+    echo "$HITOBJECT_LOCAL_ROOT_RESULT_FILE"
+  fi
 fi
 
 if [[ "$RUN_BARRIERS_RENDER_PASS" == "1" ]]; then

@@ -2584,6 +2584,9 @@ static CaseResult run_execute_indirect_rays_case() {
     const std::string shader_path = getenv_string("D3D12_METAL_SDK_COMMAND_RAY_CSO").empty()
                                         ? "probe_command_replay_raygen.cso"
                                         : getenv_string("D3D12_METAL_SDK_COMMAND_RAY_CSO");
+    const bool local_root_probe =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT") == "1";
+    const UINT expected_ray_value = local_root_probe ? 0xa1b2c3d4u : 0x52415931u;
     std::vector<uint8_t> shader;
     if (!read_binary_file(shader_path.c_str(), shader)) {
         result.hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
@@ -2732,8 +2735,20 @@ static CaseResult run_execute_indirect_rays_case() {
             hr = shader_table->Map(0, &read_range, &mapped);
             if (SUCCEEDED(hr)) {
                 std::memcpy(mapped, raygen_identifier, D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
+                if (local_root_probe) {
+                    const UINT local_root_marker = expected_ray_value;
+                    std::memcpy(static_cast<std::uint8_t *>(mapped) +
+                                    D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES,
+                                &local_root_marker, sizeof(local_root_marker));
+                }
                 shader_table->Unmap(0, nullptr);
                 dispatch.RayGenerationShaderRecord.StartAddress = shader_table->GetGPUVirtualAddress();
+                if (local_root_probe) {
+                    dispatch.MissShaderTable.StartAddress =
+                        shader_table->GetGPUVirtualAddress();
+                    dispatch.MissShaderTable.SizeInBytes = 64;
+                    dispatch.MissShaderTable.StrideInBytes = 64;
+                }
             }
         }
     } else if (SUCCEEDED(hr)) {
@@ -2805,16 +2820,20 @@ static CaseResult run_execute_indirect_rays_case() {
     uint32_t indirect_value = 0;
     const bool direct_readback_ok = SUCCEEDED(hr) && readback_u32(direct_readback, &direct_value, 1);
     const bool indirect_readback_ok = SUCCEEDED(hr) && readback_u32(indirect_readback, &indirect_value, 1);
-    const bool direct_verified = direct_readback_ok && direct_value == 0x52415931;
-    const bool indirect_verified = indirect_readback_ok && indirect_value == 0x52415931;
+    const bool direct_verified = direct_readback_ok && direct_value == expected_ray_value;
+    const bool indirect_verified = indirect_readback_ok && indirect_value == expected_ray_value;
     result.pass = SUCCEEDED(hr) && SUCCEEDED(state_hr) && SUCCEEDED(signature_hr) && SUCCEEDED(arguments_hr) &&
                   direct_recorded && indirect_recorded && direct_verified && indirect_verified;
     result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
     result.detail = result.pass
-                        ? "direct and ExecuteIndirect DISPATCH_RAYS command replay produced exact raygen UAV readbacks"
+                        ? (local_root_probe
+                               ? "direct and ExecuteIndirect DISPATCH_RAYS local-root constant readbacks matched"
+                               : "direct and ExecuteIndirect DISPATCH_RAYS command replay produced exact raygen UAV readbacks")
                         : "DISPATCH_RAYS direct/indirect command replay or readback failed";
     result.extra = "\"shader_path\":\"" + json_escape(shader_path) +
-                   "\",\"state_object_created\":" + (SUCCEEDED(state_hr) ? "true" : "false") +
+                   "\",\"local_root_probe\":" + (local_root_probe ? "true" : "false") +
+                   ",\"expected_value\":" + std::to_string(expected_ray_value) +
+                   ",\"state_object_created\":" + (SUCCEEDED(state_hr) ? "true" : "false") +
                    ",\"signature_hr\":\"" + hr_hex(signature_hr) + "\",\"arguments_hr\":\"" +
                    hr_hex(arguments_hr) + "\",\"direct_dispatch_recorded\":" +
                    (direct_recorded ? "true" : "false") + ",\"indirect_dispatch_recorded\":" +
@@ -3302,8 +3321,12 @@ int main() {
     g_compile = load_proc<D3DCompileFn>(compiler, "D3DCompile");
 
     std::vector<CaseResult> cases;
+    const bool hitobject_local_root_only =
+        getenv_string("D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT") == "1";
     if (!g_create_device || !g_serialize_root_signature || !g_compile) {
         cases.push_back({"loader", false, E_FAIL, "required D3D12 or D3DCompile entry points missing", ""});
+    } else if (hitobject_local_root_only) {
+        cases.push_back(run_execute_indirect_rays_case());
     } else {
         cases.push_back(run_command_list_reuse_case());
         cases.push_back(run_multi_list_execute_case());
