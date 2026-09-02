@@ -18948,7 +18948,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "8363f69fe8324e6437944f2cbbc0b91794f49109",
+    "git_head": "57ac9da6d250156e9e56225dd6ef8e7818aa39ca",
     "runtime_file_count": 167,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
