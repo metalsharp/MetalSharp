@@ -1260,7 +1260,8 @@ not check its children.
       native Metal double ALU is not claimed.
 - [ ] Minimum precision is backed by conversion/rounding readback.
 - [ ] Programmable sample positions are backed by sample coverage readback.
-- [ ] View instancing and barycentrics are backed by per-view/primitive output.
+- [x] Bounded view instancing is backed by exact per-view array output and
+      SetViewInstanceMask routing; barycentrics remain conservative.
 - [x] Native16 reports match the exact typed Metal-half arithmetic/math
       readbacks; 64-KB MSAA alignment remains conservative.
 - [ ] Full RT-array and mesh/amplification derivative fields are tested.
