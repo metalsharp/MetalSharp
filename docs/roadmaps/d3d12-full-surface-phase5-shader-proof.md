@@ -738,9 +738,10 @@ negative behavior evidence for
 every remaining declared DXIL opcode/intrinsic,
 control-flow and aggregate shape, graphics stage, remaining texture sampling
 forms, typed/raw/structured/counter resource, cache/compiler-session path, and
-all legal SM5.x–SM6.9 operations. Multi-counter and non-compute/vertex/pixel
-stages remain fail-closed until their exact
-readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
+all legal SM5.x–SM6.9 operations. The typed ray-generation provider now also
+has bounded GPU HitObject coverage for the recorded 262, 265, 266, and
+269–280 rows. Multi-counter and non-compute/vertex/pixel stages remain
+fail-closed until their exact readback matrices pass. `D3D12_FEATURE_SHADER_MODEL` therefore remains at the
 behavior-backed 6.7 report; compiling an isolated 6.9 lane does not promote a
 full 6.9 capability claim.
 
@@ -791,3 +792,26 @@ creation. CycleCounterLegacy still has no exact runtime readback. The remaining 
 beginning with row 280 and continuing toward row 234. Rows 280, 279, and 278 have only fail-closed negative evidence; each must be
 followed by exact positive behavior or an explicitly validated semantically
 equivalent provider before promotion.
+
+## Latest Phase 5 accounting — 2026-09-02
+
+The previous strict checkpoint is retained as historical evidence. The current
+validator result is `opcode_rows=312 required=280 open=31`: `249` rows are
+observed, `31` remain open, and `32` are reserved/not applicable. The typed
+DXIL ray-generation provider runs a bounded triangle `intersection_query`
+under the matching Winemetal PE/Unix ABI and
+`METAL_SHADER_CONVERTER=/nonexistent`. Exact readbacks cover
+`HitObject_TraceRay` (262), `MakeMiss` (265), `MakeNop` (266), state predicates
+269–271, ray flags and distances 272–274, world/object ray vectors 275–278,
+and 3x4 transforms 279–280. The translated instance at `x=5` returns object
+origin `[0,0,-2]`, object direction `[0,0,1]`, object-to-world translation
+`+5`, and world-to-object translation `-5`; the constructor probes return
+`MakeMiss: IsMiss=1, shader-table-index=3` and `MakeNop: IsNop=1`.
+
+This is a bounded provider, not Phase 5 closeout. `FromRayQuery` (263–264),
+`Invoke` and scheduling (267–268), and remaining HitObject accessors 281–289
+still require exact providers/readbacks. CycleCounterLegacy 109,
+AttributeAtVertex 137, and Work Graph/node 238–253 remain open. The legacy
+converter continues to reject the HitObject/SER family fail-closed; its
+negative result is not used to invalidate the typed provider's positive
+behavior. No experimental binary, cache, prefix, or log is tracked.

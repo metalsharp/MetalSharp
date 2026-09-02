@@ -184,6 +184,19 @@ static bool startsWith(const std::string &text, const char *prefix) {
     return text.rfind(prefix, 0) == 0;
 }
 
+static bool entryPointMatches(const std::string &function_name,
+                              const std::string &entry_point) {
+    if (entry_point.empty())
+        return false;
+    if (function_name == entry_point)
+        return true;
+    // DXC's library functions use the MSVC decorated spelling
+    // `?name@@...`; retain an exact source-name match without accepting a
+    // substring of an unrelated export.
+    const std::string decorated = "?" + entry_point + "@@";
+    return function_name.find(decorated) != std::string::npos;
+}
+
 static bool parseUnsignedLiteral(const std::string &text, uint32_t &value) {
     if (text.empty()) return false;
     char *end = nullptr;
@@ -885,6 +898,10 @@ struct LowerContext {
     bool uses_interpolation = false;
     bool uses_sampler_feedback = false;
     bool uses_temp_registers = false;
+    bool ray_generation = false;
+    std::unordered_map<uint32_t, uint32_t> hit_object_query_slots;
+    std::unordered_map<uint32_t, std::string> hit_object_query_expressions;
+    uint32_t next_hit_object_query_slot = 0;
 };
 
 // DXIL ResourceKind values are part of the public DXIL ABI.  Keep the
@@ -2001,7 +2018,97 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "};\n\n";
     }
 
-    if (ctx.shader.kind == DxilShaderKind::Compute) {
+    if (ctx.ray_generation) {
+        // IRConverter's synthesized RaygenIndirection calls ray-generation
+        // functions through this stable six-argument visible-function ABI.
+        // Keep the descriptor-table pointer ABI explicit so the custom
+        // HitObject provider can share the existing DXMT dispatch replay.
+        os << "struct IRDescriptorTableEntry { ulong gpuVA; ulong textureViewID; ulong metadata; };\n";
+        os << "struct top_level_global_ab { constant IRDescriptorTableEntry *table [[id(0)]]; };\n";
+        os << "using top_level_local_ab = uchar;\n";
+        os << "struct res_desc_heap_ab { uchar unused; };\n";
+        os << "struct smp_desc_heap_ab { uchar unused; };\n";
+        os << "struct IRVirtualAddressRange { ulong StartAddress; ulong SizeInBytes; };\n";
+        os << "struct IRVirtualAddressRangeAndStride { ulong StartAddress; ulong SizeInBytes; ulong StrideInBytes; };\n";
+        os << "struct IRDispatchRaysDescriptor { IRVirtualAddressRange RayGenerationShaderRecord; IRVirtualAddressRangeAndStride MissShaderTable; IRVirtualAddressRangeAndStride HitGroupTable; IRVirtualAddressRangeAndStride CallableShaderTable; uint Width; uint Height; uint Depth; uint pad; };\n";
+        os << "struct IRDispatchRaysArgument { IRDispatchRaysDescriptor DispatchRaysDesc; ulong GRS; ulong ResDescHeap; ulong SmpDescHeap; ulong VisibleFunctionTable; ulong IntersectionFunctionTable; ulong IntersectionFunctionTables; };\n";
+        os << "struct IRRaytracingAccelerationStructureGPUHeader { instance_acceleration_structure accelerationStructureID; device uint *addressOfInstanceContributions; ulong pad0[4]; uint3 pad1; };\n\n";
+        os << "static inline device char* m12_raygen_buffer(constant IRDescriptorTableEntry *table, uint index) {\n";
+        os << "  return table == nullptr ? nullptr : reinterpret_cast<device char*>(table[index].gpuVA);\n";
+        os << "}\n";
+        os << "static inline instance_acceleration_structure m12_raygen_acceleration(constant IRDescriptorTableEntry *table, uint index) {\n";
+        os << "  if (table == nullptr || table[index].gpuVA == 0ul) return {};\n";
+        os << "  device IRRaytracingAccelerationStructureGPUHeader *header = reinterpret_cast<device IRRaytracingAccelerationStructureGPUHeader*>(table[index].gpuVA);\n";
+        os << "  return header->accelerationStructureID;\n";
+        os << "}\n";
+        os << "static inline uint m12_hit_object_trace(thread intersection_query<instancing, triangle_data> &query, float ox, float oy, float oz, float tmin, float dx, float dy, float dz, float tmax, instance_acceleration_structure acceleration, uint mask) {\n";
+        os << "  query.reset(ray(float3(ox, oy, oz), float3(dx, dy, dz), tmin, tmax), acceleration, mask);\n";
+        os << "  if (!query.next() || query.get_candidate_intersection_type() != intersection_type::triangle) return 1u;\n";
+        os << "  query.commit_triangle_intersection();\n";
+        os << "  return 2u;\n";
+        os << "}\n\n";
+        os << "[[visible]] void raygen(constant top_level_global_ab *grs, constant top_level_local_ab *, constant res_desc_heap_ab *, constant smp_desc_heap_ab *, constant IRDispatchRaysArgument *, uint3 mtl_ray_index) {\n";
+        os << "  (void)mtl_ray_index;\n";
+        os << "  constant IRDescriptorTableEntry *m12_raygen_table = grs == nullptr ? nullptr : grs->table;\n";
+        for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; ++i)
+            os << "  device char *buf" << i << " = nullptr;\n";
+        std::set<uint32_t> raygen_as_slots;
+        for (const auto &range : ctx.binding_plan.ranges) {
+            if (range.kind == DescriptorRangePlan::Kind::Sampler)
+                continue;
+            for (uint32_t i = 0; i < range.count; ++i) {
+                uint32_t direct_slot = range.lower_bound + i;
+                if (range.kind == DescriptorRangePlan::Kind::SRV)
+                    direct_slot += 16u;
+                else if (range.kind == DescriptorRangePlan::Kind::CBV)
+                    direct_slot += 8u;
+                if (range.resource_kind == 16u)
+                    raygen_as_slots.insert(direct_slot);
+            }
+        }
+        for (uint32_t slot : raygen_as_slots)
+            os << "  instance_acceleration_structure as" << slot << " = {};\n";
+        for (const auto &range : ctx.binding_plan.ranges) {
+            if (range.kind == DescriptorRangePlan::Kind::Sampler)
+                continue;
+            // ReplayRaytracingDispatch exposes the compact global table in
+            // fixed class order (SRV t0, UAV u0, then CBV b0), independent of
+            // declaration order.  Do not let an unused SRV remove the UAV's
+            // table entry: a shader that only writes u0 still reads table[1].
+            uint32_t descriptor_base =
+                range.kind == DescriptorRangePlan::Kind::SRV ? 0u
+                : range.kind == DescriptorRangePlan::Kind::UAV ? 1u
+                : 2u;
+            for (uint32_t i = 0; i < range.count; ++i) {
+                uint32_t descriptor_index = descriptor_base + range.lower_bound + i;
+                uint32_t direct_slot = range.lower_bound + i;
+                if (range.kind == DescriptorRangePlan::Kind::SRV)
+                    direct_slot += 16u;
+                else if (range.kind == DescriptorRangePlan::Kind::CBV)
+                    direct_slot += 8u;
+                if (direct_slot >= ctx.binding_plan.direct_buffer_count)
+                    continue;
+                if (range.resource_kind == 16u)
+                    os << "  as" << direct_slot << " = m12_raygen_acceleration(m12_raygen_table, " << descriptor_index << "u);\n";
+                else
+                    os << "  buf" << direct_slot << " = m12_raygen_buffer(m12_raygen_table, " << descriptor_index << "u);\n";
+            }
+        }
+        os << "  thread intersection_query<instancing, triangle_data> m12_hit_queries[32] = {};\n";
+        os << "  thread uint m12_hit_states[32] = {}; // 0=nop, 1=miss, 2=hit\n";
+        os << "  thread uint m12_hit_shader_table_indices[32] = {};\n";
+        os << "  thread uint m12_hit_ray_flags[32] = {};\n";
+        os << "  thread float3 m12_hit_world_origins[32] = {};\n";
+        os << "  thread float3 m12_hit_world_directions[32] = {};\n";
+        os << "  thread float m12_hit_tmins[32] = {};\n";
+        os << "  thread float m12_hit_tcurrents[32] = {};\n";
+        os << "  thread uint m12_hit_geometry_indices[32] = {};\n";
+        os << "  thread uint m12_hit_instance_indices[32] = {};\n";
+        os << "  thread uint m12_hit_instance_ids[32] = {};\n";
+        os << "  thread uint m12_hit_primitive_indices[32] = {};\n";
+        os << "  thread uint m12_hit_kinds[32] = {};\n";
+
+    } else if (ctx.shader.kind == DxilShaderKind::Compute) {
         os << "kernel void cs_main(\n";
         for (uint32_t i = 0; i < ctx.binding_plan.direct_buffer_count; i++) {
             if (accelerationStructureAtBufferSlot(ctx, i))
@@ -4089,6 +4196,21 @@ static void applyResourceBindingMetadata(
 
 static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
     BindingPlan plan;
+    if (ctx.ray_generation) {
+        // Library DXIL commonly uses CreateHandleForLib over globals, so the
+        // ordinary handle-flow scan has no CreateHandleFromBinding range to
+        // anchor. Seed the custom ray-generation provider from the module's
+        // authoritative resource metadata first; later handle analysis can
+        // refine individual records.
+        for (const auto &binding : ctx.mod.resource_bindings) {
+            recordDescriptorRange(
+                plan,
+                {descriptorKindForResourceClass(binding.resource_class),
+                 binding.register_space, binding.lower_bound, binding.count,
+                 binding.resource_kind, binding.element_type,
+                 binding.element_stride, binding.sample_count});
+        }
+    }
     struct HandleBinding {
         DescriptorRangePlan::Kind kind = DescriptorRangePlan::Kind::SRV;
         uint32_t lower_bound = 0;
@@ -4097,6 +4219,8 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
         bool direct_heap = false;
     };
     std::unordered_map<uint32_t, HandleBinding> handle_bindings;
+    std::unordered_map<uint32_t, const DxilResourceBinding *>
+        loaded_resource_bindings;
     auto rememberHandle = [&](uint32_t result_id,
                               DescriptorRangePlan::Kind kind,
                               uint32_t lower_bound, uint32_t count,
@@ -4221,6 +4345,11 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
     for (const auto &block : fn.blocks) {
         for (const auto &inst : block.instructions) {
             if (inst.opcode != LLVMInstruction::Call || inst.operands.size() < 2) {
+                if (ctx.ray_generation && inst.opcode == LLVMInstruction::Load &&
+                    !inst.operands.empty() &&
+                    inst.operands[0] < ctx.mod.resource_bindings.size())
+                    loaded_resource_bindings[value_counter] =
+                        &ctx.mod.resource_bindings[inst.operands[0]];
                 if (producesValue(inst)) {
                     rememberIndexRange(inst, value_counter);
                     ++value_counter;
@@ -4289,6 +4418,26 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
                 } else {
                     recordDescriptorRange(plan, {kind, 0, index, 1});
                     rememberHandle(result_id, kind, 0, 1, index);
+                }
+            } else if (intrinsic_id == DXOP_CreateHandleForLib &&
+                       fn_args.size() >= 1) {
+                const DxilResourceBinding *metadata = nullptr;
+                auto loaded = loaded_resource_bindings.find(fn_args[0]);
+                if (loaded != loaded_resource_bindings.end())
+                    metadata = loaded->second;
+                if (!metadata && !ctx.mod.resource_bindings.empty())
+                    metadata = &ctx.mod.resource_bindings.front();
+                if (metadata) {
+                    auto kind = descriptorKindForResourceClass(
+                        metadata->resource_class);
+                    recordDescriptorRange(
+                        plan,
+                        {kind, metadata->register_space, metadata->lower_bound,
+                         metadata->count, metadata->resource_kind,
+                         metadata->element_type, metadata->element_stride,
+                         metadata->sample_count});
+                    rememberHandle(result_id, kind, metadata->lower_bound,
+                                   metadata->count, 0, metadata);
                 }
             } else if (intrinsic_id == DXOP_CreateHandleFromBinding && fn_args.size() >= 1) {
                 std::string binding = resolveValue(ctx, fn_args[0]);
@@ -4624,6 +4773,24 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
     case DXOP_RayQueryCommitNonOpaqueTriangleHit:
     case DXOP_RayQueryCommitProceduralPrimitiveHit:
         return {MSLTypeKind::Void, 0, {}};
+    case DXOP_HitObjectOrSER:
+        if (callee_name.find("maybeReorderThread") != std::string::npos ||
+            callee_name.find("hitObject_Invoke") != std::string::npos)
+            return {MSLTypeKind::Void, 0, {}};
+        if (callee_name.find("hitObject_SetShaderTableIndex") !=
+            std::string::npos && declared.kind == MSLTypeKind::Void)
+            return {MSLTypeKind::Void, 0, {}};
+        if (callee_name.find("StateMatrix") != std::string::npos ||
+            callee_name.find("StateVector") != std::string::npos ||
+            callee_name.find("StateScalar") != std::string::npos)
+            return usableType(declared) ? declared
+                                         : MSLType{MSLTypeKind::Float, 0, {}};
+        if (callee_name.find("LoadLocalRootTableConstant") !=
+            std::string::npos)
+            return {MSLTypeKind::UInt, 0, {}};
+        // HitObject construction and setters are represented by a compact
+        // query-slot token in the custom ray-generation provider.
+        return {MSLTypeKind::UInt, 0, {}};
     case DXOP_AnnotateHandle: {
         if (args.size() > 1) {
             auto properties = parseAggregateLiteral(resolveValue(ctx, args[1]));
@@ -5098,6 +5265,28 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         return valueArg(0, "v0") + "." + method + "()[" +
                std::to_string(column) + "][" + std::to_string(row) + "]";
     };
+    auto hitObjectSlotForValue = [&](uint32_t value_id)
+        -> std::optional<uint32_t> {
+        auto it = ctx.hit_object_query_slots.find(value_id);
+        if (it == ctx.hit_object_query_slots.end())
+            return std::nullopt;
+        return it->second;
+    };
+    auto hitObjectQueryForSlot = [&](uint32_t slot) {
+        auto it = ctx.hit_object_query_expressions.find(slot);
+        return it == ctx.hit_object_query_expressions.end()
+                   ? std::string("m12_hit_queries[") + std::to_string(slot) + "]"
+                   : it->second;
+    };
+    auto allocateHitObjectSlot = [&]() -> std::optional<uint32_t> {
+        if (!ctx.ray_generation || ctx.current_result_id == UINT32_MAX)
+            return std::nullopt;
+        if (ctx.next_hit_object_query_slot >= 32u)
+            return std::nullopt;
+        const uint32_t slot = ctx.next_hit_object_query_slot++;
+        ctx.hit_object_query_slots[ctx.current_result_id] = slot;
+        return slot;
+    };
 
     switch (intrinsic_id) {
     case DXOP_CreateHandle: {
@@ -5128,6 +5317,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                             non_uniform, metadata, dynamic_index);
     }
     case DXOP_CreateHandleForLib: case DXOP_AnnotateHandle: {
+        if (intrinsic_id == DXOP_CreateHandleForLib &&
+            ctx.current_result_id != UINT32_MAX) {
+            auto current = ctx.resource_handles.find(ctx.current_result_id);
+            if (current != ctx.resource_handles.end()) {
+                ctx.pending_handle = current->second;
+                return materializeHandleName(ctx, current->second);
+            }
+        }
         if (!args.empty()) {
             auto handle_it = ctx.resource_handles.find(args[0]);
             if (handle_it != ctx.resource_handles.end()) {
@@ -6924,13 +7121,277 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         ctx.unsupported_intrinsics++;
         recordDiagnostic(ctx, "DXIL cycle-counter intrinsic is unsupported; rejecting shader");
         return "0";
-    case DXOP_HitObjectOrSER:
-        ctx.unsupported_intrinsics++;
-        recordDiagnostic(
-            ctx,
-            "DXIL HitObject/SER intrinsic is unsupported; rejecting shader (opcode=%u)",
-            explicit_opcode);
-        return "0";
+    case DXOP_HitObjectOrSER: {
+        const bool is_trace_ray =
+            callee_name.find("hitObject_TraceRay") != std::string::npos;
+        const bool is_make_miss =
+            callee_name.find("hitObject_MakeMiss") != std::string::npos;
+        const bool is_make_nop =
+            callee_name.find("hitObject_MakeNop") != std::string::npos;
+        const bool is_from_ray_query =
+            callee_name.find("hitObject_FromRayQuery") != std::string::npos;
+        const bool is_from_ray_query_with_attrs =
+            callee_name.find("hitObject_FromRayQueryWithAttrs") !=
+            std::string::npos;
+        const bool is_set_shader_table_index =
+            callee_name.find("hitObject_SetShaderTableIndex") !=
+            std::string::npos;
+        const bool is_state_matrix =
+            callee_name.find("hitObject_StateMatrix") != std::string::npos;
+        const bool is_state_vector =
+            callee_name.find("hitObject_StateVector") != std::string::npos;
+        const bool is_state_scalar =
+            callee_name.find("hitObject_StateScalar") != std::string::npos;
+        auto reject = [&](const char *reason) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(
+                ctx,
+                "DXIL HitObject/SER intrinsic rejected: opcode=%u reason=%s",
+                explicit_opcode, reason);
+            return std::string("0");
+        };
+        if (!ctx.ray_generation)
+            return reject("ray-generation provider is required");
+
+        if (is_from_ray_query || is_from_ray_query_with_attrs) {
+            if (args.empty())
+                return reject("malformed FromRayQuery operands");
+            auto slot = allocateHitObjectSlot();
+            if (!slot)
+                return reject("query-slot limit exceeded");
+            const std::string index = std::to_string(*slot);
+            const std::string source = valueArg(0, "v0");
+            ctx.hit_object_query_expressions[*slot] = source;
+            std::string expression = "(m12_hit_states[" + index + "] = (" +
+                                     source + ".get_committed_intersection_type() == "
+                                     "intersection_type::none ? 1u : 2u)";
+            if (is_from_ray_query_with_attrs && args.size() >= 2) {
+                const uint32_t hit_kind =
+                    literalArg(1, UINT32_MAX, "FromRayQuery hit kind");
+                if (hit_kind == UINT32_MAX)
+                    return reject("FromRayQuery hit kind must be literal");
+                expression += ", m12_hit_kinds[" + index + "] = " +
+                              std::to_string(hit_kind) + "u";
+            }
+            return expression + ")";
+        }
+
+        if (is_make_miss || is_make_nop) {
+            auto slot = allocateHitObjectSlot();
+            if (!slot)
+                return reject("query-slot limit exceeded");
+            const std::string index = std::to_string(*slot);
+            if (is_make_nop)
+                return "m12_hit_states[" + index + "] = 0u";
+            if (args.size() < 10)
+                return reject("malformed MakeMiss operands");
+            const uint32_t flags =
+                literalArg(0, UINT32_MAX, "HitObject miss ray flags");
+            const uint32_t shader_table_index =
+                literalArg(1, UINT32_MAX, "HitObject miss shader table index");
+            if (flags == UINT32_MAX || shader_table_index == UINT32_MAX)
+                return reject("MakeMiss flags and shader table index must be literal");
+            return "(m12_hit_states[" + index + "] = 1u, "
+                   "m12_hit_ray_flags[" + index + "] = " +
+                   std::to_string(flags) + "u, "
+                   "m12_hit_shader_table_indices[" + index + "] = " +
+                   std::to_string(shader_table_index) + "u, "
+                   "m12_hit_world_origins[" + index + "] = float3(" +
+                   numericArg(2, "0.0f") + ", " + numericArg(3, "0.0f") +
+                   ", " + numericArg(4, "0.0f") + "), "
+                   "m12_hit_world_directions[" + index + "] = float3(" +
+                   numericArg(6, "0.0f") + ", " + numericArg(7, "0.0f") +
+                   ", " + numericArg(8, "0.0f") + "), "
+                   "m12_hit_tmins[" + index + "] = " + numericArg(5, "0.0f") +", "
+                   "m12_hit_tcurrents[" + index + "] = " + numericArg(9, "0.0f") + ")";
+        }
+
+        if (is_set_shader_table_index) {
+            if (args.size() < 2)
+                return reject("malformed SetShaderTableIndex operands");
+            auto slot = hitObjectSlotForValue(args[0]);
+            if (!slot)
+                return reject("HitObject token has no query slot");
+            const uint32_t table_index =
+                literalArg(1, UINT32_MAX, "HitObject shader table index");
+            if (table_index == UINT32_MAX)
+                return reject("shader table index must be literal");
+            ctx.hit_object_query_slots[ctx.current_result_id] = *slot;
+            return "(m12_hit_shader_table_indices[" +
+                   std::to_string(*slot) + "] = " +
+                   std::to_string(table_index) + "u, m12_hit_states[" +
+                   std::to_string(*slot) + "])";
+        }
+
+        if (is_trace_ray) {
+            // HitObject_TraceRay operands after the opcode are:
+            // acceleration structure, flags, mask, contribution, multiplier,
+            // miss index, origin.xyz, Tmin, direction.xyz, Tmax, payload.
+            if (args.size() < 14)
+                return reject("malformed TraceRay operands");
+            const uint32_t flags = literalArg(1, UINT32_MAX, "HitObject ray flags");
+            const uint32_t mask = literalArg(2, UINT32_MAX, "HitObject ray mask");
+            if (flags != 0u)
+                return reject("only RAY_FLAG_NONE is implemented");
+            if (mask == UINT32_MAX)
+                return reject("ray mask must be literal");
+            auto slot = allocateHitObjectSlot();
+            if (!slot)
+                return reject("query-slot limit exceeded");
+            const std::string index = std::to_string(*slot);
+            const std::string query = "m12_hit_queries[" + index + "]";
+            ctx.hit_object_query_expressions[*slot] = query;
+            const std::string acceleration = handleArg(0, "as", "as16");
+            // The supported provider is triangle-only for this first lane.
+            // A committed query is retained as a slot token for subsequent
+            // HitObject accessors, with a miss represented by slot state.
+            return "(m12_hit_ray_flags[" + index + "] = " +
+                   std::to_string(flags) + "u, m12_hit_world_origins[" +
+                   index + "] = float3(" + numericArg(6, "0.0f") + ", " +
+                   numericArg(7, "0.0f") + ", " + numericArg(8, "0.0f") +
+                   "), m12_hit_world_directions[" + index + "] = float3(" +
+                   numericArg(10, "0.0f") + ", " + numericArg(11, "0.0f") +
+                   ", " + numericArg(12, "0.0f") + "), m12_hit_tmins[" +
+                   index + "] = " + numericArg(9, "0.0f") + ", " +
+                   "m12_hit_states[" + index + "] = " +
+                   "m12_hit_object_trace(" + query + ", " +
+                   numericArg(6, "0.0f") + ", " + numericArg(7, "0.0f") +
+                   ", " + numericArg(8, "0.0f") + ", " +
+                   numericArg(9, "0.0f") + ", " + numericArg(10, "0.0f") +
+                   ", " + numericArg(11, "0.0f") + ", " +
+                   numericArg(12, "0.0f") + ", " + numericArg(13, "0.0f") +
+                   ", " + acceleration + ", " + std::to_string(mask) + "u))";
+        }
+
+        if (is_state_matrix) {
+            if (args.size() < 3)
+                return reject("malformed StateMatrix operands");
+            auto slot = hitObjectSlotForValue(args[0]);
+            if (!slot)
+                return reject("HitObject token has no query slot");
+            const uint32_t row = literalArg(1, UINT32_MAX, "HitObject matrix row");
+            const uint32_t column =
+                literalArg(2, UINT32_MAX, "HitObject matrix column");
+            if (row >= 3u || column >= 4u)
+                return reject("matrix component is out of range");
+            const char *method = nullptr;
+            if (explicit_opcode == 279u)
+                method = "get_committed_object_to_world_transform";
+            else if (explicit_opcode == 280u)
+                method = "get_committed_world_to_object_transform";
+            else
+                return reject("unsupported StateMatrix opcode");
+            return hitObjectQueryForSlot(*slot) + "." + method +
+                   "()[" + std::to_string(column) + "][" +
+                   std::to_string(row) + "]";
+        }
+
+        if (is_state_vector) {
+            if (args.size() < 2)
+                return reject("malformed StateVector operands");
+            auto slot = hitObjectSlotForValue(args[0]);
+            if (!slot)
+                return reject("HitObject token has no query slot");
+            const uint32_t component =
+                literalArg(1, UINT32_MAX, "HitObject vector component");
+            if (component >= 3u)
+                return reject("vector component is out of range");
+            const char *method = nullptr;
+            switch (explicit_opcode) {
+            case 275: method = "get_world_space_ray_origin"; break;
+            case 276: method = "get_world_space_ray_direction"; break;
+            case 277: method = "get_committed_ray_origin"; break;
+            case 278: method = "get_committed_ray_direction"; break;
+            default: return reject("unsupported StateVector opcode");
+            }
+            const std::string index = std::to_string(*slot);
+            const bool has_query =
+                ctx.hit_object_query_expressions.find(*slot) !=
+                ctx.hit_object_query_expressions.end();
+            std::string query_value = hitObjectQueryForSlot(*slot) + "." +
+                                      method + "()" +
+                                      componentSuffix(component);
+            const char *stored = nullptr;
+            if (explicit_opcode == 275)
+                stored = "m12_hit_world_origins[";
+            else if (explicit_opcode == 276)
+                stored = "m12_hit_world_directions[";
+            else if (explicit_opcode == 277)
+                stored = "m12_hit_world_origins[";
+            else if (explicit_opcode == 278)
+                stored = "m12_hit_world_directions[";
+            if (!has_query || !stored)
+                return stored ? std::string(stored) + index + "]" +
+                                      componentSuffix(component)
+                               : query_value;
+            // Metal exposes the ray-origin/direction accessors for both
+            // committed hits and misses.  Keeping the query expression
+            // scalar here also avoids materializing a vector-valued false
+            // branch through the generic typed-expression coercer.
+            return query_value;
+        }
+
+        if (is_state_scalar) {
+            if (args.empty())
+                return reject("malformed StateScalar operands");
+            auto slot = hitObjectSlotForValue(args[0]);
+            if (!slot)
+                return reject("HitObject token has no query slot");
+            const std::string query = hitObjectQueryForSlot(*slot);
+            const std::string index = std::to_string(*slot);
+            const std::string state = "m12_hit_states[" + index + "]";
+            const bool has_query =
+                ctx.hit_object_query_expressions.find(*slot) !=
+                ctx.hit_object_query_expressions.end();
+            switch (explicit_opcode) {
+            case 269: return state + " == 1u";
+            case 270: return state + " == 2u";
+            case 271: return state + " == 0u";
+            case 272: return "m12_hit_ray_flags[" + index + "]";
+            case 273:
+              return has_query
+                         ? "(" + state + " == 2u ? " + query +
+                               ".get_ray_min_distance() : m12_hit_tmins[" +
+                               index + "])"
+                         : "m12_hit_tmins[" + index + "]";
+            case 274:
+              return has_query
+                         ? "(" + state + " == 2u ? " + query +
+                               ".get_committed_distance() : m12_hit_tcurrents[" +
+                               index + "])"
+                         : "m12_hit_tcurrents[" + index + "]";
+            case 286: return "m12_hit_shader_table_indices[" + index + "]";
+            case 281:
+              return has_query
+                         ? "(" + state + " == 2u ? " + query +
+                               ".get_committed_geometry_id() : 0u)"
+                         : "m12_hit_geometry_indices[" + index + "]";
+            case 282:
+              return has_query
+                         ? "(" + state + " == 2u ? " + query +
+                               ".get_committed_instance_id() : 0u)"
+                         : "m12_hit_instance_indices[" + index + "]";
+            case 283:
+              return has_query
+                         ? "(" + state + " == 2u ? " + query +
+                               ".get_committed_user_instance_id() : 0u)"
+                         : "m12_hit_instance_ids[" + index + "]";
+            case 284:
+              return has_query
+                         ? "(" + state + " == 2u ? " + query +
+                               ".get_committed_primitive_id() : 0u)"
+                         : "m12_hit_primitive_indices[" + index + "]";
+            case 285:
+              return has_query
+                         ? "(" + state + " == 2u ? (" + query +
+                               ".is_committed_triangle_front_facing() ? 254u : 255u) : 0u)"
+                         : "m12_hit_kinds[" + index + "]";
+            default: return reject("unsupported StateScalar opcode");
+            }
+        }
+
+        return reject("operation is not implemented by the query provider");
+    }
     case 80: return "threadgroup_barrier(mem_flags::mem_threadgroup)";
     case DXOP_Discard:
         return "discard_fragment()";
@@ -9264,6 +9725,26 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                 value_counter++;
                 break;
             }
+            bool raygen_resource_global = false;
+            if (ctx.ray_generation) {
+                for (const auto &global : ctx.mod.globals) {
+                    if (global.value_id == inst.operands[0] &&
+                        global.address_space != 3) {
+                        raygen_resource_global = true;
+                        break;
+                    }
+                }
+            }
+            if (raygen_resource_global) {
+                // Resource globals are opaque DXIL handles. Their load is
+                // only a source token for CreateHandleForLib; dereferencing
+                // the placeholder would read an invalid GPU pointer in the
+                // custom visible-function ABI.
+                ctx.value_table[value_counter] = "0u";
+                ctx.value_types[value_counter] = {MSLTypeKind::UInt, 0, {}};
+                value_counter++;
+                break;
+            }
             if (!isUsableType(result_type))
                 result_type = {MSLTypeKind::UInt, 0, {}};
             auto pointee_it = ctx.pointer_pointee_types.find(inst.operands[0]);
@@ -9424,6 +9905,8 @@ std::optional<TypedMSLShader> MSLLowering::lower(
 
     std::ostringstream os;
     LowerContext ctx{os, module, shader, options};
+    ctx.ray_generation = options.ray_generation ||
+                         shader.kind == DxilShaderKind::RayGeneration;
     ctx.compute_wave_shader = shader.kind == DxilShaderKind::Compute;
     if (ctx.compute_wave_shader) {
         ctx.compute_wave_shader = false;
@@ -9537,8 +10020,11 @@ std::optional<TypedMSLShader> MSLLowering::lower(
     }
 
     const LLVMFunction *entry_fn = nullptr;
+    const std::string requested_entry = options.entry_point.empty()
+                                            ? shader.entry_point
+                                            : options.entry_point;
     for (auto &fn : module.functions) {
-        if (!fn.blocks.empty() && !shader.entry_point.empty() && fn.name == shader.entry_point) {
+        if (!fn.blocks.empty() && entryPointMatches(fn.name, requested_entry)) {
             entry_fn = &fn; break;
         }
     }
@@ -10240,7 +10726,7 @@ std::optional<TypedMSLShader> MSLLowering::lower(
 
     TypedMSLShader result;
     result.source = hardenGeneratedBoolVectorAssignments(os.str());
-    result.entry_point = shader.entry_point;
+    result.entry_point = ctx.ray_generation ? "raygen" : shader.entry_point;
     result.tg_size[0] = module.num_threads[0];
     result.tg_size[1] = module.num_threads[1];
     result.tg_size[2] = module.num_threads[2];

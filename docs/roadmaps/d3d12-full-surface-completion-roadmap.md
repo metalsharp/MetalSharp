@@ -359,7 +359,7 @@ red.
 - [x] Phase 2 — COM objects, interfaces, and lifecycle
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
-- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (234/280 required opcode rows observed; 46 open)
+- [ ] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (249/280 required opcode rows observed; 31 open)
 - [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
@@ -769,10 +769,10 @@ pixels), 64-byte, 128-byte, and 256-byte amplification payloads plus a
 uses an explicitly selected
 host `libmetalirconverter` cache provider while retaining the
 `METAL_SHADER_CONVERTER=/nonexistent` runtime setting; vector temporary
-breadth, broader DXR accessors, ray-generation paths, and state-object
-breadth remain open.
+breadth, broader DXR accessors, the bounded GPU HitObject provider, and
+state-object breadth remain open.
 
-The exhaustive Phase 5 matrix currently has 234 observed, 46 open, and 32
+The exhaustive Phase 5 matrix currently has 249 observed, 31 open, and 32
 reserved/not-applicable rows. The core temporary-register and min-precision
 register forms have exact compute-UAV evidence, the SM5 DXBC/AIR geometry
 provider has an exact stream-restart/primitive-ID readback including the
@@ -1778,3 +1778,28 @@ whether the scoped FL12_2 gate is green.
   explicit `opcode=278` diagnostics. Row 278 remains open because this is
   fail-closed negative evidence only and does not provide an object-ray
   direction readback.
+
+### 2026-09-02 — Phase 5 descending HitObject GPU-provider checkpoint
+
+- Added a bounded typed DXIL ray-generation provider for a one-invocation
+  triangle `intersection_query`. It detects HitObject declarations from the
+  parsed DXIL module (rather than relying on a raw byte-string search), emits
+  the existing visible-function dispatch ABI, maps descriptor classes to the
+  compact ray-generation table, and keeps the legacy converter fail-closed.
+  The runtime tests use a freshly rebuilt matching Winemetal PE/Unix pair and
+  `METAL_SHADER_CONVERTER=/nonexistent`; no binary, cache, prefix, or log is
+  part of the repository change.
+- The provider now executes `HitObject_TraceRay` (262), `MakeMiss` (265),
+  `MakeNop` (266), `IsMiss`/`IsHit`/`IsNop` (269–271), `RayFlags`/`RayTMin` /
+  `RayTCurrent` (272–274), world/object ray origin and direction (275–278),
+  and both 3x4 transform accessors (279–280). Exact readbacks include
+  world origin `[0x40a00000,0,0xc0000000]`, object origin
+  `[0,0,0xc0000000]`, object direction `[0,0,0x3f800000]`, object-to-world
+  `[1.0,5.0,1.0]`, and world-to-object `[1.0,-5.0,1.0]`; constructor/state
+  probes also return `MakeMiss: IsMiss=1, shader-table-index=3` and
+  `MakeNop: IsNop=1`.
+- The strict opcode validator now reports **249 observed / 31 open / 32
+  reserved**. This is not Phase 5 closeout: `FromRayQuery` (263–264),
+  `Invoke`/SER scheduling (267–268), and the remaining scalar/accessor rows
+  (281–289), along with CycleCounterLegacy, AttributeAtVertex, and Work
+  Graph/node rows, still require exact behavior-backed evidence.
