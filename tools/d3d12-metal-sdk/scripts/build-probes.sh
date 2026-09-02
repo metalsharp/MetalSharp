@@ -150,6 +150,10 @@ build_probe \
   -o "$OUT_DIR/probe_writable_msaa.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_rov/probe_rov.cpp" \
+  -o "$OUT_DIR/probe_rov.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_vrs/probe_vrs.cpp" \
   -o "$OUT_DIR/probe_vrs.exe"
 
@@ -272,6 +276,7 @@ echo "$OUT_DIR/probe_dxil_semantics.exe"
 echo "$OUT_DIR/probe_shader_corpus.exe"
 echo "$OUT_DIR/probe_sm66_capabilities.exe"
 echo "$OUT_DIR/probe_writable_msaa.exe"
+echo "$OUT_DIR/probe_rov.exe"
 echo "$OUT_DIR/probe_vrs.exe"
 echo "$OUT_DIR/probe_sampler_feedback.exe"
 echo "$OUT_DIR/probe_sampler_feedback_pixel.exe"

@@ -1,0 +1,46 @@
+{
+  "schema": "metalsharp.d3d12.phase6-graphics-coverage.v1",
+  "phase": 6,
+  "status": "partial",
+  "result": "probe-rov;probe-vrs;probe-writable-msaa;probe-graphics-pso",
+  "rows": [
+    {
+      "id": "rasterizer-ordered-byte-address-buffer",
+      "status": "observed_bounded",
+      "result": "probe-rov",
+      "checks": [
+        ["result", "pass"],
+        ["provider", "metal_raster_order_group"],
+        ["readback", "uav_value=3"],
+        ["ordering", "three_overlapping_primitives_exact_load_store"],
+        ["provenance", "DXIL_RasterizerOrderedByteAddressBuffer_resource_flag"]
+      ],
+      "scope": "Pixel RasterizerOrderedByteAddressBuffer with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to the marked UAV buffer parameter."
+    },
+    {
+      "id": "vrs-tier2-matrix",
+      "status": "observed_bounded",
+      "result": "probe-vrs",
+      "checks": [
+        ["result", "pass"],
+        ["coverage", "all_advertised_rate_matrix_and_image_combiner_cases"]
+      ],
+      "remaining": "Broader unsupported image shapes and rates remain fail-closed."
+    },
+    {
+      "id": "graphics-stage-and-msaa-matrices",
+      "status": "observed_bounded",
+      "result": "probe-graphics-pso;probe-writable-msaa",
+      "checks": [
+        ["coverage", "graphics_pso_and_writable_msaa_positive_negative_matrices"]
+      ],
+      "remaining": "General geometry/tessellation breadth, all conservative-raster rules, programmable sample-position effects, formats, depth bias, barycentrics, and complete MSAA/raster-state matrices remain open."
+    }
+  ],
+  "feature_reporting": {
+    "ROVsSupported": {
+      "reported": false,
+      "reason": "The ordered UAV provider is implemented and positively probed for the bounded raw-buffer shape, but the public capability remains conservative until the complete ROV resource/stage/state matrix is closed."
+    }
+  }
+}
