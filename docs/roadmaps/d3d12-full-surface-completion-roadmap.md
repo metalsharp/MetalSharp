@@ -1942,3 +1942,18 @@ whether the scoped FL12_2 gate is green.
 - The strict opcode validator is now **280 observed / 0 open / 32 reserved**;
   the required Phase 5 shader-opcode gate is closed and Phase 5 is marked
   complete. Broader provider bounds and later phases remain separately open.
+
+### 2026-09-02 — Phase 6 bounded rasterizer-ordered UAV provider (intermediate)
+
+- Added the source-owned `probe_rov` DXIL fixture and runtime lane. A pixel
+  `RasterizerOrderedByteAddressBuffer` performs an ordered load/increment/store
+  for three overlapping primitives at one pixel and returns the exact UAV value
+  `3` with `METAL_SHADER_CONVERTER=/nonexistent`.
+- The DXIL resource metadata ROV bit is now carried through the direct binding
+  plan. Marked pixel UAV buffers and textures receive Metal's
+  `raster_order_group(0)` qualifier; non-pixel ROV uses remain fail-closed.
+- This checkpoint does not promote `ROVsSupported`: the public report remains
+  conservative until typed/structured resources and the complete ROV graphics
+  state/format matrix have independent behavior evidence. VRS, conservative
+  raster, geometry/tessellation, sample-position, formats, depth-bias, and
+  broader MSAA work also remain open, so Phase 6 is not complete.

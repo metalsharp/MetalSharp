@@ -950,6 +950,12 @@ struct LowerContext {
     bool uses_atomic64_emulation = false;
     bool uses_group_atomic64_emulation = false;
     bool uses_double_emulation = false;
+    // DXIL records RasterizerOrdered* resources as UAV ranges with the ROV
+    // resource flag.  Keep the flag separate from ordinary UAV typing so the
+    // fragment ABI can attach Metal's raster_order_group qualifier without
+    // changing compute/vertex resource declarations.
+    std::set<uint32_t> rasterizer_ordered_buffer_slots;
+    std::set<uint32_t> rasterizer_ordered_texture_slots;
     bool uses_sample_index = false;
     bool uses_coverage = false;
     bool uses_interpolation = false;
@@ -1096,6 +1102,18 @@ static bool textureSlotHasRangeKind(const LowerContext &ctx, uint32_t slot,
     return false;
 }
 
+static bool rasterizerOrderedBufferSlot(const LowerContext &ctx,
+                                        uint32_t slot) {
+    return ctx.shader.kind == DxilShaderKind::Pixel &&
+           ctx.rasterizer_ordered_buffer_slots.count(slot) != 0;
+}
+
+static bool rasterizerOrderedTextureSlot(const LowerContext &ctx,
+                                         uint32_t slot) {
+    return ctx.shader.kind == DxilShaderKind::Pixel &&
+           ctx.rasterizer_ordered_texture_slots.count(slot) != 0;
+}
+
 static std::string textureBindingType(uint32_t resource_kind, bool writable,
                                       bool integer, bool sampled,
                                       bool writable_msaa_compat = false,
@@ -1182,6 +1200,17 @@ static void emitBindingManifest(LowerContext &ctx) {
         return;
     }
     for (const auto &range : ctx.binding_plan.ranges) {
+        bool rasterizer_ordered = false;
+        if (range.kind == DescriptorRangePlan::Kind::UAV) {
+            for (uint32_t i = 0; i < range.count; ++i) {
+                const uint32_t slot = range.lower_bound + i;
+                rasterizer_ordered = isTextureResourceKind(range.resource_kind)
+                                         ? ctx.rasterizer_ordered_texture_slots.count(slot) != 0
+                                         : ctx.rasterizer_ordered_buffer_slots.count(slot) != 0;
+                if (rasterizer_ordered)
+                    break;
+            }
+        }
         os << "// range kind=" << descriptorRangeKindName(range.kind)
            << " space=" << range.register_space
            << " lower=" << range.lower_bound
@@ -1189,7 +1218,8 @@ static void emitBindingManifest(LowerContext &ctx) {
            << " resource_kind=" << range.resource_kind
            << " element_type=" << range.element_type
            << " sample_count=" << range.sample_count
-           << " stride=" << range.element_stride << "\n";
+           << " stride=" << range.element_stride
+           << " rasterizer_ordered=" << (rasterizer_ordered ? 1 : 0) << "\n";
     }
     os << "\n";
 }
@@ -2478,9 +2508,12 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             if (accelerationStructureAtBufferSlot(ctx, i))
                 os << "  instance_acceleration_structure as" << i
                    << " [[buffer(" << i << ")]],\n";
-            else
-                os << "  device char* buf" << i << " [[buffer(" << i
-                   << ")]],\n";
+            else {
+                os << "  device char* buf" << i << " [[buffer(" << i << ")";
+                if (rasterizerOrderedBufferSlot(ctx, i))
+                    os << ", raster_order_group(0)";
+                os << "]],\n";
+            }
         }
         if (ctx.options.conservative_rasterization)
             os << "  constant m12_conservative_data& m12_conservative [[buffer(26)]],\n";
@@ -2504,6 +2537,10 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             uint32_t element_type = resourceElementTypeForTextureSlot(ctx, i);
             bool integer_element = isIntegerResourceElementType(element_type);
             bool signed_integer = isSignedResourceElementType(element_type);
+            const char *rov_attribute =
+                uav_slot && rasterizerOrderedTextureSlot(ctx, i)
+                    ? ", raster_order_group(0)"
+                    : "";
             if (resource_kind != 0u) {
                 bool texture_uav_slot = textureSlotHasRangeKind(
                     ctx, i, DescriptorRangePlan::Kind::UAV);
@@ -2516,26 +2553,26 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                      resource_kind == 5u || resource_kind == 6u ||
                      resource_kind == 7u || resource_kind == 9u))
                     os << "  " << depthTextureBindingType(resource_kind)
-                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                       << " tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
                 else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
                     os << "  " << textureBindingType(resource_kind, false, false, true)
-                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                       << " tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
                 else
                     os << "  " << textureBindingType(
                                resource_kind, texture_uav_slot, integer_element,
                                !texture_uav_slot, writable_msaa, signed_integer)
-                       << " tex" << i << " [[texture(" << i << ")]],\n";
+                       << " tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
             } else if (comparison_slot && srv_slot && !uav_slot)
-                os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+                os << "  depth2d<float, access::sample> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
             else if (uav_slot && ctx.uses_sampler_feedback && srv_slot)
-                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
             else if (uav_slot && (ctx.texture_store_sample_shader ||
                                   ctx.writable_msaa_texture_slots.count(i)))
-                os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
+                os << "  texture2d_array<float, access::read_write> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
             else if (uav_slot)
-                os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << ")]],\n";
+                os << "  texture2d<float, access::read_write> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
             else
-                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << ")]],\n";
+                os << "  texture2d<float, access::sample> tex" << i << " [[texture(" << i << rov_attribute << ")]],\n";
         }
         if (ctx.options.vrs_per_primitive)
             os << "  texture2d<float, access::write> m12_vrs_mask [[texture(125)]],\n";
@@ -4843,6 +4880,38 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
     }
     if (has_sampler)
         plan.direct_sampler_count = std::max<uint32_t>(1, std::min<uint32_t>(max_sampler, 4));
+    // Preserve the DXIL ROV bit through the direct slot ABI.  The binding
+    // metadata is authoritative; only ranges that actually participate in the
+    // lowered shader are marked.  Metal's raster_order_group is a fragment
+    // resource qualifier, so reject an invalid non-pixel use instead of
+    // silently lowering it as an ordinary UAV.
+    for (const auto &binding : ctx.mod.resource_bindings) {
+        if (!binding.rasterizer_ordered)
+            continue;
+        if (ctx.shader.kind != DxilShaderKind::Pixel ||
+            binding.resource_class != 1u) {
+            ctx.unsupported_intrinsics++;
+            recordDiagnostic(
+                ctx,
+                "DXIL rasterizer-ordered resource rejected outside pixel UAV provider: class=%u stage=%u",
+                binding.resource_class, static_cast<unsigned>(ctx.shader.kind));
+            continue;
+        }
+        for (const auto &range : plan.ranges) {
+            if (range.kind != DescriptorRangePlan::Kind::UAV ||
+                range.register_space != binding.register_space ||
+                range.lower_bound != binding.lower_bound)
+                continue;
+            const uint32_t count = std::min(range.count, binding.count);
+            for (uint32_t i = 0; i < count; ++i) {
+                const uint32_t slot = range.lower_bound + i;
+                if (isTextureResourceKind(range.resource_kind))
+                    ctx.rasterizer_ordered_texture_slots.insert(slot);
+                else
+                    ctx.rasterizer_ordered_buffer_slots.insert(slot);
+            }
+        }
+    }
     ctx.binding_plan = std::move(plan);
 }
 

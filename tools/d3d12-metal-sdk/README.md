@@ -52,12 +52,16 @@ DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
   tools/d3d12-metal-sdk/scripts/run-isolated-probes.sh --caps-only
 ```
 
-The VRS bridge can be exercised independently against a clean source build:
+The VRS and bounded ROV bridges can be exercised independently against a
+clean source build:
 
 ```bash
 DEVELOPER_DIR=/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer \
 METALSHARP_X86_LLVM_ROOT=/Volumes/AverySSD/toolchains \
   tools/d3d12-metal-sdk/scripts/run-source-probes.sh --vrs-only
+
+METAL_SHADER_CONVERTER=/nonexistent \
+  tools/d3d12-metal-sdk/scripts/run-source-probes.sh --rov-only
 ```
 
 To test the current external-tree build without overwriting the installed M12
@@ -325,6 +329,11 @@ The default required probe groups prove:
 - `probe-vrs` (opt-in): the per-draw shading-rate matrix, a copied constant
   `R8_UINT` image attachment, reduced-invocation readback, and command-list
   reset/reuse.
+- `probe-rov` (opt-in): a bounded pixel `RasterizerOrderedByteAddressBuffer`
+  load/increment/store proof. Three overlapping primitives at one pixel return
+  the exact ordered UAV value `3`; the typed lowering maps the DXIL ROV flag to
+  Metal `raster_order_group(0)`. The public ROV capability remains conservative
+  until the complete resource/state matrix is closed.
 - `probe-wave-ops`: WaveOps audit and reporting denial/proof.
 - `probe-reflection-abi`: reflected shader bindings against the descriptor and
   root-signature ABI.

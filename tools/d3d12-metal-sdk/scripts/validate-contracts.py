@@ -25,6 +25,7 @@ REQUIRED_CONTRACTS = [
     "contract-waivers.json",
     "winemetal-bridge-contract.json",
     "phase3-exhaustive-coverage.json",
+    "phase6-graphics-coverage.json",
 ]
 
 DECLARED_TIERS = {"required", "emulated", "stubbed-safe", "unsupported"}
@@ -240,6 +241,38 @@ def validate_phase3_coverage(path: Path, data: dict[str, Any], errors: list[str]
                 f"{prefix}.remaining is required", errors)
 
 
+def validate_phase6_coverage(path: Path, data: dict[str, Any], errors: list[str]) -> None:
+    require(data.get("phase") == 6, f"{path}: phase must be 6", errors)
+    require(data.get("status") in {"open", "partial", "closed"}, f"{path}: status must be open, partial, or closed", errors)
+    rows = data.get("rows")
+    require(isinstance(rows, list) and rows, f"{path}: rows must be a non-empty list", errors)
+    if not isinstance(rows, list):
+        return
+    ids: set[str] = set()
+    for index, row in enumerate(rows):
+        prefix = f"{path}: rows[{index}]"
+        require(isinstance(row, dict), f"{prefix} must be an object", errors)
+        if not isinstance(row, dict):
+            continue
+        row_id = row.get("id")
+        require(isinstance(row_id, str) and bool(row_id), f"{prefix}.id is required", errors)
+        if isinstance(row_id, str) and row_id:
+            require(row_id not in ids, f"{prefix} duplicates id `{row_id}`", errors)
+            ids.add(row_id)
+        require(row.get("status") in {"open", "observed_bounded", "closed"}, f"{prefix}.status is invalid", errors)
+        require(isinstance(row.get("result"), str) and bool(row.get("result")), f"{prefix}.result is required", errors)
+        checks = row.get("checks")
+        require(isinstance(checks, list) and checks, f"{prefix}.checks must be non-empty", errors)
+        if isinstance(checks, list):
+            for check_index, check in enumerate(checks):
+                require(isinstance(check, list) and len(check) >= 2,
+                        f"{prefix}.checks[{check_index}] must be a path list", errors)
+        require(isinstance(row.get("scope") or row.get("remaining"), str),
+                f"{prefix} must document scope or remaining work", errors)
+    reporting = data.get("feature_reporting")
+    require(isinstance(reporting, dict), f"{path}: feature_reporting must be an object", errors)
+
+
 def validate_winemetal_bridge(path: Path, data: dict[str, Any], errors: list[str]) -> None:
     source_audit = data.get("source_audit")
     require(isinstance(source_audit, dict), f"{path}: missing source_audit object", errors)
@@ -358,6 +391,8 @@ def validate_contracts(root: Path) -> list[str]:
             validate_winemetal_bridge(path, data, errors)
         elif name == "phase3-exhaustive-coverage.json":
             validate_phase3_coverage(path, data, errors)
+        elif name == "phase6-graphics-coverage.json":
+            validate_phase6_coverage(path, data, errors)
         else:
             validate_evidence(path, data, errors)
     return errors
