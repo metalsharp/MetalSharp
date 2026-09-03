@@ -61,7 +61,10 @@
   one-ULP rounding. Every lane
   creates a PSO, dispatches through the DXMT command path, and matches its
   expected readback. The fresh no-offline-converter run reports
-  `{1065353216, 0, 0, 1, 7}` for the extended math case.
+  `{1065353216, 0, 0, 1, 7}` for the extended math case. The core 36-word
+  opcode fixture loads its operands from the runtime SRV to prevent DXC
+  constant folding from erasing intrinsic calls; its exact `FirstbitHi(0x10)`
+  result is `27`.
 - The WaveOps probe independently verifies lane index/count, ballot, lane
   reads, any/all, quad operations, reductions, prefix behavior,
   `WaveActiveCountBits`/`WavePrefixCountBits`, `WaveMatch`, and the complete

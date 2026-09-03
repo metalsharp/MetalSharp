@@ -2071,3 +2071,13 @@ whether the scoped FL12_2 gate is green.
 - The Phase 5 closeout remains bounded: the public shader-model ceiling and
   all unsupported broader combinations stay fail-closed; this does not claim
   that the full-surface aggregate or later phases are complete.
+
+### 2026-09-03 — Phase 5 dynamic core-opcode fixture correction
+
+- Updated the core semantic fixture to load its one/zero, signed, unsigned,
+  and bit-index operands from the runtime SRV instead of embedding constants.
+  This prevents DXC constant folding from erasing intrinsic calls from the
+  generated DXIL while preserving the exact 36-word readback matrix.
+- Corrected the expected `FirstbitHi` result for `0x10` to `27`, matching the
+  DXIL unsigned-high-bit definition; the refreshed core lane passes exact
+  readback under the pinned no-offline-converter environment.
