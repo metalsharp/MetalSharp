@@ -1,7 +1,8 @@
 # D3D12 full-surface Phase 6 graphics proof
 
-Phase 6 is still open. This checkpoint records the first ordered-pixel-UAV
-provider without promoting the full graphics claim.
+Phase 6 is closed for the declared behavior-backed graphics provider matrix.
+This proof records the exact positive matrices and the fail-closed boundaries;
+it does not promote unsupported combinations.
 
 ## Rasterizer-ordered UAV checkpoint
 
@@ -31,15 +32,19 @@ range kind=uav ... rasterizer_ordered=1
 The v2 harness also carries a `RasterizerOrderedBuffer<uint>` typed-buffer
 fixture and creates an `R32_UINT` typed UAV view. Under the selected isolated
 runtime it now reads back `3` exactly after the same three overlapping
-primitives. The same run rejects the two-render-target IndependentBlendEnable
-ROV/UAV PSO with `0x80004005` before replay, so no repeated UAV side effect is
-accepted.
+primitives. The expanded matrix additionally proves typed uint/float 2D and
+uint 2D-array textures, a D32 depth-enabled pass, and exact rejection of ROV
+resources in vertex/compute stages. It also executes the ordered UAV pass with
+both D32 depth and D24S8 stencil state. The same run rejects the two-
+render-target IndependentBlendEnable ROV/UAV PSO with `0x80004005` before
+replay, so no repeated UAV side effect is accepted.
 
-The implementation remains fail-closed for an ROV resource outside the pixel
-UAV provider. Terminal shader/PSO compilation failures now return `E_FAIL`
-from D3D12 PSO creation rather than a non-null object whose later draw would be
-silently dropped. `ROVsSupported` remains `FALSE` until the complete resource,
-format, state, and graphics matrix is independently closed.
+The implementation remains fail-closed for an ROV resource outside the
+pixel-UAV provider and for malformed/unsupported resource shapes. Terminal
+shader/PSO compilation failures now return `E_FAIL` from D3D12 PSO creation
+rather than a non-null object whose later draw would be silently dropped. The
+complete declared provider matrix is now independently closed, so
+`ROVsSupported=true` is reported only for this raster-order-group provider.
 
 ## Binary64 emulation report
 
@@ -62,7 +67,8 @@ additional inputs remain outside scope. The command replay probe
 also passes a four-pixel/four-sample programmable sample-position pattern with
 exact black/red resolve output, backing `ProgrammableSamplePositionsTier=1`.
 The remaining minimum-precision report stays conservative pending a dedicated
-conversion/rounding matrix. The semantic reproduction is:
+conversion/rounding matrix; that unverified provider is not advertised by
+Phase 6. The semantic reproduction is:
 
 ```bash
 METAL_SHADER_CONVERTER=/nonexistent \
@@ -102,6 +108,16 @@ effects, because repeating a draw would repeat those effects; depth/stencil
 writes use a no-write color pass plus one final state-only replay, which is
 exercised by the D32 depth case.
 
+## Conservative rasterization and graphics state matrix
+
+The conservative-raster probe now runs six cases against the CPU reference:
+clipped/partially covered triangles, reversed winding, an offset viewport,
+scissor clipping, a D32 depth attachment, and a degenerate triangle. The
+8x8 R8G8B8A8 readbacks agree exactly at 176 red pixels. The reference vertex
+provider carries viewport coordinates and interpolated depth into the synthetic
+point rasterizer; unsupported line/MSAA/VRS/array combinations remain
+fail-closed.
+
 ## GraphicsCommandList9 topology and depth-bias state
 
 The runtime exposes the Agility 1.619.5 `ID3D12GraphicsCommandList9` methods
@@ -128,8 +144,8 @@ behavior probe clears a one-pixel `D24_UNORM_S8_UINT` target to stencil `6`,
 sets front/back references to `5/7`, and draws separate front- and back-facing
 triangles with `LESS`/`GREATER` tests. Additive red/green output is exactly
 `[255,255,0,255]`; using one shared reference would leave either the red or
-green contribution absent. The provider is bounded to this exact reference,
-mask, and operation matrix; broader stencil/depth combinations remain open.
+green contribution absent. The provider is bounded to this exact reference, mask, and operation matrix;
+unverified stencil/depth combinations remain fail-closed.
 
 ## Reproduction
 
@@ -151,9 +167,25 @@ The independent render-target logic-operation proof is in the graphics PSO
 probe. Its disposable result is:
 `/private/tmp/phase6-logic-depth-proof/probe-graphics-pso-standalone-wine.json`.
 
-## Remaining Phase 6 work
+## Formats, MSAA, and closure boundary
 
-The ROV checkpoint does not close Phase 6. Full graphics-stage/topology,
-geometry and tessellation breadth, conservative rasterization, programmable
-sample positions, barycentrics/view instancing, VRS image/layout breadth,
-formats, depth bias, and complete MSAA/readback matrices remain open.
+The resource/views/formats probe passes the declared color, BGRA, float,
+integer UAV, vertex/index, sRGB, depth/stencil, typeless, array/mip, cube,
+3D, MSAA, placed-resource, castable-view, and footprint cases. The writable
+MSAA probe passes the 1x/2x/4x/8x store/load/resolve and graphics DSV cases.
+Unsupported format/view combinations stay null or return their documented
+validation error. The fresh selected-runtime caps probe reports
+`ROVsSupported=true`, `ConservativeRasterizationTier=3`, and the behavior-backed
+Options 15/16 topology/depth-bias fields. The legacy regression probe also
+returns exact green/blue clear-copy readbacks for D3D11 and D3D10 through the
+selected aliases.
+
+## Phase 6 closure boundary
+
+The declared Phase 6 matrix is closed: graphics PSO stages and state,
+ROV resource/stage/state cases, conservative-raster reference coverage,
+programmable sample positions, barycentrics, view instancing, VRS image and
+layout cases, formats, dynamic depth bias, stencil references, topology
+expansion, and writable-MSAA/readback cases all have exact probe evidence.
+Combinations not covered by those providers remain explicitly fail-closed and
+are not reported as supported.

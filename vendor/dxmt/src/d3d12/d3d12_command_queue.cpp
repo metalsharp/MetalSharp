@@ -4915,6 +4915,13 @@ struct ReplayState {
       uint32_t height;
       uint32_t enabled;
       uint32_t pad;
+      float viewport_x;
+      float viewport_y;
+      float viewport_width;
+      float viewport_height;
+      float z0;
+      float z1;
+      float z2;
     } data = {};
     const D3D12_VIEWPORT viewport =
         viewport_count ? viewports[0]
@@ -4937,10 +4944,15 @@ struct ReplayState {
       const float y = ndc[1];
       points[i][0] = viewport.TopLeftX + (x * 0.5f + 0.5f) * viewport.Width;
       points[i][1] = viewport.TopLeftY + (0.5f - y * 0.5f) * viewport.Height;
+      (&data.z0)[i] = ndc[2];
     }
     data.width = width;
     data.height = height;
     data.enabled = 1;
+    data.viewport_x = viewport.TopLeftX;
+    data.viewport_y = viewport.TopLeftY;
+    data.viewport_width = viewport.Width;
+    data.viewport_height = viewport.Height;
 
     auto data_buffer = MakeTransientBuffer(device, sizeof(data));
     if (!data_buffer.handle)
