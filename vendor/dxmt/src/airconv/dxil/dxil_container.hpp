@@ -77,6 +77,10 @@ struct DxilParsedShader {
   int32_t viewport_index_input_register = -1;
   int32_t render_target_array_index_input_register = -1;
   int32_t barycentrics_input_id = -1;
+  // DXIL InterpolationMode values for the SV_Barycentrics input.  The
+  // default center-perspective mode is 2; zero means that PSV0 did not
+  // provide a usable mode and the Metal default is used.
+  uint8_t barycentrics_interpolation = 0;
 };
 
 class DXILContainer {
