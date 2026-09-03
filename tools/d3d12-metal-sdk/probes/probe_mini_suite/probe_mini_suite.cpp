@@ -2948,10 +2948,12 @@ static ProbeResult probe_dxil_texture_color_output() {
     safe_release(queue);
     safe_release(device);
 
-    const bool discard_behavior_verified = SUCCEEDED(hr) && nonzero_words == 1024;
+    // A 64x64 full-screen triangle covers the complete target. Discarding
+    // x < 32 therefore leaves the 32x64 right-half, i.e. 2048 pixels.
+    const bool discard_behavior_verified = SUCCEEDED(hr) && nonzero_words == 2048;
     const bool ok = discard_behavior_verified;
     std::string extra = "\"nonzero_words\":" + std::to_string(nonzero_words) +
-                        ",\"nonzero_words_expected\":1024,\"discard_threshold_x\":32.0,"
+                        ",\"nonzero_words_expected\":2048,\"discard_threshold_x\":32.0,"
                         "\"discard_behavior_verified\":" +
                         (discard_behavior_verified ? "true" : "false") +
                         ",\"rt_format\":\"R10G10B10A2_UNORM\",\"vs_path\":\"" +

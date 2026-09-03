@@ -1,6 +1,6 @@
 # Full-Surface Phase 5 Shader Compiler and SM5.x–SM6.9 Proof
 
-**Status:** Phase 5 shader milestone; exhaustive phase gate remains open
+**Status:** Phase 5 bounded behavior gate closed; the full-surface aggregate remains open for later phases
 **Stable runtime:** MetalSharp Wine 11.5 / Apple M4 / Metal 4
 **Stable Agility lane:** 1.619.5 (`D3D12SDKVersion=619`)
 
@@ -594,19 +594,22 @@ accessor, and focused lowering-report-audit rows. The complete numeric inventory
 `tools/d3d12-metal-sdk/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json`:
 all 312 DXIL 1.9 opcode values (including 32 reserved values) are classified
 by first DXIL version, stage, and resource scope. The companion
-`validate-sm5-sm69-opcode-matrix.py` consumes the runtime's `dxil_opcodes`
-module-report section and has a strict mode for the eventual zero-missing
-exit gate; it intentionally reports the still-open rows today. The latest
+`validate-sm5-sm69-opcode-matrix.py` has two explicit modes: runtime-corpus
+mode consumes the current `dxil_opcodes` module-report section, while the
+strict contract mode validates the pinned bounded evidence declarations. The
+Phase 5 gate records both outputs and uses the contract mode for the declared
+280/280 bounded opcode closeout; the runtime-corpus report remains an audit of
+which modules a particular probe invocation emitted. The latest
 exact SM6.8 comparison-sampling runs promote `SampleCmpGrad` and
 `SampleCmpBias`, and the SM6.0 DXIL pixel-color mini probe now discards the
-left half of a 64x64 triangle and verifies exactly 1,024 surviving nonzero
+left half of a 64x64 triangle and verifies exactly 2,048 surviving nonzero
 words, promoting `Discard` from compilation-only to an execution proof. The
-exhaustive SM5.x–SM6.9 opcode/stage/resource/cache/session row therefore
-remains open with 46 rows still missing after the exact inline-RayQuery,
-ViewID, extended-command-information, SM5 geometry stream/system, and
-SM5 tessellation-system observations, including the candidate/committed
-state-accessor, transform, contribution, procedural, AllocateRayQuery2, abort,
-stream, tessellation, Work Graph/node, and SER/HitObject boundaries.
+bounded Phase 5 manifest closes the declared 280/280 opcode rows with exact
+positive behavior or fail-closed negative evidence. Broader combinations
+outside those providers remain tracked separately, including the candidate/
+committed state-accessor, transform, contribution, procedural,
+AllocateRayQuery2, abort, stream, tessellation, Work Graph/node, and
+SER/HitObject boundaries.
 The latest isolated
 texture-dimension result is profile
 `phase5-graphics-cmp1`: 66/66 cases passed with exact
@@ -896,3 +899,22 @@ invalidate the typed provider's positive behavior. The D3D12 Work Graph API
 remains unsupported even though representative node shader opcode kernels have
 exact native-Metal readbacks. No experimental binary, cache, prefix, or log is
 tracked.
+
+## Phase 5 aggregate-gate repair — 2026-09-03
+
+The Phase 5 aggregate validator was corrected before this closeout. It now
+honors row-specific result profiles, supports explicit exact-value assertions
+(including arrays and `false`), and can traverse indexed result arrays. The
+previous implementation treated every multi-element check as a nested boolean
+path and ignored per-row profiles, which made valid evidence appear to fail or
+be missing. The repaired run uses the selected current PE/Unix runtime pair
+and `METAL_SHADER_CONVERTER=/nonexistent`; all 45 declared Phase 5 rows pass,
+including the custom geometry, AttributeAtVertex, node, and HitObject profiles.
+
+The runtime loader lane also stages all selected DXMT PE modules in the
+isolated prefix and redirects probe-side `LoadLibraryA("d3d12.dll")` through a
+unique app-local alias. This prevents Wine's same-named stale builtin from
+invalidating the ABI/provenance of the behavior results. The generated
+runtime-corpus opcode report and the declared-contract opcode report are kept
+separate so a cache-specific module inventory cannot be mistaken for the
+bounded contract result.

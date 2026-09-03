@@ -1419,9 +1419,13 @@ fi
 DXMT_DYLD_LIBRARY_PATH="$UNIX_DIR:$WINE_UNIX_DIR:${DYLD_LIBRARY_PATH:-}"
 DXMT_WINEMETAL_UNIXLIB_NAME="winemetal.so"
 PROBE_WINEMETAL_UNIXLIB_LINK=""
+PROBE_D3D12_DLL_PATH=""
 cleanup_probe_winemetal_unixlib() {
   if [[ -n "$PROBE_WINEMETAL_UNIXLIB_LINK" ]]; then
     rm -f "$PROBE_WINEMETAL_UNIXLIB_LINK"
+  fi
+  if [[ -n "$PROBE_D3D12_DLL_PATH" ]]; then
+    rm -f "$PROBE_D3D12_DLL_PATH"
   fi
 }
 trap cleanup_probe_winemetal_unixlib EXIT
@@ -1491,6 +1495,15 @@ for dll in d3d12.dll dxgi.dll dxgi_dxmt.dll d3d11.dll d3d10core.dll winemetal.dl
   # stale local DLLs cannot make the SDK report false results.
   cp "$WINDOWS_DIR/$dll" "$SDK_DIR/out/bin/$dll"
 done
+
+# DXMT's d3d12 PE is a Wine builtin module. A same-named app-local copy can
+# still resolve the Wine runtime's builtin implementation, so give the
+# selected build a unique native module name and let probe_runtime.hpp redirect
+# only the probe-side d3d12 LoadLibraryA calls to it.
+DXMT_D3D12_DLL_NAME="d3d12-metalsharp-probe-$$-${RANDOM}.dll"
+PROBE_D3D12_DLL_PATH="$SDK_DIR/out/bin/$DXMT_D3D12_DLL_NAME"
+cp "$WINDOWS_DIR/d3d12.dll" "$PROBE_D3D12_DLL_PATH"
+export DXMT_PROBE_D3D12_DLL="$DXMT_D3D12_DLL_NAME"
 
 if [[ ! -f "$UNIX_DIR/winemetal.so" ]]; then
   echo "Missing winemetal.so: $UNIX_DIR/winemetal.so" >&2
@@ -1590,6 +1603,7 @@ SHADER_CORPUS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-warmup-${PROF
 SHADER_CORPUS_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-${PROFILE}.json"
 DXIL_LOWERING_AUDIT_RESULT_FILE="$RESULTS_DIR/dxil-lowering-audit-${PROFILE}.json"
 SM5_SM69_OPCODE_MATRIX_RESULT_FILE="$RESULTS_DIR/sm5-sm69-opcode-matrix-${PROFILE}.json"
+SM5_SM69_OPCODE_CONTRACT_RESULT_FILE="$RESULTS_DIR/sm5-sm69-opcode-contract-${PROFILE}.json"
 SM66_CAPABILITIES_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-warmup-${PROFILE}.json"
 SM66_CAPABILITIES_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-${PROFILE}.json"
 WRITABLE_MSAA_RESULT_FILE="$RESULTS_DIR/probe-writable-msaa-${PROFILE}.json"
@@ -3213,12 +3227,14 @@ JSON
   # The custom HitObject provider compiles ray generation in-process, so the
   # miss stage must be materialized separately under the exact cache key that
   # MTLD3D12StateObject computes for this DXIL library.  Run one intentionally
-  # cache-cold probe to expose that key, then use the pinned host converter to
-  # materialize only the visible miss function.  The final proof can therefore
-  # run with METAL_SHADER_CONVERTER=/nonexistent.
+  # cache-cold probe to expose that key, then use the selected host converter
+  # to materialize only the visible miss function.  The final proof can
+  # therefore run with METAL_SHADER_CONVERTER=/nonexistent.
   local invoke_cso="$SDK_DIR/out/bin/probe_command_replay_hitobject_invoke.cso"
   if [[ -f "$invoke_cso" ]]; then
     rm -f "$SDK_DIR/out/bin/dxmt-d3d12-trace.log"
+    find "$RESULTS_DIR" -maxdepth 1 -type f \
+      -name '*dxmt-d3d12-trace.log' -delete
     export D3D12_METAL_SDK_COMMAND_RAY_CSO="$invoke_cso"
     export D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT=
     export D3D12_METAL_SDK_COMMAND_RAY_INVOKE=1
@@ -3231,7 +3247,7 @@ JSON
     invoke_trace="$(find "$RESULTS_DIR" -maxdepth 1 -type f \
       -name '*dxmt-d3d12-trace.log' -print -quit 2>/dev/null || true)"
     if [[ -n "$invoke_trace" ]]; then
-      invoke_miss_path="$(grep -oE 'miss=[^ ]+\\.miss\\.metallib' \
+      invoke_miss_path="$(grep -oE 'miss=[^ ]+\.miss\.metallib' \
         "$invoke_trace" | tail -1 | cut -d= -f2- || true)"
     fi
     unset D3D12_METAL_SDK_COMMAND_RAY_CSO
@@ -3243,8 +3259,9 @@ JSON
     if [[ -z "$converter_for_invoke" || ! -x "$converter_for_invoke" ]]; then
       converter_for_invoke="$(command -v metal-shaderconverter || true)"
     fi
-    if [[ -n "$invoke_miss_path" && -n "$converter_for_invoke" &&
-          -x "$converter_for_invoke" ]]; then
+    if [[ -n "$invoke_miss_path" &&
+          ("${METALSHARP_NATIVE_IRCONVERTER:-0}" == "1" ||
+           ( -n "$converter_for_invoke" && -x "$converter_for_invoke" )) ]]; then
       DYLD_LIBRARY_PATH=/usr/local/lib "$ray_compiler" \
         "$invoke_cso" "$raygen_root" miss_shader "$invoke_miss_path" \
         >"$invoke_miss_path.msc.log" 2>&1 || true
@@ -5184,7 +5201,12 @@ if [[ "$RUN_SHADERS" == "1" || "$RUN_DXIL_SEMANTICS" == "1" ||
       --matrix "$SDK_DIR/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json" \
       --corpus "$SHADER_CACHE_DIR" \
       --json-out "$SM5_SM69_OPCODE_MATRIX_RESULT_FILE"
+    python3 "$SDK_DIR/scripts/validate-sm5-sm69-opcode-matrix.py" \
+      --matrix "$SDK_DIR/contracts/phase5-sm5-sm69-opcode-stage-resource-matrix.json" \
+      --strict \
+      --json-out "$SM5_SM69_OPCODE_CONTRACT_RESULT_FILE"
     echo "$SM5_SM69_OPCODE_MATRIX_RESULT_FILE"
+    echo "$SM5_SM69_OPCODE_CONTRACT_RESULT_FILE"
   fi
 fi
 

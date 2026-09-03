@@ -117,9 +117,15 @@ WINEPREFIX="$prefix" WINEDEBUG=-all "$WINE_BIN" wineboot -u >/dev/null 2>&1
 WINEPREFIX="$prefix" "$WINESERVER_BIN" -w >/dev/null 2>&1 || true
 
 # The ABI probe checks the prefix copy in addition to the app-local runtime.
+# Native PE module lookup does not use WINEDLLPATH the same way as Wine's
+# builtin-module lookup.  Copy every selected DXMT PE into this disposable
+# prefix so `d3d12=n,b` (and the paired DXGI/D3D11 modules) cannot silently
+# fall through to the Wine runtime's stale builtin copies.
 mkdir -p "$prefix/drive_c/windows/system32"
-cp "$DXMT_RUNTIME/x86_64-windows/winemetal.dll" \
-  "$prefix/drive_c/windows/system32/winemetal.dll"
+for runtime_dll in "$DXMT_RUNTIME/x86_64-windows"/*.dll; do
+  [[ -f "$runtime_dll" ]] || continue
+  cp "$runtime_dll" "$prefix/drive_c/windows/system32/$(basename "$runtime_dll")"
+done
 
 xcode_version="unknown"
 metal_version="unknown"

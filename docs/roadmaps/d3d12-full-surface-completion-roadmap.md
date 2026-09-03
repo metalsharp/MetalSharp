@@ -2053,3 +2053,21 @@ whether the scoped FL12_2 gate is green.
   `[255,255,0,255]`, proving both reference values are applied rather than
   silently collapsing to one shared reference. Broader stencil/depth matrices
   remain part of the open Phase 6 gate.
+
+### 2026-09-03 — Phase 5 aggregate evidence-gate repair
+
+- Repaired the Phase 5 aggregate validator so it honors manifest-specific
+  result profiles, indexed result arrays, and exact integer/string/array/
+  boolean assertions. The prior checker interpreted multi-element assertions
+  only as nested boolean paths, so valid current evidence was reported as
+  missing or false.
+- Re-ran the required Phase 5 evidence with the selected matching PE/Unix
+  runtime pair and `METAL_SHADER_CONVERTER=/nonexistent`: the repaired gate
+  passes all 45 declared Phase 5 rows. The run also fixes the exact discard
+  expectation to the mathematically correct 2,048 surviving pixels for a
+  64x64 right half, records the 256-byte final mesh payload lane, and
+  materializes the HitObject miss library through the selected native host
+  converter when the external converter is intentionally absent.
+- The Phase 5 closeout remains bounded: the public shader-model ceiling and
+  all unsupported broader combinations stay fail-closed; this does not claim
+  that the full-surface aggregate or later phases are complete.
