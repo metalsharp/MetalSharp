@@ -19,7 +19,7 @@
         ["provenance", "DXIL_RasterizerOrderedTexture2D_resource_flag"],
         ["provenance", "DXIL_RasterizerOrderedStructuredBuffer_resource_flag"]
       ],
-      "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource."
+      "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource. A two-render-target IndependentBlendEnable variant using the ROV pixel shader must reject PSO creation before replay."
     },
     {
       "id": "rasterizer-ordered-typed-buffer",
@@ -28,7 +28,8 @@
       "checks": [
         ["source", "RasterizerOrderedBuffer<uint> fixture"],
         ["compile", "ps_6_0 DXIL fixture compiles"],
-        ["readback", "pending isolated runtime proof"]
+        ["readback", "pending isolated runtime proof"],
+        ["negative", "pending independent_logic_uav_rejected runtime proof"]
       ],
       "scope": "Typed ROV buffer fixture and typed UAV view are wired into the v2 probe; promotion requires the same exact three-overlap readback and ABI/provenance evidence as the already observed buffer/texture shapes."
     },
@@ -114,7 +115,6 @@
         ["readback", "target0=0xaaffff3c"],
         ["readback", "target1=0x550a0c30"],
         ["semantics", "target0_xor_target1_and"],
-        ["negative", "logic_op_uav_side_effect_rejected"],
         ["provider", "per-target-write-mask-pipeline-variants"]
       ],
       "scope": "Two R8G8B8A8 render targets with IndependentBlendEnable and a D32 depth attachment with depth writes enabled. Target 0 applies XOR and target 1 applies AND to distinct initialized values; replay binds one Metal global logic operation at a time while masking the other attachments, then performs one state-only depth replay. A separate UAV-writing pixel PSO is rejected before replay because repeated draws would duplicate those effects."

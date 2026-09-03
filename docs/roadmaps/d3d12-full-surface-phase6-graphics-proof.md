@@ -31,7 +31,10 @@ range kind=uav ... rasterizer_ordered=1
 The v2 harness also carries a `RasterizerOrderedBuffer<uint>` typed-buffer
 fixture and creates an `R32_UINT` typed UAV view. Its DXIL compilation is
 validated, but its isolated runtime readback remains open after the current
-paired-runtime PSO failure; it is not counted as observed evidence.
+paired-runtime PSO failure; it is not counted as observed evidence. The same
+harness records a pending two-render-target IndependentBlendEnable rejection
+case using the ROV shader; that negative result must be independently observed
+before it is counted as evidence.
 
 The implementation remains fail-closed for an ROV resource outside the pixel
 UAV provider. `ROVsSupported` remains `FALSE` until the complete resource,
