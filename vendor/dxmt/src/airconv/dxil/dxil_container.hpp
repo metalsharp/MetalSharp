@@ -77,9 +77,12 @@ struct DxilParsedShader {
   int32_t viewport_index_input_register = -1;
   int32_t render_target_array_index_input_register = -1;
   int32_t barycentrics_input_id = -1;
-  // DXIL InterpolationMode values for the SV_Barycentrics input.  The
-  // default center-perspective mode is 2; zero means that PSV0 did not
-  // provide a usable mode and the Metal default is used.
+  // DXIL InterpolationMode values for pixel input signature elements.  The
+  // values are PSV0's serialized modes: 1=constant, 2=linear perspective,
+  // 3=linear centroid perspective, 4=linear no-perspective,
+  // 5=linear centroid no-perspective, 6=linear sample perspective, and
+  // 7=linear sample no-perspective.  An absent entry uses mode 2.
+  std::vector<uint8_t> input_interpolation_modes;
   uint8_t barycentrics_interpolation = 0;
 };
 

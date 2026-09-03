@@ -2249,6 +2249,10 @@ convert_rasterizer_desc2(const D3D12RasterizerDesc2 &desc2) {
   desc.SlopeScaledDepthBias = desc2.SlopeScaledDepthBias;
   desc.DepthClipEnable = desc2.DepthClipEnable;
   desc.MultisampleEnable = FALSE;
+  // Keep the legacy antialias bit only as the native Metal fallback for the
+  // alpha-antialiased mode.  The complete four-valued RasterizerDesc2 mode is
+  // carried separately through CreateGraphicsPipelineStateInternal and the
+  // PSO object; it must never be reconstructed from this boolean.
   desc.AntialiasedLineEnable = desc2.LineRasterizationMode == 1;
   desc.ForcedSampleCount = desc2.ForcedSampleCount;
   desc.ConservativeRaster = desc2.ConservativeRaster;
@@ -4667,7 +4671,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
 HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
     void **pipeline_state, bool depth_bounds_test_enable,
-    const D3D12ViewInstancingDesc *view_instancing) {
+    const D3D12ViewInstancingDesc *view_instancing,
+    UINT rasterizer_desc2_line_mode) {
   if (!desc || !pipeline_state)
     return E_POINTER;
   InitReturnPtr(pipeline_state);
@@ -4718,6 +4723,8 @@ HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
 
   auto pso = new MTLD3D12PipelineState(this, false);
   pso->SetGraphicsDesc(*desc);
+  if (rasterizer_desc2_line_mode != UINT_MAX)
+    pso->SetRasterizerDesc2LineMode(rasterizer_desc2_line_mode);
   if (view_instancing)
     pso->SetViewInstancing(*view_instancing);
   pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
@@ -4840,7 +4847,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     opts->TypedUAVLoadAdditionalFormats = TRUE;
     // The Metal raster_order_group provider is behavior-backed for the
     // complete declared ROV matrix: raw/structured/typed buffers, typed
-    // 2D/2D-array textures, D32/D24S8 depth/stencil state, and fail-closed non-pixel and
+    // 1D/1D-array/2D/2D-array/3D textures, D32/D24S8 depth/stencil state,
+    // and fail-closed non-pixel and
     // independent-logic side-effect boundaries.  Unsupported resource
     // combinations still reject during lowering/PSO creation.
     opts->ROVsSupported = TRUE;
@@ -5077,7 +5085,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *ms = (D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS *)feature_data;
     if (feature_data_size < sizeof(*ms))
       return E_INVALIDARG;
-    ms->NumQualityLevels = 1;
+    const auto &host = GetHostCapabilities();
+    const bool count_supported = host.device_available &&
+                                  host.supportsTextureSampleCount(
+                                      static_cast<uint8_t>(ms->SampleCount));
+    // Metal reports one usable quality level for each accepted sample count;
+    // unsupported counts must report zero rather than advertising a D3D12
+    // count that resource/PSO creation cannot execute.
+    ms->NumQualityLevels = count_supported ? 1u : 0u;
+    TRACE("  MULTISAMPLE_QUALITY_LEVELS format=%u count=%u quality=%u host_mask=0x%x",
+          (unsigned)ms->Format, ms->SampleCount, ms->NumQualityLevels,
+          host.texture_sample_counts_mask);
     return S_OK;
   }
   case D3D12_FEATURE_FORMAT_INFO: {
@@ -7615,6 +7633,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
   bool is_compute = true;
   bool depth_bounds_test_enable = false;
   bool has_view_instancing = false;
+  UINT rasterizer_desc2_line_mode = UINT_MAX;
   D3D12ViewInstancingDesc view_instancing = {};
   ID3D12RootSignature *created_stream_root_signature = nullptr;
   struct CreatedRootSignatureGuard {
@@ -7872,7 +7891,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
       D3D12RasterizerDesc2 rasterizer = {};
       if (!read_pipeline_stream_subobject(subobject, end, &rasterizer))
         return E_INVALIDARG;
+      if (rasterizer.LineRasterizationMode > 3)
+        return E_INVALIDARG;
       graphics_desc.RasterizerState = convert_rasterizer_desc2(rasterizer);
+      rasterizer_desc2_line_mode = rasterizer.LineRasterizationMode;
       TRACE("CreatePipelineState: rasterizer2 fill=%u cull=%u depth_bias=%g "
             "line_mode=%u forced_samples=%u conservative=%u",
             rasterizer.FillMode, rasterizer.CullMode, rasterizer.DepthBias,
@@ -7948,6 +7970,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
     }
     auto *pso = new MTLD3D12PipelineState(this, false);
     pso->SetGraphicsDesc(graphics_desc);
+    if (rasterizer_desc2_line_mode != UINT_MAX)
+      pso->SetRasterizerDesc2LineMode(rasterizer_desc2_line_mode);
     if (has_view_instancing)
       pso->SetViewInstancing(view_instancing);
     pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
@@ -7978,7 +8002,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
         graphics_desc.NumRenderTargets);
   return CreateGraphicsPipelineStateInternal(
       &graphics_desc, riid, ppPipelineState, depth_bounds_test_enable,
-      has_view_instancing ? &view_instancing : nullptr);
+      has_view_instancing ? &view_instancing : nullptr,
+      rasterizer_desc2_line_mode);
 }
 
 /*** ID3D12Device3 ***/

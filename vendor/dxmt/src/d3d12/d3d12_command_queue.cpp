@@ -188,6 +188,7 @@ const char *TracePsoShaderSummary(MTLD3D12PipelineState *pso) {
       " ps_arg_bind=", pso->GetPSReflection().ArgumentBufferBindIndex,
       " stage_in=", pso->UsesStageInVertexDescriptor(),
       " geom_mesh=", pso->UsesGeometryMeshPipeline(),
+      " rasterizer2_line_mode=", pso->GetRasterizerDesc2LineMode(),
       " tess_fallback=", pso->UsesTessellationFallback());
   return summary.c_str();
 }
@@ -14062,10 +14063,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (!st.dynamic_strip_cut_value_set && st.pso)
           st.strip_cut_value = st.pso->GetStripCutValue();
         QTRACE(
-            "SetPipelineState pso=%p compiled=%d compute=%d stage=%s detail=%s",
+            "SetPipelineState pso=%p compiled=%d compute=%d line_mode=%u "
+            "stage=%s detail=%s",
             (void *)st.pso, st.pso ? st.pso->IsCompiled() : 0,
-            st.pso ? st.pso->IsCompute() : 0, TraceCompileFailureStage(st.pso),
-            TraceCompileFailureDetail(st.pso));
+            st.pso ? st.pso->IsCompute() : 0,
+            st.pso ? st.pso->GetRasterizerDesc2LineMode() : UINT_MAX,
+            TraceCompileFailureStage(st.pso), TraceCompileFailureDetail(st.pso));
         if (st.render_enc_open && st.pso && st.pso->IsCompiled() &&
             st.pso->GetRenderPSO().handle) {
           st.render_enc.setRenderPipelineState(st.pso->GetRenderPSO());

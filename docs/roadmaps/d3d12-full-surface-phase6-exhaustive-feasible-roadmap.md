@@ -65,6 +65,37 @@ The existing checkpoint proves, on the selected isolated runtime:
 These rows remain regression gates. They are not a reason to reject a new
 legal row below.
 
+### 2.1.1 Implementation checkpoint (not final completion)
+
+The first exhaustive-feasible implementation slice now has source-owned
+artifacts for the following behavior, without changing the bounded manifest's
+historical status:
+
+- The authoritative equivalence-class contract is
+  `contracts/phase6-exhaustive-coverage.json`, and
+  `validate-phase6-exhaustive.py` rejects closed rows without exact positive
+  and negative evidence or a complete no-go record.
+- The disposable `run-phase6-exhaustive.sh` lane stages all PE/Unix halves
+  below `/private/tmp`, verifies the Winemetal export/call-table contract, uses
+  unique aliases, and removes its prefix/build outputs on normal and failure
+  paths. Its source-build path relinks consumers after the Meson symbol
+  extractor so the import library and staged builtin cannot silently diverge.
+- P6-D's native stage-in provider has exact perspective, noperspective,
+  centroid, sample, flat, explicit centroid/sample/snapped evaluation, and
+  malformed-DXIL null-PSO evidence. Snapped offsets preserve D3D12's signed
+  sixteenth-pixel-from-center origin when converted to Metal's normalized
+  offset coordinate.
+- P6-C has an exact one-pixel point/14-pixel line baseline and explicit
+  `RasterizerDesc2` modes 0--3 plus invalid-mode rejection. The four-valued
+  line mode is retained in the PSO/replay metadata; quadrilateral-wide/narrow
+  semantic coverage remains open until a geometry/reference provider proves it.
+- P6-G has exact ordered three-draw ROV increments for the D3D12 1D,
+  1D-array, and 3D resource kinds using DXMT's documented height-one 2D view
+  representation for 1D resources.
+
+This is an implementation checkpoint only. The rows that still say `open`
+remain blockers for the final Phase 6 claim.
+
 ### 2.2 Open legal combinations
 
 The following are open because they have not yet received complete exact
