@@ -29,12 +29,11 @@ range kind=uav ... rasterizer_ordered=1
 ```
 
 The v2 harness also carries a `RasterizerOrderedBuffer<uint>` typed-buffer
-fixture and creates an `R32_UINT` typed UAV view. Its DXIL compilation is
-validated, but its isolated runtime readback remains open after the current
-paired-runtime PSO failure; it is not counted as observed evidence. The same
-harness records a pending two-render-target IndependentBlendEnable rejection
-case using the ROV shader; that negative result must be independently observed
-before it is counted as evidence.
+fixture and creates an `R32_UINT` typed UAV view. Under the selected isolated
+runtime it now reads back `3` exactly after the same three overlapping
+primitives. The same run rejects the two-render-target IndependentBlendEnable
+ROV/UAV PSO with `0x80004005` before replay, so no repeated UAV side effect is
+accepted.
 
 The implementation remains fail-closed for an ROV resource outside the pixel
 UAV provider. Terminal shader/PSO compilation failures now return `E_FAIL`
@@ -89,17 +88,19 @@ this prevents repeated draws from duplicating UAV/ROV side effects.
 
 The exact two-target readback uses `IndependentBlendEnable=TRUE`, a D32 depth
 attachment with depth writes enabled, XOR on target 0, AND on target 1, and
-distinct initialized RGBA8 values:
+distinct initialized RGBA8 values. The companion UAV-writing pixel shader is
+rejected at PSO creation with `0x80004005`, proving the replay path cannot
+duplicate unordered side effects:
 
 - target 0: `0xaaffff3c` (`clear XOR shader output`);
 - target 1: `0x550a0c30` (`clear AND shader output`).
 
-The formerly rejected `logic_op_mrt_independent_variants` PSO case now creates
-successfully, and `logic_op_independent_readback=true` is required by
-`probe-graphics-pso`. The replay variant is deliberately fail-closed for pixel
-shaders with UAV side effects, because repeating a draw would repeat those
-side effects; depth/stencil writes use a no-write color pass plus one final
-state-only replay, which is exercised by the D32 depth case.
+The `logic_op_mrt_independent_variants` PSO case creates successfully, and
+`logic_op_independent_readback=true` is required by `probe-graphics-pso`. The
+replay variant is deliberately fail-closed for pixel shaders with UAV side
+effects, because repeating a draw would repeat those effects; depth/stencil
+writes use a no-write color pass plus one final state-only replay, which is
+exercised by the D32 depth case.
 
 ## GraphicsCommandList8 front/back stencil references
 

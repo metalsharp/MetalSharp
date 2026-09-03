@@ -56,7 +56,10 @@ RUN_WINEMETAL_ABI=1
 RUN_PRESENT_WINDOWED=0
 RUN_FULL_STRESS=0
 MINI_PROBE_FILTER="${METALSHARP_MINI_PROBE_FILTER:-}"
-DLL_OVERRIDES="${DXMT_PROBE_DLL_OVERRIDES:-d3d12,dxgi,d3d11,d3d10core,winemetal=n,b}"
+# Keep every selected DXMT PE ahead of Wine's builtin implementation.  A
+# comma-separated prefix is not a valid per-module Wine override and silently
+# leaves D3D10/D3D11 on wined3d, which makes the legacy regression meaningless.
+DLL_OVERRIDES="${DXMT_PROBE_DLL_OVERRIDES:-d3d12=n,b;dxgi=n,b;d3d11=n,b;d3d10core=n,b;winemetal=n,b}"
 MINI_PROBES=(
   create_device
   command_queue

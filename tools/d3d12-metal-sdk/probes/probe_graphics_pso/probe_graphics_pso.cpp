@@ -207,7 +207,10 @@ static HRESULT serialize_root_signature(ID3DBlob** blob, std::string& errors,
     D3D12_DESCRIPTOR_RANGE uav_range = {};
     uav_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     uav_range.NumDescriptors = 1;
-    uav_range.BaseShaderRegister = 0;
+    // Pixel UAV registers must be above the highest render-target output
+    // register for the SM5 compiler; the side-effect rejection fixture has
+    // two color outputs and therefore uses u2.
+    uav_range.BaseShaderRegister = with_uav ? 2 : 0;
     D3D12_ROOT_PARAMETER uav_parameter = {};
     uav_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     uav_parameter.DescriptorTable.NumDescriptorRanges = 1;
@@ -537,10 +540,16 @@ struct IndependentLogicOpProbeResult {
     bool passed = false;
     bool side_effect_rejected = false;
     HRESULT compile_hr = E_FAIL;
+    HRESULT vertex_compile_hr = E_FAIL;
+    HRESULT pixel_compile_hr = E_FAIL;
+    HRESULT uav_pixel_compile_hr = E_FAIL;
     HRESULT execute_hr = E_FAIL;
+    HRESULT side_root_serialize_hr = E_FAIL;
+    HRESULT side_root_create_hr = E_FAIL;
     HRESULT side_effect_hr = E_FAIL;
     uint32_t target0 = 0;
     uint32_t target1 = 0;
+    std::string compile_detail;
 };
 
 static IndependentLogicOpProbeResult run_independent_logic_op_probe(
@@ -571,10 +580,15 @@ PSOut logic_ps(VSOut input) {
                             15.0 / 255.0, 1.0);
     return output;
 }
-RWByteAddressBuffer side_effect_uav : register(u0);
+RWByteAddressBuffer side_effect_uav : register(u2);
 PSOut logic_ps_with_uav(VSOut input) {
     side_effect_uav.Store(0, 0x12345678);
-    return logic_ps(input);
+    PSOut output;
+    output.target0 = float4(51.0 / 255.0, 15.0 / 255.0,
+                            85.0 / 255.0, 1.0);
+    output.target1 = float4(60.0 / 255.0, 60.0 / 255.0,
+                            15.0 / 255.0, 1.0);
+    return output;
 }
 )HLSL";
     std::string errors;
@@ -582,8 +596,19 @@ PSOut logic_ps_with_uav(VSOut input) {
     ID3DBlob* ps = nullptr;
     ID3DBlob* ps_uav = nullptr;
     HRESULT vs_hr = compile_shader(hlsl, "logic_vs", "vs_5_0", &vs, errors);
+    result.vertex_compile_hr = vs_hr;
+    if (FAILED(vs_hr) && result.compile_detail.empty())
+        result.compile_detail = errors;
+    errors.clear();
     HRESULT ps_hr = compile_shader(hlsl, "logic_ps", "ps_5_0", &ps, errors);
+    result.pixel_compile_hr = ps_hr;
+    if (FAILED(ps_hr) && result.compile_detail.empty())
+        result.compile_detail = errors;
+    errors.clear();
     HRESULT ps_uav_hr = compile_shader(hlsl, "logic_ps_with_uav", "ps_5_0", &ps_uav, errors);
+    result.uav_pixel_compile_hr = ps_uav_hr;
+    if (FAILED(ps_uav_hr) && result.compile_detail.empty())
+        result.compile_detail = errors;
     result.compile_hr = FAILED(vs_hr) ? vs_hr : (FAILED(ps_hr) ? ps_hr : ps_uav_hr);
     if (FAILED(result.compile_hr) || !vs || !ps || !ps_uav) {
         safe_release(ps_uav);
@@ -622,10 +647,13 @@ PSOut logic_ps_with_uav(VSOut input) {
     ID3DBlob* side_root_blob = nullptr;
     ID3D12RootSignature* side_root = nullptr;
     HRESULT side_root_hr = serialize_root_signature(&side_root_blob, errors, true);
-    if (SUCCEEDED(side_root_hr))
+    result.side_root_serialize_hr = side_root_hr;
+    if (SUCCEEDED(side_root_hr)) {
         side_root_hr = device->CreateRootSignature(
             0, side_root_blob->GetBufferPointer(), side_root_blob->GetBufferSize(),
             IID_PPV_ARGS(&side_root));
+        result.side_root_create_hr = side_root_hr;
+    }
     D3D12_GRAPHICS_PIPELINE_STATE_DESC side_desc = pso_desc;
     side_desc.pRootSignature = side_root;
     side_desc.PS = {ps_uav->GetBufferPointer(), ps_uav->GetBufferSize()};
@@ -1373,6 +1401,18 @@ float4 tess_ps(TessCP input) : SV_Target {
                 independent_logic_op.side_effect_rejected ? "true" : "false");
     std::printf("    \"logic_op_uav_side_effect_hr\": \"%s\",\n",
                 hr_hex(independent_logic_op.side_effect_hr).c_str());
+    std::printf("    \"logic_op_vertex_compile_hr\": \"%s\",\n",
+                hr_hex(independent_logic_op.vertex_compile_hr).c_str());
+    std::printf("    \"logic_op_pixel_compile_hr\": \"%s\",\n",
+                hr_hex(independent_logic_op.pixel_compile_hr).c_str());
+    std::printf("    \"logic_op_uav_pixel_compile_hr\": \"%s\",\n",
+                hr_hex(independent_logic_op.uav_pixel_compile_hr).c_str());
+    std::printf("    \"logic_op_side_root_serialize_hr\": \"%s\",\n",
+                hr_hex(independent_logic_op.side_root_serialize_hr).c_str());
+    std::printf("    \"logic_op_side_root_create_hr\": \"%s\",\n",
+                hr_hex(independent_logic_op.side_root_create_hr).c_str());
+    std::printf("    \"logic_op_compile_detail\": \"%s\",\n",
+                json_escape(independent_logic_op.compile_detail).c_str());
     std::printf("    \"front_back_stencil_shader_compile_hr\": \"%s\",\n",
                 hr_hex(front_back_stencil.shader_compile_hr).c_str());
     std::printf("    \"front_back_stencil_front_pso_hr\": \"%s\",\n",

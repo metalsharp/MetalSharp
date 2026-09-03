@@ -23,15 +23,16 @@
     },
     {
       "id": "rasterizer-ordered-typed-buffer",
-      "status": "open",
+      "status": "observed_bounded",
       "result": "probe-rov",
       "checks": [
         ["source", "RasterizerOrderedBuffer<uint> fixture"],
         ["compile", "ps_6_0 DXIL fixture compiles"],
-        ["readback", "pending isolated runtime proof"],
-        ["negative", "pending independent_logic_uav_rejected runtime proof"]
+        ["readback", "typed_buffer_uint=3 expected=3 exact=true"],
+        ["negative", "independent_logic_uav_rejected=0x80004005 rejected=true"],
+        ["provenance", "DXIL_RasterizerOrderedBuffer_resource_flag"]
       ],
-      "scope": "Typed ROV buffer fixture and typed UAV view are wired into the v2 probe; promotion requires the same exact three-overlap readback and ABI/provenance evidence as the already observed buffer/texture shapes."
+      "scope": "Typed ROV buffer fixture and R32_UINT typed UAV view execute the exact three-overlap ordered load/increment/store matrix under the selected isolated runtime. The broader resource/stage/state matrix remains outside this bounded provider."
     },
     {
       "id": "conservative-rasterization-tier3-reference-model",
@@ -115,6 +116,7 @@
         ["readback", "target0=0xaaffff3c"],
         ["readback", "target1=0x550a0c30"],
         ["semantics", "target0_xor_target1_and"],
+        ["negative", "logic_op_uav_side_effect_rejected=0x80004005 rejected=true"],
         ["provider", "per-target-write-mask-pipeline-variants"]
       ],
       "scope": "Two R8G8B8A8 render targets with IndependentBlendEnable and a D32 depth attachment with depth writes enabled. Target 0 applies XOR and target 1 applies AND to distinct initialized values; replay binds one Metal global logic operation at a time while masking the other attachments, then performs one state-only depth replay. A separate UAV-writing pixel PSO is rejected before replay because repeated draws would duplicate those effects."
