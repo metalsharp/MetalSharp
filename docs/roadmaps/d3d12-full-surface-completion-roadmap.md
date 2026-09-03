@@ -364,7 +364,7 @@ red.
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
 - [x] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (280/280 required opcode rows observed; 0 open)
-- [x] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (closed behavior-backed provider matrix; unverified shapes remain fail-closed)
+- [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (bounded provider matrix closed; exhaustive-feasible completion open — see [Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md))
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
 - [ ] Phase 9 — D3D12 video provider
@@ -836,11 +836,12 @@ full table breadth, SER, OMM, and portable serialization remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
-**Goal:** Close every behavior-backed Phase 6 provider on the Apple M4/Metal 4
-host, with exact readbacks and explicit fail-closed boundaries for descriptor
-combinations that are not provided. The phase contract is closed only for the
-matrix recorded in `phase6-graphics-coverage.json`; remaining full-surface
-ledger expansion is tracked independently.
+**Goal:** Complete every legal ordinary-graphics combination that can be
+implemented on the Apple M4/Metal 4 host, with exact readbacks and explicit
+proof for any genuine host/toolchain no-go. The bounded provider contract in
+`phase6-graphics-coverage.json` is closed, but it is only the regression
+checkpoint. The exhaustive-feasible completion plan is
+[Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md).
 
 **Implemented provider matrix:**
 
@@ -869,8 +870,9 @@ ledger expansion is tracked independently.
 - Feature queries are derived from those passing matrices, while every
   unverified combination remains unadvertised or rejects before execution.
 - Broader geometry/tessellation, conservative-raster, MSAA, and interpolation
-  expansion remains a separately tracked full-surface ledger item rather than
-  being hidden by this bounded Phase 6 closure.
+  expansion is tracked by the [exhaustive-feasible Phase 6 roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md).
+  The bounded contract must not be presented as final Phase 6 completion until
+  that roadmap's no-open-feasible-row gate passes.
 
 ### Phase 7 — Complete mesh, amplification, work graphs, and node shaders
 
@@ -2117,5 +2119,16 @@ whether the scoped FL12_2 gate is green.
   view/format matrix all pass under the same isolated runtime.
 - Updated the Phase 6 contract to `closed` with explicit provider scopes and
   fail-closed boundaries. This closes Phase 6's declared behavior-backed
-  provider matrix; Work Graphs, full DXR, video, protected sessions, and other
-  later full-surface ledger families remain separate phases.
+  provider matrix; the new [exhaustive-feasible Phase 6 roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md)
+  tracks remaining legal ordinary-graphics combinations before the final Phase
+  6 claim. Work Graphs, full DXR, video, protected sessions, and other later
+  full-surface ledger families remain separate phases.
+
+### 2026-09-03 — Phase 6 exhaustive-feasible follow-up
+
+- Added the exhaustive-feasible completion roadmap. It requires implementation
+  or a proven host/toolchain no-go for broader interpolation, point/line and
+  RasterizerDesc2 behavior, conservative-raster cross-products, MSAA/sample
+  positions, view layouts, ROV breadth, and side-effect-safe logic-op replay.
+- Reclassified the main roadmap's Phase 6 status as open for that expansion;
+  the existing 14-row bounded contract remains closed as a regression gate.
