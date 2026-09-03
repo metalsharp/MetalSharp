@@ -68,10 +68,84 @@ static void parse_signature(const uint8_t *data, size_t size, bool input,
         shader.render_target_array_index_output_id = static_cast<int32_t>(i);
       }
     } else if (system_value == 23 && input) {
-      // DxilProgramSigSemantic::Barycentrics. The bounded provider uses the
-      // default perspective barycentric coordinate; noperspective/sample
-      // variants remain outside this field's contract.
+      // DxilProgramSigSemantic::Barycentrics.  The PSV0 record supplies the
+      // interpolation mode used when emitting the Metal builtin attribute.
       shader.barycentrics_input_id = static_cast<int32_t>(i);
+    }
+  }
+}
+
+static void parse_psv0(const uint8_t *data, size_t size,
+                       DxilParsedShader &shader) {
+  // PSV0 is versioned by the serialized runtime-info size.  We only need the
+  // input signature records here, but walk the preceding resource/string
+  // tables with their serialized sizes so malformed or future blobs fail
+  // closed instead of being interpreted at fixed offsets.
+  if (!data || size < 8)
+    return;
+  const uint32_t runtime_size = read_u32(data);
+  if (runtime_size < 36 || runtime_size > size - 8)
+    return;
+  const uint8_t *runtime = data + 4;
+  size_t offset = 4 + runtime_size;
+  if (offset + 4 > size)
+    return;
+  const uint32_t resource_count = read_u32(data + offset);
+  offset += 4;
+  if (resource_count > 4096)
+    return;
+  if (resource_count) {
+    if (offset + 4 > size)
+      return;
+    const uint32_t resource_size = read_u32(data + offset);
+    offset += 4;
+    if (resource_size < 16 || resource_size > size ||
+        uint64_t(offset) + uint64_t(resource_count) * resource_size > size)
+      return;
+    offset += uint64_t(resource_count) * resource_size;
+  }
+
+  // PSVRuntimeInfo1 fields are stable through later versions.  The signature
+  // counts are relative to the start of the runtime-info structure.
+  const uint32_t input_elements = runtime[28];
+  const uint32_t output_elements = runtime[29];
+  const uint32_t patch_elements = runtime[30];
+  if (offset + 4 > size)
+    return;
+  const uint32_t string_size = read_u32(data + offset);
+  offset += 4;
+  if (string_size > size || uint64_t(offset) + string_size > size)
+    return;
+  offset += string_size;
+  if (offset + 4 > size)
+    return;
+  const uint32_t semantic_index_entries = read_u32(data + offset);
+  offset += 4;
+  if (semantic_index_entries > (size - offset) / 4)
+    return;
+  offset += uint64_t(semantic_index_entries) * 4;
+
+  if (!input_elements && !output_elements && !patch_elements)
+    return;
+  if (offset + 4 > size)
+    return;
+  const uint32_t element_size = read_u32(data + offset);
+  offset += 4;
+  if (element_size < 14 || element_size > size)
+    return;
+  const uint64_t input_bytes = uint64_t(input_elements) * element_size;
+  const uint64_t output_bytes = uint64_t(output_elements) * element_size;
+  const uint64_t patch_bytes = uint64_t(patch_elements) * element_size;
+  if (uint64_t(offset) + input_bytes + output_bytes + patch_bytes > size)
+    return;
+
+  // PSVSignatureElement0::SemanticKind is byte 11 and InterpolationMode is
+  // byte 13.  Barycentrics is semantic kind 28 (the DXIL enum value).
+  for (uint32_t i = 0; i < input_elements; ++i) {
+    const uint8_t *element = data + offset + uint64_t(i) * element_size;
+    if (element[11] == 28) {
+      shader.barycentrics_interpolation = element[13];
+      break;
     }
   }
 }
@@ -97,6 +171,8 @@ static void parse_signatures(const uint8_t *container, size_t size,
       parse_signature(part_data, part_size, true, shader);
     else if (std::memcmp(container + part_offset, "OSG1", 4) == 0)
       parse_signature(part_data, part_size, false, shader);
+    else if (std::memcmp(container + part_offset, "PSV0", 4) == 0)
+      parse_psv0(part_data, part_size, shader);
   }
 }
 

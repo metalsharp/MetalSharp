@@ -2496,8 +2496,21 @@ static void emitFunctionPrologue(LowerContext &ctx) {
                 std::min<uint32_t>(ctx.binding_plan.direct_buffer_count, 28);
         os << "fragment float4 ps_main(\n";
         os << "  input_v in [[stage_in]],\n";
-        if (ctx.shader.barycentrics_input_id >= 0)
-            os << "  float3 m12_barycentrics [[barycentric_coord]],\n";
+        if (ctx.shader.barycentrics_input_id >= 0) {
+            const char *barycentric_interpolation = nullptr;
+            switch (ctx.shader.barycentrics_interpolation) {
+            case 3: barycentric_interpolation = "centroid_perspective"; break;
+            case 4: barycentric_interpolation = "center_no_perspective"; break;
+            case 5: barycentric_interpolation = "centroid_no_perspective"; break;
+            case 6: barycentric_interpolation = "sample_perspective"; break;
+            case 7: barycentric_interpolation = "sample_no_perspective"; break;
+            default: break; // center-perspective is Metal's default.
+            }
+            os << "  float3 m12_barycentrics [[barycentric_coord";
+            if (barycentric_interpolation)
+                os << ", " << barycentric_interpolation;
+            os << "]],\n";
+        }
         if (ctx.attribute_at_vertex_provider) {
             os << "  uint m12_attribute_at_vertex_primitive [[primitive_id]],\n";
             os << "  device float4* m12_attribute_at_vertex_capture [[buffer(28)]],\n";
