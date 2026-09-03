@@ -89,6 +89,12 @@ public:
   HRESULT STDMETHODCALLTYPE GetCachedBlob(ID3DBlob **blob) override;
 
   void SetGraphicsDesc(const D3D12_GRAPHICS_PIPELINE_STATE_DESC &desc);
+  void SetRasterizerDesc2LineMode(UINT mode) {
+    m_rasterizer_desc2_line_mode = mode;
+  }
+  UINT GetRasterizerDesc2LineMode() const {
+    return m_rasterizer_desc2_line_mode;
+  }
   void SetViewInstancing(const D3D12ViewInstancingDesc &desc);
   void SetDepthBoundsTestEnable(bool enable) {
     m_depth_bounds_test_enable = enable;
@@ -336,6 +342,7 @@ private:
   std::vector<uint8_t> m_vs, m_ps, m_gs, m_hs, m_ds, m_cs, m_as, m_ms;
   D3D12_BLEND_DESC m_blend_desc = {};
   D3D12_RASTERIZER_DESC m_rasterizer_desc = {};
+  UINT m_rasterizer_desc2_line_mode = UINT_MAX;
   D3D12_DEPTH_STENCIL_DESC m_depth_stencil_desc = {};
   bool m_depth_bounds_test_enable = false;
   bool m_uses_atomic64_emulation = false;

@@ -100,6 +100,27 @@ prefix afterward. It never overwrites the installed M12 or Wine routes.
 `run-probes.sh --profile metalsharp` remains the low-level runner for controlled
 CI/package environments that provide their own disposable prefix lifecycle.
 
+The exhaustive Phase 6 lane has a stricter sandboxed runner. It never stages
+into `~/.metalsharp/runtime/wine`, never uses the persistent Steam prefix, and
+fails before launch if the Winemetal PE export set or Unix call-table half is
+incomplete. With `--build-runtime` it also works around Meson's symbol-extractor
+rewrite by relinking consumers against the complete Winemetal import library;
+the generated build DLLs are restored on every exit path:
+
+```bash
+METALSHARP_PHASE6_RESULTS_DIR=/private/tmp/phase6-results \
+  tools/d3d12-metal-sdk/scripts/run-phase6-exhaustive.sh --build-runtime
+```
+
+The runner builds source-owned DXIL fixtures in the disposable prefix and uses
+60-second per-probe waits (120 seconds for the larger MSAA matrix).
+`stage-phase6-sandbox.py` records PE/Unix hashes and
+`validate-phase6-exhaustive.py` requires exact readbacks, HRESULT/null-object
+invariants, and the pinned target identity. Add `--with-rasterization` to run
+the point/line baseline, `--with-rov-dimensions` for typed 1D/1D-array/3D
+ROVs, and `--with-host-inventory` for the native Metal interpolation/sample
+count capability probe.
+
 For fast one-behavior-at-a-time D3D12 validation without launching Steam or a
 game, run the headless mini-app suite:
 

@@ -140,12 +140,18 @@ static void parse_psv0(const uint8_t *data, size_t size,
     return;
 
   // PSVSignatureElement0::SemanticKind is byte 11 and InterpolationMode is
-  // byte 13.  Barycentrics is semantic kind 28 (the DXIL enum value).
+  // byte 13.  Barycentrics is semantic kind 28 (the DXIL enum value).  Keep
+  // every pixel-input mode, not only the barycentric mode: the MSL stage-in
+  // ABI must distinguish perspective, no-perspective, centroid, sample, and
+  // constant interpolation for ordinary varyings as well.
+  if (input_elements > 128)
+    return;
+  shader.input_interpolation_modes.assign(input_elements, 0);
   for (uint32_t i = 0; i < input_elements; ++i) {
     const uint8_t *element = data + offset + uint64_t(i) * element_size;
+    shader.input_interpolation_modes[i] = element[13];
     if (element[11] == 28) {
       shader.barycentrics_interpolation = element[13];
-      break;
     }
   }
 }

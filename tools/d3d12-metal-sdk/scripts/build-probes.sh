@@ -152,6 +152,10 @@ build_probe \
   -o "$OUT_DIR/probe_rov.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_rov_dimensions/probe_rov_dimensions.cpp" \
+  -o "$OUT_DIR/probe_rov_dimensions.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_barycentrics/probe_barycentrics.cpp" \
   -o "$OUT_DIR/probe_barycentrics.exe"
 
@@ -178,6 +182,14 @@ build_probe \
 build_probe \
   "$SDK_DIR/probes/probe_graphics_pso/probe_graphics_pso.cpp" \
   -o "$OUT_DIR/probe_graphics_pso.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_rasterization_breadth/probe_rasterization_breadth.cpp" \
+  -o "$OUT_DIR/probe_rasterization_breadth.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_interpolation/probe_interpolation.cpp" \
+  -o "$OUT_DIR/probe_interpolation.exe"
 
 build_probe \
   "$SDK_DIR/probes/probe_attribute_at_vertex/probe_attribute_at_vertex.cpp" \

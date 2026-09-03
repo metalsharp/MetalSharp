@@ -985,6 +985,62 @@ struct LowerContext {
     uint32_t next_hit_object_query_slot = 0;
 };
 
+static uint8_t inputInterpolationMode(const DxilParsedShader &shader,
+                                      uint32_t signature_id) {
+    if (signature_id < shader.input_interpolation_modes.size()) {
+        const uint8_t mode = shader.input_interpolation_modes[signature_id];
+        if (mode >= 1 && mode <= 7)
+            return mode;
+    }
+    // DXIL's undefined/absent mode is the ordinary center-perspective form.
+    return 2;
+}
+
+static bool usesSampleInterpolation(const DxilParsedShader &shader) {
+    return std::any_of(shader.input_interpolation_modes.begin(),
+                       shader.input_interpolation_modes.end(),
+                       [](uint8_t mode) { return mode == 6 || mode == 7; });
+}
+
+static const char *mslInterpolationAttribute(uint8_t mode) {
+    switch (mode) {
+    case 1: return "flat";
+    case 3: return "centroid_perspective";
+    case 4: return "center_no_perspective";
+    case 5: return "centroid_no_perspective";
+    case 6: return "sample_perspective";
+    case 7: return "sample_no_perspective";
+    case 2:
+    default: return "center_perspective";
+    }
+}
+
+static bool isInterpolantMode(uint8_t mode) {
+    return mode >= 2 && mode <= 7;
+}
+
+static std::string varyingInputValue(const LowerContext &ctx,
+                                     uint32_t signature_id) {
+    const std::string field = varyingField("in", signature_id);
+    if (signature_id == 0 || !ctx.uses_interpolation)
+        return field;
+
+    switch (inputInterpolationMode(ctx.shader, signature_id)) {
+    case 1:
+        return field;
+    case 3:
+    case 5:
+        return field + ".interpolate_at_centroid()";
+    case 6:
+    case 7:
+        return field + ".interpolate_at_sample(m12_sample_id)";
+    case 2:
+    case 4:
+    default:
+        return field + ".interpolate_at_center()";
+    }
+}
+
 static bool isComputeLikeShader(DxilShaderKind kind) {
     return kind == DxilShaderKind::Compute || kind == DxilShaderKind::Node;
 }
@@ -1132,11 +1188,15 @@ static std::string textureBindingType(uint32_t resource_kind, bool writable,
                ", access::read_write>";
 
     switch (resource_kind) {
+    // D3D12 1D views are represented by DXMT's existing 2D texture view
+    // provider (height one), so retain the ABI type even though the DXIL
+    // resource kind is Texture1D.
     case 1u: return "texture2d<" + std::string(element) + ", access::" + access + ">";
     case 2u: return "texture2d<" + std::string(element) + ", access::" + access + ">";
     case 3u: return "texture2d_ms<" + std::string(element) + ", access::read>";
     case 4u: return "texture3d<" + std::string(element) + ", access::" + access + ">";
     case 5u: return "texturecube<" + std::string(element) + ", access::" + access + ">";
+    // Texture1DArray uses the corresponding height-one 2D-array view.
     case 6u: return "texture2d_array<" + std::string(element) + ", access::" + access + ">";
     case 7u: return "texture2d_array<" + std::string(element) + ", access::" + access + ">";
     case 8u: return "texture2d_ms_array<" + std::string(element) + ", access::read>";
@@ -2038,31 +2098,46 @@ static void emitFunctionPrologue(LowerContext &ctx) {
     os << "struct input_v {\n";
     os << "  float4 position [[position]];\n";
     auto emitInputField = [&](const char *type, const char *name,
-                              unsigned location) {
+                              unsigned location, unsigned signature_id) {
+        const uint8_t mode =
+            inputInterpolationMode(ctx.shader, signature_id);
+        const bool use_interpolant =
+            ctx.uses_interpolation && isInterpolantMode(mode);
         os << "  ";
-        if (ctx.uses_interpolation)
-            os << "interpolant<" << type
-               << ", interpolation::perspective> ";
-        else
+        if (use_interpolant) {
+            const bool no_perspective = mode == 4 || mode == 5 || mode == 7;
+            os << "interpolant<" << type << ", interpolation::"
+               << (no_perspective ? "no_perspective" : "perspective")
+               << "> ";
+        } else {
             os << type << " ";
-        os << name << " [[user(locn" << location << ")]];\n";
+        }
+        os << name << " [[user(locn" << location << ")";
+        // An interpolant object exposes explicit evaluation methods and cannot
+        // also carry a centroid/sample/flat attribute.  For ordinary fields,
+        // emit the native Metal qualifier as a separate attribute; the
+        // lowering expression selects the corresponding method when explicit
+        // evaluation is requested.
+        if (!use_interpolant)
+            os << ", " << mslInterpolationAttribute(mode);
+        os << "]];\n";
     };
-    emitInputField("float4", "v0", 0);
-    emitInputField("float4", "v1", 1);
-    emitInputField("float4", "v2", 2);
-    emitInputField("float4", "v3", 3);
-    emitInputField("float4", "v4", 4);
-    emitInputField("float4", "v5", 5);
-    emitInputField("float4", "v6", 6);
-    emitInputField("float4", "v7", 7);
-    emitInputField("float2", "uv0", 8);
-    emitInputField("float2", "uv1", 9);
-    emitInputField("float2", "uv2", 10);
-    emitInputField("float2", "uv3", 11);
-    emitInputField("float4", "color0", 12);
-    emitInputField("float4", "color1", 13);
-    emitInputField("float4", "color2", 14);
-    emitInputField("float4", "color3", 15);
+    emitInputField("float4", "v0", 0, 1);
+    emitInputField("float4", "v1", 1, 2);
+    emitInputField("float4", "v2", 2, 3);
+    emitInputField("float4", "v3", 3, 4);
+    emitInputField("float4", "v4", 4, 5);
+    emitInputField("float4", "v5", 5, 6);
+    emitInputField("float4", "v6", 6, 7);
+    emitInputField("float4", "v7", 7, 8);
+    emitInputField("float2", "uv0", 8, 9);
+    emitInputField("float2", "uv1", 9, 10);
+    emitInputField("float2", "uv2", 10, 11);
+    emitInputField("float2", "uv3", 11, 12);
+    emitInputField("float4", "color0", 12, 13);
+    emitInputField("float4", "color1", 13, 14);
+    emitInputField("float4", "color2", 14, 15);
+    emitInputField("float4", "color3", 15, 16);
     if (ctx.attribute_at_vertex_capture &&
         ctx.attribute_at_vertex_input_id != UINT32_MAX) {
         os << "  float4 m12_attribute_at_vertex_v0 [[user(locn17)]];\n";
@@ -2515,7 +2590,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  uint m12_attribute_at_vertex_primitive [[primitive_id]],\n";
             os << "  device float4* m12_attribute_at_vertex_capture [[buffer(28)]],\n";
         }
-        if (ctx.uses_sample_index)
+        if (ctx.uses_sample_index || usesSampleInterpolation(ctx.shader))
             os << "  uint m12_sample_id [[sample_id]],\n";
         if (ctx.uses_coverage)
             os << "  uint m12_coverage [[sample_mask]],\n";
@@ -7373,8 +7448,12 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                         numericArg(3, "0") + "))";
         } else if (intrinsic_id == DXOP_EvalSnapped && args.size() >= 5) {
             ctx.uses_interpolation = true;
-            evaluated = field + ".interpolate_at_offset(float2((float)(" +
-                        numericArg(3, "0") + ") / 16.0f, (float)(" +
+            // DXIL's snapped offsets are signed sixteenth-pixel offsets
+            // from the pixel center.  Metal's offset evaluator uses a
+            // normalized pixel location with 0.5 at that center, so retain
+            // the D3D12 origin before converting the fixed-point offset.
+            evaluated = field + ".interpolate_at_offset(float2(0.5f + (float)(" +
+                        numericArg(3, "0") + ") / 16.0f, 0.5f + (float)(" +
                         numericArg(4, "0") + ") / 16.0f))";
         } else {
             ctx.unsupported_intrinsics++;
@@ -8386,10 +8465,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 static_cast<int32_t>(input_id) ==
                     ctx.shader.render_target_array_index_input_register)
                 return "static_cast<uint>(in.render_target_array_index)";
-            const std::string field = varyingField("in", input_id);
-            if (ctx.uses_interpolation && input_id != 0)
-                return field + ".interpolate_at_center()" + componentSuffix(comp);
-            return field + componentSuffix(comp);
+            return varyingInputValue(ctx, input_id) + componentSuffix(comp);
         }
         if (ctx.shader.kind == DxilShaderKind::Vertex) {
             if (isLoadInputI32(callee_name) && shouldLowerLoadInputI32AsVertexId(ctx, input_id))

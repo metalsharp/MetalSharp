@@ -4051,6 +4051,8 @@ bool MTLD3D12PipelineState::Compile() {
       (unsigned)m_rasterizer_desc.FillMode,
       (unsigned)m_rasterizer_desc.FrontCounterClockwise,
       (unsigned)m_rasterizer_desc.DepthClipEnable);
+  PSTRACE("D3D12 PSO rasterizer2 line_mode=%u",
+          (unsigned)m_rasterizer_desc2_line_mode);
 
   WMTMeshRenderPipelineInfo mesh_info = {};
   if (m_uses_geometry_mesh_pipeline) {

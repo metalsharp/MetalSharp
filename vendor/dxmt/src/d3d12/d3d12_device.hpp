@@ -491,7 +491,8 @@ private:
   HRESULT CreateGraphicsPipelineStateInternal(
       const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
       void **pipeline_state, bool depth_bounds_test_enable,
-      const D3D12ViewInstancingDesc *view_instancing = nullptr);
+      const D3D12ViewInstancingDesc *view_instancing = nullptr,
+      UINT rasterizer_desc2_line_mode = UINT_MAX);
 
   std::unique_ptr<Device> m_device;
   FormatCapabilityInspector m_format_inspector;

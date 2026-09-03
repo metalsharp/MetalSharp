@@ -97,14 +97,31 @@ static DWORD run_process(const char* command_line) {
     STARTUPINFOA startup = {};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process = {};
-    std::vector<char> command(command_line, command_line + std::strlen(command_line) + 1);
-    if (!CreateProcessA(nullptr, command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup,
+    std::string executable = "dxc.exe";
+    char dxc_path[1024] = {};
+    const DWORD dxc_length = GetEnvironmentVariableA(
+        "D3D12_METAL_SDK_DXC", dxc_path, sizeof(dxc_path));
+    if (dxc_length > 0 && dxc_length < sizeof(dxc_path))
+        executable.assign(dxc_path, dxc_length);
+    std::string full_command = "\"" + executable + "\" " + command_line;
+    std::vector<char> command(full_command.begin(), full_command.end());
+    command.push_back('\0');
+    if (!CreateProcessA(nullptr, command.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &startup,
                         &process))
         return 0xffffffffu;
     const DWORD wait = WaitForSingleObject(process.hProcess, 30000);
     DWORD exit_code = 0xffffffffu;
-    if (wait == WAIT_OBJECT_0)
+    if (wait == WAIT_OBJECT_0) {
         GetExitCodeProcess(process.hProcess, &exit_code);
+    } else {
+        // A shader compiler child must never survive the probe's bounded
+        // wait.  Terminate it here as well as in the outer process-group
+        // watchdog so a Wine child cannot keep cleanup hostage.
+        TerminateProcess(process.hProcess, 1);
+        WaitForSingleObject(process.hProcess, 5000);
+        exit_code = WAIT_TIMEOUT;
+    }
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     return exit_code;
