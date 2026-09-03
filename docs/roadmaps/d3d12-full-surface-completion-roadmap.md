@@ -2068,6 +2068,9 @@ whether the scoped FL12_2 gate is green.
   logic readbacks and the pre-replay UAV-side-effect rejection. Typed ROV,
   barycentric, writable-MSAA, VRS, and format probes also pass under the same
   staged runtime; broader Phase 6 matrices remain open.
+- Added GraphicsCommandList9 replay for triangle fans, dynamic strip-cut
+  restarts, and dynamic depth bias. Exact unindexed/indexed fan, restart, and
+  equal-depth bias readbacks pass; Options15/16 now report those providers.
 
 ### 2026-09-03 — Phase 5 aggregate evidence-gate repair
 

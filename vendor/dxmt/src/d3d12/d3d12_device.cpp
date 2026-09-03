@@ -5320,8 +5320,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12FeatureOptions15 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->TriangleFanSupported = FALSE;
-    o->DynamicIndexBufferStripCutSupported = FALSE;
+    // Triangle fans and dynamic strip-cut values are lowered to an explicit
+    // triangle-list index stream during replay. The provider handles both
+    // 16-bit and 32-bit index buffers, including GPU-only buffers through the
+    // validated ReadBufferRange path.
+    o->TriangleFanSupported = TRUE;
+    o->DynamicIndexBufferStripCutSupported = TRUE;
     TRACE("  OPTIONS15: TriangleFan=%d DynamicStripCut=%d",
           o->TriangleFanSupported, o->DynamicIndexBufferStripCutSupported);
     return S_OK;
@@ -5330,7 +5334,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12FeatureOptions16 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    o->DynamicDepthBiasSupported = FALSE;
+    // RSSetDepthBias is carried through the GraphicsCommandList9 command
+    // stream and applied with Metal's dynamic setDepthBias state.
+    o->DynamicDepthBiasSupported = TRUE;
     o->GPUUploadHeapSupported = TRUE;
     TRACE("  OPTIONS16: DynamicDepthBias=%d GPUUploadHeap=%d",
           o->DynamicDepthBiasSupported, o->GPUUploadHeapSupported);

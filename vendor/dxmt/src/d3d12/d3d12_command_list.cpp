@@ -9,6 +9,7 @@
 #include "log/log.hpp"
 #include "util_string.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 
 #define CLTRACE(fmt, ...) do { FILE *_tf = dxmt::openDiagnosticLog("dxmt-d3d12-trace.log"); if (_tf) { fprintf(_tf, "CmdList::" fmt "\n", ##__VA_ARGS__); fclose(_tf); } } while(0)
@@ -269,6 +270,11 @@ MTLD3D12GraphicsCommandList::QueryInterface(REFIID riid, void **ppvObject) {
   }
   if (riid == kID3D12GraphicsCommandList8) {
     *ppvObject = static_cast<GraphicsCommandList8Extension *>(this);
+    AddRef();
+    return S_OK;
+  }
+  if (riid == kID3D12GraphicsCommandList9) {
+    *ppvObject = static_cast<GraphicsCommandList9Extension *>(this);
     AddRef();
     return S_OK;
   }
@@ -1076,6 +1082,34 @@ MTLD3D12GraphicsCommandList::OMSetFrontAndBackStencilRef(
   cmd.header = {CmdType::OMSetFrontAndBackStencilRef, sizeof(cmd)};
   cmd.front_stencil_ref = front_stencil_ref;
   cmd.back_stencil_ref = back_stencil_ref;
+  Emit(cmd);
+}
+
+void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::RSSetDepthBias(
+    FLOAT depth_bias, FLOAT depth_bias_clamp,
+    FLOAT slope_scaled_depth_bias) {
+  if (m_closed || !std::isfinite(depth_bias) ||
+      !std::isfinite(depth_bias_clamp) ||
+      !std::isfinite(slope_scaled_depth_bias))
+    return;
+  CmdRSSetDepthBias cmd = {};
+  cmd.header = {CmdType::RSSetDepthBias, sizeof(cmd)};
+  cmd.depth_bias = depth_bias;
+  cmd.depth_bias_clamp = depth_bias_clamp;
+  cmd.slope_scaled_depth_bias = slope_scaled_depth_bias;
+  Emit(cmd);
+}
+
+void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::IASetIndexBufferStripCutValue(
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value) {
+  if (m_closed ||
+      (strip_cut_value != D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED &&
+       strip_cut_value != D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF &&
+       strip_cut_value != D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF))
+    return;
+  CmdIASetIndexBufferStripCutValue cmd = {};
+  cmd.header = {CmdType::IASetIndexBufferStripCutValue, sizeof(cmd)};
+  cmd.strip_cut_value = strip_cut_value;
   Emit(cmd);
 }
 

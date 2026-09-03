@@ -16,6 +16,11 @@ __declspec(dllexport) char D3D12SDKPath[260] = ".\\D3D12\\";
 
 static const GUID IID_D3D12DeviceProbe = {0x189819f1, 0x1db6, 0x4b57, {0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}};
 
+struct Options15FeatureProbe {
+    BOOL TriangleFanSupported = FALSE;
+    BOOL DynamicIndexBufferStripCutSupported = FALSE;
+};
+
 struct GPUUploadFeatureProbe {
     BOOL DynamicDepthBiasSupported = FALSE;
     BOOL GPUUploadHeapSupported = FALSE;
@@ -158,6 +163,7 @@ int main() {
     D3D12_FEATURE_DATA_D3D12_OPTIONS9 options9 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS11 options11 = {};
     D3D12_FEATURE_DATA_D3D12_OPTIONS14 options14 = {};
+    Options15FeatureProbe options15 = {};
     GPUUploadFeatureProbe options16 = {};
     D3D12_FEATURE_DATA_FORMAT_SUPPORT stream_output_format = {};
     stream_output_format.Format = DXGI_FORMAT_R32_FLOAT;
@@ -174,6 +180,7 @@ int main() {
     HRESULT options9_hr = E_FAIL;
     HRESULT options11_hr = E_FAIL;
     HRESULT options14_hr = E_FAIL;
+    HRESULT options15_hr = E_FAIL;
     HRESULT options16_hr = E_FAIL;
     HRESULT stream_output_format_hr = E_FAIL;
     HRESULT create_reserved_resource_hr = E_FAIL;
@@ -197,6 +204,8 @@ int main() {
         options9_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS9, &options9, sizeof(options9));
         options11_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS11, &options11, sizeof(options11));
         options14_hr = device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS14, &options14, sizeof(options14));
+        options15_hr = device->CheckFeatureSupport(
+            static_cast<D3D12_FEATURE>(44), &options15, sizeof(options15));
         options16_hr = device->CheckFeatureSupport(
             static_cast<D3D12_FEATURE>(45), &options16, sizeof(options16));
         stream_output_format_hr = device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &stream_output_format,
@@ -266,6 +275,11 @@ int main() {
         SUCCEEDED(options14_hr) && options14.AdvancedTextureOpsSupported && options14.WriteableMSAATexturesSupported;
     bool stream_output_conservative =
         SUCCEEDED(stream_output_format_hr) && !(stream_output_format.Support1 & D3D12_FORMAT_SUPPORT1_SO_BUFFER);
+    bool options15_reported =
+        SUCCEEDED(options15_hr) && options15.TriangleFanSupported &&
+        options15.DynamicIndexBufferStripCutSupported;
+    bool dynamic_depth_bias_reported =
+        SUCCEEDED(options16_hr) && options16.DynamicDepthBiasSupported;
     bool gpu_upload_supported =
         SUCCEEDED(options16_hr) && options16.GPUUploadHeapSupported;
     bool reserved_resources_unsupported = FAILED(create_reserved_resource_hr);
@@ -277,6 +291,7 @@ int main() {
                 barycentrics_reported && programmable_sample_positions_reported &&
                 wave_ops_proven_reported &&
                 atomic64_conservative && advanced_features_reported &&
+                options15_reported && dynamic_depth_bias_reported &&
                 gpu_upload_supported && stream_output_conservative && reserved_resources_unsupported &&
                 state_objects_unsupported &&
                 feature_query_validation;
@@ -357,8 +372,20 @@ int main() {
     std::printf("    \"advanced_texture_ops\": %s,\n", options14.AdvancedTextureOpsSupported ? "true" : "false");
     std::printf("    \"writeable_msaa_textures\": %s\n", options14.WriteableMSAATexturesSupported ? "true" : "false");
     std::printf("  },\n");
+    std::printf("  \"options15\": {\n");
+    print_hr("check", options15_hr);
+    std::printf("    \"triangle_fan_supported\": %s,\n",
+                options15.TriangleFanSupported ? "true" : "false");
+    std::printf("    \"dynamic_index_buffer_strip_cut_supported\": %s,\n",
+                options15.DynamicIndexBufferStripCutSupported ? "true" : "false");
+    std::printf("    \"reported\": %s\n", options15_reported ? "true" : "false");
+    std::printf("  },\n");
     std::printf("  \"options16\": {\n");
     print_hr("check", options16_hr);
+    std::printf("    \"dynamic_depth_bias_supported\": %s,\n",
+                options16.DynamicDepthBiasSupported ? "true" : "false");
+    std::printf("    \"dynamic_depth_bias_reported\": %s,\n",
+                dynamic_depth_bias_reported ? "true" : "false");
     std::printf("    \"gpu_upload_heap_supported\": %s\n", options16.GPUUploadHeapSupported ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"unsupported_policy\": {\n");
@@ -391,6 +418,9 @@ int main() {
     std::printf("    \"wave_ops_proven_reported\": %s,\n", wave_ops_proven_reported ? "true" : "false");
     std::printf("    \"atomic64_conservative\": %s,\n", atomic64_conservative ? "true" : "false");
     std::printf("    \"advanced_features_reported\": %s,\n", advanced_features_reported ? "true" : "false");
+    std::printf("    \"options15_reported\": %s,\n", options15_reported ? "true" : "false");
+    std::printf("    \"dynamic_depth_bias_reported\": %s,\n",
+                dynamic_depth_bias_reported ? "true" : "false");
     std::printf("    \"gpu_upload_supported\": %s,\n", gpu_upload_supported ? "true" : "false");
     std::printf("    \"mesh_shader_pipeline_stats_supported\": %s,\n",
                 options9.MeshShaderPipelineStatsSupported ? "true" : "false");
