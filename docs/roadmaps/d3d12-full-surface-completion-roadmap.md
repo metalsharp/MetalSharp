@@ -1992,7 +1992,9 @@ whether the scoped FL12_2 gate is green.
   depth attachment and depth writes enabled: target 0 XOR returns
   `0xaaffff3c`, target 1 AND returns `0x550a0c30`. The formerly rejected
   `logic_op_mrt_independent_variants` case now creates successfully, and the
-  depth/stencil state-only replay is exercised.
+  depth/stencil state-only replay is exercised. A UAV-writing independent-logic
+  variant is separately required to reject before replay, preserving the
+  fail-closed side-effect boundary.
 - This closes the independent per-render-target logic-operation row in the
   Phase 6 bounded coverage contract. Other Phase 6 graphics matrices remain
   open and no full Phase 6 promotion is claimed.

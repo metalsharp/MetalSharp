@@ -3583,6 +3583,21 @@ bool MTLD3D12PipelineState::Compile() {
   m_independent_logic_op_render_psos.clear();
   m_independent_logic_op_depth_only_pso = nullptr;
   m_independent_logic_op_no_write_depth_state = nullptr;
+
+  // Determine the replay requirement before compiling the pixel shader.  The
+  // side-effect guard below must see this flag so an ROV/UAV shader cannot be
+  // accidentally executed once per render target.
+  if (m_blend_desc.IndependentBlendEnable && m_num_render_targets > 1) {
+    const auto &first = m_blend_desc.RenderTarget[0];
+    for (UINT i = 1; i < m_num_render_targets && i < 8; ++i) {
+      const auto &rt = m_blend_desc.RenderTarget[i];
+      if (rt.LogicOpEnable != first.LogicOpEnable ||
+          (rt.LogicOpEnable && rt.LogicOp != first.LogicOp)) {
+        m_uses_independent_logic_op_emulation = true;
+        break;
+      }
+    }
+  }
   if (!m_ms.empty()) {
     if (!m_vs.empty() || !m_gs.empty() || !m_hs.empty() || !m_ds.empty()) {
       return RecordCompileFailure(
@@ -3683,17 +3698,6 @@ bool MTLD3D12PipelineState::Compile() {
   // binds only that attachment's write mask for each repeated draw.  Do not
   // reject the valid D3D12 state merely because the base Metal descriptor is
   // global.
-  if (m_blend_desc.IndependentBlendEnable && m_num_render_targets > 1) {
-    const auto &first = m_blend_desc.RenderTarget[0];
-    for (UINT i = 1; i < m_num_render_targets && i < 8; ++i) {
-      const auto &rt = m_blend_desc.RenderTarget[i];
-      if (rt.LogicOpEnable != first.LogicOpEnable ||
-          (rt.LogicOpEnable && rt.LogicOp != first.LogicOp)) {
-        m_uses_independent_logic_op_emulation = true;
-        break;
-      }
-    }
-  }
   auto map_logic_op = [](D3D12_LOGIC_OP op) -> WMTLogicOperation {
     switch (op) {
     case D3D12_LOGIC_OP_CLEAR: return WMTLogicOperationClear;
