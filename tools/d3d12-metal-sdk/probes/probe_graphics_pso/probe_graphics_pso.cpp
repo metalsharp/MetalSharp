@@ -188,15 +188,28 @@ static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
     return hr;
 }
 
-static HRESULT serialize_root_signature(ID3DBlob** blob, std::string& errors) {
+static HRESULT serialize_root_signature(ID3DBlob** blob, std::string& errors,
+                                        bool with_uav = false) {
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     D3D12SerializeRootSignatureFn serialize =
         load_proc<D3D12SerializeRootSignatureFn>(d3d12, "D3D12SerializeRootSignature");
     if (!serialize)
         return HRESULT_FROM_WIN32(ERROR_PROC_NOT_FOUND);
 
+    D3D12_DESCRIPTOR_RANGE uav_range = {};
+    uav_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    uav_range.NumDescriptors = 1;
+    uav_range.BaseShaderRegister = 0;
+    D3D12_ROOT_PARAMETER uav_parameter = {};
+    uav_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    uav_parameter.DescriptorTable.NumDescriptorRanges = 1;
+    uav_parameter.DescriptorTable.pDescriptorRanges = &uav_range;
     D3D12_ROOT_SIGNATURE_DESC desc = {};
     desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    if (with_uav) {
+        desc.NumParameters = 1;
+        desc.pParameters = &uav_parameter;
+    }
     ID3DBlob* error_blob = nullptr;
     HRESULT hr = serialize(&desc, D3D_ROOT_SIGNATURE_VERSION_1_0, blob, &error_blob);
     if (error_blob) {
@@ -514,8 +527,10 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
 
 struct IndependentLogicOpProbeResult {
     bool passed = false;
+    bool side_effect_rejected = false;
     HRESULT compile_hr = E_FAIL;
     HRESULT execute_hr = E_FAIL;
+    HRESULT side_effect_hr = E_FAIL;
     uint32_t target0 = 0;
     uint32_t target1 = 0;
 };
@@ -548,14 +563,22 @@ PSOut logic_ps(VSOut input) {
                             15.0 / 255.0, 1.0);
     return output;
 }
+RWByteAddressBuffer side_effect_uav : register(u0);
+PSOut logic_ps_with_uav(VSOut input) {
+    side_effect_uav.Store(0, 0x12345678);
+    return logic_ps(input);
+}
 )HLSL";
     std::string errors;
     ID3DBlob* vs = nullptr;
     ID3DBlob* ps = nullptr;
+    ID3DBlob* ps_uav = nullptr;
     HRESULT vs_hr = compile_shader(hlsl, "logic_vs", "vs_5_0", &vs, errors);
     HRESULT ps_hr = compile_shader(hlsl, "logic_ps", "ps_5_0", &ps, errors);
-    result.compile_hr = FAILED(vs_hr) ? vs_hr : ps_hr;
-    if (FAILED(result.compile_hr) || !vs || !ps) {
+    HRESULT ps_uav_hr = compile_shader(hlsl, "logic_ps_with_uav", "ps_5_0", &ps_uav, errors);
+    result.compile_hr = FAILED(vs_hr) ? vs_hr : (FAILED(ps_hr) ? ps_hr : ps_uav_hr);
+    if (FAILED(result.compile_hr) || !vs || !ps || !ps_uav) {
+        safe_release(ps_uav);
         safe_release(ps);
         safe_release(vs);
         return result;
@@ -585,11 +608,36 @@ PSOut logic_ps(VSOut input) {
     pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
     pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 
+    // Replaying an independent logic-op draw would duplicate UAV/ROV side
+    // effects. Verify the pipeline creation boundary rejects that state
+    // before the positive, side-effect-free matrix is executed.
+    ID3DBlob* side_root_blob = nullptr;
+    ID3D12RootSignature* side_root = nullptr;
+    HRESULT side_root_hr = serialize_root_signature(&side_root_blob, errors, true);
+    if (SUCCEEDED(side_root_hr))
+        side_root_hr = device->CreateRootSignature(
+            0, side_root_blob->GetBufferPointer(), side_root_blob->GetBufferSize(),
+            IID_PPV_ARGS(&side_root));
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC side_desc = pso_desc;
+    side_desc.pRootSignature = side_root;
+    side_desc.PS = {ps_uav->GetBufferPointer(), ps_uav->GetBufferSize()};
+    ID3D12PipelineState* side_pso = nullptr;
+    if (SUCCEEDED(side_root_hr) && side_root)
+        result.side_effect_hr = device->CreateGraphicsPipelineState(
+            &side_desc, IID_PPV_ARGS(&side_pso));
+    else
+        result.side_effect_hr = side_root_hr;
+    result.side_effect_rejected = FAILED(result.side_effect_hr);
+    safe_release(side_pso);
+    safe_release(side_root);
+    safe_release(side_root_blob);
+
     ID3D12PipelineState* pso = nullptr;
     result.compile_hr = device->CreateGraphicsPipelineState(
         &pso_desc, IID_PPV_ARGS(&pso));
     if (FAILED(result.compile_hr) || !pso) {
         safe_release(pso);
+        safe_release(ps_uav);
         safe_release(ps);
         safe_release(vs);
         return result;
@@ -751,6 +799,7 @@ PSOut logic_ps(VSOut input) {
     }
     result.passed = SUCCEEDED(result.compile_hr) &&
                     SUCCEEDED(result.execute_hr) &&
+                    result.side_effect_rejected &&
                     result.target0 == 0xaaffff3cu &&
                     result.target1 == 0x550a0c30u;
 
@@ -766,6 +815,7 @@ PSOut logic_ps(VSOut input) {
     safe_release(queue);
     safe_release(pso);
 
+    safe_release(ps_uav);
     safe_release(ps);
     safe_release(vs);
     return result;
@@ -1030,6 +1080,10 @@ float4 tess_ps(TessCP input) : SV_Target {
                 independent_logic_op.target0);
     std::printf("    \"logic_op_independent_target1\": %u,\n",
                 independent_logic_op.target1);
+    std::printf("    \"logic_op_uav_side_effect_rejected\": %s,\n",
+                independent_logic_op.side_effect_rejected ? "true" : "false");
+    std::printf("    \"logic_op_uav_side_effect_hr\": \"%s\",\n",
+                hr_hex(independent_logic_op.side_effect_hr).c_str());
     std::printf("    \"write_mask\": true,\n");
     std::printf("    \"input_layout_semantics\": true,\n");
     std::printf("    \"input_layout_per_instance_step_rate\": 2,\n");

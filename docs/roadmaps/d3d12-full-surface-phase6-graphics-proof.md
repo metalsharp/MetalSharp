@@ -78,7 +78,9 @@ independent logic-operation state for each color attachment. The graphics PSO
 provider now creates one pipeline variant per render target. Each variant keeps
 only its target's color write mask, selects that target's global Metal logic
 operation, and the replay path encodes the draw once for each target before
-restoring the base pipeline.
+restoring the base pipeline. The probe also constructs a UAV-writing pixel
+variant and requires independent-logic PSO creation to fail before replay;
+this prevents repeated draws from duplicating UAV/ROV side effects.
 
 The exact two-target readback uses `IndependentBlendEnable=TRUE`, a D32 depth
 attachment with depth writes enabled, XOR on target 0, AND on target 1, and
