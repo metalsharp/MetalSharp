@@ -22,6 +22,17 @@
       "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource."
     },
     {
+      "id": "rasterizer-ordered-typed-buffer",
+      "status": "open",
+      "result": "probe-rov",
+      "checks": [
+        ["source", "RasterizerOrderedBuffer<uint> fixture"],
+        ["compile", "ps_6_0 DXIL fixture compiles"],
+        ["readback", "pending isolated runtime proof"]
+      ],
+      "scope": "Typed ROV buffer fixture and typed UAV view are wired into the v2 probe; promotion requires the same exact three-overlap readback and ABI/provenance evidence as the already observed buffer/texture shapes."
+    },
+    {
       "id": "conservative-rasterization-tier3-reference-model",
       "status": "observed_bounded",
       "result": "probe-graphics-pso",

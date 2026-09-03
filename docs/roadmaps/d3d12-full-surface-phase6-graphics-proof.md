@@ -6,8 +6,7 @@ provider without promoting the full graphics claim.
 ## Rasterizer-ordered UAV checkpoint
 
 `tools/d3d12-metal-sdk/probes/probe_rov` compiles pinned DXIL pixel shaders
-containing `RasterizerOrderedByteAddressBuffer`,
-`RasterizerOrderedTexture2D<uint>`, and
+containing `RasterizerOrderedByteAddressBuffer`, `RasterizerOrderedTexture2D<uint>`, and
 `RasterizerOrderedStructuredBuffer<ROVValue>`, then executes them through the
 Metal 4 runtime with `METAL_SHADER_CONVERTER=/nonexistent`. Each pixel shader
 performs a load/increment/store at one pixel for three overlapping primitives.
@@ -21,13 +20,18 @@ The exact result is:
 - provider: `metal_raster_order_group`.
 
 The generated MSL report contains the DXIL resource metadata and the direct
-parameter qualifier:
+parameter qualifier for each raw, typed, structured, and texture UAV:
 
 ```text
 range kind=uav ... rasterizer_ordered=1
  device char* buf0 [[buffer(0), raster_order_group(0)]]
  texture2d<uint, access::read_write> tex0 [[texture(0), raster_order_group(0)]]
 ```
+
+The v2 harness also carries a `RasterizerOrderedBuffer<uint>` typed-buffer
+fixture and creates an `R32_UINT` typed UAV view. Its DXIL compilation is
+validated, but its isolated runtime readback remains open after the current
+paired-runtime PSO failure; it is not counted as observed evidence.
 
 The implementation remains fail-closed for an ROV resource outside the pixel
 UAV provider. `ROVsSupported` remains `FALSE` until the complete resource,

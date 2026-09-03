@@ -1652,6 +1652,8 @@ fi
 run_probe_exe() {
   local exe="$1"
   local result_file="$2"
+  shift 2
+  local -a probe_args=("$@")
   local strict_deferred_pso=0
   local enable_geometry_mesh="${DXMT_D3D12_ENABLE_GEOMETRY_MESH:-0}"
   local d3d12_trace="${DXMT_D3D12_TRACE:-0}"
@@ -1679,7 +1681,7 @@ run_probe_exe() {
     D3D12_METAL_SDK_COMMAND_RAY_INVOKE="${D3D12_METAL_SDK_COMMAND_RAY_INVOKE:-}" \
     D3D12_METAL_SDK_COMMAND_RAY_ATTRIBUTES="${D3D12_METAL_SDK_COMMAND_RAY_ATTRIBUTES:-}" \
     D3D12_METAL_SDK_COMMAND_RAY_REORDER="${D3D12_METAL_SDK_COMMAND_RAY_REORDER:-}" \
-    "$WINE_BIN" "$exe" > "$result_file"
+    "$WINE_BIN" "$exe" "${probe_args[@]}" > "$result_file"
   )
   echo "$result_file"
 }
@@ -3282,13 +3284,16 @@ prepare_rov_probe() {
   local vertex_source="$SDK_DIR/out/bin/probe_rov.hlsl"
   local texture_source="$SDK_DIR/out/bin/probe_rov_texture.hlsl"
   local structured_source="$SDK_DIR/out/bin/probe_rov_structured.hlsl"
+  local typed_source="$SDK_DIR/out/bin/probe_rov_typed.hlsl"
   local vertex_shader="$SDK_DIR/out/bin/probe_rov_vs.cso"
   local raw_shader="$SDK_DIR/out/bin/probe_rov_raw_ps.cso"
   local texture_shader="$SDK_DIR/out/bin/probe_rov_texture_ps.cso"
   local structured_shader="$SDK_DIR/out/bin/probe_rov_structured_ps.cso"
+  local typed_shader="$SDK_DIR/out/bin/probe_rov_typed_ps.cso"
   cp "$source_dir/rov.hlsl" "$vertex_source"
   cp "$source_dir/rov_texture.hlsl" "$texture_source"
   cp "$source_dir/rov_structured.hlsl" "$structured_source"
+  cp "$source_dir/rov_typed.hlsl" "$typed_source"
   if ! (
     cd "$SDK_DIR/out/bin"
     if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
@@ -3311,12 +3316,17 @@ prepare_rov_probe() {
       -Fo probe_rov_structured_ps.cso probe_rov_structured.hlsl >/dev/null; then
       exit 1
     fi
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_rov_typed_ps.cso probe_rov_typed.hlsl >/dev/null; then
+      exit 1
+    fi
   ); then
     echo "failed to compile rasterizer-ordered UAV DXIL fixtures" >&2
     return 1
   fi
   [[ -s "$vertex_shader" && -s "$raw_shader" && -s "$texture_shader" &&
-     -s "$structured_shader" ]] || {
+     -s "$structured_shader" && -s "$typed_shader" ]] || {
     echo "rasterizer-ordered UAV DXIL fixtures are missing" >&2
     return 1
   }
@@ -5428,7 +5438,12 @@ fi
 
 if [[ "$RUN_ROV" == "1" ]]; then
   prepare_rov_probe
-  run_probe_exe "$ROV_PROBE_EXE" "$ROV_RESULT_FILE"
+  run_probe_exe "$ROV_PROBE_EXE" "$ROV_RESULT_FILE" \
+    "$SDK_DIR/out/bin/probe_rov_vs.cso" \
+    "$SDK_DIR/out/bin/probe_rov_raw_ps.cso" \
+    "$SDK_DIR/out/bin/probe_rov_texture_ps.cso" \
+    "$SDK_DIR/out/bin/probe_rov_structured_ps.cso" \
+    "$SDK_DIR/out/bin/probe_rov_typed_ps.cso"
 fi
 
 if [[ "$RUN_BARYCENTRICS" == "1" ]]; then
