@@ -2033,3 +2033,12 @@ whether the scoped FL12_2 gate is green.
 - The contract now distinguishes that proven shape from the still-open
   top-left/degenerate/line/MSAA/VRS/array interactions and keeps the public
   Phase 6 status partial.
+
+### 2026-09-03 — Fail-closed graphics and compute PSO creation boundary
+
+- `CreateGraphicsPipelineState` and `CreateComputePipelineState` now return
+  `E_FAIL` whenever compilation has terminally failed instead of returning a
+  non-null PSO that later drops work during replay. Pending asynchronous
+  compilation remains pending; only a successful compile produces a usable
+  pipeline object. This protects the ROV, DXIL, and later shader probes from
+  treating a deferred/failed provider result as successful behavior.
