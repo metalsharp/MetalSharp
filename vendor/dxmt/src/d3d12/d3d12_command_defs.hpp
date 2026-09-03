@@ -68,6 +68,8 @@ enum class CmdType : uint32_t {
   RSSetShadingRate,
   RSSetShadingRateImage,
   OMSetFrontAndBackStencilRef,
+  RSSetDepthBias,
+  IASetIndexBufferStripCutValue,
   Count,
 };
 
@@ -352,6 +354,18 @@ struct CmdOMFrontAndBackStencilRef {
   CmdHeader header;
   uint32_t front_stencil_ref;
   uint32_t back_stencil_ref;
+};
+
+struct CmdRSSetDepthBias {
+  CmdHeader header;
+  float depth_bias;
+  float depth_bias_clamp;
+  float slope_scaled_depth_bias;
+};
+
+struct CmdIASetIndexBufferStripCutValue {
+  CmdHeader header;
+  D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value;
 };
 
 struct CmdClearRTV {

@@ -330,6 +330,12 @@ struct D3D12GeometryDrawIndexedArguments {
   uint32_t StartInstance;
 };
 
+// Agility 1.619.5 adds the triangle-fan topology value, while the vendored
+// D3D12 header predates that enum member.
+static constexpr D3D12_PRIMITIVE_TOPOLOGY
+    kD3D12PrimitiveTopologyTriangleFan =
+        static_cast<D3D12_PRIMITIVE_TOPOLOGY>(6);
+
 static std::pair<uint32_t, uint32_t>
 D3D12GeometryVertexCount(D3D_PRIMITIVE_TOPOLOGY primitive) {
   switch (primitive) {
@@ -1167,6 +1173,13 @@ struct ReplayState {
   D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
   D3D12_VERTEX_BUFFER_VIEW vbs[kVertexBufferSlotCount] = {};
   D3D12_INDEX_BUFFER_VIEW ib = {};
+  D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value =
+      D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+  bool dynamic_strip_cut_value_set = false;
+  bool dynamic_depth_bias_set = false;
+  float dynamic_depth_bias = 0.0f;
+  float dynamic_depth_bias_clamp = 0.0f;
+  float dynamic_slope_scaled_depth_bias = 0.0f;
   D3D12_STREAM_OUTPUT_BUFFER_VIEW so_views[4] = {};
   uint32_t so_view_count = 0;
   uint32_t view_instance_mask = UINT32_MAX;
@@ -5859,6 +5872,144 @@ struct ReplayState {
     return true;
   }
 
+  bool EncodeTriangleFanDraw(MTLD3D12Device *device, uint32_t vertex_count,
+                             uint32_t instance_count, uint32_t start_vertex,
+                             uint32_t start_instance) {
+    if (!device || !pso || topology != kD3D12PrimitiveTopologyTriangleFan ||
+        !render_enc_open || vertex_count < 3 || instance_count == 0 ||
+        vertex_count - 2 > UINT32_MAX / 3)
+      return false;
+
+    const uint64_t index_count = uint64_t(vertex_count - 2) * 3;
+    std::vector<uint32_t> indices;
+    indices.reserve(static_cast<size_t>(index_count));
+    for (uint32_t triangle = 0; triangle + 2 < vertex_count; ++triangle) {
+      const uint64_t b = uint64_t(start_vertex) + triangle + 2;
+      if (b > UINT32_MAX)
+        return false;
+      indices.push_back(start_vertex);
+      indices.push_back(start_vertex + triangle + 1);
+      indices.push_back(static_cast<uint32_t>(b));
+    }
+
+    auto index_buffer = MakeTransientBuffer(device, indices.size() * sizeof(uint32_t));
+    if (!index_buffer.handle)
+      return false;
+    index_buffer.updateContents(0, indices.data(),
+                                indices.size() * sizeof(uint32_t));
+    render_enc.useResource(index_buffer, WMTResourceUsageRead,
+                           WMTRenderStageVertex);
+
+    wmtcmd_render_draw_indexed draw = {};
+    draw.type = WMTRenderCommandDrawIndexed;
+    draw.next.set(nullptr);
+    draw.primitive_type = WMTPrimitiveTypeTriangle;
+    draw.index_type = WMTIndexTypeUInt32;
+    draw.index_count = index_count;
+    draw.index_buffer = index_buffer.handle;
+    draw.index_buffer_offset = 0;
+    draw.instance_count = instance_count;
+    draw.base_vertex = 0;
+    draw.base_instance = start_instance;
+    return EncodeIndependentLogicOpDraw(
+        reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+        "triangle_fan_draw");
+  }
+
+  bool EncodeIndexedTriangleFanDraw(MTLD3D12Device *device,
+                                    uint32_t index_count,
+                                    uint32_t instance_count,
+                                    uint32_t start_index,
+                                    int32_t base_vertex,
+                                    uint32_t start_instance) {
+    if (!device || !pso || topology != kD3D12PrimitiveTopologyTriangleFan ||
+        !render_enc_open || index_count < 3 || instance_count == 0 ||
+        !ib.BufferLocation || !ib.SizeInBytes)
+      return false;
+
+    const uint32_t index_stride = ib.Format == DXGI_FORMAT_R16_UINT
+                                      ? sizeof(uint16_t)
+                                      : ib.Format == DXGI_FORMAT_R32_UINT
+                                            ? sizeof(uint32_t)
+                                            : 0;
+    if (!index_stride)
+      return false;
+    const uint64_t view_base = ib.BufferLocation;
+    auto *index_resource = device->LookupResourceByGPUAddress(view_base);
+    if (!index_resource || view_base < index_resource->GetGPUVirtualAddress())
+      return false;
+    const uint64_t resource_offset =
+        view_base - index_resource->GetGPUVirtualAddress();
+    const uint64_t byte_offset = uint64_t(start_index) * index_stride;
+    const uint64_t bytes_needed = uint64_t(index_count) * index_stride;
+    if (byte_offset > ib.SizeInBytes || bytes_needed > ib.SizeInBytes - byte_offset ||
+        resource_offset > index_resource->GetBufferByteLength() ||
+        byte_offset + bytes_needed >
+            index_resource->GetBufferByteLength() - resource_offset ||
+        index_count - 2 > UINT32_MAX / 3)
+      return false;
+
+    const uint64_t source_offset = resource_offset + byte_offset;
+    std::vector<uint8_t> source_data(static_cast<size_t>(bytes_needed));
+    if (index_resource->GetCPUAddress()) {
+      std::memcpy(source_data.data(),
+                  static_cast<const uint8_t *>(index_resource->GetCPUAddress()) +
+                      source_offset,
+                  static_cast<size_t>(bytes_needed));
+    } else if (!index_resource->ReadBufferRange(
+                   source_offset, source_data.data(), bytes_needed)) {
+      return false;
+    }
+    const uint8_t *source = source_data.data();
+    std::vector<uint32_t> input_indices(index_count);
+    for (uint32_t i = 0; i < index_count; ++i) {
+      if (index_stride == sizeof(uint16_t)) {
+        uint16_t value = 0;
+        std::memcpy(&value, source + uint64_t(i) * index_stride,
+                    sizeof(value));
+        input_indices[i] = value;
+      } else {
+        std::memcpy(&input_indices[i], source + uint64_t(i) * index_stride,
+                    sizeof(uint32_t));
+      }
+      const int64_t adjusted = int64_t(input_indices[i]) + base_vertex;
+      if (adjusted < 0 || adjusted > UINT32_MAX)
+        return false;
+      input_indices[i] = static_cast<uint32_t>(adjusted);
+    }
+
+    const uint64_t output_count = uint64_t(index_count - 2) * 3;
+    std::vector<uint32_t> indices;
+    indices.reserve(static_cast<size_t>(output_count));
+    for (uint32_t triangle = 0; triangle + 2 < index_count; ++triangle) {
+      indices.push_back(input_indices[0]);
+      indices.push_back(input_indices[triangle + 1]);
+      indices.push_back(input_indices[triangle + 2]);
+    }
+    auto transient = MakeTransientBuffer(device, indices.size() * sizeof(uint32_t));
+    if (!transient.handle)
+      return false;
+    transient.updateContents(0, indices.data(),
+                             indices.size() * sizeof(uint32_t));
+    render_enc.useResource(transient, WMTResourceUsageRead,
+                           WMTRenderStageVertex);
+
+    wmtcmd_render_draw_indexed draw = {};
+    draw.type = WMTRenderCommandDrawIndexed;
+    draw.next.set(nullptr);
+    draw.primitive_type = WMTPrimitiveTypeTriangle;
+    draw.index_type = WMTIndexTypeUInt32;
+    draw.index_count = output_count;
+    draw.index_buffer = transient.handle;
+    draw.index_buffer_offset = 0;
+    draw.instance_count = instance_count;
+    draw.base_vertex = 0;
+    draw.base_instance = start_instance;
+    return EncodeIndependentLogicOpDraw(
+        reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+        "triangle_fan_indexed_draw");
+  }
+
   WMTPrimitiveType GetMetalPrimitiveType() {
     if (D3D12IsPatchTopology(topology)) {
       uint32_t control_points = D3D12PatchControlPointCount(topology);
@@ -6451,9 +6602,18 @@ struct ReplayState {
         rast.DepthClipEnable ? WMTDepthClipModeClip : WMTDepthClipModeClamp;
     WMTWinding winding = rast.FrontCounterClockwise ? WMTWindingCounterClockwise
                                                     : WMTWindingClockwise;
-    render_enc.setRasterizerState(
-        fill_mode, cull_mode, depth_clip, winding, (float)rast.DepthBias,
-        rast.SlopeScaledDepthBias, rast.DepthBiasClamp);
+    const float depth_bias = dynamic_depth_bias_set
+                                  ? dynamic_depth_bias
+                                  : static_cast<float>(rast.DepthBias);
+    const float depth_bias_clamp =
+        dynamic_depth_bias_set ? dynamic_depth_bias_clamp
+                               : rast.DepthBiasClamp;
+    const float slope_scaled_depth_bias =
+        dynamic_depth_bias_set ? dynamic_slope_scaled_depth_bias
+                               : rast.SlopeScaledDepthBias;
+    render_enc.setRasterizerState(fill_mode, cull_mode, depth_clip, winding,
+                                   depth_bias, slope_scaled_depth_bias,
+                                   depth_bias_clamp);
     render_enc.setBlendFactorAndStencilRef(
         blend_factor, static_cast<uint8_t>(stencil_ref));
     render_enc.setFrontAndBackStencilReference(front_stencil_ref,
@@ -7574,11 +7734,141 @@ struct ReplayState {
     return encoded;
   }
 
+  bool EncodeIndexedTriangleStripWithCut(
+      MTLD3D12Device *device, uint32_t index_count, uint32_t instance_count,
+      uint32_t start_index, int32_t base_vertex, uint32_t start_instance) {
+    if (!device || !pso || topology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP ||
+        strip_cut_value == D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED ||
+        !render_enc_open || index_count == 0 || instance_count == 0 ||
+        !ib.BufferLocation || !ib.SizeInBytes)
+      return false;
+
+    const uint32_t index_stride = ib.Format == DXGI_FORMAT_R16_UINT
+                                      ? sizeof(uint16_t)
+                                      : ib.Format == DXGI_FORMAT_R32_UINT
+                                            ? sizeof(uint32_t)
+                                            : 0;
+    if (!index_stride)
+      return false;
+    auto *index_resource = device->LookupResourceByGPUAddress(ib.BufferLocation);
+    if (!index_resource ||
+        ib.BufferLocation < index_resource->GetGPUVirtualAddress())
+      return false;
+    const uint64_t resource_offset =
+        ib.BufferLocation - index_resource->GetGPUVirtualAddress();
+    const uint64_t byte_offset = uint64_t(start_index) * index_stride;
+    const uint64_t bytes_needed = uint64_t(index_count) * index_stride;
+    if (byte_offset > ib.SizeInBytes ||
+        bytes_needed > ib.SizeInBytes - byte_offset ||
+        resource_offset > index_resource->GetBufferByteLength() ||
+        byte_offset + bytes_needed >
+            index_resource->GetBufferByteLength() - resource_offset)
+      return false;
+
+    const uint32_t restart =
+        strip_cut_value == D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF
+            ? 0xffffu
+            : 0xffffffffu;
+    const uint64_t source_offset = resource_offset + byte_offset;
+    std::vector<uint8_t> source_data(static_cast<size_t>(bytes_needed));
+    if (index_resource->GetCPUAddress()) {
+      std::memcpy(source_data.data(),
+                  static_cast<const uint8_t *>(index_resource->GetCPUAddress()) +
+                      source_offset,
+                  static_cast<size_t>(bytes_needed));
+    } else if (!index_resource->ReadBufferRange(
+                   source_offset, source_data.data(), bytes_needed)) {
+      return false;
+    }
+    const uint8_t *source = source_data.data();
+    std::vector<uint32_t> strip;
+    std::vector<uint32_t> indices;
+    strip.reserve(index_count);
+    indices.reserve(index_count * 3u);
+    for (uint32_t i = 0; i < index_count; ++i) {
+      uint32_t value = 0;
+      if (index_stride == sizeof(uint16_t)) {
+        uint16_t short_value = 0;
+        std::memcpy(&short_value, source + uint64_t(i) * index_stride,
+                    sizeof(short_value));
+        value = short_value;
+      } else {
+        std::memcpy(&value, source + uint64_t(i) * index_stride,
+                    sizeof(value));
+      }
+      if (value == restart) {
+        strip.clear();
+        continue;
+      }
+      const int64_t adjusted = int64_t(value) + base_vertex;
+      if (adjusted < 0 || adjusted > UINT32_MAX)
+        return false;
+      strip.push_back(static_cast<uint32_t>(adjusted));
+      if (strip.size() < 3)
+        continue;
+      const size_t n = strip.size();
+      if (((n - 3u) & 1u) == 0) {
+        indices.push_back(strip[n - 3]);
+        indices.push_back(strip[n - 2]);
+        indices.push_back(strip[n - 1]);
+      } else {
+        indices.push_back(strip[n - 2]);
+        indices.push_back(strip[n - 3]);
+        indices.push_back(strip[n - 1]);
+      }
+    }
+
+    if (indices.empty())
+      return true;
+    auto transient = MakeTransientBuffer(device, indices.size() * sizeof(uint32_t));
+    if (!transient.handle)
+      return false;
+    transient.updateContents(0, indices.data(),
+                             indices.size() * sizeof(uint32_t));
+    render_enc.useResource(transient, WMTResourceUsageRead,
+                           WMTRenderStageVertex);
+    wmtcmd_render_draw_indexed draw = {};
+    draw.type = WMTRenderCommandDrawIndexed;
+    draw.next.set(nullptr);
+    draw.primitive_type = WMTPrimitiveTypeTriangle;
+    draw.index_type = WMTIndexTypeUInt32;
+    draw.index_count = indices.size();
+    draw.index_buffer = transient.handle;
+    draw.index_buffer_offset = 0;
+    draw.instance_count = instance_count;
+    draw.base_vertex = 0;
+    draw.base_instance = start_instance;
+    return EncodeIndependentLogicOpDraw(
+        reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+        "triangle_strip_cut_draw");
+  }
+
   bool EncodeVRSIndexedDraw(MTLD3D12Device *device,
                             const CmdDrawIndexedInstanced &cmd) {
     if (!render_enc_open || !HasUsableRenderPSO() || !ib.BufferLocation ||
         !cmd.index_count || !cmd.instance_count)
       return false;
+    if (topology == kD3D12PrimitiveTopologyTriangleFan) {
+      BindMSCDrawParameters(device, cmd.index_count, cmd.instance_count,
+                            cmd.start_index, cmd.base_vertex,
+                            cmd.start_instance, true, WMTIndexTypeUInt32);
+      BindMissingNonStageInVertexBuffers(device);
+      BindDirectFragmentCompleteness(device, "vrs_triangle_fan_indexed");
+      return EncodeIndexedTriangleFanDraw(
+          device, cmd.index_count, cmd.instance_count, cmd.start_index,
+          cmd.base_vertex, cmd.start_instance);
+    }
+    if (topology == D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP &&
+        strip_cut_value != D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED) {
+      BindMSCDrawParameters(device, cmd.index_count, cmd.instance_count,
+                            cmd.start_index, cmd.base_vertex,
+                            cmd.start_instance, true, WMTIndexTypeUInt32);
+      BindMissingNonStageInVertexBuffers(device);
+      BindDirectFragmentCompleteness(device, "vrs_triangle_strip_cut");
+      return EncodeIndexedTriangleStripWithCut(
+          device, cmd.index_count, cmd.instance_count, cmd.start_index,
+          cmd.base_vertex, cmd.start_instance);
+    }
     auto *index_resource = device->LookupResourceByGPUAddress(ib.BufferLocation);
     if (!index_resource || !index_resource->GetMTLBuffer().handle)
       return false;
@@ -10712,9 +11002,14 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 cmd->instance_count, cmd->start_vertex, cmd->start_instance);
             st.BindMissingNonStageInVertexBuffers(m_device);
             st.BindDirectFragmentCompleteness(m_device, "draw_instanced");
-            if (!st.EncodeIndependentLogicOpDraw(
-                    reinterpret_cast<const wmtcmd_render_nop *>(&draw),
-                    "draw_instanced"))
+            if (st.topology == kD3D12PrimitiveTopologyTriangleFan) {
+              if (!st.EncodeTriangleFanDraw(
+                      m_device, cmd->vertex_count, cmd->instance_count,
+                      cmd->start_vertex, cmd->start_instance))
+                return false;
+            } else if (!st.EncodeIndependentLogicOpDraw(
+                           reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+                           "draw_instanced"))
               return false;
             if (!st.UpdateStreamOutputFilledSize(m_device,
                                                  cmd->vertex_count))
@@ -10906,6 +11201,36 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           st.LogTessellationFallbackDraw("DrawIndexedInstanced",
                                          cmd->index_count, cmd->instance_count,
                                          true);
+          if (st.topology == kD3D12PrimitiveTopologyTriangleFan) {
+            st.BindMSCDrawParameters(m_device, cmd->index_count,
+                                     cmd->instance_count, cmd->start_index,
+                                     cmd->base_vertex, cmd->start_instance,
+                                     true, WMTIndexTypeUInt32);
+            st.BindMissingNonStageInVertexBuffers(m_device);
+            st.BindDirectFragmentCompleteness(m_device,
+                                              "triangle_fan_indexed");
+            if (st.EncodeIndexedTriangleFanDraw(
+                    m_device, cmd->index_count, cmd->instance_count,
+                    cmd->start_index, cmd->base_vertex, cmd->start_instance))
+              st.MarkSwapchainWorkEncoded();
+            break;
+          }
+          if (st.topology == D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP &&
+              st.strip_cut_value !=
+                  D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED) {
+            st.BindMSCDrawParameters(m_device, cmd->index_count,
+                                     cmd->instance_count, cmd->start_index,
+                                     cmd->base_vertex, cmd->start_instance,
+                                     true, WMTIndexTypeUInt32);
+            st.BindMissingNonStageInVertexBuffers(m_device);
+            st.BindDirectFragmentCompleteness(m_device,
+                                              "triangle_strip_cut");
+            if (st.EncodeIndexedTriangleStripWithCut(
+                    m_device, cmd->index_count, cmd->instance_count,
+                    cmd->start_index, cmd->base_vertex, cmd->start_instance))
+              st.MarkSwapchainWorkEncoded();
+            break;
+          }
           auto *ib_res =
               m_device->LookupResourceByGPUAddress(st.ib.BufferLocation);
           if (!ib_res && st.ib.BufferLocation) {
@@ -12311,9 +12636,16 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             st.BindMissingNonStageInVertexBuffers(m_device);
             st.BindDirectFragmentCompleteness(m_device,
                                               "execute_indirect_draw");
-            if (st.EncodeIndependentLogicOpDraw(
-                    reinterpret_cast<const wmtcmd_render_nop *>(&draw),
-                    "execute_indirect_draw")) {
+            const bool encoded =
+                st.topology == kD3D12PrimitiveTopologyTriangleFan
+                    ? st.EncodeTriangleFanDraw(
+                          m_device, args.VertexCountPerInstance,
+                          args.InstanceCount, args.StartVertexLocation,
+                          args.StartInstanceLocation)
+                    : st.EncodeIndependentLogicOpDraw(
+                          reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+                          "execute_indirect_draw");
+            if (encoded) {
               if (!st.UpdateStreamOutputFilledSize(
                       m_device, args.VertexCountPerInstance))
                 return;
@@ -12384,6 +12716,40 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                   args.BaseVertexLocation, args.StartInstanceLocation, true);
               if (args.InstanceCount > 0 && args.IndexCountPerInstance > 0 &&
                   st.ib.BufferLocation) {
+                if (st.topology == kD3D12PrimitiveTopologyTriangleFan) {
+                  st.BindMSCDrawParameters(
+                      m_device, args.IndexCountPerInstance, args.InstanceCount,
+                      args.StartIndexLocation, args.BaseVertexLocation,
+                      args.StartInstanceLocation, true, WMTIndexTypeUInt32);
+                  st.BindMissingNonStageInVertexBuffers(m_device);
+                  st.BindDirectFragmentCompleteness(
+                      m_device, "execute_indirect_triangle_fan_indexed");
+                  if (st.EncodeIndexedTriangleFanDraw(
+                          m_device, args.IndexCountPerInstance,
+                          args.InstanceCount, args.StartIndexLocation,
+                          args.BaseVertexLocation,
+                          args.StartInstanceLocation))
+                    st.MarkSwapchainWorkEncoded();
+                  return;
+                }
+                if (st.topology == D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP &&
+                    st.strip_cut_value !=
+                        D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED) {
+                  st.BindMSCDrawParameters(
+                      m_device, args.IndexCountPerInstance, args.InstanceCount,
+                      args.StartIndexLocation, args.BaseVertexLocation,
+                      args.StartInstanceLocation, true, WMTIndexTypeUInt32);
+                  st.BindMissingNonStageInVertexBuffers(m_device);
+                  st.BindDirectFragmentCompleteness(
+                      m_device, "execute_indirect_triangle_strip_cut");
+                  if (st.EncodeIndexedTriangleStripWithCut(
+                          m_device, args.IndexCountPerInstance,
+                          args.InstanceCount, args.StartIndexLocation,
+                          args.BaseVertexLocation,
+                          args.StartInstanceLocation))
+                    st.MarkSwapchainWorkEncoded();
+                  return;
+                }
                 auto *ib_res =
                     m_device->LookupResourceByGPUAddress(st.ib.BufferLocation);
                 if (!ib_res && st.ib.BufferLocation)
@@ -13681,6 +14047,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           st.CloseRenderEncoder();
         }
         st.pso = next_pso;
+        if (!st.dynamic_strip_cut_value_set && st.pso)
+          st.strip_cut_value = st.pso->GetStripCutValue();
         QTRACE(
             "SetPipelineState pso=%p compiled=%d compute=%d stage=%s detail=%s",
             (void *)st.pso, st.pso ? st.pso->IsCompiled() : 0,
@@ -14506,6 +14874,21 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.ib = cmd->view;
         break;
       }
+      case CmdType::IASetIndexBufferStripCutValue: {
+        auto *cmd = reinterpret_cast<const CmdIASetIndexBufferStripCutValue *>(header);
+        if (cmd->strip_cut_value == D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED ||
+            cmd->strip_cut_value == D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF ||
+            cmd->strip_cut_value == D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFFFFFF) {
+          st.strip_cut_value = cmd->strip_cut_value;
+          st.dynamic_strip_cut_value_set = true;
+          QTRACE("IASetIndexBufferStripCutValue replay value=%u",
+                 (unsigned)cmd->strip_cut_value);
+        } else {
+          QTRACE("IASetIndexBufferStripCutValue rejected value=%u",
+                 (unsigned)cmd->strip_cut_value);
+        }
+        break;
+      }
       case CmdType::OMSetBlendFactor: {
         auto *cmd = reinterpret_cast<const CmdOMBlendFactor *>(header);
         memcpy(st.blend_factor, cmd->factor, 16);
@@ -14527,6 +14910,25 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         st.stencil_ref = cmd->front_stencil_ref;
         if (st.render_enc_open)
           st.ApplyFixedFunctionState();
+        break;
+      }
+      case CmdType::RSSetDepthBias: {
+        auto *cmd = reinterpret_cast<const CmdRSSetDepthBias *>(header);
+        if (std::isfinite(cmd->depth_bias) &&
+            std::isfinite(cmd->depth_bias_clamp) &&
+            std::isfinite(cmd->slope_scaled_depth_bias)) {
+          st.dynamic_depth_bias_set = true;
+          st.dynamic_depth_bias = cmd->depth_bias;
+          st.dynamic_depth_bias_clamp = cmd->depth_bias_clamp;
+          st.dynamic_slope_scaled_depth_bias = cmd->slope_scaled_depth_bias;
+          if (st.render_enc_open)
+            st.ApplyFixedFunctionState();
+          QTRACE("RSSetDepthBias replay bias=%f clamp=%f slope=%f",
+                 cmd->depth_bias, cmd->depth_bias_clamp,
+                 cmd->slope_scaled_depth_bias);
+        } else {
+          QTRACE("RSSetDepthBias rejected non-finite values");
+        }
         break;
       }
       case CmdType::OMSetDepthBounds: {

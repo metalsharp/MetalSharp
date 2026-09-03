@@ -283,6 +283,9 @@ public:
     return m_view_instance_locations;
   }
   UINT GetViewInstancingFlags() const { return m_view_instancing_flags; }
+  D3D12_INDEX_BUFFER_STRIP_CUT_VALUE GetStripCutValue() const {
+    return m_strip_cut_value;
+  }
   bool UsesViewInstanceMasking() const {
     return (m_view_instancing_flags & 0x1u) != 0;
   }

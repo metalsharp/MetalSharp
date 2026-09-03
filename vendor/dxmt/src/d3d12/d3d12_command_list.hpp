@@ -17,7 +17,7 @@ class MTLD3D12Device;
 class MTLD3D12CommandAllocator;
 
 
-class MTLD3D12GraphicsCommandList : public GraphicsCommandList8Extension {
+class MTLD3D12GraphicsCommandList : public GraphicsCommandList9Extension {
 public:
   MTLD3D12GraphicsCommandList(MTLD3D12Device *device,
                               MTLD3D12CommandAllocator *allocator,
@@ -89,6 +89,11 @@ public:
   void STDMETHODCALLTYPE OMSetStencilRef(UINT stencil_ref) override;
   void STDMETHODCALLTYPE OMSetFrontAndBackStencilRef(
       UINT front_stencil_ref, UINT back_stencil_ref) override;
+  void STDMETHODCALLTYPE RSSetDepthBias(
+      FLOAT depth_bias, FLOAT depth_bias_clamp,
+      FLOAT slope_scaled_depth_bias) override;
+  void STDMETHODCALLTYPE IASetIndexBufferStripCutValue(
+      D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value) override;
   void STDMETHODCALLTYPE SetPipelineState(
       ID3D12PipelineState *pipeline_state) override;
   void STDMETHODCALLTYPE ResourceBarrier(

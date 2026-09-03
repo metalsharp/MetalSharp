@@ -102,6 +102,23 @@ effects, because repeating a draw would repeat those effects; depth/stencil
 writes use a no-write color pass plus one final state-only replay, which is
 exercised by the D32 depth case.
 
+## GraphicsCommandList9 topology and depth-bias state
+
+The runtime exposes the Agility 1.619.5 `ID3D12GraphicsCommandList9` methods
+`RSSetDepthBias` and `IASetIndexBufferStripCutValue`. Triangle-fan draws are
+expanded to an explicit triangle-list index stream during replay. Both the
+unindexed and upload-indexed four-vertex fan read back all four `2x2` pixels as
+red. A seven-index `0xffffffff` strip with two segments also reads back all
+four pixels as red, proving that the restart value is consumed rather than
+forwarded as a normal index. GPU-only index buffers use the validated
+`ReadBufferRange` snapshot path; malformed or unavailable ranges fail closed.
+
+The dynamic depth-bias lane uses an equal-depth `LESS` test: the pipeline starts
+with a D32 target at depth `0.5`, then `RSSetDepthBias(-1, 0, 0)` makes the
+full-screen triangle pass and read back exact red. `D3D12_OPTIONS15` reports
+triangle-fan and dynamic strip-cut support, and `D3D12_OPTIONS16` reports
+dynamic depth-bias support only for these behavior-backed providers.
+
 ## GraphicsCommandList8 front/back stencil references
 
 The runtime now exposes the stable Agility 1.619.5

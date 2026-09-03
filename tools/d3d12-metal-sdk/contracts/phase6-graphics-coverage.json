@@ -122,6 +122,31 @@
       "scope": "Two R8G8B8A8 render targets with IndependentBlendEnable and a D32 depth attachment with depth writes enabled. Target 0 applies XOR and target 1 applies AND to distinct initialized values; replay binds one Metal global logic operation at a time while masking the other attachments, then performs one state-only depth replay. A separate UAV-writing pixel PSO is rejected before replay because repeated draws would duplicate those effects."
     },
     {
+      "id": "triangle-fan-and-dynamic-strip-cut",
+      "status": "observed_bounded",
+      "result": "probe-graphics-pso",
+      "checks": [
+        ["abi", "ID3D12GraphicsCommandList9 QI"],
+        ["readback", "unindexed_triangle_fan=4 exact=true"],
+        ["readback", "indexed_triangle_fan=4 exact=true"],
+        ["readback", "dynamic_strip_cut=4 exact=true"],
+        ["provider", "CPU/GPU-index-snapshot-to-triangle-list-replay"]
+      ],
+      "scope": "The GraphicsCommandList9 topology lane lowers unindexed and upload/GPU-readable indexed triangle fans, and dynamic 0xffffffff strip-cut segments, to explicit triangle-list indices. Non-readable or malformed index ranges remain fail-closed."
+    },
+    {
+      "id": "dynamic-depth-bias-command-list9",
+      "status": "observed_bounded",
+      "result": "probe-graphics-pso;probe-device-caps",
+      "checks": [
+        ["abi", "ID3D12GraphicsCommandList9::RSSetDepthBias QI"],
+        ["pso", "depth-enabled graphics PSO"],
+        ["readback", "negative_dynamic_bias_passes_equal_depth exact=true"],
+        ["report", "DynamicDepthBiasSupported=true"]
+      ],
+      "scope": "A depth-enabled one-pixel triangle proves the command-recorded dynamic bias changes an equal-depth LESS test to a passing fragment. Non-finite command values are rejected."
+    },
+    {
       "id": "front-back-stencil-reference-command-list8",
       "status": "observed_bounded",
       "result": "probe-graphics-pso",
@@ -151,7 +176,7 @@
       "checks": [
         ["coverage", "graphics_pso_and_writable_msaa_positive_negative_matrices"]
       ],
-      "remaining": "General geometry/tessellation breadth, conservative-raster edge/degenerate/line/MSAA/VRS interactions, formats, depth bias, barycentric interpolation variants, and complete MSAA/raster-state matrices remain open."
+      "remaining": "General geometry/tessellation breadth, conservative-raster edge/degenerate/line/MSAA/VRS interactions, barycentric interpolation variants, and complete MSAA/raster-state matrices remain open."
     }
   ],
   "feature_reporting": {
@@ -168,6 +193,21 @@
       "reported": 3,
       "provider": "bounded_vertex_reference_model",
       "evidence": "probe-graphics-pso exact three-case 8x8 conservative coverage readback"
+    },
+    "TriangleFanSupported": {
+      "reported": true,
+      "provider": "triangle-list topology expansion",
+      "evidence": "probe-graphics-pso unindexed and indexed exact fan readbacks"
+    },
+    "DynamicIndexBufferStripCutSupported": {
+      "reported": true,
+      "provider": "restart-segment triangle-list expansion",
+      "evidence": "probe-graphics-pso exact 0xffffffff restart readback"
+    },
+    "DynamicDepthBiasSupported": {
+      "reported": true,
+      "provider": "GraphicsCommandList9 dynamic Metal depth bias",
+      "evidence": "probe-graphics-pso equal-depth LESS readback"
     }
   }
 }

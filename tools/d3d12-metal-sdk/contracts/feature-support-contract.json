@@ -35,7 +35,7 @@
         "Pixel RasterizerOrderedByteAddressBuffer load/increment/store ordering with Metal raster_order_group(0)",
         "Pixel RasterizerOrderedStructuredBuffer and RasterizerOrderedTexture2D<uint> load/increment/store ordering with Metal raster_order_group(0)"
       ],
-      "risk": "Output-merger logic operations are backed by exact XOR render/readback and an independent per-render-target XOR/AND readback. Metal's global logic-operation state is emulated with one target-write-mask pipeline variant per attachment and repeated draw encoding (with depth/stencil state-only replay); pixel shaders with UAV side effects remain fail-closed rather than duplicated. Binary64 is a typed bit-level emulation provider with an exact compute IEEE-754 matrix, not native Metal double ALU. The Metal raster_order_group provider is proven for bounded byte-address, structured-buffer, and typed-texture pixel shapes; the typed RasterizerOrderedBuffer<uint> fixture is wired but remains unverified. The public ROV report remains false until the complete ROV resource/stage/state matrix is closed; conservative rasterization is restricted to validated rasterizer descriptions.",
+      "risk": "Output-merger logic operations are backed by exact XOR render/readback and an independent per-render-target XOR/AND readback. Metal's global logic-operation state is emulated with one target-write-mask pipeline variant per attachment and repeated draw encoding (with depth/stencil state-only replay); pixel shaders with UAV side effects remain fail-closed rather than duplicated. Binary64 is a typed bit-level emulation provider with an exact compute IEEE-754 matrix, not native Metal double ALU. The Metal raster_order_group provider is proven for bounded byte-address, structured-buffer, typed-buffer, and typed-texture pixel shapes, including exact three-overlap ordered read/modify/write and the independent-logic UAV-side-effect rejection. The public ROV report remains false until the complete ROV resource/stage/state matrix is closed; conservative rasterization is restricted to validated rasterizer descriptions.",
       "state": "required",
       "tier": "required"
     },
@@ -293,6 +293,42 @@
         "R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM sample resolves"
       ],
       "risk": "Exact compute and graphics readbacks prove programmable offsets, GatherRaw, SampleCmpLevel, and writable MSAA across 2D/2D-array resources, DSV-attached graphics, sample counts 2/4/8, and R32G32B32A32_FLOAT, R16G16B16A16_FLOAT, and R8G8B8A8_UNORM resolves. DXMT emulates writable UAV MSAA resources as private 2D-array slices with logical array slices expanded by the sample count; unsupported formats and invalid resource shapes remain rejected.",
+      "state": "required",
+      "tier": "required"
+    },
+    "D3D12_FEATURE_D3D12_OPTIONS15": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_graphics_pso"
+      ],
+      "probe_status": "unindexed_and_indexed_triangle_fan_dynamic_strip_cut_exact_readback_passed",
+      "reported": "partial",
+      "required_fields": [
+        "TriangleFanSupported",
+        "DynamicIndexBufferStripCutSupported"
+      ],
+      "proven_subset": [
+        "unindexed and upload-indexed triangle-fan expansion",
+        "0xffffffff strip-cut restart expansion"
+      ],
+      "risk": "The provider expands topology to triangle-list indices during replay and snapshots GPU-only index ranges through the validated buffer-read path; malformed/unavailable ranges remain fail-closed.",
+      "state": "required",
+      "tier": "required"
+    },
+    "D3D12_FEATURE_D3D12_OPTIONS16": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_device_caps",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_graphics_pso"
+      ],
+      "probe_status": "GraphicsCommandList9_dynamic_depth_bias_equal_depth_readback_passed",
+      "reported": "partial",
+      "required_fields": [
+        "DynamicDepthBiasSupported"
+      ],
+      "proven_subset": [
+        "RSSetDepthBias dynamic state before a depth-enabled draw"
+      ],
+      "risk": "Non-finite dynamic values are discarded; the exact provider proof covers a depth-enabled one-pixel LESS test.",
       "state": "required",
       "tier": "required"
     },

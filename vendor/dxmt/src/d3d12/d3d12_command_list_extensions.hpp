@@ -17,4 +17,16 @@ struct GraphicsCommandList8Extension : public ID3D12GraphicsCommandList7 {
       UINT front_stencil_ref, UINT back_stencil_ref) = 0;
 };
 
+static const GUID kID3D12GraphicsCommandList9 = {
+    0x34ed2808, 0xffe6, 0x4c2b,
+    {0xb1, 0x1a, 0xca, 0xbd, 0x2b, 0x0c, 0x59, 0xe1}};
+
+struct GraphicsCommandList9Extension : public GraphicsCommandList8Extension {
+  virtual void STDMETHODCALLTYPE RSSetDepthBias(
+      FLOAT depth_bias, FLOAT depth_bias_clamp,
+      FLOAT slope_scaled_depth_bias) = 0;
+  virtual void STDMETHODCALLTYPE IASetIndexBufferStripCutValue(
+      D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value) = 0;
+};
+
 } // namespace dxmt
