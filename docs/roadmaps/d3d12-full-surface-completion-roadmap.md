@@ -2054,6 +2054,21 @@ whether the scoped FL12_2 gate is green.
   silently collapsing to one shared reference. Broader stencil/depth matrices
   remain part of the open Phase 6 gate.
 
+### 2026-09-03 — Phase 6 selected-runtime refresh and logic-op proof repair
+
+- Rebuilt the selected `dxmt_m12` runtime with pinned LLVM 15 and staged the
+  matching PE/Unix Winemetal pair. The isolated runner copies every selected PE
+  into its disposable prefix and registers a unique Unix-library alias.
+- Corrected the default Wine override string to use explicit per-module
+  `n,b` entries; the former comma-separated default could silently route
+  D3D10/D3D11 probes through Wine's builtin renderer.
+- Fixed the graphics probe's independent-logic UAV fixture to use `u2`, as
+  required by the SM5 pixel compiler when two render-target outputs are
+  present. The current graphics PSO matrix now passes exact target-0/target-1
+  logic readbacks and the pre-replay UAV-side-effect rejection. Typed ROV,
+  barycentric, writable-MSAA, VRS, and format probes also pass under the same
+  staged runtime; broader Phase 6 matrices remain open.
+
 ### 2026-09-03 — Phase 5 aggregate evidence-gate repair
 
 - Repaired the Phase 5 aggregate validator so it honors manifest-specific
