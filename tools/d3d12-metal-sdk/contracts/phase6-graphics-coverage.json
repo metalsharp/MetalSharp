@@ -22,6 +22,19 @@
       "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource."
     },
     {
+      "id": "conservative-rasterization-tier3-reference-model",
+      "status": "observed_bounded",
+      "result": "probe-graphics-pso",
+      "checks": [
+        ["result", "pass"],
+        ["coverage", "conservative_rasterization_case_count=3"],
+        ["readback", "conservative_rasterization_rendered_pixels=105"],
+        ["report", "ConservativeRasterizationTier=3"],
+        ["provider", "bounded_vertex_reference_model"]
+      ],
+      "scope": "Three clipped/partially covered triangles over an 8x8 R8G8B8A8 target, with CPU conservative triangle-box reference comparison and exact red/zero readback. Degenerate/top-left/line/MSAA/VRS/array interactions remain open."
+    },
+    {
       "id": "programmable-sample-positions-tier1",
       "status": "observed_bounded",
       "result": "probe-command-replay",
@@ -111,7 +124,7 @@
       "checks": [
         ["coverage", "graphics_pso_and_writable_msaa_positive_negative_matrices"]
       ],
-      "remaining": "General geometry/tessellation breadth, all conservative-raster rules, programmable sample-position effects, formats, depth bias, barycentrics, and complete MSAA/raster-state matrices remain open."
+      "remaining": "General geometry/tessellation breadth, conservative-raster edge/degenerate/line/MSAA/VRS interactions, formats, depth bias, barycentric interpolation variants, and complete MSAA/raster-state matrices remain open."
     }
   ],
   "feature_reporting": {
@@ -122,7 +135,12 @@
     },
     "ROVsSupported": {
       "reported": false,
-      "reason": "The ordered UAV provider is implemented and positively probed for the bounded raw-buffer shape, but the public capability remains conservative until the complete ROV resource/stage/state matrix is closed."
+      "reason": "The ordered UAV provider is implemented and positively probed for bounded raw-buffer, structured-buffer, and typed-texture pixel shapes, but the public capability remains conservative until the complete ROV resource/stage/state matrix is closed."
+    },
+    "ConservativeRasterizationTier": {
+      "reported": 3,
+      "provider": "bounded_vertex_reference_model",
+      "evidence": "probe-graphics-pso exact three-case 8x8 conservative coverage readback"
     }
   }
 }
