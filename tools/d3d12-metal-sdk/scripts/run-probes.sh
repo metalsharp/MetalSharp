@@ -1654,11 +1654,9 @@ run_probe_exe() {
   local result_file="$2"
   shift 2
   local -a probe_args=("$@")
-  local strict_deferred_pso=0
   local enable_geometry_mesh="${DXMT_D3D12_ENABLE_GEOMETRY_MESH:-0}"
   local d3d12_trace="${DXMT_D3D12_TRACE:-0}"
   if [[ "$(basename "$exe")" == "probe_mini_subnautica_geometry_dxil_replay.exe" ]]; then
-    strict_deferred_pso=1
     enable_geometry_mesh=1
   fi
   if [[ "$(basename "$exe")" == "probe_shaders.exe" ]]; then
@@ -1673,7 +1671,6 @@ run_probe_exe() {
     export DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME"
     export DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR"
     export DXMT_D3D12_ENABLE_GEOMETRY_MESH="$enable_geometry_mesh"
-    export DXMT_D3D12_FAIL_DEFERRED_PSO="$strict_deferred_pso"
     export DXMT_D3D12_TRACE="$d3d12_trace"
     export D3D12_METAL_SDK_PROFILE="$PROFILE"
     export D3D12_METAL_SDK_COMMAND_RAY_CSO="${D3D12_METAL_SDK_COMMAND_RAY_CSO:-}"

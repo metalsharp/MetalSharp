@@ -4729,25 +4729,14 @@ HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
       compiled, pso->IsCompilePending(), desc->VS.pShaderBytecode,
       desc->PS.pShaderBytecode, failure_stage.c_str(), failure_detail.c_str());
   if (!compiled && !pso->IsCompilePending()) {
+    // A failed compile is never a usable pipeline. Returning a PSO here
+    // leaves command replay with a non-null object whose draw is silently
+    // dropped, which is indistinguishable from a successful no-op to callers.
     Logger::warn(str::format(
-        "CreateGraphicsPipelineState: shader compilation deferred/failed at ",
+        "CreateGraphicsPipelineState: shader compilation failed at ",
         failure_stage, ": ", failure_detail));
-    const bool unsupported_pso_state =
-        failure_stage.rfind("pso/unsupported_", 0) == 0 ||
-        failure_stage.rfind("pso/metal_", 0) == 0;
-    const bool shader_compile_failure = failure_stage.rfind("shader/", 0) == 0;
-    char strict_fail[8] = {};
-    const bool strict_deferred =
-        GetEnvironmentVariableA("DXMT_D3D12_FAIL_DEFERRED_PSO", strict_fail,
-                                sizeof(strict_fail)) > 0 &&
-        strict_fail[0] && strict_fail[0] != '0';
-    if (unsupported_pso_state || shader_compile_failure || strict_deferred) {
-      Logger::warn(str::format(
-          "CreateGraphicsPipelineState: failing PSO creation for stage ",
-          failure_stage, strict_deferred ? " strict=1" : ""));
-      pso->Release();
-      return E_FAIL;
-    }
+    pso->Release();
+    return E_FAIL;
   }
   HRESULT hr = pso->QueryInterface(riid, pipeline_state);
   pso->Release();
@@ -4781,19 +4770,13 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateComputePipelineState(
         compiled, pso->IsCompilePending(), desc->CS.pShaderBytecode,
         failure_stage.c_str(), failure_detail.c_str());
   if (!compiled && !pso->IsCompilePending()) {
+    // Keep the compute path fail-closed for the same reason as graphics PSOs:
+    // a non-null object must not mask a provider compilation failure.
     Logger::warn(str::format(
-        "CreateComputePipelineState: shader compilation deferred/failed at ",
+        "CreateComputePipelineState: shader compilation failed at ",
         failure_stage, ": ", failure_detail));
-    const bool shader_compile_failure =
-        failure_stage.rfind("shader/", 0) == 0 ||
-        failure_stage.rfind("pso/", 0) == 0;
-    if (shader_compile_failure) {
-      Logger::warn(str::format(
-          "CreateComputePipelineState: failing PSO creation for stage ",
-          failure_stage));
-      pso->Release();
-      return E_FAIL;
-    }
+    pso->Release();
+    return E_FAIL;
   }
   HRESULT hr = pso->QueryInterface(riid, pipeline_state);
   pso->Release();

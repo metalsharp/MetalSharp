@@ -37,7 +37,9 @@ case using the ROV shader; that negative result must be independently observed
 before it is counted as evidence.
 
 The implementation remains fail-closed for an ROV resource outside the pixel
-UAV provider. `ROVsSupported` remains `FALSE` until the complete resource,
+UAV provider. Terminal shader/PSO compilation failures now return `E_FAIL`
+from D3D12 PSO creation rather than a non-null object whose later draw would be
+silently dropped. `ROVsSupported` remains `FALSE` until the complete resource,
 format, state, and graphics matrix is independently closed.
 
 ## Binary64 emulation report
