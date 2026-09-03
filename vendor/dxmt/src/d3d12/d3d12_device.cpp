@@ -4721,7 +4721,10 @@ HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
   if (view_instancing)
     pso->SetViewInstancing(*view_instancing);
   pso->SetDepthBoundsTestEnable(depth_bounds_test_enable);
-  bool compiled = pso->RequestCompile(!native_tessellation_required);
+  // D3D12 exposes a usable pipeline only after CreateGraphicsPipelineState
+  // has completed. Keep the internal worker available for other callers, but
+  // do not return a pending PSO whose eventual failure would drop draws.
+  bool compiled = pso->RequestCompile(false);
   auto failure_stage = pso->GetCompileFailureStage();
   auto failure_detail = pso->GetCompileFailureDetail();
   TRACE(
@@ -4763,7 +4766,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateComputePipelineState(
                                                   desc->CS.BytecodeLength)
             : 0ull,
         (void *)desc->pRootSignature);
-  bool compiled = pso->RequestCompile(true);
+  // Match the graphics path: a non-null compute PSO must already represent a
+  // successful provider compilation when this API returns.
+  bool compiled = pso->RequestCompile(false);
   auto failure_stage = pso->GetCompileFailureStage();
   auto failure_detail = pso->GetCompileFailureDetail();
   TRACE("CreateComputePSO: compile=%d pending=%d CS=%p stage=%s detail=%s",

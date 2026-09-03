@@ -2038,7 +2038,7 @@ whether the scoped FL12_2 gate is green.
 
 - `CreateGraphicsPipelineState` and `CreateComputePipelineState` now return
   `E_FAIL` whenever compilation has terminally failed instead of returning a
-  non-null PSO that later drops work during replay. Pending asynchronous
-  compilation remains pending; only a successful compile produces a usable
-  pipeline object. This protects the ROV, DXIL, and later shader probes from
-  treating a deferred/failed provider result as successful behavior.
+  non-null PSO that later drops work during replay. The public creation paths
+  now compile synchronously; only a successful provider compile produces a
+  usable pipeline object. This protects the ROV, DXIL, and later shader probes
+  from treating a deferred/failed provider result as successful behavior.
