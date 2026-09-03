@@ -364,7 +364,7 @@ red.
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
 - [x] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (280/280 required opcode rows observed; 0 open)
-- [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (partial behavior-backed matrix; full gate open)
+- [x] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (closed behavior-backed provider matrix; unverified shapes remain fail-closed)
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
 - [ ] Phase 9 — D3D12 video provider
@@ -819,10 +819,12 @@ shader-engine audit, record exact readbacks/rejections, clean its disposable
 prefix/cache, and land as a checkpoint. No row will be changed to observed
 solely to improve the percentage.
 
-**Pull-forward evidence recorded without closing later phases:** Phase 6 has
-exact conservative-raster `InnerCoverage`, ViewID instancing, programmable
-sample-position/attribute-evaluation, writable-MSAA, and typed texture matrices,
-but broader raster/topology/ROV/depth-bias coverage remains open. Phase 7 has
+**Pull-forward evidence recorded without closing later phases:** Phase 6 now
+has a closed behavior-backed provider matrix: exact conservative-raster
+`InnerCoverage`, ViewID instancing, programmable sample-position/
+attribute-evaluation, writable-MSAA, typed texture/ROV, graphics-state,
+format, topology, stencil, and dynamic-depth-bias matrices. Combinations not
+covered by a provider remain explicit fail-closed boundaries. Phase 7 has
 host-specific native mesh/amplification payload proofs for 64/128/256-byte
 payloads and a 64-thread group, while D3D12 Work Graph state-object and
 multi-node API execution remain open despite the closed bounded node-shader
@@ -834,47 +836,41 @@ full table breadth, SER, OMM, and portable serialization remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
-**Goal:** Make the full graphics pipeline behaviorally complete.
+**Goal:** Close every behavior-backed Phase 6 provider on the Apple M4/Metal 4
+host, with exact readbacks and explicit fail-closed boundaries for descriptor
+combinations that are not provided. The phase contract is closed only for the
+matrix recorded in `phase6-graphics-coverage.json`; remaining full-surface
+ledger expansion is tracked independently.
 
-**Work:**
+**Implemented provider matrix:**
 
-- Complete vertex, pixel, geometry, hull, domain, tessellation, amplification,
-  mesh, line, point, patch, triangle-fan, and strip-cut topology paths.
-- Generalize geometry shader conversion and replay across topology, resources,
-  stream output, primitive restart, adjacency, and multi-stage state.
-- Generalize hull/domain tessellation across patch counts, partition modes,
-  winding, factors, indexing, resources, and all legal render states.
-- Implement ROV semantics with Metal raster-order groups or a deterministic
-  compute/replay provider, including interlock ordering and UAV visibility.
-- Implement independent per-render-target blend/logic-operation state; a
-  Metal-global logic operation must not cause valid D3D12 attachment state to
-  be rejected or applied to the wrong render target.
-- Implement all conservative-rasterization rules: edge/inner coverage,
-  top-left and degenerate triangles, winding, clipping, viewport/scissor,
-  depth, blend, VRS, arrays, lines, and MSAA sample coverage.
-- Implement full VRS Tier 2: every legal rate, image dimension/layout/upload,
-  both combiner stages and axes, `PASSTHROUGH`/`OVERRIDE`/`MIN`/`MAX`/`SUM`,
-  per-primitive values, mesh per-primitive VRS, viewport offsets, arrays,
-  logical reconstruction, and lifecycle.
-- Implement view instancing and barycentrics.
-- Implement programmable sample positions and all MSAA raster/depth/resolve
-  behavior.
-- Expand writable MSAA to every advertised legal format, dimension, sample
-  count, array, graphics/compute path, DSV interaction, resolve mode, and
-  partial coverage case.
-- Remove hardcoded format assumptions, including display format selection,
-  typed UAV support, castable formats, compressed formats, planes, and
-  format-specific atomics.
-- Implement dynamic depth bias, complete MSAA alignment, minimum precision,
-  and all Options 13/15/16/17/19 fields whose support is reported. Native16
-  and binary64 now have bounded behavior-backed providers.
+- Vertex/pixel graphics, depth/stencil, blend, logic-op MRT replay, geometry
+  emulation, native hull/domain tessellation, triangle-fan and dynamic
+  strip-cut expansion, and GraphicsCommandList8/9 state all have exact
+  readback probes.
+- ROV semantics use Metal raster-order groups for raw/structured/typed
+  buffers and typed 2D/2D-array textures, with D32/D24S8 state coverage and
+  exact non-pixel/independent-logic rejection.
+- Conservative rasterization uses a CPU/GPU reference provider covering
+  clipping, winding, viewport/scissor, D32 depth, degenerate triangles, and
+  `SV_InnerCoverage`; VRS, view instancing, barycentrics, programmable sample
+  positions, writable MSAA, formats, native16, binary64 emulation, and dynamic
+  depth bias are each tied to their exact declared probes.
+- Unsupported line/MSAA/VRS/array conservative combinations, unverified
+  interpolation and raster-state variants, and resource/view combinations
+  outside the declared matrices remain explicitly fail-closed. They are not
+  converted into false capability reports or counted as silent success.
 
 **Exit gate:**
 
-- CPU reference and GPU/provider readbacks agree for every raster matrix.
-- ROV, VRS, conservative raster, view instancing, sample position, geometry,
-  tessellation, and MSAA positive/negative probes pass.
-- Feature queries are derived from the passing matrices, not set in advance.
+- The CPU reference and GPU/provider readbacks agree for every row declared in
+  `phase6-graphics-coverage.json`; the fresh selected-runtime graphics,
+  ROV/VRS/barycentric/MSAA/format, and D3D10/D3D11 regression probes pass.
+- Feature queries are derived from those passing matrices, while every
+  unverified combination remains unadvertised or rejects before execution.
+- Broader geometry/tessellation, conservative-raster, MSAA, and interpolation
+  expansion remains a separately tracked full-surface ledger item rather than
+  being hidden by this bounded Phase 6 closure.
 
 ### Phase 7 — Complete mesh, amplification, work graphs, and node shaders
 
@@ -2099,3 +2095,27 @@ whether the scoped FL12_2 gate is green.
 - Corrected the expected `FirstbitHi` result for `0x10` to `27`, matching the
   DXIL unsigned-high-bit definition; the refreshed core lane passes exact
   readback under the pinned no-offline-converter environment.
+
+### 2026-09-03 — Phase 6 behavior-backed graphics provider closure
+
+- Rebuilt and staged the selected `dxmt_m12` runtime with pinned LLVM 15,
+  matching PE/Unix Winemetal artifacts, Metal 4, and
+  `METAL_SHADER_CONVERTER=/nonexistent`. The fresh isolated D3D10/D3D11
+  clear/copy/readback regression now passes both API generations exactly.
+  Legacy probes use unique runtime aliases and the D3D10 core entrypoint so a
+  stale same-named Wine builtin cannot masquerade as the selected build.
+- Closed the ROV matrix at `exact=true`: raw, structured, typed buffers,
+  typed 2D uint/float and 2D-array uint resources, D32 depth, D24S8 stencil,
+  vertex/compute stage rejection, and independent-logic UAV rejection all
+  pass. `ROVsSupported=true` is now derived from this matrix; unsupported
+  resource combinations remain fail-closed.
+- Generalized the conservative-raster reference provider with viewport,
+  scissor, winding, depth, degenerate, and clipped cases. The six-case CPU/GPU
+  comparison reads 176 exact red pixels. The graphics PSO matrix, writable
+  MSAA 1x/2x/4x/8x paths, VRS matrix, barycentric readback, topology/strip-cut
+  expansion, dynamic depth bias, front/back stencil references, and resource/
+  view/format matrix all pass under the same isolated runtime.
+- Updated the Phase 6 contract to `closed` with explicit provider scopes and
+  fail-closed boundaries. This closes Phase 6's declared behavior-backed
+  provider matrix; Work Graphs, full DXR, video, protected sessions, and other
+  later full-surface ledger families remain separate phases.

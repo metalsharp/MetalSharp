@@ -91,9 +91,6 @@ build_probe \
 
 build_probe \
   "$SDK_DIR/probes/probe_legacy_regression/probe_legacy_regression.cpp" \
-  -ld3d11 \
-  -ld3d10 \
-  -ldxgi \
   -o "$OUT_DIR/probe_legacy_regression.exe"
 
 build_probe \

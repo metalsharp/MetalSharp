@@ -2,11 +2,30 @@
 #define NOMINMAX
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <d3d10.h>
 #include <d3d11.h>
 #include <windows.h>
 
 namespace {
+
+template <typename Function>
+Function load_function(HMODULE module, const char* name) {
+    if (!module || !name)
+        return nullptr;
+    FARPROC procedure = GetProcAddress(module, name);
+    Function function = nullptr;
+    static_assert(sizeof(function) == sizeof(procedure), "function pointer size mismatch");
+    std::memcpy(&function, &procedure, sizeof(function));
+    return function;
+}
+
+using d3d11_create_device_fn = HRESULT(WINAPI*)(
+    IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT, const D3D_FEATURE_LEVEL*, UINT, UINT,
+    ID3D11Device**, D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+using dxgi_create_factory1_fn = HRESULT(WINAPI*)(REFIID, void**);
+using d3d10_core_create_device_fn = HRESULT(WINAPI*)(
+    IDXGIFactory*, IDXGIAdapter*, UINT, D3D_FEATURE_LEVEL, ID3D10Device**);
 
 template <typename T> void release(T*& object) {
     if (object) {
@@ -44,12 +63,19 @@ HRESULT probe_d3d11(bool& readback_ok) {
     ID3D11Texture2D* target = nullptr;
     ID3D11RenderTargetView* rtv = nullptr;
     ID3D11Texture2D* staging = nullptr;
+    HMODULE d3d11_module = LoadLibraryA("d3d11.dll");
     D3D11_TEXTURE2D_DESC desc = {};
     D3D11_TEXTURE2D_DESC staging_desc = {};
     D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_9_1;
     const D3D_FEATURE_LEVEL feature_levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, feature_levels,
-                                   ARRAYSIZE(feature_levels), D3D11_SDK_VERSION, &device, &feature_level, &context);
+    const auto create_device = load_function<d3d11_create_device_fn>(
+        d3d11_module, "D3D11CreateDevice");
+    HRESULT hr = create_device
+                     ? create_device(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
+                                     feature_levels, ARRAYSIZE(feature_levels),
+                                     D3D11_SDK_VERSION, &device, &feature_level,
+                                     &context)
+                     : E_NOINTERFACE;
 
     desc.Width = width;
     desc.Height = height;
@@ -94,6 +120,8 @@ HRESULT probe_d3d11(bool& readback_ok) {
     release(target);
     release(context);
     release(device);
+    if (d3d11_module)
+        FreeLibrary(d3d11_module);
     return hr;
 }
 
@@ -106,9 +134,26 @@ HRESULT probe_d3d10(bool& readback_ok) {
     ID3D10Texture2D* target = nullptr;
     ID3D10RenderTargetView* rtv = nullptr;
     ID3D10Texture2D* staging = nullptr;
+    HMODULE dxgi_module = LoadLibraryA("dxgi.dll");
+    HMODULE d3d10core_module = LoadLibraryA("d3d10core.dll");
+    const auto create_factory = load_function<dxgi_create_factory1_fn>(
+        dxgi_module, "CreateDXGIFactory1");
+    const auto create_device = load_function<d3d10_core_create_device_fn>(
+        d3d10core_module, "D3D10CoreCreateDevice");
     D3D10_TEXTURE2D_DESC desc = {};
     D3D10_TEXTURE2D_DESC staging_desc = {};
-    HRESULT hr = D3D10CreateDevice(nullptr, D3D10_DRIVER_TYPE_HARDWARE, nullptr, 0, D3D10_SDK_VERSION, &device);
+    IDXGIFactory* factory = nullptr;
+    IDXGIAdapter* adapter = nullptr;
+    HRESULT hr = create_factory
+                     ? create_factory(__uuidof(IDXGIFactory1), (void**)&factory)
+                     : E_NOINTERFACE;
+    if (SUCCEEDED(hr))
+        hr = factory->EnumAdapters(0, &adapter);
+    if (SUCCEEDED(hr))
+        hr = create_device
+                 ? create_device(factory, adapter, 0, D3D_FEATURE_LEVEL_10_0,
+                                 &device)
+                 : E_NOINTERFACE;
 
     desc.Width = width;
     desc.Height = height;
@@ -152,6 +197,12 @@ HRESULT probe_d3d10(bool& readback_ok) {
     release(rtv);
     release(target);
     release(device);
+    release(adapter);
+    release(factory);
+    if (d3d10core_module)
+        FreeLibrary(d3d10core_module);
+    if (dxgi_module)
+        FreeLibrary(dxgi_module);
     return hr;
 }
 

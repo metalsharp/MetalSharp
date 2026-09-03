@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -949,6 +951,8 @@ static bool conservative_point_in_box(ConservativePoint point, ConservativePoint
 static bool conservative_point_in_triangle(ConservativePoint point, ConservativePoint a, ConservativePoint b,
                                            ConservativePoint c) {
     constexpr float epsilon = 1.0e-5f;
+    if (std::abs(conservative_cross(a, b, c)) <= epsilon)
+        return false;
     const float s0 = conservative_cross(a, b, point);
     const float s1 = conservative_cross(b, c, point);
     const float s2 = conservative_cross(c, a, point);
@@ -1002,7 +1006,8 @@ static D3D12_RESOURCE_DESC conservative_buffer_desc(UINT64 bytes) {
 
 static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSignature* root,
                                             const std::vector<uint8_t>& vs, const std::vector<uint8_t>& ps,
-                                            uint32_t& case_count, uint32_t& rendered_pixels) {
+                                            uint32_t& case_count, uint32_t& rendered_pixels,
+                                            bool& negative_matrix_verified) {
     if (!device || !root || vs.empty() || ps.empty())
         return false;
 
@@ -1013,16 +1018,41 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
     pso_desc.VS = {vs.data(), vs.size()};
     pso_desc.PS = {ps.data(), ps.size()};
     pso_desc.BlendState = default_blend_desc();
+    pso_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
     pso_desc.SampleMask = UINT_MAX;
     pso_desc.RasterizerState = default_rasterizer_desc();
     pso_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     pso_desc.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON;
     pso_desc.DepthStencilState = default_depth_stencil_desc();
+    pso_desc.DepthStencilState.DepthEnable = TRUE;
+    pso_desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    pso_desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
     pso_desc.InputLayout = {&input, 1};
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc.NumRenderTargets = 1;
     pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso_desc.SampleDesc.Count = 1;
+
+    negative_matrix_verified = false;
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC line_desc = pso_desc;
+    line_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
+    ID3D12PipelineState* line_pso = nullptr;
+    const HRESULT line_hr = device->CreateGraphicsPipelineState(
+        &line_desc, IID_PPV_ARGS(&line_pso));
+    const bool line_rejected =
+        (static_cast<uint32_t>(line_hr) & 0x80000000u) != 0 && !line_pso;
+    safe_release(line_pso);
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC msaa_desc = pso_desc;
+    msaa_desc.SampleDesc.Count = 4;
+    msaa_desc.RasterizerState.MultisampleEnable = TRUE;
+    ID3D12PipelineState* msaa_pso = nullptr;
+    const HRESULT msaa_hr = device->CreateGraphicsPipelineState(
+        &msaa_desc, IID_PPV_ARGS(&msaa_pso));
+    const bool msaa_rejected =
+        (static_cast<uint32_t>(msaa_hr) & 0x80000000u) != 0 && !msaa_pso;
+    safe_release(msaa_pso);
+    negative_matrix_verified = line_rejected && msaa_rejected;
 
     ID3D12PipelineState* pso = nullptr;
     if (FAILED(device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pso))) || !pso)
@@ -1032,18 +1062,27 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         float x[3];
         float y[3];
     };
-    const Triangle triangles[] = {
-        {{-0.90f, 0.10f, 0.90f}, {-0.90f, 0.90f, -0.20f}},
-        {{0.90f, 0.10f, -0.90f}, {-0.20f, 0.90f, -0.90f}},
-        {{-1.20f, -0.20f, 0.20f}, {0.20f, 1.20f, -1.20f}},
+    struct ConservativeCase {
+        Triangle triangle;
+        D3D12_VIEWPORT viewport;
+        D3D12_RECT scissor;
+    };
+    const ConservativeCase cases[] = {
+        {{{-0.90f, 0.10f, 0.90f}, {-0.90f, 0.90f, -0.20f}}, {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8}},
+        {{{0.90f, 0.10f, -0.90f}, {-0.20f, 0.90f, -0.90f}}, {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8}},
+        {{{-1.20f, -0.20f, 0.20f}, {0.20f, 1.20f, -1.20f}}, {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8}},
+        {{{0.90f, 0.10f, -0.90f}, {-0.20f, 0.90f, -0.90f}}, {1, 1, 6, 6, 0, 1}, {1, 1, 7, 7}},
+        {{{-0.90f, 0.10f, 0.90f}, {-0.90f, 0.90f, -0.20f}}, {0, 0, 8, 8, 0, 1}, {2, 2, 6, 6}},
+        {{{0.0f, 0.0f, 0.5f}, {0.0f, 0.0f, 0.5f}}, {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8}},
     };
     constexpr uint32_t width = 8;
     constexpr uint32_t height = 8;
     constexpr uint32_t row_pitch = 256;
     bool all_ok = true;
-    case_count = static_cast<uint32_t>(sizeof(triangles) / sizeof(triangles[0]));
+    case_count = static_cast<uint32_t>(sizeof(cases) / sizeof(cases[0]));
     rendered_pixels = 0;
-    for (const Triangle& triangle : triangles) {
+    for (const ConservativeCase& test : cases) {
+        const Triangle& triangle = test.triangle;
         ID3D12CommandQueue* queue = nullptr;
         ID3D12CommandAllocator* allocator = nullptr;
         ID3D12GraphicsCommandList* list = nullptr;
@@ -1051,6 +1090,8 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         ID3D12Resource* readback = nullptr;
         ID3D12Resource* vertex_buffer = nullptr;
         ID3D12DescriptorHeap* rtv_heap = nullptr;
+        ID3D12DescriptorHeap* dsv_heap = nullptr;
+        ID3D12Resource* depth = nullptr;
 
         D3D12_COMMAND_QUEUE_DESC queue_desc = {};
         HRESULT hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue));
@@ -1080,6 +1121,16 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         if (SUCCEEDED(hr))
             hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
                                                  D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr, IID_PPV_ARGS(&target));
+        D3D12_RESOURCE_DESC depth_desc = target_desc;
+        depth_desc.Format = DXGI_FORMAT_D32_FLOAT;
+        depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        D3D12_CLEAR_VALUE depth_clear = {};
+        depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+        depth_clear.DepthStencil.Depth = 1.0f;
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &depth_desc,
+                                                 D3D12_RESOURCE_STATE_DEPTH_WRITE, &depth_clear,
+                                                 IID_PPV_ARGS(&depth));
         if (SUCCEEDED(hr))
             hr = device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
                                                  D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback));
@@ -1102,25 +1153,32 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         rtv_desc.NumDescriptors = 1;
         if (SUCCEEDED(hr))
             hr = device->CreateDescriptorHeap(&rtv_desc, IID_PPV_ARGS(&rtv_heap));
+        D3D12_DESCRIPTOR_HEAP_DESC dsv_desc = {};
+        dsv_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+        dsv_desc.NumDescriptors = 1;
+        if (SUCCEEDED(hr))
+            hr = device->CreateDescriptorHeap(&dsv_desc, IID_PPV_ARGS(&dsv_heap));
         if (SUCCEEDED(hr))
             device->CreateRenderTargetView(target, nullptr, rtv_heap->GetCPUDescriptorHandleForHeapStart());
+        if (SUCCEEDED(hr))
+            device->CreateDepthStencilView(depth, nullptr, dsv_heap->GetCPUDescriptorHandleForHeapStart());
         if (SUCCEEDED(hr)) {
             D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
+            D3D12_CPU_DESCRIPTOR_HANDLE dsv = dsv_heap->GetCPUDescriptorHandleForHeapStart();
             const float clear[4] = {0, 0, 0, 0};
             list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+            list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
             list->SetPipelineState(pso);
             list->SetGraphicsRootSignature(root);
-            D3D12_VIEWPORT viewport = {0, 0, (float)width, (float)height, 0, 1};
-            D3D12_RECT scissor = {0, 0, (LONG)width, (LONG)height};
-            list->RSSetViewports(1, &viewport);
-            list->RSSetScissorRects(1, &scissor);
+            list->RSSetViewports(1, &test.viewport);
+            list->RSSetScissorRects(1, &test.scissor);
             list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             D3D12_VERTEX_BUFFER_VIEW vbv = {};
             vbv.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
             vbv.SizeInBytes = 36;
             vbv.StrideInBytes = 12;
             list->IASetVertexBuffers(0, 1, &vbv);
-            list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
             list->DrawInstanced(3, 1, 0, 0);
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -1152,13 +1210,18 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
             if (case_ok) {
                 ConservativePoint points[3] = {};
                 for (uint32_t i = 0; i < 3; ++i) {
-                    points[i] = {((triangle.x[i] * 0.5f) + 0.5f) * width, (0.5f - triangle.y[i] * 0.5f) * height};
+                    points[i] = {test.viewport.TopLeftX + ((triangle.x[i] * 0.5f) + 0.5f) * test.viewport.Width,
+                                 test.viewport.TopLeftY + (0.5f - triangle.y[i] * 0.5f) * test.viewport.Height};
                 }
                 for (uint32_t y = 0; y < height; ++y) {
                     const uint32_t* row = reinterpret_cast<const uint32_t*>(mapped + y * row_pitch);
                     for (uint32_t x = 0; x < width; ++x) {
+                        const bool in_scissor = x >= static_cast<uint32_t>(std::max<LONG>(0, test.scissor.left)) &&
+                                                x < static_cast<uint32_t>(std::max<LONG>(0, test.scissor.right)) &&
+                                                y >= static_cast<uint32_t>(std::max<LONG>(0, test.scissor.top)) &&
+                                                y < static_cast<uint32_t>(std::max<LONG>(0, test.scissor.bottom));
                         const bool expected =
-                            conservative_triangle_pixel(points[0], points[1], points[2], {(float)x, (float)y});
+                            in_scissor && conservative_triangle_pixel(points[0], points[1], points[2], {(float)x, (float)y});
                         const uint32_t actual = row[x];
                         case_ok &= expected ? actual == 0xff0000ffu : actual == 0u;
                         rendered_pixels += actual == 0xff0000ffu;
@@ -1169,6 +1232,8 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         }
         all_ok &= case_ok;
         safe_release(rtv_heap);
+        safe_release(dsv_heap);
+        safe_release(depth);
         safe_release(vertex_buffer);
         safe_release(readback);
         safe_release(target);
@@ -1177,7 +1242,7 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         safe_release(queue);
     }
     safe_release(pso);
-    return all_ok;
+    return all_ok && negative_matrix_verified;
 }
 
 struct IndependentLogicOpProbeResult {
@@ -1990,8 +2055,10 @@ float4 tess_ps(TessCP input) : SV_Target {
                 SUCCEEDED(tess_ds_hr) && SUCCEEDED(tess_ps_hr) && cases_ok;
     uint32_t conservative_case_count = 0;
     uint32_t conservative_rendered_pixels = 0;
+    bool conservative_negative_matrix_verified = false;
     const bool conservative_rasterization_ok = run_conservative_coverage_probe(
-        device, root, conservative_vs, conservative_ps, conservative_case_count, conservative_rendered_pixels);
+        device, root, conservative_vs, conservative_ps, conservative_case_count,
+        conservative_rendered_pixels, conservative_negative_matrix_verified);
     pass = pass && conservative_rasterization_ok;
     const IndependentLogicOpProbeResult independent_logic_op =
         run_independent_logic_op_probe(device, root);
@@ -2095,6 +2162,8 @@ float4 tess_ps(TessCP input) : SV_Target {
     std::printf("    \"conservative_rasterization_rendered_pixels\": %u,\n", conservative_rendered_pixels);
     std::printf("    \"conservative_rasterization_tier3_verified\": %s,\n",
                 conservative_rasterization_ok ? "true" : "false");
+    std::printf("    \"conservative_rasterization_negative_matrix_verified\": %s,\n",
+                conservative_negative_matrix_verified ? "true" : "false");
     std::printf("    \"triangle_fan_list9_query\": %s,\n",
                 triangle_fan.list9_query ? "true" : "false");
     std::printf("    \"triangle_fan_list9_query_hr\": \"%s\",\n",

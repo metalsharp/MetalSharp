@@ -4838,9 +4838,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     opts->ResourceBindingTier = D3D12_RESOURCE_BINDING_TIER_3;
     opts->PSSpecifiedStencilRefSupported = TRUE;
     opts->TypedUAVLoadAdditionalFormats = TRUE;
-    // Rasterizer-ordered UAV access is not implemented by the Metal render
-    // encoder.  A normal UAV barrier is not an ROV substitute.
-    opts->ROVsSupported = FALSE;
+    // The Metal raster_order_group provider is behavior-backed for the
+    // complete declared ROV matrix: raw/structured/typed buffers, typed
+    // 2D/2D-array textures, D32/D24S8 depth/stencil state, and fail-closed non-pixel and
+    // independent-logic side-effect boundaries.  Unsupported resource
+    // combinations still reject during lowering/PSO creation.
+    opts->ROVsSupported = TRUE;
     // The bounded reference-model coverage path is used for supported
     // rasterizer descriptions; unsupported combinations still fail during
     // pipeline creation rather than silently falling back.
@@ -5363,7 +5366,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     memset(o, 0, sizeof(*o));
-    o->RasterizerDesc2Supported = TRUE;
+    // RasterizerDesc2 line-mode behavior is not independently proven;
+    // advertise the parser/limits only and keep this capability fail-closed.
+    o->RasterizerDesc2Supported = FALSE;
     o->MaxSamplerDescriptorHeapSize = 2048;
     o->MaxSamplerDescriptorHeapSizeWithStaticSamplers = 2048;
     o->MaxViewDescriptorHeapSize = 1000000;

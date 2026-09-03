@@ -1766,7 +1766,8 @@ _MTLDevice_newRenderPipelineState(void *obj) {
 
 #if __MAC_OS_X_VERSION_MAX_ALLOWED >= 130000
   if (@available(macOS 13, *)) {
-    if (info->num_vertex_linked_functions && info->vertex_linked_functions.ptr) {
+    if (info->num_vertex_linked_functions <= 16 &&
+        info->num_vertex_linked_functions && info->vertex_linked_functions.ptr) {
       MTLLinkedFunctions *linked = [[MTLLinkedFunctions alloc] init];
       linked.functions = winemetal_array_from_handles(
           (const obj_handle_t *)info->vertex_linked_functions.ptr,
@@ -1774,7 +1775,8 @@ _MTLDevice_newRenderPipelineState(void *obj) {
       descriptor.vertexLinkedFunctions = linked;
       [linked release];
     }
-    if (info->num_fragment_linked_functions && info->fragment_linked_functions.ptr) {
+    if (info->num_fragment_linked_functions <= 16 &&
+        info->num_fragment_linked_functions && info->fragment_linked_functions.ptr) {
       MTLLinkedFunctions *linked = [[MTLLinkedFunctions alloc] init];
       linked.functions = winemetal_array_from_handles(
           (const obj_handle_t *)info->fragment_linked_functions.ptr,
@@ -1785,8 +1787,10 @@ _MTLDevice_newRenderPipelineState(void *obj) {
   }
 #endif
 
-  if (info->vertex_descriptor &&
-      (info->vertex_descriptor->attribute_count > 0 || info->vertex_descriptor->layout_count > 0)) {
+  if ((uintptr_t)info->vertex_descriptor > 0x10000u &&
+      info->vertex_descriptor &&
+      (info->vertex_descriptor->attribute_count > 0 ||
+       info->vertex_descriptor->layout_count > 0)) {
     MTLVertexDescriptor *vd = [[MTLVertexDescriptor alloc] init];
     for (uint32_t i = 0; i < info->vertex_descriptor->layout_count && i < WMT_MAX_VERTEX_BUFFER_LAYOUTS; i++) {
       struct WMTVertexBufferLayoutDesc l = info->vertex_descriptor->layouts[i];
@@ -1808,7 +1812,9 @@ _MTLDevice_newRenderPipelineState(void *obj) {
     [vd release];
   }
 
-  if (info->num_binary_archives_for_lookup && info->binary_archives_for_lookup.ptr)
+  if (info->num_binary_archives_for_lookup <= 16 &&
+      info->num_binary_archives_for_lookup &&
+      info->binary_archives_for_lookup.ptr)
     descriptor.binaryArchives = winemetal_array_from_handles(
         (const obj_handle_t *)info->binary_archives_for_lookup.ptr,
         info->num_binary_archives_for_lookup, "render.binaryArchives");

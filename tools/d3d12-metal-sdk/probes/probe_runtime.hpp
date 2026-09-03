@@ -34,9 +34,20 @@ static inline HMODULE dxmt_probe_load_library_a(LPCSTR name) {
 
   const char *alias = nullptr;
   char alias_storage[128] = {};
-  if (name && std::strcmp(name, "d3d12.dll") == 0) {
-    DWORD length = GetEnvironmentVariableA(
-        "DXMT_PROBE_D3D12_DLL", alias_storage, sizeof(alias_storage));
+  const char *alias_variable = nullptr;
+  if (name) {
+    if (std::strcmp(name, "d3d12.dll") == 0)
+      alias_variable = "DXMT_PROBE_D3D12_DLL";
+    else if (std::strcmp(name, "d3d11.dll") == 0)
+      alias_variable = "DXMT_PROBE_D3D11_DLL";
+    else if (std::strcmp(name, "d3d10core.dll") == 0)
+      alias_variable = "DXMT_PROBE_D3D10CORE_DLL";
+    else if (std::strcmp(name, "dxgi.dll") == 0)
+      alias_variable = "DXMT_PROBE_DXGI_DLL";
+  }
+  if (alias_variable) {
+    DWORD length = GetEnvironmentVariableA(alias_variable, alias_storage,
+                                           sizeof(alias_storage));
     if (length > 0 && length < sizeof(alias_storage))
       alias = alias_storage;
   }

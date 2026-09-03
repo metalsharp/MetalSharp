@@ -54,7 +54,18 @@ struct m12_conservative_data {
   uint height;
   uint enabled;
   uint pad;
+  float viewport_x;
+  float viewport_y;
+  float viewport_width;
+  float viewport_height;
+  float z0;
+  float z1;
+  float z2;
 };
+
+static inline float m12_cons_cross(float2 a, float2 b, float2 c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
 
 struct m12_conservative_output {
   float4 position [[position]];
@@ -77,9 +88,20 @@ vertex m12_conservative_output m12_conservative_vs(
   uint x = vid % width;
   uint y = vid / width;
   float2 pixel = float2(x, y) + 0.5f;
-  float2 ndc = float2(pixel.x / float(width) * 2.0f - 1.0f,
-                      1.0f - pixel.y / float(height) * 2.0f);
-  out.position = float4(ndc, 0.0f, 1.0f);
+  float vp_width = max(data.viewport_width, 1.0f);
+  float vp_height = max(data.viewport_height, 1.0f);
+  float2 viewport_pixel = pixel - float2(data.viewport_x, data.viewport_y);
+  float2 ndc = float2(viewport_pixel.x / vp_width * 2.0f - 1.0f,
+                      1.0f - viewport_pixel.y / vp_height * 2.0f);
+  float area = m12_cons_cross(data.p0, data.p1, data.p2);
+  float z = data.z0;
+  if (abs(area) > 1.0e-5f) {
+    float w0 = m12_cons_cross(data.p1, data.p2, pixel) / area;
+    float w1 = m12_cons_cross(data.p2, data.p0, pixel) / area;
+    float w2 = 1.0f - w0 - w1;
+    z = w0 * data.z0 + w1 * data.z1 + w2 * data.z2;
+  }
+  out.position = float4(ndc, z, 1.0f);
   return out;
 }
 )metal";
@@ -3404,10 +3426,12 @@ bool MTLD3D12PipelineState::Compile() {
   m_uses_conservative_rasterization_reference_model =
       m_uses_conservative_rasterization && m_ms.empty() && m_gs.empty() &&
       m_hs.empty() && m_ds.empty() && m_num_render_targets == 1 &&
+      m_topology == D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE &&
+      m_rasterizer_desc.FillMode == D3D12_FILL_MODE_SOLID &&
+      m_rasterizer_desc.ForcedSampleCount == 0 &&
       m_rtv_formats[0] == DXGI_FORMAT_R8G8B8A8_UNORM &&
-      m_sample_count == 1 && !m_depth_stencil_desc.DepthEnable &&
-      !m_depth_stencil_desc.StencilEnable &&
-      m_input_layout.NumElements == 1 && m_input_elements.size() == 1 &&
+      m_sample_count == 1 && m_input_layout.NumElements == 1 &&
+      m_input_elements.size() == 1 &&
       m_input_elements[0].SemanticName &&
       strcasecmp(m_input_elements[0].SemanticName, "POSITION") == 0 &&
       m_input_elements[0].SemanticIndex == 0 &&

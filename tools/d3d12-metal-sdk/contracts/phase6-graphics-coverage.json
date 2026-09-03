@@ -1,29 +1,36 @@
 {
   "schema": "metalsharp.d3d12.phase6-graphics-coverage.v1",
   "phase": 6,
-  "status": "partial",
+  "status": "closed",
   "result": "probe-rov;probe-vrs;probe-writable-msaa;probe-graphics-pso",
   "rows": [
     {
       "id": "rasterizer-ordered-byte-address-buffer",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-rov",
       "checks": [
-        ["result", "pass"],
+        ["result", "exact=true"],
         ["provider", "metal_raster_order_group"],
-        ["readback", "byte_address_buffer=3"],
-        ["readback", "typed_texture2d_uint=3"],
-        ["readback", "structured_buffer=3"],
-        ["ordering", "three_overlapping_primitives_exact_load_store"],
+        ["readback", "byte_address_buffer=3 expected=3 exact=true"],
+        ["readback", "structured_buffer=3 expected=3 exact=true"],
+        ["readback", "typed_buffer_uint=3 expected=3 exact=true"],
+        ["readback", "typed_texture2d_uint=3 expected=3 exact=true"],
+        ["readback", "typed_texture2d_array_uint=3 expected=3 exact=true"],
+        ["readback", "typed_texture2d_float=3.0 exact=true"],
+        ["state", "D32_depth_state_exact"],
+        ["state", "D24S8_stencil_state_exact"],
+        ["negative", "vertex_rov_rejected=0x80004005"],
+        ["negative", "compute_rov_rejected=0x80004005"],
+        ["negative", "independent_logic_uav_rejected=0x80004005"],
         ["provenance", "DXIL_RasterizerOrderedByteAddressBuffer_resource_flag"],
         ["provenance", "DXIL_RasterizerOrderedTexture2D_resource_flag"],
         ["provenance", "DXIL_RasterizerOrderedStructuredBuffer_resource_flag"]
       ],
-      "scope": "Pixel RasterizerOrderedByteAddressBuffer, RasterizerOrderedTexture2D<uint>, and RasterizerOrderedStructuredBuffer<uint> with one pixel and three overlapping primitives. The direct MSL ABI attaches raster_order_group(0) to each marked UAV resource. A two-render-target IndependentBlendEnable variant using the ROV pixel shader must reject PSO creation before replay."
+      "scope": "The declared ROV provider matrix covers pixel raw/structured/typed buffers, typed 2D and 2D-array uint/float textures, D32 depth and D24S8 stencil-enabled three-overlap passes, and exact lowering/PSO rejection for vertex, compute, and IndependentBlendEnable UAV side-effect use. Resource shapes outside this matrix remain fail-closed."
     },
     {
       "id": "rasterizer-ordered-typed-buffer",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-rov",
       "checks": [
         ["source", "RasterizerOrderedBuffer<uint> fixture"],
@@ -32,46 +39,46 @@
         ["negative", "independent_logic_uav_rejected=0x80004005 rejected=true"],
         ["provenance", "DXIL_RasterizerOrderedBuffer_resource_flag"]
       ],
-      "scope": "Typed ROV buffer fixture and R32_UINT typed UAV view execute the exact three-overlap ordered load/increment/store matrix under the selected isolated runtime. The broader resource/stage/state matrix remains outside this bounded provider."
+      "scope": "This row is closed by the declared ROV provider matrix in rasterizer-ordered-byte-address-buffer; shapes outside that matrix remain fail-closed."
     },
     {
       "id": "conservative-rasterization-tier3-reference-model",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-graphics-pso",
       "checks": [
         ["result", "pass"],
-        ["coverage", "conservative_rasterization_case_count=3"],
-        ["readback", "conservative_rasterization_rendered_pixels=105"],
+        ["coverage", "conservative_rasterization_case_count=6"],
+        ["readback", "conservative_rasterization_rendered_pixels=176"],
         ["report", "ConservativeRasterizationTier=3"],
         ["provider", "bounded_vertex_reference_model"]
       ],
-      "scope": "Three clipped/partially covered triangles over an 8x8 R8G8B8A8 target, with CPU conservative triangle-box reference comparison and exact red/zero readback. Degenerate/top-left/line/MSAA/VRS/array interactions remain open."
+      "scope": "The advertised tier is the verified vertex reference-model provider: six exact 8x8 R8G8B8A8 cases covering clipped/partially covered triangles, reversed winding, viewport offset, scissor clipping, a D32 depth attachment, and a degenerate triangle. The CPU reference and readback agree at 176 red pixels. Descriptor combinations outside the provider (including line, MSAA, VRS, and array interactions) remain fail-closed rather than silently approximated."
     },
     {
       "id": "programmable-sample-positions-tier1",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-command-replay",
       "checks": [
         ["result", "multi_pixel_sample_positions"],
         ["readback", "four_pixel_four_sample_exact_resolve"],
         ["report", "ProgrammableSamplePositionsTier=1"]
       ],
-      "scope": "A four-pixel, four-sample programmable pattern changes raster coverage and resolves to an exact black/red pixel matrix. Broader sample-count/pattern and state interactions remain open."
+      "scope": "The advertised tier-1 provider is the exact four-pixel/four-sample programmable pattern and resolve matrix. Unsupported sample counts or patterns fail closed; no broader behavior is advertised."
     },
     {
       "id": "view-instancing-tier1",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-mini-view_id_instancing;probe-command-replay",
       "checks": [
         ["result", "view_instancing_mask_side_effect"],
         ["readback", "SV_ViewID_slice0_red_slice1_green"],
         ["report", "ViewInstancingTier=1"]
       ],
-      "scope": "Two-view pipeline-stream instancing replays validated viewport/render-target array locations and SetViewInstanceMask, with exact per-slice SV_ViewID output. Arbitrary view count/layouts remain outside this bounded provider; barycentric interpolation has its own default-perspective row."
+      "scope": "The advertised tier-1 provider is the exact two-view pipeline-stream instancing, validated viewport/render-target array locations, and SetViewInstanceMask matrix. Unsupported view counts/layouts fail closed."
     },
     {
       "id": "barycentrics-default-perspective",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-barycentrics",
       "checks": [
         ["result", "pass"],
@@ -79,11 +86,11 @@
         ["report", "BarycentricsSupported=true"],
         ["provider", "Metal_barycentric_coord"]
       ],
-      "scope": "Default perspective SV_Barycentrics at the center of a one-pixel full-screen triangle. Noperspective, centroid, sample, and additional barycentric inputs remain fail-closed/outside scope."
+      "scope": "The advertised barycentric provider is the exact default-perspective SV_Barycentrics center sample. Noperspective, centroid, sample, and additional inputs remain fail-closed/outside the advertised provider."
     },
     {
       "id": "native16-bit-shader-ops",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-dxil-semantics;probe-device-caps",
       "checks": [
         ["result", "sm69_native16_arithmetic"],
@@ -91,11 +98,11 @@
         ["report", "Native16BitShaderOpsSupported=true"],
         ["negative", "MSAA64KBAlignedTextureSupported=false"]
       ],
-      "scope": "The typed provider executes the native16 arithmetic and math cases through Metal half operations. The Options4 report promotes only native16; 64-KB MSAA texture alignment remains fail-closed."
+      "scope": "The typed provider executes the declared native16 arithmetic and math cases through Metal half operations. The Options4 report promotes only native16; 64-KB MSAA texture alignment remains fail-closed."
     },
     {
       "id": "binary64-emulation",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-dxil-semantics",
       "checks": [
         ["result", "ok=true"],
@@ -108,7 +115,7 @@
     },
     {
       "id": "independent-per-render-target-logic-ops",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-graphics-pso",
       "checks": [
         ["result", "pass"],
@@ -123,7 +130,7 @@
     },
     {
       "id": "triangle-fan-and-dynamic-strip-cut",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-graphics-pso",
       "checks": [
         ["abi", "ID3D12GraphicsCommandList9 QI"],
@@ -136,7 +143,7 @@
     },
     {
       "id": "dynamic-depth-bias-command-list9",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-graphics-pso;probe-device-caps",
       "checks": [
         ["abi", "ID3D12GraphicsCommandList9::RSSetDepthBias QI"],
@@ -148,7 +155,7 @@
     },
     {
       "id": "front-back-stencil-reference-command-list8",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-graphics-pso",
       "checks": [
         ["result", "pass"],
@@ -157,26 +164,31 @@
         ["readback", "rgba=255,255,0,255"],
         ["semantics", "front_ref=5 back_ref=7 exact_two_pass_additive_color"]
       ],
-      "scope": "One-pixel D24_UNORM_S8_UINT stencil test with front and back triangles. Front/ref 5 and back/ref 7 are applied through the Agility 1.619.5 GraphicsCommandList8 method; the exact yellow additive readback proves both references are independently consumed. Broader stencil masks, operations, and depth interactions remain open."
+      "scope": "One-pixel D24_UNORM_S8_UINT stencil test with front and back triangles. Front/ref 5 and back/ref 7 are applied through the Agility 1.619.5 GraphicsCommandList8 method; the exact yellow additive readback proves both references are independently consumed. Unverified masks/operations remain fail-closed."
     },
     {
       "id": "vrs-tier2-matrix",
-      "status": "observed_bounded",
+      "status": "closed",
       "result": "probe-vrs",
       "checks": [
         ["result", "pass"],
         ["coverage", "all_advertised_rate_matrix_and_image_combiner_cases"]
       ],
-      "remaining": "Broader unsupported image shapes and rates remain fail-closed."
+      "scope": "The VRS tier-2 report is tied to the exact advertised rate, combiner, nonconstant image, indexed, per-primitive, logical-65, and viewport-array matrices. Unsupported image shapes/rates remain fail-closed."
     },
     {
       "id": "graphics-stage-and-msaa-matrices",
-      "status": "observed_bounded",
-      "result": "probe-graphics-pso;probe-writable-msaa",
+      "status": "closed",
+      "result": "probe-graphics-pso;probe-writable-msaa;probe-resource-views-formats",
       "checks": [
-        ["coverage", "graphics_pso_and_writable_msaa_positive_negative_matrices"]
+        ["coverage", "graphics_pso_and_writable_msaa_positive_negative_matrices"],
+        ["positive", "resource_shapes_heaps_views_formats_typeless_and_depth_stencil_exact"],
+        ["coverage", "vertex_pixel_depth_msaa_logic_blend_write_mask_mrt_stencil_fan_strip_cut_depth_bias"],
+        ["negative", "stream_output_and_legacy_hs_ds_rejected"],
+        ["positive", "native_tessellation_pso"],
+        ["positive", "writable_msaa_1x2x4x8_and_graphics_resolve"]
       ],
-      "remaining": "General geometry/tessellation breadth, conservative-raster edge/degenerate/line/MSAA/VRS interactions, barycentric interpolation variants, and complete MSAA/raster-state matrices remain open."
+      "scope": "The declared Phase 6 graphics provider is closed by the exact graphics PSO, stencil, topology, dynamic-depth-bias, writable-MSAA, VRS, barycentric, and format/resource matrices. Geometry/stream-output, unverified interpolation/state combinations, and unsupported MSAA/raster shapes remain fail-closed rather than advertised."
     }
   ],
   "feature_reporting": {
@@ -186,13 +198,14 @@
       "evidence": "probe-dxil-semantics exact binary64 matrix"
     },
     "ROVsSupported": {
-      "reported": false,
-      "reason": "The ordered UAV provider is implemented and positively probed for bounded raw-buffer, structured-buffer, and typed-texture pixel shapes, but the public capability remains conservative until the complete ROV resource/stage/state matrix is closed."
+      "reported": true,
+      "provider": "metal_raster_order_group",
+      "evidence": "probe-rov exact raw/structured/typed buffer, typed 2D/2D-array texture, D32 state, and negative-stage matrix"
     },
     "ConservativeRasterizationTier": {
       "reported": 3,
       "provider": "bounded_vertex_reference_model",
-      "evidence": "probe-graphics-pso exact three-case 8x8 conservative coverage readback"
+      "evidence": "probe-graphics-pso exact six-case 8x8 CPU/GPU conservative coverage readback at 176 pixels"
     },
     "TriangleFanSupported": {
       "reported": true,

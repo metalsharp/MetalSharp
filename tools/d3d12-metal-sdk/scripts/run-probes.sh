@@ -1423,12 +1423,24 @@ DXMT_DYLD_LIBRARY_PATH="$UNIX_DIR:$WINE_UNIX_DIR:${DYLD_LIBRARY_PATH:-}"
 DXMT_WINEMETAL_UNIXLIB_NAME="winemetal.so"
 PROBE_WINEMETAL_UNIXLIB_LINK=""
 PROBE_D3D12_DLL_PATH=""
+PROBE_D3D11_DLL_PATH=""
+PROBE_D3D10CORE_DLL_PATH=""
+PROBE_DXGI_DLL_PATH=""
 cleanup_probe_winemetal_unixlib() {
   if [[ -n "$PROBE_WINEMETAL_UNIXLIB_LINK" ]]; then
     rm -f "$PROBE_WINEMETAL_UNIXLIB_LINK"
   fi
   if [[ -n "$PROBE_D3D12_DLL_PATH" ]]; then
     rm -f "$PROBE_D3D12_DLL_PATH"
+  fi
+  if [[ -n "$PROBE_D3D11_DLL_PATH" ]]; then
+    rm -f "$PROBE_D3D11_DLL_PATH"
+  fi
+  if [[ -n "$PROBE_D3D10CORE_DLL_PATH" ]]; then
+    rm -f "$PROBE_D3D10CORE_DLL_PATH"
+  fi
+  if [[ -n "$PROBE_DXGI_DLL_PATH" ]]; then
+    rm -f "$PROBE_DXGI_DLL_PATH"
   fi
 }
 trap cleanup_probe_winemetal_unixlib EXIT
@@ -1507,6 +1519,20 @@ DXMT_D3D12_DLL_NAME="d3d12-metalsharp-probe-$$-${RANDOM}.dll"
 PROBE_D3D12_DLL_PATH="$SDK_DIR/out/bin/$DXMT_D3D12_DLL_NAME"
 cp "$WINDOWS_DIR/d3d12.dll" "$PROBE_D3D12_DLL_PATH"
 export DXMT_PROBE_D3D12_DLL="$DXMT_D3D12_DLL_NAME"
+# Legacy D3D10/D3D11 probes use LoadLibrary-based entrypoint routing.  Keep
+# their aliases distinct from Wine's same-named builtin modules as well.
+DXMT_D3D11_DLL_NAME="d3d11-metalsharp-probe-$$-${RANDOM}.dll"
+PROBE_D3D11_DLL_PATH="$SDK_DIR/out/bin/$DXMT_D3D11_DLL_NAME"
+cp "$WINDOWS_DIR/d3d11.dll" "$PROBE_D3D11_DLL_PATH"
+export DXMT_PROBE_D3D11_DLL="$DXMT_D3D11_DLL_NAME"
+DXMT_D3D10CORE_DLL_NAME="d3d10core-metalsharp-probe-$$-${RANDOM}.dll"
+PROBE_D3D10CORE_DLL_PATH="$SDK_DIR/out/bin/$DXMT_D3D10CORE_DLL_NAME"
+cp "$WINDOWS_DIR/d3d10core.dll" "$PROBE_D3D10CORE_DLL_PATH"
+export DXMT_PROBE_D3D10CORE_DLL="$DXMT_D3D10CORE_DLL_NAME"
+DXMT_DXGI_DLL_NAME="dxgi-metalsharp-probe-$$-${RANDOM}.dll"
+PROBE_DXGI_DLL_PATH="$SDK_DIR/out/bin/$DXMT_DXGI_DLL_NAME"
+cp "$WINDOWS_DIR/dxgi.dll" "$PROBE_DXGI_DLL_PATH"
+export DXMT_PROBE_DXGI_DLL="$DXMT_DXGI_DLL_NAME"
 
 if [[ ! -f "$UNIX_DIR/winemetal.so" ]]; then
   echo "Missing winemetal.so: $UNIX_DIR/winemetal.so" >&2
@@ -3306,15 +3332,27 @@ prepare_rov_probe() {
   local texture_source="$SDK_DIR/out/bin/probe_rov_texture.hlsl"
   local structured_source="$SDK_DIR/out/bin/probe_rov_structured.hlsl"
   local typed_source="$SDK_DIR/out/bin/probe_rov_typed.hlsl"
+  local array_source="$SDK_DIR/out/bin/probe_rov_array.hlsl"
+  local float_source="$SDK_DIR/out/bin/probe_rov_float.hlsl"
+  local vertex_rov_source="$SDK_DIR/out/bin/probe_rov_vertex.hlsl"
+  local compute_rov_source="$SDK_DIR/out/bin/probe_rov_compute.hlsl"
   local vertex_shader="$SDK_DIR/out/bin/probe_rov_vs.cso"
   local raw_shader="$SDK_DIR/out/bin/probe_rov_raw_ps.cso"
   local texture_shader="$SDK_DIR/out/bin/probe_rov_texture_ps.cso"
   local structured_shader="$SDK_DIR/out/bin/probe_rov_structured_ps.cso"
   local typed_shader="$SDK_DIR/out/bin/probe_rov_typed_ps.cso"
+  local array_shader="$SDK_DIR/out/bin/probe_rov_array_ps.cso"
+  local float_shader="$SDK_DIR/out/bin/probe_rov_float_ps.cso"
+  local vertex_rov_shader="$SDK_DIR/out/bin/probe_rov_vertex.cso"
+  local compute_rov_shader="$SDK_DIR/out/bin/probe_rov_compute.cso"
   cp "$source_dir/rov.hlsl" "$vertex_source"
   cp "$source_dir/rov_texture.hlsl" "$texture_source"
   cp "$source_dir/rov_structured.hlsl" "$structured_source"
   cp "$source_dir/rov_typed.hlsl" "$typed_source"
+  cp "$source_dir/rov_array.hlsl" "$array_source"
+  cp "$source_dir/rov_float.hlsl" "$float_source"
+  cp "$source_dir/rov_vertex.hlsl" "$vertex_rov_source"
+  cp "$source_dir/rov_compute.hlsl" "$compute_rov_source"
   if ! (
     cd "$SDK_DIR/out/bin"
     if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
@@ -3342,12 +3380,37 @@ prepare_rov_probe() {
       -Fo probe_rov_typed_ps.cso probe_rov_typed.hlsl >/dev/null; then
       exit 1
     fi
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_rov_array_ps.cso probe_rov_array.hlsl >/dev/null; then
+      exit 1
+    fi
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -E ps_main -T ps_6_0 \
+      -Fo probe_rov_float_ps.cso probe_rov_float.hlsl >/dev/null; then
+      exit 1
+    fi
+    # DXC's normal validator forbids ROV objects outside pixel shaders.  Build
+    # these two intentional negative fixtures with validation disabled so the
+    # runtime lowering boundary gets to reject them fail-closed itself.
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -Vd -E vs_main -T vs_6_0 \
+      -Fo probe_rov_vertex.cso probe_rov_vertex.hlsl >/dev/null; then
+      exit 1
+    fi
+    if ! WINEPREFIX="$WINE_PREFIX" WINEDLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -Vd -E cs_main -T cs_6_0 \
+      -Fo probe_rov_compute.cso probe_rov_compute.hlsl >/dev/null; then
+      exit 1
+    fi
   ); then
     echo "failed to compile rasterizer-ordered UAV DXIL fixtures" >&2
     return 1
   fi
   [[ -s "$vertex_shader" && -s "$raw_shader" && -s "$texture_shader" &&
-     -s "$structured_shader" && -s "$typed_shader" ]] || {
+     -s "$structured_shader" && -s "$typed_shader" && -s "$array_shader" &&
+     -s "$float_shader" && -s "$vertex_rov_shader" &&
+     -s "$compute_rov_shader" ]] || {
     echo "rasterizer-ordered UAV DXIL fixtures are missing" >&2
     return 1
   }
@@ -5484,7 +5547,11 @@ if [[ "$RUN_ROV" == "1" ]]; then
     "$SDK_DIR/out/bin/probe_rov_raw_ps.cso" \
     "$SDK_DIR/out/bin/probe_rov_texture_ps.cso" \
     "$SDK_DIR/out/bin/probe_rov_structured_ps.cso" \
-    "$SDK_DIR/out/bin/probe_rov_typed_ps.cso"
+    "$SDK_DIR/out/bin/probe_rov_typed_ps.cso" \
+    "$SDK_DIR/out/bin/probe_rov_array_ps.cso" \
+    "$SDK_DIR/out/bin/probe_rov_float_ps.cso" \
+    "$SDK_DIR/out/bin/probe_rov_vertex.cso" \
+    "$SDK_DIR/out/bin/probe_rov_compute.cso"
 fi
 
 if [[ "$RUN_BARYCENTRICS" == "1" ]]; then
