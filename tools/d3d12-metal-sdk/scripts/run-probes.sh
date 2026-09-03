@@ -3606,50 +3606,65 @@ void cs_math_extended(uint3 id : SV_DispatchThreadID) {
 
 [numthreads(1, 1, 1)]
 void cs_core_opcode_matrix(uint3 id : SV_DispatchThreadID) {
-  float neg = -2.25f;
-  float pos = 3.5f;
-  float2 a2 = float2(1.0f, 2.0f);
-  float2 b2 = float2(3.0f, 4.0f);
-  float3 a3 = float3(1.0f, 2.0f, 3.0f);
-  float3 b3 = float3(3.0f, 2.0f, 1.0f);
-  float4 a4 = float4(1.0f, 2.0f, 3.0f, 4.0f);
-  float4 b4 = float4(4.0f, 3.0f, 2.0f, 1.0f);
+  // Feed the matrix from UAV-visible input values so DXC cannot fold the
+  // intrinsic calls into constants and erase their DXIL opcodes. The probe
+  // supplies one and zero at t0[0:1], preserving the historical outputs.
+  float one = asfloat(inbuf.Load(0));
+  float zero = asfloat(inbuf.Load(4));
+  float neg = -2.25f * one;
+  float pos = 3.5f * one;
+  float2 a2 = float2(1.0f * one, 2.0f * one);
+  float2 b2 = float2(3.0f * one, 4.0f * one);
+  float3 a3 = float3(1.0f * one, 2.0f * one, 3.0f * one);
+  float3 b3 = float3(3.0f * one, 2.0f * one, 1.0f * one);
+  float4 a4 = float4(1.0f * one, 2.0f * one, 3.0f * one, 4.0f * one);
+  float4 b4 = float4(4.0f * one, 3.0f * one, 2.0f * one, 1.0f * one);
+  int int_neg = asint(inbuf.Load(8));
+  int int_pos = asint(inbuf.Load(12));
+  uint unsigned_max = inbuf.Load(16);
+  uint unsigned_min = inbuf.Load(20);
+  uint bit_one = inbuf.Load(24);
+  uint bit_sixteen = inbuf.Load(28);
+  uint unsigned_thirteen = inbuf.Load(32);
+  uint unsigned_three = inbuf.Load(36);
+  uint unsigned_two = inbuf.Load(40);
+  uint unsigned_four = inbuf.Load(44);
   outbuf.Store(0, asuint(abs(neg)));
   outbuf.Store(4, asuint(saturate(neg)));
-  outbuf.Store(8, asuint(cos(0.0f)));
-  outbuf.Store(12, asuint(sin(0.0f)));
-  outbuf.Store(16, asuint(tan(0.0f)));
-  outbuf.Store(20, asuint(acos(1.0f)));
-  outbuf.Store(24, asuint(asin(0.0f)));
-  outbuf.Store(28, asuint(atan(0.0f)));
-  outbuf.Store(32, asuint(cosh(0.0f)));
-  outbuf.Store(36, asuint(sinh(0.0f)));
-  outbuf.Store(40, asuint(tanh(0.0f)));
-  outbuf.Store(44, asuint(exp2(3.0f)));
-  outbuf.Store(48, asuint(frac(2.75f)));
-  outbuf.Store(52, asuint(log2(8.0f)));
-  outbuf.Store(56, asuint(sqrt(9.0f)));
-  outbuf.Store(60, asuint(rsqrt(4.0f)));
-  outbuf.Store(64, uint(round(2.25f)));
-  outbuf.Store(68, uint(floor(2.75f)));
-  outbuf.Store(72, uint(ceil(2.25f)));
+  outbuf.Store(8, asuint(cos(zero)));
+  outbuf.Store(12, asuint(sin(zero)));
+  outbuf.Store(16, asuint(tan(zero)));
+  outbuf.Store(20, asuint(acos(one)));
+  outbuf.Store(24, asuint(asin(zero)));
+  outbuf.Store(28, asuint(atan(zero)));
+  outbuf.Store(32, asuint(cosh(zero)));
+  outbuf.Store(36, asuint(sinh(zero)));
+  outbuf.Store(40, asuint(tanh(zero)));
+  outbuf.Store(44, asuint(exp2(3.0f * one)));
+  outbuf.Store(48, asuint(frac(2.75f * one)));
+  outbuf.Store(52, asuint(log2(8.0f * one)));
+  outbuf.Store(56, asuint(sqrt(9.0f * one)));
+  outbuf.Store(60, asuint(rsqrt(4.0f * one)));
+  outbuf.Store(64, uint(round(2.25f * one)));
+  outbuf.Store(68, uint(floor(2.75f * one)));
+  outbuf.Store(72, uint(ceil(2.25f * one)));
   outbuf.Store(76, asuint(int(trunc(neg))));
   outbuf.Store(80, asuint(max(neg, pos)));
   outbuf.Store(84, asuint(min(neg, pos)));
-  outbuf.Store(88, uint(max(-2, 3)));
-  outbuf.Store(92, uint(min(-2, 3)));
-  outbuf.Store(96, max(7u, 3u));
-  outbuf.Store(100, min(7u, 3u));
-  outbuf.Store(104, 13u / 3u);
-  outbuf.Store(108, mad(2u, 3u, 4u));
-  outbuf.Store(112, asuint(mad(2.0f, 3.0f, 4.0f)));
+  outbuf.Store(88, max(int_neg, int_pos));
+  outbuf.Store(92, min(int_neg, int_pos));
+  outbuf.Store(96, max(unsigned_max, unsigned_min));
+  outbuf.Store(100, min(unsigned_max, unsigned_min));
+  outbuf.Store(104, unsigned_thirteen / unsigned_three);
+  outbuf.Store(108, mad(unsigned_two, unsigned_three, unsigned_four));
+  outbuf.Store(112, asuint(mad(2.0f * one, 3.0f * one, 4.0f * one)));
   outbuf.Store(116, asuint(dot(a2, b2)));
   outbuf.Store(120, asuint(dot(a3, b3)));
   outbuf.Store(124, asuint(dot(a4, b4)));
-  outbuf.Store(128, reversebits(1u));
-  outbuf.Store(132, countbits(0xf0f0u));
-  outbuf.Store(136, uint(firstbitlow(0x10u)));
-  outbuf.Store(140, uint(firstbithigh(0x10u)));
+  outbuf.Store(128, reversebits(bit_one));
+  outbuf.Store(132, countbits(0xf0f0u * bit_one));
+  outbuf.Store(136, uint(firstbitlow(bit_one * bit_sixteen)));
+  outbuf.Store(140, uint(firstbithigh(bit_one * bit_sixteen)));
 }
 
 [numthreads(1, 1, 1)]
