@@ -265,7 +265,8 @@ static CaseResult run_buffer_case(ID3D12Device *device,
                                   ID3D12RootSignature *root,
                                   const std::vector<uint8_t> &vertex_shader,
                                   const std::vector<uint8_t> &pixel_shader,
-                                  const char *name, bool structured) {
+                                  const char *name, bool structured,
+                                  bool typed) {
     CaseResult result = {};
     result.name = name;
     ID3D12PipelineState *pso = nullptr;
@@ -338,6 +339,8 @@ static CaseResult run_buffer_case(ID3D12Device *device,
         if (structured) {
             uav.Format = DXGI_FORMAT_UNKNOWN;
             uav.Buffer.StructureByteStride = sizeof(uint32_t);
+        } else if (typed) {
+            uav.Format = DXGI_FORMAT_R32_UINT;
         } else {
             uav.Format = DXGI_FORMAT_R32_TYPELESS;
             uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
@@ -550,22 +553,26 @@ static void print_case(const CaseResult &result, bool last) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 1 && argc != 5) {
+    if (argc != 1 && argc != 6) {
         std::fprintf(stderr,
                      "usage: probe_rov [<vs.cso> <raw-ps.cso> "
-                     "<texture-ps.cso> <structured-ps.cso>]\n");
+                     "<texture-ps.cso> <structured-ps.cso> "
+                     "<typed-ps.cso>]\n");
         return 2;
     }
 
-    const char *vertex_path = argc == 5 ? argv[1] : "probe_rov_vs.cso";
-    const char *raw_path = argc == 5 ? argv[2] : "probe_rov_raw_ps.cso";
-    const char *texture_path = argc == 5 ? argv[3] : "probe_rov_texture_ps.cso";
+    const char *vertex_path = argc == 6 ? argv[1] : "probe_rov_vs.cso";
+    const char *raw_path = argc == 6 ? argv[2] : "probe_rov_raw_ps.cso";
+    const char *texture_path = argc == 6 ? argv[3] : "probe_rov_texture_ps.cso";
     const char *structured_path =
-        argc == 5 ? argv[4] : "probe_rov_structured_ps.cso";
+        argc == 6 ? argv[4] : "probe_rov_structured_ps.cso";
+    const char *typed_path =
+        argc == 6 ? argv[5] : "probe_rov_typed_ps.cso";
     const auto vertex_shader = read_binary_file(vertex_path);
     const auto raw_shader = read_binary_file(raw_path);
     const auto texture_shader = read_binary_file(texture_path);
     const auto structured_shader = read_binary_file(structured_path);
+    const auto typed_shader = read_binary_file(typed_path);
 
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     using CreateDeviceFn = HRESULT(WINAPI *)(IUnknown *, D3D_FEATURE_LEVEL,
@@ -592,20 +599,26 @@ int main(int argc, char **argv) {
     texture.name = "typed_texture2d_uint";
     CaseResult structured = {};
     structured.name = "structured_buffer";
+    CaseResult typed = {};
+    typed.name = "typed_buffer_uint";
     if (SUCCEEDED(create_hr) && SUCCEEDED(root_hr)) {
         if (!vertex_shader.empty() && !raw_shader.empty())
             raw = run_buffer_case(device, root, vertex_shader, raw_shader,
-                                  "byte_address_buffer", false);
+                                  "byte_address_buffer", false, false);
         if (!vertex_shader.empty() && !texture_shader.empty())
             texture = run_texture_case(device, root, vertex_shader,
                                        texture_shader);
         if (!vertex_shader.empty() && !structured_shader.empty())
             structured = run_buffer_case(device, root, vertex_shader,
                                          structured_shader, "structured_buffer",
-                                         true);
+                                         true, false);
+        if (!vertex_shader.empty() && !typed_shader.empty())
+            typed = run_buffer_case(device, root, vertex_shader, typed_shader,
+                                    "typed_buffer_uint", false, true);
     }
 
-    const bool all_exact = raw.exact && texture.exact && structured.exact;
+    const bool all_exact = raw.exact && texture.exact && structured.exact &&
+                           typed.exact;
     const std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
     std::printf(
         "{\n"
@@ -620,11 +633,12 @@ int main(int argc, char **argv) {
         hr_hex(root_hr).c_str());
     print_case(raw, false);
     print_case(texture, false);
-    print_case(structured, true);
+    print_case(structured, false);
+    print_case(typed, true);
     std::printf(
         "  ],\n"
         "  \"exact\": %s,\n"
-        "  \"bounded_scope\": \"pixel ROV buffer and typed texture resources; one-pixel three-primitive ordered load/store\"\n"
+        "  \"bounded_scope\": \"pixel ROV raw, typed, structured buffer, and typed texture resources; one-pixel three-primitive ordered load/store\"\n"
         "}\n",
         all_exact ? "true" : "false");
     std::fflush(stdout);

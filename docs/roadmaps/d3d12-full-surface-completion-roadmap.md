@@ -1964,11 +1964,13 @@ whether the scoped FL12_2 gate is green.
 ### 2026-09-02 — Phase 6 bounded rasterizer-ordered UAV provider (intermediate)
 
 - Added the source-owned `probe_rov` DXIL fixture and runtime lane. Pixel
-  `RasterizerOrderedByteAddressBuffer`,
-  `RasterizerOrderedStructuredBuffer`, and
-  `RasterizerOrderedTexture2D<uint>` shaders perform ordered
+  `RasterizerOrderedByteAddressBuffer`, `RasterizerOrderedStructuredBuffer`,
+  and `RasterizerOrderedTexture2D<uint>` shaders perform ordered
   load/increment/stores for three overlapping primitives at one pixel and each
   return the exact UAV value `3` with `METAL_SHADER_CONVERTER=/nonexistent`.
+  The v2 harness additionally compiles and wires an `R32_UINT`
+  `RasterizerOrderedBuffer<uint>` fixture; its isolated runtime readback stays
+  open until the paired-runtime PSO failure is resolved.
 - The DXIL resource metadata ROV bit is now carried through the direct binding
   plan. Marked pixel UAV buffers and textures receive Metal's
   `raster_order_group(0)` qualifier; non-pixel ROV uses remain fail-closed.
