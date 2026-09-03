@@ -101,6 +101,18 @@ shaders with UAV side effects, because repeating a draw would repeat those
 side effects; depth/stencil writes use a no-write color pass plus one final
 state-only replay, which is exercised by the D32 depth case.
 
+## GraphicsCommandList8 front/back stencil references
+
+The runtime now exposes the stable Agility 1.619.5
+`ID3D12GraphicsCommandList8::OMSetFrontAndBackStencilRef` ABI and carries both
+32-bit reference values through command recording and Metal replay. The
+behavior probe clears a one-pixel `D24_UNORM_S8_UINT` target to stencil `6`,
+sets front/back references to `5/7`, and draws separate front- and back-facing
+triangles with `LESS`/`GREATER` tests. Additive red/green output is exactly
+`[255,255,0,255]`; using one shared reference would leave either the red or
+green contribution absent. The provider is bounded to this exact reference,
+mask, and operation matrix; broader stencil/depth combinations remain open.
+
 ## Reproduction
 
 ```bash

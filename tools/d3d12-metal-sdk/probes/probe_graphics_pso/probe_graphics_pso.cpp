@@ -12,6 +12,14 @@
 #include <dxgiformat.h>
 
 static const GUID IID_D3D12DeviceProbe = {0x189819f1, 0x1db6, 0x4b57, {0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}};
+static const GUID IID_D3D12GraphicsCommandList8Probe = {
+    0xee936ef9, 0x599d, 0x4d28,
+    {0x93, 0x8e, 0x23, 0xc4, 0xad, 0x05, 0xce, 0x51}};
+
+struct D3D12GraphicsCommandList8Probe : public ID3D12GraphicsCommandList7 {
+    virtual void STDMETHODCALLTYPE OMSetFrontAndBackStencilRef(
+        UINT front_stencil_ref, UINT back_stencil_ref) = 0;
+};
 
 using D3D12CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
 using D3D12SerializeRootSignatureFn = HRESULT(WINAPI*)(const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION,
@@ -821,6 +829,284 @@ PSOut logic_ps_with_uav(VSOut input) {
     return result;
 }
 
+struct FrontBackStencilProbeResult {
+    HRESULT shader_compile_hr = E_FAIL;
+    HRESULT front_pso_hr = E_FAIL;
+    HRESULT back_pso_hr = E_FAIL;
+    HRESULT query_hr = E_FAIL;
+    HRESULT execute_hr = E_FAIL;
+    bool readback = false;
+    uint8_t rgba[4] = {};
+    bool passed = false;
+};
+
+static FrontBackStencilProbeResult run_front_back_stencil_probe(
+    ID3D12Device* device, ID3D12RootSignature* root) {
+    FrontBackStencilProbeResult result;
+    if (!device || !root)
+        return result;
+
+    static const char* hlsl = R"HLSL(
+struct VSOut { float4 position : SV_Position; };
+VSOut stencil_front_vs(uint vertex_id : SV_VertexID) {
+    VSOut output;
+    output.position = vertex_id == 0
+        ? float4(-1.0, -1.0, 0.0, 1.0)
+        : (vertex_id == 1 ? float4(3.0, -1.0, 0.0, 1.0)
+                          : float4(-1.0, 3.0, 0.0, 1.0));
+    return output;
+}
+VSOut stencil_back_vs(uint vertex_id : SV_VertexID) {
+    VSOut output;
+    output.position = vertex_id == 0
+        ? float4(-1.0, -1.0, 0.0, 1.0)
+        : (vertex_id == 1 ? float4(-1.0, 3.0, 0.0, 1.0)
+                          : float4(3.0, -1.0, 0.0, 1.0));
+    return output;
+}
+float4 stencil_front_ps() : SV_Target { return float4(1, 0, 0, 1); }
+float4 stencil_back_ps() : SV_Target { return float4(0, 1, 0, 1); }
+)HLSL";
+    std::string errors;
+    ID3DBlob* front_vs = nullptr;
+    ID3DBlob* back_vs = nullptr;
+    ID3DBlob* front_ps = nullptr;
+    ID3DBlob* back_ps = nullptr;
+    HRESULT front_vs_hr = compile_shader(hlsl, "stencil_front_vs", "vs_5_0", &front_vs, errors);
+    HRESULT back_vs_hr = compile_shader(hlsl, "stencil_back_vs", "vs_5_0", &back_vs, errors);
+    HRESULT front_ps_hr = compile_shader(hlsl, "stencil_front_ps", "ps_5_0", &front_ps, errors);
+    HRESULT back_ps_hr = compile_shader(hlsl, "stencil_back_ps", "ps_5_0", &back_ps, errors);
+    result.shader_compile_hr = FAILED(front_vs_hr) ? front_vs_hr :
+                               (FAILED(back_vs_hr) ? back_vs_hr :
+                                (FAILED(front_ps_hr) ? front_ps_hr : back_ps_hr));
+    if (FAILED(result.shader_compile_hr) || !front_vs || !back_vs ||
+        !front_ps || !back_ps) {
+        safe_release(back_ps);
+        safe_release(front_ps);
+        safe_release(back_vs);
+        safe_release(front_vs);
+        return result;
+    }
+
+    const D3D12_INPUT_ELEMENT_DESC* no_layout = nullptr;
+    auto front_desc = make_base_desc(root, front_vs, front_ps, no_layout, 0);
+    front_desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    front_desc.RasterizerState.FrontCounterClockwise = TRUE;
+    front_desc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    front_desc.DepthStencilState.DepthEnable = FALSE;
+    front_desc.DepthStencilState.StencilEnable = TRUE;
+    front_desc.DepthStencilState.StencilReadMask = 0xff;
+    front_desc.DepthStencilState.StencilWriteMask = 0xff;
+    front_desc.DepthStencilState.FrontFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    front_desc.DepthStencilState.FrontFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    front_desc.DepthStencilState.FrontFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+    front_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_LESS;
+    front_desc.DepthStencilState.BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
+    front_desc.DepthStencilState.BackFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
+    front_desc.DepthStencilState.BackFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
+    front_desc.DepthStencilState.BackFace.StencilFunc = D3D12_COMPARISON_FUNC_NEVER;
+    front_desc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    front_desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    front_desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+    front_desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    front_desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+
+    auto back_desc = front_desc;
+    back_desc.VS = {back_vs->GetBufferPointer(), back_vs->GetBufferSize()};
+    back_desc.PS = {back_ps->GetBufferPointer(), back_ps->GetBufferSize()};
+    back_desc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_NEVER;
+    back_desc.DepthStencilState.BackFace.StencilFunc = D3D12_COMPARISON_FUNC_GREATER;
+
+    ID3D12PipelineState* front_pso = nullptr;
+    ID3D12PipelineState* back_pso = nullptr;
+    result.front_pso_hr = device->CreateGraphicsPipelineState(
+        &front_desc, IID_PPV_ARGS(&front_pso));
+    result.back_pso_hr = device->CreateGraphicsPipelineState(
+        &back_desc, IID_PPV_ARGS(&back_pso));
+    if (FAILED(result.front_pso_hr) || FAILED(result.back_pso_hr) ||
+        !front_pso || !back_pso) {
+        safe_release(back_pso);
+        safe_release(front_pso);
+        safe_release(back_ps);
+        safe_release(front_ps);
+        safe_release(back_vs);
+        safe_release(front_vs);
+        return result;
+    }
+
+    ID3D12GraphicsCommandList* list = nullptr;
+    D3D12GraphicsCommandList8Probe* list8 = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12DescriptorHeap* rtv_heap = nullptr;
+    ID3D12DescriptorHeap* dsv_heap = nullptr;
+    ID3D12Resource* target = nullptr;
+    ID3D12Resource* depth = nullptr;
+    ID3D12Resource* readback = nullptr;
+    HRESULT hr = S_OK;
+    D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+    hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(
+            D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(
+            0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr,
+            IID_PPV_ARGS(&list));
+    if (SUCCEEDED(hr))
+        result.query_hr = list->QueryInterface(
+            IID_D3D12GraphicsCommandList8Probe,
+            reinterpret_cast<void**>(&list8));
+    if (SUCCEEDED(hr))
+        hr = result.query_hr;
+
+    D3D12_DESCRIPTOR_HEAP_DESC rtv_heap_desc = {};
+    rtv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtv_heap_desc.NumDescriptors = 1;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(
+            &rtv_heap_desc, IID_PPV_ARGS(&rtv_heap));
+    D3D12_DESCRIPTOR_HEAP_DESC dsv_heap_desc = {};
+    dsv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsv_heap_desc.NumDescriptors = 1;
+    if (SUCCEEDED(hr))
+        hr = device->CreateDescriptorHeap(
+            &dsv_heap_desc, IID_PPV_ARGS(&dsv_heap));
+
+    D3D12_RESOURCE_DESC target_desc = {};
+    target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    target_desc.Width = 1;
+    target_desc.Height = 1;
+    target_desc.DepthOrArraySize = 1;
+    target_desc.MipLevels = 1;
+    target_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    target_desc.SampleDesc.Count = 1;
+    target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    D3D12_RESOURCE_DESC depth_desc = target_desc;
+    depth_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+    D3D12_CLEAR_VALUE depth_clear = {};
+    depth_clear.Format = depth_desc.Format;
+    depth_clear.DepthStencil.Depth = 1.0f;
+    depth_clear.DepthStencil.Stencil = 6;
+    D3D12_HEAP_PROPERTIES default_heap = {};
+    default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    D3D12_HEAP_PROPERTIES readback_heap = {};
+    readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+    UINT rows = 0;
+    UINT64 row_size = 0;
+    UINT64 total_bytes = 0;
+    if (SUCCEEDED(hr))
+        device->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint,
+                                      &rows, &row_size, &total_bytes);
+    if (SUCCEEDED(hr) && total_bytes == 0)
+        hr = E_FAIL;
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+            IID_PPV_ARGS(&target));
+    D3D12_RESOURCE_DESC readback_desc = {};
+    readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    readback_desc.Width = total_bytes;
+    readback_desc.Height = 1;
+    readback_desc.DepthOrArraySize = 1;
+    readback_desc.MipLevels = 1;
+    readback_desc.SampleDesc.Count = 1;
+    readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&readback));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &depth_desc,
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, &depth_clear,
+            IID_PPV_ARGS(&depth));
+
+    if (SUCCEEDED(hr)) {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv =
+            rtv_heap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+            dsv_heap->GetCPUDescriptorHandleForHeapStart();
+        device->CreateRenderTargetView(target, nullptr, rtv);
+        device->CreateDepthStencilView(depth, nullptr, dsv);
+        const FLOAT clear_color[4] = {};
+        list->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+        list->ClearDepthStencilView(
+            dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL,
+            1.0f, 6, 0, nullptr);
+        list8->OMSetFrontAndBackStencilRef(5, 7);
+        list->SetGraphicsRootSignature(root);
+        D3D12_VIEWPORT viewport = {0, 0, 1, 1, 0, 1};
+        D3D12_RECT scissor = {0, 0, 1, 1};
+        list->RSSetViewports(1, &viewport);
+        list->RSSetScissorRects(1, &scissor);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+        list->SetPipelineState(front_pso);
+        list->DrawInstanced(3, 1, 0, 0);
+        list->SetPipelineState(back_pso);
+        list->DrawInstanced(3, 1, 3, 0);
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = target;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        list->ResourceBarrier(1, &barrier);
+        D3D12_TEXTURE_COPY_LOCATION source = {};
+        source.pResource = target;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION destination = {};
+        destination.pResource = readback;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint = footprint;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+        result.execute_hr = execute_and_wait(device, queue, list);
+    } else {
+        result.execute_hr = hr;
+    }
+
+    if (SUCCEEDED(result.execute_hr) && readback) {
+        void* mapped = nullptr;
+        D3D12_RANGE range = {0, total_bytes};
+        result.readback = SUCCEEDED(readback->Map(0, &range, &mapped)) && mapped;
+        if (result.readback) {
+            std::memcpy(result.rgba, mapped, sizeof(result.rgba));
+            readback->Unmap(0, nullptr);
+        }
+    }
+    result.passed = SUCCEEDED(result.shader_compile_hr) &&
+                    SUCCEEDED(result.front_pso_hr) &&
+                    SUCCEEDED(result.back_pso_hr) &&
+                    SUCCEEDED(result.query_hr) &&
+                    SUCCEEDED(result.execute_hr) && result.readback &&
+                    result.rgba[0] == 255 && result.rgba[1] == 255 &&
+                    result.rgba[2] == 0 && result.rgba[3] == 255;
+
+    safe_release(readback);
+    safe_release(depth);
+    safe_release(target);
+    safe_release(dsv_heap);
+    safe_release(rtv_heap);
+    safe_release(list8);
+    safe_release(list);
+    safe_release(allocator);
+    safe_release(queue);
+
+    safe_release(back_pso);
+    safe_release(front_pso);
+    safe_release(back_ps);
+    safe_release(front_ps);
+    safe_release(back_vs);
+    safe_release(front_vs);
+    return result;
+}
+
 int main() {
     const std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
 
@@ -1038,9 +1324,12 @@ float4 tess_ps(TessCP input) : SV_Target {
     const IndependentLogicOpProbeResult independent_logic_op =
         run_independent_logic_op_probe(device, root);
     pass = pass && independent_logic_op.passed;
+    const FrontBackStencilProbeResult front_back_stencil =
+        run_front_back_stencil_probe(device, root);
+    pass = pass && front_back_stencil.passed;
 
     std::printf("{\n");
-    std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-graphics-pso.v1\",\n");
+    std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-graphics-pso.v2\",\n");
     std::printf("  \"profile\": \"%s\",\n", json_escape(profile).c_str());
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"setup\": {\n");
@@ -1084,6 +1373,23 @@ float4 tess_ps(TessCP input) : SV_Target {
                 independent_logic_op.side_effect_rejected ? "true" : "false");
     std::printf("    \"logic_op_uav_side_effect_hr\": \"%s\",\n",
                 hr_hex(independent_logic_op.side_effect_hr).c_str());
+    std::printf("    \"front_back_stencil_shader_compile_hr\": \"%s\",\n",
+                hr_hex(front_back_stencil.shader_compile_hr).c_str());
+    std::printf("    \"front_back_stencil_front_pso_hr\": \"%s\",\n",
+                hr_hex(front_back_stencil.front_pso_hr).c_str());
+    std::printf("    \"front_back_stencil_back_pso_hr\": \"%s\",\n",
+                hr_hex(front_back_stencil.back_pso_hr).c_str());
+    std::printf("    \"front_back_stencil_query_hr\": \"%s\",\n",
+                hr_hex(front_back_stencil.query_hr).c_str());
+    std::printf("    \"front_back_stencil_execute_hr\": \"%s\",\n",
+                hr_hex(front_back_stencil.execute_hr).c_str());
+    std::printf("    \"front_back_stencil_readback\": %s,\n",
+                front_back_stencil.readback ? "true" : "false");
+    std::printf("    \"front_back_stencil_rgba\": [%u,%u,%u,%u],\n",
+                front_back_stencil.rgba[0], front_back_stencil.rgba[1],
+                front_back_stencil.rgba[2], front_back_stencil.rgba[3]);
+    std::printf("    \"front_back_stencil_reference\": %s,\n",
+                front_back_stencil.passed ? "true" : "false");
     std::printf("    \"write_mask\": true,\n");
     std::printf("    \"input_layout_semantics\": true,\n");
     std::printf("    \"input_layout_per_instance_step_rate\": 2,\n");

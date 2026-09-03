@@ -120,6 +120,19 @@
       "scope": "Two R8G8B8A8 render targets with IndependentBlendEnable and a D32 depth attachment with depth writes enabled. Target 0 applies XOR and target 1 applies AND to distinct initialized values; replay binds one Metal global logic operation at a time while masking the other attachments, then performs one state-only depth replay. A separate UAV-writing pixel PSO is rejected before replay because repeated draws would duplicate those effects."
     },
     {
+      "id": "front-back-stencil-reference-command-list8",
+      "status": "observed_bounded",
+      "result": "probe-graphics-pso",
+      "checks": [
+        ["result", "pass"],
+        ["abi", "ID3D12GraphicsCommandList8::OMSetFrontAndBackStencilRef QI"],
+        ["pso", "front_and_back_stencil_variants"],
+        ["readback", "rgba=255,255,0,255"],
+        ["semantics", "front_ref=5 back_ref=7 exact_two_pass_additive_color"]
+      ],
+      "scope": "One-pixel D24_UNORM_S8_UINT stencil test with front and back triangles. Front/ref 5 and back/ref 7 are applied through the Agility 1.619.5 GraphicsCommandList8 method; the exact yellow additive readback proves both references are independently consumed. Broader stencil masks, operations, and depth interactions remain open."
+    },
+    {
       "id": "vrs-tier2-matrix",
       "status": "observed_bounded",
       "result": "probe-vrs",

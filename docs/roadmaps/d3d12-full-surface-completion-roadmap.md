@@ -2042,3 +2042,14 @@ whether the scoped FL12_2 gate is green.
   now compile synchronously; only a successful provider compile produces a
   usable pipeline object. This protects the ROV, DXIL, and later shader probes
   from treating a deferred/failed provider result as successful behavior.
+
+### 2026-09-03 — Phase 6 GraphicsCommandList8 stencil-reference proof
+
+- Added the stable Agility 1.619.5 `ID3D12GraphicsCommandList8` ABI extension
+  for `OMSetFrontAndBackStencilRef`, including command recording and a Metal
+  front/back stencil-reference command. The graphics probe clears a one-pixel
+  `D24_UNORM_S8_UINT` target to stencil `6`, sets references `5/7`, and draws
+  front/back triangles with `LESS`/`GREATER` tests. Exact additive output is
+  `[255,255,0,255]`, proving both reference values are applied rather than
+  silently collapsing to one shared reference. Broader stencil/depth matrices
+  remain part of the open Phase 6 gate.

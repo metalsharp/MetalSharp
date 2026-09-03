@@ -267,6 +267,11 @@ MTLD3D12GraphicsCommandList::QueryInterface(REFIID riid, void **ppvObject) {
     *ppvObject = ref(this);
     return S_OK;
   }
+  if (riid == kID3D12GraphicsCommandList8) {
+    *ppvObject = static_cast<GraphicsCommandList8Extension *>(this);
+    AddRef();
+    return S_OK;
+  }
   CLTRACE("QI unknown IID %s -> E_NOINTERFACE", str::format(riid).c_str());
   return E_NOINTERFACE;
 }
@@ -1059,6 +1064,18 @@ MTLD3D12GraphicsCommandList::OMSetStencilRef(UINT stencil_ref) {
   CmdOMStencilRef cmd = {};
   cmd.header = {CmdType::OMSetStencilRef, sizeof(cmd)};
   cmd.stencil_ref = stencil_ref;
+  Emit(cmd);
+}
+
+void STDMETHODCALLTYPE
+MTLD3D12GraphicsCommandList::OMSetFrontAndBackStencilRef(
+    UINT front_stencil_ref, UINT back_stencil_ref) {
+  if (m_closed)
+    return;
+  CmdOMFrontAndBackStencilRef cmd = {};
+  cmd.header = {CmdType::OMSetFrontAndBackStencilRef, sizeof(cmd)};
+  cmd.front_stencil_ref = front_stencil_ref;
+  cmd.back_stencil_ref = back_stencil_ref;
   Emit(cmd);
 }
 
