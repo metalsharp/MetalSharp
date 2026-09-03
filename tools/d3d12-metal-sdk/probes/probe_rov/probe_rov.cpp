@@ -190,7 +190,8 @@ static HRESULT create_graphics_pso(ID3D12Device *device,
                                    ID3D12RootSignature *root,
                                    const std::vector<uint8_t> &vertex_shader,
                                    const std::vector<uint8_t> &pixel_shader,
-                                   ID3D12PipelineState **pso) {
+                                   ID3D12PipelineState **pso,
+                                   bool independent_logic = false) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
     desc.pRootSignature = root;
     desc.VS = {vertex_shader.data(), vertex_shader.size()};
@@ -200,8 +201,16 @@ static HRESULT create_graphics_pso(ID3D12Device *device,
     desc.RasterizerState = rasterizer_desc();
     desc.DepthStencilState = depth_stencil_desc();
     desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    desc.NumRenderTargets = 1;
+    desc.NumRenderTargets = independent_logic ? 2 : 1;
     desc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    if (independent_logic) {
+        desc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        desc.BlendState.IndependentBlendEnable = TRUE;
+        desc.BlendState.RenderTarget[0].LogicOpEnable = TRUE;
+        desc.BlendState.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_XOR;
+        desc.BlendState.RenderTarget[1].LogicOpEnable = TRUE;
+        desc.BlendState.RenderTarget[1].LogicOp = D3D12_LOGIC_OP_AND;
+    }
     desc.SampleDesc.Count = 1;
     return device->CreateGraphicsPipelineState(
         &desc, IID_PPV_ARGS(pso));
@@ -552,6 +561,14 @@ static void print_case(const CaseResult &result, bool last) {
         result.value, result.exact ? "true" : "false", last ? "" : ",");
 }
 
+static void print_rejection(const CaseResult &result, bool last) {
+    std::printf(
+        "    {\"name\":\"%s\",\"pso\":\"%s\","
+        "\"expected_reject\":true,\"rejected\":%s}%s\n",
+        result.name, hr_hex(result.pso_hr).c_str(),
+        result.exact ? "true" : "false", last ? "" : ",");
+}
+
 int main(int argc, char **argv) {
     if (argc != 1 && argc != 6) {
         std::fprintf(stderr,
@@ -601,6 +618,8 @@ int main(int argc, char **argv) {
     structured.name = "structured_buffer";
     CaseResult typed = {};
     typed.name = "typed_buffer_uint";
+    CaseResult independent_logic_rejected = {};
+    independent_logic_rejected.name = "independent_logic_uav_rejected";
     if (SUCCEEDED(create_hr) && SUCCEEDED(root_hr)) {
         if (!vertex_shader.empty() && !raw_shader.empty())
             raw = run_buffer_case(device, root, vertex_shader, raw_shader,
@@ -615,10 +634,18 @@ int main(int argc, char **argv) {
         if (!vertex_shader.empty() && !typed_shader.empty())
             typed = run_buffer_case(device, root, vertex_shader, typed_shader,
                                     "typed_buffer_uint", false, true);
+        if (!vertex_shader.empty() && !raw_shader.empty()) {
+            ID3D12PipelineState *rejected_pso = nullptr;
+            independent_logic_rejected.pso_hr = create_graphics_pso(
+                device, root, vertex_shader, raw_shader, &rejected_pso, true);
+            independent_logic_rejected.exact =
+                FAILED(independent_logic_rejected.pso_hr);
+            safe_release(rejected_pso);
+        }
     }
 
     const bool all_exact = raw.exact && texture.exact && structured.exact &&
-                           typed.exact;
+                           typed.exact && independent_logic_rejected.exact;
     const std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
     std::printf(
         "{\n"
@@ -634,11 +661,12 @@ int main(int argc, char **argv) {
     print_case(raw, false);
     print_case(texture, false);
     print_case(structured, false);
-    print_case(typed, true);
+    print_case(typed, false);
+    print_rejection(independent_logic_rejected, true);
     std::printf(
         "  ],\n"
         "  \"exact\": %s,\n"
-        "  \"bounded_scope\": \"pixel ROV raw, typed, structured buffer, and typed texture resources; one-pixel three-primitive ordered load/store\"\n"
+        "  \"bounded_scope\": \"pixel ROV raw, typed, structured buffer, and typed texture resources; one-pixel three-primitive ordered load/store; independent-logic UAV replay rejection\"\n"
         "}\n",
         all_exact ? "true" : "false");
     std::fflush(stdout);

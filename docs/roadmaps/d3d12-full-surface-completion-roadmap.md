@@ -1970,7 +1970,9 @@ whether the scoped FL12_2 gate is green.
   return the exact UAV value `3` with `METAL_SHADER_CONVERTER=/nonexistent`.
   The v2 harness additionally compiles and wires an `R32_UINT`
   `RasterizerOrderedBuffer<uint>` fixture; its isolated runtime readback stays
-  open until the paired-runtime PSO failure is resolved.
+  open until the paired-runtime PSO failure is resolved. The v2 output also
+  records a pending two-render-target independent-logic rejection using the
+  ROV shader; it is not counted until that negative result is observed.
 - The DXIL resource metadata ROV bit is now carried through the direct binding
   plan. Marked pixel UAV buffers and textures receive Metal's
   `raster_order_group(0)` qualifier; non-pixel ROV uses remain fail-closed.
@@ -1992,9 +1994,9 @@ whether the scoped FL12_2 gate is green.
   depth attachment and depth writes enabled: target 0 XOR returns
   `0xaaffff3c`, target 1 AND returns `0x550a0c30`. The formerly rejected
   `logic_op_mrt_independent_variants` case now creates successfully, and the
-  depth/stencil state-only replay is exercised. A UAV-writing independent-logic
-  variant is separately required to reject before replay, preserving the
-  fail-closed side-effect boundary.
+  depth/stencil state-only replay is exercised. The pipeline compiler now
+  determines the independent-logic replay requirement before shader-side
+  effect validation; the ROV v2 lane owns the corresponding rejection probe.
 - This closes the independent per-render-target logic-operation row in the
   Phase 6 bounded coverage contract. Other Phase 6 graphics matrices remain
   open and no full Phase 6 promotion is claimed.
