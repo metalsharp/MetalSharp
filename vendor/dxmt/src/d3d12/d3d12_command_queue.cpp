@@ -1187,6 +1187,8 @@ struct ReplayState {
   uint32_t scissor_count = 0;
   float blend_factor[4] = {1, 1, 1, 1};
   uint32_t stencil_ref = 0;
+  uint32_t front_stencil_ref = 0;
+  uint32_t back_stencil_ref = 0;
   float depth_bounds_min = 0.0f;
   float depth_bounds_max = 1.0f;
   bool depth_bounds_inverted = false;
@@ -6452,7 +6454,10 @@ struct ReplayState {
     render_enc.setRasterizerState(
         fill_mode, cull_mode, depth_clip, winding, (float)rast.DepthBias,
         rast.SlopeScaledDepthBias, rast.DepthBiasClamp);
-    render_enc.setBlendFactorAndStencilRef(blend_factor, stencil_ref);
+    render_enc.setBlendFactorAndStencilRef(
+        blend_factor, static_cast<uint8_t>(stencil_ref));
+    render_enc.setFrontAndBackStencilReference(front_stencil_ref,
+                                               back_stencil_ref);
     QTRACE("ApplyFixedFunctionState: fill=%u cull=%u depth_clip=%u winding=%u "
            "blend=(%.3f,%.3f,%.3f,%.3f) stencil=%u depth_bounds=%u "
            "range=(%.3f,%.3f) inverted=%u",
@@ -14509,6 +14514,19 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::OMSetStencilRef: {
         auto *cmd = reinterpret_cast<const CmdOMStencilRef *>(header);
         st.stencil_ref = cmd->stencil_ref;
+        st.front_stencil_ref = cmd->stencil_ref;
+        st.back_stencil_ref = cmd->stencil_ref;
+        if (st.render_enc_open)
+          st.ApplyFixedFunctionState();
+        break;
+      }
+      case CmdType::OMSetFrontAndBackStencilRef: {
+        auto *cmd = reinterpret_cast<const CmdOMFrontAndBackStencilRef *>(header);
+        st.front_stencil_ref = cmd->front_stencil_ref;
+        st.back_stencil_ref = cmd->back_stencil_ref;
+        st.stencil_ref = cmd->front_stencil_ref;
+        if (st.render_enc_open)
+          st.ApplyFixedFunctionState();
         break;
       }
       case CmdType::OMSetDepthBounds: {

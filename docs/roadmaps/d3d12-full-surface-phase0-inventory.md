@@ -3,25 +3,25 @@
 **State:** Phase 0 inventory complete; implementation and behavior gates remain open.
 **Stable baseline:** Microsoft DirectX Agility SDK 1.619.5 (`D3D12SDKVersion=619`)
 **Preview lane:** Agility SDK 1.721.3-preview (`D3D12SDKVersion=721`), opt-in only
-**Generated:** 2026-09-03T03:20:58.382216+00:00
-**Git HEAD:** `a36549a77ad930161b0acef108a1ceefa90459cd`
-**Runtime source files scanned:** 167
-**Runtime source tree SHA-256:** `b1c616c224c29d3c6ce61f9bdf0ce7183cefada4708980bc50db5a3cbd12ea4b`
+**Generated:** 2026-09-03T03:57:54.650855+00:00
+**Git HEAD:** `ffec77799e05899683053e78920220e74838fe6e`
+**Runtime source files scanned:** 168
+**Runtime source tree SHA-256:** `5bc782c7369e1a1030ee2cc8e2cefaed6d6f460fe3b59d676d962826856f777c`
 
 ## Interface census
 
 - Interfaces: **145**
 - Methods: **537**
-- Methods with no textual source reference: **222**
+- Methods with no textual source reference: **221**
 - Textual source references are inventory clues only; they do not promote behavior.
 
 ## Static runtime findings
 
-- Total findings: **1541**
+- Total findings: **1542**
 - `capability_literal`: **89**
 - `empty_function_body`: **76**
 - `placeholder_return`: **695**
-- `success_or_zero_return`: **613**
+- `success_or_zero_return`: **614**
 - `unsupported_return`: **68**
 
 These findings are intentionally not suppressed. Later phases must attach a behavior probe and clear each legal-operation finding; expected invalid-input returns remain explicitly classified.
@@ -101,11 +101,12 @@ These findings are intentionally not suppressed. Later phases must attach a beha
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_allocator.cpp:30` — `return S_OK;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_allocator.cpp:81` — `return S_OK;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:268` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:329` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:361` — `return S_OK;`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2029` — `CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2056` — `CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2083` — `CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:273` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:334` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:366` — `return S_OK;`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2046` — `CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2073` — `CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2100` — `CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:146` — `return true;`
 - `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:148` — `return false;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:373` — `return 0;`
@@ -147,7 +148,6 @@ These findings are intentionally not suppressed. Later phases must attach a beha
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:927` — `return 0;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:940` — `return 0;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:946` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:955` — `return 0;`
 
 ## Phase 0 artifacts
 

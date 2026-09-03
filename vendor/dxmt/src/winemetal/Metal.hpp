@@ -661,6 +661,19 @@ public:
   }
 
   bool
+  setFrontAndBackStencilReference(uint32_t front_stencil_ref,
+                                  uint32_t back_stencil_ref) {
+    struct wmtcmd_render_setfrontbackstencilreference cmd;
+    cmd.type = WMTRenderCommandSetFrontAndBackStencilReference;
+    cmd.reserved[0] = cmd.reserved[1] = cmd.reserved[2] = 0;
+    cmd.next.set(nullptr);
+    cmd.front_stencil_ref = front_stencil_ref;
+    cmd.back_stencil_ref = back_stencil_ref;
+    return MTLRenderCommandEncoder_encodeCommands(
+        handle, (const wmtcmd_base *)&cmd);
+  }
+
+  bool
   setViewports(const WMTViewport *viewports, uint8_t viewport_count) {
     if (!viewports || !viewport_count)
       return false;

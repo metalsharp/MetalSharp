@@ -67,6 +67,7 @@ enum class CmdType : uint32_t {
   OMSetDepthBounds,
   RSSetShadingRate,
   RSSetShadingRateImage,
+  OMSetFrontAndBackStencilRef,
   Count,
 };
 
@@ -345,6 +346,12 @@ struct CmdOMBlendFactor {
 struct CmdOMStencilRef {
   CmdHeader header;
   uint32_t stencil_ref;
+};
+
+struct CmdOMFrontAndBackStencilRef {
+  CmdHeader header;
+  uint32_t front_stencil_ref;
+  uint32_t back_stencil_ref;
 };
 
 struct CmdClearRTV {

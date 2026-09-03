@@ -1594,6 +1594,7 @@ enum WMTRenderCommandType : uint16_t {
   WMTRenderCommandSetObjectSamplerState,
   WMTRenderCommandSetVertexTexture,
   WMTRenderCommandSetVertexSamplerState,
+  WMTRenderCommandSetFrontAndBackStencilReference,
 };
 
 struct wmtcmd_render_nop {
@@ -1900,6 +1901,14 @@ struct wmtcmd_render_setblendcolor {
   float blue;
   float alpha;
   uint8_t stencil_ref;
+};
+
+struct wmtcmd_render_setfrontbackstencilreference {
+  enum WMTRenderCommandType type;
+  uint16_t reserved[3];
+  struct WMTMemoryPointer next;
+  uint32_t front_stencil_ref;
+  uint32_t back_stencil_ref;
 };
 
 struct wmtcmd_render_dxmt_geometry_draw {

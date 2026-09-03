@@ -83,6 +83,7 @@ inline const char *D3D12CommandTypeName(CmdType type) {
   case CmdType::OMSetDepthBounds: return "OMSetDepthBounds";
   case CmdType::RSSetShadingRate: return "RSSetShadingRate";
   case CmdType::RSSetShadingRateImage: return "RSSetShadingRateImage";
+  case CmdType::OMSetFrontAndBackStencilRef: return "OMSetFrontAndBackStencilRef";
   case CmdType::Count: break;
   }
   return "Unknown";

@@ -168,6 +168,8 @@ winemetal_render_command_name(uint16_t type) {
     return "SetDSSO";
   case WMTRenderCommandSetBlendFactorAndStencilRef:
     return "SetBlendFactorAndStencilRef";
+  case WMTRenderCommandSetFrontAndBackStencilReference:
+    return "SetFrontAndBackStencilReference";
   case WMTRenderCommandSetVisibilityMode:
     return "SetVisibilityMode";
   case WMTRenderCommandDraw:
@@ -2346,6 +2348,13 @@ _MTLRenderCommandEncoder_encodeCommands(void *obj) {
         struct wmtcmd_render_setblendcolor *body = (struct wmtcmd_render_setblendcolor *)next;
         [encoder setBlendColorRed:body->red green:body->green blue:body->blue alpha:body->alpha];
         [encoder setStencilReferenceValue:body->stencil_ref];
+        break;
+      }
+      case WMTRenderCommandSetFrontAndBackStencilReference: {
+        struct wmtcmd_render_setfrontbackstencilreference *body =
+            (struct wmtcmd_render_setfrontbackstencilreference *)next;
+        [encoder setStencilFrontReferenceValue:body->front_stencil_ref
+                              backReferenceValue:body->back_stencil_ref];
         break;
       }
       case WMTRenderCommandSetVisibilityMode: {

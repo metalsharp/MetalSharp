@@ -4,6 +4,7 @@
 #include "com/com_private_data.hpp"
 #include "d3d12_command_defs.hpp"
 #include "d3d12.h"
+#include "d3d12_command_list_extensions.hpp"
 #include "Metal.hpp"
 #include <atomic>
 #include <cstdint>
@@ -16,7 +17,7 @@ class MTLD3D12Device;
 class MTLD3D12CommandAllocator;
 
 
-class MTLD3D12GraphicsCommandList : public ID3D12GraphicsCommandList7 {
+class MTLD3D12GraphicsCommandList : public GraphicsCommandList8Extension {
 public:
   MTLD3D12GraphicsCommandList(MTLD3D12Device *device,
                               MTLD3D12CommandAllocator *allocator,
@@ -86,6 +87,8 @@ public:
                                            const D3D12_RECT *rects) override;
   void STDMETHODCALLTYPE OMSetBlendFactor(const FLOAT blend_factor[4]) override;
   void STDMETHODCALLTYPE OMSetStencilRef(UINT stencil_ref) override;
+  void STDMETHODCALLTYPE OMSetFrontAndBackStencilRef(
+      UINT front_stencil_ref, UINT back_stencil_ref) override;
   void STDMETHODCALLTYPE SetPipelineState(
       ID3D12PipelineState *pipeline_state) override;
   void STDMETHODCALLTYPE ResourceBarrier(
