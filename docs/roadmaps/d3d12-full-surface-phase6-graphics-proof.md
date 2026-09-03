@@ -1,6 +1,8 @@
 # D3D12 full-surface Phase 6 graphics proof
 
-Phase 6 is closed for the declared behavior-backed graphics provider matrix.
+The bounded Phase 6 provider matrix is closed. Exhaustive-feasible Phase 6
+completion remains open under
+[d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md).
 This proof records the exact positive matrices and the fail-closed boundaries;
 it does not promote unsupported combinations.
 
@@ -188,4 +190,7 @@ programmable sample positions, barycentrics, view instancing, VRS image and
 layout cases, formats, dynamic depth bias, stencil references, topology
 expansion, and writable-MSAA/readback cases all have exact probe evidence.
 Combinations not covered by those providers remain explicitly fail-closed and
-are not reported as supported.
+are not reported as supported. They are tracked as open implementation work or
+proven no-go candidates by the
+[exhaustive-feasible Phase 6 roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md),
+not silently treated as impossible.
