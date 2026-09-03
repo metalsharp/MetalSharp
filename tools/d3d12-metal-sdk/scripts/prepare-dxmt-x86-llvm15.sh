@@ -30,6 +30,22 @@ if [[ ! -x "${WINE_ROOT}/bin/winebuild" ]]; then
   exit 1
 fi
 
+if [[ -f "${BUILD_DIR}/meson-private/build.dat" ]] &&
+  ! python3 - "${BUILD_DIR}/meson-private/build.dat" "${DXMT_DIR}" <<'PY'
+import pathlib
+import pickle
+import sys
+
+build = pickle.load(pathlib.Path(sys.argv[1]).open("rb"))
+source_dir = pathlib.Path(build.environment.source_dir).resolve()
+expected_dir = pathlib.Path(sys.argv[2]).resolve()
+raise SystemExit(0 if source_dir == expected_dir else 1)
+PY
+then
+  echo "recreating Meson build with current source tree: ${BUILD_DIR}" >&2
+  rm -rf "${BUILD_DIR}"
+fi
+
 if [[ -f "${BUILD_DIR}/meson-info/intro-machines.json" ]] &&
   ! python3 - "${BUILD_DIR}/meson-info/intro-machines.json" <<'PY'
 import json
