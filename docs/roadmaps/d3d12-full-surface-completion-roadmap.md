@@ -2015,5 +2015,15 @@ whether the scoped FL12_2 gate is green.
   ID to the MSL fragment ABI's `barycentric_coord` builtin.
 - On Apple M4/Metal 4, the one-pixel full-screen triangle returns exact RGBA8
   `[128,64,64,255]` (`[0.5,0.25,0.25,1]`), and the device/feature-level probes
-  report `BarycentricsSupported=true`. Noperspective, centroid, sample, and
-  additional-input variants remain outside the bounded provider.
+  report `BarycentricsSupported=true`. The parser and MSL ABI now preserve
+  noperspective, centroid, and sample interpolation modes from PSV0, but those
+  variants remain unpromoted until they have independent exact readback.
+
+### 2026-09-03 — Phase 6 conservative-raster coverage contract refresh
+
+- Recorded the existing bounded conservative-raster reference-model proof in
+  the Phase 6 contract: three clipped/partially covered triangles over an 8x8
+  target, 105 exact red pixels, and `ConservativeRasterizationTier=3`.
+- The contract now distinguishes that proven shape from the still-open
+  top-left/degenerate/line/MSAA/VRS/array interactions and keeps the public
+  Phase 6 status partial.
