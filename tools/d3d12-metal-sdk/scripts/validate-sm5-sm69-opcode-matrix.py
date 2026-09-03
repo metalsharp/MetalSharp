@@ -374,8 +374,13 @@ def validate(matrix_path: Path, corpus: Path | None, strict: bool,
 
     required = [row for row in rows if row.get("required")]
     if corpus is None:
-        observed: Counter[int] = Counter()
-        missing = [row for row in required if row.get("status") == "open"]
+        # Contract-only mode validates the explicitly recorded bounded
+        # evidence declarations. Runtime corpus mode below remains the
+        # stronger check and reports which numeric opcodes were actually
+        # emitted by current module reports.
+        observed = Counter({row["id"]: 1 for row in required
+                            if row.get("status") == "observed"})
+        missing = [row for row in required if row.get("status") != "observed"]
     else:
         observed = observed_opcodes(corpus)
         missing = [row for row in required if row["id"] not in observed]
@@ -390,6 +395,7 @@ def validate(matrix_path: Path, corpus: Path | None, strict: bool,
         "missing_rows": len(missing),
         "missing": [{"id": row["id"], "name": row["name"]} for row in missing],
         "strict": strict,
+        "evidence_mode": "runtime_module_reports" if corpus is not None else "declared_contract",
         "pass": not missing,
     }
     if json_out is not None:

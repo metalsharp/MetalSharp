@@ -67,14 +67,50 @@ def load_json(path: Path) -> Any:
 def get_path(value: Any, components: list[str]) -> Any:
     current = value
     for component in components:
-        if not isinstance(current, dict) or component not in current:
+        if isinstance(current, dict):
+            if component not in current:
+                return MISSING
+            current = current[component]
+        elif isinstance(current, list) and component.isdigit():
+            index = int(component)
+            if index >= len(current):
+                return MISSING
+            current = current[index]
+        else:
             return MISSING
-        current = current[component]
     return current
 
 
 def result_file(results_dir: Path, stem: str, profile: str) -> Path:
     return results_dir / f"{stem}-{profile}.json"
+
+
+def result_specs(row: dict[str, Any], default_profile: str) -> list[tuple[str, str]]:
+    """Return the explicitly declared result stem/profile pairs for a row.
+
+    Most rows use one result and inherit the gate profile.  A few aggregate
+    rows intentionally combine independent evidence files; those rows may
+    provide a semicolon-separated result string and a matching
+    ``result_profiles`` list.  Never discover arbitrary matching files here:
+    the manifest must name every evidence source and profile.
+    """
+    declared = row.get("result", "")
+    if isinstance(declared, str):
+        stems = [stem.strip() for stem in declared.split(";") if stem.strip()]
+    elif isinstance(declared, list):
+        stems = [str(stem).strip() for stem in declared if str(stem).strip()]
+    else:
+        stems = []
+
+    declared_profiles = row.get("result_profiles")
+    if isinstance(declared_profiles, list):
+        profiles = [str(profile) for profile in declared_profiles]
+        if len(profiles) != len(stems):
+            return [(stem, "") for stem in stems]
+    else:
+        row_profile = str(row.get("profile", default_profile))
+        profiles = [row_profile] * len(stems)
+    return list(zip(stems, profiles))
 
 
 def run_validators() -> list[dict[str, Any]]:
@@ -103,49 +139,92 @@ def run_validators() -> list[dict[str, Any]]:
 def check_result(
     results_dir: Path, profile: str, row: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
-    stem = row.get("result")
-    path = result_file(results_dir, str(stem), profile)
+    specs = result_specs(row, profile)
+    paths = [result_file(results_dir, stem, result_profile)
+             for stem, result_profile in specs]
     blockers: list[str] = []
-    if not path.exists():
+    missing = [str(path) for path in paths if not path.exists()]
+    if missing:
         return (
-            {"id": row.get("id"), "result": str(path), "pass": False,
-             "detail": "behavior result is missing"},
+            {"id": row.get("id"), "result": ";".join(str(path) for path in paths),
+             "pass": False, "detail": f"behavior result is missing: {', '.join(missing)}"},
             [str(row.get("id"))],
         )
-    try:
-        result = load_json(path)
-    except (OSError, json.JSONDecodeError) as exc:
+
+    results: list[Any] = []
+    invalid: list[str] = []
+    for path in paths:
+        try:
+            results.append(load_json(path))
+        except (OSError, json.JSONDecodeError) as exc:
+            invalid.append(f"{path}: {exc}")
+    if invalid:
         return (
-            {"id": row.get("id"), "result": str(path), "pass": False,
-             "detail": f"behavior result is invalid: {exc}"},
+            {"id": row.get("id"), "result": ";".join(str(path) for path in paths),
+             "pass": False, "detail": f"behavior result is invalid: {', '.join(invalid)}"},
             [str(row.get("id"))],
         )
+
     checks: list[dict[str, Any]] = []
     row_pass = True
     for check in row.get("checks", []):
         if not isinstance(check, list) or len(check) < 1:
             row_pass = False
-            checks.append({"path": check, "pass": False, "detail": "invalid check declaration"})
+            checks.append({"path": check, "pass": False,
+                           "detail": "invalid check declaration"})
             continue
-        path_parts = [str(part) for part in check]
-        observed = get_path(result, path_parts)
-        passed = observed is True
+
+        # A one-element declaration means that the named field must be true.
+        # For a two-or-more element declaration, first try the complete list
+        # as a nested boolean path (the existing contract form), then fall
+        # back to an exact value assertion on the first path component.  This
+        # supports exact integers, arrays, strings, and explicit false values
+        # without weakening boolean checks.
+        nested_parts = [str(part) for part in check]
+        observed = MISSING
+        passed = False
+        matched_path = ".".join(nested_parts)
+        for result in results:
+            candidate = get_path(result, nested_parts)
+            if candidate is True:
+                observed = candidate
+                passed = True
+                break
+            if observed is MISSING and candidate is not MISSING:
+                observed = candidate
+
+        expected = MISSING
+        if not passed and len(check) >= 2:
+            expected = check[-1]
+            value_parts = [str(check[0])] if len(check) == 2 else [str(part) for part in check[:-1]]
+            matched_path = ".".join(value_parts)
+            for result in results:
+                candidate = get_path(result, value_parts)
+                if candidate is not MISSING and candidate == expected:
+                    observed = candidate
+                    passed = True
+                    break
+                if observed is MISSING and candidate is not MISSING:
+                    observed = candidate
+
         row_pass = row_pass and passed
-        checks.append(
-            {
-                "path": ".".join(path_parts),
-                "observed": None if observed is MISSING else observed,
-                "pass": passed,
-                "detail": "positive behavior evidence present"
-                if passed else "required positive behavior evidence is missing or false",
-            }
-        )
+        check_result_row: dict[str, Any] = {
+            "path": matched_path,
+            "observed": None if observed is MISSING else observed,
+            "pass": passed,
+            "detail": "positive behavior evidence present"
+            if passed else "required positive behavior evidence is missing or false",
+        }
+        if expected is not MISSING:
+            check_result_row["expected"] = expected
+        checks.append(check_result_row)
+
     if not row_pass:
         blockers.append(str(row.get("id")))
     return (
-        {"id": row.get("id"), "result": str(path), "pass": row_pass,
-         "manifest_status": row.get("status"), "checks": checks,
-         "remaining": row.get("remaining", "")},
+        {"id": row.get("id"), "result": ";".join(str(path) for path in paths),
+         "pass": row_pass, "manifest_status": row.get("status"),
+         "checks": checks, "remaining": row.get("remaining", "")},
         blockers,
     )
 

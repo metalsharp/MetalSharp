@@ -335,7 +335,9 @@
       "checks": [
         ["exact"],
         ["provider", "gpu_vertex_capture_buffer"],
-        ["bounded_draw", "triangle_list_3_vertices_1_instance"],
+        ["bounded_draw", "triangle_list", true],
+        ["bounded_draw", "vertices", 3],
+        ["bounded_draw", "instances", 1],
         ["values", [1040187392, 1056964608, 1063256064]]
       ],
       "remaining": "The typed DXIL path captures one validated float32 nointerpolation output signature from the vertex stage into a transient GPU buffer at slot 28 and reads all three triangle records from the pixel stage using primitive_id. Direct Apple M4/Metal 4 D3D12 execution returns the exact per-vertex bit patterns for a three-vertex triangle-list draw. Other signatures/types, dynamic row/column/vertex operands, indexed/strip/multi-instance breadth, geometry/tessellation stages, and depth-bounds slot combinations remain fail-closed. Metal vertex_value<T> remains unavailable on Apple 9, so this provider does not depend on that feature."
@@ -360,10 +362,10 @@
       "checks": [
         ["ok"],
         ["discard_behavior_verified"],
-        ["nonzero_words", 1024],
-        ["nonzero_words_expected", 1024]
+        ["nonzero_words", 2048],
+        ["nonzero_words_expected", 2048]
       ],
-      "remaining": "The SM6.0 pixel shader discards the left half of a 64x64 full-screen triangle at SV_Position.x < 32 and returns exactly 1,024 surviving nonzero target words. Other discard control-flow shapes and interactions with depth, MSAA, UAV writes, and derivatives remain in the exhaustive row."
+      "remaining": "The SM6.0 pixel shader discards the left half of a 64x64 full-screen triangle at SV_Position.x < 32 and returns exactly 2,048 surviving nonzero target words. Other discard control-flow shapes and interactions with depth, MSAA, UAV writes, and derivatives remain in the exhaustive row."
     },
     {
       "id": "dxil-ray-query-inline-exact-runtime",
@@ -449,7 +451,7 @@
         ["indirect_mesh_behavior_verified"],
         ["mesh_output_value", 1297303601],
         ["mesh_lane_values_verified"],
-        ["mesh_payload_bytes", 64],
+        ["mesh_payload_bytes", 256],
         ["mesh_payload_tail_verified"],
         ["pipeline_statistics1_readback_ok"],
         ["pipeline_statistics1_as_invocations", 2],
@@ -479,12 +481,12 @@
       "profile": "phase5-hitobject-reorder",
       "checks": [
         ["pass"],
-        ["reorder_probe", true],
-        ["state_object_created", true],
-        ["direct_dispatch_recorded", true],
-        ["indirect_dispatch_recorded", true],
-        ["direct_value", 1],
-        ["indirect_value", 1],
+        ["cases", 0, "reorder_probe", true],
+        ["cases", 0, "state_object_created", true],
+        ["cases", 0, "direct_dispatch_recorded", true],
+        ["cases", 0, "indirect_dispatch_recorded", true],
+        ["cases", 0, "direct_value", 1],
+        ["cases", 0, "indirect_value", 1],
         ["metal_shader_converter", "/nonexistent"]
       ],
       "remaining": "The bounded provider intentionally declines the optional SER scheduling request and preserves the current lane; direct and ExecuteIndirect DispatchRays both verify exact continuation after literal coherence hints. Cross-lane reordering, hit-object scheduling heuristics, and broader SER interactions remain in the exhaustive rows."
@@ -496,14 +498,14 @@
       "profile": "phase5-hitobject-attributes",
       "checks": [
         ["pass"],
-        ["attributes_probe", true],
-        ["state_object_created", true],
-        ["direct_dispatch_recorded", true],
-        ["indirect_dispatch_recorded", true],
-        ["direct_value", 1048576000],
-        ["indirect_value", 1048576000],
-        ["direct_attribute_y", 1056964608],
-        ["indirect_attribute_y", 1056964608],
+        ["cases", 0, "attributes_probe", true],
+        ["cases", 0, "state_object_created", true],
+        ["cases", 0, "direct_dispatch_recorded", true],
+        ["cases", 0, "indirect_dispatch_recorded", true],
+        ["cases", 0, "direct_value", 1048576000],
+        ["cases", 0, "indirect_value", 1048576000],
+        ["cases", 0, "direct_attribute_y", 1056964608],
+        ["cases", 0, "indirect_attribute_y", 1056964608],
         ["metal_shader_converter", "/nonexistent"]
       ],
       "remaining": "The bounded GPU provider returns BuiltInTriangleIntersectionAttributes barycentrics [0.25, 0.5] for a one-triangle TraceRay HitObject on direct and ExecuteIndirect DispatchRays. Custom attribute records, FromRayQueryWithAttrs copies, miss/hit shader attribute bodies, and broader payload/attribute forms remain in the exhaustive rows."
@@ -515,11 +517,11 @@
       "profile": "phase5-hitobject-invoke",
       "checks": [
         ["pass"],
-        ["state_object_created", true],
-        ["direct_dispatch_recorded", true],
-        ["indirect_dispatch_recorded", true],
-        ["direct_value", 22136],
-        ["indirect_value", 22136],
+        ["cases", 0, "state_object_created", true],
+        ["cases", 0, "direct_dispatch_recorded", true],
+        ["cases", 0, "indirect_dispatch_recorded", true],
+        ["cases", 0, "direct_value", 22136],
+        ["cases", 0, "indirect_value", 22136],
         ["metal_shader_converter", "/nonexistent"]
       ],
       "remaining": "The bounded GPU visible-function provider invokes one exported miss shader from a MakeMiss HitObject with a scalar 32-bit payload and literal miss-table index zero; direct and ExecuteIndirect DispatchRays both return 0x5678. Hit invocation, multiple miss records, closest-hit invocation, resource/system-value miss bodies, vector/packed payloads, and SER scheduling remain in the exhaustive rows."
@@ -527,13 +529,13 @@
     {
       "id": "complete-sm5-sm69-opcode-stage-resource-matrix",
       "status": "closed",
-      "result": "probe-shader-corpus;probe-attribute-at-vertex;probe-cycle-counter;probe-workgraph",
+      "result": "sm5-sm69-opcode-contract;probe-cycle-counter",
       "checks": [
         ["pass"],
         ["required_rows", 280],
-        ["open_rows", 0],
-        ["cycle_counter_single_read_exact", true],
-        ["cycle_counter_multiple_read_rejected", true]
+        ["missing_rows", 0],
+        ["single_read", "exact"],
+        ["multiple_read", "rejected"]
       ],
       "remaining": "Strict closeout accounting is now 280/280 required opcode rows observed, 0 open, and 32 reserved/not-applicable. The bounded AttributeAtVertex provider captures one validated float32 nointerpolation vertex output into a transient GPU buffer and returns exact three-vertex readbacks on Apple M4/Metal 4; other signature/type, operand, indexed/strip, multi-instance, geometry/tessellation, and depth-bounds combinations remain fail-closed. CycleCounterLegacy is covered by the debug-only undefined-initial provider: a single read materializes as exact zero and multiple-read/delta shaders reject before PSO creation because Metal 4 has no shader clock. The descending SER/HitObject pass has typed GPU-provider positive readbacks for opcodes 262-289, including bounded scalar MakeMiss/miss-shader Invoke, optional MaybeReorderThread continuation, triangle BuiltInTriangleIntersectionAttributes barycentrics, local-root constants, state, ray-vector, transform, and scalar accessors. The bounded node-shader provider executes representative opcodes 238-253 as GPU-native one-node kernels without a CPU scheduler; D3D12 Work Graph API execution, multi-node scheduling, and feature promotion remain unsupported. Under the documented runtime/provider boundaries, observed rows use exact GPU readbacks or exact fail-closed negatives; the standalone legacy converter and unsupported API paths remain separately fail-closed. Broader legal combinations outside each recorded provider bound remain tracked as fail-closed scope rather than open required opcode rows."
     }

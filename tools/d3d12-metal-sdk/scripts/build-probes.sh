@@ -23,6 +23,7 @@ build_probe() {
     -Wall \
     -Wextra \
     -Werror \
+    -include "$SDK_DIR/probes/probe_runtime.hpp" \
     "$@"
 }
 

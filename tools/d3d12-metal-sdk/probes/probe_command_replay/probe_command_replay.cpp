@@ -3511,6 +3511,7 @@ static void print_case(const CaseResult& result, bool last) {
 
 int main() {
     std::string profile = getenv_string("D3D12_METAL_SDK_PROFILE");
+    std::string metal_shader_converter = getenv_string("METAL_SHADER_CONVERTER");
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
     g_create_device = load_proc<D3D12CreateDeviceFn>(d3d12, "D3D12CreateDevice");
@@ -3558,6 +3559,8 @@ int main() {
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-command-replay.v1\",\n");
     std::printf("  \"profile\": \"%s\",\n", json_escape(profile).c_str());
+    std::printf("  \"metal_shader_converter\": \"%s\",\n",
+                json_escape(metal_shader_converter).c_str());
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"coverage\": {\n");
     std::printf("    \"command_list_reset_close_reuse\": true,\n");
