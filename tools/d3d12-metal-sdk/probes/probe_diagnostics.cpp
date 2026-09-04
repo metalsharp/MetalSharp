@@ -11,6 +11,9 @@ __declspec(dllexport) UINT D3D12SDKVersion = 619;
 __declspec(dllexport) char D3D12SDKPath[260] = ".\\D3D12\\";
 }
 
+static constexpr GUID kIIDProtectedResourceSession = {
+    0x6cd696f4, 0xf289, 0x40cc,
+    {0x80, 0x91, 0x5a, 0x6c, 0x0a, 0x09, 0x9c, 0x3d}};
 static constexpr GUID kIIDDeviceStatistics = {
     0x3d5ca1a8, 0xa39e, 0x4619,
     {0x95, 0xe0, 0xf9, 0xb0, 0xa4, 0x03, 0x40, 0xf5}};
@@ -106,6 +109,9 @@ int main() {
     auto create_device = load_proc<CreateDeviceFn>(module, "D3D12CreateDevice");
     auto get_interface = load_proc<GetInterfaceFn>(module, "D3D12GetInterface");
     ID3D12Device* device = nullptr;
+    ID3D12Resource* resource = nullptr;
+    ID3D12Resource1* resource1 = nullptr;
+    ID3D12Resource2* resource2 = nullptr;
     DeviceStatistics* statistics = nullptr;
     DeviceTools1* tools = nullptr;
     DsrFactory* dsr_factory = nullptr;
@@ -114,6 +120,51 @@ int main() {
                             ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0,
                                             IID_PPV_ARGS(&device))
                             : E_FAIL;
+    D3D12_HEAP_PROPERTIES upload_heap = {};
+    upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    upload_heap.CreationNodeMask = 1;
+    upload_heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC resource_desc = {};
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    resource_desc.Width = 256;
+    resource_desc.Height = 1;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    HRESULT resource_hr = device
+                              ? device->CreateCommittedResource(
+                                    &upload_heap, D3D12_HEAP_FLAG_NONE,
+                                    &resource_desc,
+                                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                    IID_PPV_ARGS(&resource))
+                              : create_hr;
+    HRESULT resource1_qi_hr = resource
+                                  ? resource->QueryInterface(
+                                        __uuidof(ID3D12Resource1),
+                                        reinterpret_cast<void**>(&resource1))
+                                  : resource_hr;
+    void* protected_from_resource = reinterpret_cast<void*>(static_cast<uintptr_t>(1));
+    HRESULT resource1_protected_hr = resource1
+                                         ? resource1->GetProtectedResourceSession(
+                                               kIIDProtectedResourceSession,
+                                               &protected_from_resource)
+                                         : resource1_qi_hr;
+    const bool resource1_boundary_ok =
+        resource1_qi_hr == S_OK && resource1_protected_hr == E_NOINTERFACE &&
+        protected_from_resource == nullptr;
+    HRESULT resource2_qi_hr = resource
+                                  ? resource->QueryInterface(
+                                        __uuidof(ID3D12Resource2),
+                                        reinterpret_cast<void**>(&resource2))
+                                  : resource_hr;
+    D3D12_RESOURCE_DESC1 resource2_desc = {};
+    bool resource2_desc_ok = false;
+    if (resource2_qi_hr == S_OK && resource2) {
+        resource2_desc = resource2->GetDesc1();
+        resource2_desc_ok = resource2_desc.Width == resource_desc.Width &&
+                            resource2_desc.Dimension == resource_desc.Dimension;
+    }
     HRESULT stats_qi_hr = device ? device->QueryInterface(
                                        kIIDDeviceStatistics,
                                        reinterpret_cast<void**>(&statistics))
@@ -160,7 +211,9 @@ int main() {
         dred->SetBreadcrumbContextEnablement(DredEnable);
         dred->UseMarkersOnlyAutoBreadcrumbs(TRUE);
     }
-    const bool passed = create_hr == S_OK && stats_qi_hr == S_OK &&
+    const bool passed = create_hr == S_OK && resource_hr == S_OK &&
+                        resource1_boundary_ok && resource2_qi_hr == S_OK &&
+                        resource2_desc_ok && stats_qi_hr == S_OK &&
                         stats_hr == S_OK && tools_qi_hr == S_OK &&
                         tools_blob_ok && blob_status == BlobNotSpecified &&
                         dsr_qi_hr == S_OK && dsr_null_on_rejection &&
@@ -170,6 +223,15 @@ int main() {
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.diagnostics.v1\",\n");
     std::printf("  \"pass\": %s,\n", passed ? "true" : "false");
     std::printf("  \"create_device\": \"0x%08lx\",\n", hr_value(create_hr));
+    std::printf("  \"resource\": \"0x%08lx\",\n", hr_value(resource_hr));
+    std::printf("  \"resource1_qi\": \"0x%08lx\",\n", hr_value(resource1_qi_hr));
+    std::printf("  \"resource1_protected\": \"0x%08lx\",\n",
+                hr_value(resource1_protected_hr));
+    std::printf("  \"resource1_boundary_ok\": %s,\n",
+                resource1_boundary_ok ? "true" : "false");
+    std::printf("  \"resource2_qi\": \"0x%08lx\",\n", hr_value(resource2_qi_hr));
+    std::printf("  \"resource2_desc_ok\": %s,\n",
+                resource2_desc_ok ? "true" : "false");
     std::printf("  \"statistics_qi\": \"0x%08lx\",\n", hr_value(stats_qi_hr));
     std::printf("  \"statistics\": \"0x%08lx\",\n", hr_value(stats_hr));
     std::printf("  \"state_object_count\": %u,\n",
@@ -189,6 +251,8 @@ int main() {
     std::printf("}\n");
 
     release(dred);
+    release(resource1);
+    release(resource);
     release(dsr_factory);
     release(tools_blob);
     release(tools);

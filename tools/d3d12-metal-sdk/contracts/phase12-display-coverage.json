@@ -14,7 +14,12 @@
         ["DuplicateOutput_AcquireNextFrame", "0x00000000"],
         ["DuplicateOutput_GetFrameDirtyRects_query", "0x887a0003"],
         ["DuplicateOutput_GetFrameDirtyRects", "0x00000000"],
-        ["DuplicateOutput_ReleaseFrame", "0x00000000"]
+        ["DuplicateOutput_ReleaseFrame", "0x00000000"],
+        ["CreateSwapChainForComposition", "0x00000000"],
+        ["Composition_GetDesc1", "0x00000000"],
+        ["Composition_GetBuffer", "0x00000000"],
+        ["Surface_GetDC", "0x00000000"],
+        ["Surface_ReleaseDC", "0x00000000"]
       ],
       "remaining": "The bounded duplication provider returns a GPU desktop resource, frame metadata, and a full dirty rectangle. IOSurface/DisplayLink desktop capture, cursor shape, move rectangles, color-space metadata, frame-change notifications, and MapDesktopSurface CPU access remain open."
     },

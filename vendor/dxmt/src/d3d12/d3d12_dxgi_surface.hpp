@@ -54,6 +54,11 @@ private:
   UINT m_row_pitch = 0;
   UINT m_map_flags = 0;
   std::vector<uint8_t> m_shadow;
+  HDC m_dc = nullptr;
+  HBITMAP m_dc_bitmap = nullptr;
+  HGDIOBJ m_dc_old_bitmap = nullptr;
+  void *m_dc_bits = nullptr;
+  UINT m_dc_row_pitch = 0;
   ComPrivateData m_private_data;
 };
 
