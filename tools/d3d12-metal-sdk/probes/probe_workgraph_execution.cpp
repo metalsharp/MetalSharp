@@ -487,7 +487,13 @@ int main() {
                         properties->GetNodeLocalRootArgumentsTableIndex(0, 1) ==
                             local_root_indices[1] &&
                         properties->GetEntrypointRecordSizeInBytes(0, 0) == 16 &&
-                        properties->GetEntrypointRecordSizeInBytes(0, 1) == 16;
+                        properties->GetEntrypointRecordSizeInBytes(0, 1) == 16 &&
+                        properties->GetEntrypointRecordSizeInBytes(1, 0) == UINT_MAX &&
+                        properties->GetEntrypointRecordSizeInBytes(0, 2) == UINT_MAX &&
+                        properties->GetEntrypointRecordSizeInBytes(0, UINT_MAX) == UINT_MAX &&
+                        properties->GetEntrypointRecordAlignmentInBytes(1, 0) == UINT_MAX &&
+                        properties->GetEntrypointRecordAlignmentInBytes(0, 2) == UINT_MAX &&
+                        properties->GetEntrypointRecordAlignmentInBytes(UINT_MAX, 0) == UINT_MAX;
         if (properties)
             properties->Release();
         properties = nullptr;
