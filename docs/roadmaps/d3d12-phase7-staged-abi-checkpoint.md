@@ -111,3 +111,31 @@ Work Graph result, and `source-video/` the video result. `source-workgraph/` and
 `source-debug/` retain the failed loader attempts. `build.log` records the fresh
 build; `build-root.txt` identifies the external build/sandbox directory. These
 are scratch artifacts, not a release bundle or an exhaustive regression gate.
+
+### Additional affected regressions on the same sandbox
+
+Without rebuilding or changing the source snapshot, the following focused runs
+also passed (JSON checked independently of shell exit status):
+
+| Invocation | Evidence under `/private/tmp/metalsharp-phase7-abi/` | Result |
+| --- | --- | --- |
+| `--cpu-texture-map-only` | `source-cpu-texture-map/probe-cpu-texture-map-metalsharp.json` | `pass=true`, `exact=true` |
+| `--discard-texture-only` | `source-discard-texture/probe-discard-texture-metalsharp.json` | `pass=true`, `exact_rect_zeroing=true` |
+| `--reflection-abi-only` | `source-reflection-abi/probe-reflection-abi-metalsharp.json` | `pass=true`; binding reflection and deterministic mismatch rejection |
+| `--mini-only`, filter `dxr_acceleration_structures` | `source-dxr/probe-mini-dxr_acceleration_structures-metalsharp.json` | `ok=true`, `hr=0x00000000` |
+| `--mini-only`, filter `mesh_object_shader_pso` | `source-mesh/probe-mini-mesh_object_shader_pso-metalsharp.json` | `ok=true`, `hr=0x00000000` |
+
+The two mini runs used `METALSHARP_NATIVE_IRCONVERTER=1` and
+`METALSHARP_MINI_PROBE_FILTER` set to the listed filter. All used the explicit
+sandbox `DXMT_PROBE_WINEDLLPATH`, DLL overrides, and disposable prefix described
+above. Each result directory has its own host-runtime manifest and shader cache.
+
+The DXR probe verified its bounded mixed-geometry fallback, direct/indirect ray
+dispatch, and serialization/traversal cases. This does not establish arbitrary
+heterogeneous BLAS support. The mesh probe verified direct/indirect dispatch,
+array-layer output, depth/blend/wireframe behavior, payload-tail readback, and
+pipeline statistics for its source-owned fixture; it is not general mesh DXIL
+conversion evidence. Probe fields named `tier1_matrix_complete` or
+`tier1_1_matrix_complete` describe those bounded probe matrices, not exhaustive
+full-surface tier certification. No capability or unsupported-ledger entry was
+promoted based on these runs.
