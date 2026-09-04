@@ -1,6 +1,7 @@
 // Standalone host test: pass raw DXIL bitcode compiled from
 // tools/d3d12-metal-sdk/probes/probe_workgraph/node_input_records.hlsl.
 #include "llvm_bitcode.hpp"
+#include "node_metadata.hpp"
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -28,7 +29,11 @@ static const Record *tag(const LLVMModule &m, const Record &r, uint32_t key) {
   return nullptr;
 }
 static void check(const LLVMModule &m, const char *name, uint32_t size,
-                  uint32_t threads, uint32_t grid) {
+                  uint32_t threads, uint32_t grid, uint32_t alignment = 4) {
+  const auto layout = nodeInputLayout(m, name);
+  require(bool(layout), "runtime layout decode failed");
+  require(layout->size == ((size + 3u) & ~3u), "wrong padded layout size");
+  require(layout->alignment == (alignment < 4 ? 4 : alignment), "wrong padded alignment");
   const auto named = m.named_metadata.find("dx.entryPoints");
   require(named != m.named_metadata.end(), "entrypoint metadata lost");
   const Record *properties = nullptr;
@@ -55,7 +60,7 @@ static void check(const LLVMModule &m, const char *name, uint32_t size,
   const auto *type = tag(m, *input, 2);
   require(type, "record type lost");
   require(integer(m, tag(m, *type, 0)) == size, "wrong record size");
-  require(integer(m, tag(m, *type, 2)) == 4, "wrong record alignment");
+  require(integer(m, tag(m, *type, 2)) == alignment, "wrong record alignment");
 }
 int main(int argc, char **argv) {
   try {
@@ -71,6 +76,15 @@ int main(int argc, char **argv) {
     bytes.clear();
     check(module, "node_main", 4, 1, 1);
     check(module, "node_vector", 16, 4, 2);
+    check(module, "node_half", 2, 1, 1, 2);
+    const auto empty = nodeInputLayout(module, "node_empty");
+    require(empty && empty->size == 0 && empty->alignment == 0, "empty input layout incorrect");
+    require(!nodeInputLayout(module, "absent_entry"), "missing entrypoint accepted");
+    auto duplicate = module;
+    auto &entries = duplicate.named_metadata["dx.entryPoints"];
+    const auto originals = entries;
+    entries.insert(entries.end(), originals.begin(), originals.end());
+    require(!nodeInputLayout(duplicate, "node_main"), "duplicate entrypoint accepted");
     require(!operand(module, Record{}, 0), "missing operand not rejected");
     Record invalid;
     invalid.operands = {0, static_cast<uint32_t>(module.metadata_records.size() + 1)};

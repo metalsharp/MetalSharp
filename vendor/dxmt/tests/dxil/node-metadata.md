@@ -9,7 +9,7 @@ All generated artifacts go to `$tmp` outside the repository.
 tmp=$(mktemp -d)
 export tmp
 "$WINE" tools/d3d12-metal-sdk/cache/dxc/v1.9.2602/bin/x64/dxc.exe \
-  -T lib_6_8 -Fo "$tmp/node.cso" \
+  -T lib_6_8 -enable-16bit-types -Fo "$tmp/node.cso" \
   tools/d3d12-metal-sdk/probes/probe_workgraph/node_input_records.hlsl
 python3 - <<'PY'
 import os, pathlib, struct
@@ -39,7 +39,9 @@ DXMT_LOG_PATH="$tmp" "$tmp/test-node-metadata" "$tmp/node.bc"
 
 The warning exception is for an existing unused parser constant. The test
 checks distinct entrypoint record sizes (4 and 16), alignment (4), threadgroup
-sizes (1 and 4), and dispatch grids (1 and 2). It checks module-copy ownership
+sizes (1 and 4), and dispatch grids (1 and 2). It also checks the production
+layout decoder's DWORD padding of a 16-bit record, zero size/alignment for
+empty input, and rejection of missing/duplicate entrypoints. It checks module-copy ownership
 and null, missing, and out-of-range operand lookup. It fails against the prior
 parser because `dx.entryPoints` is discarded. This does not certify arbitrary
 malformed bitcode rejection or implement runtime record allocation.
