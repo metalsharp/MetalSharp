@@ -2,6 +2,7 @@
 // tools/d3d12-metal-sdk/probes/probe_workgraph/node_input_records.hlsl.
 #include "llvm_bitcode.hpp"
 #include "node_metadata.hpp"
+#include "node_record_layout.hpp"
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -94,6 +95,48 @@ int main(int argc, char **argv) {
     }
     require(vector_gep, "vector GEP fixture absent");
     check(module, "node_half", 2, 1, 1, 2);
+    check(module, "node_offsets", 48, 4, 3, 8);
+    bool offsets_type = false;
+    for (const auto &function : module.functions) {
+      if (function.name != "node_offsets") continue;
+      for (const auto &block : function.blocks)
+        for (const auto &instruction : block.instructions)
+          if (instruction.opcode == LLVMInstruction::GetElementPtr) {
+            const auto layout = nodeRecordTypeLayout(module, instruction.gep_source_type);
+            require(bool(layout), "typed record GEP layout missing");
+            if (layout->size != 48) continue;
+            require(layout->alignment == 8 && layout->members == std::vector<uint64_t>({0,16}),
+                    "typed record field offsets lost");
+            const auto tail = nodeRecordTypeLayout(module, module.types[instruction.gep_source_type].type_refs[1]);
+            require(tail && tail->size == 32 && tail->alignment == 8 &&
+                    tail->members == std::vector<uint64_t>({0,8,16}), "nested record padding lost");
+            auto packed = module;
+            packed.types[instruction.gep_source_type].packed = true;
+            require(!nodeRecordTypeLayout(packed, instruction.gep_source_type), "unsupported packed record accepted");
+            offsets_type = true;
+          }
+    }
+    require(offsets_type, "offset record GEP fixture absent");
+    require(!nodeRecordTypeLayout(module, UINT32_MAX), "invalid record type accepted");
+    LLVMModule cyclic;
+    LLVMType recursive{};
+    recursive.kind = LLVMType::Struct;
+    recursive.type_refs = {0};
+    cyclic.types.push_back(recursive);
+    require(!nodeRecordTypeLayout(cyclic, 0), "cyclic record type accepted");
+    LLVMModule oversized;
+    LLVMType wide{};
+    wide.kind = LLVMType::Integer;
+    wide.bit_width = 64;
+    oversized.types.push_back(wide);
+    LLVMType array{};
+    array.kind = LLVMType::Array;
+    array.bit_width = UINT32_MAX;
+    array.type_refs = {0};
+    oversized.types.push_back(array);
+    array.type_refs = {1};
+    oversized.types.push_back(array);
+    require(!nodeRecordTypeLayout(oversized, 2), "record layout multiplication overflow accepted");
     const auto empty = nodeInputLayout(module, "node_empty");
     require(empty && empty->size == 0 && empty->alignment == 0, "empty input layout incorrect");
     require(!nodeInputLayout(module, "absent_entry"), "missing entrypoint accepted");

@@ -1,4 +1,5 @@
 #include "msl_lowering.hpp"
+#include "node_record_layout.hpp"
 #include <cstdio>
 #include <cstring>
 #include <cstdarg>
@@ -8,6 +9,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <unordered_set>
 
 namespace dxmt::dxil {
 
@@ -912,6 +914,7 @@ struct LowerContext {
     // Retain private alloca/GEP pointee types so signless LLVM i32 loads
     // preserve the signed long-vector lane kind for later conversions.
     std::unordered_map<uint32_t, MSLType> pointer_pointee_types;
+    std::unordered_set<uint32_t> node_record_pointers;
     std::unordered_map<uint32_t, uint32_t> vector_extract_origin;
     std::unordered_map<uint32_t, ResourceHandleRecord> resource_handles;
     std::optional<ResourceHandleRecord> pending_handle;
@@ -9271,6 +9274,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
         if (decl_it != ctx.function_decls.end()) callee_name = decl_it->second;
         else if (callee < ctx.value_table.size()) callee_name = ctx.value_table[callee];
         uint32_t intrinsic_id = intrinsicIdFromCalleeName(callee_name);
+        if (intrinsic_id == DXOP_GetNodeRecordPtr && ctx.shader.kind == DxilShaderKind::Node)
+            ctx.node_record_pointers.insert(value_counter);
         if (callee_name.find("dx.op.writeSamplerFeedbackLevel") !=
             std::string::npos)
             intrinsic_id = DXOP_WriteSamplerFeedbackLevel;
@@ -9987,6 +9992,8 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
                      (DXILIRBuilder::isFloatType(result_type) || DXILIRBuilder::isIntType(result_type)) &&
                      !DXILIRBuilder::isVectorType(result_type))
                 emitTypedLine(result_type, result, castExpr(componentAccess(val, 0, source_type), result_type));
+            else if (inst.opcode == LLVMInstruction::ZExt && source_type.kind == MSLTypeKind::Short)
+                emitTypedLine(result_type, result, "static_cast<" + dst_name + ">(static_cast<ushort>(" + val + "))");
             else
                 emitTypedLine(result_type, result, "static_cast<" + dst_name + ">(" + val + ")");
             ctx.value_table[value_counter] = result;
@@ -10519,7 +10526,45 @@ static void emitTypedInstruction(LowerContext &ctx, const LLVMInstruction &inst,
             value_counter++;
             break;
         }
-        for (size_t i = 1; i < inst.operands.size(); i++) {
+        if (ctx.node_record_pointers.count(inst.operands[0])) {
+            uint32_t type_id = inst.gep_source_type;
+            bool valid = type_id < ctx.mod.types.size();
+            for (size_t i = 1; valid && i < inst.operands.size(); ++i) {
+                const auto layout = nodeRecordTypeLayout(ctx.mod, type_id);
+                if (!layout || layout->size > uint64_t(std::numeric_limits<int64_t>::max())) {
+                    valid = false;
+                    break;
+                }
+                const auto &type = ctx.mod.types[type_id];
+                if (i > 1 && type.kind == LLVMType::Struct) {
+                    const uint32_t member = literalFromValue(ctx, inst.operands[i], UINT32_MAX);
+                    if (member >= type.type_refs.size()) { valid = false; break; }
+                    gep += " + " + std::to_string(layout->members[member]) + "ul";
+                    type_id = type.type_refs[member];
+                } else {
+                    uint64_t stride = layout->size;
+                    if (i > 1) {
+                        if (type.kind != LLVMType::Array || type.type_refs.size() != 1) {
+                            valid = false; break;
+                        }
+                        type_id = type.type_refs[0];
+                        const auto element = nodeRecordTypeLayout(ctx.mod, type_id);
+                        if (!element || element->size > uint64_t(std::numeric_limits<int64_t>::max())) {
+                            valid = false; break;
+                        }
+                        stride = element->size;
+                    }
+                    const auto index = ensureScalarIndex(coerceOperand(inst.operands[i], {MSLTypeKind::Int, 0, {}}));
+                    if (index != "0") gep += " + long(" + index + ") * " + std::to_string(stride) + "l";
+                }
+            }
+            if (!valid) {
+                ctx.unsupported_opcodes++;
+                recordDiagnostic(ctx, "unsupported node record GEP layout");
+                gep = "nullptr";
+            }
+            ctx.node_record_pointers.insert(value_counter);
+        } else for (size_t i = 1; i < inst.operands.size(); i++) {
             auto idx = coerceOperand(inst.operands[i], {MSLTypeKind::Int, 0, {}});
             idx = ensureScalarIndex(idx);
             if (idx != "0" && idx != "0.0" && idx != "0.0f") {
@@ -11621,7 +11666,16 @@ std::optional<TypedMSLShader> MSLLowering::lower(
                     // temporary texture here can give an SRV handle a
                     // read_write access qualifier (or vice versa) before
                     // AnnotateHandle has supplied its resource metadata.
-                    if (!typeLooksResourceHandle(pre_type)) {
+                    // Record addresses are real SSA pointers, not opaque
+                    // resource handles; they must survive switch-case scopes.
+                    bool node_record_pointer = false;
+                    if (ctx.shader.kind == DxilShaderKind::Node &&
+                        inst.opcode == LLVMInstruction::Call && !inst.operands.empty()) {
+                        const auto callee = ctx.function_decls.find(inst.operands[0]);
+                        node_record_pointer = callee != ctx.function_decls.end() &&
+                            intrinsicIdFromCalleeName(callee->second) == DXOP_GetNodeRecordPtr;
+                    }
+                    if (!typeLooksResourceHandle(pre_type) || node_record_pointer) {
                         ctx.predeclared_names.insert(name);
                         ctx.predeclared_types[name] = pre_type;
                         os << "  " << typedDecl(name, pre_type) << " = "

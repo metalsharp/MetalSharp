@@ -268,6 +268,8 @@ int main() {
     bool input_program_ready = false;
     bool node_input_binding_exact = false;
     bool node_internal_binding_rejected = false;
+    bool node_record_offsets_exact = false;
+    uint32_t node_record_offset_values[12] = {};
     bool node_launch_geometry_exact = false;
     bool node_dynamic_grid_rejected = false;
     uint32_t node_launch_values[8] = {};
@@ -562,21 +564,21 @@ int main() {
     // must resolve node identity, not use the entrypoint as a node-array index.
     std::vector<uint8_t> layout_bytecode;
     if (SUCCEEDED(hr) && read_binary_file("probe_workgraph_node_layout.cso", layout_bytecode)) {
-        const wchar_t* names[4] = {L"node_main", L"node_vector", L"node_half", L"node_empty"};
-        D3D12_EXPORT_DESC exports[4] = {};
-        WorkGraphNode layout_nodes[4] = {};
-        for (UINT i = 0; i < 4; ++i) {
+        const wchar_t* names[5] = {L"node_main", L"node_vector", L"node_half", L"node_empty", L"node_offsets"};
+        D3D12_EXPORT_DESC exports[5] = {};
+        WorkGraphNode layout_nodes[5] = {};
+        for (UINT i = 0; i < 5; ++i) {
             exports[i].Name = names[i];
             layout_nodes[i] = {0, {names[i], 0, nullptr}};
         }
-        WorkGraphNodeID entries[4] = {{names[1], 0}, {names[3], 0}, {names[0], 0}, {names[2], 0}};
-        WorkGraphDesc graph = {L"layout_graph", 0, 4, entries, 4, layout_nodes};
+        WorkGraphNodeID entries[5] = {{names[1], 0}, {names[3], 0}, {names[0], 0}, {names[2], 0}, {names[4], 0}};
+        WorkGraphDesc graph = {L"layout_graph", 0, 5, entries, 5, layout_nodes};
         D3D12_STATE_SUBOBJECT graph_sub = {static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &graph};
         const D3D12_STATE_SUBOBJECT* graph_subs[] = {&graph_sub};
         GenericProgramDesc generic = {L"layout_graph", 0, nullptr, 1, graph_subs};
         D3D12_DXIL_LIBRARY_DESC library = {};
         library.DXILLibrary = {layout_bytecode.data(), layout_bytecode.size()};
-        library.NumExports = 4;
+        library.NumExports = 5;
         library.pExports = exports;
         D3D12_STATE_SUBOBJECT subs[2] = {
             {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY, &library},
@@ -589,15 +591,15 @@ int main() {
             layout_hr = layout_state->QueryInterface(kWorkGraphPropertiesIID,
                 reinterpret_cast<void**>(&layout_properties));
         if (SUCCEEDED(layout_hr) && layout_properties) {
-            const UINT sizes[4] = {16, 0, 4, 4};
-            const UINT alignments[4] = {4, 0, 4, 4};
+            const UINT sizes[5] = {16, 0, 4, 4, 48};
+            const UINT alignments[5] = {4, 0, 4, 4, 8};
             node_input_layouts_exact = true;
-            for (UINT i = 0; i < 4; ++i)
+            for (UINT i = 0; i < 5; ++i)
                 node_input_layouts_exact &=
                     layout_properties->GetEntrypointRecordSizeInBytes(0, i) == sizes[i] &&
                     layout_properties->GetEntrypointRecordAlignmentInBytes(0, i) == alignments[i];
             node_input_layouts_exact &=
-                layout_properties->GetEntrypointRecordSizeInBytes(0, 4) == UINT_MAX &&
+                layout_properties->GetEntrypointRecordSizeInBytes(0, 5) == UINT_MAX &&
                 layout_properties->GetEntrypointRecordAlignmentInBytes(1, 0) == UINT_MAX;
         }
         ID3D12StateObjectProperties* program_properties = nullptr;
@@ -1615,6 +1617,33 @@ int main() {
         }
     }
 
+    if (SUCCEEDED(hr) && input_program_ready) {
+        struct Tail { uint16_t narrow[4]; uint16_t spacer; uint64_t wide[2]; };
+        struct Record { uint32_t prefix[4]; Tail tail; };
+        static_assert(sizeof(Record) == 48 && offsetof(Record, tail) + offsetof(Tail, wide) == 32);
+        Record record = {{101,202,303,404}, {{5,32768,65535,4097}, 0x7777,
+                         {0x5566778811223344ull, 0xddeeff0099aabbccull}}};
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+        SetProgramDesc program = set_program;
+        std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier, 32);
+        DispatchGraphDesc dispatch = {};
+        dispatch.NodeCPUInput = {4, 1, &record, sizeof(record)};
+        if (SUCCEEDED(hr)) {
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0, node_output->GetGPUVirtualAddress());
+            list->SetProgram(&program);
+            list->DispatchGraph(&dispatch);
+            std::memset(&record, 0, sizeof(record));
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) hr = node_output->ReadFromSubresource(node_record_offset_values, 48, 48, 0, nullptr);
+        const uint32_t expected[12] = {101,202,303,404,5,32768,65535,4097,
+                                      0x11223344,0x55667788,0x99aabbcc,0xddeeff00};
+        node_record_offsets_exact = SUCCEEDED(hr) &&
+            std::memcmp(expected, node_record_offset_values, sizeof(expected)) == 0;
+    }
+
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
@@ -1630,7 +1659,7 @@ int main() {
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
-        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && dxil_multi_node_readback_exact &&
+        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && node_record_offsets_exact && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
@@ -1691,6 +1720,10 @@ int main() {
                 node_multi_bytecode_loaded ? "true" : "false");
     std::printf("  \"dxil_multi_node_readback_exact\": %s,\n",
                 dxil_multi_node_readback_exact ? "true" : "false");
+    std::printf("  \"node_record_offsets_exact\": %s,\n", node_record_offsets_exact ? "true" : "false");
+    std::printf("  \"node_record_offset_values\": [");
+    for (UINT i = 0; i < 12; ++i) std::printf("%s%u", i ? "," : "", node_record_offset_values[i]);
+    std::printf("],\n");
     std::printf("  \"node_dynamic_grid_rejected\": %s,\n", node_dynamic_grid_rejected ? "true" : "false");
     std::printf("  \"node_launch_geometry_exact\": %s,\n", node_launch_geometry_exact ? "true" : "false");
     std::printf("  \"node_launch_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n", node_launch_values[0], node_launch_values[1], node_launch_values[2], node_launch_values[3], node_launch_values[4], node_launch_values[5], node_launch_values[6], node_launch_values[7]);
@@ -1764,7 +1797,7 @@ int main() {
                    dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
-                   node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected &&
+                   node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && node_record_offsets_exact &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
                    node_multi_gpu_input_exact
                ? 0
