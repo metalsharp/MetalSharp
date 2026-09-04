@@ -48,7 +48,8 @@ int main() {
     ID3D12VideoProcessor* nv12_processor = nullptr;
     ID3D12VideoProcessor* rgba_to_nv12_processor = nullptr;
     ID3D12VideoProcessor* p010_processor = nullptr;
-    ID3D12VideoProcessor* p010_output_processor = nullptr;
+    ID3D12VideoProcessor* p016_output_processor = nullptr;
+    ID3D12VideoProcessor* rgba_to_p010_processor = nullptr;
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12VideoProcessCommandList* command_list = nullptr;
@@ -59,6 +60,7 @@ int main() {
     ID3D12Resource* rgba_gray_input = nullptr;
     ID3D12Resource* nv12_output = nullptr;
     ID3D12Resource* p010_input = nullptr;
+    ID3D12Resource* p010_output = nullptr;
     ID3D12Resource* output = nullptr;
 
     HRESULT create_hr = create_device
@@ -107,15 +109,25 @@ int main() {
                                     : video_hr;
     D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC p010_output_desc = output_desc;
     p010_output_desc.Format = DXGI_FORMAT_P010;
-    HRESULT p010_output_reject_hr = video_hr == S_OK
-                                         ? video->CreateVideoProcessor(
-                                               1, &p010_output_desc, 1,
-                                               &input_desc, kIIDVideoProcessor,
-                                               reinterpret_cast<void**>(
-                                                   &p010_output_processor))
-                                         : video_hr;
-    const bool p010_output_rejected =
-        p010_output_reject_hr == E_INVALIDARG && !p010_output_processor;
+    HRESULT rgba_to_p010_processor_hr = video_hr == S_OK
+                                             ? video->CreateVideoProcessor(
+                                                   1, &p010_output_desc, 1,
+                                                   &input_desc,
+                                                   kIIDVideoProcessor,
+                                                   reinterpret_cast<void**>(
+                                                       &rgba_to_p010_processor))
+                                             : video_hr;
+    D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC p016_output_desc = output_desc;
+    p016_output_desc.Format = DXGI_FORMAT_P016;
+    HRESULT p016_output_reject_hr = video_hr == S_OK
+                                        ? video->CreateVideoProcessor(
+                                              1, &p016_output_desc, 1,
+                                              &input_desc, kIIDVideoProcessor,
+                                              reinterpret_cast<void**>(
+                                                  &p016_output_processor))
+                                        : video_hr;
+    const bool p016_output_rejected =
+        p016_output_reject_hr == E_INVALIDARG && !p016_output_processor;
 
     D3D12_COMMAND_QUEUE_DESC queue_desc = {};
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS;
@@ -201,6 +213,15 @@ int main() {
                                          D3D12_RESOURCE_STATE_COMMON, nullptr,
                                          IID_PPV_ARGS(&p010_input))
                                    : E_FAIL;
+    D3D12_RESOURCE_DESC p010_output_resource_desc = p010_resource_desc;
+    HRESULT p010_output_resource_hr = device
+                                          ? device->CreateCommittedResource(
+                                                &heap, D3D12_HEAP_FLAG_NONE,
+                                                &p010_output_resource_desc,
+                                                D3D12_RESOURCE_STATE_COMMON,
+                                                nullptr,
+                                                IID_PPV_ARGS(&p010_output))
+                                          : E_FAIL;
     const uint32_t input_pixels[4] = {
         0xff0000ffu, 0xff00ff00u, 0xffff0000u, 0xffffffffu};
     HRESULT input_write_hr = input
@@ -301,6 +322,15 @@ int main() {
         SUCCEEDED(p010_uv_write_hr))
         command_list->ProcessFrames(p010_processor, &p010_output_arguments, 1,
                                      &p010_input_arguments);
+    D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS rgba_to_p010_output_arguments = {};
+    rgba_to_p010_output_arguments.OutputStream[0].pTexture2D = p010_output;
+    rgba_to_p010_output_arguments.OutputStream[0].Subresource = 0;
+    rgba_to_p010_output_arguments.TargetRectangle = {0, 0, 2, 2};
+    if (command_list && rgba_to_p010_processor &&
+        SUCCEEDED(gray_input_write_hr))
+        command_list->ProcessFrames(rgba_to_p010_processor,
+                                     &rgba_to_p010_output_arguments, 1,
+                                     &rgba_to_nv12_input_arguments);
     HRESULT close_hr = command_list ? command_list->Close() : E_FAIL;
     if (queue && command_list && SUCCEEDED(close_hr)) {
         ID3D12CommandList* lists[] = {
@@ -321,6 +351,8 @@ int main() {
     uint8_t rgba_to_nv12_y[4] = {};
     uint8_t rgba_to_nv12_uv[2] = {};
     uint32_t p010_pixels[16] = {};
+    uint16_t rgba_to_p010_y[4] = {};
+    uint16_t rgba_to_p010_uv[2] = {};
     HRESULT output_read_hr = output
                                  ? output->ReadFromSubresource(
                                        output_pixels, 4 * 4, 4 * 4 * 4, 0, nullptr)
@@ -378,11 +410,27 @@ int main() {
         SUCCEEDED(p010_read_hr) && p010_pixels[0] == 0xff000000u &&
         p010_pixels[2] == 0xffffffffu && p010_pixels[8] == 0xff4c4c4cu &&
         p010_pixels[10] == 0xff969696u && p010_pixels[15] == 0xff969696u;
+    HRESULT rgba_to_p010_y_read_hr = p010_output
+                                         ? p010_output->ReadFromSubresource(
+                                               rgba_to_p010_y, 2 * 2,
+                                               2 * 2 * 2, 0, nullptr)
+                                         : E_FAIL;
+    HRESULT rgba_to_p010_uv_read_hr = p010_output
+                                           ? p010_output->ReadFromSubresource(
+                                                 rgba_to_p010_uv, 1 * 2 * 2,
+                                                 1 * 2 * 2, 1, nullptr)
+                                           : E_FAIL;
+    const bool rgba_to_p010_converted =
+        SUCCEEDED(rgba_to_p010_y_read_hr) &&
+        SUCCEEDED(rgba_to_p010_uv_read_hr) &&
+        std::memcmp(rgba_to_p010_y, p010_y, sizeof(p010_y)) == 0 &&
+        std::memcmp(rgba_to_p010_uv, p010_uv, sizeof(p010_uv)) == 0;
     const bool passed = create_hr == S_OK && video_hr == S_OK &&
                         processor_hr == S_OK && nv12_processor_hr == S_OK &&
                         rgba_to_nv12_processor_hr == S_OK &&
-                        p010_processor_hr == S_OK && p010_output_rejected &&
-                        queue_hr == S_OK &&
+                        p010_processor_hr == S_OK &&
+                        rgba_to_p010_processor_hr == S_OK &&
+                        p016_output_rejected && queue_hr == S_OK &&
                         allocator_hr == S_OK && list_hr == S_OK &&
                         input_resource_hr == S_OK && output_resource_hr == S_OK &&
                         input_write_hr == S_OK && nv12_resource_hr == S_OK &&
@@ -390,14 +438,18 @@ int main() {
                         gray_input_resource_hr == S_OK &&
                         nv12_output_resource_hr == S_OK &&
                         gray_input_write_hr == S_OK && p010_resource_hr == S_OK &&
+                        p010_output_resource_hr == S_OK &&
                         p010_y_write_hr == S_OK && p010_uv_write_hr == S_OK &&
                         close_hr == S_OK && rgba_to_nv12_y_read_hr == S_OK &&
                         rgba_to_nv12_uv_read_hr == S_OK &&
+                        rgba_to_p010_y_read_hr == S_OK &&
+                        rgba_to_p010_uv_read_hr == S_OK &&
                         signal_hr == S_OK && event_hr == S_OK &&
                         wait_result == WAIT_OBJECT_0 && output_read_hr == S_OK &&
                         rotated_read_hr == S_OK && nv12_read_hr == S_OK &&
                         scaled && rotated && nv12_converted &&
-                        rgba_to_nv12_converted && p010_converted;
+                        rgba_to_nv12_converted && p010_converted &&
+                        rgba_to_p010_converted;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.video-process.v1\",\n");
@@ -411,10 +463,12 @@ int main() {
                 hr_value(rgba_to_nv12_processor_hr));
     std::printf("  \"create_p010_processor\": \"0x%08lx\",\n",
                 hr_value(p010_processor_hr));
-    std::printf("  \"p010_output_reject\": \"0x%08lx\",\n",
-                hr_value(p010_output_reject_hr));
-    std::printf("  \"p010_output_rejected\": %s,\n",
-                p010_output_rejected ? "true" : "false");
+    std::printf("  \"create_rgba_to_p010_processor\": \"0x%08lx\",\n",
+                hr_value(rgba_to_p010_processor_hr));
+    std::printf("  \"p016_output_reject\": \"0x%08lx\",\n",
+                hr_value(p016_output_reject_hr));
+    std::printf("  \"p016_output_rejected\": %s,\n",
+                p016_output_rejected ? "true" : "false");
     std::printf("  \"create_video_queue\": \"0x%08lx\",\n", hr_value(queue_hr));
     std::printf("  \"create_video_command_list\": \"0x%08lx\",\n", hr_value(list_hr));
     std::printf("  \"close\": \"0x%08lx\",\n", hr_value(close_hr));
@@ -433,6 +487,8 @@ int main() {
                 hr_value(nv12_output_resource_hr));
     std::printf("  \"create_p010_input\": \"0x%08lx\",\n",
                 hr_value(p010_resource_hr));
+    std::printf("  \"create_p010_output\": \"0x%08lx\",\n",
+                hr_value(p010_output_resource_hr));
     std::printf("  \"gray_input_write\": \"0x%08lx\",\n",
                 hr_value(gray_input_write_hr));
     std::printf("  \"p010_y_write\": \"0x%08lx\",\n",
@@ -463,6 +519,12 @@ int main() {
                 hr_value(p010_read_hr));
     std::printf("  \"output_p010_exact\": %s,\n",
                 p010_converted ? "true" : "false");
+    std::printf("  \"rgba_to_p010_y_readback\": \"0x%08lx\",\n",
+                hr_value(rgba_to_p010_y_read_hr));
+    std::printf("  \"rgba_to_p010_uv_readback\": \"0x%08lx\",\n",
+                hr_value(rgba_to_p010_uv_read_hr));
+    std::printf("  \"rgba_to_p010_exact\": %s,\n",
+                rgba_to_p010_converted ? "true" : "false");
     std::printf("  \"output_pixels\": [");
     for (size_t i = 0; i < 16; ++i)
         std::printf("\"0x%08x\"%s", output_pixels[i],
@@ -488,13 +550,20 @@ int main() {
                 rgba_to_nv12_y[3]);
     std::printf("  \"rgba_to_nv12_uv\": [%u, %u],\n",
                 rgba_to_nv12_uv[0], rgba_to_nv12_uv[1]);
+    std::printf("  \"rgba_to_p010_y\": [%u, %u, %u, %u],\n",
+                rgba_to_p010_y[0], rgba_to_p010_y[1], rgba_to_p010_y[2],
+                rgba_to_p010_y[3]);
+    std::printf("  \"rgba_to_p010_uv\": [%u, %u],\n",
+                rgba_to_p010_uv[0], rgba_to_p010_uv[1]);
     std::printf("  \"gpu_execution\": false,\n");
     std::printf("  \"provider_scope\": \"CPU-reference-video-process\"\n");
     std::printf("}\n");
 
     if (event)
         CloseHandle(event);
-    release(p010_output_processor);
+    release(p016_output_processor);
+    release(rgba_to_p010_processor);
+    release(p010_output);
     release(p010_input);
     release(nv12_output);
     release(rgba_gray_input);
