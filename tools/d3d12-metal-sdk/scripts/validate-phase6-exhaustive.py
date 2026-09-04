@@ -434,6 +434,19 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                  for item in levels if isinstance(item, dict)} != expected_counts or
                 any(item.get("exact") is not True for item in levels if isinstance(item, dict))):
                 errors.append("device caps sample-count quality matrix is incomplete")
+    conservative_msaa_2 = result.get("conservative_msaa_2")
+    if conservative_msaa_2 is not None:
+        if not isinstance(conservative_msaa_2, dict):
+            errors.append("conservative_msaa_2 result must be an object or null")
+        elif conservative_msaa_2.get("process_status") != 0:
+            errors.append("conservative 2x MSAA probe process did not exit zero")
+        else:
+            value = conservative_msaa_2.get("result")
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                value.get("pixels_exact") is not True or
+                value.get("red_pixels") != value.get("expected_red_pixels") or
+                value.get("sample_count") != 2):
+                errors.append("conservative 2x MSAA exact coverage matrix is incomplete")
     sample_positions = result.get("sample_positions")
     if sample_positions is not None:
         if not isinstance(sample_positions, dict):

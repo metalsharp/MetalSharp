@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -168,11 +169,16 @@ static HRESULT wait_for_queue(ID3D12Device *device, ID3D12CommandQueue *queue,
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
+    if (argc != 3 && argc != 4) {
         std::fprintf(stderr,
-                     "usage: probe_conservative_msaa <vs.dxil> <ps.dxil>\n");
+                     "usage: probe_conservative_msaa <vs.dxil> <ps.dxil> [2|4]\n");
         return 2;
     }
+    const UINT sample_count = argc == 4
+                                  ? static_cast<UINT>(std::strtoul(argv[3], nullptr, 10))
+                                  : 4u;
+    if (sample_count != 2 && sample_count != 4)
+        return 2;
     constexpr UINT width = 8;
     constexpr UINT height = 8;
     constexpr UINT row_pitch = 256;
@@ -215,7 +221,7 @@ int main(int argc, char **argv) {
     pso_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc.NumRenderTargets = 1;
     pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    pso_desc.SampleDesc.Count = 4;
+    pso_desc.SampleDesc.Count = sample_count;
     ID3D12PipelineState *pso = nullptr;
     HRESULT pso_hr = (device && root && !vs.empty() && !ps.empty())
                          ? device->CreateGraphicsPipelineState(
@@ -258,7 +264,7 @@ int main(int argc, char **argv) {
         source_desc.DepthOrArraySize = 1;
         source_desc.MipLevels = 1;
         source_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        source_desc.SampleDesc.Count = 4;
+        source_desc.SampleDesc.Count = sample_count;
         source_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         source_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         D3D12_CLEAR_VALUE clear = {};
@@ -437,8 +443,8 @@ int main(int argc, char **argv) {
                 hr_hex(readback_hr).c_str());
     std::printf("  \"execute_hr\": \"%s\", \"map_hr\": \"%s\",\n",
                 hr_hex(execute_hr).c_str(), hr_hex(map_hr).c_str());
-    std::printf("  \"sample_count\": 4, \"red_pixels\": %u, \"expected_red_pixels\": %u,\n",
-                red_pixels, expected_red_pixels);
+    std::printf("  \"sample_count\": %u, \"red_pixels\": %u, \"expected_red_pixels\": %u,\n",
+                sample_count, red_pixels, expected_red_pixels);
     std::printf("  \"pixels_exact\": %s, \"pass\": %s,\n"
                 "  \"provider\": \"gpu_reference_conservative_raster_msaa\"\n}\n",
                 pixels_exact ? "true" : "false", pass ? "true" : "false");
