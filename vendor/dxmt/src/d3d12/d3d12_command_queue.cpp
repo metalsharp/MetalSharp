@@ -12094,6 +12094,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
 
     QTRACE("ECL: creating cmdbuf from m_wmt_queue");
     auto cmdbuf = m_wmt_queue.commandBuffer();
+    if (cmdbuf.handle)
+      EncodePendingWaits(cmdbuf);
     QTRACE("ECL: cmdbuf handle=%llu", (unsigned long long)cmdbuf.handle);
     if (!cmdbuf.handle) {
       Logger::err("ExecuteCommandLists: failed to create Metal command buffer");
@@ -16907,6 +16909,17 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::EndEvent() {
   SubmitQueueDebugAnnotation(m_wmt_queue, "end", 0, 0, true);
 }
 
+void MTLD3D12CommandQueue::EncodePendingWaits(WMT::CommandBuffer command_buffer) {
+  for (auto it = m_pending_waits.begin(); it != m_pending_waits.end();) {
+    if (it->event.signaledValue() >= it->value) {
+      it = m_pending_waits.erase(it);
+    } else {
+      command_buffer.encodeWaitForEvent(it->event, it->value);
+      ++it;
+    }
+  }
+}
+
 HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Signal(ID3D12Fence *fence,
                                                        UINT64 value) {
   QTRACE("CmdQueue::Signal value=%llu fence_iface=%p",
@@ -16931,6 +16944,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Signal(ID3D12Fence *fence,
   auto cmdbuf = m_wmt_queue.commandBuffer();
   if (!cmdbuf.handle)
     return E_FAIL;
+  EncodePendingWaits(cmdbuf);
   cmdbuf.encodeSignalEvent(shared_event, value);
   DXMTD3D12ScopedTimer signal_timer("Queue", "SignalFence");
   signal_timer.SetDetail("queue_type=%u value=%llu fence=%p", m_desc.Type,
@@ -16967,7 +16981,12 @@ HRESULT STDMETHODCALLTYPE MTLD3D12CommandQueue::Wait(ID3D12Fence *fence,
   auto cmdbuf = m_wmt_queue.commandBuffer();
   if (!cmdbuf.handle)
     return E_FAIL;
-  cmdbuf.encodeWaitForEvent(shared_event, value);
+  try {
+    m_pending_waits.push_back({shared_event, value});
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
+  EncodePendingWaits(cmdbuf);
   DXMTD3D12ScopedTimer wait_timer("Queue", "WaitFence");
   wait_timer.SetDetail("queue_type=%u value=%llu fence=%p", m_desc.Type,
                        (unsigned long long)value, (void *)fence);
@@ -16987,6 +17006,7 @@ bool MTLD3D12CommandQueue::EnqueueCompletionSignal(
   if (!cmdbuf.handle)
     return false;
   const uint64_t value = ++m_completion_seq;
+  EncodePendingWaits(cmdbuf);
   cmdbuf.encodeSignalEvent(m_completion_event, value);
   cmdbuf.commit();
   completion_event = m_completion_event;

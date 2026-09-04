@@ -8,6 +8,7 @@
 #include "Metal.hpp"
 #include <atomic>
 #include <mutex>
+#include <vector>
 
 namespace dxmt {
 
@@ -94,6 +95,14 @@ private:
   WMT::Reference<WMT::SharedEvent> m_completion_event;
   uint64_t m_completion_seq = 0;
   std::mutex m_submit_mutex;
+  // A standalone Metal event-wait buffer does not gate later buffers.
+  // Keep unresolved waits on every dependent submission under m_submit_mutex.
+  struct PendingWait {
+    WMT::Reference<WMT::SharedEvent> event;
+    uint64_t value;
+  };
+  std::vector<PendingWait> m_pending_waits;
+  void EncodePendingWaits(WMT::CommandBuffer command_buffer);
   ComPrivateData m_private_data;
 };
 
