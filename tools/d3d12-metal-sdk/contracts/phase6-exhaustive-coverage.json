@@ -224,6 +224,19 @@
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
     },
     {
+      "id": "p6-programmable-sample-position-pattern",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "command_replay_sample_positions",
+      "covers": {"sample_count": ["4"], "sample_positions": ["programmable_4x4", "reset"], "msaa_state": ["color_msaa", "array_resolve"], "primitive_topology": ["triangle_list"], "render_targets": ["one"], "shader_stages": ["vertex_pixel"], "logic_side_effects": ["none"], "view_instancing": ["disabled"], "vrs": ["disabled"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-sample-positions",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "pattern_readback_required": true, "reset_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "pattern": "four-pixel/four-sample corner clusters resolve black/red/black/black", "reset": "zero-count reset recorded and subsequent default-sample full quad resolves all red"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The source-owned command-replay probe verifies SetSamplePositions(4,4) with exact 2x2 resolve output and then verifies the legal zero-count reset record with a subsequent default-pattern draw."
+    },
+    {
       "id": "p6-conservative-inner-coverage-reference",
       "legality": "legal",
       "status": "closed",
