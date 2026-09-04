@@ -314,6 +314,34 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                   invalid.get("object_null") is not True or
                   invalid.get("exact") is not True):
                 errors.append("interpolation malformed DXIL must be E_FAIL with a null PSO")
+    invalid_descriptors = result.get("invalid_descriptors")
+    if not isinstance(invalid_descriptors, dict):
+        errors.append("invalid_descriptors result is required")
+    elif invalid_descriptors.get("process_status") != 0:
+        errors.append("invalid descriptor probe process did not exit zero")
+    else:
+        value = invalid_descriptors.get("result")
+        if not isinstance(value, dict) or value.get("pass") is not True:
+            errors.append("invalid descriptor probe is not pass=true")
+        else:
+            cases = value.get("cases")
+            expected_names = {
+                "rasterizer2_line_mode_4",
+                "view_instance_count_5",
+                "view_instance_flags_2",
+                "view_instance_locations_missing",
+                "sample_count_3",
+                "unknown_subobject_type",
+            }
+            if (not isinstance(cases, list) or
+                {case.get("name") for case in cases if isinstance(case, dict)} != expected_names):
+                errors.append("invalid descriptor cases are incomplete")
+            else:
+                for case in cases:
+                    if (case.get("object_null") is not True or
+                        case.get("exact") is not True or
+                        not str(case.get("hr", "")).startswith("0x8")):
+                        errors.append(f"invalid descriptor {case.get('name')}: HRESULT/null invariant failed")
     rasterization = result.get("rasterization")
     if rasterization is not None:
         if not isinstance(rasterization, dict):
@@ -385,6 +413,63 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 not all(any(item.get("count") == count and item.get("supported") is True for item in counts)
                         for count in (1, 2, 4))):
                 errors.append("native Metal sample-count inventory lacks required 1/2/4 support evidence")
+    device_caps = result.get("device_caps")
+    if device_caps is not None:
+        if not isinstance(device_caps, dict):
+            errors.append("device_caps result must be an object or null")
+        elif device_caps.get("process_status") != 0:
+            errors.append("device caps probe process did not exit zero")
+        else:
+            value = device_caps.get("result")
+            if not isinstance(value, dict) or value.get("pass") is not True:
+                errors.append("device caps probe is not pass=true")
+            levels = value.get("multisample_quality_levels", []) if isinstance(value, dict) else []
+            expected_counts = {1: 1, 2: 1, 4: 1, 8: 0, 16: 0, 32: 0}
+            if (not isinstance(levels, list) or
+                {item.get("sample_count"): item.get("num_quality_levels")
+                 for item in levels if isinstance(item, dict)} != expected_counts or
+                any(item.get("exact") is not True for item in levels if isinstance(item, dict))):
+                errors.append("device caps sample-count quality matrix is incomplete")
+    view_instancing = result.get("view_instancing")
+    if view_instancing is not None:
+        if not isinstance(view_instancing, dict):
+            errors.append("view_instancing result must be an object or null")
+        elif view_instancing.get("process_status") != 0:
+            errors.append("view instancing probe process did not exit zero")
+        else:
+            value = view_instancing.get("result")
+            if not isinstance(value, dict) or value.get("pass") is not True:
+                errors.append("view instancing probe is not pass=true")
+            elif (value.get("view_count") != 4 or
+                  value.get("zero_mask_preserved") is not True or
+                  value.get("shader_exact") is not True or
+                  value.get("pso_exact") is not True or
+                  not isinstance(value.get("slices"), list) or
+                  len(value.get("slices")) != 4 or
+                  any(item.get("exact") is not True for item in value.get("slices", [])
+                      if isinstance(item, dict))):
+                errors.append("view instancing four-view/mask-zero matrix is incomplete")
+    fixed_function = result.get("fixed_function")
+    if fixed_function is not None:
+        if not isinstance(fixed_function, dict):
+            errors.append("fixed_function result must be an object or null")
+        elif fixed_function.get("process_status") != 0:
+            errors.append("fixed-function probe process did not exit zero")
+        else:
+            value = fixed_function.get("result")
+            if not isinstance(value, dict) or value.get("pass") is not True:
+                errors.append("fixed-function graphics matrix is not pass=true")
+            coverage = value.get("coverage", {}) if isinstance(value, dict) else {}
+            required = (
+                "vertex_pixel", "depth_only", "color_only", "color_depth", "msaa",
+                "blend", "logic_op_xor", "logic_op_independent_readback",
+                "logic_op_uav_side_effect_rejected", "front_back_stencil_reference",
+                "conservative_rasterization_negative_matrix_verified",
+                "triangle_fan_exact", "dynamic_depth_bias_exact",
+            )
+            if (not isinstance(coverage, dict) or
+                any(coverage.get(field) is not True for field in required)):
+                errors.append("fixed-function coverage evidence is incomplete")
     msaa = result.get("msaa")
     if msaa is not None:
         if not isinstance(msaa, dict):

@@ -118,8 +118,10 @@ The runner builds source-owned DXIL fixtures in the disposable prefix and uses
 `validate-phase6-exhaustive.py` requires exact readbacks, HRESULT/null-object
 invariants, and the pinned target identity. Add `--with-rasterization` to run
 the point/line baseline, `--with-rov-dimensions` for typed 1D/1D-array/3D
-ROVs, and `--with-host-inventory` for the native Metal interpolation/sample
-count capability probe.
+ROVs, `--with-view-instancing` for the four-view/mask-zero replay matrix,
+`--with-fixed-function` for the established exact PSO matrix, and
+`--with-host-inventory` for the native Metal interpolation/sample-count and
+D3D12 feature-report capability probes.
 
 For fast one-behavior-at-a-time D3D12 validation without launching Steam or a
 game, run the headless mini-app suite:

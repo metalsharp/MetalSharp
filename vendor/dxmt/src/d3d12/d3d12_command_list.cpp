@@ -430,7 +430,10 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DrawInstanced(
       }
     }
   }
-  if (!emitted) {
+  // A view-instanced draw with a zero mask produces no work.  Do not fall
+  // back to an ordinary draw: that would make SetViewInstanceMask(0) render
+  // once and would violate the D3D12 masking contract.
+  if (!emitted && view_count == 0) {
     for (UINT sample = 0; sample < sample_pixels; ++sample) {
       emit_draw(kNoViewInstanceIndex,
                 sample_pixels > 1 ? sample : kNoViewInstanceIndex);
@@ -480,7 +483,9 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DrawIndexedInstanced(
       }
     }
   }
-  if (!emitted) {
+  // See the non-indexed path above: a masked view-instanced draw is a genuine
+  // no-op, not a request to execute one uninstanced draw.
+  if (!emitted && view_count == 0) {
     for (UINT sample = 0; sample < sample_pixels; ++sample) {
       emit_draw(kNoViewInstanceIndex,
                 sample_pixels > 1 ? sample : kNoViewInstanceIndex);
