@@ -2590,7 +2590,8 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  uint m12_attribute_at_vertex_primitive [[primitive_id]],\n";
             os << "  device float4* m12_attribute_at_vertex_capture [[buffer(28)]],\n";
         }
-        if (ctx.uses_sample_index || usesSampleInterpolation(ctx.shader))
+        if (ctx.uses_sample_index || usesSampleInterpolation(ctx.shader) ||
+            ctx.options.sample_mask != 0xffffffffu)
             os << "  uint m12_sample_id [[sample_id]],\n";
         if (ctx.uses_coverage)
             os << "  uint m12_coverage [[sample_mask]],\n";
@@ -2694,6 +2695,11 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << ") {\n";
         if (ctx.options.conservative_rasterization) {
             os << "  if (m12_conservative.enabled != 0u && !m12_cons_triangle_pixel(m12_conservative.p0, m12_conservative.p1, m12_conservative.p2, floor(in.position.xy))) discard_fragment();\n";
+        }
+        if (ctx.options.sample_mask != 0xffffffffu) {
+            os << "  if (m12_sample_id >= 32u || ((0x" << std::hex
+               << ctx.options.sample_mask << std::dec
+               << "u >> m12_sample_id) & 1u) == 0u) discard_fragment();\n";
         }
         if (ctx.options.vrs_per_primitive) {
             if (ctx.shader.shading_rate_input_register >= 0)
@@ -7416,7 +7422,14 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             recordDiagnostic(ctx, "DXIL coverage intrinsic requires a pixel shader");
             return "0u";
         }
-        return "m12_coverage";
+        if (ctx.options.sample_mask == 0xffffffffu)
+            return "m12_coverage";
+        return "(m12_coverage & 0x" +
+               [&]() {
+                   std::ostringstream mask;
+                   mask << std::hex << ctx.options.sample_mask;
+                   return mask.str();
+               }() + "u)";
     case DXOP_InnerCoverage:
         if (ctx.shader.kind == DxilShaderKind::Pixel &&
             ctx.options.conservative_rasterization)

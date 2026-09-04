@@ -470,6 +470,25 @@ def validate_result(result: dict[str, Any]) -> list[str]:
             if (not isinstance(coverage, dict) or
                 any(coverage.get(field) is not True for field in required)):
                 errors.append("fixed-function coverage evidence is incomplete")
+    graphics_msaa = result.get("graphics_msaa")
+    if graphics_msaa is not None:
+        if not isinstance(graphics_msaa, dict):
+            errors.append("graphics_msaa result must be an object or null")
+        elif graphics_msaa.get("process_status") != 0:
+            errors.append("graphics MSAA probe process did not exit zero")
+        else:
+            value = graphics_msaa.get("result")
+            if not isinstance(value, dict) or value.get("pass") is not True:
+                errors.append("graphics MSAA probe is not pass=true")
+            samples = value.get("samples", []) if isinstance(value, dict) else []
+            expected = {(2, 4294967295), (4, 4294967295), (4, 5)}
+            actual = {(item.get("count"), item.get("sample_mask"))
+                      for item in samples if isinstance(item, dict)}
+            if (actual != expected or len(samples) != 3 or
+                any(item.get("exact") is not True for item in samples
+                    if isinstance(item, dict)) or
+                value.get("quality_exact") is not True):
+                errors.append("graphics MSAA sample-frequency/mask matrix is incomplete")
     msaa = result.get("msaa")
     if msaa is not None:
         if not isinstance(msaa, dict):

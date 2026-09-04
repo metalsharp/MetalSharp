@@ -67,6 +67,10 @@ struct MSLLoweringOptions {
   // command-list replay can then select the effective rate without confusing
   // the source semantic with Metal's screen-space rate map.
   bool vrs_per_primitive = false;
+  // D3D12's PSO SampleMask has no Metal render-encoder setter.  For
+  // sample-frequency DXIL pixel shaders the lowerer applies it to the
+  // sample-id/coverage inputs and discards masked samples before side effects.
+  uint32_t sample_mask = 0xffffffffu;
   // Replace ordinary point-in-triangle rasterization with the bounded
   // conservative coverage replay path for the supported reference model.
   bool conservative_rasterization = false;

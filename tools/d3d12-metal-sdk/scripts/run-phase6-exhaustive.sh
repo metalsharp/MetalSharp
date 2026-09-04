@@ -233,6 +233,9 @@ if [[ "$WITH_MSAA" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
     "$SDK_DIR/probes/probe_writable_msaa/probe_writable_msaa.cpp" \
     -o "$WORK/probe_writable_msaa.exe"
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_graphics_msaa_breadth.cpp" \
+    -o "$WORK/probe_graphics_msaa_breadth.exe"
 fi
 HOST_STATUS=0
 CAPS_STATUS=0
@@ -261,6 +264,9 @@ fi
 cp "$SDK_DIR/probes/probe_interpolation/interpolation.hlsl" "$WORK/interpolation.hlsl"
 cp "$SDK_DIR/probes/probe_interpolation/interpolation_eval.hlsl" "$WORK/interpolation_eval.hlsl"
 cp "$SDK_DIR/probes/probe_interpolation/interpolation_invalid.hlsl" "$WORK/interpolation_invalid.hlsl"
+if [[ "$WITH_MSAA" == "1" ]]; then
+  cp "$SDK_DIR/probes/graphics_msaa.hlsl" "$WORK/graphics_msaa.hlsl"
+fi
 if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   cp "$SDK_DIR/probes/probe_rov_dimensions/rov_dimensions.hlsl" "$WORK/rov_dimensions.hlsl"
 fi
@@ -355,6 +361,20 @@ if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
       WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
       "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
       -Fo "$WORK/$output.cso" "$WORK/probe_conservative_raster.hlsl" >/dev/null
+  done
+fi
+
+if [[ "$WITH_MSAA" == "1" ]]; then
+  for spec in \
+    "vs_main vs_6_0 graphics_msaa_vs" \
+    "ps_main ps_6_7 graphics_msaa_ps"; do
+    read -r entry target output <<<"$spec"
+    env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
+      -u DXMT_PROBE_D3D12_DLL -u DXMT_SHADER_CACHE_PATH -u DXMT_LOG_PATH \
+      WINEDEBUG=-all WINEPREFIX="$PREFIX" \
+      WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
+      -Fo "$WORK/$output.cso" "$WORK/graphics_msaa.hlsl" >/dev/null
   done
 fi
 
@@ -458,6 +478,7 @@ if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   set -e
 fi
 MSAA_STATUS=0
+GRAPHICS_MSAA_STATUS=0
 if [[ "$WITH_MSAA" == "1" ]]; then
   set +e
   python3 "$BOUNDED_RUNNER" --timeout "$MSAA_TIMEOUT_SECONDS" --cwd "$WORK" \
@@ -465,6 +486,14 @@ if [[ "$WITH_MSAA" == "1" ]]; then
     --stderr "$LOG_DIR/probe-msaa.stderr" -- \
     "$WINE_BIN" "$WORK/probe_writable_msaa.exe"
   MSAA_STATUS=$?
+  set -e
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
+    --output "$SANDBOX/graphics_msaa.json" \
+    --stderr "$LOG_DIR/probe-graphics-msaa.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_graphics_msaa_breadth.exe" \
+    "$WORK/graphics_msaa_vs.cso" "$WORK/graphics_msaa_ps.cso"
+  GRAPHICS_MSAA_STATUS=$?
   set -e
 fi
 
@@ -475,7 +504,8 @@ python3 - "$SANDBOX/interpolation.json" "$STAGE_MANIFEST" "$ABI_RESULT" \
   "$ROV_DIMENSIONS_COMPILE_STATUS" "$SANDBOX/rov_dimensions.json" \
   "$VIEW_INSTANCING_STATUS" "$SANDBOX/view_instancing.json" \
   "$FIXED_FUNCTION_STATUS" "$SANDBOX/fixed_function.json" \
-  "$MSAA_STATUS" "$SANDBOX/msaa.json" "$HOST_STATUS" \
+  "$MSAA_STATUS" "$SANDBOX/msaa.json" "$GRAPHICS_MSAA_STATUS" \
+  "$SANDBOX/graphics_msaa.json" "$HOST_STATUS" \
   "$SANDBOX/host_inventory.json" "$CAPS_STATUS" "$SANDBOX/device_caps.json" <<'PY'
 import json
 import pathlib
@@ -486,7 +516,8 @@ import sys
  rov_status, rov_compile_status, rov_path,
  view_instancing_status, view_instancing_path,
  fixed_function_status, fixed_function_path,
- msaa_status, msaa_path, host_status, host_path, caps_status, caps_path) = sys.argv[1:]
+ msaa_status, msaa_path, graphics_msaa_status, graphics_msaa_path,
+ host_status, host_path, caps_status, caps_path) = sys.argv[1:]
 def load(path):
     p = pathlib.Path(path)
     if not p.exists() or not p.read_text(encoding="utf-8").strip():
@@ -525,6 +556,7 @@ payload = {
     "view_instancing": None,
     "fixed_function": None,
     "msaa": None,
+    "graphics_msaa": None,
     "host_inventory": None,
     "device_caps": None,
 }
@@ -553,6 +585,11 @@ if pathlib.Path(fixed_function_path).exists():
     }
 if pathlib.Path(msaa_path).exists():
     payload["msaa"] = {"process_status": int(msaa_status), "result": load(msaa_path)}
+if pathlib.Path(graphics_msaa_path).exists():
+    payload["graphics_msaa"] = {
+        "process_status": int(graphics_msaa_status),
+        "result": load(graphics_msaa_path),
+    }
 if pathlib.Path(host_path).exists():
     payload["host_inventory"] = {"process_status": int(host_status), "result": load(host_path)}
 if pathlib.Path(caps_path).exists():
@@ -585,6 +622,10 @@ payload["exact"] = (
         int(msaa_status) == 0
         and payload["msaa"]["result"].get("pass") is True
     ))
+    and (payload["graphics_msaa"] is None or (
+        int(graphics_msaa_status) == 0
+        and payload["graphics_msaa"]["result"].get("pass") is True
+    ))
     and (payload["host_inventory"] is None or (
         int(host_status) == 0
         and payload["host_inventory"]["result"].get("exact") is True
@@ -598,8 +639,8 @@ pathlib.Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encod
 print(output_path)
 PY
 
-if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
-  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS fixed_function=$FIXED_FUNCTION_STATUS msaa=$MSAA_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
+if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
+  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS fixed_function=$FIXED_FUNCTION_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
   exit 1
 fi
 if ! python3 "$SDK_DIR/scripts/validate-phase6-exhaustive.py" \
