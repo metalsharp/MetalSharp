@@ -54,6 +54,8 @@
         ["multi_node_cpu_pointer_free"],
         ["multi_node_negative_unchanged"],
         ["multi_dispatch_ordering_exact"],
+        ["node_local_table_validation_exact"],
+        ["backing_overflow_unchanged"],
         ["record_count", 3],
         ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]
