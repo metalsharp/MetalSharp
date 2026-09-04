@@ -124,6 +124,10 @@ build_probe \
   -o "$OUT_DIR/probe_video.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_video_process.cpp" \
+  -o "$OUT_DIR/probe_video_process.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_diagnostics.cpp" \
   -o "$OUT_DIR/probe_diagnostics.exe"
 
@@ -344,6 +348,9 @@ echo "$OUT_DIR/probe_device_caps.exe"
 echo "$OUT_DIR/probe_legacy_regression.exe"
 echo "$OUT_DIR/probe_feature_levels.exe"
 echo "$OUT_DIR/probe_object_contracts.exe"
+echo "$OUT_DIR/probe_video.exe"
+echo "$OUT_DIR/probe_video_process.exe"
+echo "$OUT_DIR/probe_diagnostics.exe"
 echo "$OUT_DIR/probe_dxgi_factory.exe"
 echo "$OUT_DIR/probe_m12_runtime_identity.exe"
 echo "$OUT_DIR/probe_resources.exe"

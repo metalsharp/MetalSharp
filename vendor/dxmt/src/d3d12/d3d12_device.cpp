@@ -5664,7 +5664,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandQueue(
        desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_HIGH &&
        desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME))
     return E_INVALIDARG;
-  if (desc->Type >= D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE ||
+  if (desc->Type == D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE ||
+      desc->Type == D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE ||
       desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
     return E_NOTIMPL;
 
@@ -5897,7 +5898,13 @@ MTLD3D12Device::CreateCommandList(UINT node_mask, D3D12_COMMAND_LIST_TYPE type,
   if (!command_list)
     return E_POINTER;
   InitReturnPtr(command_list);
+  if (type == D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE ||
+      type == D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE)
+    return E_NOTIMPL;
 
+  if (type == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS)
+    return CreateD3D12VideoProcessCommandList(this, command_allocator, riid,
+                                               command_list);
   auto allocator = static_cast<MTLD3D12CommandAllocator *>(command_allocator);
   auto list = new MTLD3D12GraphicsCommandList(this, allocator, type,
                                               initial_pipeline_state);
@@ -10439,16 +10446,20 @@ MTLD3D12Device::GetResourceAllocationInfo3(
     return __ret;
   };
   if (resource_descs_count > MAX_DESCS ||
-      (resource_descs_count && (!resource_descs || !num_castable_formats ||
-                                !castable_formats)))
+      (resource_descs_count && !resource_descs))
     return invalid();
-  if (num_castable_formats && castable_formats) {
+  if (num_castable_formats) {
     for (UINT i = 0; i < resource_descs_count; ++i) {
-      if (num_castable_formats[i] && !castable_formats[i])
+      if (num_castable_formats[i] &&
+          (!castable_formats || !castable_formats[i]))
         return invalid();
       if (num_castable_formats[i] > 32)
         return invalid();
     }
+  } else if (castable_formats) {
+    // The format-array pointer has meaning only with its parallel count
+    // array; accepting it alone would make the ABI depend on unbounded data.
+    return invalid();
   }
   return GetResourceAllocationInfo2(__ret, visible_mask, resource_descs_count,
                                     resource_descs, resource_allocation_info1);

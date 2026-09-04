@@ -428,6 +428,12 @@ IDXGISurface2 *CreateD3D12DXGISurfaceFromResource(IUnknown *resource,
           : std::max<UINT>(1, resource_desc.Height >> mip));
   surface_desc.Format = resource_desc.Format;
   surface_desc.SampleDesc = resource_desc.SampleDesc;
+  if (!SurfaceBytesPerPixel(surface_desc.Format) ||
+      !surface_desc.Width || !surface_desc.Height)
+    {
+      d3d_resource->Release();
+      return nullptr;
+    }
 
   ID3D12Device *d3d_device = nullptr;
   if (FAILED(d3d_resource->GetDevice(IID_PPV_ARGS(&d3d_device)))) {

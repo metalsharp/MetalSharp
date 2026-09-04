@@ -2,6 +2,15 @@
 
 #include "com/com_private_data.hpp"
 #include "d3d12.h"
+#ifndef WIDL_EXPLICIT_AGGREGATE_RETURNS
+#define WIDL_EXPLICIT_AGGREGATE_RETURNS
+#define DXMT_VIDEO_COMPAT_UNDEF_WIDL_AGGREGATE_RETURNS
+#endif
+#include <d3d12video.h>
+#ifdef DXMT_VIDEO_COMPAT_UNDEF_WIDL_AGGREGATE_RETURNS
+#undef WIDL_EXPLICIT_AGGREGATE_RETURNS
+#undef DXMT_VIDEO_COMPAT_UNDEF_WIDL_AGGREGATE_RETURNS
+#endif
 #include <atomic>
 #include <cstdint>
 
@@ -21,17 +30,23 @@ inline constexpr GUID kIID_ID3D12VideoDecoderHeapCompat = {
 inline constexpr GUID kIID_ID3D12VideoProcessorCompat = {
     0x304fdb32, 0xbede, 0x410a,
     {0x85, 0x45, 0x94, 0x3a, 0xc6, 0xa4, 0x61, 0x38}};
+inline constexpr GUID kIID_ID3D12VideoProcessCommandListCompat = {
+    0xa9a5f0cc, 0x4f38, 0x4a7b,
+    {0x9e, 0x62, 0x6d, 0x0e, 0x2e, 0xc5, 0x5a, 0x91}};
 
 struct ID3D12VideoDeviceCompat : public IUnknown {
   virtual HRESULT STDMETHODCALLTYPE CheckFeatureSupport(
-      UINT feature, void *data, UINT data_size) = 0;
+      D3D12_FEATURE_VIDEO feature, void *data, UINT data_size) = 0;
   virtual HRESULT STDMETHODCALLTYPE CreateVideoDecoder(
-      const void *desc, REFIID riid, void **decoder) = 0;
+      const D3D12_VIDEO_DECODER_DESC *desc, REFIID riid, void **decoder) = 0;
   virtual HRESULT STDMETHODCALLTYPE CreateVideoDecoderHeap(
-      const void *desc, REFIID riid, void **heap) = 0;
+      const D3D12_VIDEO_DECODER_HEAP_DESC *desc, REFIID riid, void **heap) = 0;
   virtual HRESULT STDMETHODCALLTYPE CreateVideoProcessor(
-      UINT node_mask, const void *output_desc, UINT input_count,
-      const void *input_descs, REFIID riid, void **processor) = 0;
+      UINT node_mask,
+      const D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC *output_desc,
+      UINT input_count,
+      const D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC *input_descs, REFIID riid,
+      void **processor) = 0;
 };
 
 // The object interfaces below use the exact ID3D12Pageable vtable prefix and
@@ -48,20 +63,33 @@ struct ID3D12VideoObjectCompat : public IUnknown {
 };
 
 struct ID3D12VideoDecoderCompat : public ID3D12VideoObjectCompat {
-  virtual void *STDMETHODCALLTYPE GetDesc(void *ret) = 0;
+  virtual D3D12_VIDEO_DECODER_DESC *STDMETHODCALLTYPE GetDesc(
+      D3D12_VIDEO_DECODER_DESC *ret) = 0;
 };
 struct ID3D12VideoDecoderHeapCompat : public ID3D12VideoObjectCompat {
-  virtual void *STDMETHODCALLTYPE GetDesc(void *ret) = 0;
+  virtual D3D12_VIDEO_DECODER_HEAP_DESC *STDMETHODCALLTYPE GetDesc(
+      D3D12_VIDEO_DECODER_HEAP_DESC *ret) = 0;
 };
 struct ID3D12VideoProcessorCompat : public ID3D12VideoObjectCompat {
   virtual UINT STDMETHODCALLTYPE GetNodeMask() = 0;
   virtual UINT STDMETHODCALLTYPE GetNumInputStreamDescs() = 0;
-  virtual HRESULT STDMETHODCALLTYPE GetInputStreamDescs(UINT count,
-                                                          void *descs) = 0;
-  virtual void *STDMETHODCALLTYPE GetOutputStreamDesc(void *ret) = 0;
+  virtual HRESULT STDMETHODCALLTYPE GetInputStreamDescs(
+      UINT count, D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC *descs) = 0;
+  virtual D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC *STDMETHODCALLTYPE
+  GetOutputStreamDesc(D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC *ret) = 0;
+};
+
+// This private extension lets the video-process command-list adapter hand
+// recorded CPU-provider operations to the video queue without teaching the
+// graphics replay stream to reinterpret a video vtable.
+struct ID3D12VideoProcessCommandListCompat : public IUnknown {
+  virtual HRESULT STDMETHODCALLTYPE ExecuteVideoOperations() = 0;
 };
 
 HRESULT CreateD3D12VideoDevice(MTLD3D12Device *device, REFIID riid,
                                void **video_device);
+HRESULT CreateD3D12VideoProcessCommandList(
+    MTLD3D12Device *device, ID3D12CommandAllocator *allocator, REFIID riid,
+    void **command_list);
 
 } // namespace dxmt

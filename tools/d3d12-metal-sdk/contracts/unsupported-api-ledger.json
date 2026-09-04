@@ -23,40 +23,42 @@
     {
       "api": "D3D12 work graphs",
       "evidence": [
-        "vendor/dxmt/src/d3d12/d3d12_command_list.cpp",
-        "vendor/dxmt/src/d3d12/d3d12_device.cpp"
+        "tools/d3d12-metal-sdk/probes/probe_workgraph_execution.cpp",
+        "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
       ],
-      "reason": "No work graph program object, backing memory, node dispatch, or Metal execution model is implemented.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "The runtime now creates graph properties, reports local-root indices, and executes a bounded GPU-native reference kernel for three CPU-input and three GPU-input records without a CPU scheduler. Multi-node routing, recursive/fan-out graphs, overflow, barriers, and general node shader conversion remain limited.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 video encode/decode/process APIs",
       "evidence": [
-        "tools/d3d12-metal-sdk/contracts/agility-1.619.3-contract.json"
+        "tools/d3d12-metal-sdk/probes/probe_video.cpp",
+        "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
       ],
-      "reason": "No D3D12 video command list, decoder, encoder, processor, or VideoToolbox bridge is implemented in the DXMT D3D12 path.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "The compatibility provider creates video device, decoder, decoder-heap, and processor objects, reports one input stream, and round-trips descriptors exactly. A CPU-reference video-process command-list provider executes one RGBA8 input/output scaling shape through a VIDEO_PROCESS queue with exact readback. VideoToolbox codec execution, NV12/P010 conversion, profiles, metadata, and broader video queues remain limited.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 protected resource sessions",
       "evidence": [
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-        "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
+        "tools/d3d12-metal-sdk/probes/probe_diagnostics.cpp"
       ],
-      "reason": "Protected sessions currently return E_NOTIMPL or no-op and do not provide protected-memory semantics.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "Logical protected-session/resource association, status fence, lifetime, and CPU access denial are implemented and validated. The M4/Metal 4 provider does not claim hardware-secure protected memory, so secure protected capability remains unadvertised.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 DSR",
       "evidence": [
-        "tools/d3d12-metal-sdk/contracts/agility-1.619.3-contract.json"
+        "vendor/dxmt/src/d3d12/d3d12.cpp",
+        "tools/d3d12-metal-sdk/probes/probe_diagnostics.cpp"
       ],
-      "reason": "Device-side DSR factory behavior is not implemented or required for the current Metal backend.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "The stable DSR factory ABI and deterministic null-on-unsupported-device validation are implemented. No DSR device IID, scaling execution, or presentation provider is advertised.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 state objects",
@@ -81,12 +83,12 @@
     {
       "api": "D3D12 node shaders",
       "evidence": [
-        "vendor/dxmt/src/d3d12/d3d12_device.cpp",
-        "tools/d3d12-metal-sdk/probes/probe_device_caps"
+        "tools/d3d12-metal-sdk/probes/probe_workgraph_execution.cpp",
+        "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
       ],
-      "reason": "Node shaders are part of the unimplemented work graphs execution model.",
-      "state": "unsupported",
-      "tier": "unsupported"
+      "reason": "A bounded GPU-native reference node kernel executes three-record CPU/GPU input forms. General DXIL node shader conversion and multi-node graph routing remain limited.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
     },
     {
       "api": "D3D12 stream output",

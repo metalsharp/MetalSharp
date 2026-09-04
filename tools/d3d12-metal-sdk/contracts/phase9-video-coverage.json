@@ -3,7 +3,7 @@
   "phase": 9,
   "profile": "phase9-video",
   "status": "partial",
-  "provider": "object-and-feature-contract-only",
+  "provider": "CPU-reference video-process provider plus object/feature provider",
   "rows": [
     {
       "id": "video-device-object-and-descriptor-contract",
@@ -25,6 +25,22 @@
         ["unknown_output_null_guard", "0x80004003"]
       ],
       "remaining": "The provider proves the D3D12 video object ABI, one feature query, descriptor ownership, and exact descriptor round trips. VideoToolbox decode/encode/process execution, profiles, format conversion, metadata, asynchronous video queues, and protected video remain open. No video capability is promoted from this row."
+    },
+    {
+      "id": "video-process-command-list-and-pixel-roundtrip",
+      "status": "limited",
+      "result": "probe-video-process",
+      "checks": [
+        ["pass"],
+        ["create_video_queue", "0x00000000"],
+        ["create_video_command_list", "0x00000000"],
+        ["close", "0x00000000"],
+        ["output_readback", "0x00000000"],
+        ["output_scaled_exact"],
+        ["provider_scope", "CPU-reference-video-process"]
+      ],
+      "negative_checks": [],
+      "remaining": "The CPU-reference provider covers one RGBA8 texture input, nearest-neighbor scaling, one output stream, queue submission, fence completion, and exact readback. VideoToolbox decode/encode, NV12/P010 conversion, references, metadata, protected video, and broader processor filters remain open."
     },
     {
       "id": "video-toolbox-codec-and-pixel-roundtrip",

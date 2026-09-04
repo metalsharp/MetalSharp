@@ -13,6 +13,7 @@
 #include "d3d12_swapchain.hpp"
 #include "d3d12_trace.hpp"
 #include "d3d12_vertex_input.hpp"
+#include "d3d12_video_compat.hpp"
 #include "log/log.hpp"
 #include "util_string.hpp"
 #include "Metal.hpp"
@@ -11292,6 +11293,23 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
   for (UINT li = 0; li < command_list_count; li++) {
     DXMTD3D12ScopedTimer list_timer("Queue", "ExecuteCommandList");
     QTRACE("ECL: processing list %u", li);
+    if (m_desc.Type == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS &&
+        command_lists[li]) {
+      void *video_object = nullptr;
+      HRESULT query_hr = command_lists[li]->QueryInterface(
+          kIID_ID3D12VideoProcessCommandListCompat, &video_object);
+      if (SUCCEEDED(query_hr) && video_object) {
+        auto *video_list = static_cast<ID3D12VideoProcessCommandListCompat *>(
+            video_object);
+        HRESULT execute_hr = video_list->ExecuteVideoOperations();
+        QTRACE("ECL: video-process list=%u execute_hr=0x%lx", li,
+               execute_hr);
+        video_list->Release();
+        continue;
+      }
+      QTRACE("ECL: video-process list %u does not expose provider ABI hr=0x%lx",
+             li, query_hr);
+    }
     auto *list = static_cast<MTLD3D12GraphicsCommandList *>(command_lists[li]);
     if (!list) {
       QTRACE("ECL: list %u is null, skipping", li);
