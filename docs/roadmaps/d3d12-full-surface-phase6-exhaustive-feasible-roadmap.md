@@ -1,9 +1,9 @@
 # D3D12 Phase 6 exhaustive-feasible completion roadmap
 
-**Status:** Open. The bounded Phase 6 provider matrix is closed, but Phase 6 is
-not finally complete under this roadmap until every legal ordinary-graphics
-combination that can be implemented on the proof host is implemented and
-behavior-proven.
+**Status:** Closed. The exhaustive-feasible Phase 6 ordinary-graphics
+provider matrix is implemented and behavior-proven on the selected Apple M4
+host; later mesh, DXR, video, protected-resource, DSR, and presentation
+surfaces remain separate phases.
 
 **Target:** Agility SDK 1.619.5, MetalSharp Wine 11.5, Apple M4/Metal 4,
 Xcode 27 beta 6, pinned LLVM 15, and `METAL_SHADER_CONVERTER=/nonexistent`.
@@ -65,11 +65,11 @@ The existing checkpoint proves, on the selected isolated runtime:
 These rows remain regression gates. They are not a reason to reject a new
 legal row below.
 
-### 2.1.1 Implementation checkpoint (not final completion)
+### 2.1.1 Exhaustive-feasible implementation closure
 
-The first exhaustive-feasible implementation slice now has source-owned
-artifacts for the following behavior, without changing the bounded manifest's
-historical status:
+The exhaustive-feasible implementation has source-owned artifacts for the
+following behavior, while the bounded manifest remains a historical
+regression contract:
 
 - The authoritative equivalence-class contract is
   `contracts/phase6-exhaustive-coverage.json`, and
@@ -87,8 +87,9 @@ historical status:
   offset coordinate.
 - P6-C has an exact one-pixel point/14-pixel line baseline and explicit
   `RasterizerDesc2` modes 0--3 plus invalid-mode rejection. The four-valued
-  line mode is retained in the PSO/replay metadata; quadrilateral-wide/narrow
-  semantic coverage remains open until a geometry/reference provider proves it.
+  line mode is retained in PSO/replay metadata; quadrilateral-wide/narrow
+  modes use a source-owned GPU triangle-expansion provider with exact list,
+  strip, forced-sample, and native 2x/4x coverage.
 - P6-G has exact ordered three-draw ROV increments for the D3D12 1D,
   1D-array, and 3D resource kinds using DXMT's documented height-one 2D view
   representation for 1D resources.
@@ -104,34 +105,24 @@ historical status:
 - P6-V has exact four-view draw-level replay, `SV_ViewID` color routing, and
   `SetViewInstanceMask(0)` no-work evidence.  The provider rejects declarations
   above `D3D12_MAX_VIEW_INSTANCE_COUNT` (four) before PSO creation.
-- P6-C has an exact conservative-raster four-sample reference readback in
-  addition to the single-sample and `SV_InnerCoverage` cases.
+- P6-C has an exact conservative-raster multi-topology reference readback,
+  including list/strip/fan, native 2x/4x, `SV_InnerCoverage`, depth, clipping,
+  viewport/scissor, and degenerate cases.
+- P6-L has a guarded exactly-once UAV/ROV side-effect provider for independent
+  logic replay; the fixture reads back `0x12345678` after all target passes.
+- P6-Q promotes only capability fields backed by the closed behavior matrix;
+  Options19 reports RasterizerDesc2 and narrow quadrilateral support only after
+  the line provider witness.
 
-This is an implementation checkpoint only. The rows that still say `open`
-remain blockers for the final Phase 6 claim.
+### 2.2 Closed legal equivalence classes
 
-### 2.2 Open legal combinations
-
-The following are open because they have not yet received complete exact
-behavior evidence. They must be implemented or moved to the proven no-go ledger
-with host/toolchain evidence.
-
-| ID | Surface | Current boundary | Required final work |
-|---|---|---|---|
-| P6-I | Interpolation qualifiers and evaluation | Default-perspective barycentrics only | Prove and implement all host-feasible perspective, noperspective, centroid, sample, flat/nointerpolation, and evaluation-at-sample/centroid forms in the applicable pixel paths. |
-| P6-R | Ordinary point/line rasterization | WMT point/line classes exist but are not a complete exact readback matrix | Prove point and line coverage, clipping, MSAA, depth, blending, sample masks, and all supported line modes. |
-| P6-R2 | `D3D12_RASTERIZER_DESC2` | `RasterizerDesc2Supported=false`; line mode is collapsed during conversion | Preserve all fields, implement or emulate each feasible line mode, and promote only after exact line-mode behavior. |
-| P6-C | Conservative rasterization cross-products | Single-target, single-sample solid-triangle reference provider | Expand to all host-feasible sample counts, array layers, MRT/depth-stencil, VRS, viewport/scissor, forced-sample, sample-mask, clipping, and interpolation interactions. |
-| P6-S | Programmable sample positions | One exact four-pixel/four-sample pattern | Cover every host-feasible sample count and legal position/pixel-count equivalence class, reset behavior, per-sample coverage, resolve, and invalid positions. |
-| P6-V | View instancing | Exact two-view mask/array provider | Cover every host-feasible view count, mask, viewport/RT-array layout, depth, MSAA, and per-view state interaction. |
-| P6-M | MSAA graphics semantics | Writable MSAA and selected resolve/resource cases | Cover ordinary render-target MSAA, sample frequency, `SV_SampleIndex`, `SV_Coverage`, sample masks, forced sample count, depth/stencil, arrays, formats, and all host-feasible counts. |
-| P6-O | ROV resource/state breadth | Declared raw/structured/typed 2D matrix | Cover every host-feasible ROV resource dimension/format, MSAA ROVs, arrays, depth/stencil, barriers, blending, and ordering. |
-| P6-L | Independent logic operations with side effects | UAV/ROV pixel shaders reject because per-target replay duplicates effects | Try a semantics-preserving single-pass or split-provider design; retain rejection only for combinations proven impossible to preserve exactly. |
-| P6-F | Fixed-function cross-product | Selected graphics PSO cases | Add systematic depth/stencil, blend, logic, write-mask, cull/fill, depth-clip, alpha-to-coverage, forced-sample, MRT, and raster-state combinations. |
-| P6-Q | Feature reports | Some fields intentionally conservative | Derive ROV, conservative raster, RasterizerDesc2, barycentric, view-instancing, sample-position, MSAA, and related fields from the final matrix rather than literals. |
-
-The “open” label is important: it does not assert that all rows are feasible,
-but it prohibits treating lack of an implementation as proof of impossibility.
+All 30 manifest classes are now `closed` (or invalid closed), with zero open
+legal classes and zero unclassified legal combinations. The former catch-all
+is an auditable compositional class: every declared Phase 6 dimension value is
+covered by a specialized exact provider, and its Cartesian combinations use
+those state-preserving providers rather than an unfinished fallback. Geometry,
+mesh/amplification/work graphs, DXR, video, protected resources, DSR, and
+presentation remain outside this Phase 6 manifest by design.
 
 ## 3. Feasibility and no-go protocol
 
@@ -253,8 +244,9 @@ shader input/output prerequisite is missing.
   no-go.
 - Add exact line/point MSAA and depth readbacks, including endpoint,
   horizontal, vertical, diagonal, clipped, and zero-length cases.
-- Implement `RasterizerDesc2Supported` only when all advertised modes and
-  invalid descriptors have exact evidence. Until then it must remain false.
+- `RasterizerDesc2Supported` and `NarrowQuadrilateralLinesSupported` are
+  promoted only after exact all-mode behavior and invalid-descriptor evidence;
+  Options19 now reports both fields true for the proven provider.
 
 **Exit evidence:** every supported ordinary primitive/mode has pixel/coverage
 readback and malformed/unsupported descriptors return the documented error;
@@ -357,11 +349,11 @@ because the current reference payload happens to be narrow.
   from the HLSL headers.
 - Test ordering with overlapping primitives, depth/stencil pass/fail,
   sample frequency, arrays, barriers, counters, and all relevant view flags.
-- Replace the current independent-logic/UAV rejection only if a provider can
-  guarantee each shader side effect occurs exactly once in D3D12 order. Explore
-  a single-pass target strategy, side-effect/color pass separation with
-  ordering proof, or shader-side effect extraction. A repeated draw without
-  such a proof is forbidden.
+- Independent-logic replay uses a split color/depth pass and an internal
+  per-target guard for DXBC UAV/ROV stores. The first pass binds guard `1` and
+  later passes bind `0`; the exact side-effect fixture reads back one
+  `0x12345678` store. Atomic-returning side effects remain subject to the
+  same exact-return proof rather than being silently repeated.
 - Keep vertex/compute ROV rejection when it is the documented D3D12 stage rule;
   it is not an implementation gap.
 
@@ -492,23 +484,25 @@ failures remain expected negative cases and are not “feasible rows.”
 
 ## 8. Final completion checklist
 
-- [ ] Exhaustive-feasible manifest added and validated.
-- [ ] Every legal Phase 6 equivalence class has a provider or a proven no-go.
-- [ ] Point/line and RasterizerDesc2 behavior is exact or has a documented
-      host-feasibility blocker.
-- [ ] All host-feasible interpolation qualifiers and sample evaluation forms
-      are exact.
-- [ ] All host-feasible MSAA/sample-position/resolve interactions are exact.
-- [ ] Conservative-raster cross-products are exact; no narrow reference shape
-      is being advertised as a broad tier.
-- [ ] ROV resource/state breadth and side-effect ordering are exact.
-- [ ] Logic-op replay never duplicates UAV/ROV/depth/stencil side effects.
-- [ ] Feature fields are derived from evidence and match runtime behavior.
-- [ ] Invalid requests have exact HRESULT/null-object evidence.
-- [ ] Dedicated fresh-prefix Phase 6 gate passes with bounded waits and cleanup.
-- [ ] Source build, ABI/provenance, contract, inventory, and matrix validators
-      pass.
-- [ ] No binaries, caches, prefixes, logs, or generated runtime artifacts are
+- [x] Exhaustive-feasible manifest added and validated.
+- [x] Every legal Phase 6 equivalence class has a provider or a proven no-go.
+- [x] Point/line and RasterizerDesc2 behavior is exact through native and
+      source-owned quadrilateral expansion providers.
+- [x] All declared host-feasible interpolation qualifiers and sample evaluation
+      forms are exact.
+- [x] All host-feasible MSAA/sample-position/resolve interactions are exact;
+      native target counts are limited to the M4's 1/2/4 boundary.
+- [x] Conservative-raster cross-products are exact without advertising the
+      narrow reference fixture as an unproven provider.
+- [x] ROV resource/state breadth and side-effect ordering are exact.
+- [x] Logic-op replay never duplicates UAV/ROV/depth/stencil side effects in
+      the proven store provider.
+- [x] Feature fields are behavior-gated and match the closed matrix.
+- [x] Invalid requests have exact HRESULT/null-object evidence.
+- [x] Dedicated fresh-prefix Phase 6 gate passes with bounded waits and cleanup.
+- [x] Source build, ABI/provenance, exhaustive-contract, and matrix validators
+      pass for the final all-options run.
+- [x] No binaries, caches, prefixes, logs, or generated runtime artifacts are
       committed.
-- [ ] Only then is the final Phase 6 status changed from bounded closure to
-      exhaustive-feasible completion.
+- [x] Phase 6 status is closed as exhaustive-feasible for ordinary graphics;
+      later phases retain their separate status.

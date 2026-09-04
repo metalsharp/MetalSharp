@@ -184,13 +184,14 @@ selected aliases.
 
 ## Phase 6 closure boundary
 
-The declared Phase 6 matrix is closed: graphics PSO stages and state,
-ROV resource/stage/state cases, conservative-raster reference coverage,
+The exhaustive-feasible Phase 6 matrix is closed for ordinary graphics:
+graphics PSO state, ROV dimensions/MSAA/order, conservative-raster list/strip/
+fan reference coverage, all declared interpolation/evaluation forms,
 programmable sample positions, barycentrics, view instancing, VRS image and
-layout cases, formats, dynamic depth bias, stencil references, topology
-expansion, and writable-MSAA/readback cases all have exact probe evidence.
-Combinations not covered by those providers remain explicitly fail-closed and
-are not reported as supported. They are tracked as open implementation work or
-proven no-go candidates by the
-[exhaustive-feasible Phase 6 roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md),
-not silently treated as impossible.
+layout cases, formats, dynamic depth bias, stencil references, topology and
+quadrilateral-line expansion, alpha-to-coverage, forced samples, native and
+flattened MSAA, and guarded independent-logic side effects all have exact
+fresh-prefix evidence. The authoritative manifest reports zero open legal
+classes and zero unclassified legal values. Mesh/work graphs, geometry-stage
+breadth, DXR, video, protected resources, DSR, and presentation remain
+separate phases.
