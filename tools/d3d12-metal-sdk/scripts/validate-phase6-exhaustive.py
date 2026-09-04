@@ -535,6 +535,21 @@ def validate_result(result: dict[str, Any]) -> list[str]:
             if (not isinstance(coverage, dict) or
                 any(coverage.get(field) is not True for field in required)):
                 errors.append("fixed-function coverage evidence is incomplete")
+    graphics_msaa_depth = result.get("graphics_msaa_depth")
+    if graphics_msaa_depth is not None:
+        if not isinstance(graphics_msaa_depth, dict):
+            errors.append("graphics_msaa_depth result must be an object or null")
+        elif graphics_msaa_depth.get("process_status") != 0:
+            errors.append("graphics MSAA depth/stencil probe process did not exit zero")
+        else:
+            value = graphics_msaa_depth.get("result")
+            cases = value.get("cases", []) if isinstance(value, dict) else []
+            expected = {"2x_depth_pass", "4x_depth_fail", "4x_stencil_pass"}
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                {case.get("name") for case in cases if isinstance(case, dict)} != expected or
+                any(case.get("exact") is not True for case in cases
+                    if isinstance(case, dict))):
+                errors.append("graphics MSAA depth/stencil exact matrix is incomplete")
     graphics_msaa = result.get("graphics_msaa")
     if graphics_msaa is not None:
         if not isinstance(graphics_msaa, dict):
