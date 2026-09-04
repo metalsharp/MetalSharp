@@ -497,6 +497,13 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                  for item in levels if isinstance(item, dict)} != expected_counts or
                 any(item.get("exact") is not True for item in levels if isinstance(item, dict))):
                 errors.append("device caps sample-count quality matrix is incomplete")
+            options19 = value.get("options19", {}) if isinstance(value, dict) else {}
+            if (not isinstance(options19, dict) or
+                options19.get("check_hr") != "0x00000000" or
+                options19.get("rasterizer_desc2_supported") is not True or
+                options19.get("narrow_quadrilateral_lines_supported") is not True or
+                options19.get("reported") is not True):
+                errors.append("device caps RasterizerDesc2 reporting is incomplete")
             unsupported = value.get("unsupported_policy", {}) if isinstance(value, dict) else {}
             if (not isinstance(unsupported, dict) or
                 unsupported.get("native_msaa8_resource_hr") != "0x80070057" or

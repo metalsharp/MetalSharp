@@ -26,6 +26,19 @@ struct GPUUploadFeatureProbe {
     BOOL GPUUploadHeapSupported = FALSE;
 };
 
+struct Options19FeatureProbe {
+    BOOL MismatchingOutputDimensionsSupported = FALSE;
+    UINT SupportedSampleCountsWithNoOutputs = 0;
+    BOOL PointSamplingAddressesNeverRoundUp = FALSE;
+    BOOL RasterizerDesc2Supported = FALSE;
+    BOOL NarrowQuadrilateralLinesSupported = FALSE;
+    BOOL AnisoFilterWithPointMipSupported = FALSE;
+    UINT MaxSamplerDescriptorHeapSize = 0;
+    UINT MaxSamplerDescriptorHeapSizeWithStaticSamplers = 0;
+    UINT MaxViewDescriptorHeapSize = 0;
+    BOOL ComputeOnlyCustomHeapSupported = FALSE;
+};
+
 static std::string json_escape(const std::string& input) {
     std::string out;
     out.reserve(input.size() + 8);
@@ -165,6 +178,7 @@ int main() {
     D3D12_FEATURE_DATA_D3D12_OPTIONS14 options14 = {};
     Options15FeatureProbe options15 = {};
     GPUUploadFeatureProbe options16 = {};
+    Options19FeatureProbe options19 = {};
     D3D12_FEATURE_DATA_FORMAT_SUPPORT stream_output_format = {};
     stream_output_format.Format = DXGI_FORMAT_R32_FLOAT;
 
@@ -182,6 +196,7 @@ int main() {
     HRESULT options14_hr = E_FAIL;
     HRESULT options15_hr = E_FAIL;
     HRESULT options16_hr = E_FAIL;
+    HRESULT options19_hr = E_FAIL;
     HRESULT stream_output_format_hr = E_FAIL;
     HRESULT create_reserved_resource_hr = E_FAIL;
     HRESULT query_device5_hr = E_NOINTERFACE;
@@ -222,6 +237,8 @@ int main() {
             static_cast<D3D12_FEATURE>(44), &options15, sizeof(options15));
         options16_hr = device->CheckFeatureSupport(
             static_cast<D3D12_FEATURE>(45), &options16, sizeof(options16));
+        options19_hr = device->CheckFeatureSupport(
+            static_cast<D3D12_FEATURE>(48), &options19, sizeof(options19));
         stream_output_format_hr = device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &stream_output_format,
                                                               sizeof(stream_output_format));
         UINT invalid_feature_payload = 0xdeadbeefu;
@@ -347,6 +364,9 @@ int main() {
         SUCCEEDED(options16_hr) && options16.DynamicDepthBiasSupported;
     bool gpu_upload_supported =
         SUCCEEDED(options16_hr) && options16.GPUUploadHeapSupported;
+    bool rasterizer2_reported =
+        SUCCEEDED(options19_hr) && options19.RasterizerDesc2Supported &&
+        options19.NarrowQuadrilateralLinesSupported;
     bool reserved_resources_unsupported = FAILED(create_reserved_resource_hr);
     bool state_objects_unsupported = FAILED(query_device5_hr) || FAILED(create_state_object_hr);
     bool feature_query_validation = invalid_feature_hr == E_INVALIDARG && zero_size_feature_hr == E_INVALIDARG &&
@@ -369,7 +389,8 @@ int main() {
                 wave_ops_proven_reported &&
                 atomic64_conservative && advanced_features_reported &&
                 options15_reported && dynamic_depth_bias_reported &&
-                gpu_upload_supported && stream_output_conservative && reserved_resources_unsupported &&
+                gpu_upload_supported && rasterizer2_reported &&
+                stream_output_conservative && reserved_resources_unsupported &&
                 state_objects_unsupported && feature_query_validation &&
                 msaa_quality_query_exact && msaa_resource_boundary_exact;
 
@@ -478,6 +499,15 @@ int main() {
                 dynamic_depth_bias_reported ? "true" : "false");
     std::printf("    \"gpu_upload_heap_supported\": %s\n", options16.GPUUploadHeapSupported ? "true" : "false");
     std::printf("  },\n");
+    std::printf("  \"options19\": {\n");
+    print_hr("check", options19_hr);
+    std::printf("    \"rasterizer_desc2_supported\": %s,\n",
+                options19.RasterizerDesc2Supported ? "true" : "false");
+    std::printf("    \"narrow_quadrilateral_lines_supported\": %s,\n",
+                options19.NarrowQuadrilateralLinesSupported ? "true" : "false");
+    std::printf("    \"reported\": %s\n",
+                rasterizer2_reported ? "true" : "false");
+    std::printf("  },\n");
     std::printf("  \"unsupported_policy\": {\n");
     print_hr("stream_output_format", stream_output_format_hr);
     std::printf("    \"stream_output_so_buffer_advertised\": %s,\n",
@@ -522,6 +552,8 @@ int main() {
     std::printf("    \"options15_reported\": %s,\n", options15_reported ? "true" : "false");
     std::printf("    \"dynamic_depth_bias_reported\": %s,\n",
                 dynamic_depth_bias_reported ? "true" : "false");
+    std::printf("    \"rasterizer2_reported\": %s,\n",
+                rasterizer2_reported ? "true" : "false");
     std::printf("    \"gpu_upload_supported\": %s,\n", gpu_upload_supported ? "true" : "false");
     std::printf("    \"mesh_shader_pipeline_stats_supported\": %s,\n",
                 options9.MeshShaderPipelineStatsSupported ? "true" : "false");
