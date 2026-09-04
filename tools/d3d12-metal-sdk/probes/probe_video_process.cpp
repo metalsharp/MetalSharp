@@ -105,6 +105,7 @@ int main() {
     D3D12_RESOURCE_DESC output_resource_desc = input_resource_desc;
     output_resource_desc.Width = 4;
     output_resource_desc.Height = 4;
+    output_resource_desc.DepthOrArraySize = 2;
     HRESULT input_resource_hr = device
                                     ? device->CreateCommittedResource(
                                           &heap, D3D12_HEAP_FLAG_NONE,
@@ -138,6 +139,17 @@ int main() {
     if (command_list && processor && SUCCEEDED(input_write_hr))
         command_list->ProcessFrames(
             processor, &output_arguments, 1, &input_arguments);
+    D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS rotated_output_arguments =
+        output_arguments;
+    rotated_output_arguments.OutputStream[0].Subresource = 1;
+    D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS rotated_input_arguments =
+        input_arguments;
+    rotated_input_arguments.Transform.Orientation =
+        D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_180;
+    if (command_list && processor && SUCCEEDED(input_write_hr))
+        command_list->ProcessFrames(
+            processor, &rotated_output_arguments, 1,
+            &rotated_input_arguments);
     HRESULT close_hr = command_list ? command_list->Close() : E_FAIL;
     if (queue && command_list && SUCCEEDED(close_hr)) {
         ID3D12CommandList* lists[] = {
@@ -153,10 +165,16 @@ int main() {
                             ? WaitForSingleObject(event, 5000)
                             : WAIT_FAILED;
     uint32_t output_pixels[16] = {};
+    uint32_t rotated_pixels[16] = {};
     HRESULT output_read_hr = output
                                  ? output->ReadFromSubresource(
                                        output_pixels, 4 * 4, 4 * 4 * 4, 0, nullptr)
                                  : E_FAIL;
+    HRESULT rotated_read_hr = output
+                                  ? output->ReadFromSubresource(
+                                        rotated_pixels, 4 * 4, 4 * 4 * 4, 1,
+                                        nullptr)
+                                  : E_FAIL;
     const bool scaled = SUCCEEDED(output_read_hr) &&
                         output_pixels[0] == input_pixels[0] &&
                         output_pixels[1] == input_pixels[0] &&
@@ -165,13 +183,21 @@ int main() {
                         output_pixels[8] == input_pixels[2] &&
                         output_pixels[10] == input_pixels[3] &&
                         output_pixels[15] == input_pixels[3];
+    const bool rotated = SUCCEEDED(rotated_read_hr) &&
+                         rotated_pixels[0] == input_pixels[3] &&
+                         rotated_pixels[1] == input_pixels[3] &&
+                         rotated_pixels[2] == input_pixels[2] &&
+                         rotated_pixels[3] == input_pixels[2] &&
+                         rotated_pixels[12] == input_pixels[1] &&
+                         rotated_pixels[15] == input_pixels[0];
     const bool passed = create_hr == S_OK && video_hr == S_OK &&
                         processor_hr == S_OK && queue_hr == S_OK &&
                         allocator_hr == S_OK && list_hr == S_OK &&
                         input_resource_hr == S_OK && output_resource_hr == S_OK &&
                         input_write_hr == S_OK && close_hr == S_OK &&
                         fence_hr == S_OK && signal_hr == S_OK && event_hr == S_OK &&
-                        wait_result == WAIT_OBJECT_0 && output_read_hr == S_OK && scaled;
+                        wait_result == WAIT_OBJECT_0 && output_read_hr == S_OK &&
+                        rotated_read_hr == S_OK && scaled && rotated;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.video-process.v1\",\n");
@@ -191,9 +217,18 @@ int main() {
     std::printf("  \"wait_result\": %lu,\n", static_cast<unsigned long>(wait_result));
     std::printf("  \"output_readback\": \"0x%08lx\",\n", hr_value(output_read_hr));
     std::printf("  \"output_scaled_exact\": %s,\n", scaled ? "true" : "false");
+    std::printf("  \"output_rotated_readback\": \"0x%08lx\",\n",
+                hr_value(rotated_read_hr));
+    std::printf("  \"output_rotated_exact\": %s,\n",
+                rotated ? "true" : "false");
     std::printf("  \"output_pixels\": [");
     for (size_t i = 0; i < 16; ++i)
         std::printf("\"0x%08x\"%s", output_pixels[i],
+                    i + 1 == 16 ? "" : ",");
+    std::printf("],\n");
+    std::printf("  \"output_rotated_pixels\": [");
+    for (size_t i = 0; i < 16; ++i)
+        std::printf("\"0x%08x\"%s", rotated_pixels[i],
                     i + 1 == 16 ? "" : ",");
     std::printf("],\n");
     std::printf("  \"gpu_execution\": false,\n");
