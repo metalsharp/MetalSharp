@@ -191,6 +191,8 @@ int main() {
     HRESULT null_data_feature_hr = E_FAIL;
     HRESULT null_feature_level_list_hr = E_FAIL;
     HRESULT native_msaa8_resource_hr = E_FAIL;
+    HRESULT native_msaa16_resource_hr = E_FAIL;
+    HRESULT native_msaa32_resource_hr = E_FAIL;
     HRESULT writable_msaa8_resource_hr = E_FAIL;
     constexpr UINT kMsaaProbeCounts[] = {1, 2, 4, 8, 16, 32};
     D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msaa_levels[
@@ -258,6 +260,23 @@ int main() {
             IID_PPV_ARGS(&native_msaa8_resource));
         if (native_msaa8_resource)
             native_msaa8_resource->Release();
+        msaa8_desc.SampleDesc.Count = 16;
+        ID3D12Resource* native_msaa16_resource = nullptr;
+        native_msaa16_resource_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &msaa8_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+            IID_PPV_ARGS(&native_msaa16_resource));
+        if (native_msaa16_resource)
+            native_msaa16_resource->Release();
+        msaa8_desc.SampleDesc.Count = 32;
+        ID3D12Resource* native_msaa32_resource = nullptr;
+        native_msaa32_resource_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &msaa8_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+            IID_PPV_ARGS(&native_msaa32_resource));
+        if (native_msaa32_resource)
+            native_msaa32_resource->Release();
+        msaa8_desc.SampleDesc.Count = 8;
         msaa8_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         ID3D12Resource* writable_msaa8_resource = nullptr;
         writable_msaa8_resource_hr = device->CreateCommittedResource(
@@ -334,6 +353,8 @@ int main() {
                                     null_data_feature_hr == E_POINTER && null_feature_level_list_hr == E_INVALIDARG;
     const bool msaa_resource_boundary_exact =
         native_msaa8_resource_hr == E_INVALIDARG &&
+        native_msaa16_resource_hr == E_INVALIDARG &&
+        native_msaa32_resource_hr == E_INVALIDARG &&
         writable_msaa8_resource_hr == S_OK;
     bool msaa_quality_query_exact = true;
     for (size_t i = 0; i < sizeof(kMsaaProbeCounts) / sizeof(kMsaaProbeCounts[0]); ++i)
@@ -475,6 +496,10 @@ int main() {
     std::printf("    \"msaa_quality_query_exact\": %s,\n", msaa_quality_query_exact ? "true" : "false");
     std::printf("    \"native_msaa8_resource_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(static_cast<uint32_t>(native_msaa8_resource_hr)));
+    std::printf("    \"native_msaa16_resource_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(native_msaa16_resource_hr)));
+    std::printf("    \"native_msaa32_resource_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(native_msaa32_resource_hr)));
     std::printf("    \"writable_msaa8_resource_hr\": \"0x%08lx\",\n",
                 static_cast<unsigned long>(static_cast<uint32_t>(writable_msaa8_resource_hr)));
     std::printf("    \"msaa_resource_boundary_exact\": %s\n",

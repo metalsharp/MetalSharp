@@ -437,6 +437,8 @@ def validate_result(result: dict[str, Any]) -> list[str]:
             unsupported = value.get("unsupported_policy", {}) if isinstance(value, dict) else {}
             if (not isinstance(unsupported, dict) or
                 unsupported.get("native_msaa8_resource_hr") != "0x80070057" or
+                unsupported.get("native_msaa16_resource_hr") != "0x80070057" or
+                unsupported.get("native_msaa32_resource_hr") != "0x80070057" or
                 unsupported.get("writable_msaa8_resource_hr") != "0x00000000" or
                 unsupported.get("msaa_resource_boundary_exact") is not True):
                 errors.append("device caps native/writable 8x resource boundary is incomplete")
