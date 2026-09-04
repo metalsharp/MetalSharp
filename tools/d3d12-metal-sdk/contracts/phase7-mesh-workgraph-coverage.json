@@ -59,6 +59,7 @@
         ["cross_queue_dispatch_exact"],
         ["cross_queue_gpu_dependency_exact"],
         ["cross_queue_repeated_gpu_dependency_exact"],
+        ["cross_queue_multi_gpu_dependency_exact"],
         ["node_table_uav_exact"],
         ["node_table_short_view_unchanged"],
         ["node_table_null_view_unchanged"],
