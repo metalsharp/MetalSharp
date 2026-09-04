@@ -4,8 +4,10 @@
 #include <d3d12.h>
 #include <dxgiformat.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -91,6 +93,7 @@ static HRESULT create_graphics_pso(ID3D12Device *device,
                                    ID3D12RootSignature *root,
                                    const std::vector<uint8_t> &vs,
                                    const std::vector<uint8_t> &ps,
+                                   UINT sample_count,
                                    ID3D12PipelineState **pso) {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
     desc.pRootSignature = root;
@@ -108,7 +111,7 @@ static HRESULT create_graphics_pso(ID3D12Device *device,
     desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     desc.NumRenderTargets = 1;
     desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 4;
+    desc.SampleDesc.Count = std::min<UINT>(sample_count, 4u);
     return device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pso));
 }
 
@@ -150,11 +153,16 @@ static HRESULT wait_for_queue(ID3D12Device *device, ID3D12CommandQueue *queue,
 }
 
 int main(int argc, char **argv) {
-    if (argc != 4) {
+    if (argc != 4 && argc != 5) {
         std::fprintf(stderr,
-                     "usage: probe_rov_msaa <vs.dxil> <ps.dxil> <cs.dxil>\n");
+                     "usage: probe_rov_msaa <vs.dxil> <ps.dxil> <cs.dxil> [2|4|8]\n");
         return 2;
     }
+    const UINT sample_count = argc == 5
+                                  ? static_cast<UINT>(std::strtoul(argv[4], nullptr, 10))
+                                  : 4u;
+    if (sample_count != 2 && sample_count != 4 && sample_count != 8)
+        return 2;
     const auto vs = read_binary_file(argv[1]);
     const auto ps = read_binary_file(argv[2]);
     const auto cs = read_binary_file(argv[3]);
@@ -177,6 +185,7 @@ int main(int argc, char **argv) {
     ID3D12PipelineState *compute_pso = nullptr;
     HRESULT graphics_pso_hr = (device && root && !vs.empty() && !ps.empty())
                                   ? create_graphics_pso(device, root, vs, ps,
+                                                        sample_count,
                                                         &graphics_pso)
                                   : E_FAIL;
     HRESULT compute_pso_hr = (device && root && !cs.empty())
@@ -227,7 +236,7 @@ int main(int argc, char **argv) {
         target_desc.DepthOrArraySize = 1;
         target_desc.MipLevels = 1;
         target_desc.Format = DXGI_FORMAT_R32_UINT;
-        target_desc.SampleDesc.Count = 4;
+        target_desc.SampleDesc.Count = sample_count;
         target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         target_hr = SUCCEEDED(list_hr)
@@ -247,6 +256,7 @@ int main(int argc, char **argv) {
                               : E_FAIL;
         D3D12_RESOURCE_DESC render_desc = target_desc;
         render_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        render_desc.SampleDesc.Count = std::min<UINT>(sample_count, 4u);
         render_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         D3D12_CLEAR_VALUE clear = {};
         clear.Format = render_desc.Format;
@@ -260,7 +270,7 @@ int main(int argc, char **argv) {
                                : E_FAIL;
         D3D12_RESOURCE_DESC output_desc = {};
         output_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        output_desc.Width = 32;
+        output_desc.Width = static_cast<UINT64>(sample_count) * 2u * 4u;
         output_desc.Height = 1;
         output_desc.DepthOrArraySize = 1;
         output_desc.MipLevels = 1;
@@ -314,7 +324,7 @@ int main(int argc, char **argv) {
             D3D12_UNORDERED_ACCESS_VIEW_DESC output_view = {};
             output_view.Format = DXGI_FORMAT_R32_TYPELESS;
             output_view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-            output_view.Buffer.NumElements = 8;
+            output_view.Buffer.NumElements = sample_count * 2u;
             output_view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
             device->CreateUnorderedAccessView(output, nullptr, &output_view,
                                               uav);
@@ -372,13 +382,14 @@ int main(int argc, char **argv) {
         }
     }
 
-    uint32_t values[8] = {};
+    std::vector<uint32_t> values(sample_count * 2u, 0u);
     if (SUCCEEDED(execute_hr) && readback) {
         void *mapped = nullptr;
-        D3D12_RANGE range = {0, sizeof(values)};
+        D3D12_RANGE range = {0, values.size() * sizeof(uint32_t)};
         map_hr = readback->Map(0, &range, &mapped);
         if (SUCCEEDED(map_hr) && mapped) {
-            std::memcpy(values, mapped, sizeof(values));
+            std::memcpy(values.data(), mapped,
+                        values.size() * sizeof(uint32_t));
             readback->Unmap(0, nullptr);
         }
     }
@@ -406,10 +417,20 @@ int main(int argc, char **argv) {
                 hr_hex(readback_hr).c_str());
     std::printf("  \"execute_hr\": \"%s\", \"map_hr\": \"%s\",\n",
                 hr_hex(execute_hr).c_str(), hr_hex(map_hr).c_str());
-    std::printf("  \"draw_count\": 3, \"sample_count\": 4, \"values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
-                values[0], values[1], values[2], values[3], values[4], values[5],
-                values[6], values[7]);
-    std::printf("  \"values_expected\": [3, 3, 3, 3, 3, 3, 3, 3], \"values_exact\": %s,\n"
+    std::printf("  \"draw_count\": 3, \"sample_count\": %u, \"values\": [",
+                sample_count);
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i)
+            std::printf(", ");
+        std::printf("%u", values[i]);
+    }
+    std::printf("],\n  \"values_expected\": [");
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i)
+            std::printf(", ");
+        std::printf("3");
+    }
+    std::printf("], \"values_exact\": %s,\n"
                 "  \"pass\": %s,\n"
                 "  \"provider\": \"flattened_msaa_raster_order_group\"\n}\n",
                 values_exact ? "true" : "false", pass ? "true" : "false");

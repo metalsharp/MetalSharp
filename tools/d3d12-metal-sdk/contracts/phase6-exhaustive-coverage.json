@@ -354,14 +354,15 @@
     {
       "id": "p6-rov-msaa-depth-array-breadth",
       "legality": "legal",
-      "status": "open",
-      "provider": "pending_rov_breadth_provider",
+      "status": "closed",
+      "provider": "metal_raster_order_group_plus_flattened_msaa_provider",
       "covers": {"rov_resource": ["typed_1d", "typed_3d", "typed_msaa", "typed_array"], "sample_count": ["2", "4", "8"], "msaa_state": ["color_msaa", "depth_stencil_msaa", "array_resolve"], "depth_stencil": ["depth", "stencil", "depth_stencil"], "logic_side_effects": ["rov"]},
-      "positive_probe": "probe-phase6-exhaustive-rov",
-      "negative_probe": "probe-phase6-exhaustive-invalid-rov",
+      "positive_probe": "probe-rov;probe-rov-dimensions;probe-rov-msaa",
+      "negative_probe": "probe-rov;probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "ordered_side_effect": true, "one_shot_side_effect_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "dimensions": "typed 1D/1D-array/2D/2D-array/3D and buffer resources", "msaa": "2x/4x/8x texture and array-slice providers read [3] for every logical sample after three draws", "depth_stencil": "orthogonal D32 pass/fail and D24S8 stencil-enabled ordered three-overlap cases", "toolchain_boundary": "pinned DXC lacks RasterizerOrderedTexture2DMS syntax; the source-owned RWTexture2DMS fixture is promoted to the same Metal raster-order group provider"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "RasterizerOrderedTexture2DMS syntax is absent from pinned DXC, so a source-owned DXIL fixture or another valid provider is required before classification."
+      "reason": "All declared ROV dimensions and sample counts now use source-owned DXIL and exact GPU readback. The 8x ROV resource is flattened and updated once from sample zero of a native 4x pass; it does not claim native 8x rasterization. Invalid vertex/compute stages and side-effect-unsafe independent logic still reject before execution."
     },
     {
       "id": "p6-independent-logic-render-target-only",

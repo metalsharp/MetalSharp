@@ -473,23 +473,26 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 reset.get("recorded") is not True or
                 reset.get("default_quad_exact") is not True):
                 errors.append("programmable sample-position pattern/reset matrix is incomplete")
-    rov_msaa = result.get("rov_msaa")
-    if rov_msaa is not None:
+    for field, samples in (("rov_msaa_2", 2), ("rov_msaa", 4),
+                           ("rov_msaa_8", 8)):
+        rov_msaa = result.get(field)
+        if rov_msaa is None:
+            continue
         if not isinstance(rov_msaa, dict):
-            errors.append("rov_msaa result must be an object or null")
+            errors.append(f"{field} result must be an object or null")
         elif (rov_msaa.get("compile_status") != 0 or
               rov_msaa.get("process_status") != 0):
-            errors.append("ROV MSAA shader/probe process did not complete")
+            errors.append(f"{field} shader/probe process did not complete")
         else:
             value = rov_msaa.get("result")
-            expected_values = [3, 3, 3, 3, 3, 3, 3, 3]
+            expected_values = [3] * (samples * 2)
             if (not isinstance(value, dict) or value.get("pass") is not True or
                 value.get("values") != expected_values or
                 value.get("values_expected") != expected_values or
                 value.get("values_exact") is not True or
-                value.get("sample_count") != 4 or
+                value.get("sample_count") != samples or
                 value.get("draw_count") != 3):
-                errors.append("ROV MSAA ordered four-sample matrix is incomplete")
+                errors.append(f"{field} ordered sample matrix is incomplete")
     view_instancing_msaa = result.get("view_instancing_msaa")
     if view_instancing_msaa is not None:
         if not isinstance(view_instancing_msaa, dict):
