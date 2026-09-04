@@ -911,14 +911,25 @@ bounded backing-memory overflow without writes, and checks ordered back-to-back
 dispatches after command-list reuse. The command path remains pointer-free and records `cpu_scheduler=false`; the
 reference kernel also passes direct-queue and compute-queue submission. The
 compute case uses one CPU-input record after host completion of direct work;
-`cross_queue_dispatch_exact` does not prove GPU queue-to-queue synchronization. The
+`cross_queue_dispatch_exact` does not prove GPU queue-to-queue synchronization.
+The separate `cross_queue_gpu_dependency_exact` test submits a compute consumer
+before its direct producer with `Queue::Wait/Signal`, then verifies the GPU-written
+record yields `[125, 1464291884]` without an intervening host completion wait.
+Outstanding waits are encoded into dependent Metal execution/signaling buffers;
+a standalone wait buffer previously allowed the stale record to yield `19`.
+This is a bounded single-record reference-kernel dependency proof, not arbitrary
+graph synchronization coverage. Final Work Graph and ordinary queue probes
+passed against the rebuilt sandbox, together with the strict Winemetal ABI
+audit; evidence is under `/private/tmp/metalsharp-phase7-abi/final-work-graph/`,
+`final-queues/`, and `queue-final-stage/`. This development staging records a
+dirty source snapshot and is not clean-release provenance. The
 source-owned `node_records` and
 three-entrypoint `node_multi` DXIL libraries lower at runtime into GPU-native
 Metal compute kernels with exact backing-buffer readback, CPU/GPU single-node
 and one-input multi-node coverage, entrypoint routing, a node-barrier witness,
 and INCLUDE_ALL_AVAILABLE_NODES metadata materialization, explicit backing-memory
 initialization, and a direct node-u0 resource binding; resource/record fan-out,
-recursion, cross-queue synchronization, and general node shader conversion
+recursion, broader cross-queue synchronization, and general node shader conversion
 remain open.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
