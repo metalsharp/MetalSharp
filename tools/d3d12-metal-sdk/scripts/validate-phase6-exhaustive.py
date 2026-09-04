@@ -539,6 +539,21 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 value.get("slice0_red") is not True or
                 value.get("slice1_green") is not True):
                 errors.append("SV_ViewID per-view exact readback is incomplete")
+    independent_logic = result.get("independent_logic")
+    if independent_logic is not None:
+        if not isinstance(independent_logic, dict):
+            errors.append("independent_logic result must be an object or null")
+        elif independent_logic.get("process_status") != 0:
+            errors.append("independent-logic probe process did not exit zero")
+        else:
+            value = independent_logic.get("result")
+            targets = value.get("targets", []) if isinstance(value, dict) else []
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                value.get("values_exact") is not True or
+                value.get("target_count") != 8 or len(targets) != 8 or
+                any(target.get("exact") is not True for target in targets
+                    if isinstance(target, dict))):
+                errors.append("eight-target independent logic-op matrix is incomplete")
     fixed_function = result.get("fixed_function")
     if fixed_function is not None:
         if not isinstance(fixed_function, dict):

@@ -255,6 +255,9 @@ if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
     "$SDK_DIR/probes/probe_conservative_msaa.cpp" \
     -o "$WORK/probe_conservative_msaa.exe"
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_independent_logic_breadth.cpp" \
+    -o "$WORK/probe_independent_logic_breadth.exe"
 fi
 if [[ "$WITH_MSAA" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
@@ -600,6 +603,7 @@ FIXED_FUNCTION_STATUS=0
 INNER_COVERAGE_STATUS=0
 CONSERVATIVE_MSAA_STATUS=0
 CONSERVATIVE_MSAA_2_STATUS=0
+INDEPENDENT_LOGIC_STATUS=0
 if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   set +e
   python3 "$BOUNDED_RUNNER" --timeout 90 --cwd "$WORK" \
@@ -632,6 +636,13 @@ if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
     "$WORK/probe_conservative_raster_vs.cso" \
     "$WORK/probe_conservative_raster_ps.cso" 2
   CONSERVATIVE_MSAA_2_STATUS=$?
+  set -e
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 90 --cwd "$WORK" \
+    --output "$SANDBOX/independent_logic.json" \
+    --stderr "$LOG_DIR/probe-independent-logic.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_independent_logic_breadth.exe"
+  INDEPENDENT_LOGIC_STATUS=$?
   set -e
 fi
 MSAA_STATUS=0
@@ -677,6 +688,7 @@ python3 - "$SANDBOX/interpolation.json" "$STAGE_MANIFEST" "$ABI_RESULT" \
   "$INNER_COVERAGE_STATUS" "$SANDBOX/inner_coverage.json" \
   "$CONSERVATIVE_MSAA_STATUS" "$SANDBOX/conservative_msaa.json" \
   "$CONSERVATIVE_MSAA_2_STATUS" "$SANDBOX/conservative_msaa_2.json" \
+  "$INDEPENDENT_LOGIC_STATUS" "$SANDBOX/independent_logic.json" \
   "$MSAA_STATUS" "$SANDBOX/msaa.json" "$GRAPHICS_MSAA_STATUS" \
   "$SANDBOX/graphics_msaa.json" "$GRAPHICS_MSAA_DEPTH_STATUS" \
   "$SANDBOX/graphics_msaa_depth.json" "$HOST_STATUS" \
@@ -697,6 +709,7 @@ import sys
  inner_coverage_status, inner_coverage_path,
  conservative_msaa_status, conservative_msaa_path,
  conservative_msaa_2_status, conservative_msaa_2_path,
+ independent_logic_status, independent_logic_path,
  msaa_status, msaa_path, graphics_msaa_status, graphics_msaa_path,
  graphics_msaa_depth_status, graphics_msaa_depth_path,
  host_status, host_path, caps_status, caps_path) = sys.argv[1:]
@@ -744,6 +757,7 @@ payload = {
     "inner_coverage": None,
     "conservative_msaa": None,
     "conservative_msaa_2": None,
+    "independent_logic": None,
     "msaa": None,
     "graphics_msaa": None,
     "graphics_msaa_depth": None,
@@ -809,6 +823,11 @@ if pathlib.Path(conservative_msaa_2_path).exists():
     payload["conservative_msaa_2"] = {
         "process_status": int(conservative_msaa_2_status),
         "result": load(conservative_msaa_2_path),
+    }
+if pathlib.Path(independent_logic_path).exists():
+    payload["independent_logic"] = {
+        "process_status": int(independent_logic_status),
+        "result": load(independent_logic_path),
     }
 if pathlib.Path(msaa_path).exists():
     payload["msaa"] = {"process_status": int(msaa_status), "result": load(msaa_path)}
@@ -880,6 +899,10 @@ payload["exact"] = (
         int(conservative_msaa_2_status) == 0
         and payload["conservative_msaa_2"]["result"].get("pass") is True
     ))
+    and (payload["independent_logic"] is None or (
+        int(independent_logic_status) == 0
+        and payload["independent_logic"]["result"].get("pass") is True
+    ))
     and (payload["msaa"] is None or (
         int(msaa_status) == 0
         and payload["msaa"]["result"].get("pass") is True
@@ -905,8 +928,8 @@ pathlib.Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encod
 print(output_path)
 PY
 
-if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$ROV_MSAA_STATUS" != "0" || "$SAMPLE_POSITIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$VIEW_INSTANCING_MSAA_STATUS" != "0" || "$VIEW_ID_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$INNER_COVERAGE_STATUS" != "0" || "$CONSERVATIVE_MSAA_STATUS" != "0" || "$CONSERVATIVE_MSAA_2_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_DEPTH_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
-  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa=$ROV_MSAA_STATUS sample_positions=$SAMPLE_POSITIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_instancing_msaa=$VIEW_INSTANCING_MSAA_STATUS view_id=$VIEW_ID_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS conservative_msaa_2=$CONSERVATIVE_MSAA_2_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS graphics_msaa_depth=$GRAPHICS_MSAA_DEPTH_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
+if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$ROV_MSAA_STATUS" != "0" || "$SAMPLE_POSITIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$VIEW_INSTANCING_MSAA_STATUS" != "0" || "$VIEW_ID_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$INNER_COVERAGE_STATUS" != "0" || "$CONSERVATIVE_MSAA_STATUS" != "0" || "$CONSERVATIVE_MSAA_2_STATUS" != "0" || "$INDEPENDENT_LOGIC_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_DEPTH_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
+  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa=$ROV_MSAA_STATUS sample_positions=$SAMPLE_POSITIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_instancing_msaa=$VIEW_INSTANCING_MSAA_STATUS view_id=$VIEW_ID_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS conservative_msaa_2=$CONSERVATIVE_MSAA_2_STATUS independent_logic=$INDEPENDENT_LOGIC_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS graphics_msaa_depth=$GRAPHICS_MSAA_DEPTH_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
   exit 1
 fi
 if ! python3 "$SDK_DIR/scripts/validate-phase6-exhaustive.py" \
