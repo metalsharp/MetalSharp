@@ -24,6 +24,7 @@ struct LLVMType {
   uint32_t address_space = 0;
   std::vector<LLVMType> subtypes;
   std::vector<uint32_t> type_refs;
+  bool packed = false;
 };
 
 struct LLVMValue {
@@ -101,6 +102,8 @@ struct LLVMInstruction {
   uint32_t type_id = 0;
   uint32_t result_id = 0;
   std::vector<uint32_t> operands;
+  // Modern GEP encodes its source element type independently of the result.
+  uint32_t gep_source_type = UINT32_MAX;
 };
 
 struct LLVMBasicBlock {

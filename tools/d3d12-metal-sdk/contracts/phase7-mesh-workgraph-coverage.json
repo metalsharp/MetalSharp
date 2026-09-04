@@ -74,6 +74,7 @@
         ["node_input_layouts_exact"],
         ["node_input_binding_exact"],
         ["node_launch_geometry_exact"],
+        ["node_record_offsets_exact"],
         ["node_dynamic_grid_rejected"],
         ["node_input_gpu_dependency_exact"],
         ["node_internal_binding_rejected"],

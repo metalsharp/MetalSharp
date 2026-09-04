@@ -335,6 +335,47 @@ Evidence beneath `/private/tmp/metalsharp-phase7-abi/`:
 
 These are development snapshots, not a clean release or Phase 7 exit.
 
+## Typed record offsets and cross-block pointer lifetime
+
+GEP instructions now retain their explicit source element type, and LLVM struct
+types retain the packed flag. Node record pointers and derived GEP chains use
+checked scalar-aligned struct/array layout arithmetic rather than scaling every
+index by four. This is scoped to node record storage; existing Metal private
+scratch addressing is not silently reinterpreted as a different LLVM layout.
+Packed/unsupported type forms, cycles, invalid IDs and layout overflow fail
+layout recovery instead of receiving invented offsets.
+
+A source-owned 48-byte input record contains a uint4 prefix and a nested tail
+with four uint16 values, a uint16 spacer, an alignment gap, and two uint64 values. Twelve threads read
+its members through separate control-flow blocks. Expected readback is:
+`[101,202,303,404,5,32768,65535,4097,287454020,1432778632,2578103244,3723427584]`.
+The host test verifies root offsets `[0,16]`, nested offsets `[0,8,16]`
+(absolute offsets `[0,16,24,32]`), size 48 and alignment 8;
+the CPU record is mutated after command recording.
+
+This exposed two additional lowering defects: the input record pointer was
+block-local despite uses in other dispatch-state blocks, and i16 zero-extension
+used signed widening. Record pointer results now receive kernel-scope
+predeclarations in control-flow dispatch, and i16 ZExt casts through ushort
+before widening. The high-bit uint16 values and upper/lower uint64 words pass
+without weakening the expected values.
+
+Evidence under `/private/tmp/metalsharp-phase7-abi/`:
+
+- `offset-before/`, `offset-after/`: failures before the full offset/CFG fixes.
+- `offset-cfg-after/`: initial mixed-width record success.
+- `offset-padded-final/` and `offset-nested-final/`: padded and then nested-record
+  success, including full Work Graph passes.
+- `node-offset-cfg-stage/`: strict ABI passes with matching development artifacts.
+- `offset-compute-pso/`, `offset-graphics-pso/`, `offset-reflection-abi/`: pass.
+- `offset-shader-corpus/`: same case outcomes as the baseline, still failing
+  `two_counter_fail_closed`; this is not a passing corpus gate.
+- `offset-cfg-build.log`: all nine runtime targets built.
+
+These remain dirty-source development proofs. Pointer transformations beyond
+tracked record/GEP chains, arbitrary IR type forms, multiple input records,
+record publication and the complete GPU scheduler remain open.
+
 ## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit

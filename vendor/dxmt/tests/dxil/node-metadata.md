@@ -47,5 +47,9 @@ max grid for record-driven SV_DispatchGrid. The vector GEP check verifies that
 all three indices survive bitcode parsing, including the dynamic lane index.
 It checks module-copy ownership
 and null, missing, and out-of-range operand lookup. It fails against the prior
-parser because `dx.entryPoints` is discarded. This does not certify arbitrary
-malformed bitcode rejection or implement runtime record allocation.
+parser because `dx.entryPoints` is discarded. The padded mixed-width fixture additionally checks GEP source-type retention,
+root member offsets `[0,16]`, nested-tail offsets `[0,8,16]`, 48-byte total
+size and 8-byte alignment (absolute field offsets `[0,16,24,32]`). Packed types,
+invalid type IDs, recursive layouts and multiplication overflow are rejected by
+the node layout helper. This does not certify arbitrary malformed bitcode
+rejection or implement runtime record allocation.

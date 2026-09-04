@@ -788,6 +788,7 @@ static bool parseTypeBlock(ParseContext &ctx, uint32_t abbrev_len, uint32_t end_
     case kTypeCode_StructAnon:
     case kTypeCode_StructNamed: {
       t.kind = LLVMType::Struct;
+      t.packed = ops.size() > 1 && ops[1] != 0;
       size_t first_type = rec_code == kTypeCode_StructAnon ||
                               rec_code == kTypeCode_StructNamed
                           ? 2
@@ -1318,6 +1319,8 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
       if (cur_block < fn.blocks.size()) {
         LLVMInstruction inst;
         inst.opcode = LLVMInstruction::GetElementPtr;
+        if (rec_code == kFuncCode_InstGEP && ops.size() > 2)
+          inst.gep_source_type = static_cast<uint32_t>(ops[2]);
         size_t slot = rec_code == kFuncCode_InstGEP ? 3 : 1;
         // Like LLVM's reader, consume a type only for forward references.
         // Known values have no trailing type ID; advancing by two discarded
