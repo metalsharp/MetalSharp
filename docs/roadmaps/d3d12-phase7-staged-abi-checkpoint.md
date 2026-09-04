@@ -189,6 +189,29 @@ in both runs. Evidence: `/private/tmp/metalsharp-phase7-abi/query-before/`,
 This changes only the invalid-index contract: valid record layouts remain
 hard-coded and must still be derived from the retained entrypoint metadata.
 
+## Metadata-derived entrypoint layouts
+
+`nodeInputLayout` now decodes each named node's input layout from retained DXIL
+metadata. Shader-backed state objects store those layouts per node; property
+queries resolve entrypoint identity to its node rather than assuming matching
+array order. Nonempty records meet the DWORD minimum size/alignment; empty
+inputs return zero, while invalid indices retain `UINT_MAX`.
+
+The required `node_input_layouts_exact` probe builds a four-node library and
+reorders the entrypoint list. It checks vector `(16,4)`, empty `(0,0)`, scalar
+`(4,4)`, and 16-bit `(4,4)` size/alignment pairs. The source-owned host test
+also checks missing/duplicate entrypoints and module ownership. Existing
+output-only node fixtures now correctly expect zero input size/alignment.
+The library-free reference fixture retains its synthetic `(16,16)` layout;
+its previously mismatched entrypoint names were corrected to identify its nodes.
+
+The new queries fail against the previous runtime (`layout-before/`) and pass
+after the change (`layout-final/`), along with the complete Work Graph
+regression. Strict ABI evidence is in `node-layout-stage/`, all beneath
+`/private/tmp/metalsharp-phase7-abi/`. The sandbox records dirty-source development
+provenance. This does not fix actual input-record binding or GPU scheduling;
+node-ID overrides, full library discovery and other graph semantics remain open.
+
 ## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit

@@ -262,6 +262,7 @@ int main() {
     bool node_multi_cpu_input_exact = false;
     bool node_multi_gpu_input_exact = false;
     bool node_multi_properties_complete = false;
+    bool node_input_layouts_exact = false;
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
     uint32_t node_shader_values[2] = {};
@@ -443,7 +444,7 @@ int main() {
         }
     }
 
-    WorkGraphNodeID entrypoints[2] = {{L"entry0", 0}, {L"entry1", 0}};
+    WorkGraphNodeID entrypoints[2] = {{L"node0", 0}, {L"node1", 0}};
     UINT local_root_indices[2] = {3, 4};
     CommonComputeOverrides overrides[2] = {};
     for (UINT i = 0; i < 2; ++i) {
@@ -546,6 +547,51 @@ int main() {
         auto* vtable = *reinterpret_cast<void***>(state_properties);
         auto get_identifier = reinterpret_cast<GetProgramIdentifierFn>(vtable[7]);
         get_identifier(state_properties, identifier, L"graph");
+    }
+    // Deliberately reorder entrypoints relative to nodes: property lookup
+    // must resolve node identity, not use the entrypoint as a node-array index.
+    std::vector<uint8_t> layout_bytecode;
+    if (SUCCEEDED(hr) && read_binary_file("probe_workgraph_node_layout.cso", layout_bytecode)) {
+        const wchar_t* names[4] = {L"node_main", L"node_vector", L"node_half", L"node_empty"};
+        D3D12_EXPORT_DESC exports[4] = {};
+        WorkGraphNode layout_nodes[4] = {};
+        for (UINT i = 0; i < 4; ++i) {
+            exports[i].Name = names[i];
+            layout_nodes[i] = {0, {names[i], 0, nullptr}};
+        }
+        WorkGraphNodeID entries[4] = {{names[1], 0}, {names[3], 0}, {names[0], 0}, {names[2], 0}};
+        WorkGraphDesc graph = {L"layout_graph", 0, 4, entries, 4, layout_nodes};
+        D3D12_STATE_SUBOBJECT graph_sub = {static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &graph};
+        const D3D12_STATE_SUBOBJECT* graph_subs[] = {&graph_sub};
+        GenericProgramDesc generic = {L"layout_graph", 0, nullptr, 1, graph_subs};
+        D3D12_DXIL_LIBRARY_DESC library = {};
+        library.DXILLibrary = {layout_bytecode.data(), layout_bytecode.size()};
+        library.NumExports = 4;
+        library.pExports = exports;
+        D3D12_STATE_SUBOBJECT subs[2] = {
+            {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY, &library},
+            {static_cast<D3D12_STATE_SUBOBJECT_TYPE>(29), &generic}};
+        D3D12_STATE_OBJECT_DESC desc = {static_cast<D3D12_STATE_OBJECT_TYPE>(4), 2, subs};
+        ID3D12StateObject* layout_state = nullptr;
+        WorkGraphProperties* layout_properties = nullptr;
+        HRESULT layout_hr = device5->CreateStateObject(&desc, IID_PPV_ARGS(&layout_state));
+        if (SUCCEEDED(layout_hr))
+            layout_hr = layout_state->QueryInterface(kWorkGraphPropertiesIID,
+                reinterpret_cast<void**>(&layout_properties));
+        if (SUCCEEDED(layout_hr) && layout_properties) {
+            const UINT sizes[4] = {16, 0, 4, 4};
+            const UINT alignments[4] = {4, 0, 4, 4};
+            node_input_layouts_exact = true;
+            for (UINT i = 0; i < 4; ++i)
+                node_input_layouts_exact &=
+                    layout_properties->GetEntrypointRecordSizeInBytes(0, i) == sizes[i] &&
+                    layout_properties->GetEntrypointRecordAlignmentInBytes(0, i) == alignments[i];
+            node_input_layouts_exact &=
+                layout_properties->GetEntrypointRecordSizeInBytes(0, 4) == UINT_MAX &&
+                layout_properties->GetEntrypointRecordAlignmentInBytes(1, 0) == UINT_MAX;
+        }
+        release(layout_properties);
+        release(layout_state);
     }
     uint8_t node_shader_identifier[32] = {};
     HRESULT node_shader_hr = E_FAIL;
@@ -660,10 +706,10 @@ int main() {
                 node_multi_properties->GetEntrypointIndex(0,
                                                            node_multi_entry) == 1 &&
                 node_multi_properties->GetEntrypointRecordSizeInBytes(0, 2) ==
-                    16 &&
+                    0 &&
                 node_multi_properties->GetEntrypointRecordAlignmentInBytes(0,
                                                                               2) ==
-                    16;
+                    0;
             release(node_multi_properties);
             node_multi_properties = nullptr;
             node_multi_hr = node_multi_state->QueryInterface(
@@ -1442,7 +1488,7 @@ int main() {
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
-        node_multi_properties_complete && dxil_multi_node_readback_exact &&
+        node_multi_properties_complete && node_input_layouts_exact && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
@@ -1503,6 +1549,7 @@ int main() {
                 node_multi_bytecode_loaded ? "true" : "false");
     std::printf("  \"dxil_multi_node_readback_exact\": %s,\n",
                 dxil_multi_node_readback_exact ? "true" : "false");
+    std::printf("  \"node_input_layouts_exact\": %s,\n", node_input_layouts_exact ? "true" : "false");
     std::printf("  \"node_multi_properties_complete\": %s,\n",
                 node_multi_properties_complete ? "true" : "false");
     std::printf("  \"node_multi_cpu_input_exact\": %s,\n",
@@ -1567,7 +1614,7 @@ int main() {
                    dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
-                   node_multi_properties_complete &&
+                   node_multi_properties_complete && node_input_layouts_exact &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
                    node_multi_gpu_input_exact
                ? 0

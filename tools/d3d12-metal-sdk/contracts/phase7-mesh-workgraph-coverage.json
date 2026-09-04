@@ -71,6 +71,7 @@
         ["dxil_node_shader_gpu_readback_exact"],
         ["node_multi_bytecode_loaded"],
         ["node_multi_properties_complete"],
+        ["node_input_layouts_exact"],
         ["node_multi_cpu_input_exact"],
         ["node_multi_gpu_input_exact"],
         ["dxil_multi_node_readback_exact"],

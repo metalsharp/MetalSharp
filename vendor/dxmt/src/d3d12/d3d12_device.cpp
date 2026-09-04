@@ -14,6 +14,7 @@
 #include "d3d12_resource.hpp"
 #include "dxil/dxil_ir.hpp"
 #include "dxil/msl_lowering.hpp"
+#include "dxil/node_metadata.hpp"
 
 #define TRACE(fmt, ...) DXMTD3D12Trace("Device", fmt, ##__VA_ARGS__)
 #define PLTRACE(fmt, ...) TRACE(fmt, ##__VA_ARGS__)
@@ -3860,8 +3861,9 @@ static bool DXILUsesHitObjectInvoke(const D3D12_SHADER_BYTECODE &bytecode) {
 
 static bool LowerWorkGraphNodeShader(
     const D3D12_SHADER_BYTECODE &bytecode, LPCWSTR entry_point,
-    std::string &source) {
+    std::string &source, dxmt::dxil::NodeInputLayout &input_layout) {
   source.clear();
+  input_layout = {};
   if (!entry_point || !entry_point[0])
     return false;
   std::vector<uint8_t> dxil;
@@ -3888,6 +3890,10 @@ static bool LowerWorkGraphNodeShader(
   if (!lowered || lowered->unsupported_intrinsics ||
       lowered->unsupported_opcodes)
     return false;
+  const auto layout = dxmt::dxil::nodeInputLayout(*module, shader.entry_point);
+  if (!layout)
+    return false;
+  input_layout = *layout;
   source = std::move(lowered->source);
   return !source.empty();
 }
@@ -4135,6 +4141,7 @@ public:
         m_work_graph_entrypoint_names.clear();
         m_work_graph_local_root_indices.clear();
         m_work_graph_node_msl.clear();
+        m_work_graph_node_layouts.clear();
         m_work_graph_node_names.reserve(graph->NumExplicitlyDefinedNodes);
         m_work_graph_entrypoint_names.reserve(graph->NumEntrypoints);
         m_work_graph_nodes.reserve(graph->NumExplicitlyDefinedNodes);
@@ -4151,11 +4158,14 @@ public:
           id.ArrayIndex = 0;
           m_work_graph_nodes.push_back(id);
           std::string node_msl;
+          // The library-free reference fixture has a synthetic 16-byte ABI.
+          dxmt::dxil::NodeInputLayout input_layout{16, 16};
           if (node_library.pShaderBytecode &&
               !LowerWorkGraphNodeShader(node_library, source.Shader.Shader,
-                                         node_msl))
+                                         node_msl, input_layout))
             return false;
           m_work_graph_node_msl.push_back(std::move(node_msl));
+          m_work_graph_node_layouts.push_back(input_layout);
           UINT local_root_index = UINT_MAX;
           if (source.Shader.OverridesType == 4 && source.Shader.Overrides) {
             const auto *local_root = static_cast<const UINT *const *>(
@@ -4193,11 +4203,13 @@ public:
             id.ArrayIndex = entrypoint.ArrayIndex;
             m_work_graph_nodes.push_back(id);
             std::string node_msl;
+            dxmt::dxil::NodeInputLayout input_layout{16, 16};
             if (node_library.pShaderBytecode &&
                 !LowerWorkGraphNodeShader(node_library, entrypoint.Name,
-                                           node_msl))
+                                           node_msl, input_layout))
               return false;
             m_work_graph_node_msl.push_back(std::move(node_msl));
+            m_work_graph_node_layouts.push_back(input_layout);
             m_work_graph_local_root_indices.push_back(UINT_MAX);
           }
         }
@@ -5142,10 +5154,12 @@ public:
 
   UINT STDMETHODCALLTYPE GetEntrypointRecordSizeInBytes(
       UINT graph, UINT entrypoint) override {
-    return m_has_work_graph && graph == 0 &&
-                   entrypoint < m_work_graph_entrypoints.size()
-               ? 16u
-               : UINT_MAX;
+    if (!m_has_work_graph || graph != 0 ||
+        entrypoint >= m_work_graph_entrypoints.size())
+      return UINT_MAX;
+    const UINT node = GetNodeIndex(graph, m_work_graph_entrypoints[entrypoint]);
+    return node < m_work_graph_node_layouts.size()
+               ? m_work_graph_node_layouts[node].size : UINT_MAX;
   }
 
   void STDMETHODCALLTYPE GetWorkGraphMemoryRequirements(
@@ -5162,10 +5176,12 @@ public:
 
   UINT STDMETHODCALLTYPE GetEntrypointRecordAlignmentInBytes(
       UINT graph, UINT entrypoint) override {
-    return m_has_work_graph && graph == 0 &&
-                   entrypoint < m_work_graph_entrypoints.size()
-               ? 16u
-               : UINT_MAX;
+    if (!m_has_work_graph || graph != 0 ||
+        entrypoint >= m_work_graph_entrypoints.size())
+      return UINT_MAX;
+    const UINT node = GetNodeIndex(graph, m_work_graph_entrypoints[entrypoint]);
+    return node < m_work_graph_node_layouts.size()
+               ? m_work_graph_node_layouts[node].alignment : UINT_MAX;
   }
 
 private:
@@ -5199,6 +5215,7 @@ private:
   std::vector<D3D12WorkGraphNodeIDCompat> m_work_graph_entrypoints;
   std::vector<UINT> m_work_graph_local_root_indices;
   std::vector<std::string> m_work_graph_node_msl;
+  std::vector<dxmt::dxil::NodeInputLayout> m_work_graph_node_layouts;
 };
 
 WMT::Reference<WMT::ComputePipelineState>

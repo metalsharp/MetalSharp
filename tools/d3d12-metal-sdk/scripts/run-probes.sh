@@ -4124,6 +4124,7 @@ prepare_work_graph_probe() {
   local work_dir="$RESULTS_DIR/workgraph-generated"
   local d3d12_node_cso="$SDK_DIR/out/bin/probe_workgraph_node.cso"
   local d3d12_node_multi_cso="$SDK_DIR/out/bin/probe_workgraph_node_multi.cso"
+  local d3d12_node_layout_cso="$SDK_DIR/out/bin/probe_workgraph_node_layout.cso"
   local node_compiler="$SDK_DIR/out/bin/compile-node-workgraph"
   local node_probe="$SDK_DIR/out/bin/probe-node-workgraph"
   local aggregate="$WORK_GRAPH_RESULT_FILE"
@@ -4167,6 +4168,17 @@ prepare_work_graph_probe() {
     echo "D3D12 multi-node shader compilation produced no bytecode" >&2
     return 1
   }
+
+  rm -f "$d3d12_node_layout_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -enable-16bit-types \
+      -Fo "$d3d12_node_layout_cso" "$node_source_dir/node_input_records.hlsl" >/dev/null
+  ) || [[ ! -s "$d3d12_node_layout_cso" ]]; then
+    echo "D3D12 node input layout compilation failed" >&2
+    return 1
+  fi
 
   local -a node_cases=(
     "node_handles|1|240,247,248,249,252"
