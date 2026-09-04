@@ -1408,6 +1408,7 @@ UNIX_DIR="$DXMT_RUNTIME/x86_64-unix"
 PROBE_WINEDLLPATH="${DXMT_PROBE_WINEDLLPATH:-$DXMT_RUNTIME}"
 RUNTIME_LIB_DIR="$(dirname "$DXMT_RUNTIME")"
 WINE_RUNTIME_ROOT="$(dirname "$RUNTIME_LIB_DIR")"
+WINE_INSTALL_ROOT="$(cd "$(dirname "$WINE_BIN")/.." && pwd)"
 WINE_UNIX_DIR="$RUNTIME_LIB_DIR/wine/x86_64-unix"
 if [[ -n "$GAME_DIR" ]]; then
   if [[ ! -d "$GAME_DIR" ]]; then
@@ -1419,7 +1420,11 @@ fi
 # Prefer the selected DXMT runtime's Unix half.  The Wine runtime also ships a
 # winemetal.so, but loading it first silently pairs source-built PE DLLs with a
 # stale Unix call table and corrupts ABI return values (notably SM50Initialize).
-DXMT_DYLD_LIBRARY_PATH="$UNIX_DIR:$WINE_UNIX_DIR:${DYLD_LIBRARY_PATH:-}"
+# Keep Wine's own Unix loader first.  The selected DXMT Unix half is loaded
+# through the unique builtin alias below; putting its directory directly in
+# DYLD_LIBRARY_PATH can make Wine select the route's ntdll/winemac loader half
+# and fail before the probe starts.
+DXMT_DYLD_LIBRARY_PATH="$WINE_INSTALL_ROOT/lib/wine/x86_64-unix:${DYLD_LIBRARY_PATH:-}"
 DXMT_WINEMETAL_UNIXLIB_NAME="winemetal.so"
 PROBE_WINEMETAL_UNIXLIB_LINK=""
 PROBE_D3D12_DLL_PATH=""
