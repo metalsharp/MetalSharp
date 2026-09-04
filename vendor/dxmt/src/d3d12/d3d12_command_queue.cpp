@@ -4983,6 +4983,148 @@ struct ReplayState {
     return true;
   }
 
+  bool EncodeQuadrilateralLineReferenceDraw(MTLD3D12Device *device,
+                                            uint32_t vertex_count,
+                                            uint32_t instance_count,
+                                            uint32_t start_vertex) {
+    if (!device || !pso || !pso->UsesQuadrilateralLineReferenceModel() ||
+        !render_enc_open || instance_count != 1 || vertex_count < 2 ||
+        !vbs[0].BufferLocation || !vbs[0].StrideInBytes)
+      return false;
+
+    const bool line_list = topology == D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+    const bool line_strip = topology == D3D_PRIMITIVE_TOPOLOGY_LINESTRIP;
+    if (!line_list && !line_strip)
+      return false;
+    const uint32_t segment_count =
+        line_list ? vertex_count / 2u : vertex_count - 1u;
+    if (!segment_count || segment_count > UINT32_MAX / 6u)
+      return false;
+
+    const D3D12IAInputElementInfo *position = nullptr;
+    for (const auto &element : pso->GetIAInputElements()) {
+      if (element.input_slot == 0 && !element.per_instance &&
+          element.semantic_index == 0 &&
+          !strcasecmp(element.semantic_name.c_str(), "POSITION") &&
+          element.dxgi_format == DXGI_FORMAT_R32G32B32_FLOAT) {
+        position = &element;
+        break;
+      }
+    }
+    if (!position)
+      return false;
+    auto *vertex_resource =
+        device->LookupResourceByGPUAddress(vbs[0].BufferLocation);
+    if (!vertex_resource || !vertex_resource->GetCPUAddress())
+      return false;
+    const uint64_t vertex_offset =
+        vbs[0].BufferLocation - vertex_resource->GetGPUVirtualAddress();
+    const uint64_t last_byte =
+        vertex_offset + uint64_t(start_vertex + vertex_count - 1u) *
+                            vbs[0].StrideInBytes +
+        position->aligned_byte_offset + sizeof(float) * 3u;
+    if (last_byte > vertex_resource->GetBufferByteLength())
+      return false;
+
+    uint32_t width = 1;
+    uint32_t height = 1;
+    auto *rt_descriptor =
+        reinterpret_cast<const D3D12Descriptor *>(rt_handles[0].ptr);
+    auto *target = rt_descriptor
+                       ? static_cast<MTLD3D12Resource *>(rt_descriptor->resource)
+                       : nullptr;
+    if (target) {
+      D3D12_RESOURCE_DESC target_desc = {};
+      target->GetDesc(&target_desc);
+      width = static_cast<uint32_t>(std::min<UINT64>(
+          std::max<UINT64>(target_desc.Width, 1), UINT32_MAX));
+      height = std::max<UINT>(target_desc.Height, 1);
+    }
+    const D3D12_VIEWPORT viewport =
+        viewport_count ? viewports[0]
+                       : D3D12_VIEWPORT{0.0f, 0.0f, (float)width,
+                                         (float)height, 0.0f, 1.0f};
+    if (viewport.Width <= 0.0f || viewport.Height <= 0.0f)
+      return false;
+
+    struct Float4 {
+      float x, y, z, w;
+    };
+    std::vector<Float4> expanded;
+    expanded.reserve(size_t(segment_count) * 6u);
+    const auto *base = static_cast<const uint8_t *>(
+        vertex_resource->GetCPUAddress());
+    auto read_position = [&](uint32_t index, float out[3]) {
+      const auto *address =
+          base + vertex_offset + uint64_t(index) * vbs[0].StrideInBytes +
+          position->aligned_byte_offset;
+      std::memcpy(out, address, sizeof(float) * 3u);
+    };
+    const float line_width =
+        pso->GetRasterizerDesc2LineMode() == 2 ? 1.4f : 1.0f;
+    for (uint32_t segment = 0; segment < segment_count; ++segment) {
+      const uint32_t i0 =
+          start_vertex + (line_list ? segment * 2u : segment);
+      const uint32_t i1 = i0 + 1u;
+      float p0[3] = {}, p1[3] = {};
+      read_position(i0, p0);
+      read_position(i1, p1);
+      const float x0 = viewport.TopLeftX +
+                       (p0[0] * 0.5f + 0.5f) * viewport.Width;
+      const float y0 = viewport.TopLeftY +
+                       (0.5f - p0[1] * 0.5f) * viewport.Height;
+      const float x1 = viewport.TopLeftX +
+                       (p1[0] * 0.5f + 0.5f) * viewport.Width;
+      const float y1 = viewport.TopLeftY +
+                       (0.5f - p1[1] * 0.5f) * viewport.Height;
+      const float dx = x1 - x0;
+      const float dy = y1 - y0;
+      const float length = std::sqrt(dx * dx + dy * dy);
+      if (!(length > 0.0f))
+        continue;
+      const float ox = -dy / length * line_width * 0.5f;
+      const float oy = dx / length * line_width * 0.5f;
+      auto clip = [&](float x, float y, float z) -> Float4 {
+        return {(x - viewport.TopLeftX) / viewport.Width * 2.0f - 1.0f,
+                1.0f - (y - viewport.TopLeftY) / viewport.Height * 2.0f, z,
+                1.0f};
+      };
+      const Float4 a = clip(x0 + ox, y0 + oy, p0[2]);
+      const Float4 b = clip(x0 - ox, y0 - oy, p0[2]);
+      const Float4 c = clip(x1 + ox, y1 + oy, p1[2]);
+      const Float4 d = clip(x1 - ox, y1 - oy, p1[2]);
+      expanded.insert(expanded.end(), {a, b, c, c, b, d});
+    }
+    if (expanded.empty())
+      return true;
+
+    auto data_buffer =
+        MakeTransientBuffer(device, expanded.size() * sizeof(Float4));
+    if (!data_buffer.handle)
+      return false;
+    data_buffer.updateContents(0, expanded.data(),
+                               expanded.size() * sizeof(Float4));
+    if (!SetVertexBufferTracked(data_buffer, 0, 26))
+      return false;
+    render_enc.useResource(data_buffer, WMTResourceUsageRead,
+                           WMTRenderStageVertex);
+
+    struct wmtcmd_render_draw draw = {};
+    draw.type = WMTRenderCommandDraw;
+    draw.next.set(nullptr);
+    draw.primitive_type = WMTPrimitiveTypeTriangle;
+    draw.vertex_start = 0;
+    draw.vertex_count = expanded.size();
+    draw.instance_count = 1;
+    draw.base_instance = 0;
+    if (!EncodeRenderCommands(
+            reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+            "quadrilateral_line_reference"))
+      return false;
+    MarkSwapchainWorkEncoded();
+    return true;
+  }
+
   bool EncodeNativeMeshDispatch(uint32_t x, uint32_t y, uint32_t z) {
     if (!pso || !pso->UsesNativeMeshPipeline() || !render_enc_open || !x ||
         !y || !z)
@@ -10937,6 +11079,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 " i=", cmd->instance_count, " pso=", (void *)st.pso, " ",
                 TracePsoShaderSummary(st.pso)));
           }
+          break;
+        }
+        if (st.pso && st.pso->UsesQuadrilateralLineReferenceModel()) {
+          if (!st.EncodeQuadrilateralLineReferenceDraw(
+                  m_device, cmd->vertex_count, cmd->instance_count,
+                  cmd->start_vertex))
+            QTRACE("DrawInstanced quadrilateral line reference skipped");
           break;
         }
         if (st.pso &&

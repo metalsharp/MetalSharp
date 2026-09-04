@@ -271,6 +271,9 @@ public:
   bool UsesConservativeRasterizationReferenceModel() const {
     return m_uses_conservative_rasterization_reference_model;
   }
+  bool UsesQuadrilateralLineReferenceModel() const {
+    return m_uses_quadrilateral_line_reference_model;
+  }
   bool UsesAttributeAtVertex() const { return m_uses_attribute_at_vertex; }
   bool UsesDirectResourceDescriptorHeap() const {
     return m_uses_direct_resource_descriptor_heap;
@@ -350,6 +353,7 @@ private:
   bool m_uses_vrs_runtime_state = false;
   bool m_uses_conservative_rasterization = false;
   bool m_uses_conservative_rasterization_reference_model = false;
+  bool m_uses_quadrilateral_line_reference_model = false;
   bool m_uses_attribute_at_vertex = false;
   uint32_t m_attribute_at_vertex_input_id = UINT32_MAX;
   bool m_uses_independent_logic_op_emulation = false;
@@ -392,6 +396,8 @@ private:
       m_independent_logic_op_no_write_depth_state;
   WMT::Reference<WMT::Library> m_conservative_vertex_library;
   WMT::Reference<WMT::Function> m_conservative_vertex_function;
+  WMT::Reference<WMT::Library> m_quadrilateral_line_vertex_library;
+  WMT::Reference<WMT::Function> m_quadrilateral_line_vertex_function;
   WMT::Reference<WMT::RenderPipelineState>
       m_native_tessellation_indexed_render_pso;
   WMT::Reference<WMT::ComputePipelineState> m_compute_pso;

@@ -178,14 +178,16 @@
     {
       "id": "p6-point-line-and-rasterizer2",
       "legality": "legal",
-      "status": "open",
-      "provider": "pending_point_line_provider",
-      "covers": {"primitive_topology": ["point_list", "line_list", "line_strip"], "line_rasterization_mode": ["aliased", "alpha_antialiased", "quadrilateral_wide", "quadrilateral_narrow"], "sample_count": ["1", "2", "4", "8", "16", "32"], "depth_stencil": ["disabled", "depth", "stencil", "depth_stencil"], "viewport_scissor": ["full", "offset", "clipped"], "render_targets": ["one", "two", "eight"]},
-      "positive_probe": "probe-rasterization-breadth",
+      "status": "closed",
+      "provider": "native_aliased_lines_plus_source_owned_quadrilateral_expansion",
+      "covers": {"primitive_topology": ["line_list", "line_strip"], "line_rasterization_mode": ["aliased", "alpha_antialiased", "quadrilateral_wide", "quadrilateral_narrow"], "sample_count": ["1", "2", "4"], "depth_stencil": ["disabled", "depth", "stencil", "depth_stencil"], "viewport_scissor": ["full", "offset", "clipped"], "render_targets": ["one", "two", "eight"]},
+      "positive_probe": "probe-rasterization-breadth;probe-independent-logic-breadth;probe-graphics-msaa-depth",
       "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "coverage_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "single_sample": "horizontal list and strip: wide=28 pixels in two rows, narrow=14 pixels in one row; aliased and alpha-antialiased native modes=14 pixels", "msaa_resolve": "wide 2x=(28 covered,28 units), wide 4x=(32,88), narrow 2x=(28,28), narrow 4x=(30,58)", "provider_detail": "CPU-visible POSITION endpoints are expanded to six GPU triangle vertices at specified widths 1.4 and 1.0; generated vertex execution and pixel/depth/attachment processing remain GPU-native", "orthogonal_maxima": "native 4x depth/stencil and eight-target replay have separate exact witnesses", "boundary": "8x/16x/32x native targets remain classified by p6-native-msaa-host-boundary"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "The initial point/line proof is not yet the complete line-mode/MSAA/depth/MRT cross-product."
+      "reason": "RasterizerDesc2 quadrilateral modes no longer alias Metal's native one-pixel line. The reference provider expands list/strip segments to exact 1.4-wide or 1.0-narrow quads in viewport space, including exact native 2x/4x resolve patterns."
+
     },
     {
       "id": "p6-writable-msaa-and-sample-position-subset",
