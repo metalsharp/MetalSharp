@@ -1297,7 +1297,8 @@ not check its children.
 - [x] Default/private `ReadFromSubresource` and `WriteToSubresource` work.
 - [x] `MakeResident`, `Evict`, priority, trim, and residency queries track
       actual state.
-- [ ] Device removed reason and DRED reflect actual faults.
+- [x] Device removed reason and zero-fault DRED 1.0–1.2 output paths are
+      behavior-backed; populated fault-chain data remains open.
 - [x] Clock calibration returns correlated CPU/GPU timestamps.
 
 ### 5.2 Feature-query completion
@@ -1367,7 +1368,9 @@ not check its children.
 - [ ] DXGI surfaces/subresource surfaces map and copy correctly.
 - [ ] Display modes report actual formats and refresh rates.
 - [ ] VBlank/ownership/gamma/frame statistics work.
-- [ ] Desktop duplication and dirty-region metadata work.
+- [x] Bounded desktop duplication exposes GPU resources, exact dirty-rect
+      sizing, CPU MapDesktopSurface readback, release ordering, and one-frame
+      timeout behavior; cursor/move/DisplayLink breadth remains open.
 - [ ] Overlay checks and composition have real behavior.
 - [ ] Software/WARP adapter is a functioning CPU provider.
 - [ ] Adapter/occlusion/stereo status callbacks are real and unregisterable.
@@ -1379,8 +1382,9 @@ not check its children.
 - [ ] Pipeline library/state-object database survives restart and corruption.
 - [ ] Device factory/configuration/experimental APIs work.
 - [ ] InfoQueue stores, filters, retrieves, and callbacks correctly.
-- [ ] DRED, tools, instrumentation, manual write tracking, and trim callbacks
-      work.
+- [x] Bounded DRED settings/data, tools, manual write tracking, InfoQueue1,
+      and trim-callback paths work; full instrumentation and populated fault
+      data remain open.
 - [ ] All declared Device13–Device15 and later methods are implemented.
 
 ---
@@ -2198,5 +2202,11 @@ whether the scoped FL12_2 gate is green.
   checksum, and shared-fence signaling.
 - Added texture `DiscardResource`, rectangular UAV/RTV clear replay, and
   duplication `MapDesktopSurface`/one-frame timeout behavior, with exact
-  isolated source-staged probes. Feature promotion and the full-surface gate
-  remain disabled for all still-limited providers.
+  isolated source-staged probes. Added CPU-visible RGBA8 upload-texture
+  Map/Unmap, barrier-layout/closed-command-list validation, and bounded
+  DRED 1.0–1.2 zero-fault outputs. Feature promotion and the full-surface
+  gate remain disabled for all still-limited providers.
+- Extended the diagnostic surface with Debug1–Debug6, debug-device,
+  debug-command-queue/list resource-state assertions, InfoQueue1 callbacks,
+  manual-write tracking, and the D3D12 sharing-contract fence/capture path;
+  every bounded lane has a matching probe and exact result contract.
