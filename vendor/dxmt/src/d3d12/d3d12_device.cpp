@@ -2141,6 +2141,112 @@ static constexpr GUID IID_ID3D12SharingContractCompat = {
     0x0adf7d52, 0x929c, 0x4e61,
     {0xad, 0xdb, 0xff, 0xed, 0x30, 0xde, 0x66, 0xef}};
 
+static constexpr GUID IID_ID3D12DebugDeviceCompat = {
+    0x3febd6dd, 0x4973, 0x4787,
+    {0x81, 0x94, 0xe4, 0x5f, 0x9e, 0x28, 0x92, 0x3e}};
+static constexpr GUID IID_ID3D12DebugDevice1Compat = {
+    0xa9b71770, 0xd099, 0x4a65,
+    {0xa6, 0x98, 0x3d, 0xee, 0x10, 0x02, 0x0f, 0x88}};
+static constexpr GUID IID_ID3D12DebugDevice2Compat = {
+    0x60eccbc1, 0x378d, 0x4df1,
+    {0x89, 0x4c, 0xf8, 0xac, 0x5c, 0xe4, 0xd7, 0xdd}};
+struct ID3D12DebugDeviceCompat : public IUnknown {
+  virtual HRESULT STDMETHODCALLTYPE SetFeatureMask(UINT mask) = 0;
+  virtual UINT STDMETHODCALLTYPE GetFeatureMask() = 0;
+  virtual HRESULT STDMETHODCALLTYPE ReportLiveDeviceObjects(UINT flags) = 0;
+};
+struct ID3D12DebugDevice1Compat : public IUnknown {
+  virtual HRESULT STDMETHODCALLTYPE SetDebugParameter(UINT type,
+                                                       const void *data,
+                                                       UINT size) = 0;
+  virtual HRESULT STDMETHODCALLTYPE GetDebugParameter(UINT type, void *data,
+                                                       UINT size) = 0;
+  virtual HRESULT STDMETHODCALLTYPE ReportLiveDeviceObjects(UINT flags) = 0;
+};
+struct ID3D12DebugDevice2Compat : public ID3D12DebugDeviceCompat {
+  virtual HRESULT STDMETHODCALLTYPE SetDebugParameter(UINT type,
+                                                       const void *data,
+                                                       UINT size) = 0;
+  virtual HRESULT STDMETHODCALLTYPE GetDebugParameter(UINT type, void *data,
+                                                       UINT size) = 0;
+};
+
+class MTLD3D12DebugDevice final : public ID3D12DebugDevice2Compat,
+                                  public ID3D12DebugDevice1Compat {
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == IID_ID3D12DebugDeviceCompat ||
+        riid == IID_ID3D12DebugDevice2Compat)
+      *object = static_cast<ID3D12DebugDevice2Compat *>(this);
+    else if (riid == IID_ID3D12DebugDevice1Compat)
+      *object = static_cast<ID3D12DebugDevice1Compat *>(this);
+    else
+      return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG ref = --m_ref_count;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  HRESULT STDMETHODCALLTYPE SetFeatureMask(UINT mask) override {
+    std::lock_guard lock(m_mutex);
+    m_feature_mask = mask;
+    return S_OK;
+  }
+  UINT STDMETHODCALLTYPE GetFeatureMask() override {
+    std::lock_guard lock(m_mutex);
+    return m_feature_mask;
+  }
+  HRESULT STDMETHODCALLTYPE ReportLiveDeviceObjects(UINT flags) override {
+    if (flags & ~0x7u)
+      return E_INVALIDARG;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE SetDebugParameter(UINT type, const void *data,
+                                               UINT size) override {
+    if ((size && !data) || size > 4096 || type > 3)
+      return E_INVALIDARG;
+    std::lock_guard lock(m_mutex);
+    try {
+      auto &parameter = m_parameters[type];
+      parameter.clear();
+      if (size) {
+        const auto *bytes = static_cast<const uint8_t *>(data);
+        parameter.insert(parameter.end(), bytes, bytes + size);
+      }
+    } catch (const std::bad_alloc &) {
+      return E_OUTOFMEMORY;
+    }
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetDebugParameter(UINT type, void *data,
+                                               UINT size) override {
+    if (!data || type > 3)
+      return E_INVALIDARG;
+    std::lock_guard lock(m_mutex);
+    const auto it = m_parameters.find(type);
+    const size_t required = it == m_parameters.end() ? 0 : it->second.size();
+    if (size < required)
+      return E_INVALIDARG;
+    if (required)
+      std::memcpy(data, it->second.data(), required);
+    return S_OK;
+  }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
+  std::mutex m_mutex;
+  UINT m_feature_mask = 0;
+  std::unordered_map<UINT, std::vector<uint8_t>> m_parameters;
+};
+
 class MTLD3D12SharingContract final : public ID3D12SharingContractCompat {
 public:
   explicit MTLD3D12SharingContract(MTLD3D12Device *device) : m_device(device) {
@@ -5755,6 +5861,17 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::QueryInterface(REFIID riid,
     return hr;
   }
 
+  if (riid == IID_ID3D12DebugDeviceCompat ||
+      riid == IID_ID3D12DebugDevice1Compat ||
+      riid == IID_ID3D12DebugDevice2Compat) {
+    auto *debug_device = new (std::nothrow) MTLD3D12DebugDevice();
+    if (!debug_device)
+      return E_OUTOFMEMORY;
+    HRESULT hr = debug_device->QueryInterface(riid, ppvObject);
+    debug_device->Release();
+    return hr;
+  }
+
   if (riid == IID_ID3D12DeviceStatisticsCompat) {
     auto *statistics = new (std::nothrow) MTLD3D12DeviceStatistics(this);
     if (!statistics)
@@ -7660,7 +7777,25 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
                      D3D12_HEAP_FLAG_ALLOW_DISPLAY)))
     return E_INVALIDARG;
   D3D12_RESOURCE_DESC normalized_desc = NormalizeResourceDesc(*desc);
-  if (!IsValidResourceDesc(normalized_desc) ||
+  const auto cpu_visible_heap = [](const D3D12_HEAP_PROPERTIES &properties) {
+    return properties.Type == D3D12_HEAP_TYPE_UPLOAD ||
+           properties.Type == D3D12_HEAP_TYPE_READBACK ||
+           (properties.Type == D3D12_HEAP_TYPE_CUSTOM &&
+            (properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_BACK ||
+             properties.CPUPageProperty == D3D12_CPU_PAGE_PROPERTY_WRITE_COMBINE));
+  };
+  const bool row_major_cpu_texture =
+      normalized_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER &&
+      normalized_desc.Layout == D3D12_TEXTURE_LAYOUT_ROW_MAJOR &&
+      cpu_visible_heap(*heap_properties) &&
+      normalized_desc.SampleDesc.Count == 1 &&
+      normalized_desc.Flags == D3D12_RESOURCE_FLAG_NONE &&
+      normalized_desc.MipLevels == 1 &&
+      normalized_desc.DepthOrArraySize == 1 &&
+      normalized_desc.Format != DXGI_FORMAT_UNKNOWN &&
+      MTLD3D12PipelineState::DXGIToMTLPixelFormat(normalized_desc.Format) !=
+          WMTPixelFormatInvalid;
+  if ((!IsValidResourceDesc(normalized_desc) && !row_major_cpu_texture) ||
       !IsResourceAllowedByHeapFlags(normalized_desc, heap_flags) ||
       !IsValidInitialResourceState(heap_properties->Type, initial_state) ||
       !IsValidOptimizedClearValue(normalized_desc, optimized_clear_value))
@@ -9477,9 +9612,43 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::EnqueueMakeResident(
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandList1(
     UINT node_mask, D3D12_COMMAND_LIST_TYPE type,
     D3D12_COMMAND_LIST_FLAGS flags, REFIID riid, void **command_list) {
-  TRACE("ID3D12Device4::CreateCommandList1 -> delegating to CreateCommandList");
-  return CreateCommandList(node_mask, type, nullptr, nullptr, riid,
-                           command_list);
+  TRACE("ID3D12Device4::CreateCommandList1 type=%u flags=0x%x", type,
+        static_cast<unsigned>(flags));
+  if (!command_list)
+    return E_POINTER;
+  *command_list = nullptr;
+  if (node_mask != 1 || flags != D3D12_COMMAND_LIST_FLAG_NONE)
+    return E_INVALIDARG;
+  void *created = nullptr;
+  HRESULT hr = CreateCommandList(node_mask, type, nullptr, nullptr,
+                                 IID_ID3D12CommandList, &created);
+  if (FAILED(hr) || !created)
+    return hr;
+  auto *base = static_cast<ID3D12CommandList *>(created);
+  if (type == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS) {
+    ID3D12VideoProcessCommandList *video = nullptr;
+    hr = base->QueryInterface(IID_ID3D12VideoProcessCommandList,
+                               reinterpret_cast<void **>(&video));
+    if (SUCCEEDED(hr) && video) {
+      hr = video->Close();
+      video->Release();
+    }
+  } else {
+    ID3D12GraphicsCommandList *graphics = nullptr;
+    hr = base->QueryInterface(IID_ID3D12GraphicsCommandList,
+                               reinterpret_cast<void **>(&graphics));
+    if (SUCCEEDED(hr) && graphics) {
+      hr = graphics->Close();
+      graphics->Release();
+    }
+  }
+  if (FAILED(hr)) {
+    base->Release();
+    return hr;
+  }
+  hr = base->QueryInterface(riid, command_list);
+  base->Release();
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateProtectedResourceSession(
@@ -10452,6 +10621,45 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandQueue1(
 }
 
 /*** ID3D12Device10 ***/
+static bool IsValidBarrierLayout(D3D12_BARRIER_LAYOUT layout) {
+  switch (layout) {
+  case D3D12_BARRIER_LAYOUT_COMMON:
+  case D3D12_BARRIER_LAYOUT_GENERIC_READ:
+  case D3D12_BARRIER_LAYOUT_RENDER_TARGET:
+  case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS:
+  case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE:
+  case D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_READ:
+  case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE:
+  case D3D12_BARRIER_LAYOUT_COPY_SOURCE:
+  case D3D12_BARRIER_LAYOUT_COPY_DEST:
+  case D3D12_BARRIER_LAYOUT_RESOLVE_SOURCE:
+  case D3D12_BARRIER_LAYOUT_RESOLVE_DEST:
+  case D3D12_BARRIER_LAYOUT_SHADING_RATE_SOURCE:
+  case D3D12_BARRIER_LAYOUT_VIDEO_DECODE_READ:
+  case D3D12_BARRIER_LAYOUT_VIDEO_DECODE_WRITE:
+  case D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_READ:
+  case D3D12_BARRIER_LAYOUT_VIDEO_PROCESS_WRITE:
+  case D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_READ:
+  case D3D12_BARRIER_LAYOUT_VIDEO_ENCODE_WRITE:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE:
+  case D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE:
+  case D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST:
+  case static_cast<D3D12_BARRIER_LAYOUT>(31):
+    return true;
+  default:
+    return false;
+  }
+}
+
 static D3D12_RESOURCE_STATES
 ResourceStateForBarrierLayout(D3D12_BARRIER_LAYOUT layout) {
   switch (layout) {
@@ -10541,7 +10749,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource3(
   if (!resource)
     return E_POINTER;
   *resource = nullptr;
-  if (!ValidateCastableFormats(desc, castable_formats_count,
+  if (!IsValidBarrierLayout(initial_layout) ||
+      !ValidateCastableFormats(desc, castable_formats_count,
                                castable_formats)) {
     TRACE("ID3D12Device10::CreateCommittedResource3 rejected invalid "
           "castable-format list count=%u",
@@ -10568,7 +10777,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource2(
     const D3D12_CLEAR_VALUE *optimized_clear_value,
     UINT32 castable_formats_count, DXGI_FORMAT *castable_formats, REFIID riid,
     void **resource) {
-  if (!ValidateCastableFormats(desc, castable_formats_count,
+  if (!IsValidBarrierLayout(initial_layout) ||
+      !ValidateCastableFormats(desc, castable_formats_count,
                                castable_formats)) {
     TRACE("ID3D12Device10::CreatePlacedResource2 rejected invalid "
           "castable-format list count=%u",
@@ -10596,6 +10806,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateReservedResource2(
     void **resource) {
   TRACE("ID3D12Device10::CreateReservedResource2 protected=%p castable=%u",
         (void *)protected_session, castable_formats_count);
+  if (!IsValidBarrierLayout(initial_layout))
+    return E_INVALIDARG;
   if (protected_session &&
       !ProtectedSessionBelongsToDevice(this, protected_session))
     return E_INVALIDARG;

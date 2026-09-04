@@ -1723,6 +1723,78 @@ MTLD3D12Resource::Map(UINT sub_resource,
     RTRACE("Map returning cpu_addr=%p gpu_addr=0x%llx", m_cpu_addr, (unsigned long long)m_gpu_addr);
     return S_OK;
   }
+  if (!IsBuffer() && IsCPUAccessibleHeap(m_heap_properties) &&
+      !m_is_reserved && m_mtl_texture.handle && m_desc.SampleDesc.Count == 1) {
+    const UINT map_mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+    const UINT map_array_size = m_desc.Dimension ==
+                                        D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                                    ? 1
+                                    : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+    const UINT map_subresource_count = map_mip_levels * map_array_size;
+    if (m_cpu_texture_subresource_offsets.empty()) {
+      uint64_t total_bytes = 0;
+      try {
+        m_cpu_texture_subresource_offsets.resize(map_subresource_count);
+        m_cpu_texture_row_pitches.resize(map_subresource_count);
+        m_cpu_texture_slice_pitches.resize(map_subresource_count);
+      } catch (const std::bad_alloc &) {
+        return E_OUTOFMEMORY;
+      }
+      for (UINT index = 0; index < map_subresource_count; ++index) {
+        UINT layout_mip = 0;
+        UINT layout_slice = 0;
+        UINT layout_plane = 0;
+        DXGI_FORMAT layout_format = DXGI_FORMAT_UNKNOWN;
+        WMTOrigin layout_origin = {};
+        WMTSize layout_size = {};
+        if (!ResolveSubresourceRegion(m_desc, index, nullptr, layout_mip,
+                                      layout_slice, layout_plane, layout_format,
+                                      layout_origin, layout_size))
+          return E_INVALIDARG;
+        const uint64_t row_bytes = PackedTextureRowBytes(
+            layout_format, layout_size.width);
+        const uint32_t rows = PackedTextureRowCount(layout_format,
+                                                    layout_size.height);
+        const uint64_t slice_bytes = row_bytes * rows;
+        const uint64_t bytes = slice_bytes * layout_size.depth;
+        if (!row_bytes || !rows || row_bytes > UINT32_MAX ||
+            slice_bytes > UINT32_MAX || bytes > SIZE_MAX ||
+            total_bytes > UINT64_MAX - bytes)
+          return E_OUTOFMEMORY;
+        m_cpu_texture_subresource_offsets[index] = total_bytes;
+        m_cpu_texture_row_pitches[index] = static_cast<uint32_t>(row_bytes);
+        m_cpu_texture_slice_pitches[index] = static_cast<uint32_t>(slice_bytes);
+        total_bytes += bytes;
+      }
+      if (!total_bytes || total_bytes > SIZE_MAX)
+        return E_OUTOFMEMORY;
+      try {
+        m_cpu_texture_shadow.resize(static_cast<size_t>(total_bytes));
+      } catch (const std::bad_alloc &) {
+        return E_OUTOFMEMORY;
+      }
+    }
+    if (sub_resource >= m_cpu_texture_subresource_offsets.size())
+      return E_INVALIDARG;
+    const uint64_t offset = m_cpu_texture_subresource_offsets[sub_resource];
+    const UINT row_pitch = m_cpu_texture_row_pitches[sub_resource];
+    const UINT slice_pitch = m_cpu_texture_slice_pitches[sub_resource];
+    const uint64_t next_offset = sub_resource + 1 <
+                                         m_cpu_texture_subresource_offsets.size()
+                                     ? m_cpu_texture_subresource_offsets[sub_resource + 1]
+                                     : m_cpu_texture_shadow.size();
+    if (offset > next_offset || next_offset > m_cpu_texture_shadow.size())
+      return E_INVALIDARG;
+    HRESULT read_hr = ReadFromSubresource(
+        m_cpu_texture_shadow.data() + offset, row_pitch, slice_pitch,
+        sub_resource, nullptr);
+    if (FAILED(read_hr))
+      return read_hr;
+    m_mapped_texture_subresource = sub_resource;
+    m_texture_shadow_initialized = true;
+    *data = m_cpu_texture_shadow.data() + offset;
+    return S_OK;
+  }
   RTRACE("Map FAILED - no cpu_addr");
   return E_FAIL;
 }
@@ -1742,6 +1814,19 @@ void STDMETHODCALLTYPE MTLD3D12Resource::TrackWrite(
 void STDMETHODCALLTYPE MTLD3D12Resource::Unmap(
     UINT sub_resource, const D3D12_RANGE *written_range) {
   RTRACE("Unmap sub=%u written_range=%p", sub_resource, written_range);
+  if (m_mapped_texture_subresource != UINT_MAX) {
+    if (sub_resource == m_mapped_texture_subresource &&
+        sub_resource < m_cpu_texture_subresource_offsets.size()) {
+      const uint64_t offset = m_cpu_texture_subresource_offsets[sub_resource];
+      const UINT row_pitch = m_cpu_texture_row_pitches[sub_resource];
+      const UINT slice_pitch = m_cpu_texture_slice_pitches[sub_resource];
+      WriteToSubresource(sub_resource, nullptr,
+                         m_cpu_texture_shadow.data() + offset, row_pitch,
+                         slice_pitch);
+    }
+    m_mapped_texture_subresource = UINT_MAX;
+    return;
+  }
   if (!m_cpu_addr || !m_mtl_buffer.handle ||
       m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
     return;

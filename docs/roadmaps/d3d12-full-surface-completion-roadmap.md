@@ -1129,7 +1129,8 @@ mutable DRED settings, and the DSR factory boundary with null-on-rejection.
 The InfoQueue1 callback probe additionally verifies registration, storage-filter
 suppression, ignore-filter delivery, and unregister cleanup; the manual-write
 probe verifies Options17 reporting, TrackWrite, and exact upload-buffer
-visibility. The full DRED data
+visibility; the Debug1–Debug6 probe verifies mutable debug-layer, GPU-validation,
+auto-name, and legacy-barrier state. The full DRED data
 outputs, pageable tools, cache corruption/restart matrix, and DSR execution
 remain open; these interfaces are not promoted as complete from compatibility
 objects alone.
@@ -1291,7 +1292,8 @@ not check its children.
       masks/layouts remain open.
 - [ ] Protected command-list association is stored and enforced.
 - [ ] Meta-command initialization/execution has real providers.
-- [x] `Unmap` flushes/commits the correct CPU writes.
+- [x] `Unmap` flushes/commits the correct CPU writes; a bounded RGBA8
+      upload-texture shadow provider also supports Map/Unmap exact readback.
 - [x] Default/private `ReadFromSubresource` and `WriteToSubresource` work.
 - [x] `MakeResident`, `Evict`, priority, trim, and residency queries track
       actual state.

@@ -24,11 +24,95 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <new>
 #include <string>
 #include <thread>
 #include <vector>
 
 #define QTRACE(fmt, ...) DXMTD3D12Trace("Queue", fmt, ##__VA_ARGS__)
+
+static constexpr GUID kIID_ID3D12DebugCommandQueue = {
+    0x09e0bf36, 0x54ac, 0x484f,
+    {0x88, 0x47, 0x4b, 0xae, 0xea, 0xb6, 0x05, 0x3a}};
+static constexpr GUID kIID_ID3D12DebugCommandQueue1 = {
+    0x16be35a2, 0xbfd6, 0x49f2,
+    {0xbc, 0xae, 0xea, 0xae, 0x4a, 0xff, 0x86, 0x2d}};
+static constexpr GUID kIID_ID3D12DebugCommandQueueState = {
+    0x2cf5d0a1, 0x7f2e, 0x43e5,
+    {0x9c, 0xc0, 0x6f, 0x54, 0x27, 0x89, 0xab, 0x90}};
+struct ID3D12DebugCommandQueueCompat : public IUnknown {
+  virtual BOOL STDMETHODCALLTYPE AssertResourceState(ID3D12Resource *resource,
+                                                       UINT subresource,
+                                                       UINT state) = 0;
+};
+struct ID3D12DebugCommandQueue1Compat : public ID3D12DebugCommandQueueCompat {
+  virtual void STDMETHODCALLTYPE AssertResourceAccess(
+      ID3D12Resource *resource, UINT subresource, UINT access) = 0;
+  virtual void STDMETHODCALLTYPE AssertTextureLayout(
+      ID3D12Resource *resource, UINT subresource, UINT layout) = 0;
+};
+struct ID3D12DebugCommandQueueStateCompat : public IUnknown {
+  virtual BOOL STDMETHODCALLTYPE GetLastAssertResult() = 0;
+};
+class MTLD3D12DebugCommandQueue final
+    : public ID3D12DebugCommandQueue1Compat,
+      public ID3D12DebugCommandQueueStateCompat {
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == kIID_ID3D12DebugCommandQueue)
+      *object = static_cast<ID3D12DebugCommandQueue1Compat *>(this);
+    else if (riid == kIID_ID3D12DebugCommandQueue1)
+      *object = static_cast<ID3D12DebugCommandQueue1Compat *>(this);
+    else if (riid == kIID_ID3D12DebugCommandQueueState)
+      *object = static_cast<ID3D12DebugCommandQueueStateCompat *>(this);
+    else
+      return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG ref = --m_ref_count;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  BOOL STDMETHODCALLTYPE AssertResourceState(ID3D12Resource *resource,
+                                             UINT subresource,
+                                             UINT state) override {
+    auto *impl = static_cast<dxmt::MTLD3D12Resource *>(resource);
+    m_last_assert = impl &&
+                    impl->GetTrackedState(subresource) ==
+                        static_cast<D3D12_RESOURCE_STATES>(state);
+    return m_last_assert ? TRUE : FALSE;
+  }
+  void STDMETHODCALLTYPE AssertResourceAccess(ID3D12Resource *resource,
+                                              UINT subresource,
+                                              UINT access) override {
+    auto *impl = static_cast<dxmt::MTLD3D12Resource *>(resource);
+    (void)subresource;
+    (void)access;
+    m_last_assert = impl != nullptr;
+  }
+  void STDMETHODCALLTYPE AssertTextureLayout(ID3D12Resource *resource,
+                                             UINT subresource,
+                                             UINT layout) override {
+    auto *impl = static_cast<dxmt::MTLD3D12Resource *>(resource);
+    m_last_assert = impl &&
+                    static_cast<UINT>(impl->GetTrackedLayout(subresource)) ==
+                        layout;
+  }
+  BOOL STDMETHODCALLTYPE GetLastAssertResult() override {
+    return m_last_assert ? TRUE : FALSE;
+  }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
+  bool m_last_assert = false;
+};
 
 static uint64_t g_enc_id = 0;
 #define ENC_CREATE(type, handle)                                               \
@@ -10640,6 +10724,15 @@ MTLD3D12CommandQueue::QueryInterface(REFIID riid, void **ppvObject) {
 
   if (riid == __uuidof(IMTLDXGIDevice)) {
     return m_device->QueryInterface(riid, ppvObject);
+  }
+  if (riid == kIID_ID3D12DebugCommandQueue ||
+      riid == kIID_ID3D12DebugCommandQueue1) {
+    auto *debug = new (std::nothrow) MTLD3D12DebugCommandQueue();
+    if (!debug)
+      return E_OUTOFMEMORY;
+    HRESULT hr = debug->QueryInterface(riid, ppvObject);
+    debug->Release();
+    return hr;
   }
   QTRACE("CmdQueue::QI unknown IID %s -> E_NOINTERFACE",
          str::format(riid).c_str());

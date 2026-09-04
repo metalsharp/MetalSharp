@@ -539,6 +539,12 @@ private:
   std::vector<uint8_t> m_stencil_shadow;
   std::vector<uint8_t> m_planar_shadow;
   std::vector<uint8_t> m_packed_shadow;
+  std::vector<uint8_t> m_cpu_texture_shadow;
+  std::vector<uint64_t> m_cpu_texture_subresource_offsets;
+  std::vector<uint32_t> m_cpu_texture_row_pitches;
+  std::vector<uint32_t> m_cpu_texture_slice_pitches;
+  UINT m_mapped_texture_subresource = UINT_MAX;
+  bool m_texture_shadow_initialized = false;
   uint64_t m_gpu_addr = 0;
   std::atomic<uint32_t> m_refCount = {1ul};
   std::atomic<uint32_t> m_refPrivate = {1ul};

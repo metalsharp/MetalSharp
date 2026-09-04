@@ -19,9 +19,36 @@
         ["tools_blob_size", 8],
         ["tools_blob_status", 4],
         ["dred_settings_qi", "0x00000000"],
-        ["settings_state_mutated", true]
+        ["settings_state_mutated", true],
+        ["dred_data", "0x00000000"],
+        ["dred_data_ok", true],
+        ["dred_data1", "0x00000000"],
+        ["dred_data2", "0x00000000"]
       ],
-      "remaining": "The probe verifies state-statistics output, a serialized tool allocation-state blob, tool status, and mutable DRED settings. Full DRED breadcrumb/page-fault output, debugger callbacks, pageable allocation tools, cache diagnostics, and cross-process corruption/restart evidence remain open."
+      "remaining": "The probe verifies state-statistics output, a serialized tool allocation-state blob, tool status, mutable DRED settings, and zero-fault DRED data output across DRED 1.0–1.2 interfaces. Populated fault breadcrumb/page-fault output, debugger callbacks, pageable allocation tools, cache diagnostics, and cross-process corruption/restart evidence remain open."
+    },
+    {
+      "id": "debug-interface-state-provider",
+      "status": "limited",
+      "result": "probe-debug-interfaces",
+      "checks": [
+        ["pass"],
+        ["null_output", "0x80004003"],
+        ["debug6", "0x00000000"],
+        ["state", "0x00000000"],
+        ["state_roundtrip", true],
+        ["disabled_roundtrip", true],
+        ["debug1", "0x00000000"],
+        ["debug2", "0x00000000"],
+        ["debug_device", "0x00000000"],
+        ["debug_parameter", "0x00000000"],
+        ["debug_parameter_exact", true],
+        ["debug_command_queue", "0x00000000"],
+        ["debug_resource_state", true],
+        ["debug_command_list", "0x00000000"],
+        ["debug_command_list_state", true]
+      ],
+      "remaining": "Debug1 through Debug6 enablement and state transitions plus bounded debug-device, command-queue, and command-list resource-state assertions are behavior-backed compatibility controls. GPU-based validation instrumentation and live DRED data remain open."
     },
     {
       "id": "sharing-contract-fence-and-capturable-work-provider",
