@@ -1080,9 +1080,10 @@ real alternate provider or host target, not `E_NOTIMPL` hidden behind a report.
   CoreWindow, composition, and `GetCoreWindow` behavior.
 
 **Bounded checkpoint (not the exit gate):** The source-staged DXGI probe now
-covers `DuplicateOutput`/`AcquireNextFrame` with a GPU desktop resource, exact
-full-frame dirty-rectangle sizing, and release ordering. It also creates a
-composition swapchain and verifies its descriptor/backbuffer, and maps a
+covers `DuplicateOutput`/`AcquireNextFrame` with a GPU desktop resource, an
+exact CPU `MapDesktopSurface`/`UnMapDesktopSurface` readback, full-frame
+dirty-rectangle sizing, one-frame timeout behavior, and release ordering. It
+also creates a composition swapchain and verifies its descriptor/backbuffer, and maps a
 surface through a DIB-backed `GetDC`/`ReleaseDC` round trip. The swapchain mini
 probe verifies background-color and matrix state round trips,
 rotation, HDR metadata reset, and the CoreWindow null-output validation.
@@ -1125,9 +1126,11 @@ path.
 **Bounded checkpoint (not the exit gate):** `probe-diagnostics` verifies
 state-object statistics, a serialized device-tools allocation-state blob,
 mutable DRED settings, and the DSR factory boundary with null-on-rejection.
-The full DRED data outputs, pageable tools, cache corruption/restart matrix,
-and DSR execution remain open; these interfaces are not promoted as complete
-from compatibility objects alone.
+The InfoQueue1 callback probe additionally verifies registration, storage-filter
+suppression, ignore-filter delivery, and unregister cleanup. The full DRED data
+outputs, pageable tools, cache corruption/restart matrix, and DSR execution
+remain open; these interfaces are not promoted as complete from compatibility
+objects alone.
 
 **Exit gate:**
 
@@ -1271,7 +1274,11 @@ not check its children.
 ### 5.1 Command and resource semantics
 
 - [ ] `SOSetTargets` records state and captures stream output.
-- [ ] `DiscardResource` has D3D12-correct discard/undefined-content semantics.
+- [x] Bounded texture `ClearUnorderedAccessView` handles RGBA8 full/rectangular
+      views, including GPU-only resources.
+- [x] Bounded RGBA8 `DiscardResource` rectangles zero only the requested
+      texture region; broader compressed/planar/depth and undefined-content
+      matrices remain open.
 - [ ] `SetPredication` controls every applicable command.
 - [x] Command-list markers/events and queue markers/events reach the provider.
 - [ ] `AtomicCopyBufferUINT` is atomic and honors dependent ranges.

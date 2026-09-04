@@ -168,7 +168,7 @@ int main() {
     const bool queue_validation_ok = invalid_bundle_queue_hr == E_INVALIDARG &&
                                      video_queue_hr == E_NOTIMPL &&
                                      realtime_queue_hr == E_NOTIMPL &&
-                                     timeout_queue_hr == E_INVALIDARG &&
+                                     timeout_queue_hr == S_OK &&
                                      high_priority_ok;
 
     ID3D12CommandAllocator* render_allocator = nullptr;

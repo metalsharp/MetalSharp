@@ -2113,6 +2113,105 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
   return S_OK;
 }
 
+HRESULT MTLD3D12Resource::DiscardContents(UINT first_subresource,
+                                          UINT subresource_count,
+                                          UINT rect_count,
+                                          const RECT *rects) {
+  if (IsBuffer() || !m_mtl_texture.handle ||
+      (rect_count && !rects) || rect_count > 256)
+    return E_INVALIDARG;
+  const UINT mip_levels = std::max<UINT>(m_desc.MipLevels, 1);
+  const UINT array_size = m_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                              ? 1
+                              : std::max<UINT>(m_desc.DepthOrArraySize, 1);
+  const uint64_t total_subresources =
+      uint64_t(mip_levels) * array_size * ResourcePlaneCount(m_desc.Format);
+  if (first_subresource > total_subresources)
+    return E_INVALIDARG;
+  if (subresource_count == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+    subresource_count = static_cast<UINT>(total_subresources - first_subresource);
+  if (uint64_t(subresource_count) > total_subresources - first_subresource)
+    return E_INVALIDARG;
+  for (UINT subresource = first_subresource;
+       subresource < first_subresource + subresource_count; ++subresource) {
+    UINT mip = 0;
+    UINT slice = 0;
+    UINT plane = 0;
+    DXGI_FORMAT plane_format = DXGI_FORMAT_UNKNOWN;
+    WMTOrigin origin = {};
+    WMTSize size = {};
+    if (!ResolveSubresourceRegion(m_desc, subresource, nullptr, mip, slice,
+                                   plane, plane_format, origin, size))
+      return E_INVALIDARG;
+    const uint64_t full_row_bytes = PackedTextureRowBytes(plane_format, size.width);
+    const uint32_t full_rows = PackedTextureRowCount(plane_format, size.height);
+    if (!full_row_bytes || !full_rows || size.depth == 0)
+      return E_INVALIDARG;
+    if (!rect_count) {
+      const uint64_t image_bytes = full_row_bytes * full_rows;
+      const uint64_t total_bytes = image_bytes * size.depth;
+      if (full_row_bytes > UINT32_MAX || image_bytes > UINT32_MAX ||
+          total_bytes > SIZE_MAX)
+        return E_OUTOFMEMORY;
+      std::vector<uint8_t> zeros;
+      try {
+        zeros.assign(static_cast<size_t>(total_bytes), 0);
+      } catch (const std::bad_alloc &) {
+        return E_OUTOFMEMORY;
+      }
+      HRESULT hr = WriteToSubresource(
+          subresource, nullptr, zeros.data(), static_cast<UINT>(full_row_bytes),
+          static_cast<UINT>(image_bytes));
+      if (FAILED(hr))
+        return hr;
+      continue;
+    }
+    if (IsBlockCompressedFormat(plane_format))
+      return E_NOTIMPL;
+    const uint64_t image_bytes = full_row_bytes * full_rows;
+    const uint64_t total_bytes = image_bytes * size.depth;
+    if (image_bytes > UINT32_MAX || total_bytes > SIZE_MAX)
+      return E_OUTOFMEMORY;
+    std::vector<uint8_t> pixels;
+    try {
+      pixels.resize(static_cast<size_t>(total_bytes));
+    } catch (const std::bad_alloc &) {
+      return E_OUTOFMEMORY;
+    }
+    HRESULT hr = ReadFromSubresource(
+        pixels.data(), static_cast<UINT>(full_row_bytes),
+        static_cast<UINT>(image_bytes), subresource, nullptr);
+    if (FAILED(hr))
+      return hr;
+    for (UINT rect_index = 0; rect_index < rect_count; ++rect_index) {
+      const RECT &rect = rects[rect_index];
+      if (rect.left < 0 || rect.top < 0 || rect.right <= rect.left ||
+          rect.bottom <= rect.top || static_cast<UINT>(rect.right) > size.width ||
+          static_cast<UINT>(rect.bottom) > size.height)
+        return E_INVALIDARG;
+      const uint64_t left_byte = PackedTextureRowBytes(
+          plane_format, static_cast<UINT>(rect.left));
+      const uint64_t right_byte = PackedTextureRowBytes(
+          plane_format, static_cast<UINT>(rect.right));
+      if (left_byte >= right_byte || right_byte > full_row_bytes)
+        return E_INVALIDARG;
+      for (uint64_t z = 0; z < size.depth; ++z) {
+        for (UINT y = static_cast<UINT>(rect.top);
+             y < static_cast<UINT>(rect.bottom); ++y) {
+          auto *row = pixels.data() + z * image_bytes +
+                      uint64_t(y) * full_row_bytes;
+          std::memset(row + left_byte, 0,
+                      static_cast<size_t>(right_byte - left_byte));
+        }
+      }
+    }
+    return WriteToSubresource(
+        subresource, nullptr, pixels.data(), static_cast<UINT>(full_row_bytes),
+        static_cast<UINT>(image_bytes));
+  }
+  return S_OK;
+}
+
 HRESULT MTLD3D12Resource::CreateSubresourceSurface(
     UINT subresource, IDXGISurface2 **surface) {
   if (!surface)

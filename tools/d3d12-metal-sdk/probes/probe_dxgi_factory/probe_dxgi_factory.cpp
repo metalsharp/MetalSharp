@@ -199,6 +199,9 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     HRESULT duplicate_output_hr = E_FAIL;
     HRESULT duplicate_desc_hr = E_FAIL;
     HRESULT acquire_frame_hr = E_FAIL;
+    HRESULT map_desktop_hr = E_FAIL;
+    HRESULT unmap_desktop_hr = E_FAIL;
+    UINT desktop_map_pixel = 0xffffffffu;
     UINT dirty_rect_bytes = 0;
     HRESULT dirty_rect_query_hr = E_FAIL;
     RECT dirty_rect = {};
@@ -263,6 +266,15 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
         duplicate_desc_hr = S_OK;
         acquire_frame_hr = duplication->AcquireNextFrame(
             0, &duplication_frame, &duplicated_resource);
+        if (SUCCEEDED(acquire_frame_hr)) {
+            DXGI_MAPPED_RECT desktop_map = {};
+            map_desktop_hr = duplication->MapDesktopSurface(&desktop_map);
+            if (SUCCEEDED(map_desktop_hr) && desktop_map.pBits)
+                std::memcpy(&desktop_map_pixel, desktop_map.pBits,
+                            sizeof(desktop_map_pixel));
+            if (SUCCEEDED(map_desktop_hr))
+                unmap_desktop_hr = duplication->UnMapDesktopSurface();
+        }
         dirty_rect_query_hr = duplication->GetFrameDirtyRects(
             0, nullptr, &dirty_rect_bytes);
         if (dirty_rect_bytes <= sizeof(dirty_rect))
@@ -433,6 +445,7 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
         SUCCEEDED(create_copy_surface_hr) && SUCCEEDED(source_map_hr) && SUCCEEDED(source_unmap_hr) &&
         SUCCEEDED(surface_get_dc_hr) && surface_dc != nullptr &&
         SUCCEEDED(surface_release_dc_hr) &&
+        SUCCEEDED(map_desktop_hr) && SUCCEEDED(unmap_desktop_hr) &&
         acquire_frame_again_hr == HRESULT_FROM_WIN32(WAIT_TIMEOUT) &&
         SUCCEEDED(take_ownership_hr) &&
         SUCCEEDED(set_display_surface_hr) &&
@@ -475,6 +488,10 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     print_hr("DuplicateOutput_GetFrameDirtyRects", dirty_rect_hr);
     print_hr("DuplicateOutput_ReleaseFrame", release_frame_hr);
     print_hr("DuplicateOutput_AcquireNextFrame_again", acquire_frame_again_hr);
+    print_hr("DuplicateOutput_MapDesktopSurface", map_desktop_hr);
+    print_hr("DuplicateOutput_UnMapDesktopSurface", unmap_desktop_hr);
+    std::printf("    \"duplicate_desktop_map_pixel\": \"0x%08x\",\n",
+                desktop_map_pixel);
     std::printf("    \"factory_versions_supported\": %s,\n", factory_versions_supported ? "true" : "false");
     std::printf("    \"adapter_stable\": %s,\n", adapter_stable ? "true" : "false");
     std::printf("    \"description\": \"%s\",\n", json_escape(wide_to_utf8(desc.Description)).c_str());

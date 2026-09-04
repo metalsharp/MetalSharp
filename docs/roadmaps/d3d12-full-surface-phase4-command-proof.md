@@ -158,7 +158,7 @@ The isolated source-staged command probe passed with these behavior checks, incl
     "invalid_bundle": "0x80070057",
     "video_queue": "0x80004001",
     "global_realtime_queue": "0x80004001",
-    "disable_gpu_timeout": "0x80070057",
+    "disable_gpu_timeout": "0x00000000",
     "clock_calibration_verified": true,
     "enqueue_event_signaled_after_all_queues": true
   },

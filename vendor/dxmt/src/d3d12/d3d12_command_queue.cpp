@@ -506,6 +506,115 @@ static uint32_t FormatByteSize(DXGI_FORMAT format) {
   }
 }
 
+static bool ClearTextureUAV(MTLD3D12Resource *resource,
+                            const D3D12Descriptor *descriptor,
+                            const uint32_t values[4], uint32_t rect_count,
+                            const RECT *rects) {
+  if (!resource || resource->IsBuffer() || !resource->GetMTLTexture().handle ||
+      !values || rect_count > 256 || (rect_count && !rects))
+    return false;
+  D3D12_RESOURCE_DESC resource_desc = {};
+  resource->GetDesc(&resource_desc);
+  DXGI_FORMAT format = descriptor && descriptor->uav.Format != DXGI_FORMAT_UNKNOWN
+                           ? descriptor->uav.Format
+                           : resource_desc.Format;
+  const uint32_t bytes_per_pixel = FormatByteSize(format);
+  if (!bytes_per_pixel || bytes_per_pixel > 16)
+    return false;
+  UINT mip = 0;
+  UINT first_slice = 0;
+  UINT slice_count = 1;
+  if (descriptor && descriptor->uav.ViewDimension != D3D12_UAV_DIMENSION_UNKNOWN) {
+    switch (descriptor->uav.ViewDimension) {
+    case D3D12_UAV_DIMENSION_TEXTURE1D:
+      mip = descriptor->uav.Texture1D.MipSlice;
+      break;
+    case D3D12_UAV_DIMENSION_TEXTURE1DARRAY:
+      mip = descriptor->uav.Texture1DArray.MipSlice;
+      first_slice = descriptor->uav.Texture1DArray.FirstArraySlice;
+      slice_count = descriptor->uav.Texture1DArray.ArraySize;
+      break;
+    case D3D12_UAV_DIMENSION_TEXTURE2D:
+      mip = descriptor->uav.Texture2D.MipSlice;
+      break;
+    case D3D12_UAV_DIMENSION_TEXTURE2DARRAY:
+      mip = descriptor->uav.Texture2DArray.MipSlice;
+      first_slice = descriptor->uav.Texture2DArray.FirstArraySlice;
+      slice_count = descriptor->uav.Texture2DArray.ArraySize;
+      break;
+    case D3D12_UAV_DIMENSION_TEXTURE3D:
+      mip = descriptor->uav.Texture3D.MipSlice;
+      first_slice = descriptor->uav.Texture3D.FirstWSlice;
+      slice_count = descriptor->uav.Texture3D.WSize;
+      break;
+    default:
+      return false;
+    }
+  }
+  const UINT mip_levels = std::max<UINT>(resource_desc.MipLevels, 1);
+  const UINT array_size = resource_desc.Dimension ==
+                                  D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                              ? 1
+                              : std::max<UINT>(resource_desc.DepthOrArraySize, 1);
+  if (mip >= mip_levels || first_slice >= array_size || !slice_count ||
+      slice_count > array_size - first_slice ||
+      (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
+           ? (first_slice + slice_count >
+              std::max<UINT>(1, static_cast<UINT>(resource_desc.DepthOrArraySize >> mip)))
+           : false))
+    return false;
+  const uint64_t width64 = std::max<uint64_t>(1, resource_desc.Width >> mip);
+  const uint64_t height64 = resource_desc.Dimension ==
+                                    D3D12_RESOURCE_DIMENSION_TEXTURE1D
+                                ? 1
+                                : std::max<uint64_t>(1, resource_desc.Height >> mip);
+  const uint64_t row_bytes = width64 * bytes_per_pixel;
+  const uint64_t slice_bytes = row_bytes * height64;
+  if (width64 > UINT32_MAX || row_bytes > UINT32_MAX ||
+      slice_bytes > UINT32_MAX || slice_bytes > SIZE_MAX)
+    return false;
+  std::array<uint8_t, 16> pattern = {};
+  std::memcpy(pattern.data(), values, pattern.size());
+  std::vector<uint8_t> pixels;
+  try {
+    pixels.resize(static_cast<size_t>(slice_bytes));
+  } catch (const std::bad_alloc &) {
+    return false;
+  }
+  for (UINT slice = 0; slice < slice_count; ++slice) {
+    const UINT subresource = mip + (first_slice + slice) * mip_levels;
+    if (rect_count) {
+      if (FAILED(resource->ReadFromSubresource(
+              pixels.data(), static_cast<UINT>(row_bytes),
+              static_cast<UINT>(slice_bytes), subresource, nullptr)))
+        return false;
+      for (uint32_t rect_index = 0; rect_index < rect_count; ++rect_index) {
+        const RECT &rect = rects[rect_index];
+        if (rect.left < 0 || rect.top < 0 || rect.right <= rect.left ||
+            rect.bottom <= rect.top ||
+            static_cast<uint64_t>(rect.right) > width64 ||
+            static_cast<uint64_t>(rect.bottom) > height64)
+          return false;
+        const uint64_t left_byte = uint64_t(rect.left) * bytes_per_pixel;
+        const uint64_t right_byte = uint64_t(rect.right) * bytes_per_pixel;
+        for (LONG y = rect.top; y < rect.bottom; ++y)
+          for (uint64_t offset = left_byte; offset < right_byte;
+               offset += bytes_per_pixel)
+            std::memcpy(pixels.data() + uint64_t(y) * row_bytes + offset,
+                        pattern.data(), bytes_per_pixel);
+      }
+    } else {
+      for (uint64_t offset = 0; offset < slice_bytes; offset += bytes_per_pixel)
+        std::memcpy(pixels.data() + offset, pattern.data(), bytes_per_pixel);
+    }
+    if (FAILED(resource->WriteToSubresource(
+            subresource, nullptr, pixels.data(), static_cast<UINT>(row_bytes),
+            static_cast<UINT>(slice_bytes))))
+      return false;
+  }
+  return true;
+}
+
 static uint64_t SRVBufferByteLength(const D3D12Descriptor *desc,
                                     const MTLD3D12Resource *res) {
   if (!desc)
@@ -977,6 +1086,96 @@ static uint16_t RTVArrayLength(const D3D12Descriptor *desc) {
   default:
     return 1;
   }
+}
+
+static bool ClearRenderTargetRectangles(
+    MTLD3D12Resource *resource, const D3D12Descriptor *descriptor,
+    const float color[4], uint32_t rect_count, const RECT *rects) {
+  if (!resource || resource->IsBuffer() || !resource->GetMTLTexture().handle ||
+      !color || !rect_count || !rects || rect_count > 256)
+    return false;
+  D3D12_RESOURCE_DESC resource_desc = {};
+  resource->GetDesc(&resource_desc);
+  DXGI_FORMAT format = descriptor && descriptor->rtv.Format != DXGI_FORMAT_UNKNOWN
+                           ? descriptor->rtv.Format
+                           : resource_desc.Format;
+  if (format != DXGI_FORMAT_R8G8B8A8_UNORM &&
+      format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB &&
+      format != DXGI_FORMAT_B8G8R8A8_UNORM &&
+      format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+    return false;
+  const UINT mip = RTVMipLevel(descriptor);
+  const UINT first_slice = RTVArraySlice(descriptor);
+  const UINT slice_count = RTVArrayLength(descriptor);
+  const UINT mip_levels = std::max<UINT>(resource_desc.MipLevels, 1);
+  const UINT array_size = resource_desc.Dimension ==
+                                  D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                              ? 1
+                              : std::max<UINT>(resource_desc.DepthOrArraySize, 1);
+  if (mip >= mip_levels || first_slice >= array_size || !slice_count ||
+      slice_count > array_size - first_slice)
+    return false;
+  const uint64_t width = std::max<uint64_t>(1, resource_desc.Width >> mip);
+  const uint64_t height = resource_desc.Dimension ==
+                                  D3D12_RESOURCE_DIMENSION_TEXTURE1D
+                              ? 1
+                              : std::max<uint64_t>(1, resource_desc.Height >> mip);
+  const uint64_t row_bytes = width * 4u;
+  const uint64_t image_bytes = row_bytes * height;
+  if (width > UINT32_MAX || row_bytes > UINT32_MAX || image_bytes > UINT32_MAX ||
+      image_bytes > SIZE_MAX)
+    return false;
+  std::array<uint8_t, 4> pixel = {};
+  auto to_unorm = [](float value) -> uint8_t {
+    if (!(value > 0.0f))
+      return 0;
+    if (value >= 1.0f)
+      return 255;
+    return static_cast<uint8_t>(std::lround(value * 255.0f));
+  };
+  pixel[0] = to_unorm(color[0]);
+  pixel[1] = to_unorm(color[1]);
+  pixel[2] = to_unorm(color[2]);
+  pixel[3] = to_unorm(color[3]);
+  std::vector<uint8_t> contents;
+  try {
+    contents.resize(static_cast<size_t>(image_bytes));
+  } catch (const std::bad_alloc &) {
+    return false;
+  }
+  for (UINT slice = 0; slice < slice_count; ++slice) {
+    const UINT subresource = mip + (first_slice + slice) * mip_levels;
+    if (FAILED(resource->ReadFromSubresource(
+            contents.data(), static_cast<UINT>(row_bytes),
+            static_cast<UINT>(image_bytes), subresource, nullptr)))
+      return false;
+    for (uint32_t rect_index = 0; rect_index < rect_count; ++rect_index) {
+      const RECT &rect = rects[rect_index];
+      if (rect.left < 0 || rect.top < 0 || rect.right <= rect.left ||
+          rect.bottom <= rect.top || static_cast<uint64_t>(rect.right) > width ||
+          static_cast<uint64_t>(rect.bottom) > height)
+        return false;
+      for (LONG y = rect.top; y < rect.bottom; ++y)
+        for (LONG x = rect.left; x < rect.right; ++x) {
+          auto *destination = contents.data() + uint64_t(y) * row_bytes +
+                              uint64_t(x) * 4u;
+          if (format == DXGI_FORMAT_B8G8R8A8_UNORM ||
+              format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB) {
+            destination[0] = pixel[2];
+            destination[1] = pixel[1];
+            destination[2] = pixel[0];
+            destination[3] = pixel[3];
+          } else {
+            std::memcpy(destination, pixel.data(), pixel.size());
+          }
+        }
+    }
+    if (FAILED(resource->WriteToSubresource(
+            subresource, nullptr, contents.data(), static_cast<UINT>(row_bytes),
+            static_cast<UINT>(image_bytes))))
+      return false;
+  }
+  return true;
 }
 
 static const char *DescriptorRangeTypeName(D3D12_DESCRIPTOR_RANGE_TYPE type) {
@@ -11293,8 +11492,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
   for (UINT li = 0; li < command_list_count; li++) {
     DXMTD3D12ScopedTimer list_timer("Queue", "ExecuteCommandList");
     QTRACE("ECL: processing list %u", li);
-    if (m_desc.Type == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS &&
-        command_lists[li]) {
+    if (m_desc.Type == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS) {
+      if (!command_lists[li]) {
+        QTRACE("ECL: video-process list %u is null", li);
+        continue;
+      }
       void *video_object = nullptr;
       HRESULT query_hr = command_lists[li]->QueryInterface(
           kIID_ID3D12VideoProcessCommandListCompat, &video_object);
@@ -11305,10 +11507,11 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         QTRACE("ECL: video-process list=%u execute_hr=0x%lx", li,
                execute_hr);
         video_list->Release();
-        continue;
+      } else {
+        QTRACE("ECL: video-process list %u does not expose provider ABI hr=0x%lx",
+               li, query_hr);
       }
-      QTRACE("ECL: video-process list %u does not expose provider ABI hr=0x%lx",
-             li, query_hr);
+      continue;
     }
     auto *list = static_cast<MTLD3D12GraphicsCommandList *>(command_lists[li]);
     if (!list) {
@@ -15088,7 +15291,32 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::ClearRenderTargetView: {
         auto *cmd = reinterpret_cast<const CmdClearRTV *>(header);
+        const size_t base_size = offsetof(CmdClearRTV, rects);
+        if (header->size < base_size || cmd->rect_count > 256 ||
+            cmd->rect_count >
+                (header->size - base_size) / sizeof(RECT)) {
+          QTRACE("ClearRenderTargetView rejected malformed record size=%u rects=%u",
+                 header->size, cmd->rect_count);
+          break;
+        }
+        const RECT *rects = cmd->rect_count
+                                ? reinterpret_cast<const RECT *>(
+                                      reinterpret_cast<const uint8_t *>(cmd) +
+                                      base_size)
+                                : nullptr;
         st.CloseRenderEncoder();
+        if (cmd->rect_count) {
+          auto *descriptor = reinterpret_cast<const D3D12Descriptor *>(
+              cmd->rtv.ptr);
+          auto *res = descriptor
+                          ? static_cast<MTLD3D12Resource *>(descriptor->resource)
+                          : nullptr;
+          if (!ClearRenderTargetRectangles(res, descriptor, cmd->color,
+                                            cmd->rect_count, rects))
+            QTRACE("ClearRenderTargetView rectangular clear skipped handle=0x%llx",
+                   (unsigned long long)cmd->rtv.ptr);
+          break;
+        }
 
         WMTRenderPassInfo rp = {};
         for (uint32_t i = 0; i < 8; i++) {
@@ -15211,6 +15439,19 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::ClearUnorderedAccessView: {
         auto *cmd = reinterpret_cast<const CmdClearUAV *>(header);
+        const size_t base_size = offsetof(CmdClearUAV, rects);
+        if (header->size < base_size || cmd->rect_count > 256 ||
+            cmd->rect_count >
+                (header->size - base_size) / sizeof(RECT)) {
+          QTRACE("ClearUnorderedAccessView rejected malformed record size=%u rects=%u",
+                 header->size, cmd->rect_count);
+          break;
+        }
+        const RECT *rects = cmd->rect_count
+                                ? reinterpret_cast<const RECT *>(
+                                      reinterpret_cast<const uint8_t *>(cmd) +
+                                      base_size)
+                                : nullptr;
         st.CloseRenderEncoder();
         auto *desc =
             reinterpret_cast<const D3D12Descriptor *>(cmd->cpu_handle.ptr);
@@ -15231,6 +15472,14 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                (unsigned long long)cmd->cpu_handle.ptr,
                (unsigned long long)cmd->gpu_handle.ptr, (void *)res,
                (void *)desc, zero_clear);
+        if (res && !res->IsBuffer()) {
+          st.RetainResourceMetalObjectsForCompletion(res);
+          const bool cleared = ClearTextureUAV(
+              res, desc, cmd->values, cmd->rect_count, rects);
+          QTRACE("ClearUnorderedAccessView texture=%p rects=%u cleared=%u",
+                 (void *)res, cmd->rect_count, cleared ? 1u : 0u);
+          break;
+        }
         if (!res || !res->GetMTLBuffer().handle) {
           QTRACE("ClearUnorderedAccessView SKIPPED non-buffer or missing "
                  "resource");
@@ -15274,27 +15523,89 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           break;
         }
 
-        void *mapped = nullptr;
-        HRESULT map_hr = res->Map(0, nullptr, &mapped);
-        if (FAILED(map_hr) || !mapped) {
-          QTRACE("ClearUnorderedAccessView SKIPPED nonzero clear not "
-                 "CPU-visible hr=0x%08x",
-                 (unsigned)map_hr);
+        if (res->GetCPUAddress()) {
+          void *mapped = nullptr;
+          HRESULT map_hr = res->Map(0, nullptr, &mapped);
+          if (FAILED(map_hr) || !mapped) {
+            QTRACE("ClearUnorderedAccessView SKIPPED CPU pattern map "
+                   "failed hr=0x%08x", (unsigned)map_hr);
+            break;
+          }
+          uint8_t *dst = static_cast<uint8_t *>(mapped) + clear_offset;
+          for (uint64_t off = 0; off < clear_length; off++)
+            dst[off] = clear_pattern[off & 15];
+          res->Unmap(0, nullptr);
+          QTRACE("ClearUnorderedAccessView CPU pattern clear off=%llu len=%llu",
+                 (unsigned long long)clear_offset,
+                 (unsigned long long)clear_length);
           break;
         }
-        uint8_t *dst = static_cast<uint8_t *>(mapped) + clear_offset;
-        for (uint64_t off = 0; off < clear_length; off++)
-          dst[off] = clear_pattern[off & 15];
-        res->Unmap(0, nullptr);
-        QTRACE("ClearUnorderedAccessView CPU pattern clear off=%llu len=%llu",
+        if (clear_length > 64u * 1024u * 1024u) {
+          QTRACE("ClearUnorderedAccessView SKIPPED pattern too large len=%llu",
+                 (unsigned long long)clear_length);
+          break;
+        }
+        WMTBufferInfo staging_info = {};
+        staging_info.length = clear_length;
+        staging_info.options = WMTResourceStorageModeShared;
+        auto staging = m_device->GetDXMTDevice().device().newBuffer(staging_info);
+        auto *staging_data = static_cast<uint8_t *>(
+            staging_info.memory.get_accessible_or_null());
+        if (!staging.handle || !staging_data) {
+          QTRACE("ClearUnorderedAccessView SKIPPED pattern staging allocation");
+          break;
+        }
+        for (uint64_t off = 0; off < clear_length; off += 16)
+          std::memcpy(staging_data + off, clear_pattern,
+                      static_cast<size_t>(std::min<uint64_t>(16, clear_length - off)));
+        st.RetainMTLObjectForCompletion(staging);
+        auto blit = cmdbuf.blitCommandEncoder();
+        ENC_CREATE("blit_clearuav_pattern", blit.handle);
+        ScopedMetalEncoderEnd blit_guard{blit, "blit_clearuav_pattern"};
+        if (!blit.handle)
+          break;
+        wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
+        copy.type = WMTBlitCommandCopyFromBufferToBuffer;
+        copy.next.set(nullptr);
+        copy.src = staging.handle;
+        copy.dst = res->GetMTLBuffer().handle;
+        copy.copy_length = clear_length;
+        copy.dst_offset = clear_offset;
+        if (!blit.encodeCommands(
+                reinterpret_cast<const wmtcmd_blit_nop *>(&copy)))
+          break;
+        EndMetalEncoder(blit, "blit_clearuav_pattern");
+        QTRACE("ClearUnorderedAccessView GPU pattern clear off=%llu len=%llu",
                (unsigned long long)clear_offset,
                (unsigned long long)clear_length);
         break;
       }
       case CmdType::DiscardResource: {
         auto *cmd = reinterpret_cast<const CmdDiscardResource *>(header);
+        const size_t base_size = offsetof(CmdDiscardResource, rects);
+        if (header->size < base_size || cmd->rect_count > 256 ||
+            cmd->rect_count >
+                (header->size - base_size) / sizeof(RECT)) {
+          QTRACE("DiscardResource rejected malformed record size=%u rects=%u",
+                 header->size, cmd->rect_count);
+          break;
+        }
         auto *res = static_cast<MTLD3D12Resource *>(cmd->resource);
         st.CloseRenderEncoder();
+        if (res && !res->IsBuffer()) {
+          const RECT *rects = cmd->rect_count
+                                  ? reinterpret_cast<const RECT *>(
+                                        reinterpret_cast<const uint8_t *>(cmd) +
+                                        base_size)
+                                  : nullptr;
+          HRESULT discard_hr = res->DiscardContents(
+              cmd->first_subresource, cmd->num_subresources, cmd->rect_count,
+              rects);
+          QTRACE("DiscardResource texture=%p first=%u count=%u rects=%u hr=0x%lx",
+                 (void *)res, cmd->first_subresource, cmd->num_subresources,
+                 cmd->rect_count, discard_hr);
+          break;
+        }
         if (!res || !res->GetMTLBuffer().handle) {
           QTRACE("DiscardResource skipped non-buffer resource=%p",
                  (void *)res);

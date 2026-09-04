@@ -128,6 +128,14 @@ build_probe \
   -o "$OUT_DIR/probe_video_process.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_infoqueue_callback.cpp" \
+  -o "$OUT_DIR/probe_infoqueue_callback.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_discard_texture.cpp" \
+  -o "$OUT_DIR/probe_discard_texture.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_diagnostics.cpp" \
   -o "$OUT_DIR/probe_diagnostics.exe"
 
@@ -350,6 +358,8 @@ echo "$OUT_DIR/probe_feature_levels.exe"
 echo "$OUT_DIR/probe_object_contracts.exe"
 echo "$OUT_DIR/probe_video.exe"
 echo "$OUT_DIR/probe_video_process.exe"
+echo "$OUT_DIR/probe_infoqueue_callback.exe"
+echo "$OUT_DIR/probe_discard_texture.exe"
 echo "$OUT_DIR/probe_diagnostics.exe"
 echo "$OUT_DIR/probe_dxgi_factory.exe"
 echo "$OUT_DIR/probe_m12_runtime_identity.exe"

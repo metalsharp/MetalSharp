@@ -24,6 +24,23 @@
       "remaining": "The probe verifies state-statistics output, a serialized tool allocation-state blob, tool status, and mutable DRED settings. Full DRED breadcrumb/page-fault output, debugger callbacks, pageable allocation tools, cache diagnostics, and cross-process corruption/restart evidence remain open."
     },
     {
+      "id": "infoqueue1-callback-filter-lifecycle",
+      "status": "limited",
+      "result": "probe-infoqueue",
+      "checks": [
+        ["pass"],
+        ["query_infoqueue1", "0x00000000"],
+        ["register", "0x00000000"],
+        ["callback_count", 1],
+        ["filter", "0x00000000"],
+        ["filtered_message", "0x00000000"],
+        ["ignored_callback_count", 1],
+        ["unregister", "0x00000000"],
+        ["unregister_ignored", "0x00000000"]
+      ],
+      "remaining": "InfoQueue1 callback registration, storage-filter suppression, ignore-filter delivery, and unregister lifecycle are covered. Cross-thread callback ordering, device-debug event sources, and complete DRED/tool callback integration remain open."
+    },
+    {
       "id": "dsr-factory-boundary",
       "status": "limited",
       "result": "probe-diagnostics",

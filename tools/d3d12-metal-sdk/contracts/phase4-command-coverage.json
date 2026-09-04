@@ -73,6 +73,18 @@
       "remaining": "The provider proof covers a four-sample 2x2 programmable pattern with direct draw/MSAA resolve; broader sample-count/pattern and indirect-work coverage remains in the Phase 6 and indirect-work lanes."
     },
     {
+      "id": "texture-discard-region-provider",
+      "status": "closed",
+      "result": "probe-discard-texture",
+      "checks": [
+        ["pass"],
+        ["readback", "0x00000000"],
+        ["exact_rect_zeroing", true],
+        ["unmodified_pixel", "0x11223344"]
+      ],
+      "remaining": "The probe also verifies bounded RGBA8 ClearRenderTargetView and ClearUnorderedAccessView rectangle replay. Texture discard uses deterministic zeroing for a bounded RGBA8 region; compressed/planar/depth discard combinations and undefined-content differential behavior remain assigned to the broader resource matrix."
+    },
+    {
       "id": "queue-priority-vblank-callbacks",
       "status": "closed",
       "result": "probe-queues",
