@@ -63,5 +63,51 @@ The staged runtime manifest identifies a bundled source rather than providing a
 clean-source build attestation for this checkout. Matching bridge hashes and a
 source-layout audit do not prove that every staged binary was built from current
 source, nor do they establish all Windows-side ABI layouts or device execution
-semantics. Fresh reproducible builds, provenance validation, broader regressions,
-all remaining phase exit gates, and release/promotion gates remain required.
+semantics. The fresh-build follow-up below addresses this checkpoint's source-staging gap;
+repeated-build reproducibility, broader regressions, all remaining phase exit
+gates, and release/promotion gates remain required.
+
+## Fresh-source sandbox follow-up
+
+Built revision `fd91fb9f2c5eb7f4f0403351e407236d33e70837` in a new external
+Meson directory, not the retained tracked build tree. Configuration used
+`vendor/dxmt/build-win64.txt`, pinned x86 LLVM 15.0.7, the installed Wine toolchain,
+and `-Denable_nvapi=true -Denable_nvngx=true`. Built the nine runtime targets
+listed by `prepare-dxmt-x86-llvm15.sh`, then staged with
+`stage-phase6-sandbox.py --profile phase7-source` (its schema name remains Phase 6).
+
+- Staging: `ok=true`, `failure_count=0`, `source_dirty=false`.
+- Strict prefix/bridge ABI audit: `ok=true`, `failure_count=0`.
+- Fresh-source Work Graph execution: `pass=true`, `hr=0x00000000`.
+- Fresh-source bounded video processing regression: `pass=true`.
+- No runtime capability was promoted.
+
+Fresh bridge hashes differ from the installed bundle and are recorded separately:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| winemetal.dll | `abf1b7d06210ecea885bcc2b7e8e48920b66507e34668b6a58acb4063875fb98` |
+| winemetal.so | `f5f48834acc69596cbb89625accb62a61c7121b4de7c35ef4d4903e167445562` |
+
+The first sandbox invocation failed before producing execution JSON: it unloaded
+the selected D3D12 module and faulted. The runner still returned zero. The unique
+Unix bridge alias was in the sandbox builtin directory, which was absent from
+`WINEDLLPATH`. Retrying with **both** sandbox route and builtin roots passed:
+
+```sh
+# sandbox is the root passed to stage-phase6-sandbox.py.
+# Expose the layout expected by run-probes.sh without touching installed Wine.
+ln -s ../../runtime "$sandbox/wine/lib/dxmt"
+export DXMT_PROBE_WINEDLLPATH="$sandbox/wine/lib/dxmt:$sandbox/wine/lib/wine"
+# Use --dxmt-runtime "$sandbox/wine/lib/dxmt" for the focused probes.
+# Before execution, copy this sandbox's winemetal.dll into the disposable
+# prefix's system32 and rerun check-winemetal-abi.py with
+# --wine-runtime "$sandbox/wine" (no optional-prefix exemption).
+```
+
+Local evidence remains under `/private/tmp/metalsharp-phase7-abi/`:
+`source-stage/` holds staging and ABI manifests, `source-path-fixed/` the passing
+Work Graph result, and `source-video/` the video result. `source-workgraph/` and
+`source-debug/` retain the failed loader attempts. `build.log` records the fresh
+build; `build-root.txt` identifies the external build/sandbox directory. These
+are scratch artifacts, not a release bundle or an exhaustive regression gate.
