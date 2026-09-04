@@ -92,6 +92,20 @@ historical status:
 - P6-G has exact ordered three-draw ROV increments for the D3D12 1D,
   1D-array, and 3D resource kinds using DXMT's documented height-one 2D view
   representation for 1D resources.
+- P6-E has an exact native render-target sample-frequency/sample-mask matrix
+  for 2x/4x targets, plus the existing flattened writable-MSAA 2x/4x/8x and
+  programmable-position/resolve matrix.  The DXIL lowerer carries the PSO
+  SampleMask into the sample-frequency provider and the host inventory records
+  the M4's accepted 1/2/4 native counts.
+- P6-G has an exact four-sample MSAA ROV provider for both a typed MSAA
+  texture and an MSAA array slice.  The flattened per-sample array carries a
+  Metal raster-order group so three overlapping draws read back eight ordered
+  values without a CPU scheduler.
+- P6-V has exact four-view draw-level replay, `SV_ViewID` color routing, and
+  `SetViewInstanceMask(0)` no-work evidence.  The provider rejects declarations
+  above `D3D12_MAX_VIEW_INSTANCE_COUNT` (four) before PSO creation.
+- P6-C has an exact conservative-raster four-sample reference readback in
+  addition to the single-sample and `SV_InnerCoverage` cases.
 
 This is an implementation checkpoint only. The rows that still say `open`
 remain blockers for the final Phase 6 claim.

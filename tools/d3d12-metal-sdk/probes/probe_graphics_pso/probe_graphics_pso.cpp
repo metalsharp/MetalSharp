@@ -1049,10 +1049,14 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
     ID3D12PipelineState* msaa_pso = nullptr;
     const HRESULT msaa_hr = device->CreateGraphicsPipelineState(
         &msaa_desc, IID_PPV_ARGS(&msaa_pso));
-    const bool msaa_rejected =
-        (static_cast<uint32_t>(msaa_hr) & 0x80000000u) != 0 && !msaa_pso;
+    // Conservative rasterization is invalid for line topology, but the
+    // host-feasible 4x render-target path is now handled by the reference
+    // provider and must create successfully.  Keep both validation outcomes
+    // explicit instead of treating a legal MSAA request as a negative case.
+    const bool msaa_supported =
+        (static_cast<uint32_t>(msaa_hr) & 0x80000000u) == 0 && msaa_pso;
     safe_release(msaa_pso);
-    negative_matrix_verified = line_rejected && msaa_rejected;
+    negative_matrix_verified = line_rejected && msaa_supported;
 
     ID3D12PipelineState* pso = nullptr;
     if (FAILED(device->CreateGraphicsPipelineState(&pso_desc, IID_PPV_ARGS(&pso))) || !pso)

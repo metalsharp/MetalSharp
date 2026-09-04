@@ -18,6 +18,10 @@ struct HostCapabilities {
   uint64_t current_allocated_size = 0;
   uint64_t max_object_threadgroups = 0;
   uint32_t texture_sample_counts_mask = 0;
+  bool supports_raster_order_groups = false;
+  bool supports_pull_model_interpolation = false;
+  bool supports_shader_barycentrics = false;
+  bool supports_programmable_sample_positions = false;
 
   bool device_available = false;
   bool apple_family7 = false;

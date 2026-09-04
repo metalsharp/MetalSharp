@@ -1418,6 +1418,26 @@ public:
   }
 
   bool
+  rasterOrderGroupsSupported() const {
+    return MTLDevice_rasterOrderGroupsSupported(handle);
+  }
+
+  bool
+  supportsPullModelInterpolation() const {
+    return MTLDevice_supportsPullModelInterpolation(handle);
+  }
+
+  bool
+  supportsShaderBarycentricCoordinates() const {
+    return MTLDevice_supportsShaderBarycentricCoordinates(handle);
+  }
+
+  bool
+  programmableSamplePositionsSupported() const {
+    return MTLDevice_programmableSamplePositionsSupported(handle);
+  }
+
+  bool
   hasUnifiedMemory() {
     return MTLDevice_hasUnifiedMemory(handle);
   }

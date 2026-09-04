@@ -34,6 +34,14 @@ ProbeHostCapabilities(const WMT::Device &device, WMTMetalVersion metal_version, 
     if (device.supportsTextureSampleCount(sample_count))
       capabilities.texture_sample_counts_mask |= uint32_t(1) << sample_count;
   }
+  capabilities.supports_raster_order_groups =
+      device.rasterOrderGroupsSupported();
+  capabilities.supports_pull_model_interpolation =
+      device.supportsPullModelInterpolation();
+  capabilities.supports_shader_barycentrics =
+      device.supportsShaderBarycentricCoordinates();
+  capabilities.supports_programmable_sample_positions =
+      device.programmableSamplePositionsSupported();
 
   return capabilities;
 }

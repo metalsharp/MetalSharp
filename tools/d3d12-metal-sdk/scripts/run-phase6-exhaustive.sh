@@ -14,6 +14,7 @@ JOBS="${METALSHARP_BUILD_JOBS:-8}"
 BUILD_RUNTIME=0
 WITH_RASTERIZATION=0
 WITH_ROV_DIMENSIONS=0
+WITH_ROV_MSAA=0
 WITH_VIEW_INSTANCING=0
 WITH_FIXED_FUNCTION=0
 WITH_MSAA=0
@@ -35,6 +36,7 @@ Options:
                         Winemetal artifact after Meson's symbol extractor.
   --with-rasterization Also run the point/line breadth probe.
   --with-rov-dimensions Also run the 1D/1D-array/3D ROV probe.
+  --with-rov-msaa      Also run the flattened MSAA ROV ordering probe.
   --with-view-instancing Also run the four-view/mask-zero replay probe.
   --with-fixed-function Also run the established fixed-function graphics matrix.
   --with-msaa          Also run the writable-MSAA/sample-position matrix.
@@ -55,6 +57,7 @@ while (($#)); do
     --build-runtime) BUILD_RUNTIME=1 ;;
     --with-rasterization) WITH_RASTERIZATION=1 ;;
     --with-rov-dimensions) WITH_ROV_DIMENSIONS=1 ;;
+    --with-rov-msaa) WITH_ROV_MSAA=1 ;;
     --with-view-instancing) WITH_VIEW_INSTANCING=1 ;;
     --with-fixed-function) WITH_FIXED_FUNCTION=1 ;;
     --with-msaa) WITH_MSAA=1 ;;
@@ -219,15 +222,31 @@ if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
     "$SDK_DIR/probes/probe_rov_dimensions/probe_rov_dimensions.cpp" \
     -o "$WORK/probe_rov_dimensions.exe"
 fi
+if [[ "$WITH_ROV_MSAA" == "1" ]]; then
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_rov_msaa.cpp" \
+    -o "$WORK/probe_rov_msaa.exe"
+fi
 if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
     "$SDK_DIR/probes/probe_view_instancing_breadth.cpp" \
     -o "$WORK/probe_view_instancing_breadth.exe"
+  "$CXX" "${probe_flags[@]}" \
+    -DMINI_PROBE_CASE=20 "-DMINI_PROBE_NAME=\"view_id_instancing\"" \
+    "$SDK_DIR/probes/probe_mini_suite/probe_mini_suite.cpp" \
+    -o "$WORK/probe_mini_view_id_instancing.exe"
 fi
 if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
     "$SDK_DIR/probes/probe_graphics_pso/probe_graphics_pso.cpp" \
     -o "$WORK/probe_graphics_pso.exe"
+  "$CXX" "${probe_flags[@]}" \
+    -DMINI_PROBE_CASE=18 "-DMINI_PROBE_NAME=\"inner_coverage\"" \
+    "$SDK_DIR/probes/probe_mini_suite/probe_mini_suite.cpp" \
+    -o "$WORK/probe_mini_inner_coverage.exe"
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_conservative_msaa.cpp" \
+    -o "$WORK/probe_conservative_msaa.exe"
 fi
 if [[ "$WITH_MSAA" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
@@ -270,9 +289,18 @@ fi
 if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   cp "$SDK_DIR/probes/probe_rov_dimensions/rov_dimensions.hlsl" "$WORK/rov_dimensions.hlsl"
 fi
+if [[ "$WITH_ROV_MSAA" == "1" ]]; then
+  cp "$SDK_DIR/probes/probe_rov_msaa.hlsl" "$WORK/probe_rov_msaa.hlsl"
+fi
+if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
+  cp "$SDK_DIR/probes/probe_view_id_instancing.hlsl" \
+    "$WORK/probe_view_id_instancing.hlsl"
+fi
 if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   cp "$SDK_DIR/probes/probe_graphics_pso/conservative_raster.hlsl" \
     "$WORK/probe_conservative_raster.hlsl"
+  cp "$SDK_DIR/probes/probe_graphics_pso/inner_coverage.hlsl" \
+    "$WORK/probe_inner_coverage.hlsl"
 fi
 
 WINEDEBUG=-all WINEPREFIX="$PREFIX" "$WINE_BIN" wineboot -u >/dev/null 2>&1
@@ -353,14 +381,18 @@ env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
 if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   for spec in \
     "vs_main vs_6_0 probe_conservative_raster_vs" \
-    "ps_main ps_6_0 probe_conservative_raster_ps"; do
+    "ps_main ps_6_0 probe_conservative_raster_ps" \
+    "vs_main vs_6_0 probe_inner_coverage_vs" \
+    "ps_main ps_6_0 probe_inner_coverage_ps"; do
     read -r entry target output <<<"$spec"
+    input="$WORK/probe_conservative_raster.hlsl"
+    [[ "$output" == probe_inner_coverage_* ]] && input="$WORK/probe_inner_coverage.hlsl"
     env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
       -u DXMT_PROBE_D3D12_DLL -u DXMT_SHADER_CACHE_PATH -u DXMT_LOG_PATH \
       WINEDEBUG=-all WINEPREFIX="$PREFIX" \
       WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
       "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
-      -Fo "$WORK/$output.cso" "$WORK/probe_conservative_raster.hlsl" >/dev/null
+      -Fo "$WORK/$output.cso" "$input" >/dev/null
   done
 fi
 
@@ -393,6 +425,25 @@ if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
       "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
       -Fo "$WORK/$output.cso" "$WORK/rov_dimensions.hlsl" >/dev/null; then
       ROV_DIMENSIONS_COMPILE_STATUS=1
+      break
+    fi
+  done
+fi
+
+ROV_MSAA_COMPILE_STATUS=0
+if [[ "$WITH_ROV_MSAA" == "1" ]]; then
+  for spec in \
+    "vs_main vs_6_0 rov_msaa_vs" \
+    "ps_main ps_6_7 rov_msaa_ps" \
+    "cs_main cs_6_7 rov_msaa_cs"; do
+    read -r entry target output <<<"$spec"
+    if ! env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
+      -u DXMT_PROBE_D3D12_DLL -u DXMT_SHADER_CACHE_PATH -u DXMT_LOG_PATH \
+      WINEDEBUG=-all WINEPREFIX="$PREFIX" \
+      WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
+      -Fo "$WORK/$output.cso" "$WORK/probe_rov_msaa.hlsl" >/dev/null; then
+      ROV_MSAA_COMPILE_STATUS=1
       break
     fi
   done
@@ -457,6 +508,37 @@ if [[ "$WITH_ROV_DIMENSIONS" == "1" && "$ROV_DIMENSIONS_COMPILE_STATUS" == "0" ]
 elif [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   ROV_DIMENSIONS_STATUS=1
 fi
+ROV_MSAA_STATUS=0
+if [[ "$WITH_ROV_MSAA" == "1" && "$ROV_MSAA_COMPILE_STATUS" == "0" ]]; then
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
+    --output "$SANDBOX/rov_msaa.json" \
+    --stderr "$LOG_DIR/probe-rov-msaa.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_rov_msaa.exe" \
+    "$WORK/rov_msaa_vs.cso" "$WORK/rov_msaa_ps.cso" \
+    "$WORK/rov_msaa_cs.cso"
+  ROV_MSAA_STATUS=$?
+  set -e
+elif [[ "$WITH_ROV_MSAA" == "1" ]]; then
+  ROV_MSAA_STATUS=1
+fi
+VIEW_ID_COMPILE_STATUS=0
+if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
+  for spec in \
+    "vs_main vs_6_8 probe_view_id_instancing_vs" \
+    "ps_main ps_6_0 probe_view_id_instancing_ps"; do
+    read -r entry target output <<<"$spec"
+    if ! env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
+      -u DXMT_PROBE_D3D12_DLL -u DXMT_SHADER_CACHE_PATH -u DXMT_LOG_PATH \
+      WINEDEBUG=-all WINEPREFIX="$PREFIX" \
+      WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
+      -Fo "$WORK/$output.cso" "$WORK/probe_view_id_instancing.hlsl" >/dev/null; then
+      VIEW_ID_COMPILE_STATUS=1
+      break
+    fi
+  done
+fi
 VIEW_INSTANCING_STATUS=0
 if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
   set +e
@@ -467,7 +549,21 @@ if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
   VIEW_INSTANCING_STATUS=$?
   set -e
 fi
+VIEW_ID_STATUS=0
+if [[ "$WITH_VIEW_INSTANCING" == "1" && "$VIEW_ID_COMPILE_STATUS" == "0" ]]; then
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
+    --output "$SANDBOX/view_id.json" \
+    --stderr "$LOG_DIR/probe-view-id.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_mini_view_id_instancing.exe"
+  VIEW_ID_STATUS=$?
+  set -e
+elif [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
+  VIEW_ID_STATUS=1
+fi
 FIXED_FUNCTION_STATUS=0
+INNER_COVERAGE_STATUS=0
+CONSERVATIVE_MSAA_STATUS=0
 if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   set +e
   python3 "$BOUNDED_RUNNER" --timeout 90 --cwd "$WORK" \
@@ -475,6 +571,22 @@ if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
     --stderr "$LOG_DIR/probe-fixed-function.stderr" -- \
     "$WINE_BIN" "$WORK/probe_graphics_pso.exe"
   FIXED_FUNCTION_STATUS=$?
+  set -e
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
+    --output "$SANDBOX/inner_coverage.json" \
+    --stderr "$LOG_DIR/probe-inner-coverage.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_mini_inner_coverage.exe"
+  INNER_COVERAGE_STATUS=$?
+  set -e
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
+    --output "$SANDBOX/conservative_msaa.json" \
+    --stderr "$LOG_DIR/probe-conservative-msaa.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_conservative_msaa.exe" \
+    "$WORK/probe_conservative_raster_vs.cso" \
+    "$WORK/probe_conservative_raster_ps.cso"
+  CONSERVATIVE_MSAA_STATUS=$?
   set -e
 fi
 MSAA_STATUS=0
@@ -502,8 +614,12 @@ python3 - "$SANDBOX/interpolation.json" "$STAGE_MANIFEST" "$ABI_RESULT" \
   "$INVALID_DESCRIPTORS_STATUS" "$SANDBOX/invalid_descriptors.json" \
   "$RASTER_STATUS" "$SANDBOX/rasterization.json" "$ROV_DIMENSIONS_STATUS" \
   "$ROV_DIMENSIONS_COMPILE_STATUS" "$SANDBOX/rov_dimensions.json" \
+  "$ROV_MSAA_STATUS" "$ROV_MSAA_COMPILE_STATUS" "$SANDBOX/rov_msaa.json" \
   "$VIEW_INSTANCING_STATUS" "$SANDBOX/view_instancing.json" \
+  "$VIEW_ID_STATUS" "$VIEW_ID_COMPILE_STATUS" "$SANDBOX/view_id.json" \
   "$FIXED_FUNCTION_STATUS" "$SANDBOX/fixed_function.json" \
+  "$INNER_COVERAGE_STATUS" "$SANDBOX/inner_coverage.json" \
+  "$CONSERVATIVE_MSAA_STATUS" "$SANDBOX/conservative_msaa.json" \
   "$MSAA_STATUS" "$SANDBOX/msaa.json" "$GRAPHICS_MSAA_STATUS" \
   "$SANDBOX/graphics_msaa.json" "$HOST_STATUS" \
   "$SANDBOX/host_inventory.json" "$CAPS_STATUS" "$SANDBOX/device_caps.json" <<'PY'
@@ -514,8 +630,12 @@ import sys
 (interpolation_path, stage_path, abi_path, output_path, interpolation_status,
  invalid_descriptors_status, invalid_descriptors_path, raster_status, raster_path,
  rov_status, rov_compile_status, rov_path,
+ rov_msaa_status, rov_msaa_compile_status, rov_msaa_path,
  view_instancing_status, view_instancing_path,
+ view_id_status, view_id_compile_status, view_id_path,
  fixed_function_status, fixed_function_path,
+ inner_coverage_status, inner_coverage_path,
+ conservative_msaa_status, conservative_msaa_path,
  msaa_status, msaa_path, graphics_msaa_status, graphics_msaa_path,
  host_status, host_path, caps_status, caps_path) = sys.argv[1:]
 def load(path):
@@ -553,8 +673,12 @@ payload = {
     "invalid_descriptors": None,
     "rasterization": None,
     "rov_dimensions": None,
+    "rov_msaa": None,
     "view_instancing": None,
+    "view_id_instancing": None,
     "fixed_function": None,
+    "inner_coverage": None,
+    "conservative_msaa": None,
     "msaa": None,
     "graphics_msaa": None,
     "host_inventory": None,
@@ -573,15 +697,37 @@ if pathlib.Path(rov_path).exists():
         "process_status": int(rov_status),
         "result": load(rov_path),
     }
+if pathlib.Path(rov_msaa_path).exists():
+    payload["rov_msaa"] = {
+        "compile_status": int(rov_msaa_compile_status),
+        "process_status": int(rov_msaa_status),
+        "result": load(rov_msaa_path),
+    }
 if pathlib.Path(view_instancing_path).exists():
     payload["view_instancing"] = {
         "process_status": int(view_instancing_status),
         "result": load(view_instancing_path),
     }
+if pathlib.Path(view_id_path).exists():
+    payload["view_id_instancing"] = {
+        "compile_status": int(view_id_compile_status),
+        "process_status": int(view_id_status),
+        "result": load(view_id_path),
+    }
 if pathlib.Path(fixed_function_path).exists():
     payload["fixed_function"] = {
         "process_status": int(fixed_function_status),
         "result": load(fixed_function_path),
+    }
+if pathlib.Path(inner_coverage_path).exists():
+    payload["inner_coverage"] = {
+        "process_status": int(inner_coverage_status),
+        "result": load(inner_coverage_path),
+    }
+if pathlib.Path(conservative_msaa_path).exists():
+    payload["conservative_msaa"] = {
+        "process_status": int(conservative_msaa_status),
+        "result": load(conservative_msaa_path),
     }
 if pathlib.Path(msaa_path).exists():
     payload["msaa"] = {"process_status": int(msaa_status), "result": load(msaa_path)}
@@ -610,13 +756,31 @@ payload["exact"] = (
         and int(rov_status) == 0
         and payload["rov_dimensions"]["result"].get("exact") is True
     ))
+    and (payload["rov_msaa"] is None or (
+        int(rov_msaa_compile_status) == 0
+        and int(rov_msaa_status) == 0
+        and payload["rov_msaa"]["result"].get("pass") is True
+    ))
     and (payload["view_instancing"] is None or (
         int(view_instancing_status) == 0
         and payload["view_instancing"]["result"].get("pass") is True
     ))
+    and (payload["view_id_instancing"] is None or (
+        int(view_id_compile_status) == 0
+        and int(view_id_status) == 0
+        and payload["view_id_instancing"]["result"].get("ok") is True
+    ))
     and (payload["fixed_function"] is None or (
         int(fixed_function_status) == 0
         and payload["fixed_function"]["result"].get("pass") is True
+    ))
+    and (payload["inner_coverage"] is None or (
+        int(inner_coverage_status) == 0
+        and payload["inner_coverage"]["result"].get("ok") is True
+    ))
+    and (payload["conservative_msaa"] is None or (
+        int(conservative_msaa_status) == 0
+        and payload["conservative_msaa"]["result"].get("pass") is True
     ))
     and (payload["msaa"] is None or (
         int(msaa_status) == 0
@@ -639,8 +803,8 @@ pathlib.Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encod
 print(output_path)
 PY
 
-if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
-  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS fixed_function=$FIXED_FUNCTION_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
+if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$ROV_MSAA_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$VIEW_ID_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$INNER_COVERAGE_STATUS" != "0" || "$CONSERVATIVE_MSAA_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
+  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa=$ROV_MSAA_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_id=$VIEW_ID_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
   exit 1
 fi
 if ! python3 "$SDK_DIR/scripts/validate-phase6-exhaustive.py" \

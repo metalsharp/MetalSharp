@@ -1022,6 +1022,42 @@ WMTWaitForVBlank(uint32_t display_id, uint32_t timeout_ms) {
   return params.ret != 0;
 }
 
+WINEMETAL_API bool
+MTLDevice_rasterOrderGroupsSupported(obj_handle_t device) {
+  struct unixcall_generic_obj_uint64_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(178, &params);
+  return params.ret != 0;
+}
+
+WINEMETAL_API bool
+MTLDevice_supportsPullModelInterpolation(obj_handle_t device) {
+  struct unixcall_generic_obj_uint64_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(179, &params);
+  return params.ret != 0;
+}
+
+WINEMETAL_API bool
+MTLDevice_supportsShaderBarycentricCoordinates(obj_handle_t device) {
+  struct unixcall_generic_obj_uint64_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(180, &params);
+  return params.ret != 0;
+}
+
+WINEMETAL_API bool
+MTLDevice_programmableSamplePositionsSupported(obj_handle_t device) {
+  struct unixcall_generic_obj_uint64_ret params;
+  params.handle = device;
+  params.ret = 0;
+  UNIX_CALL(181, &params);
+  return params.ret != 0;
+}
+
 WINEMETAL_API void
 MetalLayer_getEDRValue(obj_handle_t layer, struct WMTEDRValue *value) {
   struct unixcall_generic_obj_constptr_noret params;

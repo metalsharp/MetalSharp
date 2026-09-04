@@ -4348,6 +4348,10 @@ MTLD3D12Device::MTLD3D12Device(std::unique_ptr<Device> &&device,
       " mtl4=", HostCapabilityBool(host_capabilities.supports_mtl4_command_queue),
       " shared_events=", HostCapabilityBool(host_capabilities.supports_shared_events),
       " raytracing=", HostCapabilityBool(host_capabilities.supports_native_raytracing),
+      " raster_order_groups=", HostCapabilityBool(host_capabilities.supports_raster_order_groups),
+      " pull_interp=", HostCapabilityBool(host_capabilities.supports_pull_model_interpolation),
+      " barycentrics=", HostCapabilityBool(host_capabilities.supports_shader_barycentrics),
+      " programmable_samples=", HostCapabilityBool(host_capabilities.supports_programmable_sample_positions),
       " sample_mask=0x", std::hex, host_capabilities.texture_sample_counts_mask,
       std::dec));
   const auto native_provider = m_device->selectProvider({});
@@ -4851,10 +4855,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     // and fail-closed non-pixel and
     // independent-logic side-effect boundaries.  Unsupported resource
     // combinations still reject during lowering/PSO creation.
-    opts->ROVsSupported = TRUE;
+    opts->ROVsSupported =
+        GetHostCapabilities().device_available &&
+        GetHostCapabilities().supports_raster_order_groups;
     // The bounded reference-model coverage path is used for supported
     // rasterizer descriptions; unsupported combinations still fail during
-    // pipeline creation rather than silently falling back.
+    // pipeline creation rather than silently falling back.  Tier 3 remains
+    // an evidence-backed provider claim until the exhaustive cross-product
+    // closes; the host capability is not used as a substitute for coverage.
     opts->ConservativeRasterizationTier =
         D3D12_CONSERVATIVE_RASTERIZATION_TIER_3;
     opts->MaxGPUVirtualAddressBitsPerResource = 40;
@@ -5164,7 +5172,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     // Metal supports a single programmable sample pattern for each
     // multisampled render pass; expose the corresponding D3D12 tier-1 shape.
     o->ProgrammableSamplePositionsTier =
-        D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_1;
+        GetHostCapabilities().device_available &&
+                GetHostCapabilities().supports_programmable_sample_positions
+            ? D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_1
+            : D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED;
     return S_OK;
   }
   case D3D12_FEATURE_SHADER_CACHE: {
@@ -5196,7 +5207,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     o->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_1;
     o->BarycentricsSupported =
         GetHostCapabilities().device_available &&
-        GetHostCapabilities().apple_family7 &&
+        GetHostCapabilities().supports_shader_barycentrics &&
         GetHostCapabilities().supports_compute_emulation;
     TRACE("  OPTIONS3: CopyQueueTS=%d CastFullyTyped=%d WriteBufImm=0x%x "
           "ViewInstTier=%u Bary=%d",

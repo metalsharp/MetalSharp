@@ -162,12 +162,20 @@ build_probe \
   -o "$OUT_DIR/probe_graphics_msaa_breadth.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_conservative_msaa.cpp" \
+  -o "$OUT_DIR/probe_conservative_msaa.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_rov/probe_rov.cpp" \
   -o "$OUT_DIR/probe_rov.exe"
 
 build_probe \
   "$SDK_DIR/probes/probe_rov_dimensions/probe_rov_dimensions.cpp" \
   -o "$OUT_DIR/probe_rov_dimensions.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_rov_msaa.cpp" \
+  -o "$OUT_DIR/probe_rov_msaa.exe"
 
 build_probe \
   "$SDK_DIR/probes/probe_barycentrics/probe_barycentrics.cpp" \
