@@ -4,6 +4,7 @@
 #include "d3d12_command_stats.hpp"
 #include "d3d12_descriptor_heap.hpp"
 #include "d3d12_device.hpp"
+#include "d3d12_node_dispatch_abi.hpp"
 #include "d3d12_fence.hpp"
 #include "d3d12_heap.hpp"
 #include "d3d12_pipeline_state.hpp"
@@ -3127,6 +3128,8 @@ struct ReplayState {
                                  const MTLD3D12Device::WorkGraphNodeShader &shader,
                                  uint32_t node_index,
                                  uint32_t record_count,
+                                 const void *cpu_records,
+                                 uint64_t gpu_records, uint64_t record_stride,
                                  WMT::CommandBuffer command_buffer) {
     const auto &source = shader.msl;
     if (!device || !command_buffer.handle || source.empty() ||
@@ -3162,6 +3165,42 @@ struct ReplayState {
         return false;
       RetainResourceMetalObjectsForCompletion(node_table);
     }
+
+    WMT::Reference<WMT::Buffer> input_buffer;
+    uint64_t input_offset = 0;
+    D3D12NodeInputContext input_context;
+    if (shader.input_record_size) {
+      if (!shader.input_record_alignment || record_count != 1u ||
+          record_stride < shader.input_record_size)
+        return false;
+      if (gpu_records) {
+        auto *resource = device->LookupResourceByGPUAddress(gpu_records);
+        if (!resource || !resource->GetMTLBuffer().handle ||
+            gpu_records % shader.input_record_alignment)
+          return false;
+        input_offset = gpu_records - resource->GetGPUVirtualAddress();
+        if (input_offset > resource->GetBufferByteLength() ||
+            record_stride > resource->GetBufferByteLength() - input_offset)
+          return false;
+        input_buffer = resource->GetMTLBuffer();
+        RetainResourceMetalObjectsForCompletion(resource);
+      } else {
+        if (!cpu_records)
+          return false;
+        input_buffer = MakeTransientBuffer(device, record_stride);
+        if (!input_buffer.handle)
+          return false;
+        input_buffer.updateContents(0, cpu_records, record_stride);
+      }
+      input_context.record_count = record_count;
+      input_context.record_stride = record_stride;
+      input_context.record_size = shader.input_record_size;
+      input_context.byte_length = record_stride;
+    }
+    auto context_buffer = MakeTransientBuffer(device, sizeof(input_context));
+    if (!context_buffer.handle)
+      return false;
+    context_buffer.updateContents(0, &input_context, sizeof(input_context));
 
     // Bounded node u0/space0 binding. Root parameter indices are not shader
     // registers. Keep node records at buffer 30 and resolve the output through
@@ -3285,6 +3324,15 @@ struct ReplayState {
                               ->GetMTLBuffer()
                               .handle;
       set_buffer.offset = node_record_slot ? backing_offset : node_output_offset;
+      // Internal node ABI: input context at 28, input payload at 29,
+      // output/backing records at 30. User u0 remains separately resolved.
+      if (index == 28u) {
+        set_buffer.buffer = context_buffer.handle;
+        set_buffer.offset = 0;
+      } else if (index == 29u) {
+        set_buffer.buffer = input_buffer.handle;
+        set_buffer.offset = input_offset;
+      }
       set_buffer.index = index;
       if (!append(set_buffer))
         return false;
@@ -3342,6 +3390,9 @@ struct ReplayState {
       return !cmd.num_records;
 
     uint32_t generic_entrypoint = resolved.entrypoint_index;
+    const void *generic_cpu_records = resolved.record_data;
+    uint64_t generic_gpu_records = resolved.record_gpu_address;
+    uint64_t generic_record_stride = resolved.record_stride;
     bool generic_node_candidate = false;
     if ((cmd.dispatch_mode == 0u || cmd.dispatch_mode == 1u) &&
         resolved.num_records == 1u && resolved.record_stride &&
@@ -3380,6 +3431,9 @@ struct ReplayState {
           input->record_stride <=
               cmd.record_data_size - input->data_offset) {
         generic_entrypoint = input->entrypoint_index;
+        generic_cpu_records = cmd.record_data + input->data_offset;
+        generic_gpu_records = 0;
+        generic_record_stride = input->record_stride;
         generic_node_candidate = true;
       }
     } else if (cmd.dispatch_mode == 3u) {
@@ -3440,6 +3494,9 @@ struct ReplayState {
                 record_resource->GetBufferByteLength() - record_offset)
           return false;
         generic_entrypoint = input.entrypoint_index;
+        generic_cpu_records = nullptr;
+        generic_gpu_records = input.records;
+        generic_record_stride = input.record_stride;
         generic_node_candidate = true;
         RetainResourceMetalObjectsForCompletion(header_resource);
         RetainResourceMetalObjectsForCompletion(node_resource);
@@ -3453,12 +3510,15 @@ struct ReplayState {
               sizeof(work_graph_program_identifier), generic_entrypoint,
               node_shader))
         return EncodeWorkGraphNodeShader(
-            device, node_shader, generic_entrypoint, 1u, command_buffer);
-      if (device->HasWorkGraphProgram(
-              work_graph_program_identifier,
-              sizeof(work_graph_program_identifier)))
-        return false;
+            device, node_shader, generic_entrypoint, 1u, generic_cpu_records,
+            generic_gpu_records, generic_record_stride, command_buffer);
     }
+    // A real program with an unimplemented input shape must not execute the
+    // synthetic reference kernel in place of its shader.
+    if (device->HasWorkGraphProgram(
+            work_graph_program_identifier,
+            sizeof(work_graph_program_identifier)))
+      return false;
 
     WMT::Reference<WMT::Buffer> records;
     uint64_t records_offset = 0;

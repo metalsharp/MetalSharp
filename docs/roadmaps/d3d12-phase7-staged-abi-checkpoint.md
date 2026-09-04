@@ -247,6 +247,54 @@ and `registry-after/`. This is metadata transport and a regression checkpoint,
 not proof of shader input binding: the encoder does not yet use these sizes to
 bind records or implement scheduling. Those execution blockers remain open.
 
+## Actual single-record input execution
+
+Input record handles are now distinct from output handles in lowering. A
+versioned 32-byte internal input context describes count, stride, record size,
+and byte length; it is bound separately from the input payload and graph
+backing/output records. CPU input is copied from the command's owned record
+bytes to retained transient storage. GPU input binds the retained resource
+and offset directly, so queued waits protect the shader read rather than a
+premature host snapshot. Input pointer arithmetic checks the context version,
+index and byte bounds. Output-record allocation still uses the previous bounded
+provider and is **not** a general allocator or scheduler.
+
+The source-owned test now proves:
+
+- CPU values 1 and 9 yield `0xabcdef01` and `0xabcdef09`, with marker
+  `0x12345678`, despite mutation of the original CPU value after recording.
+- GPU value 37 yields `0xabcdef25`, distinguishable from the preceding CPU
+  result, preventing an unchanged-output false positive.
+- A real input-reading node submitted before its GPU producer, using queue
+  Wait/Signal and no intervening host completion wait, observes value 457 and
+  returns `[2882400457,305419896]`.
+- A 4-byte record supplied to the 16-byte vector input and an unaligned GPU
+  input address leave the output unchanged.
+- A shader declaring user u28 is rejected with `E_FAIL` and null state output,
+  rather than aliasing the internal input context. Current user node resources
+  are limited to the actually resolved counter-free u0/space0 buffer binding;
+  general node argument tables remain to be implemented.
+
+The input-consumption probe fails on the preceding runtime and passes with the
+new binding. All nine targets build, the full Work Graph and ordinary queue
+regressions pass, and strict ABI passes against matching development artifacts.
+Evidence under `/private/tmp/metalsharp-phase7-abi/`: `input-binding-before/`,
+`input-final-work-graph/`, `input-final-queues/`, `input-binding-final-stage/`,
+and `input-binding-final-build.log`. This stage records dirty source provenance.
+
+The execution candidate is still one record; this checkpoint does not establish
+multiple records, all launch shapes, custom node IDs, downstream publication,
+recursion, device-wide sharing/barriers, or GPU-generated dispatch metadata.
+Phase 7 remains open pending those behaviors.
+
+Manual review also found that real programs outside the single-record candidate
+could fall through to the synthetic reference kernel. The registry guard now
+covers those shapes before reference execution. A two-record real-node dispatch
+checks both output and backing memory for unchanged data; it fails before the
+guard and passes afterward. Evidence: `input-shape-before/`,
+`input-guarded-after/`, and `input-guarded-stage/` under the same scratch root.
+This explicitly rejects an unimplemented shape; it does not implement it.
+
 ## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit

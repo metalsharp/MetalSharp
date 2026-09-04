@@ -4180,6 +4180,18 @@ prepare_work_graph_probe() {
     return 1
   fi
 
+  local collision_cso="$SDK_DIR/out/bin/probe_workgraph_node_collision.cso"
+  rm -f "$collision_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -Fo "$collision_cso" \
+      "$node_source_dir/node_binding_collision.hlsl" >/dev/null
+  ) || [[ ! -s "$collision_cso" ]]; then
+    echo "D3D12 node binding collision compilation failed" >&2
+    return 1
+  fi
+
   local -a node_cases=(
     "node_handles|1|240,247,248,249,252"
     "node_system|1,32|242,253"
