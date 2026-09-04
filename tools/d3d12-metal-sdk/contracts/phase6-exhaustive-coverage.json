@@ -213,6 +213,19 @@
       "reason": "The native render-target matrix proves sample-frequency SV_SampleIndex for 2x and 4x targets, exact resolve values, and a nontrivial 0x5 SampleMask that suppresses samples before shading."
     },
     {
+      "id": "p6-native-msaa-depth-stencil",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "native_msaa_depth_stencil_output_merger",
+      "covers": {"sample_count": ["2", "4"], "sample_positions": ["default"], "msaa_state": ["depth_stencil_msaa"], "depth_stencil": ["depth", "stencil", "depth_stencil"], "render_targets": ["one"], "primitive_topology": ["triangle_list"], "shader_stages": ["vertex_pixel_depth"], "logic_side_effects": ["none"], "view_instancing": ["disabled"], "vrs": ["disabled"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-graphics-msaa-depth",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "depth_pass_fail_required": true, "stencil_attachment_required": true, "resolved_samples_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "2x D32 depth pass red, 4x D32 depth fail transparent black, 4x D24S8 depth/stencil attachment pass red"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The native MSAA output-merger path now has exact D32 pass/fail and D24S8 stencil-enabled attachment behavior at the M4's 2x/4x sample counts."
+    },
+    {
       "id": "p6-msaa-sample-frequency-and-resolve",
       "legality": "legal",
       "status": "open",

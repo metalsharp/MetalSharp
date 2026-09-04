@@ -162,6 +162,10 @@ build_probe \
   -o "$OUT_DIR/probe_graphics_msaa_breadth.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_graphics_msaa_depth.cpp" \
+  -o "$OUT_DIR/probe_graphics_msaa_depth.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_conservative_msaa.cpp" \
   -o "$OUT_DIR/probe_conservative_msaa.exe"
 

@@ -263,6 +263,9 @@ if [[ "$WITH_MSAA" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
     "$SDK_DIR/probes/probe_graphics_msaa_breadth.cpp" \
     -o "$WORK/probe_graphics_msaa_breadth.exe"
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_graphics_msaa_depth.cpp" \
+    -o "$WORK/probe_graphics_msaa_depth.exe"
 fi
 HOST_STATUS=0
 CAPS_STATUS=0
@@ -293,6 +296,8 @@ cp "$SDK_DIR/probes/probe_interpolation/interpolation_eval.hlsl" "$WORK/interpol
 cp "$SDK_DIR/probes/probe_interpolation/interpolation_invalid.hlsl" "$WORK/interpolation_invalid.hlsl"
 if [[ "$WITH_MSAA" == "1" ]]; then
   cp "$SDK_DIR/probes/graphics_msaa.hlsl" "$WORK/graphics_msaa.hlsl"
+  cp "$SDK_DIR/probes/graphics_msaa_depth.hlsl" \
+    "$WORK/graphics_msaa_depth.hlsl"
 fi
 if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   cp "$SDK_DIR/probes/probe_rov_dimensions/rov_dimensions.hlsl" "$WORK/rov_dimensions.hlsl"
@@ -407,14 +412,18 @@ fi
 if [[ "$WITH_MSAA" == "1" ]]; then
   for spec in \
     "vs_main vs_6_0 graphics_msaa_vs" \
-    "ps_main ps_6_7 graphics_msaa_ps"; do
+    "ps_main ps_6_7 graphics_msaa_ps" \
+    "vs_main vs_6_0 graphics_msaa_depth_vs" \
+    "ps_main ps_6_0 graphics_msaa_depth_ps"; do
     read -r entry target output <<<"$spec"
+    input="$WORK/graphics_msaa.hlsl"
+    [[ "$output" == graphics_msaa_depth_* ]] && input="$WORK/graphics_msaa_depth.hlsl"
     env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
       -u DXMT_PROBE_D3D12_DLL -u DXMT_SHADER_CACHE_PATH -u DXMT_LOG_PATH \
       WINEDEBUG=-all WINEPREFIX="$PREFIX" \
       WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
       "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
-      -Fo "$WORK/$output.cso" "$WORK/graphics_msaa.hlsl" >/dev/null
+      -Fo "$WORK/$output.cso" "$input" >/dev/null
   done
 fi
 
@@ -619,6 +628,7 @@ if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
 fi
 MSAA_STATUS=0
 GRAPHICS_MSAA_STATUS=0
+GRAPHICS_MSAA_DEPTH_STATUS=0
 if [[ "$WITH_MSAA" == "1" ]]; then
   set +e
   python3 "$BOUNDED_RUNNER" --timeout "$MSAA_TIMEOUT_SECONDS" --cwd "$WORK" \
@@ -634,6 +644,14 @@ if [[ "$WITH_MSAA" == "1" ]]; then
     "$WINE_BIN" "$WORK/probe_graphics_msaa_breadth.exe" \
     "$WORK/graphics_msaa_vs.cso" "$WORK/graphics_msaa_ps.cso"
   GRAPHICS_MSAA_STATUS=$?
+  set -e
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
+    --output "$SANDBOX/graphics_msaa_depth.json" \
+    --stderr "$LOG_DIR/probe-graphics-msaa-depth.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_graphics_msaa_depth.exe" \
+    "$WORK/graphics_msaa_depth_vs.cso" "$WORK/graphics_msaa_depth_ps.cso"
+  GRAPHICS_MSAA_DEPTH_STATUS=$?
   set -e
 fi
 
@@ -651,7 +669,8 @@ python3 - "$SANDBOX/interpolation.json" "$STAGE_MANIFEST" "$ABI_RESULT" \
   "$CONSERVATIVE_MSAA_STATUS" "$SANDBOX/conservative_msaa.json" \
   "$CONSERVATIVE_MSAA_2_STATUS" "$SANDBOX/conservative_msaa_2.json" \
   "$MSAA_STATUS" "$SANDBOX/msaa.json" "$GRAPHICS_MSAA_STATUS" \
-  "$SANDBOX/graphics_msaa.json" "$HOST_STATUS" \
+  "$SANDBOX/graphics_msaa.json" "$GRAPHICS_MSAA_DEPTH_STATUS" \
+  "$SANDBOX/graphics_msaa_depth.json" "$HOST_STATUS" \
   "$SANDBOX/host_inventory.json" "$CAPS_STATUS" "$SANDBOX/device_caps.json" <<'PY'
 import json
 import pathlib
@@ -669,6 +688,7 @@ import sys
  conservative_msaa_status, conservative_msaa_path,
  conservative_msaa_2_status, conservative_msaa_2_path,
  msaa_status, msaa_path, graphics_msaa_status, graphics_msaa_path,
+ graphics_msaa_depth_status, graphics_msaa_depth_path,
  host_status, host_path, caps_status, caps_path) = sys.argv[1:]
 def load(path):
     p = pathlib.Path(path)
@@ -715,6 +735,7 @@ payload = {
     "conservative_msaa_2": None,
     "msaa": None,
     "graphics_msaa": None,
+    "graphics_msaa_depth": None,
     "host_inventory": None,
     "device_caps": None,
 }
@@ -780,6 +801,11 @@ if pathlib.Path(graphics_msaa_path).exists():
         "process_status": int(graphics_msaa_status),
         "result": load(graphics_msaa_path),
     }
+if pathlib.Path(graphics_msaa_depth_path).exists():
+    payload["graphics_msaa_depth"] = {
+        "process_status": int(graphics_msaa_depth_status),
+        "result": load(graphics_msaa_depth_path),
+    }
 if pathlib.Path(host_path).exists():
     payload["host_inventory"] = {"process_status": int(host_status), "result": load(host_path)}
 if pathlib.Path(caps_path).exists():
@@ -842,6 +868,10 @@ payload["exact"] = (
         int(graphics_msaa_status) == 0
         and payload["graphics_msaa"]["result"].get("pass") is True
     ))
+    and (payload["graphics_msaa_depth"] is None or (
+        int(graphics_msaa_depth_status) == 0
+        and payload["graphics_msaa_depth"]["result"].get("pass") is True
+    ))
     and (payload["host_inventory"] is None or (
         int(host_status) == 0
         and payload["host_inventory"]["result"].get("exact") is True
@@ -855,8 +885,8 @@ pathlib.Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encod
 print(output_path)
 PY
 
-if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$ROV_MSAA_STATUS" != "0" || "$SAMPLE_POSITIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$VIEW_ID_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$INNER_COVERAGE_STATUS" != "0" || "$CONSERVATIVE_MSAA_STATUS" != "0" || "$CONSERVATIVE_MSAA_2_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
-  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa=$ROV_MSAA_STATUS sample_positions=$SAMPLE_POSITIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_id=$VIEW_ID_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS conservative_msaa_2=$CONSERVATIVE_MSAA_2_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
+if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$ROV_MSAA_STATUS" != "0" || "$SAMPLE_POSITIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$VIEW_ID_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$INNER_COVERAGE_STATUS" != "0" || "$CONSERVATIVE_MSAA_STATUS" != "0" || "$CONSERVATIVE_MSAA_2_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_DEPTH_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
+  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa=$ROV_MSAA_STATUS sample_positions=$SAMPLE_POSITIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_id=$VIEW_ID_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS conservative_msaa_2=$CONSERVATIVE_MSAA_2_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS graphics_msaa_depth=$GRAPHICS_MSAA_DEPTH_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
   exit 1
 fi
 if ! python3 "$SDK_DIR/scripts/validate-phase6-exhaustive.py" \
