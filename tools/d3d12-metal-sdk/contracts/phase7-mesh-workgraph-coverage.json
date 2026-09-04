@@ -61,9 +61,13 @@
         ["dxil_node_shader_gpu_readback_exact"],
         ["node_multi_bytecode_loaded"],
         ["node_multi_properties_complete"],
+        ["node_multi_cpu_input_exact"],
+        ["node_multi_gpu_input_exact"],
         ["dxil_multi_node_readback_exact"],
         ["dxil_node_shader_values", [2882400001, 305419896]],
         ["dxil_multi_node_values", [858993459, 3435921411]],
+        ["node_multi_cpu_values", [858993459, 3435921411]],
+        ["node_multi_gpu_values", [286331153, 2863267841]],
         ["record_count", 3],
         ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]

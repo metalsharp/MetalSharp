@@ -228,11 +228,15 @@ int main() {
     bool dxil_node_shader_readback_exact = false;
     bool dxil_node_shader_gpu_readback_exact = false;
     bool dxil_multi_node_readback_exact = false;
+    bool node_multi_cpu_input_exact = false;
+    bool node_multi_gpu_input_exact = false;
     bool node_multi_properties_complete = false;
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
     uint32_t node_shader_values[2] = {};
-    uint32_t node_multi_values[2] = {};
+    uint32_t dxil_multi_node_values[2] = {};
+    uint32_t node_multi_cpu_values[2] = {};
+    uint32_t node_multi_gpu_values[2] = {};
     std::vector<uint8_t> node_shader_bytecode;
     std::vector<uint8_t> node_multi_bytecode;
     const bool node_shader_bytecode_loaded =
@@ -321,7 +325,7 @@ int main() {
         }
     }
     if (SUCCEEDED(hr)) {
-        auto gpu_multi_desc = buffer_desc(128);
+        auto gpu_multi_desc = buffer_desc(256);
         hr = device->CreateCommittedResource(
             &heap, D3D12_HEAP_FLAG_NONE, &gpu_multi_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -347,6 +351,17 @@ int main() {
             std::memcpy(mapped, multi_nodes, sizeof(multi_nodes));
             std::memcpy(static_cast<uint8_t*>(mapped) + 64, &multi_header,
                         sizeof(multi_header));
+            NodeGPUInput single_node = multi_nodes[0];
+            single_node.NumRecords = 1;
+            std::memcpy(static_cast<uint8_t*>(mapped) + 128, &single_node,
+                        sizeof(single_node));
+            MultiNodeGPUInput single_header = {};
+            single_header.NumNodeInputs = 1;
+            single_header.NodeInputs =
+                gpu_multi_input_desc->GetGPUVirtualAddress() + 128;
+            single_header.NodeInputStrideInBytes = sizeof(NodeGPUInput);
+            std::memcpy(static_cast<uint8_t*>(mapped) + 160, &single_header,
+                        sizeof(single_header));
             gpu_multi_input_desc->Unmap(0, nullptr);
         }
     }
@@ -963,12 +978,81 @@ int main() {
             void* mapped = nullptr;
             hr = backing->Map(0, nullptr, &mapped);
             if (SUCCEEDED(hr) && mapped) {
-                std::memcpy(node_multi_values, mapped,
-                            sizeof(node_multi_values));
+                std::memcpy(dxil_multi_node_values, mapped,
+                            sizeof(dxil_multi_node_values));
                 backing->Unmap(0, nullptr);
                 dxil_multi_node_readback_exact =
-                    node_multi_values[0] == 0x33333333u &&
-                    node_multi_values[1] == 0xcccc0003u;
+                    dxil_multi_node_values[0] == 0x33333333u &&
+                    dxil_multi_node_values[1] == 0xcccc0003u;
+            }
+        }
+    }
+    if (SUCCEEDED(node_multi_hr) && node_multi_state_properties &&
+        allocator && base_list && list) {
+        const uint32_t multi_cpu_record = 10;
+        NodeCPUInput multi_cpu_node = {};
+        multi_cpu_node.EntrypointIndex = 2;
+        multi_cpu_node.NumRecords = 1;
+        multi_cpu_node.Records = &multi_cpu_record;
+        multi_cpu_node.RecordStrideInBytes = sizeof(multi_cpu_record);
+        MultiNodeCPUInput multi_cpu_input = {};
+        multi_cpu_input.NumNodeInputs = 1;
+        multi_cpu_input.NodeInputs = &multi_cpu_node;
+        multi_cpu_input.NodeInputStrideInBytes = sizeof(NodeCPUInput);
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc multi_cpu_dispatch = {};
+            multi_cpu_dispatch.Mode = 2;
+            multi_cpu_dispatch.MultiNodeCPUInput = multi_cpu_input;
+            SetProgramDesc node_multi_program = set_program;
+            std::memcpy(node_multi_program.WorkGraph.ProgramIdentifier,
+                        node_multi_identifier, sizeof(node_multi_identifier));
+            list->SetProgram(&node_multi_program);
+            list->DispatchGraph(&multi_cpu_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memcpy(node_multi_cpu_values, mapped,
+                            sizeof(node_multi_cpu_values));
+                backing->Unmap(0, nullptr);
+                node_multi_cpu_input_exact =
+                    node_multi_cpu_values[0] == 0x33333333u &&
+                    node_multi_cpu_values[1] == 0xcccc0003u;
+            }
+        }
+    }
+    if (SUCCEEDED(node_multi_hr) && node_multi_state_properties &&
+        gpu_multi_input_desc && allocator && base_list && list) {
+        SetProgramDesc node_multi_program = set_program;
+        std::memcpy(node_multi_program.WorkGraph.ProgramIdentifier,
+                    node_multi_identifier, sizeof(node_multi_identifier));
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc multi_gpu_dispatch = {};
+            multi_gpu_dispatch.Mode = 3;
+            multi_gpu_dispatch.Raw[0] =
+                gpu_multi_input_desc->GetGPUVirtualAddress() + 160;
+            list->SetProgram(&node_multi_program);
+            list->DispatchGraph(&multi_gpu_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memcpy(node_multi_gpu_values, mapped,
+                            sizeof(node_multi_gpu_values));
+                backing->Unmap(0, nullptr);
+                node_multi_gpu_input_exact =
+                    node_multi_gpu_values[0] == 0x11111111u &&
+                    node_multi_gpu_values[1] == 0xaaaa0001u;
             }
         }
     }
@@ -982,8 +1066,8 @@ int main() {
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
         node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
         dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
-        node_multi_properties_complete &&
-        dxil_multi_node_readback_exact;
+        node_multi_properties_complete && dxil_multi_node_readback_exact &&
+        node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
@@ -1020,10 +1104,18 @@ int main() {
                 dxil_multi_node_readback_exact ? "true" : "false");
     std::printf("  \"node_multi_properties_complete\": %s,\n",
                 node_multi_properties_complete ? "true" : "false");
+    std::printf("  \"node_multi_cpu_input_exact\": %s,\n",
+                node_multi_cpu_input_exact ? "true" : "false");
+    std::printf("  \"node_multi_gpu_input_exact\": %s,\n",
+                node_multi_gpu_input_exact ? "true" : "false");
     std::printf("  \"dxil_node_shader_values\": [%u, %u],\n",
                 node_shader_values[0], node_shader_values[1]);
     std::printf("  \"dxil_multi_node_values\": [%u, %u],\n",
-                node_multi_values[0], node_multi_values[1]);
+                dxil_multi_node_values[0], dxil_multi_node_values[1]);
+    std::printf("  \"node_multi_cpu_values\": [%u, %u],\n",
+                node_multi_cpu_values[0], node_multi_cpu_values[1]);
+    std::printf("  \"node_multi_gpu_values\": [%u, %u],\n",
+                node_multi_gpu_values[0], node_multi_gpu_values[1]);
     std::printf("  \"multi_node_cpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
                 multi_cpu_values[0], multi_cpu_values[1], multi_cpu_values[2],
                 multi_cpu_values[3], multi_cpu_values[4], multi_cpu_values[5],
@@ -1062,7 +1154,8 @@ int main() {
                    node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
                    node_multi_properties_complete &&
-                   dxil_multi_node_readback_exact
+                   dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
+                   node_multi_gpu_input_exact
                ? 0
                : 1;
 }
