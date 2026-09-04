@@ -3170,8 +3170,25 @@ struct ReplayState {
     uint64_t input_offset = 0;
     D3D12NodeInputContext input_context;
     if (shader.input_record_size) {
-      if (!shader.input_record_alignment || record_count != 1u ||
-          record_stride < shader.input_record_size)
+      if (!shader.input_record_alignment || !record_stride ||
+          record_stride < shader.input_record_size ||
+          (record_stride % shader.input_record_alignment) != 0 ||
+          (record_count > UINT64_MAX / record_stride))
+        return false;
+      // A fixed-grid broadcasting node has one logical dispatch per input
+      // record.  A thread node likewise consumes one record per invocation;
+      // encode those invocations independently so the translated shader's
+      // input.Get() remains bound to exactly one record.  Coalescing consumes
+      // a bounded array in one threadgroup and is split into GPU batches when
+      // the input count exceeds that group's declared thread capacity.
+      if (record_count > 1u && shader.launch_type != 1u &&
+          shader.launch_type != 2u && shader.launch_type != 3u)
+        return false;
+      const uint64_t input_bytes = uint64_t(record_count) * record_stride;
+      // Keep malformed GPU descriptors from turning a command replay into an
+      // unbounded transient allocation. The reference multi-node provider
+      // uses the same 64 MiB bounded payload policy.
+      if (input_bytes > 64ull * 1024ull * 1024ull)
         return false;
       if (gpu_records) {
         auto *resource = device->LookupResourceByGPUAddress(gpu_records);
@@ -3180,27 +3197,69 @@ struct ReplayState {
           return false;
         input_offset = gpu_records - resource->GetGPUVirtualAddress();
         if (input_offset > resource->GetBufferByteLength() ||
-            record_stride > resource->GetBufferByteLength() - input_offset)
+            input_bytes > resource->GetBufferByteLength() - input_offset)
           return false;
         input_buffer = resource->GetMTLBuffer();
         RetainResourceMetalObjectsForCompletion(resource);
       } else {
         if (!cpu_records)
           return false;
-        input_buffer = MakeTransientBuffer(device, record_stride);
+        input_buffer = MakeTransientBuffer(device, input_bytes);
         if (!input_buffer.handle)
           return false;
-        input_buffer.updateContents(0, cpu_records, record_stride);
+        input_buffer.updateContents(0, cpu_records, input_bytes);
       }
-      input_context.record_count = record_count;
       input_context.record_stride = record_stride;
       input_context.record_size = shader.input_record_size;
-      input_context.byte_length = record_stride;
+    } else if (record_count != 1u) {
+      return false;
     }
-    auto context_buffer = MakeTransientBuffer(device, sizeof(input_context));
+    const bool coalescing = shader.input_record_size &&
+                            shader.launch_type == 2u;
+    uint64_t threads_per_group = uint64_t(shader.threads[0]) *
+                                 shader.threads[1] * shader.threads[2];
+    if (!threads_per_group || (coalescing && !shader.input_max_records))
+      return false;
+    // The coalescing limit is an input ABI property, not a thread-count
+    // property. A shader may iterate over more records than it has lanes, so
+    // batch at the declared MaxRecords boundary and let the shader's own
+    // control flow decide which records to consume.
+    const uint32_t records_per_invocation =
+        coalescing ? shader.input_max_records : 1u;
+    const uint32_t invocation_count =
+        coalescing
+            ? static_cast<uint32_t>((uint64_t(record_count) +
+                                     records_per_invocation - 1u) /
+                                    records_per_invocation)
+            : (shader.input_record_size ? record_count : 1u);
+    if (!invocation_count ||
+        uint64_t(invocation_count) * sizeof(input_context) > UINT64_MAX)
+      return false;
+    const uint32_t context_count = coalescing ? invocation_count : 1u;
+    auto context_buffer = MakeTransientBuffer(
+        device, uint64_t(context_count) * sizeof(input_context));
     if (!context_buffer.handle)
       return false;
-    context_buffer.updateContents(0, &input_context, sizeof(input_context));
+    for (uint32_t invocation = 0; invocation < context_count;
+         ++invocation) {
+      D3D12NodeInputContext context = input_context;
+      if (shader.input_record_size) {
+        const uint32_t first_record = coalescing
+                                          ? invocation * records_per_invocation
+                                          : invocation;
+        const uint32_t batch_count = coalescing
+                                          ? std::min<uint32_t>(
+                                                records_per_invocation,
+                                                record_count - first_record)
+                                          : 1u;
+        if (batch_count > UINT64_MAX / record_stride)
+          return false;
+        context.record_count = batch_count;
+        context.byte_length = uint64_t(batch_count) * record_stride;
+      }
+      context_buffer.updateContents(
+          uint64_t(invocation) * sizeof(context), &context, sizeof(context));
+    }
 
     // Bounded node u0/space0 binding. Root parameter indices are not shader
     // registers. Keep node records at buffer 30 and resolve the output through
@@ -3290,63 +3349,78 @@ struct ReplayState {
       work_graph_node_index = node_index;
     }
 
-    std::array<uint8_t, 2048> command_storage = {};
-    size_t command_offset = 0;
-    wmtcmd_compute_nop *chain_head = nullptr;
-    wmtcmd_base *chain_tail = nullptr;
-    auto append = [&](const auto &source_command) -> bool {
-      if (command_offset + sizeof(source_command) > command_storage.size())
+    for (uint32_t record = 0; record < invocation_count; ++record) {
+      std::array<uint8_t, 2048> command_storage = {};
+      size_t command_offset = 0;
+      wmtcmd_compute_nop *chain_head = nullptr;
+      wmtcmd_base *chain_tail = nullptr;
+      auto append = [&](const auto &source_command) -> bool {
+        if (command_offset + sizeof(source_command) > command_storage.size())
+          return false;
+        auto *command = reinterpret_cast<wmtcmd_base *>(
+            command_storage.data() + command_offset);
+        std::memcpy(command, &source_command, sizeof(source_command));
+        command->next.set(nullptr);
+        if (chain_tail)
+          chain_tail->next.set(command);
+        else
+          chain_head = reinterpret_cast<wmtcmd_compute_nop *>(command);
+        chain_tail = command;
+        command_offset += sizeof(source_command);
+        return true;
+      };
+      wmtcmd_compute_setpso set_pso = {};
+      set_pso.type = WMTComputeCommandSetPSO;
+      set_pso.pso = work_graph_node_pipeline.handle;
+      set_pso.threadgroup_size = {shader.threads[0], shader.threads[1], shader.threads[2]};
+      if (!append(set_pso))
         return false;
-      auto *command = reinterpret_cast<wmtcmd_base *>(
-          command_storage.data() + command_offset);
-      std::memcpy(command, &source_command, sizeof(source_command));
-      command->next.set(nullptr);
-      if (chain_tail)
-        chain_tail->next.set(command);
-      else
-        chain_head = reinterpret_cast<wmtcmd_compute_nop *>(command);
-      chain_tail = command;
-      command_offset += sizeof(source_command);
-      return true;
-    };
-    wmtcmd_compute_setpso set_pso = {};
-    set_pso.type = WMTComputeCommandSetPSO;
-    set_pso.pso = work_graph_node_pipeline.handle;
-    set_pso.threadgroup_size = {shader.threads[0], shader.threads[1], shader.threads[2]};
-    if (!append(set_pso))
-      return false;
-    for (uint32_t index = 0; index < 31; ++index) {
-      wmtcmd_compute_setbuffer set_buffer = {};
-      set_buffer.type = WMTComputeCommandSetBuffer;
-      const bool node_record_slot = index == 30u;
-      set_buffer.buffer = (node_record_slot ? backing_resource
-                                             : node_output_resource)
-                              ->GetMTLBuffer()
-                              .handle;
-      set_buffer.offset = node_record_slot ? backing_offset : node_output_offset;
-      // Internal node ABI: input context at 28, input payload at 29,
-      // output/backing records at 30. User u0 remains separately resolved.
-      if (index == 28u) {
-        set_buffer.buffer = context_buffer.handle;
-        set_buffer.offset = 0;
-      } else if (index == 29u) {
-        set_buffer.buffer = input_buffer.handle;
-        set_buffer.offset = input_offset;
+      uint64_t record_offset = input_offset;
+      if (shader.input_record_size) {
+        const uint32_t first_record = coalescing
+                                          ? record * records_per_invocation
+                                          : record;
+        if (first_record > (UINT64_MAX - input_offset) / record_stride)
+          return false;
+        record_offset += uint64_t(first_record) * record_stride;
       }
-      set_buffer.index = index;
-      if (!append(set_buffer))
+      for (uint32_t index = 0; index < 31; ++index) {
+        wmtcmd_compute_setbuffer set_buffer = {};
+        set_buffer.type = WMTComputeCommandSetBuffer;
+        const bool node_record_slot = index == 30u;
+        set_buffer.buffer = (node_record_slot ? backing_resource
+                                               : node_output_resource)
+                                ->GetMTLBuffer()
+                                .handle;
+        set_buffer.offset = node_record_slot ? backing_offset : node_output_offset;
+        // Internal node ABI: input context at 28, input payload at 29,
+        // output/backing records at 30. User u0 remains separately resolved.
+        if (index == 28u) {
+          set_buffer.buffer = context_buffer.handle;
+          set_buffer.offset = coalescing
+                                  ? uint64_t(record) * sizeof(input_context)
+                                  : 0;
+        } else if (index == 29u) {
+          set_buffer.buffer = input_buffer.handle;
+          set_buffer.offset = record_offset;
+        }
+        set_buffer.index = index;
+        if (!append(set_buffer))
+          return false;
+      }
+      wmtcmd_compute_dispatch dispatch = {};
+      dispatch.type = WMTComputeCommandDispatch;
+      dispatch.size = coalescing
+                          ? WMTSize{1, 1, 1}
+                          : WMTSize{shader.grid[0], shader.grid[1], shader.grid[2]};
+      if (!append(dispatch))
         return false;
+      WMT::ComputeCommandEncoder encoder =
+          command_buffer.computeCommandEncoder(false);
+      if (!encoder.handle || !chain_head || !encoder.encodeCommands(chain_head))
+        return false;
+      EndMetalEncoder(encoder, "workgraph_node_shader");
     }
-    wmtcmd_compute_dispatch dispatch = {};
-    dispatch.type = WMTComputeCommandDispatch;
-    dispatch.size = {shader.grid[0], shader.grid[1], shader.grid[2]};
-    if (!append(dispatch))
-      return false;
-    WMT::ComputeCommandEncoder encoder =
-        command_buffer.computeCommandEncoder(false);
-    if (!encoder.handle || !chain_head || !encoder.encodeCommands(chain_head))
-      return false;
-    EndMetalEncoder(encoder, "workgraph_node_shader");
     RetainResourceMetalObjectsForCompletion(backing_resource);
     RetainResourceMetalObjectsForCompletion(node_output_resource);
     return true;
@@ -3393,12 +3467,15 @@ struct ReplayState {
     const void *generic_cpu_records = resolved.record_data;
     uint64_t generic_gpu_records = resolved.record_gpu_address;
     uint64_t generic_record_stride = resolved.record_stride;
+    uint32_t generic_record_count = resolved.num_records;
     bool generic_node_candidate = false;
     if ((cmd.dispatch_mode == 0u || cmd.dispatch_mode == 1u) &&
-        resolved.num_records == 1u && resolved.record_stride &&
+        resolved.num_records && resolved.record_stride &&
         (resolved.record_stride & 3u) == 0 &&
+        resolved.num_records <= UINT64_MAX / resolved.record_stride &&
         ((cmd.dispatch_mode == 0u &&
-          resolved.record_data_size >= resolved.record_stride &&
+          uint64_t(resolved.record_data_size) >=
+              uint64_t(resolved.num_records) * resolved.record_stride &&
           resolved.record_data_size <= sizeof(resolved.record_data)) ||
          (cmd.dispatch_mode == 1u && resolved.record_gpu_address))) {
       if (cmd.dispatch_mode == 1u) {
@@ -3409,9 +3486,11 @@ struct ReplayState {
                 ? resolved.record_gpu_address -
                       record_resource->GetGPUVirtualAddress()
                 : 0;
+        const uint64_t record_bytes =
+            uint64_t(resolved.num_records) * resolved.record_stride;
         if (!record_resource || !record_resource->GetMTLBuffer().handle ||
             record_offset > record_resource->GetBufferByteLength() ||
-            resolved.record_stride >
+            record_bytes >
                 record_resource->GetBufferByteLength() - record_offset)
           return false;
         RetainResourceMetalObjectsForCompletion(record_resource);
@@ -3424,16 +3503,18 @@ struct ReplayState {
                cmd.record_data_size <= sizeof(cmd.record_data)) {
       const auto *input = reinterpret_cast<const PackedWorkGraphNodeInput *>(
           cmd.record_data);
-      if (input->num_records == 1u && input->record_stride &&
+      if (input->num_records && input->record_stride &&
           (input->record_stride & 3u) == 0 &&
+          input->num_records <= UINT64_MAX / input->record_stride &&
           input->data_offset >= sizeof(PackedWorkGraphNodeInput) &&
           input->data_offset <= cmd.record_data_size &&
-          input->record_stride <=
+          uint64_t(input->num_records) * input->record_stride <=
               cmd.record_data_size - input->data_offset) {
         generic_entrypoint = input->entrypoint_index;
         generic_cpu_records = cmd.record_data + input->data_offset;
         generic_gpu_records = 0;
         generic_record_stride = input->record_stride;
+        generic_record_count = input->num_records;
         generic_node_candidate = true;
       }
     } else if (cmd.dispatch_mode == 3u) {
@@ -3479,8 +3560,9 @@ struct ReplayState {
                 node_resource->GetBufferByteLength() - node_offset ||
             !node_resource->ReadBufferRange(node_offset, &input,
                                             sizeof(input)) ||
-            input.num_records != 1u || !input.records ||
-            !input.record_stride || (input.record_stride & 3u))
+            !input.num_records || !input.records || !input.record_stride ||
+            (input.record_stride & 3u) ||
+            input.num_records > UINT64_MAX / input.record_stride)
           return false;
         auto *record_resource =
             device->LookupResourceByGPUAddress(input.records);
@@ -3488,15 +3570,18 @@ struct ReplayState {
             record_resource
                 ? input.records - record_resource->GetGPUVirtualAddress()
                 : 0;
+        const uint64_t record_bytes =
+            uint64_t(input.num_records) * input.record_stride;
         if (!record_resource || !record_resource->GetMTLBuffer().handle ||
             record_offset > record_resource->GetBufferByteLength() ||
-            input.record_stride >
+            record_bytes >
                 record_resource->GetBufferByteLength() - record_offset)
           return false;
         generic_entrypoint = input.entrypoint_index;
         generic_cpu_records = nullptr;
         generic_gpu_records = input.records;
         generic_record_stride = input.record_stride;
+        generic_record_count = input.num_records;
         generic_node_candidate = true;
         RetainResourceMetalObjectsForCompletion(header_resource);
         RetainResourceMetalObjectsForCompletion(node_resource);
@@ -3510,8 +3595,9 @@ struct ReplayState {
               sizeof(work_graph_program_identifier), generic_entrypoint,
               node_shader))
         return EncodeWorkGraphNodeShader(
-            device, node_shader, generic_entrypoint, 1u, generic_cpu_records,
-            generic_gpu_records, generic_record_stride, command_buffer);
+            device, node_shader, generic_entrypoint, generic_record_count,
+            generic_cpu_records, generic_gpu_records, generic_record_stride,
+            command_buffer);
     }
     // A real program with an unimplemented input shape must not execute the
     // synthetic reference kernel in place of its shader.

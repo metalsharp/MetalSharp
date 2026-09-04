@@ -2506,7 +2506,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  thread uint m12_node_next_handle = 1u;\n";
             os << "  thread uint m12_node_output_count = 0u;\n";
             os << "  thread uint m12_node_output_complete = 0u;\n";
-            os << "  thread uint m12_node_input_record_count = 1u;\n";
+            os << "  thread uint m12_node_input_record_count = buf28 != nullptr ? reinterpret_cast<device const m12_node_input_context *>(buf28)->count : 0u;\n";
             os << "  thread uint m12_node_remaining_recursion_levels = 32u;\n";
             os << "  thread uchar m12_node_record_storage[256] = {};\n";
         }
@@ -7636,10 +7636,13 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 return reject_node("malformed GetNodeRecordPtr operands");
             const uint32_t index =
                 literalArg(1, UINT32_MAX, "node record index");
-            if (index == UINT32_MAX || index >= 256u)
+            const std::string index_value = numericArg(1, "");
+            if (index != UINT32_MAX && index >= 256u)
                 return reject_node("node record index is outside the bounded storage");
+            if (index_value.empty())
+                return reject_node("node record index has no scalar value");
             return "m12_node_record_ptr(buf30 != nullptr ? buf30 : buf0, buf29, buf28, (uint)(" +
-                   valueArg(0, "0u") + "), " + std::to_string(index) + "u)";
+                   valueArg(0, "0u") + "), (uint)(" + index_value + "))";
         }
         case DXOP_IncrementOutputCount: {
             if (args.size() < 3)

@@ -921,7 +921,8 @@ The repeated-cycle regression additionally checks reuse of the same compute
 queue with a new producer record and new fences, yielding `[236, 1464292027]`.
 The one-command-buffer native queue stalled the second completion fence; raising
 its capacity to 64 passes this bounded reuse case. This does not establish
-unbounded wait depth or general multi-input GPU descriptor/payload ordering.
+unbounded wait depth, GPU-generated dispatch metadata, or general multi-input
+GPU descriptor/payload ordering.
 Development evidence: `/private/tmp/metalsharp-phase7-abi/repeat-work-graph/`,
 `repeat-queues/`, and `capacity-stage/` (strict ABI audit). The earlier
 `two-single/` and `two-values/` failures and `two-queues/` fresh-queue control
@@ -956,9 +957,12 @@ mismatch, not valid structured-node evidence. The corrected raw test failed on
 the previous runtime and passes after raw-UAV binding support; other resource
 classes and general binding remain open. Evidence:
 `/private/tmp/metalsharp-phase7-abi/raw-before/` and `raw-after/`.
-Resource/record fan-out,
-recursion, broader cross-queue synchronization, and general node shader conversion
-remain open.
+Fixed-grid broadcasting and thread nodes now execute bounded multi-record CPU
+and GPU input arrays through the lowered node shader. Coalescing nodes retain
+`[MaxRecords]`, support dynamic input indexing and GPU batch dispatch, and pass
+six-record CPU/GPU readback. Resource/record fan-out, recursion, output
+publication, GPU-generated metadata, broader cross-queue synchronization, and
+general node shader conversion remain open.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**
