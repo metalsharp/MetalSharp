@@ -206,9 +206,13 @@ int main() {
                                : E_FAIL;
     ID3D12Device5* device5 = nullptr;
     ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandQueue* compute_queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
+    ID3D12CommandAllocator* compute_allocator = nullptr;
     ID3D12GraphicsCommandList* base_list = nullptr;
+    ID3D12GraphicsCommandList* compute_base_list = nullptr;
     dxmt::GraphicsCommandList10Extension* list = nullptr;
+    dxmt::GraphicsCommandList10Extension* compute_list = nullptr;
     ID3D12Resource* backing = nullptr;
     ID3D12Resource* node_output = nullptr;
     ID3D12RootSignature* node_root = nullptr;
@@ -241,6 +245,7 @@ int main() {
     bool node_local_table_validation_exact = false;
     bool backing_overflow_unchanged = false;
     bool multi_dispatch_ordering_exact = false;
+    bool cross_queue_dispatch_exact = false;
     bool dxil_node_shader_readback_exact = false;
     bool dxil_node_shader_uav_binding_exact = false;
     bool dxil_node_shader_gpu_readback_exact = false;
@@ -275,6 +280,23 @@ int main() {
     if (SUCCEEDED(hr))
         hr = base_list->QueryInterface(dxmt::kID3D12GraphicsCommandList10,
                                        reinterpret_cast<void**>(&list));
+    if (SUCCEEDED(hr)) {
+        D3D12_COMMAND_QUEUE_DESC compute_queue_desc = {};
+        compute_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+        hr = device->CreateCommandQueue(&compute_queue_desc,
+                                         IID_PPV_ARGS(&compute_queue));
+    }
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                            IID_PPV_ARGS(&compute_allocator));
+    if (SUCCEEDED(hr))
+        hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_COMPUTE,
+                                       compute_allocator, nullptr,
+                                       IID_PPV_ARGS(&compute_base_list));
+    if (SUCCEEDED(hr))
+        hr = compute_base_list->QueryInterface(
+            dxmt::kID3D12GraphicsCommandList10,
+            reinterpret_cast<void**>(&compute_list));
     auto heap = upload_heap();
     auto resource_desc = buffer_desc(256);
     if (SUCCEEDED(hr))
@@ -1183,6 +1205,34 @@ int main() {
         }
     }
 
+    if (compute_queue && compute_base_list && compute_list &&
+        SUCCEEDED(hr)) {
+        const uint32_t compute_record = 17;
+        NodeCPUInput compute_input = {};
+        compute_input.EntrypointIndex = 0;
+        compute_input.NumRecords = 1;
+        compute_input.Records = &compute_record;
+        compute_input.RecordStrideInBytes = sizeof(compute_record);
+        DispatchGraphDesc compute_dispatch = {};
+        compute_dispatch.Mode = 0;
+        compute_dispatch.NodeCPUInput = compute_input;
+        compute_list->SetProgram(&set_program);
+        compute_list->DispatchGraph(&compute_dispatch);
+        hr = execute_and_wait(device, compute_queue, compute_base_list);
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                const uint32_t* values_ptr =
+                    static_cast<const uint32_t*>(mapped);
+                cross_queue_dispatch_exact =
+                    values_ptr[0] == compute_record + 1u &&
+                    values_ptr[1] == (compute_record ^ 0x57475250u);
+                backing->Unmap(0, nullptr);
+            }
+        }
+    }
+
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
@@ -1191,7 +1241,7 @@ int main() {
         multi_cpu_pointer_free && multi_gpu_readback_ok &&
         multi_node_negative_unchanged && node_local_table_validation_exact &&
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
-        node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
+        cross_queue_dispatch_exact && node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
         dxil_node_shader_uav_binding_exact && dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
         node_multi_properties_complete && dxil_multi_node_readback_exact &&
@@ -1220,6 +1270,8 @@ int main() {
                 multi_node_negative_unchanged ? "true" : "false");
     std::printf("  \"multi_dispatch_ordering_exact\": %s,\n",
                 multi_dispatch_ordering_exact ? "true" : "false");
+    std::printf("  \"cross_queue_dispatch_exact\": %s,\n",
+                cross_queue_dispatch_exact ? "true" : "false");
     std::printf("  \"node_local_table_validation_exact\": %s,\n",
                 node_local_table_validation_exact ? "true" : "false");
     std::printf("  \"backing_overflow_unchanged\": %s,\n",
@@ -1271,8 +1323,15 @@ int main() {
     release(gpu_multi_input_desc);
     release(gpu_input_desc);
     release(gpu_records);
+    release(node_root_blob);
+    release(node_root);
+    release(node_output);
     release(node_local_table);
     release(backing);
+    release(compute_list);
+    release(compute_base_list);
+    release(compute_allocator);
+    release(compute_queue);
     release(list);
     release(base_list);
     release(allocator);
@@ -1287,7 +1346,7 @@ int main() {
                    multi_cpu_pointer_free && multi_gpu_readback_ok &&
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
                    backing_overflow_unchanged && multi_dispatch_ordering_exact &&
-                   node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
+                   cross_queue_dispatch_exact && node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
                    dxil_node_shader_uav_binding_exact &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
                    node_multi_properties_complete &&

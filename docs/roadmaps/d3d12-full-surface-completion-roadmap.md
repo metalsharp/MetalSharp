@@ -908,8 +908,9 @@ records remain pointer-free after the caller mutates its arrays, verifies a
 malformed multi-node stride leaves the backing memory unchanged, validates a
 non-empty node-local-root table and rejects malformed table stride, checks
 bounded backing-memory overflow without writes, and checks ordered back-to-back
-dispatches after command-list reuse. The command path remains pointer-free and
-records `cpu_scheduler=false`. The source-owned `node_records` and
+dispatches after command-list reuse. The command path remains pointer-free and records `cpu_scheduler=false`; the
+reference kernel also passes direct-queue and compute-queue submission. The
+source-owned `node_records` and
 three-entrypoint `node_multi` DXIL libraries lower at runtime into GPU-native
 Metal compute kernels with exact backing-buffer readback, CPU/GPU single-node
 and one-input multi-node coverage, entrypoint routing, a node-barrier witness,
@@ -2222,8 +2223,9 @@ whether the scoped FL12_2 gate is green.
   `node_records` fixture plus a three-entrypoint `node_multi` fixture,
   verifies exact backing-buffer writes, CPU/GPU single-node and one-input
   multi-node dispatch, entrypoint routing, INCLUDE_ALL_AVAILABLE_NODES metadata,
-  backing-memory initialization, a direct node-u0 resource binding, and a node
-  barrier, and keeps the existing pointer/overflow/ordering negatives. This is bounded node coverage, not
+  backing-memory initialization, a direct node-u0 resource binding, direct and
+  compute queue submission, and a node barrier, and keeps the existing
+  pointer/overflow/ordering negatives. This is bounded node coverage, not
   general graph promotion.
 
 - Extended the bounded GPU-native Work Graph proof with a valid node-local-root
