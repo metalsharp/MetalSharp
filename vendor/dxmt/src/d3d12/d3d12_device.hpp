@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <new>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -193,6 +194,12 @@ public:
   MTLD3D12Resource *LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr);
   void RegisterCommandQueue(MTLD3D12CommandQueue *queue);
   void UnregisterCommandQueue(MTLD3D12CommandQueue *queue);
+  void RegisterWorkGraphProgram(const uint8_t *identifier,
+                                size_t identifier_size,
+                                const std::vector<std::string> &node_msl);
+  bool LookupWorkGraphNodeShader(const uint8_t *identifier,
+                                 size_t identifier_size,
+                                 UINT node_index, std::string &msl) const;
   HRESULT EnqueueSetEvent(HANDLE event);
   void NotifyTrimCallbacks(UINT64 bytes_to_trim = 0);
 
@@ -611,6 +618,9 @@ private:
   std::unordered_map<uint64_t, MTLD3D12Resource *> m_resources_by_gpu_addr;
   std::mutex m_command_queue_mutex;
   std::vector<MTLD3D12CommandQueue *> m_command_queues;
+  mutable std::mutex m_work_graph_mutex;
+  std::unordered_map<std::string, std::vector<std::string>>
+      m_work_graph_programs;
   std::mutex m_background_mutex;
   HANDLE m_background_event = nullptr;
   D3D12_BACKGROUND_PROCESSING_MODE m_background_mode =

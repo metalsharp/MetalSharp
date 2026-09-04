@@ -1488,6 +1488,11 @@ struct ReplayState {
   uint64_t work_graph_node_table_stride = 0;
   WMT::Reference<WMT::Library> work_graph_reference_library;
   WMT::Reference<WMT::ComputePipelineState> work_graph_reference_pipeline;
+  WMT::Reference<WMT::Library> work_graph_node_library;
+  WMT::Reference<WMT::ComputePipelineState> work_graph_node_pipeline;
+  std::string work_graph_node_source;
+  uint32_t work_graph_node_index = UINT32_MAX;
+  uint8_t work_graph_program_identifier[32] = {};
   WMT::Reference<WMT::ComputePipelineState> raytracing_compute_pso;
   WMT::Reference<WMT::VisibleFunctionTable>
       raytracing_visible_function_table;
@@ -3118,6 +3123,114 @@ struct ReplayState {
     return buffer;
   }
 
+  bool EncodeWorkGraphNodeShader(MTLD3D12Device *device,
+                                 const std::string &source,
+                                 uint32_t node_index,
+                                 uint32_t record_count,
+                                 WMT::CommandBuffer command_buffer) {
+    if (!device || !command_buffer.handle || source.empty() ||
+        !work_graph_backing_address || !work_graph_backing_size ||
+        !record_count)
+      return false;
+    auto *backing_resource = device->LookupResourceByGPUAddress(
+        work_graph_backing_address);
+    if (!backing_resource || !backing_resource->GetMTLBuffer().handle)
+      return false;
+    const uint64_t backing_offset =
+        work_graph_backing_address - backing_resource->GetGPUVirtualAddress();
+    if (backing_offset > backing_resource->GetBufferByteLength() ||
+        work_graph_backing_size >
+            backing_resource->GetBufferByteLength() - backing_offset ||
+        uint64_t(record_count) * 8u > work_graph_backing_size)
+      return false;
+    if (work_graph_node_table_address || work_graph_node_table_size ||
+        work_graph_node_table_stride) {
+      if (!work_graph_node_table_address || !work_graph_node_table_size ||
+          !work_graph_node_table_stride ||
+          (work_graph_node_table_stride & 3u))
+        return false;
+      auto *node_table = device->LookupResourceByGPUAddress(
+          work_graph_node_table_address);
+      if (!node_table || !node_table->GetMTLBuffer().handle)
+        return false;
+      const uint64_t node_table_offset =
+          work_graph_node_table_address - node_table->GetGPUVirtualAddress();
+      if (node_table_offset > node_table->GetBufferByteLength() ||
+          work_graph_node_table_size >
+              node_table->GetBufferByteLength() - node_table_offset)
+        return false;
+      RetainResourceMetalObjectsForCompletion(node_table);
+    }
+
+    if (work_graph_node_source != source ||
+        work_graph_node_index != node_index ||
+        !work_graph_node_pipeline.handle) {
+      WMT::Reference<WMT::Error> error;
+      auto library = device->GetMTLDevice().newLibraryWithSource(
+          source.c_str(), source.size(), error);
+      if (!library.handle || error.handle)
+        return false;
+      auto function = library.newFunction("node_main");
+      if (!function.handle)
+        return false;
+      auto pipeline = device->GetMTLDevice().newComputePipelineState(function,
+                                                                       error);
+      if (!pipeline.handle || error.handle)
+        return false;
+      work_graph_node_library = library;
+      work_graph_node_pipeline = pipeline;
+      work_graph_node_source = source;
+      work_graph_node_index = node_index;
+    }
+
+    std::array<uint8_t, 2048> command_storage = {};
+    size_t command_offset = 0;
+    wmtcmd_compute_nop *chain_head = nullptr;
+    wmtcmd_base *chain_tail = nullptr;
+    auto append = [&](const auto &source_command) -> bool {
+      if (command_offset + sizeof(source_command) > command_storage.size())
+        return false;
+      auto *command = reinterpret_cast<wmtcmd_base *>(
+          command_storage.data() + command_offset);
+      std::memcpy(command, &source_command, sizeof(source_command));
+      command->next.set(nullptr);
+      if (chain_tail)
+        chain_tail->next.set(command);
+      else
+        chain_head = reinterpret_cast<wmtcmd_compute_nop *>(command);
+      chain_tail = command;
+      command_offset += sizeof(source_command);
+      return true;
+    };
+    wmtcmd_compute_setpso set_pso = {};
+    set_pso.type = WMTComputeCommandSetPSO;
+    set_pso.pso = work_graph_node_pipeline.handle;
+    set_pso.threadgroup_size = {1, 1, 1};
+    if (!append(set_pso))
+      return false;
+    for (uint32_t index = 0; index < 31; ++index) {
+      wmtcmd_compute_setbuffer set_buffer = {};
+      set_buffer.type = WMTComputeCommandSetBuffer;
+      set_buffer.buffer = backing_resource->GetMTLBuffer().handle;
+      set_buffer.offset = backing_offset;
+      set_buffer.index = index;
+      if (!append(set_buffer))
+        return false;
+    }
+    wmtcmd_compute_dispatch dispatch = {};
+    dispatch.type = WMTComputeCommandDispatch;
+    dispatch.size = {record_count, 1, 1};
+    if (!append(dispatch))
+      return false;
+    WMT::ComputeCommandEncoder encoder =
+        command_buffer.computeCommandEncoder(false);
+    if (!encoder.handle || !chain_head || !encoder.encodeCommands(chain_head))
+      return false;
+    EndMetalEncoder(encoder, "workgraph_node_shader");
+    RetainResourceMetalObjectsForCompletion(backing_resource);
+    return true;
+  }
+
   bool EncodeWorkGraphReference(MTLD3D12Device *device,
                                 const CmdDispatchGraph &cmd,
                                 WMT::CommandBuffer command_buffer) {
@@ -3154,6 +3267,20 @@ struct ReplayState {
         work_graph_program_type != 5u || !work_graph_backing_address ||
         !work_graph_backing_size)
       return !cmd.num_records;
+
+    if (cmd.dispatch_mode == 0u && resolved.num_records == 1u &&
+        resolved.record_stride && (resolved.record_stride & 3u) == 0 &&
+        resolved.record_data_size >= resolved.record_stride &&
+        resolved.record_data_size <= sizeof(resolved.record_data)) {
+      std::string node_source;
+      if (device->LookupWorkGraphNodeShader(
+              work_graph_program_identifier,
+              sizeof(work_graph_program_identifier), resolved.entrypoint_index,
+              node_source))
+        return EncodeWorkGraphNodeShader(
+            device, node_source, resolved.entrypoint_index, 1u,
+            command_buffer);
+    }
 
     WMT::Reference<WMT::Buffer> records;
     uint64_t records_offset = 0;
@@ -14272,8 +14399,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           break;
         }
         st.work_graph_program_type = cmd->program_type;
+        std::memset(st.work_graph_program_identifier, 0,
+                    sizeof(st.work_graph_program_identifier));
         std::memcpy(st.work_graph_program_descriptor, cmd->descriptor,
                     cmd->descriptor_size);
+        if (cmd->program_type == 5u && cmd->descriptor_size >= 40u)
+          std::memcpy(st.work_graph_program_identifier, cmd->descriptor + 8,
+                      sizeof(st.work_graph_program_identifier));
         st.work_graph_program_set = true;
         st.work_graph_backing_address = 0;
         st.work_graph_backing_size = 0;
@@ -14300,9 +14432,13 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                   st.work_graph_node_table_address))
             st.RetainResourceMetalObjectsForCompletion(table);
         }
-        QTRACE("SetProgram type=%u descriptor=%u backing=0x%llx size=%llu "
+        uint64_t program_first = 0;
+        memcpy(&program_first, st.work_graph_program_identifier,
+               sizeof(program_first));
+        QTRACE("SetProgram type=%u descriptor=%u id_first=0x%llx backing=0x%llx size=%llu "
                "node_table=0x%llx table_size=%llu table_stride=%llu",
                cmd->program_type, cmd->descriptor_size,
+               (unsigned long long)program_first,
                (unsigned long long)st.work_graph_backing_address,
                (unsigned long long)st.work_graph_backing_size,
                (unsigned long long)st.work_graph_node_table_address,

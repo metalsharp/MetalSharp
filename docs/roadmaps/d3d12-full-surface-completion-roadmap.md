@@ -908,9 +908,11 @@ records remain pointer-free after the caller mutates its arrays, verifies a malf
 backing memory unchanged, validates a non-empty node-local-root table and
 rejects malformed table stride, checks bounded backing-memory overflow without
 writes, and checks ordered back-to-back dispatches after command-list reuse.
-The command path remains pointer-free and records `cpu_scheduler=false`;
-recursion/fan-out, barriers, and general DXIL node shader conversion remain
-open.
+The command path remains pointer-free and records `cpu_scheduler=false`.
+The source-owned `node_records` DXIL library also lowers one node entrypoint at
+runtime into a GPU-native Metal compute kernel with exact backing-buffer
+readback; multi-entrypoint resource/record routing, recursion/fan-out,
+barriers, and general node shader conversion remain open.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**
@@ -2196,6 +2198,13 @@ whether the scoped FL12_2 gate is green.
   the existing 14-row bounded contract remains closed as a regression gate.
 
 ### 2026-09-05 — Work Graph input, ordering, and overflow evidence
+
+- Added a source-owned DXIL node-library path: the runtime extracts and
+  lowers a node entrypoint with the existing DXIL-to-MSL lowering pipeline,
+  registers it by the stable program identifier, and dispatches the resulting
+  Metal compute kernel without a CPU scheduler. The D3D12 probe compiles the
+  `node_records` fixture and verifies exact backing-buffer writes. This is one
+  bounded node shape, not general graph promotion.
 
 - Extended the bounded GPU-native Work Graph proof with a valid node-local-root
   table, pointer-free caller-record ownership, ordered back-to-back dispatches
