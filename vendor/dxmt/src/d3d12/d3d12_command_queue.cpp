@@ -3162,6 +3162,30 @@ struct ReplayState {
       RetainResourceMetalObjectsForCompletion(node_table);
     }
 
+    // A work-graph node's UAV register is sourced from the current compute
+    // root bindings.  Keep the backing allocation on the node-record slot
+    // (buffer 30) while honoring a direct u0 root UAV for shader resources.
+    // Descriptor-table resources remain outside this bounded provider and are
+    // rejected by the generic source-selection rules rather than aliased to
+    // the backing memory.
+    MTLD3D12Resource *node_output_resource = backing_resource;
+    uint64_t node_output_offset = backing_offset;
+    if (!comp_uav_set[0] && comp_table_set[0])
+      return false;
+    if (comp_uav_set[0] && comp_uavs[0]) {
+      node_output_resource = device->LookupResourceByGPUAddress(comp_uavs[0]);
+      if (!node_output_resource ||
+          !node_output_resource->GetMTLBuffer().handle)
+        return false;
+      node_output_offset =
+          comp_uavs[0] - node_output_resource->GetGPUVirtualAddress();
+      if (node_output_offset > node_output_resource->GetBufferByteLength() ||
+          8u > node_output_resource->GetBufferByteLength() -
+                    node_output_offset)
+        return false;
+      RetainResourceMetalObjectsForCompletion(node_output_resource);
+    }
+
     if (work_graph_node_source != source ||
         work_graph_node_index != node_index ||
         !work_graph_node_pipeline.handle) {
@@ -3211,8 +3235,12 @@ struct ReplayState {
     for (uint32_t index = 0; index < 31; ++index) {
       wmtcmd_compute_setbuffer set_buffer = {};
       set_buffer.type = WMTComputeCommandSetBuffer;
-      set_buffer.buffer = backing_resource->GetMTLBuffer().handle;
-      set_buffer.offset = backing_offset;
+      const bool node_record_slot = index == 30u;
+      set_buffer.buffer = (node_record_slot ? backing_resource
+                                             : node_output_resource)
+                              ->GetMTLBuffer()
+                              .handle;
+      set_buffer.offset = node_record_slot ? backing_offset : node_output_offset;
       set_buffer.index = index;
       if (!append(set_buffer))
         return false;
@@ -3228,6 +3256,7 @@ struct ReplayState {
       return false;
     EndMetalEncoder(encoder, "workgraph_node_shader");
     RetainResourceMetalObjectsForCompletion(backing_resource);
+    RetainResourceMetalObjectsForCompletion(node_output_resource);
     return true;
   }
 

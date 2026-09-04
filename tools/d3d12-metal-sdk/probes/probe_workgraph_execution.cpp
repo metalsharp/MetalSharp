@@ -128,6 +128,9 @@ static constexpr GUID kStateObjectProperties1IID = {
     {0xa1, 0x84, 0xca, 0x67, 0xdb, 0x49, 0x41, 0x38}};
 
 using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
+using SerializeRootSignatureFn = HRESULT(WINAPI*)(
+    const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION, ID3DBlob**,
+    ID3DBlob**);
 
 template <typename T> static void release(T*& object) {
     if (object) {
@@ -156,7 +159,8 @@ static D3D12_HEAP_PROPERTIES upload_heap() {
     result.VisibleNodeMask = 1;
     return result;
 }
-static D3D12_RESOURCE_DESC buffer_desc(UINT64 size) {
+static D3D12_RESOURCE_DESC buffer_desc(
+    UINT64 size, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE) {
     D3D12_RESOURCE_DESC result = {};
     result.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
     result.Width = size;
@@ -165,6 +169,7 @@ static D3D12_RESOURCE_DESC buffer_desc(UINT64 size) {
     result.MipLevels = 1;
     result.SampleDesc.Count = 1;
     result.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    result.Flags = flags;
     return result;
 }
 static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
@@ -192,6 +197,9 @@ static HRESULT execute_and_wait(ID3D12Device* device, ID3D12CommandQueue* queue,
 int main() {
     HMODULE module = LoadLibraryA("d3d12.dll");
     auto create_device = load_proc<CreateDeviceFn>(module, "D3D12CreateDevice");
+    auto serialize_root_signature =
+        load_proc<SerializeRootSignatureFn>(module,
+                                            "D3D12SerializeRootSignature");
     ID3D12Device* device = nullptr;
     HRESULT hr = create_device ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0,
                                                 IID_PPV_ARGS(&device))
@@ -202,6 +210,9 @@ int main() {
     ID3D12GraphicsCommandList* base_list = nullptr;
     dxmt::GraphicsCommandList10Extension* list = nullptr;
     ID3D12Resource* backing = nullptr;
+    ID3D12Resource* node_output = nullptr;
+    ID3D12RootSignature* node_root = nullptr;
+    ID3DBlob* node_root_blob = nullptr;
     ID3D12Resource* node_local_table = nullptr;
     ID3D12Resource* gpu_records = nullptr;
     ID3D12Resource* gpu_input_desc = nullptr;
@@ -231,6 +242,7 @@ int main() {
     bool backing_overflow_unchanged = false;
     bool multi_dispatch_ordering_exact = false;
     bool dxil_node_shader_readback_exact = false;
+    bool dxil_node_shader_uav_binding_exact = false;
     bool dxil_node_shader_gpu_readback_exact = false;
     bool dxil_multi_node_readback_exact = false;
     bool node_multi_cpu_input_exact = false;
@@ -275,6 +287,35 @@ int main() {
             &heap, D3D12_HEAP_FLAG_NONE, &node_table_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
             IID_PPV_ARGS(&node_local_table));
+    }
+    if (SUCCEEDED(hr)) {
+        D3D12_HEAP_PROPERTIES node_output_heap = {};
+        node_output_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        node_output_heap.CreationNodeMask = 1;
+        node_output_heap.VisibleNodeMask = 1;
+        auto node_output_desc = buffer_desc(
+            64, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        hr = device->CreateCommittedResource(
+            &node_output_heap, D3D12_HEAP_FLAG_NONE, &node_output_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&node_output));
+    }
+    if (SUCCEEDED(hr) && serialize_root_signature && device) {
+        D3D12_ROOT_PARAMETER node_root_parameter = {};
+        node_root_parameter.ParameterType =
+            D3D12_ROOT_PARAMETER_TYPE_UAV;
+        node_root_parameter.Descriptor.ShaderRegister = 0;
+        node_root_parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+        D3D12_ROOT_SIGNATURE_DESC node_root_desc = {};
+        node_root_desc.NumParameters = 1;
+        node_root_desc.pParameters = &node_root_parameter;
+        hr = serialize_root_signature(&node_root_desc,
+                                      D3D_ROOT_SIGNATURE_VERSION_1,
+                                      &node_root_blob, nullptr);
+        if (SUCCEEDED(hr))
+            hr = device->CreateRootSignature(
+                0, node_root_blob->GetBufferPointer(),
+                node_root_blob->GetBufferSize(), IID_PPV_ARGS(&node_root));
     }
     struct NodeGPUInputCompat {
         UINT EntrypointIndex;
@@ -943,7 +984,7 @@ int main() {
         }
     }
     if (SUCCEEDED(node_shader_hr) && node_shader_state_properties &&
-        allocator && base_list && list) {
+        node_root && node_output && allocator && base_list && list) {
         SetProgramDesc node_program = set_program;
         std::memcpy(node_program.WorkGraph.ProgramIdentifier,
                     node_shader_identifier, sizeof(node_shader_identifier));
@@ -960,25 +1001,29 @@ int main() {
             DispatchGraphDesc node_dispatch = {};
             node_dispatch.Mode = 0;
             node_dispatch.NodeCPUInput = node_input;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(
+                0, node_output->GetGPUVirtualAddress());
             list->SetProgram(&node_program);
             list->DispatchGraph(&node_dispatch);
             hr = execute_and_wait(device, queue, base_list);
         }
         if (SUCCEEDED(hr)) {
-            void* mapped = nullptr;
-            hr = backing->Map(0, nullptr, &mapped);
-            if (SUCCEEDED(hr) && mapped) {
-                std::memcpy(node_shader_values, mapped,
-                            sizeof(node_shader_values));
-                backing->Unmap(0, nullptr);
+            hr = node_output->ReadFromSubresource(
+                node_shader_values, sizeof(node_shader_values),
+                sizeof(node_shader_values), 0, nullptr);
+            if (SUCCEEDED(hr)) {
                 dxil_node_shader_readback_exact =
                     node_shader_values[0] == 0xabcdef01u &&
                     node_shader_values[1] == 0x12345678u;
+                dxil_node_shader_uav_binding_exact =
+                    dxil_node_shader_readback_exact;
             }
         }
     }
     if (SUCCEEDED(node_shader_hr) && node_shader_state_properties &&
-        gpu_input_desc && allocator && base_list && list) {
+        node_root && node_output && gpu_input_desc && allocator && base_list &&
+        list) {
         SetProgramDesc node_gpu_program = set_program;
         std::memcpy(node_gpu_program.WorkGraph.ProgramIdentifier,
                     node_shader_identifier, sizeof(node_shader_identifier));
@@ -990,18 +1035,19 @@ int main() {
             node_gpu_dispatch.Mode = 1;
             node_gpu_dispatch.Raw[0] =
                 gpu_input_desc->GetGPUVirtualAddress() + 32;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(
+                0, node_output->GetGPUVirtualAddress());
             list->SetProgram(&node_gpu_program);
             list->DispatchGraph(&node_gpu_dispatch);
             hr = execute_and_wait(device, queue, base_list);
         }
         if (SUCCEEDED(hr)) {
-            void* mapped = nullptr;
-            hr = backing->Map(0, nullptr, &mapped);
-            if (SUCCEEDED(hr) && mapped) {
-                uint32_t node_gpu_values[2] = {};
-                std::memcpy(node_gpu_values, mapped,
-                            sizeof(node_gpu_values));
-                backing->Unmap(0, nullptr);
+            uint32_t node_gpu_values[2] = {};
+            hr = node_output->ReadFromSubresource(
+                node_gpu_values, sizeof(node_gpu_values),
+                sizeof(node_gpu_values), 0, nullptr);
+            if (SUCCEEDED(hr)) {
                 dxil_node_shader_gpu_readback_exact =
                     node_gpu_values[0] == 0xabcdef01u &&
                     node_gpu_values[1] == 0x12345678u;
@@ -1009,7 +1055,7 @@ int main() {
         }
     }
     if (SUCCEEDED(node_multi_hr) && node_multi_state_properties &&
-        allocator && base_list && list) {
+        node_root && node_output && allocator && base_list && list) {
         SetProgramDesc node_multi_program = set_program;
         std::memcpy(node_multi_program.WorkGraph.ProgramIdentifier,
                     node_multi_identifier, sizeof(node_multi_identifier));
@@ -1044,6 +1090,9 @@ int main() {
             DispatchGraphDesc node_multi_dispatch_c = {};
             node_multi_dispatch_c.Mode = 0;
             node_multi_dispatch_c.NodeCPUInput = node_multi_input_c;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(
+                0, node_output->GetGPUVirtualAddress());
             list->SetProgram(&node_multi_program);
             list->DispatchGraph(&node_multi_dispatch_a);
             list->DispatchGraph(&node_multi_dispatch_b);
@@ -1051,12 +1100,10 @@ int main() {
             hr = execute_and_wait(device, queue, base_list);
         }
         if (SUCCEEDED(hr)) {
-            void* mapped = nullptr;
-            hr = backing->Map(0, nullptr, &mapped);
-            if (SUCCEEDED(hr) && mapped) {
-                std::memcpy(dxil_multi_node_values, mapped,
-                            sizeof(dxil_multi_node_values));
-                backing->Unmap(0, nullptr);
+            hr = node_output->ReadFromSubresource(
+                dxil_multi_node_values, sizeof(dxil_multi_node_values),
+                sizeof(dxil_multi_node_values), 0, nullptr);
+            if (SUCCEEDED(hr)) {
                 dxil_multi_node_readback_exact =
                     dxil_multi_node_values[0] == 0x33333333u &&
                     dxil_multi_node_values[1] == 0xcccc0003u;
@@ -1064,7 +1111,7 @@ int main() {
         }
     }
     if (SUCCEEDED(node_multi_hr) && node_multi_state_properties &&
-        allocator && base_list && list) {
+        node_root && node_output && allocator && base_list && list) {
         const uint32_t multi_cpu_record = 10;
         NodeCPUInput multi_cpu_node = {};
         multi_cpu_node.EntrypointIndex = 2;
@@ -1085,17 +1132,18 @@ int main() {
             SetProgramDesc node_multi_program = set_program;
             std::memcpy(node_multi_program.WorkGraph.ProgramIdentifier,
                         node_multi_identifier, sizeof(node_multi_identifier));
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(
+                0, node_output->GetGPUVirtualAddress());
             list->SetProgram(&node_multi_program);
             list->DispatchGraph(&multi_cpu_dispatch);
             hr = execute_and_wait(device, queue, base_list);
         }
         if (SUCCEEDED(hr)) {
-            void* mapped = nullptr;
-            hr = backing->Map(0, nullptr, &mapped);
-            if (SUCCEEDED(hr) && mapped) {
-                std::memcpy(node_multi_cpu_values, mapped,
-                            sizeof(node_multi_cpu_values));
-                backing->Unmap(0, nullptr);
+            hr = node_output->ReadFromSubresource(
+                node_multi_cpu_values, sizeof(node_multi_cpu_values),
+                sizeof(node_multi_cpu_values), 0, nullptr);
+            if (SUCCEEDED(hr)) {
                 node_multi_cpu_input_exact =
                     node_multi_cpu_values[0] == 0x33333333u &&
                     node_multi_cpu_values[1] == 0xcccc0003u;
@@ -1103,7 +1151,8 @@ int main() {
         }
     }
     if (SUCCEEDED(node_multi_hr) && node_multi_state_properties &&
-        gpu_multi_input_desc && allocator && base_list && list) {
+        node_root && node_output && gpu_multi_input_desc && allocator &&
+        base_list && list) {
         SetProgramDesc node_multi_program = set_program;
         std::memcpy(node_multi_program.WorkGraph.ProgramIdentifier,
                     node_multi_identifier, sizeof(node_multi_identifier));
@@ -1115,17 +1164,18 @@ int main() {
             multi_gpu_dispatch.Mode = 3;
             multi_gpu_dispatch.Raw[0] =
                 gpu_multi_input_desc->GetGPUVirtualAddress() + 160;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(
+                0, node_output->GetGPUVirtualAddress());
             list->SetProgram(&node_multi_program);
             list->DispatchGraph(&multi_gpu_dispatch);
             hr = execute_and_wait(device, queue, base_list);
         }
         if (SUCCEEDED(hr)) {
-            void* mapped = nullptr;
-            hr = backing->Map(0, nullptr, &mapped);
-            if (SUCCEEDED(hr) && mapped) {
-                std::memcpy(node_multi_gpu_values, mapped,
-                            sizeof(node_multi_gpu_values));
-                backing->Unmap(0, nullptr);
+            hr = node_output->ReadFromSubresource(
+                node_multi_gpu_values, sizeof(node_multi_gpu_values),
+                sizeof(node_multi_gpu_values), 0, nullptr);
+            if (SUCCEEDED(hr)) {
                 node_multi_gpu_input_exact =
                     node_multi_gpu_values[0] == 0x11111111u &&
                     node_multi_gpu_values[1] == 0xaaaa0001u;
@@ -1142,7 +1192,8 @@ int main() {
         multi_node_negative_unchanged && node_local_table_validation_exact &&
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
         node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
-        dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
+        dxil_node_shader_uav_binding_exact && dxil_node_shader_gpu_readback_exact &&
+        node_multi_bytecode_loaded &&
         node_multi_properties_complete && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
@@ -1177,6 +1228,8 @@ int main() {
                 node_shader_bytecode_loaded ? "true" : "false");
     std::printf("  \"dxil_node_shader_readback_exact\": %s,\n",
                 dxil_node_shader_readback_exact ? "true" : "false");
+    std::printf("  \"dxil_node_shader_uav_binding_exact\": %s,\n",
+                dxil_node_shader_uav_binding_exact ? "true" : "false");
     std::printf("  \"dxil_node_shader_gpu_readback_exact\": %s,\n",
                 dxil_node_shader_gpu_readback_exact ? "true" : "false");
     std::printf("  \"node_multi_bytecode_loaded\": %s,\n",
@@ -1235,6 +1288,7 @@ int main() {
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
                    backing_overflow_unchanged && multi_dispatch_ordering_exact &&
                    node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
+                   dxil_node_shader_uav_binding_exact &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
                    node_multi_properties_complete &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
