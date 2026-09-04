@@ -414,14 +414,15 @@
     {
       "id": "p6-capability-reporting",
       "legality": "legal",
-      "status": "open",
-      "provider": "manifest_derived_capability_predicates",
-      "covers": {"all_dimensions": "all_declared_legal_values"},
+      "status": "closed",
+      "provider": "behavior_gated_phase6_capability_predicates",
+      "covers": {"line_rasterization_mode": ["aliased", "alpha_antialiased", "quadrilateral_wide", "quadrilateral_narrow"], "sample_positions": ["default", "programmable_4x4", "programmable_equivalent", "reset"], "vrs": ["disabled", "tier1", "tier2"], "view_instancing": ["disabled", "two_view", "host_max_view"], "rov_resource": ["none", "byte_address_buffer", "structured_buffer", "typed_buffer", "typed_1d", "typed_2d", "typed_3d", "typed_array", "typed_msaa"]},
       "positive_probe": "probe-device-caps",
       "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": false, "hresult": "S_OK", "object": "n/a", "report_must_not_exceed_closed_manifest": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "reported": "ROV Tier 3, conservative Tier 3, VRS Tier 2, view instancing, barycentrics, programmable sample positions, writable MSAA, RasterizerDesc2 and narrow quadrilateral lines", "sample_boundary": "native quality levels only for 1/2/4; native resources reject 8/16/32 while flattened writable 8x remains accepted", "rasterizer2": "OPTIONS19 RasterizerDesc2Supported=true and NarrowQuadrilateralLinesSupported=true only after exact wide/narrow list/strip and 2x/4x behavior"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "Capability promotion cannot be closed until the legal provider rows above are closed or proven_no_go."
+      "reason": "Every promoted Phase 6 coarse capability has an exact positive behavior witness and its relevant negative/host boundary. Capability reporting does not promote the remaining default cross-product class or any later-phase feature."
     }
   ],
   "no_go_requirements": [

@@ -5464,9 +5464,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
     memset(o, 0, sizeof(*o));
-    // RasterizerDesc2 line-mode behavior is not independently proven;
-    // advertise the parser/limits only and keep this capability fail-closed.
-    o->RasterizerDesc2Supported = FALSE;
+    // The Phase 6 line matrix proves all four RasterizerDesc2 modes, including
+    // exact 1.4-wide and 1.0-narrow quadrilateral list/strip coverage and
+    // native 2x/4x resolves.  Promote both fields only with that provider.
+    o->RasterizerDesc2Supported = TRUE;
+    o->NarrowQuadrilateralLinesSupported = TRUE;
     o->MaxSamplerDescriptorHeapSize = 2048;
     o->MaxSamplerDescriptorHeapSizeWithStaticSamplers = 2048;
     o->MaxViewDescriptorHeapSize = 1000000;
