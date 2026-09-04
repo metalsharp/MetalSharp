@@ -910,6 +910,8 @@ non-empty node-local-root table and rejects malformed table stride, checks
 bounded backing-memory overflow without writes, and checks ordered back-to-back
 dispatches after command-list reuse. The command path remains pointer-free and records `cpu_scheduler=false`; the
 reference kernel also passes direct-queue and compute-queue submission. The
+compute case uses one CPU-input record after host completion of direct work;
+`cross_queue_dispatch_exact` does not prove GPU queue-to-queue synchronization. The
 source-owned `node_records` and
 three-entrypoint `node_multi` DXIL libraries lower at runtime into GPU-native
 Metal compute kernels with exact backing-buffer readback, CPU/GPU single-node
