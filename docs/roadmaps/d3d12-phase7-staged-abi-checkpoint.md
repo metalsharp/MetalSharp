@@ -231,6 +231,22 @@ This is shader-selection evidence, not input-payload consumption, node-ID
 customization, fan-out, or general GPU scheduling. Registry-side input-layout
 transport remains to be implemented alongside actual record binding.
 
+## Owned registry-side input layouts
+
+Registered entrypoint programs now own a `WorkGraphNodeShader` value containing
+MSL text plus decoded input record size/alignment. Registration copies layouts
+in the same resolved entrypoint order as shader text; lookup copies the complete
+value under the registry mutex and clears the output on a miss. Command replay
+receives this value instead of a bare string. It does not retain pointers into
+state-object vectors or temporary LLVM modules.
+
+All nine runtime targets build; strict ABI and the complete Work Graph
+regression pass against the matching `node-registry` sandbox. Evidence:
+`/private/tmp/metalsharp-phase7-abi/registry-build.log`, `node-registry-stage/`,
+and `registry-after/`. This is metadata transport and a regression checkpoint,
+not proof of shader input binding: the encoder does not yet use these sizes to
+bind records or implement scheduling. Those execution blockers remain open.
+
 ## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit
