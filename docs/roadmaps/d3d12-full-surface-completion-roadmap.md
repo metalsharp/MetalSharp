@@ -926,6 +926,14 @@ Development evidence: `/private/tmp/metalsharp-phase7-abi/repeat-work-graph/`,
 `repeat-queues/`, and `capacity-stage/` (strict ABI audit). The earlier
 `two-single/` and `two-values/` failures and `two-queues/` fresh-queue control
 are retained. This dirty-source sandbox is not clean-release provenance.
+A third cycle exercises the multi-input GPU dispatch form with one input and
+one GPU-produced record, yielding `[347, 1464292106]`. GPU record flattening
+now uses Metal blit copies instead of host snapshots; the pre-fix two-cycle
+multi-input control completed successfully but returned stale payload data.
+Descriptor/header metadata remains host-authored and host-read, so this is not
+evidence for GPU-generated dispatch metadata or general multi-node scheduling.
+Evidence: `/private/tmp/metalsharp-phase7-abi/multi-capacity-before/` and
+`three-cycle/`; matching bridge audit is under `gpu-record-stage/`.
 This is a bounded single-record reference-kernel dependency proof, not arbitrary
 graph synchronization coverage. Final Work Graph and ordinary queue probes
 passed against the rebuilt sandbox, together with the strict Winemetal ABI

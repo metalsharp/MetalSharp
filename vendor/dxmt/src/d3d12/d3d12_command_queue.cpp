@@ -3636,11 +3636,21 @@ struct ReplayState {
       } catch (const std::bad_alloc &) {
         return false;
       }
+      struct GPURecordCopy {
+        WMT::Reference<WMT::Buffer> buffer;
+        uint64_t offset, destination, stride;
+        uint32_t count;
+      };
+      std::vector<GPURecordCopy> gpu_copies;
+      try {
+        gpu_copies.reserve(sources.size());
+      } catch (const std::bad_alloc &) {
+        return false;
+      }
       uint32_t flat_index = 0;
       for (const auto &source : sources) {
         const uint64_t source_bytes =
             uint64_t(source.num_records) * source.record_stride;
-        std::vector<uint8_t> gpu_snapshot;
         const uint8_t *source_bytes_ptr = source.records_cpu;
         if (!source_bytes_ptr) {
           auto *record_resource = device->LookupResourceByGPUAddress(
@@ -3652,22 +3662,17 @@ struct ReplayState {
           if (offset > record_resource->GetBufferByteLength() ||
               source_bytes > record_resource->GetBufferByteLength() - offset)
             return false;
-          try {
-            gpu_snapshot.resize(static_cast<size_t>(source_bytes));
-          } catch (const std::bad_alloc &) {
-            return false;
-          }
-          if (!record_resource->ReadBufferRange(offset, gpu_snapshot.data(),
-                                                source_bytes))
-            return false;
-          source_bytes_ptr = gpu_snapshot.data();
+          gpu_copies.push_back({record_resource->GetMTLBuffer(), offset,
+                                uint64_t(flat_index) * max_stride,
+                                source.record_stride, source.num_records});
           RetainResourceMetalObjectsForCompletion(record_resource);
         }
         for (uint32_t record = 0; record < source.num_records; ++record) {
-          std::memcpy(flattened_records.data() +
-                          uint64_t(flat_index) * max_stride,
-                      source_bytes_ptr + uint64_t(record) * source.record_stride,
-                      static_cast<size_t>(source.record_stride));
+          if (source_bytes_ptr)
+            std::memcpy(flattened_records.data() +
+                            uint64_t(flat_index) * max_stride,
+                        source_bytes_ptr + uint64_t(record) * source.record_stride,
+                        static_cast<size_t>(source.record_stride));
           route_tags.push_back(source.entrypoint_index);
           ++flat_index;
         }
@@ -3677,6 +3682,29 @@ struct ReplayState {
         return false;
       records.updateContents(0, flattened_records.data(),
                              flattened_records.size());
+      if (!gpu_copies.empty()) {
+        // GPU payloads must be consumed after queued dependencies, not read
+        // back on the encoding thread before a producer has even submitted.
+        CloseRenderEncoder();
+        auto blit = command_buffer.blitCommandEncoder();
+        ENC_CREATE("blit_workgraph_records", blit.handle);
+        ScopedMetalEncoderEnd guard{blit, "blit_workgraph_records"};
+        if (!blit.handle)
+          return false;
+        for (const auto &source : gpu_copies) {
+          for (uint32_t record = 0; record < source.count; ++record) {
+            struct wmtcmd_blit_copy_from_buffer_to_buffer copy = {};
+            copy.type = WMTBlitCommandCopyFromBufferToBuffer;
+            copy.next.set(nullptr);
+            copy.src = source.buffer.handle;
+            copy.src_offset = source.offset + uint64_t(record) * source.stride;
+            copy.dst = records.handle;
+            copy.dst_offset = source.destination + uint64_t(record) * max_stride;
+            copy.copy_length = source.stride;
+            blit.encodeCommands(reinterpret_cast<const wmtcmd_blit_nop *>(&copy));
+          }
+        }
+      }
     }
 
     auto *backing_resource = device->LookupResourceByGPUAddress(

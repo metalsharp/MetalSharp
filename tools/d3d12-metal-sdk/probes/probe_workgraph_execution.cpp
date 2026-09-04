@@ -248,8 +248,10 @@ int main() {
     bool cross_queue_dispatch_exact = false;
     bool cross_queue_gpu_dependency_exact = false;
     bool cross_queue_repeated_gpu_dependency_exact = false;
+    bool cross_queue_multi_gpu_dependency_exact = false;
     uint32_t cross_queue_values[2] = {};
     uint32_t cross_queue_repeated_values[2] = {};
+    uint32_t cross_queue_multi_values[2] = {};
     bool dxil_node_shader_readback_exact = false;
     bool dxil_node_shader_uav_binding_exact = false;
     bool node_table_uav_exact = false;
@@ -1327,8 +1329,9 @@ int main() {
 
     // Submit the GPU-input consumer before its producer, with no intervening
     // host completion wait. The queue fence must make the new record visible.
-    for (unsigned multi = 0; multi < 2 && SUCCEEDED(hr) && cross_queue_dispatch_exact; ++multi) {
-        uint32_t* cycle_values = multi ? cross_queue_repeated_values : cross_queue_values;
+    for (unsigned multi = 0; multi < 3 && SUCCEEDED(hr) && cross_queue_dispatch_exact; ++multi) {
+        uint32_t* cycle_values = multi == 2 ? cross_queue_multi_values
+            : multi ? cross_queue_repeated_values : cross_queue_values;
         ID3D12Fence* dependency = nullptr;
         ID3D12Fence* completion = nullptr;
         HANDLE event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
@@ -1347,6 +1350,16 @@ int main() {
             std::memcpy(mapped, &consumer_input, sizeof(consumer_input));
             gpu_input_desc->Unmap(0, nullptr);
         }
+        if (SUCCEEDED(hr) && multi == 2) {
+            // The multi-input descriptor is host-authored; only its record
+            // payload is produced by the pending GPU dispatch.
+            hr = gpu_multi_input_desc->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memcpy(static_cast<uint8_t*>(mapped) + 128,
+                            &consumer_input, sizeof(consumer_input));
+                gpu_multi_input_desc->Unmap(0, nullptr);
+            }
+        }
         if (SUCCEEDED(hr)) hr = compute_allocator->Reset();
         if (SUCCEEDED(hr)) hr = compute_base_list->Reset(compute_allocator, nullptr);
         if (SUCCEEDED(hr)) {
@@ -1355,15 +1368,17 @@ int main() {
                 node_output->GetGPUVirtualAddress();
             consumer_program.WorkGraph.BackingMemory.SizeInBytes = 8;
             DispatchGraphDesc consumer_dispatch = {};
-            consumer_dispatch.Mode = 1;
-            consumer_dispatch.Raw[0] = gpu_input_desc->GetGPUVirtualAddress();
+            consumer_dispatch.Mode = multi == 2 ? 3 : 1;
+            consumer_dispatch.Raw[0] = multi == 2
+                ? gpu_multi_input_desc->GetGPUVirtualAddress() + 160
+                : gpu_input_desc->GetGPUVirtualAddress();
             compute_list->SetProgram(&consumer_program);
             compute_list->DispatchGraph(&consumer_dispatch);
             hr = compute_base_list->Close();
         }
         if (SUCCEEDED(hr)) hr = allocator->Reset();
         if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
-        const uint32_t producer_record = multi ? 234 : 123;
+        const uint32_t producer_record = 123 + 111 * multi;
         if (SUCCEEDED(hr)) {
             DispatchGraphDesc producer_dispatch = {};
             producer_dispatch.Mode = 0;
@@ -1390,8 +1405,9 @@ int main() {
                     cycle_values, sizeof(cross_queue_values),
                     sizeof(cross_queue_values), 0, nullptr);
             if (SUCCEEDED(hr)) {
-                bool& exact = multi ? cross_queue_repeated_gpu_dependency_exact
-                                    : cross_queue_gpu_dependency_exact;
+                bool& exact = multi == 2 ? cross_queue_multi_gpu_dependency_exact
+                    : multi ? cross_queue_repeated_gpu_dependency_exact
+                            : cross_queue_gpu_dependency_exact;
                 exact = cycle_values[0] == producer_record + 2u &&
                     cycle_values[1] == ((producer_record + 1u) ^ 0x57475250u);
             }
@@ -1414,7 +1430,7 @@ int main() {
         multi_node_negative_unchanged && node_local_table_validation_exact &&
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
         cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
-        cross_queue_repeated_gpu_dependency_exact &&
+        cross_queue_repeated_gpu_dependency_exact && cross_queue_multi_gpu_dependency_exact &&
         node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
         dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
@@ -1452,6 +1468,10 @@ int main() {
                 cross_queue_gpu_dependency_exact ? "true" : "false");
     std::printf("  \"cross_queue_repeated_gpu_dependency_exact\": %s,\n",
                 cross_queue_repeated_gpu_dependency_exact ? "true" : "false");
+    std::printf("  \"cross_queue_multi_gpu_dependency_exact\": %s,\n",
+                cross_queue_multi_gpu_dependency_exact ? "true" : "false");
+    std::printf("  \"cross_queue_multi_values\": [%u, %u],\n",
+                cross_queue_multi_values[0], cross_queue_multi_values[1]);
     std::printf("  \"cross_queue_values\": [%u, %u],\n",
                 cross_queue_values[0], cross_queue_values[1]);
     std::printf("  \"cross_queue_repeated_values\": [%u, %u],\n",
@@ -1536,7 +1556,7 @@ int main() {
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
                    backing_overflow_unchanged && multi_dispatch_ordering_exact &&
                    cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
-                   cross_queue_repeated_gpu_dependency_exact &&
+                   cross_queue_repeated_gpu_dependency_exact && cross_queue_multi_gpu_dependency_exact &&
                    node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
                    dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&
