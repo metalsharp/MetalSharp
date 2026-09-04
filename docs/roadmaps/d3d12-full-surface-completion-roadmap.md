@@ -900,13 +900,13 @@ historical regression checkpoint. The closure record is
   cross-queue tests.
 
 **Bounded checkpoint (not the exit gate):** The source-owned
-`probe-workgraph-execution` now executes three CPU-input records and three
-GPU-input records through the GPU-native reference kernel, checks the local
-root argument table index, and reads back exact payload transformations. The
-command path remains pointer-free and records `cpu_scheduler=false`; multi-node
-routing, recursion/fan-out, overflow, barriers, and general DXIL node shader
-conversion remain open. `D3D12_OPTIONS21.WorkGraphsTier` is therefore still
-not promoted.
+`probe-workgraph-execution` now validates a two-node graph, executes three
+single-node CPU-input records and three GPU-input records, and executes both
+multi-node CPU/GPU input modes with exact entrypoint-routed payload readback.
+It also checks both local-root argument table indices. The command path remains
+pointer-free and records `cpu_scheduler=false`; recursion/fan-out, overflow,
+barriers, and general DXIL node shader conversion remain open.
+`D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**
 

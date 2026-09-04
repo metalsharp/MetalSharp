@@ -66,11 +66,29 @@ struct NodeCPUInput {
     const void* Records;
     UINT64 RecordStrideInBytes;
 };
+struct NodeGPUInput {
+    UINT EntrypointIndex;
+    UINT NumRecords;
+    uint64_t Records;
+    UINT64 RecordStrideInBytes;
+};
+struct MultiNodeGPUInput {
+    UINT NumNodeInputs;
+    UINT Padding;
+    uint64_t NodeInputs;
+    UINT64 NodeInputStrideInBytes;
+};
+struct MultiNodeCPUInput {
+    UINT NumNodeInputs;
+    const void* NodeInputs;
+    UINT64 NodeInputStrideInBytes;
+};
 struct DispatchGraphDesc {
     UINT Mode;
     UINT Padding;
     union {
         NodeCPUInput NodeCPUInput;
+        MultiNodeCPUInput MultiNodeCPUInput;
         uint64_t Raw[3];
     };
 };
@@ -175,6 +193,7 @@ int main() {
     ID3D12Resource* backing = nullptr;
     ID3D12Resource* gpu_records = nullptr;
     ID3D12Resource* gpu_input_desc = nullptr;
+    ID3D12Resource* gpu_multi_input_desc = nullptr;
     ID3D12StateObject* state = nullptr;
     WorkGraphProperties* properties = nullptr;
     uint32_t values[6] = {};
@@ -183,6 +202,10 @@ int main() {
     bool properties_ok = false;
     bool readback_ok = false;
     bool gpu_input_readback_ok = false;
+    bool multi_cpu_readback_ok = false;
+    bool multi_gpu_readback_ok = false;
+    uint32_t multi_cpu_values[8] = {};
+    uint32_t multi_gpu_values[8] = {};
 
     if (SUCCEEDED(hr))
         hr = device->QueryInterface(IID_PPV_ARGS(&device5));
@@ -211,7 +234,7 @@ int main() {
         UINT64 RecordStrideInBytes;
     } gpu_input = {};
     if (SUCCEEDED(hr)) {
-        auto gpu_record_desc = buffer_desc(16);
+        auto gpu_record_desc = buffer_desc(32);
         hr = device->CreateCommittedResource(
             &heap, D3D12_HEAP_FLAG_NONE, &gpu_record_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
@@ -221,6 +244,9 @@ int main() {
             hr = gpu_records->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr)) {
             std::memcpy(mapped, inputs, sizeof(inputs));
+            const uint32_t multi_inputs[2] = {51, 52};
+            std::memcpy(static_cast<uint8_t*>(mapped) + sizeof(inputs),
+                        multi_inputs, sizeof(multi_inputs));
             gpu_records->Unmap(0, nullptr);
         }
     }
@@ -242,17 +268,53 @@ int main() {
             gpu_input_desc->Unmap(0, nullptr);
         }
     }
+    if (SUCCEEDED(hr)) {
+        auto gpu_multi_desc = buffer_desc(128);
+        hr = device->CreateCommittedResource(
+            &heap, D3D12_HEAP_FLAG_NONE, &gpu_multi_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&gpu_multi_input_desc));
+        NodeGPUInput multi_nodes[2] = {};
+        multi_nodes[0].EntrypointIndex = 0;
+        multi_nodes[0].NumRecords = 2;
+        multi_nodes[0].Records = gpu_records->GetGPUVirtualAddress();
+        multi_nodes[0].RecordStrideInBytes = sizeof(uint32_t);
+        multi_nodes[1].EntrypointIndex = 1;
+        multi_nodes[1].NumRecords = 2;
+        multi_nodes[1].Records = gpu_records->GetGPUVirtualAddress() +
+                                 3u * sizeof(uint32_t);
+        multi_nodes[1].RecordStrideInBytes = sizeof(uint32_t);
+        MultiNodeGPUInput multi_header = {};
+        multi_header.NumNodeInputs = 2;
+        multi_header.NodeInputs = gpu_multi_input_desc->GetGPUVirtualAddress();
+        multi_header.NodeInputStrideInBytes = sizeof(NodeGPUInput);
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = gpu_multi_input_desc->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, multi_nodes, sizeof(multi_nodes));
+            std::memcpy(static_cast<uint8_t*>(mapped) + 64, &multi_header,
+                        sizeof(multi_header));
+            gpu_multi_input_desc->Unmap(0, nullptr);
+        }
+    }
 
-    WorkGraphNodeID entrypoint = {L"entry", 0};
-    UINT local_root_index = 3;
-    CommonComputeOverrides overrides = {};
-    overrides.LocalRootArgumentsTableIndex = &local_root_index;
-    WorkGraphNode node = {};
-    node.NodeType = 0;
-    node.Shader.Shader = L"node";
-    node.Shader.OverridesType = 4;
-    node.Shader.Overrides = &overrides;
-    WorkGraphDesc graph = {L"graph", 0, 1, &entrypoint, 1, &node};
+    WorkGraphNodeID entrypoints[2] = {{L"entry0", 0}, {L"entry1", 0}};
+    UINT local_root_indices[2] = {3, 4};
+    CommonComputeOverrides overrides[2] = {};
+    for (UINT i = 0; i < 2; ++i) {
+        overrides[i].LocalRootArgumentsTableIndex = &local_root_indices[i];
+    }
+    WorkGraphNode nodes[2] = {};
+    nodes[0].NodeType = 0;
+    nodes[0].Shader.Shader = L"node0";
+    nodes[0].Shader.OverridesType = 4;
+    nodes[0].Shader.Overrides = &overrides[0];
+    nodes[1].NodeType = 0;
+    nodes[1].Shader.Shader = L"node1";
+    nodes[1].Shader.OverridesType = 4;
+    nodes[1].Shader.Overrides = &overrides[1];
+    WorkGraphDesc graph = {L"graph", 0, 2, entrypoints, 2, nodes};
     D3D12_STATE_SUBOBJECT graph_subobject = {
         static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &graph};
     const D3D12_STATE_SUBOBJECT* graph_subobjects[] = {&graph_subobject};
@@ -270,14 +332,18 @@ int main() {
         WorkGraphNodeID got = {};
         properties_ok = SUCCEEDED(hr) && properties &&
                         properties->GetNumWorkGraphs() == 1 &&
-                        properties->GetNumNodes(0) == 1 &&
-                        properties->GetNumEntrypoints(0) == 1 &&
+                        properties->GetNumNodes(0) == 2 &&
+                        properties->GetNumEntrypoints(0) == 2 &&
                         properties->GetNodeID(&got, 0, 0) && got.Name &&
-                        ::wcscmp(got.Name, L"node") == 0 &&
-                        properties->GetEntrypointIndex(0, entrypoint) == 0 &&
+                        ::wcscmp(got.Name, L"node0") == 0 &&
+                        properties->GetEntrypointIndex(0, entrypoints[0]) == 0 &&
+                        properties->GetEntrypointIndex(0, entrypoints[1]) == 1 &&
                         properties->GetNodeLocalRootArgumentsTableIndex(0, 0) ==
-                            local_root_index &&
-                        properties->GetEntrypointRecordSizeInBytes(0, 0) == 16;
+                            local_root_indices[0] &&
+                        properties->GetNodeLocalRootArgumentsTableIndex(0, 1) ==
+                            local_root_indices[1] &&
+                        properties->GetEntrypointRecordSizeInBytes(0, 0) == 16 &&
+                        properties->GetEntrypointRecordSizeInBytes(0, 1) == 16;
         if (properties)
             properties->Release();
         properties = nullptr;
@@ -354,23 +420,118 @@ int main() {
             }
         }
     }
+    if (gpu_input_readback_ok && allocator && base_list && list) {
+        const uint32_t cpu_node0[2] = {7, 8};
+        const uint32_t cpu_node1[2] = {9, 10};
+        NodeCPUInput multi_nodes[2] = {};
+        multi_nodes[0].EntrypointIndex = 0;
+        multi_nodes[0].NumRecords = 2;
+        multi_nodes[0].Records = cpu_node0;
+        multi_nodes[0].RecordStrideInBytes = sizeof(uint32_t);
+        multi_nodes[1].EntrypointIndex = 1;
+        multi_nodes[1].NumRecords = 2;
+        multi_nodes[1].Records = cpu_node1;
+        multi_nodes[1].RecordStrideInBytes = sizeof(uint32_t);
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc multi_dispatch = {};
+            multi_dispatch.Mode = 2;
+            multi_dispatch.MultiNodeCPUInput.NumNodeInputs = 2;
+            multi_dispatch.MultiNodeCPUInput.NodeInputs = multi_nodes;
+            multi_dispatch.MultiNodeCPUInput.NodeInputStrideInBytes =
+                sizeof(NodeCPUInput);
+            list->SetProgram(&set_program);
+            list->DispatchGraph(&multi_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memcpy(multi_cpu_values, mapped,
+                            sizeof(multi_cpu_values));
+                backing->Unmap(0, nullptr);
+                multi_cpu_readback_ok =
+                    multi_cpu_values[0] == 8 &&
+                    multi_cpu_values[1] == (7u ^ 0x57475250u) &&
+                    multi_cpu_values[2] == 9 &&
+                    multi_cpu_values[3] == (8u ^ 0x57475250u) &&
+                    multi_cpu_values[4] == 11 &&
+                    multi_cpu_values[5] == (9u ^ (0x4d4e4f44u + 1u)) &&
+                    multi_cpu_values[6] == 12 &&
+                    multi_cpu_values[7] == (10u ^ (0x4d4e4f44u + 1u));
+            }
+        }
+    }
+    if (multi_cpu_readback_ok && gpu_multi_input_desc && allocator &&
+        base_list && list) {
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc multi_gpu_dispatch = {};
+            multi_gpu_dispatch.Mode = 3;
+            multi_gpu_dispatch.Raw[0] =
+                gpu_multi_input_desc->GetGPUVirtualAddress() + 64;
+            list->SetProgram(&set_program);
+            list->DispatchGraph(&multi_gpu_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memcpy(multi_gpu_values, mapped,
+                            sizeof(multi_gpu_values));
+                backing->Unmap(0, nullptr);
+                multi_gpu_readback_ok =
+                    multi_gpu_values[0] == 42 &&
+                    multi_gpu_values[1] == (41u ^ 0x57475250u) &&
+                    multi_gpu_values[2] == 43 &&
+                    multi_gpu_values[3] == (42u ^ 0x57475250u) &&
+                    multi_gpu_values[4] == 53 &&
+                    multi_gpu_values[5] == (51u ^ (0x4d4e4f44u + 1u)) &&
+                    multi_gpu_values[6] == 54 &&
+                    multi_gpu_values[7] == (52u ^ (0x4d4e4f44u + 1u));
+            }
+        }
+    }
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
-    std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && readback_ok ? "true" : "false");
+    const bool all_readbacks = readback_ok && gpu_input_readback_ok &&
+                               multi_cpu_readback_ok && multi_gpu_readback_ok;
+    std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
-    std::printf("  \"node_local_root_index\": %u,\n", local_root_index);
+    std::printf("  \"node_local_root_indices\": [%u, %u],\n", local_root_indices[0], local_root_indices[1]);
     std::printf("  \"gpu_native_provider\": true,\n");
     std::printf("  \"cpu_scheduler\": false,\n");
     std::printf("  \"input\": %u,\n  \"record_count\": 3,\n  \"values\": [%u, %u],\n", input, values[0], values[1]);
     std::printf("  \"readback_exact\": %s,\n", readback_ok ? "true" : "false");
-    std::printf("  \"gpu_input_readback_exact\": %s\n",
+    std::printf("  \"gpu_input_readback_exact\": %s,\n",
                 gpu_input_readback_ok ? "true" : "false");
+    std::printf("  \"multi_node_cpu_readback_exact\": %s,\n",
+                multi_cpu_readback_ok ? "true" : "false");
+    std::printf("  \"multi_node_gpu_readback_exact\": %s,\n",
+                multi_gpu_readback_ok ? "true" : "false");
+    std::printf("  \"multi_node_cpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
+                multi_cpu_values[0], multi_cpu_values[1], multi_cpu_values[2],
+                multi_cpu_values[3], multi_cpu_values[4], multi_cpu_values[5],
+                multi_cpu_values[6], multi_cpu_values[7]);
+    std::printf("  \"multi_node_gpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u]\n",
+                multi_gpu_values[0], multi_gpu_values[1], multi_gpu_values[2],
+                multi_gpu_values[3], multi_gpu_values[4], multi_gpu_values[5],
+                multi_gpu_values[6], multi_gpu_values[7]);
     std::printf("}\n");
 
     release(state_properties);
     release(state);
+    release(gpu_multi_input_desc);
+    release(gpu_input_desc);
+    release(gpu_records);
     release(backing);
     release(list);
     release(base_list);
@@ -381,7 +542,8 @@ int main() {
     if (module)
         FreeLibrary(module);
     return SUCCEEDED(hr) && properties_ok && readback_ok &&
-                   gpu_input_readback_ok
+                   gpu_input_readback_ok && multi_cpu_readback_ok &&
+                   multi_gpu_readback_ok
                ? 0
                : 1;
 }
