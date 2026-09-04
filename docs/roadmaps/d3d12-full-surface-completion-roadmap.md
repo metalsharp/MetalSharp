@@ -912,9 +912,10 @@ dispatches after command-list reuse. The command path remains pointer-free and
 records `cpu_scheduler=false`. The source-owned `node_records` and
 three-entrypoint `node_multi` DXIL libraries lower at runtime into GPU-native
 Metal compute kernels with exact backing-buffer readback, CPU/GPU single-node
-and one-input multi-node coverage, entrypoint routing, and a node-barrier
-witness; resource/record fan-out, recursion, cross-queue synchronization, and
-general node shader conversion remain open.
+and one-input multi-node coverage, entrypoint routing, a node-barrier witness,
+and INCLUDE_ALL_AVAILABLE_NODES metadata materialization; resource/record
+fan-out, recursion, cross-queue
+synchronization, and general node shader conversion remain open.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**
@@ -2219,9 +2220,9 @@ whether the scoped FL12_2 gate is green.
   Metal compute kernel without a CPU scheduler. The D3D12 probe compiles the
   `node_records` fixture plus a three-entrypoint `node_multi` fixture,
   verifies exact backing-buffer writes, CPU/GPU single-node and one-input
-  multi-node dispatch, entrypoint routing, and a node barrier, and keeps the
-  existing pointer/overflow/ordering negatives. This is bounded node coverage,
-  not general graph promotion.
+  multi-node dispatch, entrypoint routing, INCLUDE_ALL_AVAILABLE_NODES metadata,
+  and a node barrier, and keeps the existing pointer/overflow/ordering
+  negatives. This is bounded node coverage, not general graph promotion.
 
 - Extended the bounded GPU-native Work Graph proof with a valid node-local-root
   table, pointer-free caller-record ownership, ordered back-to-back dispatches

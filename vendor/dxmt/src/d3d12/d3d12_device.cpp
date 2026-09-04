@@ -4176,6 +4176,31 @@ public:
         }
         if (m_work_graph_entrypoints.empty() && !m_work_graph_nodes.empty())
           m_work_graph_entrypoints.push_back(m_work_graph_nodes.front());
+        if (m_work_graph_nodes.empty() && (graph->Flags & 1u)) {
+          // INCLUDE_ALL_AVAILABLE_NODES permits a graph to omit its explicit
+          // node array.  The bounded provider has no library-wide discovery
+          // scheduler, so it materializes the declared entrypoints as the
+          // available node set and still lowers each named node when a DXIL
+          // library is present.
+          m_work_graph_nodes.reserve(m_work_graph_entrypoints.size());
+          m_work_graph_local_root_indices.reserve(
+              m_work_graph_entrypoints.size());
+          m_work_graph_node_msl.reserve(m_work_graph_entrypoints.size());
+          for (const auto &entrypoint : m_work_graph_entrypoints) {
+            m_work_graph_node_names.emplace_back(entrypoint.Name);
+            D3D12WorkGraphNodeIDCompat id = {};
+            id.Name = m_work_graph_node_names.back().c_str();
+            id.ArrayIndex = entrypoint.ArrayIndex;
+            m_work_graph_nodes.push_back(id);
+            std::string node_msl;
+            if (node_library.pShaderBytecode &&
+                !LowerWorkGraphNodeShader(node_library, entrypoint.Name,
+                                           node_msl))
+              return false;
+            m_work_graph_node_msl.push_back(std::move(node_msl));
+            m_work_graph_local_root_indices.push_back(UINT_MAX);
+          }
+        }
         if (m_work_graph_nodes.empty())
           return false;
         m_has_work_graph = true;
