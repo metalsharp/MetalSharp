@@ -2966,6 +2966,24 @@ create_mixed_acceleration_structure_descriptor(
     uint64_t info_count) {
   if (!infos || !info_count || info_count > 64)
     return nil;
+  // Metal's current Apple backend accepts homogeneous primitive descriptor
+  // arrays, but its mixed descriptor implementation dispatches triangle-only
+  // selectors to bounding-box objects. Reject mixed arrays here so the D3D12
+  // replay layer can select its explicit child-BLAS/TLAS compatibility
+  // provider instead of allowing an Objective-C exception to escape.
+  bool saw_triangles = false;
+  bool saw_aabbs = false;
+  for (uint64_t i = 0; i < info_count; ++i) {
+    if (infos[i].type == WMTAccelerationStructureGeometryTriangles)
+      saw_triangles = true;
+    else if (infos[i].type == WMTAccelerationStructureGeometryAABBs)
+      saw_aabbs = true;
+    else
+      return nil;
+  }
+  if (saw_triangles && saw_aabbs)
+    return nil;
+
   NSMutableArray<MTLAccelerationStructureGeometryDescriptor *> *geometries =
       [NSMutableArray arrayWithCapacity:(NSUInteger)info_count];
   bool allow_refit = false;
