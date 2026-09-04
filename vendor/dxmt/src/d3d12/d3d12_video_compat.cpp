@@ -269,8 +269,10 @@ static bool VideoFormatBytesPerPixel(DXGI_FORMAT format, UINT *bytes) {
 static HRESULT CopyVideoProcessFrame(const VideoProcessOperation &operation) {
   if (!operation.processor || !operation.input || !operation.output)
     return E_INVALIDARG;
-  if (operation.transform.Orientation != D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT)
-    return E_NOTIMPL;
+  const auto orientation = operation.transform.Orientation;
+  if (orientation < D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT ||
+      orientation > D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_270_FLIP_HORIZONTAL)
+    return E_INVALIDARG;
   auto *input = static_cast<MTLD3D12Resource *>(operation.input.ptr());
   auto *output = static_cast<MTLD3D12Resource *>(operation.output.ptr());
   if (!input || !output)
@@ -357,12 +359,58 @@ static HRESULT CopyVideoProcessFrame(const VideoProcessOperation &operation) {
   if (!source_width || !source_height || !destination_width || !destination_height)
     return E_INVALIDARG;
   for (UINT y = 0; y < destination_height; ++y) {
-    const UINT source_y = static_cast<UINT>(source.top) +
-                          (uint64_t(y) * source_height) / destination_height;
     for (UINT x = 0; x < destination_width; ++x) {
-      const UINT source_x = static_cast<UINT>(source.left) +
-                            (uint64_t(x) * source_width) / destination_width;
-      const auto *src = input_pixels.data() + uint64_t(source_y) * input_row +
+      UINT source_x = static_cast<UINT>(source.left) +
+                       (uint64_t(x) * source_width) / destination_width;
+      UINT source_y_oriented = static_cast<UINT>(source.top) +
+                               (uint64_t(y) * source_height) / destination_height;
+      const bool rotated_90 =
+          orientation == D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_90 ||
+          orientation ==
+              D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_90_FLIP_HORIZONTAL;
+      const bool rotated_270 =
+          orientation == D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_270 ||
+          orientation ==
+              D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_270_FLIP_HORIZONTAL;
+      if (rotated_90 || rotated_270) {
+        const UINT rotated_x = static_cast<UINT>(
+            (uint64_t(x) * source_height) / destination_width);
+        const UINT rotated_y = static_cast<UINT>(
+            (uint64_t(y) * source_width) / destination_height);
+        source_x = rotated_270
+                       ? static_cast<UINT>(source.right - 1) - rotated_y
+                       : static_cast<UINT>(source.left) + rotated_y;
+        source_y_oriented = rotated_90
+                                ? static_cast<UINT>(source.bottom - 1) - rotated_x
+                                : static_cast<UINT>(source.top) + rotated_x;
+      }
+      const bool flip_horizontal =
+          orientation == D3D12_VIDEO_PROCESS_ORIENTATION_FLIP_HORIZONTAL ||
+          orientation ==
+              D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_90_FLIP_HORIZONTAL ||
+          orientation ==
+              D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_270_FLIP_HORIZONTAL;
+      const bool flip_vertical =
+          orientation == D3D12_VIDEO_PROCESS_ORIENTATION_FLIP_VERTICAL;
+      if (flip_horizontal) {
+        if (rotated_90 || rotated_270)
+          source_y_oriented = static_cast<UINT>(source.bottom - 1) -
+                              (source_y_oriented - source.top);
+        else
+          source_x = static_cast<UINT>(source.right - 1) -
+                     (source_x - source.left);
+      }
+      if (flip_vertical)
+        source_y_oriented = static_cast<UINT>(source.bottom - 1) -
+                            (source_y_oriented - source.top);
+      if (orientation == D3D12_VIDEO_PROCESS_ORIENTATION_CLOCKWISE_180) {
+        source_x = static_cast<UINT>(source.right - 1) -
+                   (source_x - source.left);
+        source_y_oriented = static_cast<UINT>(source.bottom - 1) -
+                            (source_y_oriented - source.top);
+      }
+      const auto *src = input_pixels.data() +
+                        uint64_t(source_y_oriented) * input_row +
                         uint64_t(source_x) * input_bpp;
       auto *dst = output_pixels.data() +
                   uint64_t(destination.top + y) * output_row +

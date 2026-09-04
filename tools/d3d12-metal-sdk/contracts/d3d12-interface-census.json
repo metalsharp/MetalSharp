@@ -167,8 +167,8 @@
             },
             {
               "lines": [
-                437,
-                441
+                485,
+                489
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -240,8 +240,8 @@
             },
             {
               "lines": [
-                485,
-                488
+                533,
+                536
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -343,8 +343,8 @@
             },
             {
               "lines": [
-                490,
-                492
+                538,
+                540
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -602,8 +602,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -724,8 +724,8 @@
             },
             {
               "lines": [
-                480,
-                483
+                528,
+                531
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -2722,8 +2722,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -2827,7 +2827,7 @@
             },
             {
               "lines": [
-                575
+                623
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -4738,8 +4738,8 @@
             },
             {
               "lines": [
-                468,
-                472
+                516,
+                520
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -6187,8 +6187,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -7335,8 +7335,8 @@
             },
             {
               "lines": [
-                485,
-                488
+                533,
+                536
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -7392,8 +7392,8 @@
             },
             {
               "lines": [
-                458,
-                461
+                506,
+                509
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -7536,8 +7536,8 @@
             },
             {
               "lines": [
-                444,
-                446
+                492,
+                494
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -7641,8 +7641,8 @@
             },
             {
               "lines": [
-                434,
-                435
+                482,
+                483
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -7924,8 +7924,8 @@
             },
             {
               "lines": [
-                453,
-                456
+                501,
+                504
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -8183,8 +8183,8 @@
             },
             {
               "lines": [
-                490,
-                492
+                538,
+                540
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -8240,8 +8240,8 @@
             },
             {
               "lines": [
-                463,
-                466
+                511,
+                514
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -8809,8 +8809,8 @@
             },
             {
               "lines": [
-                437,
-                441
+                485,
+                489
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -8882,8 +8882,8 @@
             },
             {
               "lines": [
-                468,
-                472
+                516,
+                520
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -9002,8 +9002,8 @@
             },
             {
               "lines": [
-                448,
-                451
+                496,
+                499
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -9812,8 +9812,8 @@
             },
             {
               "lines": [
-                480,
-                483
+                528,
+                531
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -9925,8 +9925,8 @@
             },
             {
               "lines": [
-                475,
-                478
+                523,
+                526
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -10391,8 +10391,8 @@
             },
             {
               "lines": [
-                522,
-                526
+                570,
+                574
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -11561,8 +11561,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -13175,8 +13175,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -13533,8 +13533,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -13861,8 +13861,8 @@
             },
             {
               "lines": [
-                323,
-                328
+                325,
+                330
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -14014,7 +14014,7 @@
             },
             {
               "lines": [
-                373
+                421
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -14577,8 +14577,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -15490,8 +15490,8 @@
             },
             {
               "lines": [
-                485,
-                488
+                533,
+                536
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15547,8 +15547,8 @@
             },
             {
               "lines": [
-                458,
-                461
+                506,
+                509
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15584,8 +15584,8 @@
             },
             {
               "lines": [
-                444,
-                446
+                492,
+                494
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15629,8 +15629,8 @@
             },
             {
               "lines": [
-                434,
-                435
+                482,
+                483
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15707,8 +15707,8 @@
             },
             {
               "lines": [
-                453,
-                456
+                501,
+                504
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15772,8 +15772,8 @@
             },
             {
               "lines": [
-                490,
-                492
+                538,
+                540
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15829,8 +15829,8 @@
             },
             {
               "lines": [
-                463,
-                466
+                511,
+                514
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15879,8 +15879,8 @@
             },
             {
               "lines": [
-                437,
-                441
+                485,
+                489
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -15952,8 +15952,8 @@
             },
             {
               "lines": [
-                468,
-                472
+                516,
+                520
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -16011,8 +16011,8 @@
             },
             {
               "lines": [
-                448,
-                451
+                496,
+                499
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -16076,8 +16076,8 @@
             },
             {
               "lines": [
-                480,
-                483
+                528,
+                531
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -16133,8 +16133,8 @@
             },
             {
               "lines": [
-                475,
-                478
+                523,
+                526
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -16193,8 +16193,8 @@
             },
             {
               "lines": [
-                522,
-                526
+                570,
+                574
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -16574,8 +16574,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -16840,8 +16840,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -16962,7 +16962,7 @@
             },
             {
               "lines": [
-                575
+                623
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -16999,7 +16999,7 @@
           "source_references": [
             {
               "lines": [
-                588
+                636
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -17029,7 +17029,7 @@
           "source_references": [
             {
               "lines": [
-                603
+                651
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -17059,7 +17059,7 @@
           "source_references": [
             {
               "lines": [
-                619
+                667
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -17339,8 +17339,8 @@
             },
             {
               "lines": [
-                485,
-                488
+                533,
+                536
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17396,8 +17396,8 @@
             },
             {
               "lines": [
-                458,
-                461
+                506,
+                509
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17433,8 +17433,8 @@
             },
             {
               "lines": [
-                444,
-                446
+                492,
+                494
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17478,8 +17478,8 @@
             },
             {
               "lines": [
-                434,
-                435
+                482,
+                483
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17539,8 +17539,8 @@
             },
             {
               "lines": [
-                453,
-                456
+                501,
+                504
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17604,8 +17604,8 @@
             },
             {
               "lines": [
-                490,
-                492
+                538,
+                540
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17661,8 +17661,8 @@
             },
             {
               "lines": [
-                463,
-                466
+                511,
+                514
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17728,8 +17728,8 @@
             },
             {
               "lines": [
-                437,
-                441
+                485,
+                489
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17818,8 +17818,8 @@
             },
             {
               "lines": [
-                468,
-                472
+                516,
+                520
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17877,8 +17877,8 @@
             },
             {
               "lines": [
-                448,
-                451
+                496,
+                499
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17942,8 +17942,8 @@
             },
             {
               "lines": [
-                480,
-                483
+                528,
+                531
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -17999,8 +17999,8 @@
             },
             {
               "lines": [
-                475,
-                478
+                523,
+                526
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -18140,8 +18140,8 @@
             },
             {
               "lines": [
-                522,
-                526
+                570,
+                574
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -18813,8 +18813,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -19072,8 +19072,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -19330,8 +19330,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -19468,8 +19468,8 @@
             },
             {
               "lines": [
-                485,
-                488
+                533,
+                536
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19525,8 +19525,8 @@
             },
             {
               "lines": [
-                458,
-                461
+                506,
+                509
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19562,8 +19562,8 @@
             },
             {
               "lines": [
-                444,
-                446
+                492,
+                494
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19607,8 +19607,8 @@
             },
             {
               "lines": [
-                434,
-                435
+                482,
+                483
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19668,8 +19668,8 @@
             },
             {
               "lines": [
-                453,
-                456
+                501,
+                504
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19733,8 +19733,8 @@
             },
             {
               "lines": [
-                490,
-                492
+                538,
+                540
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19790,8 +19790,8 @@
             },
             {
               "lines": [
-                463,
-                466
+                511,
+                514
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19815,7 +19815,7 @@
           "source_references": [
             {
               "lines": [
-                494
+                542
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19864,8 +19864,8 @@
             },
             {
               "lines": [
-                437,
-                441
+                485,
+                489
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19937,8 +19937,8 @@
             },
             {
               "lines": [
-                468,
-                472
+                516,
+                520
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -19996,8 +19996,8 @@
             },
             {
               "lines": [
-                448,
-                451
+                496,
+                499
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -20061,8 +20061,8 @@
             },
             {
               "lines": [
-                480,
-                483
+                528,
+                531
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -20118,8 +20118,8 @@
             },
             {
               "lines": [
-                475,
-                478
+                523,
+                526
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -20178,8 +20178,8 @@
             },
             {
               "lines": [
-                522,
-                526
+                570,
+                574
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             }
@@ -21186,8 +21186,8 @@
               "lines": [
                 94,
                 149,
-                280,
-                281
+                282,
+                283
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
             },
@@ -21747,7 +21747,7 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "00fff24485278c26611bdc677959baaab94f636a",
+    "git_head": "caa13d18d000176f9ca6c208561de47ee4e8a85b",
     "runtime_file_count": 172,
     "runtime_roots": [
       "vendor/dxmt/src/d3d12",
@@ -21756,7 +21756,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "2be796855803b174f1d504b189894ec5b40a2a1287c53968d8527454b355125d"
+    "runtime_tree_sha256": "c6195e05fbfa0d079cb6c27a2a4a53e6d549288bfd2bb67575b6d497c60bf3c6"
   },
   "state": "phase0_inventory",
   "summary": {

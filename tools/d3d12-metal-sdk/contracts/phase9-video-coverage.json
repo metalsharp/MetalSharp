@@ -36,7 +36,9 @@
         ["create_video_command_list", "0x00000000"],
         ["close", "0x00000000"],
         ["output_readback", "0x00000000"],
+        ["output_rotated_readback", "0x00000000"],
         ["output_scaled_exact"],
+        ["output_rotated_exact"],
         ["provider_scope", "CPU-reference-video-process"]
       ],
       "negative_checks": [],
