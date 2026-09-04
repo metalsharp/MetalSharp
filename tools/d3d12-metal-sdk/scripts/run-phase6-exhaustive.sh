@@ -14,6 +14,8 @@ JOBS="${METALSHARP_BUILD_JOBS:-8}"
 BUILD_RUNTIME=0
 WITH_RASTERIZATION=0
 WITH_ROV_DIMENSIONS=0
+WITH_VIEW_INSTANCING=0
+WITH_FIXED_FUNCTION=0
 WITH_MSAA=0
 WITH_HOST_INVENTORY=0
 MSAA_TIMEOUT_SECONDS=120
@@ -33,6 +35,8 @@ Options:
                         Winemetal artifact after Meson's symbol extractor.
   --with-rasterization Also run the point/line breadth probe.
   --with-rov-dimensions Also run the 1D/1D-array/3D ROV probe.
+  --with-view-instancing Also run the four-view/mask-zero replay probe.
+  --with-fixed-function Also run the established fixed-function graphics matrix.
   --with-msaa          Also run the writable-MSAA/sample-position matrix.
   --with-host-inventory Compile/run the native Metal interpolation inventory.
   --profile NAME        Result profile (default phase6-exhaustive).
@@ -51,6 +55,8 @@ while (($#)); do
     --build-runtime) BUILD_RUNTIME=1 ;;
     --with-rasterization) WITH_RASTERIZATION=1 ;;
     --with-rov-dimensions) WITH_ROV_DIMENSIONS=1 ;;
+    --with-view-instancing) WITH_VIEW_INSTANCING=1 ;;
+    --with-fixed-function) WITH_FIXED_FUNCTION=1 ;;
     --with-msaa) WITH_MSAA=1 ;;
     --with-host-inventory) WITH_HOST_INVENTORY=1 ;;
     --keep-sandbox-on-failure) KEEP_SANDBOX_ON_FAILURE=1 ;;
@@ -80,6 +86,7 @@ BUILD_ARTIFACTS=(
   "$BUILD_DIR/src/dxgi/dxgi.dll"
   "$BUILD_DIR/src/dxgi/dxgi_dxmt.dll"
   "$BUILD_DIR/src/winemetal/winemetal.dll"
+  "$BUILD_DIR/src/winemetal/unix/winemetal.so"
   "$BUILD_DIR/src/nvapi/nvapi64.dll"
   "$BUILD_DIR/src/nvngx/nvngx.dll"
 )
@@ -116,6 +123,7 @@ cleanup() {
       vendor/dxmt/build-metalsharp-x64/src/dxgi/dxgi.dll \
       vendor/dxmt/build-metalsharp-x64/src/dxgi/dxgi_dxmt.dll \
       vendor/dxmt/build-metalsharp-x64/src/winemetal/winemetal.dll \
+      vendor/dxmt/build-metalsharp-x64/src/winemetal/unix/winemetal.so \
       vendor/dxmt/build-metalsharp-x64/src/nvapi/nvapi64.dll \
       vendor/dxmt/build-metalsharp-x64/src/nvngx/nvngx.dll \
       >/dev/null 2>&1 || status=1
@@ -141,8 +149,14 @@ if [[ "$BUILD_RUNTIME" == "1" ]]; then
   # set.  Build the complete tree first, then relink only the final builtin
   # target so staging sees the actual export-complete PE artifact.
   meson compile -C "$BUILD_DIR" -j "$JOBS"
-  ninja -C "$BUILD_DIR" -t clean src/winemetal/winemetal.dll >/dev/null
-  ninja -C "$BUILD_DIR" src/winemetal/winemetal.dll >/dev/null
+  # Clean the Unix half as well.  Meson does not always register
+  # winemetal.h as a dependency of the C/ObjC Unix object; leaving that object
+  # in place can pair a current PE command enum with an older Unix switch
+  # table, producing render_cmd_unknown and a poisoned command buffer.
+  ninja -C "$BUILD_DIR" -t clean src/winemetal/winemetal.dll \
+    src/winemetal/unix/winemetal.so >/dev/null
+  ninja -C "$BUILD_DIR" src/winemetal/winemetal.dll \
+    src/winemetal/unix/winemetal.so >/dev/null
 
   # Relink consumers after the complete Winemetal import library exists.  The
   # normal dependency walk invokes Meson's symbolextractor first; that target
@@ -192,6 +206,9 @@ probe_flags=(
 "$CXX" "${probe_flags[@]}" \
   "$SDK_DIR/probes/probe_interpolation/probe_interpolation.cpp" \
   -o "$WORK/probe_interpolation.exe"
+"$CXX" "${probe_flags[@]}" \
+  "$SDK_DIR/probes/probe_phase6_invalid_descriptors.cpp" \
+  -o "$WORK/probe_phase6_invalid_descriptors.exe"
 if [[ "$WITH_RASTERIZATION" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
     "$SDK_DIR/probes/probe_rasterization_breadth/probe_rasterization_breadth.cpp" \
@@ -202,12 +219,23 @@ if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
     "$SDK_DIR/probes/probe_rov_dimensions/probe_rov_dimensions.cpp" \
     -o "$WORK/probe_rov_dimensions.exe"
 fi
+if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_view_instancing_breadth.cpp" \
+    -o "$WORK/probe_view_instancing_breadth.exe"
+fi
+if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_graphics_pso/probe_graphics_pso.cpp" \
+    -o "$WORK/probe_graphics_pso.exe"
+fi
 if [[ "$WITH_MSAA" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
     "$SDK_DIR/probes/probe_writable_msaa/probe_writable_msaa.cpp" \
     -o "$WORK/probe_writable_msaa.exe"
 fi
 HOST_STATUS=0
+CAPS_STATUS=0
 if [[ "$WITH_HOST_INVENTORY" == "1" ]]; then
   HOST_BIN="$WORK/probe-metal-interpolation"
   DEVELOPER_DIR="${DEVELOPER_DIR:-${METALSHARP_XCODE_ROOT:-/Users/averyfelts/Downloads/Xcode-beta.app/Contents/Developer}}" \
@@ -235,6 +263,10 @@ cp "$SDK_DIR/probes/probe_interpolation/interpolation_eval.hlsl" "$WORK/interpol
 cp "$SDK_DIR/probes/probe_interpolation/interpolation_invalid.hlsl" "$WORK/interpolation_invalid.hlsl"
 if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   cp "$SDK_DIR/probes/probe_rov_dimensions/rov_dimensions.hlsl" "$WORK/rov_dimensions.hlsl"
+fi
+if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
+  cp "$SDK_DIR/probes/probe_graphics_pso/conservative_raster.hlsl" \
+    "$WORK/probe_conservative_raster.hlsl"
 fi
 
 WINEDEBUG=-all WINEPREFIX="$PREFIX" "$WINE_BIN" wineboot -u >/dev/null 2>&1
@@ -312,6 +344,20 @@ env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
   "$WINE_BIN" "$WORK/dxc.exe" -nologo -E ps_invalid -T ps_6_0 \
   -Fo "$WORK/invalid.cso" "$WORK/interpolation_invalid.hlsl" >/dev/null
 
+if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
+  for spec in \
+    "vs_main vs_6_0 probe_conservative_raster_vs" \
+    "ps_main ps_6_0 probe_conservative_raster_ps"; do
+    read -r entry target output <<<"$spec"
+    env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
+      -u DXMT_PROBE_D3D12_DLL -u DXMT_SHADER_CACHE_PATH -u DXMT_LOG_PATH \
+      WINEDEBUG=-all WINEPREFIX="$PREFIX" \
+      WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" "$WORK/dxc.exe" -nologo -E "$entry" -T "$target" \
+      -Fo "$WORK/$output.cso" "$WORK/probe_conservative_raster.hlsl" >/dev/null
+  done
+fi
+
 ROV_DIMENSIONS_COMPILE_STATUS=0
 if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   for spec in \
@@ -332,6 +378,22 @@ if [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   done
 fi
 
+if [[ "$WITH_HOST_INVENTORY" == "1" ]]; then
+  # Run the D3D12 feature-report probe only after the disposable runtime and
+  # unique Winemetal alias have been installed.  Running it beside the native
+  # Metal inventory above would resolve d3d12.dll through the host Wine tree.
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_device_caps/probe_device_caps.cpp" \
+    -o "$WORK/probe_device_caps.exe"
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 30 --cwd "$WORK" \
+    --output "$SANDBOX/device_caps.json" \
+    --stderr "$LOG_DIR/probe-device-caps.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_device_caps.exe"
+  CAPS_STATUS=$?
+  set -e
+fi
+
 set +e
 python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
   --output "$SANDBOX/interpolation.json" \
@@ -341,6 +403,14 @@ python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
   "$WORK/centroid.cso" "$WORK/sample.cso" "$WORK/flat.cso" \
   "$WORK/evaluation.cso" "$WORK/invalid.cso"
 INTERPOLATION_STATUS=$?
+set -e
+
+set +e
+python3 "$BOUNDED_RUNNER" --timeout 30 --cwd "$WORK" \
+  --output "$SANDBOX/invalid_descriptors.json" \
+  --stderr "$LOG_DIR/probe-invalid-descriptors.stderr" -- \
+  "$WINE_BIN" "$WORK/probe_phase6_invalid_descriptors.exe"
+INVALID_DESCRIPTORS_STATUS=$?
 set -e
 
 RASTER_STATUS=0
@@ -367,6 +437,26 @@ if [[ "$WITH_ROV_DIMENSIONS" == "1" && "$ROV_DIMENSIONS_COMPILE_STATUS" == "0" ]
 elif [[ "$WITH_ROV_DIMENSIONS" == "1" ]]; then
   ROV_DIMENSIONS_STATUS=1
 fi
+VIEW_INSTANCING_STATUS=0
+if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 60 --cwd "$WORK" \
+    --output "$SANDBOX/view_instancing.json" \
+    --stderr "$LOG_DIR/probe-view-instancing.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_view_instancing_breadth.exe"
+  VIEW_INSTANCING_STATUS=$?
+  set -e
+fi
+FIXED_FUNCTION_STATUS=0
+if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 90 --cwd "$WORK" \
+    --output "$SANDBOX/fixed_function.json" \
+    --stderr "$LOG_DIR/probe-fixed-function.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_graphics_pso.exe"
+  FIXED_FUNCTION_STATUS=$?
+  set -e
+fi
 MSAA_STATUS=0
 if [[ "$WITH_MSAA" == "1" ]]; then
   set +e
@@ -380,17 +470,23 @@ fi
 
 python3 - "$SANDBOX/interpolation.json" "$STAGE_MANIFEST" "$ABI_RESULT" \
   "$RESULTS_DIR/phase6-exhaustive-$PROFILE.json" "$INTERPOLATION_STATUS" \
+  "$INVALID_DESCRIPTORS_STATUS" "$SANDBOX/invalid_descriptors.json" \
   "$RASTER_STATUS" "$SANDBOX/rasterization.json" "$ROV_DIMENSIONS_STATUS" \
   "$ROV_DIMENSIONS_COMPILE_STATUS" "$SANDBOX/rov_dimensions.json" \
+  "$VIEW_INSTANCING_STATUS" "$SANDBOX/view_instancing.json" \
+  "$FIXED_FUNCTION_STATUS" "$SANDBOX/fixed_function.json" \
   "$MSAA_STATUS" "$SANDBOX/msaa.json" "$HOST_STATUS" \
-  "$SANDBOX/host_inventory.json" <<'PY'
+  "$SANDBOX/host_inventory.json" "$CAPS_STATUS" "$SANDBOX/device_caps.json" <<'PY'
 import json
 import pathlib
 import sys
 
 (interpolation_path, stage_path, abi_path, output_path, interpolation_status,
- raster_status, raster_path, rov_status, rov_compile_status, rov_path,
- msaa_status, msaa_path, host_status, host_path) = sys.argv[1:]
+ invalid_descriptors_status, invalid_descriptors_path, raster_status, raster_path,
+ rov_status, rov_compile_status, rov_path,
+ view_instancing_status, view_instancing_path,
+ fixed_function_status, fixed_function_path,
+ msaa_status, msaa_path, host_status, host_path, caps_status, caps_path) = sys.argv[1:]
 def load(path):
     p = pathlib.Path(path)
     if not p.exists() or not p.read_text(encoding="utf-8").strip():
@@ -423,28 +519,52 @@ payload = {
     "source_dirty": stage.get("source_dirty"),
     "bounded_timeout_seconds": 120,
     "interpolation": {"process_status": int(interpolation_status), "result": interpolation},
+    "invalid_descriptors": None,
     "rasterization": None,
     "rov_dimensions": None,
+    "view_instancing": None,
+    "fixed_function": None,
     "msaa": None,
     "host_inventory": None,
+    "device_caps": None,
 }
 if pathlib.Path(raster_path).exists():
     payload["rasterization"] = {"process_status": int(raster_status), "result": load(raster_path)}
+if pathlib.Path(invalid_descriptors_path).exists():
+    payload["invalid_descriptors"] = {
+        "process_status": int(invalid_descriptors_status),
+        "result": load(invalid_descriptors_path),
+    }
 if pathlib.Path(rov_path).exists():
     payload["rov_dimensions"] = {
         "compile_status": int(rov_compile_status),
         "process_status": int(rov_status),
         "result": load(rov_path),
     }
+if pathlib.Path(view_instancing_path).exists():
+    payload["view_instancing"] = {
+        "process_status": int(view_instancing_status),
+        "result": load(view_instancing_path),
+    }
+if pathlib.Path(fixed_function_path).exists():
+    payload["fixed_function"] = {
+        "process_status": int(fixed_function_status),
+        "result": load(fixed_function_path),
+    }
 if pathlib.Path(msaa_path).exists():
     payload["msaa"] = {"process_status": int(msaa_status), "result": load(msaa_path)}
 if pathlib.Path(host_path).exists():
     payload["host_inventory"] = {"process_status": int(host_status), "result": load(host_path)}
+if pathlib.Path(caps_path).exists():
+    payload["device_caps"] = {"process_status": int(caps_status), "result": load(caps_path)}
 payload["exact"] = (
     bool(stage.get("ok"))
     and bool(abi.get("ok"))
     and int(interpolation_status) == 0
     and interpolation.get("exact") is True
+    and payload["invalid_descriptors"] is not None
+    and int(invalid_descriptors_status) == 0
+    and payload["invalid_descriptors"]["result"].get("pass") is True
     and (payload["rasterization"] is None or (
         int(raster_status) == 0 and payload["rasterization"]["result"].get("pass") is True
     ))
@@ -452,6 +572,14 @@ payload["exact"] = (
         int(rov_compile_status) == 0
         and int(rov_status) == 0
         and payload["rov_dimensions"]["result"].get("exact") is True
+    ))
+    and (payload["view_instancing"] is None or (
+        int(view_instancing_status) == 0
+        and payload["view_instancing"]["result"].get("pass") is True
+    ))
+    and (payload["fixed_function"] is None or (
+        int(fixed_function_status) == 0
+        and payload["fixed_function"]["result"].get("pass") is True
     ))
     and (payload["msaa"] is None or (
         int(msaa_status) == 0
@@ -461,13 +589,17 @@ payload["exact"] = (
         int(host_status) == 0
         and payload["host_inventory"]["result"].get("exact") is True
     ))
+    and (payload["device_caps"] is None or (
+        int(caps_status) == 0
+        and payload["device_caps"]["result"].get("pass") is True
+    ))
 )
 pathlib.Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(output_path)
 PY
 
-if [[ "$INTERPOLATION_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$HOST_STATUS" != "0" ]]; then
-  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS msaa=$MSAA_STATUS host_inventory=$HOST_STATUS)" >&2
+if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
+  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS fixed_function=$FIXED_FUNCTION_STATUS msaa=$MSAA_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
   exit 1
 fi
 if ! python3 "$SDK_DIR/scripts/validate-phase6-exhaustive.py" \

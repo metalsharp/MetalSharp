@@ -7844,7 +7844,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineState(
       if (!read_pipeline_stream_subobject(subobject, end, &view_instancing))
         return E_INVALIDARG;
       constexpr UINT kViewInstanceMaskingFlag = 0x1u;
-      if (view_instancing.ViewInstanceCount > 32 ||
+      // D3D12_MAX_VIEW_INSTANCE_COUNT is four.  The replay provider uses a
+      // 32-bit mask internally, but accepting larger declarations would make
+      // the public capability claim and the command-recorded mask semantics
+      // diverge from the API contract.
+      if (view_instancing.ViewInstanceCount > 4 ||
           (view_instancing.ViewInstanceCount &&
            !view_instancing.pViewInstanceLocations) ||
           (!view_instancing.ViewInstanceCount &&

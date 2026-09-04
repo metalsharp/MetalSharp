@@ -79,7 +79,7 @@
     {
       "id": "p6-interpolation-qualifier-center",
       "legality": "legal",
-      "status": "open",
+      "status": "closed",
       "provider": "native_msl_stage_in_qualifiers",
       "covers": {"primitive_topology": ["triangle_list"], "shader_stages": ["vertex_pixel"], "interpolation": ["perspective", "noperspective", "centroid", "sample", "flat", "eval_center", "eval_centroid", "eval_sample", "eval_snapped"], "sample_count": ["1"], "msaa_state": ["single_sample"], "rov_resource": ["none"], "logic_side_effects": ["none"], "view_instancing": ["disabled"], "vrs": ["disabled"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
       "positive_probe": "probe-interpolation",
@@ -91,7 +91,7 @@
     {
       "id": "p6-barycentrics-default-perspective",
       "legality": "legal",
-      "status": "open",
+      "status": "closed",
       "provider": "metal_barycentric_coord",
       "covers": {"primitive_topology": ["triangle_list"], "shader_stages": ["vertex_pixel"], "interpolation": ["barycentric"], "sample_count": ["1"], "msaa_state": ["single_sample"], "rov_resource": ["none"], "logic_side_effects": ["none"]},
       "positive_probe": "probe-barycentrics",
@@ -152,14 +152,27 @@
     {
       "id": "p6-invalid-descriptor-enums-and-counts",
       "legality": "invalid",
-      "status": "open",
+      "status": "closed",
       "provider": "d3d12-validation",
+      "covers": {"line_rasterization_mode": ["unknown"], "view_instancing": ["mask_out_of_range"], "sample_count": ["3"]},
+      "positive_probe": "not_applicable",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": false, "hresult": "documented_per_descriptor", "object": "null"},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "cases": ["rasterizer2_line_mode_4", "view_instance_count_5", "view_instance_flags_2", "view_instance_locations_missing", "sample_count_3", "unknown_subobject_type"]},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The probe closes the invalid line-mode, view-instancing, sample-count, and unknown-subobject equivalence classes; remaining invalid values stay explicitly open below."
+    },
+    {
+      "id": "p6-invalid-uncovered-values",
+      "legality": "invalid",
+      "status": "open",
+      "provider": "pending-invalid-descriptor-matrix",
       "covers": {"all_invalid_values": "all_declared_invalid_values"},
       "positive_probe": "not_applicable",
       "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": false, "hresult": "documented_per_descriptor", "object": "null"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "Every invalid descriptor class is explicitly classified, but its exact HRESULT matrix is still pending."
+      "reason": "The catch-all keeps invalid values classified while the remaining format, rectangle, resource, and state-specific HRESULT cases are expanded."
     },
     {
       "id": "p6-point-line-and-rasterizer2",
@@ -172,6 +185,19 @@
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "coverage_required": true},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
       "reason": "The initial point/line proof is not yet the complete line-mode/MSAA/depth/MRT cross-product."
+    },
+    {
+      "id": "p6-writable-msaa-and-sample-position-subset",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "flattened-writable-msaa-array-and-command-replay",
+      "covers": {"sample_count": ["2", "4", "8"], "sample_positions": ["programmable_4x4"], "msaa_state": ["color_msaa", "array_resolve"], "interpolation": ["sample", "eval_sample"], "logic_side_effects": ["uav"], "view_instancing": ["disabled"], "depth_stencil": ["depth"], "render_targets": ["one"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-writable-msaa",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "raw_samples_required": true, "resolved_samples_required": true, "sample_positions_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "values_verified plus graphics and format-specific resolves", "host_boundary": "sample_count_8 is writable-array emulation, not native render-target MSAA"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The exact writable-MSAA provider covers flattened 2/4/8-sample UAV arrays, an array slice, RGBA32/RGBA16/RGBA8 formats, graphics sample-index/coverage/evaluation use, programmable 4x4 positions, and resolve readbacks. Ordinary render-target breadth remains open below."
     },
     {
       "id": "p6-msaa-sample-frequency-and-resolve",
@@ -196,6 +222,19 @@
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
     },
     {
+      "id": "p6-view-instancing-four-view-mask-replay",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "draw_level_view_replay",
+      "covers": {"view_instancing": ["host_max_view"], "viewport_scissor": ["array"], "render_targets": ["one"], "sample_count": ["1"], "msaa_state": ["single_sample"], "shader_stages": ["vertex_pixel"], "interpolation": ["perspective"], "logic_side_effects": ["none", "render_target_only"]},
+      "positive_probe": "probe-view-instancing",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_view_slice_required": true, "zero_mask_no_work_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "four exact array slices for masks 1,2,4,8 and unchanged slice after mask 0"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The host maximum view count is four. Draw-level replay routes each mask to a distinct array slice and verifies SetViewInstanceMask(0) does not fall back to an uninstanced draw. Depth/MSAA/VRS combinations remain open below."
+    },
+    {
       "id": "p6-view-instancing-cross-products",
       "legality": "legal",
       "status": "open",
@@ -217,6 +256,19 @@
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "ordered_side_effect": true, "one_shot_side_effect_required": true},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
       "reason": "RasterizerOrderedTexture2DMS syntax is absent from pinned DXC, so a source-owned DXIL fixture or another valid provider is required before classification."
+    },
+    {
+      "id": "p6-independent-logic-render-target-only",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "per-target-write-mask-pipeline-variants",
+      "covers": {"blend_logic_write_mask": ["independent_mrt"], "logic_side_effects": ["render_target_only"], "render_targets": ["two"], "sample_count": ["1"], "depth_stencil": ["depth"], "shader_stages": ["vertex_pixel"]},
+      "positive_probe": "probe-graphics-pso",
+      "negative_probe": "probe-graphics-pso",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_target_operation_required": true, "uav_side_effect_rejection_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "target0=0xaaffff3c target1=0x550a0c30", "side_effect_boundary": "uav_pixel=0x80004005 null"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The established fixed-function probe proves distinct XOR/AND operations on two MRTs and rejects a UAV-writing pixel shader before replay, preventing duplicated side effects."
     },
     {
       "id": "p6-safe-independent-logic",

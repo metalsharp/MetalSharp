@@ -13,6 +13,16 @@ mkdir -p "$OUT_DIR"
 mkdir -p "$OUT_DIR/D3D12"
 mkdir -p "$OUT_DIR/D3D12/x64"
 
+copy_if_needed() {
+  local source="$1"
+  local destination="$2"
+  if [[ "$source" == "$destination" ]] ||
+     { [[ -f "$destination" ]] && cmp -s "$source" "$destination"; }; then
+    return 0
+  fi
+  cp "$source" "$destination"
+}
+
 build_probe() {
   "$CXX" \
     -std=c++17 \
@@ -52,11 +62,11 @@ for dll in dxc.exe dxcompiler.dll dxil.dll; do
     echo "Missing DXC file: $DXC_BIN_DIR/$dll" >&2
     exit 2
   fi
-  cp "$DXC_BIN_DIR/$dll" "$OUT_DIR/$dll"
+  copy_if_needed "$DXC_BIN_DIR/$dll" "$OUT_DIR/$dll"
 done
 
-cp "$DXC_BIN_DIR/dxil.dll" "$OUT_DIR/D3D12/dxil.dll"
-cp "$DXC_BIN_DIR/dxil.dll" "$OUT_DIR/D3D12/x64/dxil.dll"
+copy_if_needed "$DXC_BIN_DIR/dxil.dll" "$OUT_DIR/D3D12/dxil.dll"
+copy_if_needed "$DXC_BIN_DIR/dxil.dll" "$OUT_DIR/D3D12/x64/dxil.dll"
 
 build_probe \
   "$SDK_DIR/probes/probe_loader/probe_loader.cpp" \
@@ -186,6 +196,14 @@ build_probe \
 build_probe \
   "$SDK_DIR/probes/probe_rasterization_breadth/probe_rasterization_breadth.cpp" \
   -o "$OUT_DIR/probe_rasterization_breadth.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_phase6_invalid_descriptors.cpp" \
+  -o "$OUT_DIR/probe_phase6_invalid_descriptors.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_view_instancing_breadth.cpp" \
+  -o "$OUT_DIR/probe_view_instancing_breadth.exe"
 
 build_probe \
   "$SDK_DIR/probes/probe_interpolation/probe_interpolation.cpp" \
