@@ -18,3 +18,7 @@ float4 ps_main(VSOut input, uint sample_index : SV_SampleIndex) : SV_Target0 {
   return float4((float)(sample_index + 1), 0.0,
                 (float)sample_index, 1.0);
 }
+
+float4 ps_alpha(VSOut input) : SV_Target0 {
+  return float4(1.0, 0.0, 0.0, 0.0);
+}

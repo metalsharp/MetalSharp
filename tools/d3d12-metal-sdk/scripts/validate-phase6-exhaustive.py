@@ -385,6 +385,20 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                     mode.get("exact_shape") is not True
                     for mode in modes if isinstance(mode, dict))):
                 errors.append("rasterizer2 four-mode exact rows are incomplete")
+            forced_samples = value.get("forced_sample_count")
+            if (not isinstance(forced_samples, list) or len(forced_samples) != 2 or
+                value.get("forced_sample_count_exact") is not True or
+                {(case.get("forced_count"), case.get("target_count"))
+                 for case in forced_samples if isinstance(case, dict)} !=
+                {(1, 1), (4, 1)} or
+                any(not isinstance(case, dict) or case.get("red_pixels") != 14 or
+                    case.get("red_rows") != 1 or
+                    case.get("pso_hr") != "0x00000000" or
+                    case.get("execute_hr") != "0x00000000" or
+                    case.get("map_hr") != "0x00000000" or
+                    case.get("exact_shape") is not True
+                    for case in forced_samples)):
+                errors.append("forced sample-count exact matrix is incomplete")
             quadrilateral_strip = value.get("quadrilateral_line_strip")
             if (not isinstance(quadrilateral_strip, list) or
                 len(quadrilateral_strip) != 2 or
@@ -648,7 +662,9 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 "triangle_fan_exact", "dynamic_depth_bias_exact",
             )
             if (not isinstance(coverage, dict) or
-                any(coverage.get(field) is not True for field in required)):
+                any(coverage.get(field) is not True for field in required) or
+                coverage.get("conservative_rasterization_case_count") != 8 or
+                coverage.get("conservative_rasterization_rendered_pixels") != 304):
                 errors.append("fixed-function coverage evidence is incomplete")
     graphics_msaa_depth = result.get("graphics_msaa_depth")
     if graphics_msaa_depth is not None:
@@ -676,10 +692,12 @@ def validate_result(result: dict[str, Any]) -> list[str]:
             if not isinstance(value, dict) or value.get("pass") is not True:
                 errors.append("graphics MSAA probe is not pass=true")
             samples = value.get("samples", []) if isinstance(value, dict) else []
-            expected = {(2, 4294967295), (4, 4294967295), (4, 5)}
-            actual = {(item.get("count"), item.get("sample_mask"))
+            expected = {(2, 4294967295, False), (4, 4294967295, False),
+                        (4, 5, False), (4, 4294967295, True)}
+            actual = {(item.get("count"), item.get("sample_mask"),
+                       item.get("alpha_to_coverage"))
                       for item in samples if isinstance(item, dict)}
-            if (actual != expected or len(samples) != 3 or
+            if (actual != expected or len(samples) != 4 or
                 any(item.get("exact") is not True for item in samples
                     if isinstance(item, dict)) or
                 value.get("quality_exact") is not True):

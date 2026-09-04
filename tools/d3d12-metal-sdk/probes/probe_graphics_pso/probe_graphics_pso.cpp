@@ -679,6 +679,8 @@ float4 bias_ps(VSOut input) : SV_Target { return float4(1, 0, 0, 1); }
     pso_desc.NumRenderTargets = 1;
     pso_desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     pso_desc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    pso_desc.PrimitiveTopologyType =
+        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pso_desc.SampleDesc.Count = 1;
     ID3D12PipelineState* pso = nullptr;
     result.pso_hr = device->CreateGraphicsPipelineState(
@@ -1063,13 +1065,16 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         return false;
 
     struct Triangle {
-        float x[3];
-        float y[3];
+        float x[4];
+        float y[4];
     };
     struct ConservativeCase {
         Triangle triangle;
         D3D12_VIEWPORT viewport;
         D3D12_RECT scissor;
+        D3D12_PRIMITIVE_TOPOLOGY topology =
+            D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        uint32_t vertex_count = 3;
     };
     const ConservativeCase cases[] = {
         {{{-0.90f, 0.10f, 0.90f}, {-0.90f, 0.90f, -0.20f}}, {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8}},
@@ -1078,6 +1083,12 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         {{{0.90f, 0.10f, -0.90f}, {-0.20f, 0.90f, -0.90f}}, {1, 1, 6, 6, 0, 1}, {1, 1, 7, 7}},
         {{{-0.90f, 0.10f, 0.90f}, {-0.90f, 0.90f, -0.20f}}, {0, 0, 8, 8, 0, 1}, {2, 2, 6, 6}},
         {{{0.0f, 0.0f, 0.5f}, {0.0f, 0.0f, 0.5f}}, {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8}},
+        {{{-0.75f, -0.75f, 0.75f, 0.75f}, {-0.75f, 0.75f, -0.75f, 0.75f}},
+         {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8},
+         D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP, 4},
+        {{{-0.75f, 0.75f, 0.75f, -0.75f}, {-0.75f, -0.75f, 0.75f, 0.75f}},
+         {0, 0, 8, 8, 0, 1}, {0, 0, 8, 8},
+         static_cast<D3D12_PRIMITIVE_TOPOLOGY>(6), 4},
     };
     constexpr uint32_t width = 8;
     constexpr uint32_t height = 8;
@@ -1120,7 +1131,8 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
         target_desc.SampleDesc.Count = 1;
         target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-        D3D12_RESOURCE_DESC vertex_desc = conservative_buffer_desc(36);
+        D3D12_RESOURCE_DESC vertex_desc =
+            conservative_buffer_desc(test.vertex_count * 12u);
         D3D12_RESOURCE_DESC readback_desc = conservative_buffer_desc(row_pitch * height);
         if (SUCCEEDED(hr))
             hr = device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
@@ -1146,9 +1158,12 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
             void* mapped = nullptr;
             hr = vertex_buffer->Map(0, nullptr, &mapped);
             if (SUCCEEDED(hr)) {
-                float vertices[9] = {triangle.x[0], triangle.y[0], 0.0f,          triangle.x[1], triangle.y[1],
-                                     0.0f,          triangle.x[2], triangle.y[2], 0.0f};
-                std::memcpy(mapped, vertices, sizeof(vertices));
+                float vertices[12] = {};
+                for (uint32_t i = 0; i < test.vertex_count; ++i) {
+                    vertices[i * 3u] = triangle.x[i];
+                    vertices[i * 3u + 1u] = triangle.y[i];
+                }
+                std::memcpy(mapped, vertices, test.vertex_count * 12u);
                 vertex_buffer->Unmap(0, nullptr);
             }
         }
@@ -1176,14 +1191,14 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
             list->SetGraphicsRootSignature(root);
             list->RSSetViewports(1, &test.viewport);
             list->RSSetScissorRects(1, &test.scissor);
-            list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            list->IASetPrimitiveTopology(test.topology);
             D3D12_VERTEX_BUFFER_VIEW vbv = {};
             vbv.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
-            vbv.SizeInBytes = 36;
+            vbv.SizeInBytes = test.vertex_count * 12u;
             vbv.StrideInBytes = 12;
             list->IASetVertexBuffers(0, 1, &vbv);
             list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-            list->DrawInstanced(3, 1, 0, 0);
+            list->DrawInstanced(test.vertex_count, 1, 0, 0);
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barrier.Transition.pResource = target;
@@ -1212,8 +1227,8 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
             D3D12_RANGE range = {0, row_pitch * height};
             case_ok = SUCCEEDED(readback->Map(0, &range, reinterpret_cast<void**>(&mapped))) && mapped;
             if (case_ok) {
-                ConservativePoint points[3] = {};
-                for (uint32_t i = 0; i < 3; ++i) {
+                ConservativePoint points[4] = {};
+                for (uint32_t i = 0; i < test.vertex_count; ++i) {
                     points[i] = {test.viewport.TopLeftX + ((triangle.x[i] * 0.5f) + 0.5f) * test.viewport.Width,
                                  test.viewport.TopLeftY + (0.5f - triangle.y[i] * 0.5f) * test.viewport.Height};
                 }
@@ -1224,8 +1239,17 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
                                                 x < static_cast<uint32_t>(std::max<LONG>(0, test.scissor.right)) &&
                                                 y >= static_cast<uint32_t>(std::max<LONG>(0, test.scissor.top)) &&
                                                 y < static_cast<uint32_t>(std::max<LONG>(0, test.scissor.bottom));
-                        const bool expected =
-                            in_scissor && conservative_triangle_pixel(points[0], points[1], points[2], {(float)x, (float)y});
+                        const ConservativePoint pixel = {(float)x, (float)y};
+                        bool covered = conservative_triangle_pixel(
+                            points[0], points[1], points[2], pixel);
+                        if (test.vertex_count == 4 &&
+                            test.topology == D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP)
+                            covered |= conservative_triangle_pixel(
+                                points[2], points[1], points[3], pixel);
+                        else if (test.vertex_count == 4)
+                            covered |= conservative_triangle_pixel(
+                                points[0], points[2], points[3], pixel);
+                        const bool expected = in_scissor && covered;
                         const uint32_t actual = row[x];
                         case_ok &= expected ? actual == 0xff0000ffu : actual == 0u;
                         rendered_pixels += actual == 0xff0000ffu;
