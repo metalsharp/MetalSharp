@@ -7,9 +7,11 @@
 #include "dxgi_interfaces.h"
 #include "dxmt_device.hpp"
 #include <atomic>
+#include <cstddef>
 #include <unordered_map>
 #include <mutex>
 #include <new>
+#include <utility>
 #include <vector>
 
 namespace dxmt {
@@ -69,6 +71,54 @@ struct ID3D12Device12Compat : public ID3D12Device11Compat {
       D3D12_RESOURCE_ALLOCATION_INFO1 *resource_allocation_info1) = 0;
 };
 
+// Agility 1.619.5 adds three device interfaces beyond the MinGW header used
+// for the PE build.  Their vtable extensions are ABI-only here; the pointer
+// and scalar argument layout is identical to the SDK declarations.
+struct ID3D12Device13Compat : public ID3D12Device12Compat {
+  virtual HRESULT STDMETHODCALLTYPE OpenExistingHeapFromAddress1(
+      const void *address, SIZE_T size, REFIID riid, void **heap) = 0;
+};
+struct ID3D12Device14Compat : public ID3D12Device13Compat {
+  virtual HRESULT STDMETHODCALLTYPE CreateRootSignatureFromSubobjectInLibrary(
+      UINT node_mask, const void *library_blob, SIZE_T blob_length,
+      LPCWSTR subobject_name, REFIID riid, void **root_signature) = 0;
+};
+struct ID3D12Device15Compat : public ID3D12Device14Compat {
+  virtual HRESULT STDMETHODCALLTYPE RegisterTrimNotificationCallback(
+      void *data) = 0;
+  virtual HRESULT STDMETHODCALLTYPE UnregisterTrimNotificationCallback(
+      DWORD cookie) = 0;
+  virtual HRESULT STDMETHODCALLTYPE TryCreateShaderResourceView(
+      ID3D12Resource *resource,
+      const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) = 0;
+  virtual HRESULT STDMETHODCALLTYPE TryCreateUnorderedAccessView(
+      ID3D12Resource *resource, ID3D12Resource *counter_resource,
+      const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) = 0;
+  virtual HRESULT STDMETHODCALLTYPE TryCreateConstantBufferView(
+      const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) = 0;
+  virtual HRESULT STDMETHODCALLTYPE TryCreateSampler2(
+      const D3D12SamplerDesc2Compat *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) = 0;
+  virtual HRESULT STDMETHODCALLTYPE TryCreateRenderTargetView(
+      ID3D12Resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) = 0;
+  virtual HRESULT STDMETHODCALLTYPE TryCreateDepthStencilView(
+      ID3D12Resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) = 0;
+  virtual HRESULT STDMETHODCALLTYPE TryCreateSamplerFeedbackUnorderedAccessView(
+      ID3D12Resource *targeted_resource, ID3D12Resource *feedback_resource,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) = 0;
+  virtual HRESULT STDMETHODCALLTYPE CreateQueryHeap1(
+      const D3D12_QUERY_HEAP_DESC *desc, UINT flags, REFIID riid,
+      void **heap) = 0;
+  virtual HRESULT STDMETHODCALLTYPE ResolveQueryData(
+      ID3D12QueryHeap *query_heap, D3D12_QUERY_TYPE type, UINT start_index,
+      UINT query_count, void *resolved_query_data) = 0;
+};
+
 const D3D12_COMMAND_SIGNATURE_DESC *
 GetD3D12CommandSignatureDesc(ID3D12CommandSignature *signature);
 
@@ -94,8 +144,14 @@ GetD3D12StateObjectGlobalRootSignature(ID3D12StateObject *state_object);
 bool GetD3D12StateObjectShaderRecordLocalRootSignature(
     ID3D12StateObject *state_object, const void *shader_identifier,
     ID3D12RootSignature **local_root_signature);
+bool InitializeMetalSharpMetaCommand(ID3D12MetaCommand *command,
+                                      const void *data, size_t data_size);
+bool ExecuteMetalSharpMetaCommand(ID3D12MetaCommand *command,
+                                  const void *data, size_t data_size,
+                                  MTLD3D12Device *device,
+                                  WMT::CommandBuffer command_buffer);
 
-class MTLD3D12Device : public ID3D12Device12Compat {
+class MTLD3D12Device : public ID3D12Device15Compat {
 public:
   MTLD3D12Device(std::unique_ptr<Device> &&device,
                    IMTLDXGIAdapter *pAdapter);
@@ -111,6 +167,7 @@ public:
   }
 
   void SetDXGIDevice(IMTLDXGIDevice *dxgi_device) { m_dxgi_device = dxgi_device; }
+  IMTLDXGIDevice *GetDXGIDevice() const { return m_dxgi_device; }
 
   WMT::Device GetMTLDevice();
   Device &GetDXMTDevice();
@@ -123,6 +180,9 @@ public:
   bool SupportsMetalRaytracing() const {
     return m_metal_raytracing_supported;
   }
+  UINT GetStateObjectCount() const {
+    return m_state_object_count.load(std::memory_order_acquire);
+  }
   const D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER &
   GetRaytracingSerializationIdentifier() const {
     return m_raytracing_serialization_identifier;
@@ -134,6 +194,7 @@ public:
   void RegisterCommandQueue(MTLD3D12CommandQueue *queue);
   void UnregisterCommandQueue(MTLD3D12CommandQueue *queue);
   HRESULT EnqueueSetEvent(HANDLE event);
+  void NotifyTrimCallbacks(UINT64 bytes_to_trim = 0);
 
   /*** IUnknown ***/
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid,
@@ -487,6 +548,44 @@ public:
       const DXGI_FORMAT *const *castable_formats,
       D3D12_RESOURCE_ALLOCATION_INFO1 *resource_allocation_info1) override;
 
+  HRESULT STDMETHODCALLTYPE OpenExistingHeapFromAddress1(
+      const void *address, SIZE_T size, REFIID riid, void **heap) override;
+  HRESULT STDMETHODCALLTYPE CreateRootSignatureFromSubobjectInLibrary(
+      UINT node_mask, const void *library_blob, SIZE_T blob_length,
+      LPCWSTR subobject_name, REFIID riid, void **root_signature) override;
+  HRESULT STDMETHODCALLTYPE RegisterTrimNotificationCallback(
+      void *data) override;
+  HRESULT STDMETHODCALLTYPE UnregisterTrimNotificationCallback(
+      DWORD cookie) override;
+  HRESULT STDMETHODCALLTYPE TryCreateShaderResourceView(
+      ID3D12Resource *resource, const D3D12_SHADER_RESOURCE_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) override;
+  HRESULT STDMETHODCALLTYPE TryCreateUnorderedAccessView(
+      ID3D12Resource *resource, ID3D12Resource *counter_resource,
+      const D3D12_UNORDERED_ACCESS_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) override;
+  HRESULT STDMETHODCALLTYPE TryCreateConstantBufferView(
+      const D3D12_CONSTANT_BUFFER_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) override;
+  HRESULT STDMETHODCALLTYPE TryCreateSampler2(
+      const D3D12SamplerDesc2Compat *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) override;
+  HRESULT STDMETHODCALLTYPE TryCreateRenderTargetView(
+      ID3D12Resource *resource, const D3D12_RENDER_TARGET_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) override;
+  HRESULT STDMETHODCALLTYPE TryCreateDepthStencilView(
+      ID3D12Resource *resource, const D3D12_DEPTH_STENCIL_VIEW_DESC *desc,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) override;
+  HRESULT STDMETHODCALLTYPE TryCreateSamplerFeedbackUnorderedAccessView(
+      ID3D12Resource *targeted_resource, ID3D12Resource *feedback_resource,
+      D3D12_CPU_DESCRIPTOR_HANDLE destination) override;
+  HRESULT STDMETHODCALLTYPE CreateQueryHeap1(
+      const D3D12_QUERY_HEAP_DESC *desc, UINT flags, REFIID riid,
+      void **heap) override;
+  HRESULT STDMETHODCALLTYPE ResolveQueryData(
+      ID3D12QueryHeap *query_heap, D3D12_QUERY_TYPE type, UINT start_index,
+      UINT query_count, void *resolved_query_data) override;
+
 private:
   HRESULT CreateGraphicsPipelineStateInternal(
       const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
@@ -497,6 +596,7 @@ private:
   std::unique_ptr<Device> m_device;
   FormatCapabilityInspector m_format_inspector;
   bool m_metal_raytracing_supported = false;
+  std::atomic<UINT> m_state_object_count = {0};
   D3D12_SERIALIZED_DATA_DRIVER_MATCHING_IDENTIFIER
       m_raytracing_serialization_identifier = {};
   Com<IMTLDXGIAdapter> m_adapter;
@@ -511,6 +611,17 @@ private:
   std::unordered_map<uint64_t, MTLD3D12Resource *> m_resources_by_gpu_addr;
   std::mutex m_command_queue_mutex;
   std::vector<MTLD3D12CommandQueue *> m_command_queues;
+  std::mutex m_background_mutex;
+  HANDLE m_background_event = nullptr;
+  D3D12_BACKGROUND_PROCESSING_MODE m_background_mode =
+      D3D12_BACKGROUND_PROCESSING_MODE_ALLOWED;
+  D3D12_MEASUREMENTS_ACTION m_background_action =
+      D3D12_MEASUREMENTS_ACTION_KEEP_ALL;
+  std::atomic_bool m_stable_power_state = false;
+  std::atomic<HRESULT> m_device_removed_reason = S_OK;
+  std::mutex m_trim_callback_mutex;
+  std::unordered_map<DWORD, std::pair<uintptr_t, void *>> m_trim_callbacks;
+  DWORD m_next_trim_cookie = 1;
   void *m_expected_vtable = nullptr;
   void CheckVtable(const char *where);
 };

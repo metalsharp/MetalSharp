@@ -54,7 +54,20 @@ struct D3D12SwapchainBackbufferWork {
   int64_t wait_ms = 0;
 };
 
-class MTLD3D12Resource : public ID3D12Resource {
+struct D3D12_RESOURCE_DESC1Compat {
+  D3D12_RESOURCE_DESC base;
+  uint8_t sampler_feedback_mip_region[16];
+};
+struct ID3D12Resource1Compat : public ID3D12Resource {
+  virtual HRESULT STDMETHODCALLTYPE GetProtectedResourceSession(
+      REFIID riid, void **protected_session) = 0;
+};
+struct ID3D12Resource2Compat : public ID3D12Resource1Compat {
+  virtual D3D12_RESOURCE_DESC1Compat *STDMETHODCALLTYPE GetDesc1(
+      D3D12_RESOURCE_DESC1Compat *ret) = 0;
+};
+
+class MTLD3D12Resource : public ID3D12Resource2Compat {
 public:
   MTLD3D12Resource(MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
                    D3D12_RESOURCE_STATES initial_state,
@@ -116,10 +129,20 @@ public:
   HRESULT STDMETHODCALLTYPE ReadFromSubresource(
       void *dst_data, UINT dst_row_pitch, UINT dst_slice_pitch,
       UINT src_sub_resource, const D3D12_BOX *src_box) override;
+  HRESULT STDMETHODCALLTYPE GetProtectedResourceSession(
+      REFIID riid, void **protected_session) override;
+  D3D12_RESOURCE_DESC1Compat *STDMETHODCALLTYPE GetDesc1(
+      D3D12_RESOURCE_DESC1Compat *ret) override;
   bool ReadBufferRange(uint64_t offset, void *dst_data, uint64_t length);
   HRESULT STDMETHODCALLTYPE
   GetHeapProperties(D3D12_HEAP_PROPERTIES *heap_properties,
                     D3D12_HEAP_FLAGS *flags) override;
+  HRESULT CreateSubresourceSurface(UINT subresource, IDXGISurface2 **surface);
+  void SetProtectedResourceSession(ID3D12ProtectedResourceSession *session);
+  ID3D12ProtectedResourceSession *GetProtectedResourceSession() const {
+    return m_protected_session;
+  }
+  bool IsProtectedResource() const { return m_protected_session != nullptr; }
 
   D3D12_RESOURCE_STATES GetTrackedState(
       UINT subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES) const {
@@ -439,6 +462,7 @@ private:
   WMT::Reference<WMT::Heap> m_sparse_heap;
   WMT::Reference<WMT::Buffer> m_mtl_buffer;
   WMT::Reference<WMT::Texture> m_mtl_texture;
+  ID3D12ProtectedResourceSession *m_protected_session = nullptr;
   WMT::Reference<WMT::AccelerationStructure> m_mtl_acceleration_structure;
   uint64_t m_mtl_acceleration_structure_size = 0;
   WMT::Reference<WMT::AccelerationStructure>
@@ -478,6 +502,7 @@ private:
   bool m_shading_rate_image_initialized = false;
   std::vector<uint8_t> m_shading_rate_image_data;
   bool m_is_sampler_feedback = false;
+  uint8_t m_sampler_feedback_mip_region[16] = {};
   uint32_t m_sampler_feedback_width = 0;
   uint32_t m_sampler_feedback_height = 0;
   uint32_t m_sampler_feedback_row_pitch = 0;

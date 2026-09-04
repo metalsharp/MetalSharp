@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <dxgi1_6.h>
+#include <d3d12.h>
 
 struct InterfaceProbe {
     const char* name;
@@ -104,6 +105,7 @@ int main() {
     HMODULE dxgi = LoadLibraryA("dxgi.dll");
     using CreateFactoryFn = HRESULT(WINAPI*)(REFIID, void**);
     using CreateFactory2Fn = HRESULT(WINAPI*)(UINT, REFIID, void**);
+using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
     auto create_factory = reinterpret_cast<CreateFactoryFn>(
         reinterpret_cast<void*>(dxgi ? GetProcAddress(dxgi, "CreateDXGIFactory") : nullptr));
     auto create_factory1 = reinterpret_cast<CreateFactoryFn>(
@@ -185,7 +187,141 @@ int main() {
         gpu_preference_adapter->GetDesc1(&desc_preference);
 
     IDXGIOutput* output = nullptr;
+    IDXGIOutput1* output1 = nullptr;
+    IDXGIOutput5* output5 = nullptr;
+    IDXGIOutputDuplication* duplication = nullptr;
+    IDXGIResource* duplicated_resource = nullptr;
+    DXGI_OUTDUPL_DESC duplication_desc = {};
+    DXGI_OUTDUPL_FRAME_INFO duplication_frame = {};
     HRESULT enum_output_hr = adapter0 ? adapter0->EnumOutputs(0, &output) : E_FAIL;
+    HRESULT output1_qi_hr = output ? output->QueryInterface(IID_PPV_ARGS(&output1)) : E_FAIL;
+    HRESULT output5_qi_hr = output ? output->QueryInterface(IID_PPV_ARGS(&output5)) : E_FAIL;
+    HRESULT duplicate_output_hr = E_FAIL;
+    HRESULT duplicate_desc_hr = E_FAIL;
+    HRESULT acquire_frame_hr = E_FAIL;
+    UINT dirty_rect_bytes = 0;
+    HRESULT dirty_rect_query_hr = E_FAIL;
+    RECT dirty_rect = {};
+    HRESULT dirty_rect_hr = E_FAIL;
+    HRESULT release_frame_hr = E_FAIL;
+
+    HMODULE d3d12 = LoadLibraryA("d3d12.dll");
+    CreateDeviceFn create_device = nullptr;
+    FARPROC create_device_proc =
+        d3d12 ? GetProcAddress(d3d12, "D3D12CreateDevice") : nullptr;
+    static_assert(sizeof(create_device) == sizeof(create_device_proc));
+    std::memcpy(&create_device, &create_device_proc, sizeof(create_device));
+    ID3D12Device* d3d12_device = nullptr;
+    IDXGIDevice* dxgi_device = nullptr;
+    IDXGISurface* display_source = nullptr;
+    IDXGISurface* display_copy = nullptr;
+    DXGI_SURFACE_DESC display_surface_desc = {4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}};
+    HRESULT create_d3d12_hr = create_device
+                                  ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0,
+                                                  IID_PPV_ARGS(&d3d12_device))
+                                  : E_FAIL;
+    HRESULT query_dxgi_device_hr = d3d12_device
+                                       ? d3d12_device->QueryInterface(
+                                             IID_PPV_ARGS(&dxgi_device))
+                                       : E_FAIL;
+    duplicate_output_hr = output1 && d3d12_device
+                              ? output1->DuplicateOutput(d3d12_device,
+                                                         &duplication)
+                              : E_NOINTERFACE;
+    if (duplication) {
+        duplication->GetDesc(&duplication_desc);
+        duplicate_desc_hr = S_OK;
+        acquire_frame_hr = duplication->AcquireNextFrame(
+            0, &duplication_frame, &duplicated_resource);
+        dirty_rect_query_hr = duplication->GetFrameDirtyRects(
+            0, nullptr, &dirty_rect_bytes);
+        if (dirty_rect_bytes <= sizeof(dirty_rect))
+            dirty_rect_hr = duplication->GetFrameDirtyRects(
+                sizeof(dirty_rect), &dirty_rect, &dirty_rect_bytes);
+        if (SUCCEEDED(acquire_frame_hr))
+            release_frame_hr = duplication->ReleaseFrame();
+    }
+    HRESULT create_surface_hr = dxgi_device
+                                    ? dxgi_device->CreateSurface(
+                                          &display_surface_desc, 1,
+                                          DXGI_USAGE_SHADER_INPUT, nullptr,
+                                          &display_source)
+                                    : E_FAIL;
+    HRESULT create_copy_surface_hr = dxgi_device
+                                         ? dxgi_device->CreateSurface(
+                                               &display_surface_desc, 1,
+                                               DXGI_USAGE_SHADER_INPUT, nullptr,
+                                               &display_copy)
+                                         : E_FAIL;
+    HRESULT source_map_hr = E_FAIL;
+    HRESULT source_unmap_hr = E_FAIL;
+    if (display_source) {
+        DXGI_MAPPED_RECT mapped = {};
+        source_map_hr = display_source->Map(&mapped, DXGI_MAP_WRITE | DXGI_MAP_DISCARD);
+        if (SUCCEEDED(source_map_hr) && mapped.pBits) {
+            for (UINT y = 0; y < display_surface_desc.Height; ++y)
+                for (UINT x = 0; x < display_surface_desc.Width; ++x) {
+                    auto* pixel = mapped.pBits + y * mapped.Pitch + x * 4;
+                    pixel[0] = 0x11;
+                    pixel[1] = 0x22;
+                    pixel[2] = 0x33;
+                    pixel[3] = 0x44;
+                }
+            source_unmap_hr = display_source->Unmap();
+        }
+    }
+    HRESULT take_ownership_hr = output && d3d12_device
+                                     ? output->TakeOwnership(d3d12_device, TRUE)
+                                     : E_FAIL;
+    HRESULT set_display_surface_hr = output && display_source
+                                          ? output->SetDisplaySurface(display_source)
+                                          : E_FAIL;
+    HRESULT get_display_surface_data_hr = output && display_copy
+                                              ? output->GetDisplaySurfaceData(display_copy)
+                                              : E_FAIL;
+    DXGI_MAPPED_RECT copy_map = {};
+    HRESULT copy_map_hr = display_copy ? display_copy->Map(&copy_map, DXGI_MAP_READ) : E_FAIL;
+    uint32_t display_copy_pixel = 0;
+    if (SUCCEEDED(copy_map_hr) && copy_map.pBits) {
+        std::memcpy(&display_copy_pixel, copy_map.pBits, sizeof(display_copy_pixel));
+        display_copy->Unmap();
+    }
+    DXGI_FRAME_STATISTICS output_stats = {};
+    HRESULT output_stats_hr = output ? output->GetFrameStatistics(&output_stats) : E_FAIL;
+    HRESULT wait_vblank_hr = output ? output->WaitForVBlank() : E_FAIL;
+    if (output)
+        output->ReleaseOwnership();
+    IDXGISurface2* subresource_surface = nullptr;
+    HRESULT subresource_surface_hr = E_FAIL;
+    if (d3d12_device) {
+        D3D12_HEAP_PROPERTIES default_heap = {};
+        default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        default_heap.CreationNodeMask = 1;
+        default_heap.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC resource_desc = {};
+        resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        resource_desc.Width = 4;
+        resource_desc.Height = 4;
+        resource_desc.DepthOrArraySize = 1;
+        resource_desc.MipLevels = 1;
+        resource_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        resource_desc.SampleDesc.Count = 1;
+        resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        ID3D12Resource* subresource_resource = nullptr;
+        if (SUCCEEDED(d3d12_device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &resource_desc,
+                D3D12_RESOURCE_STATE_COMMON, nullptr,
+                IID_PPV_ARGS(&subresource_resource)))) {
+            IDXGIResource1* dxgi_resource = nullptr;
+            if (SUCCEEDED(subresource_resource->QueryInterface(
+                    IID_PPV_ARGS(&dxgi_resource)))) {
+                subresource_surface_hr = dxgi_resource->CreateSubresourceSurface(
+                    0, &subresource_surface);
+                dxgi_resource->Release();
+            }
+            subresource_resource->Release();
+        }
+    }
     void* unknown_factory = nullptr;
     HRESULT unknown_qi_hr =
         factory_unknown ? factory_unknown->QueryInterface(IID_DXGIUnknownProbe, &unknown_factory) : E_FAIL;
@@ -240,7 +376,12 @@ int main() {
         adapters_changed_wait == WAIT_TIMEOUT && SUCCEEDED(unregister_adapters_changed_hr) &&
         unregister_unknown_adapter_cookie_hr == DXGI_ERROR_INVALID_CALL && SUCCEEDED(adapter3_qi_hr) &&
         SUCCEEDED(register_budget_hr) && budget_cookie != 0 && SUCCEEDED(query_budget_hr) && memory_info.Budget > 0 &&
-        budget_event_wait == WAIT_TIMEOUT && register_protection_hr == DXGI_ERROR_UNSUPPORTED && protection_cookie == 0;
+        budget_event_wait == WAIT_TIMEOUT && register_protection_hr == DXGI_ERROR_UNSUPPORTED && protection_cookie == 0 &&
+        SUCCEEDED(create_d3d12_hr) && SUCCEEDED(query_dxgi_device_hr) && SUCCEEDED(create_surface_hr) &&
+        SUCCEEDED(create_copy_surface_hr) && SUCCEEDED(source_map_hr) && SUCCEEDED(source_unmap_hr) &&
+        SUCCEEDED(take_ownership_hr) && SUCCEEDED(set_display_surface_hr) &&
+        SUCCEEDED(get_display_surface_data_hr) && SUCCEEDED(copy_map_hr) && display_copy_pixel == 0x44332211u &&
+        SUCCEEDED(output_stats_hr) && SUCCEEDED(subresource_surface_hr) && subresource_surface != nullptr;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-dxgi-factory.v1\",\n");
@@ -269,6 +410,14 @@ int main() {
     print_hr("EnumAdapterByGpuPreference", gpu_preference_hr);
     print_hr("EnumAdapterByLuid", enum_luid_hr);
     print_hr("EnumOutputs", enum_output_hr);
+    print_hr("QueryInterface_IDXGIOutput1", output1_qi_hr);
+    print_hr("QueryInterface_IDXGIOutput5", output5_qi_hr);
+    print_hr("DuplicateOutput", duplicate_output_hr);
+    print_hr("DuplicateOutput_GetDesc", duplicate_desc_hr);
+    print_hr("DuplicateOutput_AcquireNextFrame", acquire_frame_hr);
+    print_hr("DuplicateOutput_GetFrameDirtyRects_query", dirty_rect_query_hr);
+    print_hr("DuplicateOutput_GetFrameDirtyRects", dirty_rect_hr);
+    print_hr("DuplicateOutput_ReleaseFrame", release_frame_hr);
     std::printf("    \"factory_versions_supported\": %s,\n", factory_versions_supported ? "true" : "false");
     std::printf("    \"adapter_stable\": %s,\n", adapter_stable ? "true" : "false");
     std::printf("    \"description\": \"%s\",\n", json_escape(wide_to_utf8(desc.Description)).c_str());
@@ -287,6 +436,21 @@ int main() {
     print_hr("RegisterVideoMemoryBudgetChangeNotificationEvent", register_budget_hr);
     print_hr("QueryVideoMemoryInfo", query_budget_hr);
     print_hr("RegisterHardwareContentProtectionTeardownStatusEvent", register_protection_hr);
+    print_hr("CreateD3D12Device", create_d3d12_hr);
+    print_hr("QueryInterface_IDXGIDevice", query_dxgi_device_hr);
+    print_hr("CreateSurface", create_surface_hr);
+    print_hr("CreateSurface_copy", create_copy_surface_hr);
+    print_hr("Surface_Map_write_discard", source_map_hr);
+    print_hr("Surface_Unmap_write", source_unmap_hr);
+    print_hr("TakeOwnership", take_ownership_hr);
+    print_hr("SetDisplaySurface", set_display_surface_hr);
+    print_hr("GetDisplaySurfaceData", get_display_surface_data_hr);
+    print_hr("Surface_Map_read_copy", copy_map_hr);
+    print_hr("GetFrameStatistics", output_stats_hr);
+    print_hr("WaitForVBlank", wait_vblank_hr);
+    print_hr("CreateSubresourceSurface", subresource_surface_hr);
+    std::printf("    \"display_copy_pixel\": \"0x%08x\",\n", display_copy_pixel);
+    std::printf("    \"frame_present_count\": %u,\n", output_stats.PresentCount);
     std::printf("    \"video_memory_budget\": %llu,\n", static_cast<unsigned long long>(memory_info.Budget));
     std::printf("    \"budget_cookie_nonzero\": %s,\n", budget_cookie ? "true" : "false");
     std::printf("    \"budget_event_initially_unsignaled\": %s,\n",
@@ -300,6 +464,18 @@ int main() {
     std::printf("  }\n");
     std::printf("}\n");
 
+    if (subresource_surface)
+        subresource_surface->Release();
+    if (display_copy)
+        display_copy->Release();
+    if (display_source)
+        display_source->Release();
+    if (dxgi_device)
+        dxgi_device->Release();
+    if (d3d12_device)
+        d3d12_device->Release();
+    if (d3d12)
+        FreeLibrary(d3d12);
     std::fflush(stdout);
     TerminateProcess(GetCurrentProcess(), pass ? 0 : 1);
 }

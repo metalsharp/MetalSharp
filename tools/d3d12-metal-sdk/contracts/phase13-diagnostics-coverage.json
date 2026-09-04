@@ -1,0 +1,34 @@
+{
+  "schema": "metalsharp.d3d12.phase13-diagnostics-coverage.v1",
+  "phase": 13,
+  "profile": "phase13-diagnostics",
+  "status": "partial",
+  "rows": [
+    {
+      "id": "device-statistics-tools-and-dred-settings",
+      "status": "limited",
+      "result": "probe-diagnostics",
+      "checks": [
+        ["statistics_qi", "0x00000000"],
+        ["statistics", "0x00000000"],
+        ["tools_qi", "0x00000000"],
+        ["tools_blob", "0x00000000"],
+        ["tools_blob_size", 8],
+        ["tools_blob_status", 4],
+        ["dred_settings_qi", "0x00000000"],
+        ["settings_state_mutated", true]
+      ],
+      "remaining": "The probe verifies state-statistics output, a serialized tool allocation-state blob, tool status, and mutable DRED settings. Full DRED breadcrumb/page-fault output, debugger callbacks, pageable allocation tools, cache diagnostics, and cross-process corruption/restart evidence remain open."
+    },
+    {
+      "id": "dsr-factory-boundary",
+      "status": "limited",
+      "result": "probe-diagnostics",
+      "checks": [
+        ["dsr_factory_qi", "0x00000000"],
+        ["dsr_null_on_rejection", true]
+      ],
+      "remaining": "The DSR factory ABI and invalid-device output initialization are covered, but no DSR device IID or scaling execution provider is present; DSR is not advertised."
+    }
+  ]
+}

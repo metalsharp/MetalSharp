@@ -51,6 +51,18 @@ public:
   void SetResidencyPriority(D3D12_RESIDENCY_PRIORITY priority) {
     m_residency.setPriority(priority);
   }
+  void SetProtectedResourceSession(ID3D12ProtectedResourceSession *session) {
+    if (m_protected_session == session)
+      return;
+    if (session)
+      session->AddRef();
+    if (m_protected_session)
+      m_protected_session->Release();
+    m_protected_session = session;
+  }
+  ID3D12ProtectedResourceSession *GetProtectedResourceSession() const {
+    return m_protected_session;
+  }
   bool ContainsAddress(const void *address) const;
   bool IsOwnedBy(const MTLD3D12Device *device) const {
     return m_device == device;
@@ -72,6 +84,7 @@ private:
   uint64_t m_shared_mapping_size = 0;
   uint64_t m_shared_data_offset = 0;
   bool m_shared_mapping_writable = true;
+  ID3D12ProtectedResourceSession *m_protected_session = nullptr;
   void *m_cpu_addr = nullptr;
   uint64_t m_gpu_addr = 0;
   ComPrivateData m_private_data;

@@ -70,6 +70,8 @@ enum class CmdType : uint32_t {
   OMSetFrontAndBackStencilRef,
   RSSetDepthBias,
   IASetIndexBufferStripCutValue,
+  SetProgram,
+  DispatchGraph,
   Count,
 };
 
@@ -110,6 +112,26 @@ struct CmdDispatch {
 struct CmdDispatchMesh {
   CmdHeader header;
   uint32_t x, y, z;
+};
+
+struct CmdSetProgram {
+  CmdHeader header;
+  uint32_t program_type;
+  uint32_t descriptor_size;
+  uint8_t descriptor[88];
+};
+
+struct CmdDispatchGraph {
+  CmdHeader header;
+  uint32_t dispatch_mode;
+  uint32_t entrypoint_index;
+  uint32_t num_records;
+  uint32_t record_data_size;
+  uint64_t record_gpu_address;
+  uint64_t record_stride;
+  uint64_t node_input_gpu_address;
+  uint64_t node_input_stride;
+  uint8_t record_data[256];
 };
 
 struct CmdSetPipelineState1 {

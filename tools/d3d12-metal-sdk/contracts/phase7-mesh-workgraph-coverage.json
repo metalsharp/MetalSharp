@@ -1,0 +1,59 @@
+{
+  "schema": "metalsharp.d3d12.phase7-mesh-workgraph-coverage.v1",
+  "phase": 7,
+  "profile": "phase7-mesh",
+  "status": "partial",
+  "rows": [
+    {
+      "id": "mesh-amplification-native-direct-indirect",
+      "status": "closed",
+      "result": "probe-mini-mesh_object_shader_pso",
+      "profile": "phase7-mesh",
+      "checks": [
+        ["ok"],
+        ["direct_pixels", 313],
+        ["indirect_pixels", 350],
+        ["indirect_mesh_behavior_verified"],
+        ["mesh_output_value", 1297303601],
+        ["mesh_payload_bytes", 256],
+        ["mesh_payload_tail_verified"],
+        ["pipeline_statistics1_readback_ok"],
+        ["pipeline_statistics1_as_invocations", 2],
+        ["pipeline_statistics1_ms_invocations", 2],
+        ["pipeline_statistics1_ms_primitives", 2]
+      ],
+      "remaining": "The source-owned native Metal AS/MS provider covers the exact 256-byte payload, two dispatch groups, direct and indirect dispatch, array layers, depth bounds, blend, wireframe, resource bindings, and statistics witnesses. Broader payload/topology/resource/barrier/VRS combinations remain open."
+    },
+    {
+      "id": "geometry-source-corpus-pso-linking",
+      "status": "closed",
+      "result": "probe-mini-subnautica_geometry_dxil_replay",
+      "profile": "phase7-geometry-corpus",
+      "checks": [
+        ["ok"],
+        ["attempted", 4],
+        ["passed", 4],
+        ["total", 4]
+      ],
+      "remaining": "Four source-owned SM5 geometry fixtures link through the object/mesh provider; draw/readback breadth and DXIL geometry remain open."
+    },
+    {
+      "id": "workgraph-properties-and-gpu-node-kernel",
+      "status": "closed",
+      "result": "probe-workgraph-execution",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"],
+        ["properties_complete"],
+        ["gpu_native_provider"],
+        ["cpu_scheduler", false],
+        ["readback_exact"],
+        ["gpu_input_readback_exact"],
+        ["record_count", 3],
+        ["node_local_root_index", 3],
+        ["values", [42, 1464291961]]
+      ],
+      "remaining": "The proof implements one GPU-native node kernel, graph properties, backing memory, three-record CPU-input dispatch, GPU-input descriptor dispatch, local-root-index reporting, and exact readback without a CPU scheduler. Multi-node routing, recursive/fan-out graphs, overflow, barriers, and general DXIL node shader conversion remain open."
+    }
+  ]
+}

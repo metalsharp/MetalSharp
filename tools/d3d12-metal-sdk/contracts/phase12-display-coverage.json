@@ -1,0 +1,37 @@
+{
+  "schema": "metalsharp.d3d12.phase12-display-coverage.v1",
+  "phase": 12,
+  "profile": "phase12-display",
+  "status": "partial",
+  "rows": [
+    {
+      "id": "dxgi-output-duplication-bounded-frame",
+      "status": "limited",
+      "result": "probe-dxgi-factory",
+      "checks": [
+        ["DuplicateOutput", "0x00000000"],
+        ["DuplicateOutput_GetDesc", "0x00000000"],
+        ["DuplicateOutput_AcquireNextFrame", "0x00000000"],
+        ["DuplicateOutput_GetFrameDirtyRects_query", "0x887a0003"],
+        ["DuplicateOutput_GetFrameDirtyRects", "0x00000000"],
+        ["DuplicateOutput_ReleaseFrame", "0x00000000"]
+      ],
+      "remaining": "The bounded duplication provider returns a GPU desktop resource, frame metadata, and a full dirty rectangle. IOSurface/DisplayLink desktop capture, cursor shape, move rectangles, color-space metadata, frame-change notifications, and MapDesktopSurface CPU access remain open."
+    },
+    {
+      "id": "dxgi-swapchain-metadata-state",
+      "status": "limited",
+      "result": "probe-mini-swapchain_present",
+      "checks": [
+        ["swapchain2_qi_hr", "0x00000000"],
+        ["swapchain4_qi_hr", "0x00000000"],
+        ["background_roundtrip", true],
+        ["rotation", 2],
+        ["matrix_roundtrip", true],
+        ["set_hdr_hr", "0x00000000"],
+        ["get_core_window_hr", "0x80004003"]
+      ],
+      "remaining": "HWND swapchain metadata is retained and observable. CoreWindow/composition surfaces, HDR color conversion, real frame-latency/display integration, and complete presentation statistics remain open."
+    }
+  ]
+}

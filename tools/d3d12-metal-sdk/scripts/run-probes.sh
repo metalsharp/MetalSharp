@@ -22,6 +22,9 @@ RUN_LEGACY_REGRESSION=1
 RUN_FEATURE_LEVELS=0
 RUN_FL12_2_GATE=0
 RUN_OBJECT_CONTRACTS=0
+RUN_META_COMMAND=0
+RUN_VIDEO=0
+RUN_DIAGNOSTICS=0
 RUN_DXGI=1
 RUN_RESOURCES=1
 RUN_QUEUES=1
@@ -123,6 +126,13 @@ Options:
   --object-contracts    Run D3D12 object private-data/COM semantics.
   --object-contracts-only
                         Run only D3D12 object private-data/COM semantics.
+  --meta-command        Run the source-owned meta-command execution probe.
+  --meta-command-only   Run only the source-owned meta-command execution probe.
+  --no-meta-command     Skip the meta-command execution probe.
+  --video               Run the bounded D3D12 video object/feature probe.
+  --video-only          Run only the bounded D3D12 video object/feature probe.
+  --diagnostics         Run Agility diagnostics/tools/settings probes.
+  --diagnostics-only    Run only Agility diagnostics/tools/settings probes.
   --no-dxgi             Skip probe_dxgi_factory.
   --dxgi-only           Run only the DXGI factory probe.
   --no-resources        Skip probe_resources.
@@ -396,6 +406,7 @@ while [[ $# -gt 0 ]]; do
       RUN_LEGACY_REGRESSION=1
       RUN_FEATURE_LEVELS=1
       RUN_OBJECT_CONTRACTS=1
+      RUN_META_COMMAND=1
       RUN_DXGI=1
       RUN_RESOURCES=1
       RUN_QUEUES=1
@@ -455,6 +466,139 @@ while [[ $# -gt 0 ]]; do
       RUN_MINI=0
       RUN_PRESENT_WINDOWED=0
       RUN_SAMPLER_FEEDBACK=0
+      shift
+      ;;
+    --meta-command)
+      RUN_META_COMMAND=1
+      shift
+      ;;
+    --no-meta-command)
+      RUN_META_COMMAND=0
+      shift
+      ;;
+    --video)
+      RUN_VIDEO=1
+      shift
+      ;;
+    --diagnostics)
+      RUN_DIAGNOSTICS=1
+      shift
+      ;;
+    --diagnostics-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_META_COMMAND=0
+      RUN_VIDEO=0
+      RUN_DIAGNOSTICS=1
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_ROV=0
+      RUN_BARYCENTRICS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
+    --video-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_META_COMMAND=0
+      RUN_VIDEO=1
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_ROV=0
+      RUN_BARYCENTRICS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
+    --meta-command-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_META_COMMAND=1
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_ROV=0
+      RUN_BARYCENTRICS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
       shift
       ;;
     --no-dxgi)
@@ -1487,6 +1631,10 @@ REFLECTION_ABI_PROBE_EXE="$SDK_DIR/out/bin/probe_reflection_abi.exe"
 GRAPHICS_PSO_PROBE_EXE="$SDK_DIR/out/bin/probe_graphics_pso.exe"
 COMPUTE_PSO_PROBE_EXE="$SDK_DIR/out/bin/probe_compute_pso.exe"
 COMMAND_REPLAY_PROBE_EXE="$SDK_DIR/out/bin/probe_command_replay.exe"
+META_COMMAND_PROBE_EXE="$SDK_DIR/out/bin/probe_meta_command.exe"
+VIDEO_PROBE_EXE="$SDK_DIR/out/bin/probe_video.exe"
+DIAGNOSTICS_PROBE_EXE="$SDK_DIR/out/bin/probe_diagnostics.exe"
+WORK_GRAPH_EXECUTION_PROBE_EXE="$SDK_DIR/out/bin/probe_workgraph_execution.exe"
 ATTRIBUTE_AT_VERTEX_PROBE_EXE="$SDK_DIR/out/bin/probe_attribute_at_vertex.exe"
 CYCLE_COUNTER_PROBE_EXE="$SDK_DIR/out/bin/probe_cycle_counter.exe"
 BARRIERS_RENDER_PASS_PROBE_EXE="$SDK_DIR/out/bin/probe_barriers_render_pass.exe"
@@ -1566,7 +1714,11 @@ NEED_BUILD=0
 if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$TEXTURE_DIMENSIONS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$ROV_PROBE_EXE" || ! -f "$BARYCENTRICS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$ATTRIBUTE_AT_VERTEX_PROBE_EXE" || ! -f "$CYCLE_COUNTER_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
   NEED_BUILD=1
 fi
-if [[ ! -f "$SDK_DIR/out/bin/compile-geometry-corpus.exe" ]]; then
+if [[ ! -f "$SDK_DIR/out/bin/compile-geometry-corpus.exe" ||
+      ! -f "$WORK_GRAPH_EXECUTION_PROBE_EXE" ||
+      ! -f "$META_COMMAND_PROBE_EXE" ||
+      ! -f "$VIDEO_PROBE_EXE" ||
+      ! -f "$DIAGNOSTICS_PROBE_EXE" ]]; then
   NEED_BUILD=1
 fi
 
@@ -1646,6 +1798,10 @@ SHADER_CORPUS_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-warmup-${PROF
 SHADER_CORPUS_RESULT_FILE="$RESULTS_DIR/probe-shader-corpus-${PROFILE}.json"
 DXIL_LOWERING_AUDIT_RESULT_FILE="$RESULTS_DIR/dxil-lowering-audit-${PROFILE}.json"
 SM5_SM69_OPCODE_MATRIX_RESULT_FILE="$RESULTS_DIR/sm5-sm69-opcode-matrix-${PROFILE}.json"
+WORK_GRAPH_EXECUTION_RESULT_FILE="$RESULTS_DIR/probe-workgraph-execution-${PROFILE}.json"
+META_COMMAND_RESULT_FILE="$RESULTS_DIR/probe-meta-command-${PROFILE}.json"
+VIDEO_RESULT_FILE="$RESULTS_DIR/probe-video-${PROFILE}.json"
+DIAGNOSTICS_RESULT_FILE="$RESULTS_DIR/probe-diagnostics-${PROFILE}.json"
 SM5_SM69_OPCODE_CONTRACT_RESULT_FILE="$RESULTS_DIR/sm5-sm69-opcode-contract-${PROFILE}.json"
 SM66_CAPABILITIES_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-warmup-${PROFILE}.json"
 SM66_CAPABILITIES_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-${PROFILE}.json"
@@ -5589,8 +5745,22 @@ if [[ "$RUN_COMMAND_REPLAY" == "1" ]]; then
   fi
 fi
 
+if [[ "$RUN_META_COMMAND" == "1" ]]; then
+  run_probe_exe "$META_COMMAND_PROBE_EXE" "$META_COMMAND_RESULT_FILE"
+fi
+
+if [[ "$RUN_VIDEO" == "1" ]]; then
+  run_probe_exe "$VIDEO_PROBE_EXE" "$VIDEO_RESULT_FILE"
+fi
+
+if [[ "$RUN_DIAGNOSTICS" == "1" ]]; then
+  run_probe_exe "$DIAGNOSTICS_PROBE_EXE" "$DIAGNOSTICS_RESULT_FILE"
+fi
+
 if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
   prepare_work_graph_probe
+  run_probe_exe "$WORK_GRAPH_EXECUTION_PROBE_EXE" \
+    "$WORK_GRAPH_EXECUTION_RESULT_FILE"
 fi
 
 if [[ "$RUN_ATTRIBUTE_AT_VERTEX" == "1" ]]; then

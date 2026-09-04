@@ -9,12 +9,15 @@ namespace dxmt {
 
 constexpr size_t kD3D12CommandTypeCount =
     static_cast<size_t>(CmdType::Count);
-static_assert(kD3D12CommandTypeCount <= 64,
-              "command inventory mask must fit in one uint64_t");
-constexpr uint64_t kD3D12AllCommandTypesMask =
-    kD3D12CommandTypeCount == 64
-        ? UINT64_MAX
-        : ((uint64_t{1} << kD3D12CommandTypeCount) - 1);
+constexpr size_t kD3D12CommandTypeMaskWords =
+    (kD3D12CommandTypeCount + 63) / 64;
+constexpr std::array<uint64_t, kD3D12CommandTypeMaskWords>
+    kD3D12AllCommandTypesMask = [] {
+      std::array<uint64_t, kD3D12CommandTypeMaskWords> mask = {};
+      for (size_t i = 0; i < kD3D12CommandTypeCount; ++i)
+        mask[i / 64] |= uint64_t{1} << (i % 64);
+      return mask;
+    }();
 
 inline bool D3D12IsKnownCommandType(CmdType type) {
   return static_cast<size_t>(type) < kD3D12CommandTypeCount;
@@ -86,6 +89,8 @@ inline const char *D3D12CommandTypeName(CmdType type) {
   case CmdType::OMSetFrontAndBackStencilRef: return "OMSetFrontAndBackStencilRef";
   case CmdType::RSSetDepthBias: return "RSSetDepthBias";
   case CmdType::IASetIndexBufferStripCutValue: return "IASetIndexBufferStripCutValue";
+  case CmdType::SetProgram: return "SetProgram";
+  case CmdType::DispatchGraph: return "DispatchGraph";
   case CmdType::Count: break;
   }
   return "Unknown";
@@ -126,7 +131,7 @@ struct D3D12CommandStreamStats {
   uint32_t initialize_meta_command_count = 0;
   uint32_t execute_meta_command_count = 0;
   std::array<uint32_t, kD3D12CommandTypeCount> type_counts = {};
-  uint64_t type_mask = 0;
+  std::array<uint64_t, kD3D12CommandTypeMaskWords> type_mask = {};
   uint32_t unknown_type_count = 0;
   bool corrupt = false;
   size_t corrupt_offset = 0;
@@ -180,7 +185,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
   const size_t type_index = static_cast<size_t>(type);
   if (type_index < kD3D12CommandTypeCount) {
     stats.type_counts[type_index]++;
-    stats.type_mask |= uint64_t{1} << type_index;
+    stats.type_mask[type_index / 64] |= uint64_t{1} << (type_index % 64);
   } else {
     stats.unknown_type_count++;
   }
@@ -196,6 +201,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
     stats.indirect_count++;
     break;
   case CmdType::Dispatch:
+  case CmdType::DispatchGraph:
   case CmdType::DispatchRays:
   case CmdType::BuildRaytracingAccelerationStructure:
   case CmdType::EmitRaytracingAccelerationStructurePostbuildInfo:
@@ -212,6 +218,7 @@ inline void D3D12AccumulateCommandType(D3D12CommandStreamStats &stats,
     break;
   case CmdType::SetPipelineState:
   case CmdType::SetPipelineState1:
+  case CmdType::SetProgram:
     stats.set_pso_count++;
     break;
   case CmdType::SetGraphicsRootSignature:

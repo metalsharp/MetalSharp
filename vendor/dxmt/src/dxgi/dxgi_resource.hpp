@@ -8,6 +8,11 @@
 
 namespace dxmt {
 
+// Constructed by the D3D12 resource provider without making this generic DXGI
+// aggregation header depend on the D3D12 implementation headers.
+IDXGISurface2 *CreateD3D12DXGISurfaceFromResource(IUnknown *resource,
+                                                  UINT subresource);
+
 template <typename T>
 concept DXGIResourceAggregateContext =
     std::is_base_of< IUnknown, T>::value &&
@@ -96,8 +101,16 @@ public:
   HRESULT
   STDMETHODCALLTYPE
   CreateSubresourceSurface(UINT index, IDXGISurface2 **surface) final {
-    ERR_ONCE("DXGIResource::CreateSubresourceSurface: stub");
-    return E_NOTIMPL;
+    if (!surface)
+      return E_POINTER;
+    *surface = nullptr;
+    if constexpr (requires(IResource *value, UINT subresource,
+                            IDXGISurface2 **result) {
+                    value->CreateSubresourceSurface(subresource, result);
+                  }) {
+      return resource_->CreateSubresourceSurface(index, surface);
+    }
+    return E_NOINTERFACE;
   }
 
   HRESULT

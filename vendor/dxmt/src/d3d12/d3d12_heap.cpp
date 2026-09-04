@@ -76,6 +76,10 @@ MTLD3D12Heap::~MTLD3D12Heap() {
   m_shared_mapping = nullptr;
   m_heap = nullptr;
   m_buffer = nullptr;
+  if (m_protected_session) {
+    m_protected_session->Release();
+    m_protected_session = nullptr;
+  }
   m_device->Release();
 }
 

@@ -116,6 +116,18 @@ build_probe \
   -o "$OUT_DIR/probe_object_contracts.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_meta_command.cpp" \
+  -o "$OUT_DIR/probe_meta_command.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_video.cpp" \
+  -o "$OUT_DIR/probe_video.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_diagnostics.cpp" \
+  -o "$OUT_DIR/probe_diagnostics.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_dxgi_factory/probe_dxgi_factory.cpp" \
   -o "$OUT_DIR/probe_dxgi_factory.exe"
 
@@ -252,6 +264,12 @@ build_probe \
 build_probe \
   "$SDK_DIR/probes/probe_command_replay/probe_command_replay.cpp" \
   -o "$OUT_DIR/probe_command_replay.exe"
+
+build_probe \
+  -I"$ROOT_DIR/vendor/dxmt/src/d3d12" \
+  -I"$ROOT_DIR/vendor/dxmt/src" \
+  "$SDK_DIR/probes/probe_workgraph_execution.cpp" \
+  -o "$OUT_DIR/probe_workgraph_execution.exe"
 
 build_probe \
   "$SDK_DIR/probes/probe_barriers_render_pass/probe_barriers_render_pass.cpp" \

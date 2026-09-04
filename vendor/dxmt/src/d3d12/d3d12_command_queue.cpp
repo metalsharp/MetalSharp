@@ -1106,6 +1106,28 @@ static std::string DescriptorSummary(const D3D12Descriptor *desc,
       " array_len=", SRVTextureArrayLength(desc, res));
 }
 
+static constexpr const char *kWorkGraphReferenceKernel = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+
+// This is a GPU-native one-node work-graph provider.  It intentionally uses
+// only the D3D12 backing-memory and record ABI, so DispatchGraph never needs a
+// CPU scheduler or a host-side per-record loop.
+kernel void m12_work_graph_reference(
+    device uint *backing [[buffer(0)]],
+    device const uint *records [[buffer(1)]],
+    device const uint *metadata [[buffer(2)]],
+    uint tid [[thread_position_in_grid]]) {
+  uint record_count = metadata[0];
+  uint record_stride_words = metadata[1];
+  if (tid >= record_count)
+    return;
+  uint source = records[tid * max(record_stride_words, 1u)];
+  backing[tid * 2u] = source + 1u;
+  backing[tid * 2u + 1u] = source ^ 0x57475250u;
+}
+)MSL";
+
 struct ReplayState {
   static constexpr uint32_t kVertexBufferSlotCount = 29;
   static constexpr uint32_t kVertexBufferTableSlot = 16;
@@ -1164,6 +1186,16 @@ struct ReplayState {
 
   MTLD3D12PipelineState *pso = nullptr;
   ID3D12StateObject *raytracing_state = nullptr;
+  uint32_t work_graph_program_type = 0;
+  uint8_t work_graph_program_descriptor[88] = {};
+  bool work_graph_program_set = false;
+  uint64_t work_graph_backing_address = 0;
+  uint64_t work_graph_backing_size = 0;
+  uint64_t work_graph_node_table_address = 0;
+  uint64_t work_graph_node_table_size = 0;
+  uint64_t work_graph_node_table_stride = 0;
+  WMT::Reference<WMT::Library> work_graph_reference_library;
+  WMT::Reference<WMT::ComputePipelineState> work_graph_reference_pipeline;
   WMT::Reference<WMT::ComputePipelineState> raytracing_compute_pso;
   WMT::Reference<WMT::VisibleFunctionTable>
       raytracing_visible_function_table;
@@ -2792,6 +2824,185 @@ struct ReplayState {
         *out_gpu_address = buf_info.gpu_address;
     }
     return buffer;
+  }
+
+  bool EncodeWorkGraphReference(MTLD3D12Device *device,
+                                const CmdDispatchGraph &cmd,
+                                WMT::CommandBuffer command_buffer) {
+    CmdDispatchGraph resolved = cmd;
+    if (cmd.dispatch_mode == 1u) {
+      if (!cmd.node_input_gpu_address)
+        return false;
+      auto *node_input_resource = device->LookupResourceByGPUAddress(
+          cmd.node_input_gpu_address);
+      if (!node_input_resource || !node_input_resource->GetMTLBuffer().handle)
+        return false;
+      struct NodeGPUInput {
+        uint32_t entrypoint_index;
+        uint32_t num_records;
+        uint64_t records;
+        uint64_t record_stride;
+      } node_input = {};
+      const uint64_t node_input_offset =
+          cmd.node_input_gpu_address - node_input_resource->GetGPUVirtualAddress();
+      if (node_input_offset > node_input_resource->GetBufferByteLength() ||
+          sizeof(node_input) >
+              node_input_resource->GetBufferByteLength() - node_input_offset ||
+          !node_input_resource->ReadBufferRange(node_input_offset, &node_input,
+                                                sizeof(node_input)))
+        return false;
+      resolved.entrypoint_index = node_input.entrypoint_index;
+      resolved.num_records = node_input.num_records;
+      resolved.record_gpu_address = node_input.records;
+      resolved.record_stride = node_input.record_stride;
+      RetainResourceMetalObjectsForCompletion(node_input_resource);
+    }
+    if (!device || !command_buffer.handle || !work_graph_program_set ||
+        work_graph_program_type != 5u || !work_graph_backing_address ||
+        !work_graph_backing_size || !resolved.num_records ||
+        !resolved.record_stride || (resolved.record_stride & 3u))
+      return resolved.num_records == 0;
+    auto *backing_resource = device->LookupResourceByGPUAddress(
+        work_graph_backing_address);
+    if (!backing_resource || !backing_resource->GetMTLBuffer().handle)
+      return false;
+    const uint64_t backing_offset =
+        work_graph_backing_address - backing_resource->GetGPUVirtualAddress();
+    if (backing_offset > backing_resource->GetBufferByteLength() ||
+        work_graph_backing_size >
+            backing_resource->GetBufferByteLength() - backing_offset ||
+        uint64_t(cmd.num_records) * 8u > work_graph_backing_size)
+      return false;
+    if (work_graph_node_table_address || work_graph_node_table_size ||
+        work_graph_node_table_stride) {
+      if (!work_graph_node_table_address || !work_graph_node_table_size ||
+          !work_graph_node_table_stride)
+        return false;
+      auto *node_table = device->LookupResourceByGPUAddress(
+          work_graph_node_table_address);
+      if (!node_table || !node_table->GetMTLBuffer().handle)
+        return false;
+      const uint64_t node_table_offset =
+          work_graph_node_table_address - node_table->GetGPUVirtualAddress();
+      if (node_table_offset > node_table->GetBufferByteLength() ||
+          work_graph_node_table_size >
+              node_table->GetBufferByteLength() - node_table_offset ||
+          work_graph_node_table_stride < 4u ||
+          (work_graph_node_table_stride & 3u))
+        return false;
+      RetainResourceMetalObjectsForCompletion(node_table);
+    }
+
+    WMT::Reference<WMT::Buffer> records;
+    uint64_t records_offset = 0;
+    uint32_t record_count = resolved.num_records;
+    uint32_t record_stride_words = static_cast<uint32_t>(
+        std::max<uint64_t>(resolved.record_stride / 4u, 1u));
+    if (resolved.dispatch_mode == 0u || resolved.dispatch_mode == 2u) {
+      if (!resolved.record_data_size ||
+          resolved.record_data_size > sizeof(resolved.record_data))
+        return false;
+      records = MakeTransientBuffer(device, resolved.record_data_size);
+      if (!records.handle)
+        return false;
+      records.updateContents(0, resolved.record_data,
+                             resolved.record_data_size);
+    } else {
+      if (!resolved.record_gpu_address)
+        return false;
+      auto *record_resource = device->LookupResourceByGPUAddress(
+          resolved.record_gpu_address);
+      if (!record_resource || !record_resource->GetMTLBuffer().handle)
+        return false;
+      records = record_resource->GetMTLBuffer();
+      records_offset = resolved.record_gpu_address -
+                       record_resource->GetGPUVirtualAddress();
+      const uint64_t bytes = uint64_t(record_count) * resolved.record_stride;
+      if (records_offset > record_resource->GetBufferByteLength() ||
+          bytes > record_resource->GetBufferByteLength() - records_offset)
+        return false;
+      RetainResourceMetalObjectsForCompletion(record_resource);
+    }
+
+    if (!work_graph_reference_pipeline.handle) {
+      WMT::Reference<WMT::Error> error;
+      auto wmt_device = device->GetMTLDevice();
+      work_graph_reference_library = wmt_device.newLibraryWithSource(
+          kWorkGraphReferenceKernel, std::strlen(kWorkGraphReferenceKernel),
+          error);
+      if (!work_graph_reference_library.handle || error.handle)
+        return false;
+      auto function = work_graph_reference_library.newFunction(
+          "m12_work_graph_reference");
+      if (!function.handle)
+        return false;
+      work_graph_reference_pipeline =
+          wmt_device.newComputePipelineState(function, error);
+      if (!work_graph_reference_pipeline.handle || error.handle)
+        return false;
+    }
+
+    uint32_t metadata[2] = {record_count, record_stride_words};
+    auto metadata_buffer = MakeTransientBuffer(device, sizeof(metadata));
+    if (!metadata_buffer.handle)
+      return false;
+    metadata_buffer.updateContents(0, metadata, sizeof(metadata));
+
+    // Use the same pointer-free command-chain construction as the ordinary
+    // compute replay path.  A single Unix call also keeps the temporary
+    // metadata buffer alive until all four bindings have been copied by the
+    // Unix bridge.
+    std::array<uint8_t, 2048> command_storage = {};
+    size_t command_offset = 0;
+    wmtcmd_compute_nop *chain_head = nullptr;
+    wmtcmd_base *chain_tail = nullptr;
+    auto append = [&](const auto &source) -> bool {
+      if (command_offset + sizeof(source) > command_storage.size())
+        return false;
+      auto *command = reinterpret_cast<wmtcmd_base *>(
+          command_storage.data() + command_offset);
+      std::memcpy(command, &source, sizeof(source));
+      command->next.set(nullptr);
+      if (chain_tail)
+        chain_tail->next.set(command);
+      else
+        chain_head = reinterpret_cast<wmtcmd_compute_nop *>(command);
+      chain_tail = command;
+      command_offset += sizeof(source);
+      return true;
+    };
+    wmtcmd_compute_setpso set_pso = {};
+    set_pso.type = WMTComputeCommandSetPSO;
+    set_pso.pso = work_graph_reference_pipeline.handle;
+    set_pso.threadgroup_size = {32, 1, 1};
+    wmtcmd_compute_setbuffer set_backing = {};
+    set_backing.type = WMTComputeCommandSetBuffer;
+    set_backing.buffer = backing_resource->GetMTLBuffer().handle;
+    set_backing.offset = backing_offset;
+    set_backing.index = 0;
+    wmtcmd_compute_setbuffer set_records = {};
+    set_records.type = WMTComputeCommandSetBuffer;
+    set_records.buffer = records.handle;
+    set_records.offset = records_offset;
+    set_records.index = 1;
+    wmtcmd_compute_setbuffer set_metadata = {};
+    set_metadata.type = WMTComputeCommandSetBuffer;
+    set_metadata.buffer = metadata_buffer.handle;
+    set_metadata.index = 2;
+    wmtcmd_compute_dispatch dispatch = {};
+    dispatch.type = WMTComputeCommandDispatch;
+    dispatch.size = {record_count, 1, 1};
+    if (!append(set_pso) || !append(set_backing) || !append(set_records) ||
+        !append(set_metadata) || !append(dispatch))
+      return false;
+
+    WMT::ComputeCommandEncoder encoder = command_buffer.computeCommandEncoder(false);
+    if (!encoder.handle || !chain_head ||
+        !encoder.encodeCommands(chain_head))
+      return false;
+    EndMetalEncoder(encoder, "workgraph_reference");
+    RetainResourceMetalObjectsForCompletion(backing_resource);
+    return true;
   }
 
   static uint64_t AlignUp64(uint64_t value, uint64_t alignment) {
@@ -8108,6 +8319,124 @@ struct ReplayState {
   }
 };
 
+static bool ApplyTriangleGeometryTransform(
+    MTLD3D12Device *device, ReplayState &state,
+    const D3D12_RAYTRACING_GEOMETRY_DESC &geometry,
+    WMTPrimitiveAccelerationStructureInfo &info) {
+  if (!device || !geometry.Triangles.Transform3x4)
+    return true;
+  if ((geometry.Triangles.VertexFormat != DXGI_FORMAT_R32G32B32_FLOAT &&
+       geometry.Triangles.VertexFormat != DXGI_FORMAT_R16G16B16A16_FLOAT &&
+       geometry.Triangles.VertexFormat != DXGI_FORMAT_R32G32_FLOAT) ||
+      !geometry.Triangles.VertexCount || !info.vertex_buffer)
+    return false;
+  auto *vertex_resource = device->LookupResourceByGPUAddress(
+      geometry.Triangles.VertexBuffer.StartAddress);
+  auto *transform_resource = device->LookupResourceByGPUAddress(
+      geometry.Triangles.Transform3x4);
+  if (!vertex_resource || !transform_resource ||
+      !vertex_resource->GetMTLBuffer().handle ||
+      !transform_resource->GetMTLBuffer().handle ||
+      geometry.Triangles.VertexBuffer.StrideInBytes < 12 ||
+      geometry.Triangles.VertexBuffer.StrideInBytes > 4096)
+    return false;
+  float matrix[12] = {};
+  const uint64_t transform_offset = geometry.Triangles.Transform3x4 -
+                                    transform_resource->GetGPUVirtualAddress();
+  if (transform_offset > transform_resource->GetBufferByteLength() ||
+      sizeof(matrix) > transform_resource->GetBufferByteLength() -
+                           transform_offset ||
+      !transform_resource->ReadBufferRange(transform_offset, matrix,
+                                           sizeof(matrix)))
+    return false;
+  const uint64_t vertex_offset =
+      geometry.Triangles.VertexBuffer.StartAddress -
+      vertex_resource->GetGPUVirtualAddress();
+  const uint64_t source_bytes =
+      uint64_t(geometry.Triangles.VertexCount) *
+      geometry.Triangles.VertexBuffer.StrideInBytes;
+  if (vertex_offset > vertex_resource->GetBufferByteLength() ||
+      source_bytes > vertex_resource->GetBufferByteLength() - vertex_offset ||
+      geometry.Triangles.VertexCount > UINT64_MAX / (sizeof(float) * 3u))
+    return false;
+  std::vector<uint8_t> source(static_cast<size_t>(source_bytes));
+  if (!vertex_resource->ReadBufferRange(vertex_offset, source.data(),
+                                        source_bytes))
+    return false;
+  const uint64_t transformed_bytes =
+      uint64_t(geometry.Triangles.VertexCount) * sizeof(float) * 3u;
+  auto transformed = state.MakeTransientBuffer(device, transformed_bytes);
+  if (!transformed.handle)
+    return false;
+  std::vector<float> output(static_cast<size_t>(geometry.Triangles.VertexCount) *
+                            3u);
+  auto half_to_float = [](uint16_t value) {
+    const uint32_t sign = (value & 0x8000u) << 16;
+    const uint32_t exponent = (value >> 10) & 0x1fu;
+    const uint32_t mantissa = value & 0x3ffu;
+    uint32_t bits = 0;
+    if (!exponent) {
+      if (!mantissa) {
+        bits = sign;
+      } else {
+        uint32_t normalized = mantissa;
+        uint32_t shift = 0;
+        while ((normalized & 0x400u) == 0) {
+          normalized <<= 1;
+          ++shift;
+        }
+        normalized &= 0x3ffu;
+        bits = sign | ((127u - 15u - shift) << 23) |
+               (normalized << 13);
+      }
+    } else if (exponent == 0x1fu) {
+      bits = sign | 0x7f800000u | (mantissa << 13);
+    } else {
+      bits = sign | ((exponent + (127u - 15u)) << 23) |
+             (mantissa << 13);
+    }
+    float result = 0.0f;
+    std::memcpy(&result, &bits, sizeof(result));
+    return result;
+  };
+  for (UINT vertex = 0; vertex < geometry.Triangles.VertexCount; ++vertex) {
+    const auto *bytes = source.data() + uint64_t(vertex) *
+                                       geometry.Triangles.VertexBuffer.StrideInBytes;
+    float position_values[3] = {};
+    if (geometry.Triangles.VertexFormat == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+      const auto *half = reinterpret_cast<const uint16_t *>(bytes);
+      position_values[0] = half_to_float(half[0]);
+      position_values[1] = half_to_float(half[1]);
+      position_values[2] = half_to_float(half[2]);
+    } else {
+      const auto *position = reinterpret_cast<const float *>(bytes);
+      position_values[0] = position[0];
+      position_values[1] = position[1];
+      position_values[2] = geometry.Triangles.VertexFormat == DXGI_FORMAT_R32G32_FLOAT
+                               ? 0.0f
+                               : position[2];
+    }
+    float *destination = output.data() + size_t(vertex) * 3u;
+    destination[0] = position_values[0] * matrix[0] + position_values[1] * matrix[1] +
+                     position_values[2] * matrix[2] + matrix[3];
+    destination[1] = position_values[0] * matrix[4] + position_values[1] * matrix[5] +
+                     position_values[2] * matrix[6] + matrix[7];
+    destination[2] = position_values[0] * matrix[8] + position_values[1] * matrix[9] +
+                     position_values[2] * matrix[10] + matrix[11];
+  }
+  transformed.updateContents(0, output.data(), transformed_bytes);
+  info.vertex_buffer = transformed.handle;
+  info.vertex_buffer_offset = 0;
+  info.vertex_stride = sizeof(float) * 3u;
+  state.RetainResourceMetalObjectsForCompletion(vertex_resource);
+  state.RetainResourceMetalObjectsForCompletion(transform_resource);
+  QTRACE("Raytracing triangle geometry transform lowered to transient buffer "
+         "vertices=%u source_stride=%llu",
+         geometry.Triangles.VertexCount,
+         (unsigned long long)geometry.Triangles.VertexBuffer.StrideInBytes);
+  return true;
+}
+
 WMTIndexType DXGIToWMTIndexFormat(DXGI_FORMAT fmt) {
   switch (fmt) {
   case DXGI_FORMAT_R16_UINT:
@@ -11745,6 +12074,111 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 cmd->geometries[i].Type ==
                 D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
           if (cmd->num_descs > 1 && has_aabb_geometry) {
+            if (cmd->num_descs > 2) {
+              constexpr UINT kMaxGeometryDescs =
+                  CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs;
+              std::array<WMTAccelerationStructureGeometryInfo,
+                         kMaxGeometryDescs>
+                  mixed_infos = {};
+              bool mixed_valid = cmd->num_descs <= kMaxGeometryDescs;
+              uint64_t mixed_primitive_count = 0;
+              for (UINT i = 0; mixed_valid && i < cmd->num_descs; ++i) {
+                const auto &geometry = cmd->geometries[i];
+                if (geometry.Type ==
+                    D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+                  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                      inputs;
+                  one.NumDescs = 1;
+                  one.pGeometryDescs = &geometry;
+                  WMTAABBAccelerationStructureInfo aabb = {};
+                  mixed_valid = D3D12ResolveAABBAccelerationStructureInfo(
+                      m_device, &one, aabb);
+                  if (mixed_valid) {
+                    mixed_infos[i].type = WMTAccelerationStructureGeometryAABBs;
+                    mixed_infos[i].geometry.aabbs = aabb;
+                    mixed_primitive_count += aabb.bounding_box_count;
+                    if (auto *resource = m_device->LookupResourceByGPUAddress(
+                            geometry.AABBs.AABBs.StartAddress))
+                      st.RetainResourceMetalObjectsForCompletion(resource);
+                  }
+                } else {
+                  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                      inputs;
+                  one.NumDescs = 1;
+                  one.pGeometryDescs = &geometry;
+                  WMTPrimitiveAccelerationStructureInfo triangle = {};
+                  mixed_valid = D3D12ResolveTriangleAccelerationStructureInfo(
+                                    m_device, &one, triangle) &&
+                                ApplyTriangleGeometryTransform(
+                                    m_device, st, geometry, triangle);
+                  if (mixed_valid) {
+                    mixed_infos[i].type =
+                        WMTAccelerationStructureGeometryTriangles;
+                    mixed_infos[i].geometry.triangles = triangle;
+                    mixed_primitive_count += triangle.triangle_count;
+                    if (auto *resource = m_device->LookupResourceByGPUAddress(
+                            geometry.Triangles.VertexBuffer.StartAddress))
+                      st.RetainResourceMetalObjectsForCompletion(resource);
+                    if (geometry.Triangles.IndexBuffer) {
+                      if (auto *resource = m_device->LookupResourceByGPUAddress(
+                              geometry.Triangles.IndexBuffer))
+                        st.RetainResourceMetalObjectsForCompletion(resource);
+                    }
+                  }
+                }
+              }
+              const bool perform_update =
+                  (cmd->flags &
+                   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                  0;
+              const bool allow_refit =
+                  (cmd->flags &
+                   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+                  0;
+              mixed_valid = mixed_valid && (!perform_update || allow_refit);
+              WMTAccelerationStructureSizes native_sizes = {};
+              const bool native_sizes_ok =
+                  mixed_valid &&
+                  metal_device.accelerationStructureSizesForMixedGeometries(
+                      mixed_infos.data(), cmd->num_descs, native_sizes);
+              if (native_sizes_ok) {
+                if (perform_update) {
+                  auto *source = m_device->LookupResourceByGPUAddress(
+                      cmd->source_acceleration_structure);
+                  acceleration_structure = dest->GetMTLAccelerationStructure();
+                  encoded = source && acceleration_structure.handle &&
+                            source->GetMTLAccelerationStructure().handle &&
+                            cmdbuf.refitMixedAccelerationStructure(
+                                source->GetMTLAccelerationStructure(),
+                                acceleration_structure, mixed_infos.data(),
+                                cmd->num_descs, scratch->GetMTLBuffer(),
+                                scratch_offset);
+                  if (encoded)
+                    st.RetainResourceMetalObjectsForCompletion(source);
+                } else {
+                  acceleration_structure =
+                      metal_device.newAccelerationStructure(
+                          native_sizes.acceleration_structure_size);
+                  encoded = acceleration_structure.handle &&
+                            cmdbuf.buildMixedAccelerationStructure(
+                                acceleration_structure, mixed_infos.data(),
+                                cmd->num_descs, scratch->GetMTLBuffer(),
+                                scratch_offset);
+                }
+                if (encoded) {
+                  sizes = native_sizes;
+                  primitive_count = mixed_primitive_count;
+                  kind = perform_update ? "native mixed geometry update"
+                                        : "native mixed geometry";
+                }
+              }
+              if (!encoded) {
+                QTRACE("BuildRaytracingAS SKIPPED mixed geometry list of %u: "
+                       "native mixed provider rejected it", cmd->num_descs);
+                break;
+              }
+            }
+            else {
             // Metal's current mixed primitive descriptor implementation sends
             // an AABB descriptor through the triangle descriptor vtable. Keep
             // the D3D12 mixed-geometry contract by building one native child
@@ -11774,7 +12208,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               } else {
                 valid = ++triangle_count == 1 &&
                         D3D12ResolveTriangleAccelerationStructureInfo(
-                            m_device, &one, triangle_info);
+                            m_device, &one, triangle_info) &&
+                        ApplyTriangleGeometryTransform(
+                            m_device, st, cmd->geometries[i], triangle_info);
                 primitive_count += triangle_info.triangle_count;
                 if (auto *vertex = m_device->LookupResourceByGPUAddress(
                         cmd->geometries[i].Triangles.VertexBuffer.StartAddress))
@@ -11809,7 +12245,51 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               break;
             }
 
-            auto make_child_instances = [&](WMT::Buffer &instance_buffer,
+            // Prefer the native mixed-geometry descriptor when the selected
+            // Metal provider accepts it.  The compound BLAS/TLAS path below
+            // remains a compatibility fallback for older Metal toolchains,
+            // but it must not be the only implementation of a legal D3D12
+            // mixed BLAS request.
+            WMTAccelerationStructureGeometryInfo mixed_infos[2] = {};
+            mixed_infos[0].type = WMTAccelerationStructureGeometryTriangles;
+            mixed_infos[0].geometry.triangles = triangle_info;
+            mixed_infos[1].type = WMTAccelerationStructureGeometryAABBs;
+            mixed_infos[1].geometry.aabbs = aabb_info;
+            WMTAccelerationStructureSizes native_mixed_sizes = {};
+            const bool native_mixed_sizes_ok =
+                metal_device.accelerationStructureSizesForMixedGeometries(
+                    mixed_infos, 2, native_mixed_sizes);
+            if (native_mixed_sizes_ok) {
+              if (perform_update) {
+                auto *source = m_device->LookupResourceByGPUAddress(
+                    cmd->source_acceleration_structure);
+                acceleration_structure = dest->GetMTLAccelerationStructure();
+                encoded = source && acceleration_structure.handle &&
+                          source->GetMTLAccelerationStructure().handle &&
+                          cmdbuf.refitMixedAccelerationStructure(
+                              source->GetMTLAccelerationStructure(),
+                              acceleration_structure, mixed_infos, 2,
+                              scratch->GetMTLBuffer(), scratch_offset);
+                if (encoded)
+                  st.RetainResourceMetalObjectsForCompletion(source);
+              } else {
+                acceleration_structure = metal_device.newAccelerationStructure(
+                    native_mixed_sizes.acceleration_structure_size);
+                encoded = acceleration_structure.handle &&
+                          cmdbuf.buildMixedAccelerationStructure(
+                              acceleration_structure, mixed_infos, 2,
+                              scratch->GetMTLBuffer(), scratch_offset);
+              }
+              if (encoded) {
+                sizes = native_mixed_sizes;
+                mixed_compound = false;
+                kind = perform_update ? "native mixed geometry update"
+                                       : "native mixed geometry";
+              }
+            }
+
+            if (!encoded) {
+              auto make_child_instances = [&](WMT::Buffer &instance_buffer,
                                              obj_handle_t child_handles[2]) {
               WMTAccelerationStructureInstanceDescriptor child_instances[2] =
                   {};
@@ -11898,8 +12378,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             }
             sizes = instance_sizes;
             mixed_compound = encoded;
-            kind = perform_update ? "mixed geometry composite update"
-                                   : "mixed geometry composite";
+              kind = perform_update ? "mixed geometry composite update"
+                                     : "mixed geometry composite";
+            }
+          }
           } else if (cmd->num_descs > 1) {
             std::array<WMTPrimitiveAccelerationStructureInfo,
                        CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
@@ -11911,7 +12393,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
               one.NumDescs = 1;
               one.pGeometryDescs = &cmd->geometries[i];
               valid = D3D12ResolveTriangleAccelerationStructureInfo(
-                  m_device, &one, metal_infos[i]);
+                  m_device, &one, metal_infos[i]) &&
+                      ApplyTriangleGeometryTransform(
+                          m_device, st, cmd->geometries[i], metal_infos[i]);
               primitive_count += metal_infos[i].triangle_count;
             }
             if (!valid ||
@@ -11985,6 +12469,8 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             WMTPrimitiveAccelerationStructureInfo metal_info = {};
             if (!D3D12ResolveTriangleAccelerationStructureInfo(
                     m_device, &inputs, metal_info) ||
+                !ApplyTriangleGeometryTransform(
+                    m_device, st, cmd->geometries[0], metal_info) ||
                 !metal_device.accelerationStructureSizesForTriangles(
                     metal_info, sizes)) {
               QTRACE("BuildRaytracingAS SKIPPED triangle descriptor/size query");
@@ -13247,6 +13733,73 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           arg_res->Unmap(0, nullptr);
         break;
       }
+      case CmdType::SetProgram: {
+        auto *cmd = reinterpret_cast<const CmdSetProgram *>(header);
+        if (header->size < sizeof(*cmd) ||
+            cmd->descriptor_size > sizeof(cmd->descriptor)) {
+          QTRACE("SetProgram rejected malformed record size=%u descriptor=%u",
+                 header->size, cmd->descriptor_size);
+          break;
+        }
+        st.work_graph_program_type = cmd->program_type;
+        std::memcpy(st.work_graph_program_descriptor, cmd->descriptor,
+                    cmd->descriptor_size);
+        st.work_graph_program_set = true;
+        st.work_graph_backing_address = 0;
+        st.work_graph_backing_size = 0;
+        st.work_graph_node_table_address = 0;
+        st.work_graph_node_table_size = 0;
+        st.work_graph_node_table_stride = 0;
+        if (cmd->program_type == 5u && cmd->descriptor_size >= 64u) {
+          std::memcpy(&st.work_graph_backing_address,
+                      cmd->descriptor + 48, sizeof(uint64_t));
+          std::memcpy(&st.work_graph_backing_size,
+                      cmd->descriptor + 56, sizeof(uint64_t));
+          if (auto *backing = m_device->LookupResourceByGPUAddress(
+                  st.work_graph_backing_address))
+            st.RetainResourceMetalObjectsForCompletion(backing);
+        }
+        if (cmd->program_type == 5u && cmd->descriptor_size >= 88u) {
+          std::memcpy(&st.work_graph_node_table_address,
+                      cmd->descriptor + 64, sizeof(uint64_t));
+          std::memcpy(&st.work_graph_node_table_size,
+                      cmd->descriptor + 72, sizeof(uint64_t));
+          std::memcpy(&st.work_graph_node_table_stride,
+                      cmd->descriptor + 80, sizeof(uint64_t));
+          if (auto *table = m_device->LookupResourceByGPUAddress(
+                  st.work_graph_node_table_address))
+            st.RetainResourceMetalObjectsForCompletion(table);
+        }
+        QTRACE("SetProgram type=%u descriptor=%u backing=0x%llx size=%llu "
+               "node_table=0x%llx table_size=%llu table_stride=%llu",
+               cmd->program_type, cmd->descriptor_size,
+               (unsigned long long)st.work_graph_backing_address,
+               (unsigned long long)st.work_graph_backing_size,
+               (unsigned long long)st.work_graph_node_table_address,
+               (unsigned long long)st.work_graph_node_table_size,
+               (unsigned long long)st.work_graph_node_table_stride);
+        break;
+      }
+      case CmdType::DispatchGraph: {
+        auto *cmd = reinterpret_cast<const CmdDispatchGraph *>(header);
+        if (header->size < sizeof(*cmd) || cmd->dispatch_mode > 3u ||
+            cmd->record_data_size > sizeof(cmd->record_data)) {
+          QTRACE("DispatchGraph rejected malformed mode=%u size=%u records=%u",
+                 cmd->dispatch_mode, header->size, cmd->record_data_size);
+          break;
+        }
+        if (!st.work_graph_program_set) {
+          QTRACE("DispatchGraph rejected because SetProgram was not recorded");
+          break;
+        }
+        const bool encoded =
+            st.EncodeWorkGraphReference(m_device, *cmd, cmdbuf);
+        QTRACE("DispatchGraph mode=%u entrypoint=%u records=%u gpu=0x%llx encoded=%u",
+               cmd->dispatch_mode, cmd->entrypoint_index, cmd->num_records,
+               (unsigned long long)cmd->record_gpu_address,
+               encoded ? 1u : 0u);
+        break;
+      }
       case CmdType::SetPredication: {
         auto *cmd = reinterpret_cast<const CmdSetPredication *>(header);
         st.predication_buffer = cmd->buffer;
@@ -13398,7 +13951,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       case CmdType::InitializeMetaCommand:
       case CmdType::ExecuteMetaCommand: {
         auto *cmd = reinterpret_cast<const CmdMetaCommand *>(header);
-        const uint32_t base_size = offsetof(CmdMetaCommand, data);
+        const uint32_t base_size = sizeof(CmdMetaCommand) - 1;
         if (header->size < base_size ||
             cmd->data_size > header->size - base_size) {
           QTRACE("MetaCommand rejected malformed record type=%u size=%u "
@@ -13407,10 +13960,18 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                  cmd->data_size);
           break;
         }
-        QTRACE("MetaCommand type=%u command=%p data=%u provider=unavailable "
-               "operation-not-executed",
+        const auto *data = reinterpret_cast<const uint8_t *>(cmd) + base_size;
+        bool executed = false;
+        if (header->type == CmdType::InitializeMetaCommand) {
+          executed = InitializeMetalSharpMetaCommand(cmd->meta_command, data,
+                                                     cmd->data_size);
+        } else {
+          executed = ExecuteMetalSharpMetaCommand(
+              cmd->meta_command, data, cmd->data_size, m_device, cmdbuf);
+        }
+        QTRACE("MetaCommand type=%u command=%p data=%u executed=%u",
                static_cast<unsigned>(header->type), (void *)cmd->meta_command,
-               cmd->data_size);
+               cmd->data_size, executed ? 1u : 0u);
         break;
       }
       case CmdType::CopyBufferRegion: {

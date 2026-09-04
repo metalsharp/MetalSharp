@@ -1,0 +1,38 @@
+{
+  "schema": "metalsharp.d3d12.phase9-video-coverage.v1",
+  "phase": 9,
+  "profile": "phase9-video",
+  "status": "partial",
+  "provider": "object-and-feature-contract-only",
+  "rows": [
+    {
+      "id": "video-device-object-and-descriptor-contract",
+      "status": "limited",
+      "result": "probe-video",
+      "checks": [
+        ["pass"],
+        ["query_video_device", "0x00000000"],
+        ["check_feature_max_input_streams", "0x00000000"],
+        ["max_input_streams", 1],
+        ["create_decoder", "0x00000000"],
+        ["create_decoder_heap", "0x00000000"],
+        ["create_processor", "0x00000000"],
+        ["descriptor_roundtrip"],
+        ["gpu_execution", false]
+      ],
+      "negative_checks": [
+        ["invalid_feature", "0x80070057"],
+        ["unknown_output_null_guard", "0x80004003"]
+      ],
+      "remaining": "The provider proves the D3D12 video object ABI, one feature query, descriptor ownership, and exact descriptor round trips. VideoToolbox decode/encode/process execution, profiles, format conversion, metadata, asynchronous video queues, and protected video remain open. No video capability is promoted from this row."
+    },
+    {
+      "id": "video-toolbox-codec-and-pixel-roundtrip",
+      "status": "open",
+      "result": null,
+      "checks": [],
+      "negative_checks": [],
+      "remaining": "Requires a VideoToolbox/CoreVideo provider, codec/profile matrix, exact decoded/encoded comparison, queue synchronization, and lifetime evidence."
+    }
+  ]
+}
