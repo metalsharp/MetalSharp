@@ -203,7 +203,9 @@ int main() {
     bool readback_ok = false;
     bool gpu_input_readback_ok = false;
     bool multi_cpu_readback_ok = false;
+    bool multi_cpu_pointer_free = false;
     bool multi_gpu_readback_ok = false;
+    bool multi_node_negative_unchanged = false;
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
 
@@ -421,8 +423,8 @@ int main() {
         }
     }
     if (gpu_input_readback_ok && allocator && base_list && list) {
-        const uint32_t cpu_node0[2] = {7, 8};
-        const uint32_t cpu_node1[2] = {9, 10};
+        uint32_t cpu_node0[2] = {7, 8};
+        uint32_t cpu_node1[2] = {9, 10};
         NodeCPUInput multi_nodes[2] = {};
         multi_nodes[0].EntrypointIndex = 0;
         multi_nodes[0].NumRecords = 2;
@@ -444,6 +446,13 @@ int main() {
                 sizeof(NodeCPUInput);
             list->SetProgram(&set_program);
             list->DispatchGraph(&multi_dispatch);
+            // The command list must own the nested records.  Mutating the
+            // caller's arrays after recording makes a stale-pointer replay
+            // observable without involving a CPU scheduler.
+            cpu_node0[0] = 0xdead0001u;
+            cpu_node0[1] = 0xdead0002u;
+            cpu_node1[0] = 0xdead0003u;
+            cpu_node1[1] = 0xdead0004u;
             hr = execute_and_wait(device, queue, base_list);
         }
         if (SUCCEEDED(hr)) {
@@ -462,6 +471,7 @@ int main() {
                     multi_cpu_values[5] == (9u ^ (0x4d4e4f44u + 1u)) &&
                     multi_cpu_values[6] == 12 &&
                     multi_cpu_values[7] == (10u ^ (0x4d4e4f44u + 1u));
+                multi_cpu_pointer_free = multi_cpu_readback_ok;
             }
         }
     }
@@ -498,11 +508,53 @@ int main() {
             }
         }
     }
+    if (multi_gpu_readback_ok && allocator && base_list && list) {
+        uint32_t invalid_record = 0xfeedfaceu;
+        NodeCPUInput invalid_node = {};
+        invalid_node.EntrypointIndex = 0;
+        invalid_node.NumRecords = 1;
+        invalid_node.Records = &invalid_record;
+        invalid_node.RecordStrideInBytes = 1028;
+        MultiNodeCPUInput invalid_multi = {};
+        invalid_multi.NumNodeInputs = 1;
+        invalid_multi.NodeInputs = &invalid_node;
+        invalid_multi.NodeInputStrideInBytes = sizeof(NodeCPUInput);
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc invalid_dispatch = {};
+            invalid_dispatch.Mode = 2;
+            invalid_dispatch.MultiNodeCPUInput.NumNodeInputs =
+                invalid_multi.NumNodeInputs;
+            invalid_dispatch.MultiNodeCPUInput.NodeInputs =
+                invalid_multi.NodeInputs;
+            invalid_dispatch.MultiNodeCPUInput.NodeInputStrideInBytes =
+                invalid_multi.NodeInputStrideInBytes;
+            list->SetProgram(&set_program);
+            list->DispatchGraph(&invalid_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                uint32_t after_invalid[8] = {};
+                std::memcpy(after_invalid, mapped, sizeof(after_invalid));
+                backing->Unmap(0, nullptr);
+                multi_node_negative_unchanged =
+                    std::memcmp(after_invalid, multi_gpu_values,
+                                sizeof(after_invalid)) == 0;
+            }
+        }
+    }
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
-    const bool all_readbacks = readback_ok && gpu_input_readback_ok &&
-                               multi_cpu_readback_ok && multi_gpu_readback_ok;
+    const bool all_readbacks =
+        readback_ok && gpu_input_readback_ok && multi_cpu_readback_ok &&
+        multi_cpu_pointer_free && multi_gpu_readback_ok &&
+        multi_node_negative_unchanged;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
@@ -517,6 +569,10 @@ int main() {
                 multi_cpu_readback_ok ? "true" : "false");
     std::printf("  \"multi_node_gpu_readback_exact\": %s,\n",
                 multi_gpu_readback_ok ? "true" : "false");
+    std::printf("  \"multi_node_cpu_pointer_free\": %s,\n",
+                multi_cpu_pointer_free ? "true" : "false");
+    std::printf("  \"multi_node_negative_unchanged\": %s,\n",
+                multi_node_negative_unchanged ? "true" : "false");
     std::printf("  \"multi_node_cpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
                 multi_cpu_values[0], multi_cpu_values[1], multi_cpu_values[2],
                 multi_cpu_values[3], multi_cpu_values[4], multi_cpu_values[5],
@@ -543,7 +599,8 @@ int main() {
         FreeLibrary(module);
     return SUCCEEDED(hr) && properties_ok && readback_ok &&
                    gpu_input_readback_ok && multi_cpu_readback_ok &&
-                   multi_gpu_readback_ok
+                   multi_cpu_pointer_free && multi_gpu_readback_ok &&
+                   multi_node_negative_unchanged
                ? 0
                : 1;
 }
