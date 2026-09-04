@@ -29,6 +29,8 @@ RUN_INFOQUEUE=0
 RUN_DISCARD_TEXTURE=0
 RUN_MANUAL_WRITE_TRACKING=0
 RUN_SHARING_CONTRACT=0
+RUN_CPU_TEXTURE_MAP=0
+RUN_DEBUG_INTERFACES=0
 RUN_DIAGNOSTICS=0
 RUN_DXGI=1
 RUN_RESOURCES=1
@@ -148,6 +150,12 @@ Options:
   --sharing-contract    Run the D3D12 sharing-contract/fence provider probe.
   --sharing-contract-only
                         Run only the D3D12 sharing-contract/fence provider probe.
+  --cpu-texture-map     Run the CPU-visible texture Map/Unmap provider probe.
+  --cpu-texture-map-only
+                        Run only the CPU-visible texture Map/Unmap provider probe.
+  --debug-interfaces    Run the D3D12 debug-interface state probe.
+  --debug-interfaces-only
+                        Run only the D3D12 debug-interface state probe.
   --diagnostics         Run Agility diagnostics/tools/settings probes.
   --diagnostics-only    Run only Agility diagnostics/tools/settings probes.
   --no-dxgi             Skip probe_dxgi_factory.
@@ -517,6 +525,14 @@ while [[ $# -gt 0 ]]; do
       RUN_SHARING_CONTRACT=1
       shift
       ;;
+    --cpu-texture-map)
+      RUN_CPU_TEXTURE_MAP=1
+      shift
+      ;;
+    --debug-interfaces)
+      RUN_DEBUG_INTERFACES=1
+      shift
+      ;;
     --diagnostics)
       RUN_DIAGNOSTICS=1
       shift
@@ -535,6 +551,8 @@ while [[ $# -gt 0 ]]; do
       RUN_DISCARD_TEXTURE=0
       RUN_MANUAL_WRITE_TRACKING=0
       RUN_SHARING_CONTRACT=0
+      RUN_CPU_TEXTURE_MAP=0
+      RUN_DEBUG_INTERFACES=0
       RUN_DIAGNOSTICS=1
       RUN_DXGI=0
       RUN_RESOURCES=0
@@ -794,6 +812,101 @@ while [[ $# -gt 0 ]]; do
       RUN_DISCARD_TEXTURE=0
       RUN_MANUAL_WRITE_TRACKING=0
       RUN_SHARING_CONTRACT=1
+      RUN_CPU_TEXTURE_MAP=0
+      RUN_DIAGNOSTICS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_ROV=0
+      RUN_BARYCENTRICS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
+    --cpu-texture-map-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_META_COMMAND=0
+      RUN_VIDEO=0
+      RUN_VIDEO_PROCESS=0
+      RUN_INFOQUEUE=0
+      RUN_DISCARD_TEXTURE=0
+      RUN_MANUAL_WRITE_TRACKING=0
+      RUN_SHARING_CONTRACT=0
+      RUN_CPU_TEXTURE_MAP=1
+      RUN_DEBUG_INTERFACES=0
+      RUN_DIAGNOSTICS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_ROV=0
+      RUN_BARYCENTRICS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
+    --debug-interfaces-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_META_COMMAND=0
+      RUN_VIDEO=0
+      RUN_VIDEO_PROCESS=0
+      RUN_INFOQUEUE=0
+      RUN_DISCARD_TEXTURE=0
+      RUN_MANUAL_WRITE_TRACKING=0
+      RUN_SHARING_CONTRACT=0
+      RUN_CPU_TEXTURE_MAP=0
+      RUN_DEBUG_INTERFACES=1
       RUN_DIAGNOSTICS=0
       RUN_DXGI=0
       RUN_RESOURCES=0
@@ -1900,6 +2013,8 @@ INFOQUEUE_PROBE_EXE="$SDK_DIR/out/bin/probe_infoqueue_callback.exe"
 DISCARD_TEXTURE_PROBE_EXE="$SDK_DIR/out/bin/probe_discard_texture.exe"
 MANUAL_WRITE_TRACKING_PROBE_EXE="$SDK_DIR/out/bin/probe_manual_write_tracking.exe"
 SHARING_CONTRACT_PROBE_EXE="$SDK_DIR/out/bin/probe_sharing_contract.exe"
+CPU_TEXTURE_MAP_PROBE_EXE="$SDK_DIR/out/bin/probe_cpu_texture_map.exe"
+DEBUG_INTERFACES_PROBE_EXE="$SDK_DIR/out/bin/probe_debug_interfaces.exe"
 DIAGNOSTICS_PROBE_EXE="$SDK_DIR/out/bin/probe_diagnostics.exe"
 WORK_GRAPH_EXECUTION_PROBE_EXE="$SDK_DIR/out/bin/probe_workgraph_execution.exe"
 ATTRIBUTE_AT_VERTEX_PROBE_EXE="$SDK_DIR/out/bin/probe_attribute_at_vertex.exe"
@@ -1990,6 +2105,8 @@ if [[ ! -f "$SDK_DIR/out/bin/compile-geometry-corpus.exe" ||
       ! -f "$DISCARD_TEXTURE_PROBE_EXE" ||
       ! -f "$MANUAL_WRITE_TRACKING_PROBE_EXE" ||
       ! -f "$SHARING_CONTRACT_PROBE_EXE" ||
+      ! -f "$CPU_TEXTURE_MAP_PROBE_EXE" ||
+      ! -f "$DEBUG_INTERFACES_PROBE_EXE" ||
       ! -f "$DIAGNOSTICS_PROBE_EXE" ]]; then
   NEED_BUILD=1
 fi
@@ -2078,6 +2195,8 @@ INFOQUEUE_RESULT_FILE="$RESULTS_DIR/probe-infoqueue-${PROFILE}.json"
 DISCARD_TEXTURE_RESULT_FILE="$RESULTS_DIR/probe-discard-texture-${PROFILE}.json"
 MANUAL_WRITE_TRACKING_RESULT_FILE="$RESULTS_DIR/probe-manual-write-tracking-${PROFILE}.json"
 SHARING_CONTRACT_RESULT_FILE="$RESULTS_DIR/probe-sharing-contract-${PROFILE}.json"
+CPU_TEXTURE_MAP_RESULT_FILE="$RESULTS_DIR/probe-cpu-texture-map-${PROFILE}.json"
+DEBUG_INTERFACES_RESULT_FILE="$RESULTS_DIR/probe-debug-interfaces-${PROFILE}.json"
 DIAGNOSTICS_RESULT_FILE="$RESULTS_DIR/probe-diagnostics-${PROFILE}.json"
 SM5_SM69_OPCODE_CONTRACT_RESULT_FILE="$RESULTS_DIR/sm5-sm69-opcode-contract-${PROFILE}.json"
 SM66_CAPABILITIES_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-warmup-${PROFILE}.json"
@@ -6048,6 +6167,14 @@ fi
 
 if [[ "$RUN_SHARING_CONTRACT" == "1" ]]; then
   run_probe_exe "$SHARING_CONTRACT_PROBE_EXE" "$SHARING_CONTRACT_RESULT_FILE"
+fi
+
+if [[ "$RUN_CPU_TEXTURE_MAP" == "1" ]]; then
+  run_probe_exe "$CPU_TEXTURE_MAP_PROBE_EXE" "$CPU_TEXTURE_MAP_RESULT_FILE"
+fi
+
+if [[ "$RUN_DEBUG_INTERFACES" == "1" ]]; then
+  run_probe_exe "$DEBUG_INTERFACES_PROBE_EXE" "$DEBUG_INTERFACES_RESULT_FILE"
 fi
 
 if [[ "$RUN_DIAGNOSTICS" == "1" ]]; then

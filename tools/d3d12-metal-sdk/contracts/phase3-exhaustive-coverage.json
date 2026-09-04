@@ -21,6 +21,19 @@
       "remaining": "Closed by the stable isolated executable matrix."
     },
     {
+      "id": "cpu-visible-texture-map-unmap",
+      "status": "closed",
+      "result": "probe-cpu-texture-map",
+      "checks": [
+        ["pass", true],
+        ["create_resource", "0x00000000"],
+        ["map", "0x00000000"],
+        ["readback", "0x00000000"],
+        ["exact", true]
+      ],
+      "remaining": "Closed for the bounded 2x2 RGBA8 upload texture shadow provider; broader CPU texture dimensions, formats, MSAA, and plane mappings remain in the resource matrix."
+    },
+    {
       "id": "sparse-tier-and-alias-matrix",
       "status": "closed",
       "result": "probe-resources",

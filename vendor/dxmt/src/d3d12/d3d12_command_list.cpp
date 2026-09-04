@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <new>
 
 #define CLTRACE(fmt, ...) do { FILE *_tf = dxmt::openDiagnosticLog("dxmt-d3d12-trace.log"); if (_tf) { fprintf(_tf, "CmdList::" fmt "\n", ##__VA_ARGS__); fclose(_tf); } } while(0)
 
@@ -24,6 +25,150 @@ static bool TakeCommandListLifecycleLogBudget(uint32_t limit) {
   return __atomic_add_fetch(&g_command_list_lifecycle_logs, 1,
                             __ATOMIC_RELAXED) <= limit;
 }
+
+static constexpr GUID kIID_ID3D12DebugCommandList = {
+    0x09e0bf36, 0x54ac, 0x484f,
+    {0x88, 0x47, 0x4b, 0xae, 0xea, 0xb6, 0x05, 0x3f}};
+static constexpr GUID kIID_ID3D12DebugCommandList1 = {
+    0x102ca951, 0x311b, 0x4b01,
+    {0xb1, 0x1f, 0xec, 0xb8, 0x3e, 0x06, 0x1b, 0x37}};
+static constexpr GUID kIID_ID3D12DebugCommandList2 = {
+    0xaeb575cf, 0x4e06, 0x48be,
+    {0xba, 0x3b, 0xc4, 0x50, 0xfc, 0x96, 0x65, 0x2e}};
+static constexpr GUID kIID_ID3D12DebugCommandList3 = {
+    0x197d5e15, 0x4d37, 0x4d34,
+    {0xaf, 0x78, 0x72, 0x4c, 0xd7, 0x0f, 0xdb, 0x1f}};
+static constexpr GUID kIID_ID3D12DebugCommandListState = {
+    0xf0a6a8d1, 0x61b0, 0x4ef6,
+    {0x92, 0x17, 0x78, 0x3c, 0x1d, 0x8e, 0x42, 0x99}};
+struct ID3D12DebugCommandListCompat : public IUnknown {
+  virtual BOOL STDMETHODCALLTYPE AssertResourceState(ID3D12Resource *resource,
+                                                       UINT subresource,
+                                                       UINT state) = 0;
+  virtual HRESULT STDMETHODCALLTYPE SetFeatureMask(UINT mask) = 0;
+  virtual UINT STDMETHODCALLTYPE GetFeatureMask() = 0;
+};
+struct ID3D12DebugCommandList1Compat : public IUnknown {
+  virtual BOOL STDMETHODCALLTYPE AssertResourceState(ID3D12Resource *resource,
+                                                       UINT subresource,
+                                                       UINT state) = 0;
+  virtual HRESULT STDMETHODCALLTYPE SetDebugParameter(UINT type,
+                                                       const void *data,
+                                                       UINT size) = 0;
+  virtual HRESULT STDMETHODCALLTYPE GetDebugParameter(UINT type, void *data,
+                                                       UINT size) = 0;
+};
+struct ID3D12DebugCommandList2Compat : public ID3D12DebugCommandListCompat {
+  virtual HRESULT STDMETHODCALLTYPE SetDebugParameter(UINT type,
+                                                       const void *data,
+                                                       UINT size) = 0;
+  virtual HRESULT STDMETHODCALLTYPE GetDebugParameter(UINT type, void *data,
+                                                       UINT size) = 0;
+};
+struct ID3D12DebugCommandList3Compat : public ID3D12DebugCommandList2Compat {
+  virtual void STDMETHODCALLTYPE AssertResourceAccess(ID3D12Resource *resource,
+                                                       UINT subresource,
+                                                       UINT access) = 0;
+  virtual void STDMETHODCALLTYPE AssertTextureLayout(ID3D12Resource *resource,
+                                                      UINT subresource,
+                                                      UINT layout) = 0;
+};
+struct ID3D12DebugCommandListStateCompat : public IUnknown {
+  virtual BOOL STDMETHODCALLTYPE GetLastAssertResult() = 0;
+};
+
+class MTLD3D12DebugCommandList final
+    : public ID3D12DebugCommandList3Compat,
+      public ID3D12DebugCommandList1Compat,
+      public ID3D12DebugCommandListStateCompat {
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == kIID_ID3D12DebugCommandList)
+      *object = static_cast<ID3D12DebugCommandList3Compat *>(this);
+    else if (riid == kIID_ID3D12DebugCommandList1)
+      *object = static_cast<ID3D12DebugCommandList1Compat *>(this);
+    else if (riid == kIID_ID3D12DebugCommandList2)
+      *object = static_cast<ID3D12DebugCommandList2Compat *>(this);
+    else if (riid == kIID_ID3D12DebugCommandList3)
+      *object = static_cast<ID3D12DebugCommandList3Compat *>(this);
+    else if (riid == kIID_ID3D12DebugCommandListState)
+      *object = static_cast<ID3D12DebugCommandListStateCompat *>(this);
+    else
+      return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG ref = --m_ref_count;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  BOOL STDMETHODCALLTYPE AssertResourceState(ID3D12Resource *resource,
+                                             UINT subresource,
+                                             UINT state) override {
+    auto *impl = static_cast<MTLD3D12Resource *>(resource);
+    m_last_assert = impl && impl->GetTrackedState(subresource) ==
+                              static_cast<D3D12_RESOURCE_STATES>(state);
+    return m_last_assert ? TRUE : FALSE;
+  }
+  HRESULT STDMETHODCALLTYPE SetFeatureMask(UINT mask) override {
+    m_feature_mask = mask;
+    return S_OK;
+  }
+  UINT STDMETHODCALLTYPE GetFeatureMask() override { return m_feature_mask; }
+  HRESULT STDMETHODCALLTYPE SetDebugParameter(UINT type, const void *data,
+                                               UINT size) override {
+    if (type > 0 || (size && !data) || size > 4096)
+      return E_INVALIDARG;
+    try {
+      m_parameter.clear();
+      if (size) {
+        const auto *bytes = static_cast<const uint8_t *>(data);
+        m_parameter.insert(m_parameter.end(), bytes, bytes + size);
+      }
+    } catch (const std::bad_alloc &) {
+      return E_OUTOFMEMORY;
+    }
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetDebugParameter(UINT type, void *data,
+                                               UINT size) override {
+    if (type > 0 || !data || size < m_parameter.size())
+      return E_INVALIDARG;
+    if (!m_parameter.empty())
+      std::memcpy(data, m_parameter.data(), m_parameter.size());
+    return S_OK;
+  }
+  void STDMETHODCALLTYPE AssertResourceAccess(ID3D12Resource *resource,
+                                              UINT subresource,
+                                              UINT access) override {
+    (void)subresource;
+    (void)access;
+    m_last_assert = resource != nullptr;
+  }
+  void STDMETHODCALLTYPE AssertTextureLayout(ID3D12Resource *resource,
+                                             UINT subresource,
+                                             UINT layout) override {
+    auto *impl = static_cast<MTLD3D12Resource *>(resource);
+    m_last_assert = impl &&
+                    static_cast<UINT>(impl->GetTrackedLayout(subresource)) ==
+                        layout;
+  }
+  BOOL STDMETHODCALLTYPE GetLastAssertResult() override {
+    return m_last_assert ? TRUE : FALSE;
+  }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
+  UINT m_feature_mask = 0;
+  bool m_last_assert = false;
+  std::vector<uint8_t> m_parameter;
+};
 
 static void LogCommandListLifecycle(const char *label, uint64_t id,
                                     D3D12_COMMAND_LIST_TYPE type,
@@ -268,6 +413,17 @@ MTLD3D12GraphicsCommandList::QueryInterface(REFIID riid, void **ppvObject) {
       riid == IID_ID3D12GraphicsCommandList7) {
     *ppvObject = ref(this);
     return S_OK;
+  }
+  if (riid == kIID_ID3D12DebugCommandList ||
+      riid == kIID_ID3D12DebugCommandList1 ||
+      riid == kIID_ID3D12DebugCommandList2 ||
+      riid == kIID_ID3D12DebugCommandList3) {
+    auto *debug = new (std::nothrow) MTLD3D12DebugCommandList();
+    if (!debug)
+      return E_OUTOFMEMORY;
+    HRESULT hr = debug->QueryInterface(riid, ppvObject);
+    debug->Release();
+    return hr;
   }
   if (riid == kID3D12GraphicsCommandList8) {
     *ppvObject = static_cast<GraphicsCommandList8Extension *>(this);

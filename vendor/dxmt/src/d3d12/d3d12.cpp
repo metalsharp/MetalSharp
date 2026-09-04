@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <new>
 #include <string>
 #include <utility>
 
@@ -64,6 +65,9 @@ constexpr GUID kCLSID_D3D12StateObjectFactory = {
     0x1303,
     0x4112,
     {0xbf, 0x8e, 0x7b, 0xf2, 0xbb, 0x60, 0x6a, 0x73}};
+constexpr GUID kCLSID_D3D12Debug = {
+    0xf2352aeb, 0xdd84, 0x49fe,
+    {0xb9, 0x7b, 0xa9, 0xdc, 0xfd, 0xcc, 0x1b, 0x4f}};
 constexpr GUID kCLSID_D3D12DeviceRemovedExtendedData = {
     0x4a75bbc4,
     0x9ff4,
@@ -144,6 +148,147 @@ enum D3D12DredEnablementCompat : UINT {
   D3D12DredEnablementForceEnable = 1,
   D3D12DredEnablementForceDisable = 2,
 };
+
+static constexpr GUID kIID_ID3D12Debug = {
+    0x344488b7, 0x6846, 0x474b,
+    {0xb9, 0x89, 0xf0, 0x27, 0x44, 0x82, 0x45, 0xe0}};
+static constexpr GUID kIID_ID3D12Debug1 = {
+    0xaffaa4ca, 0x63fe, 0x4d8e,
+    {0xb8, 0xad, 0x15, 0x90, 0x00, 0xaf, 0x43, 0x04}};
+static constexpr GUID kIID_ID3D12Debug2 = {
+    0x93a665c4, 0xa3b2, 0x4e5d,
+    {0xb6, 0x92, 0xa2, 0x6a, 0xe1, 0x4e, 0x33, 0x74}};
+static constexpr GUID kIID_ID3D12Debug3 = {
+    0x5cf4e58f, 0xf671, 0x4ff1,
+    {0xa5, 0x42, 0x36, 0x86, 0xe3, 0xd1, 0x53, 0xd1}};
+static constexpr GUID kIID_ID3D12Debug4 = {
+    0x014b816e, 0x9ec5, 0x4a2f,
+    {0xa8, 0x45, 0xff, 0xbe, 0x44, 0x1c, 0xe1, 0x3a}};
+static constexpr GUID kIID_ID3D12Debug5 = {
+    0x548d6b12, 0x09fa, 0x40e0,
+    {0x90, 0x69, 0x5d, 0xcd, 0x58, 0x9a, 0x52, 0xc9}};
+static constexpr GUID kIID_ID3D12Debug6 = {
+    0x82a816d6, 0x5d01, 0x4157,
+    {0x97, 0xd0, 0x49, 0x75, 0x46, 0x3f, 0xd1, 0xed}};
+struct ID3D12DebugCompat : public IUnknown {
+  virtual void STDMETHODCALLTYPE EnableDebugLayer() = 0;
+};
+struct ID3D12Debug1Compat : public IUnknown {
+  virtual void STDMETHODCALLTYPE EnableDebugLayer() = 0;
+  virtual void STDMETHODCALLTYPE SetEnableGPUBasedValidation(BOOL enable) = 0;
+  virtual void STDMETHODCALLTYPE SetEnableSynchronizedCommandQueueValidation(
+      BOOL enable) = 0;
+};
+struct ID3D12Debug2Compat : public IUnknown {
+  virtual void STDMETHODCALLTYPE SetGPUBasedValidationFlags(UINT flags) = 0;
+};
+struct ID3D12Debug3Compat : public ID3D12DebugCompat {
+  virtual void STDMETHODCALLTYPE SetEnableGPUBasedValidation(BOOL enable) = 0;
+  virtual void STDMETHODCALLTYPE SetEnableSynchronizedCommandQueueValidation(
+      BOOL enable) = 0;
+  virtual void STDMETHODCALLTYPE SetGPUBasedValidationFlags(UINT flags) = 0;
+};
+struct ID3D12Debug4Compat : public ID3D12Debug3Compat {
+  virtual void STDMETHODCALLTYPE DisableDebugLayer() = 0;
+};
+struct ID3D12Debug5Compat : public ID3D12Debug4Compat {
+  virtual void STDMETHODCALLTYPE SetEnableAutoName(BOOL enable) = 0;
+};
+struct ID3D12Debug6Compat : public ID3D12Debug5Compat {
+  virtual void STDMETHODCALLTYPE SetForceLegacyBarrierValidation(BOOL enable) = 0;
+};
+static constexpr GUID kIID_ID3D12DebugStateCompat = {
+    0x3b80b40e, 0xd3b1, 0x4a27,
+    {0x91, 0x3d, 0x9a, 0xf5, 0x9d, 0x74, 0xa8, 0x22}};
+struct ID3D12DebugStateCompat : public IUnknown {
+  virtual BOOL STDMETHODCALLTYPE IsDebugLayerEnabled() = 0;
+  virtual BOOL STDMETHODCALLTYPE IsGPUBasedValidationEnabled() = 0;
+  virtual BOOL STDMETHODCALLTYPE IsSynchronizedValidationEnabled() = 0;
+  virtual UINT STDMETHODCALLTYPE GetGPUBasedValidationFlags() = 0;
+  virtual BOOL STDMETHODCALLTYPE IsAutoNameEnabled() = 0;
+  virtual BOOL STDMETHODCALLTYPE IsLegacyBarrierValidationEnabled() = 0;
+};
+
+class MTLD3D12Debug final : public ID3D12Debug1Compat,
+                            public ID3D12Debug2Compat,
+                            public ID3D12Debug6Compat,
+                            public ID3D12DebugStateCompat {
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == kIID_ID3D12Debug)
+      *object = static_cast<ID3D12Debug6Compat *>(this);
+    else if (riid == kIID_ID3D12Debug1)
+      *object = static_cast<ID3D12Debug1Compat *>(this);
+    else if (riid == kIID_ID3D12Debug2)
+      *object = static_cast<ID3D12Debug2Compat *>(this);
+    else if (riid == kIID_ID3D12Debug3)
+      *object = static_cast<ID3D12Debug3Compat *>(this);
+    else if (riid == kIID_ID3D12Debug4)
+      *object = static_cast<ID3D12Debug4Compat *>(this);
+    else if (riid == kIID_ID3D12Debug5)
+      *object = static_cast<ID3D12Debug5Compat *>(this);
+    else if (riid == kIID_ID3D12Debug6)
+      *object = static_cast<ID3D12Debug6Compat *>(this);
+    else if (riid == kIID_ID3D12DebugStateCompat)
+      *object = static_cast<ID3D12DebugStateCompat *>(this);
+    else
+      return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG ref = --m_ref_count;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  void STDMETHODCALLTYPE EnableDebugLayer() override { m_debug_layer = TRUE; }
+  void STDMETHODCALLTYPE SetEnableGPUBasedValidation(BOOL enable) override {
+    m_gpu_validation = enable != FALSE;
+  }
+  void STDMETHODCALLTYPE SetEnableSynchronizedCommandQueueValidation(
+      BOOL enable) override {
+    m_sync_validation = enable != FALSE;
+  }
+  void STDMETHODCALLTYPE SetGPUBasedValidationFlags(UINT flags) override {
+    m_gpu_validation_flags = flags;
+  }
+  void STDMETHODCALLTYPE DisableDebugLayer() override { m_debug_layer = FALSE; }
+  void STDMETHODCALLTYPE SetEnableAutoName(BOOL enable) override {
+    m_auto_name = enable != FALSE;
+  }
+  void STDMETHODCALLTYPE SetForceLegacyBarrierValidation(BOOL enable) override {
+    m_legacy_barrier_validation = enable != FALSE;
+  }
+  BOOL STDMETHODCALLTYPE IsDebugLayerEnabled() override { return m_debug_layer; }
+  BOOL STDMETHODCALLTYPE IsGPUBasedValidationEnabled() override {
+    return m_gpu_validation;
+  }
+  BOOL STDMETHODCALLTYPE IsSynchronizedValidationEnabled() override {
+    return m_sync_validation;
+  }
+  UINT STDMETHODCALLTYPE GetGPUBasedValidationFlags() override {
+    return m_gpu_validation_flags;
+  }
+  BOOL STDMETHODCALLTYPE IsAutoNameEnabled() override { return m_auto_name; }
+  BOOL STDMETHODCALLTYPE IsLegacyBarrierValidationEnabled() override {
+    return m_legacy_barrier_validation;
+  }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
+  BOOL m_debug_layer = FALSE;
+  BOOL m_gpu_validation = FALSE;
+  BOOL m_sync_validation = FALSE;
+  BOOL m_auto_name = FALSE;
+  BOOL m_legacy_barrier_validation = FALSE;
+  UINT m_gpu_validation_flags = 0;
+};
+
 struct ID3D12DeviceRemovedExtendedDataSettingsCompat : public IUnknown {
   virtual void STDMETHODCALLTYPE SetAutoBreadcrumbsEnablement(
       D3D12DredEnablementCompat enablement) = 0;
@@ -490,6 +635,101 @@ public:
 
 private:
   std::atomic<ULONG> m_ref = {1};
+};
+
+static constexpr GUID kIID_ID3D12DeviceRemovedExtendedData = {
+    0x98931d33, 0x5ae8, 0x4791,
+    {0xaa, 0x3c, 0x1a, 0x73, 0xa2, 0x93, 0x4e, 0x71}};
+static constexpr GUID kIID_ID3D12DeviceRemovedExtendedData1 = {
+    0x9727a022, 0xcf1d, 0x4dda,
+    {0x9e, 0xba, 0xef, 0xfa, 0x65, 0x3f, 0xc5, 0x06}};
+static constexpr GUID kIID_ID3D12DeviceRemovedExtendedData2 = {
+    0x67fc5816, 0xe4ca, 0x4915,
+    {0xbf, 0x18, 0x42, 0x54, 0x12, 0x72, 0xda, 0x54}};
+struct DredAutoOutputCompat {
+  const void *head;
+};
+struct DredPageFaultOutputCompat {
+  UINT64 page_fault_va;
+  const void *existing;
+  const void *recently_freed;
+};
+struct DredPageFaultOutput2Compat : DredPageFaultOutputCompat {
+  UINT flags;
+  UINT reserved;
+};
+struct ID3D12DeviceRemovedExtendedDataCompat : public IUnknown {
+  virtual HRESULT STDMETHODCALLTYPE GetAutoBreadcrumbsOutput(void *output) = 0;
+  virtual HRESULT STDMETHODCALLTYPE GetPageFaultAllocationOutput(void *output) = 0;
+};
+struct ID3D12DeviceRemovedExtendedData1Compat
+    : public ID3D12DeviceRemovedExtendedDataCompat {
+  virtual HRESULT STDMETHODCALLTYPE GetAutoBreadcrumbsOutput1(void *output) = 0;
+  virtual HRESULT STDMETHODCALLTYPE GetPageFaultAllocationOutput1(void *output) = 0;
+};
+struct ID3D12DeviceRemovedExtendedData2Compat
+    : public ID3D12DeviceRemovedExtendedData1Compat {
+  virtual HRESULT STDMETHODCALLTYPE GetPageFaultAllocationOutput2(void *output) = 0;
+  virtual UINT STDMETHODCALLTYPE GetDeviceState() = 0;
+};
+class MTLD3D12DredData final
+    : public ID3D12DeviceRemovedExtendedData2Compat {
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == kIID_ID3D12DeviceRemovedExtendedData)
+      *object = static_cast<ID3D12DeviceRemovedExtendedData2Compat *>(this);
+    else if (riid == kIID_ID3D12DeviceRemovedExtendedData1)
+      *object = static_cast<ID3D12DeviceRemovedExtendedData1Compat *>(this);
+    else if (riid == kIID_ID3D12DeviceRemovedExtendedData2)
+      *object = static_cast<ID3D12DeviceRemovedExtendedData2Compat *>(this);
+    else
+      return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG ref = --m_ref_count;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  HRESULT STDMETHODCALLTYPE GetAutoBreadcrumbsOutput(void *output) override {
+    if (!output)
+      return E_INVALIDARG;
+    static_cast<DredAutoOutputCompat *>(output)->head = nullptr;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetPageFaultAllocationOutput(void *output) override {
+    if (!output)
+      return E_INVALIDARG;
+    *static_cast<DredPageFaultOutputCompat *>(output) = {};
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetAutoBreadcrumbsOutput1(void *output) override {
+    if (!output)
+      return E_INVALIDARG;
+    // The versioned output begins with the same head pointer.  Zeroing the
+    // known pointer is sufficient for the no-device-fault state.
+    *static_cast<DredAutoOutputCompat *>(output) = {};
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetPageFaultAllocationOutput1(void *output) override {
+    return GetPageFaultAllocationOutput(output);
+  }
+  HRESULT STDMETHODCALLTYPE GetPageFaultAllocationOutput2(void *output) override {
+    if (!output)
+      return E_INVALIDARG;
+    *static_cast<DredPageFaultOutput2Compat *>(output) = {};
+    return S_OK;
+  }
+  UINT STDMETHODCALLTYPE GetDeviceState() override { return 0; }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
 };
 
 class MTLD3D12DredSettings final
@@ -3089,11 +3329,17 @@ extern "C" HRESULT WINAPI D3D12CreateVersionedRootSignatureDeserializer(
 
 extern "C" HRESULT WINAPI D3D12GetDebugInterface(REFIID riid, void **ppDebug) {
   EnsureAppLocalAgilityRuntimeLoaded();
-  TraceAgility("D3D12GetDebugInterface riid=%s out=%p -> E_NOINTERFACE",
-               str::format(riid).c_str(), ppDebug);
-  if (ppDebug)
-    *ppDebug = nullptr;
-  return E_NOINTERFACE;
+  if (!ppDebug)
+    return E_POINTER;
+  *ppDebug = nullptr;
+  auto *debug = new (std::nothrow) MTLD3D12Debug();
+  if (!debug)
+    return E_OUTOFMEMORY;
+  HRESULT hr = debug->QueryInterface(riid, ppDebug);
+  debug->Release();
+  TraceAgility("D3D12GetDebugInterface riid=%s out=%p hr=0x%lx",
+               str::format(riid).c_str(), *ppDebug, hr);
+  return hr;
 }
 
 extern "C" UINT D3D12SDKVersion = kD3D12AgilitySDKVersion;
@@ -3105,11 +3351,29 @@ extern "C" HRESULT WINAPI D3D12EnableExperimentalFeatures(
   EnsureAppLocalAgilityRuntimeLoaded();
   if (feature_count && !iids)
     return E_INVALIDARG;
+  if (feature_count && configurations && !configuration_sizes)
+    return E_INVALIDARG;
 
+  static constexpr GUID kExperimentalShaderModels = {
+      0x76f5573e, 0xf13a, 0x40f5,
+      {0xb2, 0x97, 0x81, 0xce, 0x9e, 0x18, 0x93, 0x3f}};
+  static constexpr GUID kGPUUploadHeapsOnUnsupportedOS = {
+      0x45dc51f3, 0x767f, 0x4588,
+      {0xb2, 0x06, 0x0b, 0xaa, 0x2b, 0x16, 0xfb, 0xae}};
   TraceAgility("D3D12EnableExperimentalFeatures count=%u configs=%p sizes=%p",
                feature_count, configurations, configuration_sizes);
   for (UINT i = 0; i < feature_count; i++) {
     TraceAgility("  feature[%u]=%s", i, str::format(iids[i]).c_str());
+    const bool known = std::memcmp(&iids[i], &kExperimentalShaderModels,
+                                   sizeof(GUID)) == 0 ||
+                       std::memcmp(&iids[i], &kGPUUploadHeapsOnUnsupportedOS,
+                                   sizeof(GUID)) == 0;
+    if (!known)
+      return E_INVALIDARG;
+    if (configuration_sizes && configuration_sizes[i] != 0)
+      return E_INVALIDARG;
+    if (configuration_sizes && configuration_sizes[i] == 0 && configurations)
+      return E_INVALIDARG;
   }
   return S_OK;
 }
@@ -3122,6 +3386,14 @@ extern "C" HRESULT WINAPI D3D12GetInterface(REFCLSID clsid, REFIID riid,
   if (!ppv)
     return E_POINTER;
   *ppv = nullptr;
+  if (clsid == kCLSID_D3D12Debug) {
+    auto *debug = new (std::nothrow) MTLD3D12Debug();
+    if (!debug)
+      return E_OUTOFMEMORY;
+    HRESULT hr = debug->QueryInterface(riid, ppv);
+    debug->Release();
+    return hr;
+  }
   if (clsid == kCLSID_D3D12SDKConfiguration) {
     auto *configuration = new MTLD3D12SDKConfiguration();
     HRESULT hr = configuration->QueryInterface(riid, ppv);
@@ -3131,10 +3403,23 @@ extern "C" HRESULT WINAPI D3D12GetInterface(REFCLSID clsid, REFIID riid,
     return hr;
   }
   if (clsid == kCLSID_D3D12DeviceRemovedExtendedData) {
-    auto *settings = new MTLD3D12DredSettings();
-    HRESULT hr = settings->QueryInterface(riid, ppv);
-    settings->Release();
-    TraceAgility("D3D12GetInterface DREDSettings riid=%s -> 0x%lx out=%p",
+    HRESULT hr = E_NOINTERFACE;
+    if (riid == kIID_ID3D12DeviceRemovedExtendedData ||
+        riid == kIID_ID3D12DeviceRemovedExtendedData1 ||
+        riid == kIID_ID3D12DeviceRemovedExtendedData2) {
+      auto *data = new (std::nothrow) MTLD3D12DredData();
+      if (!data)
+        return E_OUTOFMEMORY;
+      hr = data->QueryInterface(riid, ppv);
+      data->Release();
+    } else {
+      auto *settings = new (std::nothrow) MTLD3D12DredSettings();
+      if (!settings)
+        return E_OUTOFMEMORY;
+      hr = settings->QueryInterface(riid, ppv);
+      settings->Release();
+    }
+    TraceAgility("D3D12GetInterface DRED riid=%s -> 0x%lx out=%p",
                  str::format(riid).c_str(), hr, ppv ? *ppv : nullptr);
     return hr;
   }

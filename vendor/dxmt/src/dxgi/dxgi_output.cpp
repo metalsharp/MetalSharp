@@ -902,7 +902,7 @@ public:
     }
     if (frame_delivered_ && generation <= last_generation_)
       return HRESULT_FROM_WIN32(WAIT_TIMEOUT);
-    if (!EnsureDesktopResource())
+    if (!EnsureDesktopResource() || !RefreshDesktopResource())
       return DXGI_ERROR_UNSUPPORTED;
     held_ = true;
     frame_delivered_ = true;
@@ -1004,6 +1004,65 @@ public:
   }
 
 private:
+  bool RefreshDesktopResource() {
+    if (!output_ || !desktop_d3d_resource_)
+      return true;
+    Com<IDXGISurface> source_surface;
+    DXGI_SURFACE_DESC source_desc = {};
+    {
+      std::lock_guard lock(output_->surface_mutex_);
+      source_surface = output_->display_surface_;
+      source_desc = output_->display_surface_desc_;
+    }
+    if (!source_surface || source_desc.Width != desc_.ModeDesc.Width ||
+        source_desc.Height != desc_.ModeDesc.Height ||
+        (source_desc.Format != DXGI_FORMAT_B8G8R8A8_UNORM &&
+         source_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM) ||
+        (format_ != DXGI_FORMAT_B8G8R8A8_UNORM &&
+         format_ != DXGI_FORMAT_R8G8B8A8_UNORM) ||
+        source_desc.SampleDesc.Count != 1)
+      return true;
+    DXGI_MAPPED_RECT mapped = {};
+    HRESULT hr = source_surface->Map(&mapped, DXGI_MAP_READ);
+    if (FAILED(hr) || !mapped.pBits || mapped.Pitch <= 0)
+      return FAILED(hr) ? false : true;
+    const uint64_t destination_pitch = uint64_t(source_desc.Width) * 4u;
+    const uint64_t bytes = destination_pitch * source_desc.Height;
+    if (destination_pitch > UINT32_MAX || bytes > UINT32_MAX || bytes > SIZE_MAX) {
+      source_surface->Unmap();
+      return false;
+    }
+    std::vector<uint8_t> pixels;
+    try {
+      pixels.resize(static_cast<size_t>(bytes));
+    } catch (const std::bad_alloc &) {
+      source_surface->Unmap();
+      return false;
+    }
+    const bool swap_channels = source_desc.Format != format_;
+    for (UINT y = 0; y < source_desc.Height; ++y) {
+      const auto *source_row = mapped.pBits + size_t(y) * mapped.Pitch;
+      auto *destination_row = pixels.data() + size_t(y) * destination_pitch;
+      for (UINT x = 0; x < source_desc.Width; ++x) {
+        const auto *source_pixel = source_row + size_t(x) * 4u;
+        auto *destination_pixel = destination_row + size_t(x) * 4u;
+        if (swap_channels) {
+          destination_pixel[0] = source_pixel[2];
+          destination_pixel[1] = source_pixel[1];
+          destination_pixel[2] = source_pixel[0];
+          destination_pixel[3] = source_pixel[3];
+        } else {
+          std::memcpy(destination_pixel, source_pixel, 4u);
+        }
+      }
+    }
+    source_surface->Unmap();
+    hr = desktop_d3d_resource_->WriteToSubresource(
+        0, nullptr, pixels.data(), static_cast<UINT>(destination_pitch),
+        static_cast<UINT>(bytes));
+    return SUCCEEDED(hr);
+  }
+
   bool EnsureDesktopResource() {
     if (desktop_resource_)
       return true;
@@ -1087,7 +1146,7 @@ private:
       desktop_d3d_resource_ = resource;
       desktop_d3d_resource_->AddRef();
       resource->Release();
-      return true;
+      return RefreshDesktopResource();
     }
     resource->Release();
     return false;

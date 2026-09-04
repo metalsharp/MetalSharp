@@ -144,6 +144,14 @@ build_probe \
   -o "$OUT_DIR/probe_sharing_contract.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_cpu_texture_map.cpp" \
+  -o "$OUT_DIR/probe_cpu_texture_map.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_debug_interfaces.cpp" \
+  -o "$OUT_DIR/probe_debug_interfaces.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_diagnostics.cpp" \
   -o "$OUT_DIR/probe_diagnostics.exe"
 
@@ -370,6 +378,8 @@ echo "$OUT_DIR/probe_infoqueue_callback.exe"
 echo "$OUT_DIR/probe_discard_texture.exe"
 echo "$OUT_DIR/probe_manual_write_tracking.exe"
 echo "$OUT_DIR/probe_sharing_contract.exe"
+echo "$OUT_DIR/probe_cpu_texture_map.exe"
+echo "$OUT_DIR/probe_debug_interfaces.exe"
 echo "$OUT_DIR/probe_diagnostics.exe"
 echo "$OUT_DIR/probe_dxgi_factory.exe"
 echo "$OUT_DIR/probe_m12_runtime_identity.exe"
