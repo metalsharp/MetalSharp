@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 static const GUID kDeviceIID = {
@@ -138,7 +139,13 @@ static StreamBuilder make_stream(ID3D12RootSignature *root, ID3DBlob *vs,
                                  ID3DBlob *ps,
                                  const RasterizerDesc2Probe &rasterizer,
                                  const ViewInstancingDescProbe *view,
-                                 UINT sample_count, bool add_unknown_type) {
+                                 UINT sample_count, bool add_unknown_type,
+                                 D3D12_PRIMITIVE_TOPOLOGY_TYPE topology =
+                                     D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
+                                 UINT num_render_targets = 1,
+                                 DXGI_FORMAT dsv_format = DXGI_FORMAT_UNKNOWN,
+                                 const D3D12_BLEND_DESC *blend_override = nullptr,
+                                 const D3D12_DEPTH_STENCIL_DESC *depth_override = nullptr) {
     StreamBuilder stream;
     D3D12_BLEND_DESC blend = {};
     for (auto &target : blend.RenderTarget) {
@@ -151,21 +158,23 @@ static StreamBuilder make_stream(ID3D12RootSignature *root, ID3DBlob *vs,
         target.BlendOpAlpha = D3D12_BLEND_OP_ADD;
     }
     UINT sample_mask = UINT_MAX;
+    if (blend_override)
+        blend = *blend_override;
     D3D12_DEPTH_STENCIL_DESC depth = {};
     depth.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    if (depth_override)
+        depth = *depth_override;
     D3D12_INPUT_LAYOUT_DESC input = {};
-    D3D12_PRIMITIVE_TOPOLOGY_TYPE topology =
-        D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     RTFormatArrayProbe formats = {};
-    formats.RTFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    formats.NumRenderTargets = 1;
-    DXGI_FORMAT dsv_format = DXGI_FORMAT_UNKNOWN;
+    for (UINT i = 0; i < 8; ++i)
+        formats.RTFormats[i] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    formats.NumRenderTargets = num_render_targets;
     DXGI_SAMPLE_DESC sample = {sample_count, 0};
     D3D12_PIPELINE_STATE_FLAGS flags = D3D12_PIPELINE_STATE_FLAG_NONE;
-    D3D12_SHADER_BYTECODE vs_bytecode = {vs->GetBufferPointer(),
-                                         vs->GetBufferSize()};
-    D3D12_SHADER_BYTECODE ps_bytecode = {ps->GetBufferPointer(),
-                                         ps->GetBufferSize()};
+    D3D12_SHADER_BYTECODE vs_bytecode = {
+        vs ? vs->GetBufferPointer() : nullptr, vs ? vs->GetBufferSize() : 0};
+    D3D12_SHADER_BYTECODE ps_bytecode = {
+        ps ? ps->GetBufferPointer() : nullptr, ps ? ps->GetBufferSize() : 0};
 
     stream.append(0, root);
     stream.append(1, vs_bytecode);
@@ -189,6 +198,25 @@ static StreamBuilder make_stream(ID3D12RootSignature *root, ID3DBlob *vs,
     return stream;
 }
 
+static InvalidResult run_stream_case(ID3D12Device2 *device, const char *name,
+                                     StreamBuilder stream,
+                                     bool require_invalid_arg) {
+    InvalidResult result;
+    result.name = name;
+    if (!device)
+        return result;
+    D3D12_PIPELINE_STATE_STREAM_DESC desc = {stream.bytes.size(),
+                                             stream.bytes.data()};
+    ID3D12PipelineState *pso = nullptr;
+    result.hr = device->CreatePipelineState(&desc, IID_PPV_ARGS(&pso));
+    result.object_null = pso == nullptr;
+    result.exact = result.object_null &&
+                   (require_invalid_arg ? result.hr == E_INVALIDARG
+                                        : FAILED(result.hr));
+    safe_release(pso);
+    return result;
+}
+
 static InvalidResult run_case(ID3D12Device2 *device, ID3D12RootSignature *root,
                               ID3DBlob *vs, ID3DBlob *ps, const char *name,
                               const RasterizerDesc2Probe &rasterizer,
@@ -201,16 +229,8 @@ static InvalidResult run_case(ID3D12Device2 *device, ID3D12RootSignature *root,
         return result;
     StreamBuilder stream =
         make_stream(root, vs, ps, rasterizer, view, sample_count, unknown_type);
-    D3D12_PIPELINE_STATE_STREAM_DESC desc = {stream.bytes.size(),
-                                             stream.bytes.data()};
-    ID3D12PipelineState *pso = nullptr;
-    result.hr = device->CreatePipelineState(&desc, IID_PPV_ARGS(&pso));
-    result.object_null = pso == nullptr;
-    result.exact = result.object_null &&
-                   (require_invalid_arg ? result.hr == E_INVALIDARG
-                                         : FAILED(result.hr));
-    safe_release(pso);
-    return result;
+    return run_stream_case(device, name, std::move(stream),
+                           require_invalid_arg);
 }
 
 int main() {
@@ -276,6 +296,32 @@ float4 ps(VSOut input) : SV_Target0 { return float4(1.0, 0.0, 0.0, 1.0); }
     ViewInstancingDescProbe too_many_views = {5, five_locations, 0};
     ViewInstancingDescProbe invalid_flags = {1, &one_location, 2};
     ViewInstancingDescProbe missing_locations = {1, nullptr, 0};
+    RasterizerDesc2Probe invalid_fill = valid_rasterizer;
+    invalid_fill.FillMode = static_cast<D3D12_FILL_MODE>(0);
+    RasterizerDesc2Probe invalid_cull = valid_rasterizer;
+    invalid_cull.CullMode = static_cast<D3D12_CULL_MODE>(0);
+    RasterizerDesc2Probe invalid_conservative = valid_rasterizer;
+    invalid_conservative.ConservativeRaster =
+        static_cast<D3D12_CONSERVATIVE_RASTERIZATION_MODE>(2);
+    RasterizerDesc2Probe invalid_forced = valid_rasterizer;
+    invalid_forced.ForcedSampleCount = 3;
+
+    D3D12_DEPTH_STENCIL_DESC invalid_depth = {};
+    invalid_depth.DepthEnable = TRUE;
+    invalid_depth.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    invalid_depth.DepthFunc = static_cast<D3D12_COMPARISON_FUNC>(0);
+    D3D12_DEPTH_STENCIL_DESC invalid_dsv_format = invalid_depth;
+    invalid_dsv_format.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    D3D12_BLEND_DESC invalid_blend = {};
+    invalid_blend.RenderTarget[0].BlendEnable = TRUE;
+    invalid_blend.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    invalid_blend.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
+    invalid_blend.RenderTarget[0].BlendOp = static_cast<D3D12_BLEND_OP>(0);
+    invalid_blend.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+    invalid_blend.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+    invalid_blend.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    invalid_blend.RenderTarget[0].RenderTargetWriteMask =
+        D3D12_COLOR_WRITE_ENABLE_ALL;
 
     std::vector<InvalidResult> cases;
     cases.push_back(run_case(device2, root, vs, ps, "rasterizer2_line_mode_4",
@@ -287,8 +333,54 @@ float4 ps(VSOut input) : SV_Target0 { return float4(1.0, 0.0, 0.0, 1.0); }
     cases.push_back(run_case(device2, root, vs, ps,
                              "view_instance_locations_missing", valid_rasterizer,
                              &missing_locations, 1, false, true));
+    cases.push_back(run_case(device2, root, vs, ps, "rasterizer_fill_mode_0",
+                             invalid_fill, &valid_view, 1, false, true));
+    cases.push_back(run_case(device2, root, vs, ps, "rasterizer_cull_mode_0",
+                             invalid_cull, &valid_view, 1, false, true));
+    cases.push_back(run_case(device2, root, vs, ps, "conservative_mode_2",
+                             invalid_conservative, &valid_view, 1, false,
+                             true));
+    cases.push_back(run_case(device2, root, vs, ps, "forced_sample_count_3",
+                             invalid_forced, &valid_view, 1, false, true));
+    cases.push_back(run_case(device2, root, vs, ps, "sample_count_0",
+                             valid_rasterizer, &valid_view, 0, false, true));
     cases.push_back(run_case(device2, root, vs, ps, "sample_count_3",
                              valid_rasterizer, &valid_view, 3, false, false));
+    cases.push_back(run_case(device2, root, vs, ps, "sample_count_64",
+                             valid_rasterizer, &valid_view, 64, false, false));
+    cases.push_back(run_stream_case(
+        device2, "primitive_topology_unknown",
+        make_stream(root, vs, ps, valid_rasterizer, &valid_view, 1, false,
+                    static_cast<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(0)),
+        true));
+    cases.push_back(run_stream_case(
+        device2, "render_target_count_9",
+        make_stream(root, vs, ps, valid_rasterizer, &valid_view, 1, false,
+                    D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, 9),
+        true));
+    cases.push_back(run_stream_case(
+        device2, "missing_vertex_shader",
+        make_stream(root, nullptr, ps, valid_rasterizer, &valid_view, 1,
+                    false),
+        false));
+    cases.push_back(run_stream_case(
+        device2, "depth_func_0",
+        make_stream(root, vs, ps, valid_rasterizer, &valid_view, 1, false,
+                    D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, 1,
+                    DXGI_FORMAT_D32_FLOAT, nullptr, &invalid_depth),
+        true));
+    cases.push_back(run_stream_case(
+        device2, "depth_format_r8_unorm",
+        make_stream(root, vs, ps, valid_rasterizer, &valid_view, 1, false,
+                    D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, 1,
+                    DXGI_FORMAT_R8_UNORM, nullptr, &invalid_dsv_format),
+        true));
+    cases.push_back(run_stream_case(
+        device2, "blend_op_0",
+        make_stream(root, vs, ps, valid_rasterizer, &valid_view, 1, false,
+                    D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE, 1,
+                    DXGI_FORMAT_UNKNOWN, &invalid_blend),
+        true));
     cases.push_back(run_case(device2, root, vs, ps, "unknown_subobject_type",
                              valid_rasterizer, &valid_view, 1, true, true));
 
