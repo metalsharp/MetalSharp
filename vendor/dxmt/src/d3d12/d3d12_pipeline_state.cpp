@@ -1614,6 +1614,10 @@ size_t MTLD3D12PipelineState::ApplyShaderVariantHash(
     hash ^= 0xd3b0a7d5e91c2468ull;
     hash ^= static_cast<size_t>(m_sample_count) * 0x9e3779b97f4a7c15ull;
   }
+  if (type == ShaderType::Pixel && m_sample_mask != UINT_MAX) {
+    hash ^= 0x53414d504c454d41ull;
+    hash = hash * 131 + m_sample_mask;
+  }
   if (type == ShaderType::Pixel && m_uses_conservative_rasterization)
     hash ^= 0xc0a5e2a7f4b19d31ull;
   if (m_uses_attribute_at_vertex &&
@@ -2402,6 +2406,8 @@ bool MTLD3D12PipelineState::CompileShader(
             lowering_options.conservative_rasterization =
                 type == ShaderType::Pixel &&
                 m_uses_conservative_rasterization_reference_model;
+            if (type == ShaderType::Pixel)
+              lowering_options.sample_mask = m_sample_mask;
             lowering_options.attribute_at_vertex_capture =
                 requires_attribute_at_vertex_custom;
             lowering_options.attribute_at_vertex_input_id =

@@ -119,7 +119,8 @@ The runner builds source-owned DXIL fixtures in the disposable prefix and uses
 invariants, and the pinned target identity. Add `--with-rasterization` to run
 the point/line baseline, `--with-rov-dimensions` for typed 1D/1D-array/3D
 ROVs, `--with-view-instancing` for the four-view/mask-zero replay matrix,
-`--with-fixed-function` for the established exact PSO matrix, and
+`--with-fixed-function` for the established exact PSO matrix, `--with-msaa`
+for native sample-frequency/mask plus writable-MSAA/resolve matrices, and
 `--with-host-inventory` for the native Metal interpolation/sample-count and
 D3D12 feature-report capability probes.
 

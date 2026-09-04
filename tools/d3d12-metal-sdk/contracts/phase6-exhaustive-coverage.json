@@ -200,6 +200,19 @@
       "reason": "The exact writable-MSAA provider covers flattened 2/4/8-sample UAV arrays, an array slice, RGBA32/RGBA16/RGBA8 formats, graphics sample-index/coverage/evaluation use, programmable 4x4 positions, and resolve readbacks. Ordinary render-target breadth remains open below."
     },
     {
+      "id": "p6-native-msaa-sample-frequency-mask",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "native_render_target_msaa_sample_frequency_and_mask",
+      "covers": {"sample_count": ["2", "4"], "sample_positions": ["default"], "msaa_state": ["color_msaa"], "interpolation": ["sample"], "logic_side_effects": ["none"], "view_instancing": ["disabled"], "depth_stencil": ["disabled"], "render_targets": ["one"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-graphics-msaa-breadth",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "resolved_samples_required": true, "sample_index_required": true, "sample_mask_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "R32G32B32A32_FLOAT resolves count2=1.5/count4=2.5 and mask5=1.0", "quality_queries": "counts 1/2/4 return one quality level"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The native render-target matrix proves sample-frequency SV_SampleIndex for 2x and 4x targets, exact resolve values, and a nontrivial 0x5 SampleMask that suppresses samples before shading."
+    },
+    {
       "id": "p6-msaa-sample-frequency-and-resolve",
       "legality": "legal",
       "status": "open",
