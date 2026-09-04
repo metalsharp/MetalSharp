@@ -2222,6 +2222,14 @@ WINEMETAL_API uint32_t WMTGetSecondaryDisplayId();
 // The timeout keeps a headless/disconnected display from hanging a D3D12 call.
 WINEMETAL_API bool WMTWaitForVBlank(uint32_t display_id, uint32_t timeout_ms);
 
+// Host feature queries used by the capability snapshot.  These declarations
+// are appended after the existing Unix-call ABI so older call ordinals remain
+// stable when a new Metal capability is added.
+WINEMETAL_API bool MTLDevice_rasterOrderGroupsSupported(obj_handle_t device);
+WINEMETAL_API bool MTLDevice_supportsPullModelInterpolation(obj_handle_t device);
+WINEMETAL_API bool MTLDevice_supportsShaderBarycentricCoordinates(obj_handle_t device);
+WINEMETAL_API bool MTLDevice_programmableSamplePositionsSupported(obj_handle_t device);
+
 struct WMTDisplayDescription {
   float red_primaries[2];
   float blue_primaries[2];

@@ -4852,6 +4852,38 @@ _WMTWaitForVBlank(void *obj) {
   }
 }
 
+static NTSTATUS
+_MTLDevice_rasterOrderGroupsSupported(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  id<MTLDevice> device = (id<MTLDevice>)params->handle;
+  params->ret = device && [device areRasterOrderGroupsSupported] ? 1 : 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_supportsPullModelInterpolation(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  id<MTLDevice> device = (id<MTLDevice>)params->handle;
+  params->ret = device && [device supportsPullModelInterpolation] ? 1 : 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_supportsShaderBarycentricCoordinates(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  id<MTLDevice> device = (id<MTLDevice>)params->handle;
+  params->ret = device && [device supportsShaderBarycentricCoordinates] ? 1 : 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_programmableSamplePositionsSupported(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  id<MTLDevice> device = (id<MTLDevice>)params->handle;
+  params->ret = device && [device areProgrammableSamplePositionsSupported] ? 1 : 0;
+  return STATUS_SUCCESS;
+}
+
 struct DisplaySetting {
   uint64_t version;
   enum WMTColorSpace colorspace;
@@ -5627,6 +5659,10 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLCommandEncoder_popDebugGroup,
     &_MTLCommandEncoder_insertDebugSignpost,
     &_WMTWaitForVBlank,
+    &_MTLDevice_rasterOrderGroupsSupported,
+    &_MTLDevice_supportsPullModelInterpolation,
+    &_MTLDevice_supportsShaderBarycentricCoordinates,
+    &_MTLDevice_programmableSamplePositionsSupported,
 };
 
 #ifndef DXMT_NATIVE
@@ -5809,5 +5845,9 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLCommandEncoder_popDebugGroup,
     &_MTLCommandEncoder_insertDebugSignpost,
     &_WMTWaitForVBlank,
+    &_MTLDevice_rasterOrderGroupsSupported,
+    &_MTLDevice_supportsPullModelInterpolation,
+    &_MTLDevice_supportsShaderBarycentricCoordinates,
+    &_MTLDevice_programmableSamplePositionsSupported,
 };
 #endif

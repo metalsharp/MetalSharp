@@ -3436,7 +3436,10 @@ bool MTLD3D12PipelineState::Compile() {
       m_rasterizer_desc.FillMode == D3D12_FILL_MODE_SOLID &&
       m_rasterizer_desc.ForcedSampleCount == 0 &&
       m_rtv_formats[0] == DXGI_FORMAT_R8G8B8A8_UNORM &&
-      m_sample_count == 1 && m_input_layout.NumElements == 1 &&
+      m_device && m_sample_count < 32 &&
+      m_device->GetHostCapabilities().supportsTextureSampleCount(
+          static_cast<uint8_t>(m_sample_count)) &&
+      m_input_layout.NumElements == 1 &&
       m_input_elements.size() == 1 &&
       m_input_elements[0].SemanticName &&
       strcasecmp(m_input_elements[0].SemanticName, "POSITION") == 0 &&

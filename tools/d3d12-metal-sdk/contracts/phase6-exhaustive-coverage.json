@@ -224,6 +224,19 @@
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
     },
     {
+      "id": "p6-conservative-inner-coverage-reference",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "bounded_gpu_reference_rasterizer_with_inner_coverage",
+      "covers": {"primitive_topology": ["triangle_list"], "sample_count": ["1"], "msaa_state": ["single_sample"], "depth_stencil": ["disabled"], "render_targets": ["one"], "viewport_scissor": ["full", "clipped"], "culling_winding": ["none_ccw"], "interpolation": ["flat"], "logic_side_effects": ["none"], "vrs": ["disabled"], "view_instancing": ["disabled"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-inner-coverage",
+      "negative_probe": "probe-graphics-pso",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "inner_coverage_required": true, "ordered_pixel_counts": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "inner_pixels=1200 outer_pixels=204 unexpected_pixels=0 center=0xffffffff", "invalid_interaction": "conservative line and MSAA cases reject before execution"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The GPU reference path proves Tier-3 SV_InnerCoverage for the checked-in conservative fixture with exact inner/outer pixel counts and no unexpected writes. Broad MRT/MSAA/VRS/array/provider shapes remain open below."
+    },
+    {
       "id": "p6-conservative-cross-products",
       "legality": "legal",
       "status": "open",
@@ -243,7 +256,7 @@
       "positive_probe": "probe-view-instancing",
       "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_view_slice_required": true, "zero_mask_no_work_required": true},
-      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "four exact array slices for masks 1,2,4,8 and unchanged slice after mask 0"},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "four exact array slices for masks 1,2,4,8 and unchanged slice after mask 0", "sv_view_id": "slice0 red and slice1 green exact"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
       "reason": "The host maximum view count is four. Draw-level replay routes each mask to a distinct array slice and verifies SetViewInstanceMask(0) does not fall back to an uninstanced draw. Depth/MSAA/VRS combinations remain open below."
     },
@@ -257,6 +270,19 @@
       "negative_probe": "probe-phase6-exhaustive-invalid-view-instancing",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_view_slice_required": true},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
+    },
+    {
+      "id": "p6-rov-msaa-four-sample-ordering",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "flattened_msaa_raster_order_group",
+      "covers": {"rov_resource": ["typed_msaa"], "sample_count": ["4"], "msaa_state": ["color_msaa"], "logic_side_effects": ["rov"], "shader_stages": ["vertex_pixel"], "interpolation": ["sample"], "render_targets": ["one"], "depth_stencil": ["disabled"], "view_instancing": ["disabled"], "vrs": ["disabled"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-rov-msaa",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "ordered_side_effect": true, "one_shot_side_effect_required": true, "per_sample_order_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "three overlapping draws read back [3,3,3,3] for target and [3,3,3,3] for array slice 1 through a compute load", "provider_detail": "2D-array slice per logical sample with Metal raster_order_group"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The source-owned MSAA ROV fixture preserves one ordered side effect for each of four logical samples across three overlapping pixel draws and reads the exact per-sample values back on GPU."
     },
     {
       "id": "p6-rov-msaa-depth-array-breadth",

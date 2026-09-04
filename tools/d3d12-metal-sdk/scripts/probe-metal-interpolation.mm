@@ -42,6 +42,11 @@ int main() {
     id<MTLLibrary> library =
         [device newLibraryWithSource:kSource options:options error:&error];
     const bool compiled = library != nil;
+    const bool raster_order_groups = device.rasterOrderGroupsSupported;
+    const bool pull_model_interpolation = device.supportsPullModelInterpolation;
+    const bool shader_barycentrics = device.supportsShaderBarycentricCoordinates;
+    const bool programmable_sample_positions =
+        device.programmableSamplePositionsSupported;
     std::printf("{\n  \"schema\": \"metalsharp.metal-interpolation.v1\",\n");
     std::printf("  \"device\": \"%s\",\n", device.name.UTF8String);
     std::printf("  \"metal_language\": \"4.0\",\n");
@@ -49,6 +54,14 @@ int main() {
     std::printf("  \"qualified_stage_in\": %s,\n", compiled ? "true" : "false");
     std::printf("  \"explicit_center_centroid_sample_offset\": %s,\n",
                 compiled ? "true" : "false");
+    std::printf("  \"raster_order_groups_supported\": %s,\n",
+                raster_order_groups ? "true" : "false");
+    std::printf("  \"pull_model_interpolation_supported\": %s,\n",
+                pull_model_interpolation ? "true" : "false");
+    std::printf("  \"shader_barycentrics_supported\": %s,\n",
+                shader_barycentrics ? "true" : "false");
+    std::printf("  \"programmable_sample_positions_supported\": %s,\n",
+                programmable_sample_positions ? "true" : "false");
     std::printf("  \"sample_counts\": [");
     const NSUInteger counts[] = {1, 2, 4, 8, 16, 32};
     for (size_t i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i) {
@@ -62,7 +75,10 @@ int main() {
     std::printf("],\n");
     if (error)
       std::printf("  \"error\": \"%s\",\n", error.localizedDescription.UTF8String);
-    std::printf("  \"exact\": %s\n}\n", compiled ? "true" : "false");
-    return compiled ? 0 : 1;
+    const bool exact = compiled && raster_order_groups &&
+                       pull_model_interpolation && shader_barycentrics &&
+                       programmable_sample_positions;
+    std::printf("  \"exact\": %s\n}\n", exact ? "true" : "false");
+    return exact ? 0 : 1;
   }
 }

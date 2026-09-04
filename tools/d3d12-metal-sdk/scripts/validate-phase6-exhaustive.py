@@ -405,7 +405,11 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 value.get("exact") is not True or
                 value.get("library_compiled") is not True or
                 value.get("qualified_stage_in") is not True or
-                value.get("explicit_center_centroid_sample_offset") is not True):
+                value.get("explicit_center_centroid_sample_offset") is not True or
+                value.get("raster_order_groups_supported") is not True or
+                value.get("pull_model_interpolation_supported") is not True or
+                value.get("shader_barycentrics_supported") is not True or
+                value.get("programmable_sample_positions_supported") is not True):
                 errors.append("native Metal interpolation inventory is incomplete")
             counts = value.get("sample_counts", []) if isinstance(value, dict) else []
             if (not isinstance(counts, list) or
@@ -430,6 +434,23 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                  for item in levels if isinstance(item, dict)} != expected_counts or
                 any(item.get("exact") is not True for item in levels if isinstance(item, dict))):
                 errors.append("device caps sample-count quality matrix is incomplete")
+    rov_msaa = result.get("rov_msaa")
+    if rov_msaa is not None:
+        if not isinstance(rov_msaa, dict):
+            errors.append("rov_msaa result must be an object or null")
+        elif (rov_msaa.get("compile_status") != 0 or
+              rov_msaa.get("process_status") != 0):
+            errors.append("ROV MSAA shader/probe process did not complete")
+        else:
+            value = rov_msaa.get("result")
+            expected_values = [3, 3, 3, 3, 3, 3, 3, 3]
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                value.get("values") != expected_values or
+                value.get("values_expected") != expected_values or
+                value.get("values_exact") is not True or
+                value.get("sample_count") != 4 or
+                value.get("draw_count") != 3):
+                errors.append("ROV MSAA ordered four-sample matrix is incomplete")
     view_instancing = result.get("view_instancing")
     if view_instancing is not None:
         if not isinstance(view_instancing, dict):
@@ -449,6 +470,19 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                   any(item.get("exact") is not True for item in value.get("slices", [])
                       if isinstance(item, dict))):
                 errors.append("view instancing four-view/mask-zero matrix is incomplete")
+    view_id = result.get("view_id_instancing")
+    if view_id is not None:
+        if not isinstance(view_id, dict):
+            errors.append("view_id_instancing result must be an object or null")
+        elif (view_id.get("compile_status") != 0 or
+              view_id.get("process_status") != 0):
+            errors.append("SV_ViewID shader/probe process did not complete")
+        else:
+            value = view_id.get("result")
+            if (not isinstance(value, dict) or value.get("ok") is not True or
+                value.get("slice0_red") is not True or
+                value.get("slice1_green") is not True):
+                errors.append("SV_ViewID per-view exact readback is incomplete")
     fixed_function = result.get("fixed_function")
     if fixed_function is not None:
         if not isinstance(fixed_function, dict):
@@ -489,6 +523,32 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                     if isinstance(item, dict)) or
                 value.get("quality_exact") is not True):
                 errors.append("graphics MSAA sample-frequency/mask matrix is incomplete")
+    inner_coverage = result.get("inner_coverage")
+    if inner_coverage is not None:
+        if not isinstance(inner_coverage, dict):
+            errors.append("inner_coverage result must be an object or null")
+        elif inner_coverage.get("process_status") != 0:
+            errors.append("inner coverage probe process did not exit zero")
+        else:
+            value = inner_coverage.get("result")
+            if (not isinstance(value, dict) or value.get("ok") is not True or
+                value.get("inner_pixels") != value.get("expected_inner_pixels") or
+                value.get("outer_pixels") != value.get("expected_outer_pixels") or
+                value.get("unexpected_pixels") != 0):
+                errors.append("SV_InnerCoverage exact conservative matrix is incomplete")
+    conservative_msaa = result.get("conservative_msaa")
+    if conservative_msaa is not None:
+        if not isinstance(conservative_msaa, dict):
+            errors.append("conservative_msaa result must be an object or null")
+        elif conservative_msaa.get("process_status") != 0:
+            errors.append("conservative MSAA probe process did not exit zero")
+        else:
+            value = conservative_msaa.get("result")
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                value.get("pixels_exact") is not True or
+                value.get("red_pixels") != value.get("expected_red_pixels") or
+                value.get("sample_count") != 4):
+                errors.append("conservative MSAA exact coverage matrix is incomplete")
     msaa = result.get("msaa")
     if msaa is not None:
         if not isinstance(msaa, dict):

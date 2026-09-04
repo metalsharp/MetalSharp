@@ -4982,7 +4982,16 @@ static void analyzeBindingPlan(LowerContext &ctx, const LLVMFunction &fn) {
     // resource qualifier, so reject an invalid non-pixel use instead of
     // silently lowering it as an ordinary UAV.
     for (const auto &binding : ctx.mod.resource_bindings) {
-        if (!binding.rasterizer_ordered)
+        const bool flattened_msaa_pixel_uav =
+            ctx.shader.kind == DxilShaderKind::Pixel &&
+            binding.resource_class == 1u &&
+            (binding.resource_kind == 3u || binding.resource_kind == 8u);
+        // Writable MSAA UAVs are represented as a 2D-array slice per logical
+        // sample.  Applying the same Metal raster-order group to that
+        // flattened array preserves the D3D12 per-(x,y,sample) ordering for
+        // the source-owned MSAA ROV fixture; ordinary UAV races are
+        // undefined by D3D12, so the stronger ordering is harmless there.
+        if (!binding.rasterizer_ordered && !flattened_msaa_pixel_uav)
             continue;
         if (ctx.shader.kind != DxilShaderKind::Pixel ||
             binding.resource_class != 1u) {
