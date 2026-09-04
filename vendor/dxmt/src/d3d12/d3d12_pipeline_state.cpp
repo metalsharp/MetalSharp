@@ -106,6 +106,31 @@ vertex m12_conservative_output m12_conservative_vs(
 }
 )metal";
 
+static constexpr const char *kQuadrilateralLineVertexShader = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+struct m12_quadrilateral_line_output {
+  float4 position [[position]];
+  float4 v0 [[user(locn0)]]; float4 v1 [[user(locn1)]];
+  float4 v2 [[user(locn2)]]; float4 v3 [[user(locn3)]];
+  float4 v4 [[user(locn4)]]; float4 v5 [[user(locn5)]];
+  float4 v6 [[user(locn6)]]; float4 v7 [[user(locn7)]];
+  float2 uv0 [[user(locn8)]]; float2 uv1 [[user(locn9)]];
+  float2 uv2 [[user(locn10)]]; float2 uv3 [[user(locn11)]];
+  float4 color0 [[user(locn12)]]; float4 color1 [[user(locn13)]];
+  float4 color2 [[user(locn14)]]; float4 color3 [[user(locn15)]];
+  uint shading_rate [[user(locn16)]];
+};
+
+vertex m12_quadrilateral_line_output m12_quadrilateral_line_vs(
+    uint vid [[vertex_id]], constant float4 *positions [[buffer(26)]]) {
+  m12_quadrilateral_line_output out = {};
+  out.position = positions[vid];
+  return out;
+}
+)metal";
+
 namespace dxmt {
 
 namespace {
@@ -3450,6 +3475,25 @@ bool MTLD3D12PipelineState::Compile() {
       m_input_elements[0].InputSlotClass ==
           D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA &&
       !m_ps.empty() && DXBCContainerHasChunk(m_ps.data(), m_ps.size(), "DXIL");
+  m_uses_quadrilateral_line_reference_model =
+      !m_is_compute && (m_rasterizer_desc2_line_mode == 2 ||
+                        m_rasterizer_desc2_line_mode == 3) &&
+      m_ms.empty() && m_gs.empty() && m_hs.empty() && m_ds.empty() &&
+      m_topology == D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE &&
+      m_rasterizer_desc.FillMode == D3D12_FILL_MODE_SOLID &&
+      m_rasterizer_desc.ForcedSampleCount == 0 && m_device &&
+      m_device->GetHostCapabilities().supportsTextureSampleCount(
+          static_cast<uint8_t>(m_sample_count)) &&
+      m_input_layout.NumElements == 1 && m_input_elements.size() == 1 &&
+      m_input_elements[0].SemanticName &&
+      strcasecmp(m_input_elements[0].SemanticName, "POSITION") == 0 &&
+      m_input_elements[0].SemanticIndex == 0 &&
+      m_input_elements[0].Format == DXGI_FORMAT_R32G32B32_FLOAT &&
+      m_input_elements[0].InputSlot == 0 &&
+      m_input_elements[0].AlignedByteOffset == 0 &&
+      m_input_elements[0].InputSlotClass ==
+          D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA &&
+      !m_vs.empty() && !m_ps.empty();
   m_attribute_at_vertex_input_id = UINT32_MAX;
   m_uses_attribute_at_vertex =
       !m_is_compute && !m_vs.empty() && !m_ps.empty() && m_gs.empty() &&
@@ -3875,6 +3919,33 @@ bool MTLD3D12PipelineState::Compile() {
     info.input_primitive_topology = WMTPrimitiveTopologyClassPoint;
     info.immutable_vertex_buffers &= ~(1u << 26);
   }
+  if (m_uses_quadrilateral_line_reference_model) {
+    WMT::Reference<WMT::Error> line_error;
+    m_quadrilateral_line_vertex_library = wmt_device.newLibraryWithSource(
+        kQuadrilateralLineVertexShader,
+        std::strlen(kQuadrilateralLineVertexShader), line_error);
+    if (line_error.handle) {
+      const std::string detail = DescribeNSObject(line_error.handle);
+      line_error.release();
+      return RecordCompileFailure(
+          "pso/quadrilateral_line_vertex_shader",
+          str::format("Quadrilateral line reference vertex shader failed: ",
+                      detail));
+    }
+    if (!m_quadrilateral_line_vertex_library.handle)
+      return RecordCompileFailure("pso/quadrilateral_line_vertex_shader",
+                                  "Quadrilateral line library is null");
+    m_quadrilateral_line_vertex_function =
+        m_quadrilateral_line_vertex_library.newFunction(
+            "m12_quadrilateral_line_vs");
+    if (!m_quadrilateral_line_vertex_function.handle)
+      return RecordCompileFailure("pso/quadrilateral_line_vertex_shader",
+                                  "Quadrilateral line function is null");
+    info.vertex_function = m_quadrilateral_line_vertex_function.handle;
+    info.vertex_descriptor = nullptr;
+    info.input_primitive_topology = WMTPrimitiveTopologyClassTriangle;
+    info.immutable_vertex_buffers &= ~(1u << 26);
+  }
 
   WMTVertexDescriptor vtx_desc = {};
   if (m_input_layout.NumElements > 0 && m_input_layout.pInputElementDescs) {
@@ -4046,6 +4117,11 @@ bool MTLD3D12PipelineState::Compile() {
     info.vertex_function = m_conservative_vertex_function.handle;
     info.vertex_descriptor = nullptr;
     info.input_primitive_topology = WMTPrimitiveTopologyClassPoint;
+  }
+  if (m_uses_quadrilateral_line_reference_model) {
+    info.vertex_function = m_quadrilateral_line_vertex_function.handle;
+    info.vertex_descriptor = nullptr;
+    info.input_primitive_topology = WMTPrimitiveTopologyClassTriangle;
   }
 
   PSTRACE(

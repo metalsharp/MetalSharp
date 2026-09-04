@@ -162,6 +162,8 @@ struct LegacyTopologyResult {
     uint32_t red_pixels = 0;
     uint32_t red_rows = 0;
     uint32_t red_columns = 0;
+    uint32_t covered_pixels = 0;
+    uint32_t coverage_units = 0;
     bool nonzero = false;
     bool exact_shape = false;
 };
@@ -402,7 +404,9 @@ struct RTFormatArrayProbe {
 
 static LegacyTopologyResult run_rasterizer2_line(
     ID3D12Device2 *device2, ID3D12RootSignature *root, ID3DBlob *vs,
-    ID3DBlob *ps, UINT line_mode) {
+    ID3DBlob *ps, UINT line_mode, UINT sample_count = 1,
+    D3D12_PRIMITIVE_TOPOLOGY draw_topology =
+        D3D_PRIMITIVE_TOPOLOGY_LINELIST) {
     LegacyTopologyResult result;
     if (!device2 || !root || !vs || !ps)
         return result;
@@ -424,14 +428,17 @@ static LegacyTopologyResult run_rasterizer2_line(
     rasterizer.LineRasterizationMode = line_mode;
     D3D12_DEPTH_STENCIL_DESC depth = {};
     depth.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-    D3D12_INPUT_LAYOUT_DESC input = {};
+    D3D12_INPUT_ELEMENT_DESC position_element = {
+        "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+        D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0};
+    D3D12_INPUT_LAYOUT_DESC input = {&position_element, 1};
     D3D12_PRIMITIVE_TOPOLOGY_TYPE topology =
         D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE;
     RTFormatArrayProbe formats = {};
-    formats.formats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    formats.formats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     formats.count = 1;
     DXGI_FORMAT dsv_format = DXGI_FORMAT_UNKNOWN;
-    DXGI_SAMPLE_DESC sample = {1, 0};
+    DXGI_SAMPLE_DESC sample = {sample_count, 0};
     D3D12_PIPELINE_STATE_FLAGS flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
     PipelineStreamBuilder stream;
@@ -465,6 +472,10 @@ static LegacyTopologyResult run_rasterizer2_line(
         constexpr UINT width = 16;
         constexpr UINT height = 16;
         D3D12_RESOURCE_DESC target_desc = texture_desc(width, height);
+        target_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        target_desc.SampleDesc.Count = sample_count;
+        D3D12_RESOURCE_DESC resolve_desc = texture_desc(width, height);
+        resolve_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
         D3D12_CLEAR_VALUE clear = {};
         clear.Format = target_desc.Format;
         clear.Color[3] = 1.0f;
@@ -472,12 +483,16 @@ static LegacyTopologyResult run_rasterizer2_line(
         ID3D12CommandAllocator *allocator = nullptr;
         ID3D12GraphicsCommandList *list = nullptr;
         ID3D12Resource *target = nullptr;
+        ID3D12Resource *resolve_target = nullptr;
+        ID3D12Resource *vertex_buffer = nullptr;
         ID3D12Resource *readback = nullptr;
         ID3D12DescriptorHeap *rtv_heap = nullptr;
         D3D12_COMMAND_QUEUE_DESC queue_desc = {};
         queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         D3D12_HEAP_PROPERTIES default_heap =
             heap_properties(D3D12_HEAP_TYPE_DEFAULT);
+        D3D12_HEAP_PROPERTIES upload_heap =
+            heap_properties(D3D12_HEAP_TYPE_UPLOAD);
         D3D12_HEAP_PROPERTIES readback_heap =
             heap_properties(D3D12_HEAP_TYPE_READBACK);
         HRESULT hr = device2->CreateCommandQueue(&queue_desc,
@@ -494,6 +509,40 @@ static LegacyTopologyResult run_rasterizer2_line(
                 &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
                 IID_PPV_ARGS(&target));
+        if (SUCCEEDED(hr) && sample_count > 1)
+            hr = device2->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &resolve_desc,
+                D3D12_RESOURCE_STATE_RESOLVE_DEST, nullptr,
+                IID_PPV_ARGS(&resolve_target));
+        D3D12_RESOURCE_DESC vertex_desc = {};
+        vertex_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        vertex_desc.Width = 9 * sizeof(float);
+        vertex_desc.Height = 1;
+        vertex_desc.DepthOrArraySize = 1;
+        vertex_desc.MipLevels = 1;
+        vertex_desc.SampleDesc.Count = 1;
+        vertex_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        if (SUCCEEDED(hr))
+            hr = device2->CreateCommittedResource(
+                &upload_heap, D3D12_HEAP_FLAG_NONE, &vertex_desc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&vertex_buffer));
+        if (SUCCEEDED(hr)) {
+            float vertices[9] = {-0.9f, 0.0f, 0.0f,
+                                  0.9f, 0.0f, 0.0f,
+                                  0.9f, 0.0f, 0.0f};
+            if (draw_topology == D3D_PRIMITIVE_TOPOLOGY_LINESTRIP) {
+                vertices[3] = 0.0f;
+                vertices[6] = 0.9f;
+            }
+            void *mapped = nullptr;
+            D3D12_RANGE empty = {0, 0};
+            hr = vertex_buffer->Map(0, &empty, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memcpy(mapped, vertices, sizeof(vertices));
+                vertex_buffer->Unmap(0, nullptr);
+            }
+        }
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         heap_desc.NumDescriptors = 1;
@@ -510,7 +559,7 @@ static LegacyTopologyResult run_rasterizer2_line(
         UINT rows = 0;
         D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
         if (SUCCEEDED(hr))
-            device2->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint,
+            device2->GetCopyableFootprints(&resolve_desc, 0, 1, 0, &footprint,
                                            &rows, &row_size, &total_bytes);
         D3D12_RESOURCE_DESC readback_desc = {};
         readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -536,20 +585,39 @@ static LegacyTopologyResult run_rasterizer2_line(
             list->RSSetScissorRects(1, &scissor);
             list->SetGraphicsRootSignature(root);
             list->SetPipelineState(pso);
-            list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_LINELIST);
+            D3D12_VERTEX_BUFFER_VIEW vbv = {};
+            vbv.BufferLocation = vertex_buffer->GetGPUVirtualAddress();
+            vbv.SizeInBytes = 9 * sizeof(float);
+            vbv.StrideInBytes = 3 * sizeof(float);
+            list->IASetVertexBuffers(0, 1, &vbv);
+            list->IASetPrimitiveTopology(draw_topology);
             list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-            list->DrawInstanced(2, 1, 0, 0);
+            list->DrawInstanced(
+                draw_topology == D3D_PRIMITIVE_TOPOLOGY_LINESTRIP ? 3 : 2,
+                1, 0, 0);
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barrier.Transition.pResource = target;
             barrier.Transition.StateBefore =
                 D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            barrier.Transition.StateAfter =
+                sample_count > 1 ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE
+                                 : D3D12_RESOURCE_STATE_COPY_SOURCE;
             barrier.Transition.Subresource =
                 D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             list->ResourceBarrier(1, &barrier);
+            if (sample_count > 1) {
+                list->ResolveSubresource(resolve_target, 0, target, 0,
+                                         DXGI_FORMAT_R32G32B32A32_FLOAT);
+                barrier.Transition.pResource = resolve_target;
+                barrier.Transition.StateBefore =
+                    D3D12_RESOURCE_STATE_RESOLVE_DEST;
+                barrier.Transition.StateAfter =
+                    D3D12_RESOURCE_STATE_COPY_SOURCE;
+                list->ResourceBarrier(1, &barrier);
+            }
             D3D12_TEXTURE_COPY_LOCATION source = {};
-            source.pResource = target;
+            source.pResource = sample_count > 1 ? resolve_target : target;
             source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
             D3D12_TEXTURE_COPY_LOCATION destination = {};
             destination.pResource = readback;
@@ -567,19 +635,50 @@ static LegacyTopologyResult run_rasterizer2_line(
             if (SUCCEEDED(result.map_hr) && mapped) {
                 const auto *bytes = static_cast<const uint8_t *>(mapped);
                 for (UINT y = 0; y < height; ++y) {
+                    bool row_has_red = false;
                     for (UINT x = 0; x < width; ++x) {
-                        if (is_red_pixel(bytes + y * footprint.Footprint.RowPitch +
-                                         x * 4)) {
-                            ++result.red_pixels;
+                        const auto *pixel = reinterpret_cast<const float *>(
+                            bytes + y * footprint.Footprint.RowPitch + x * 16);
+                        if (pixel[0] > 0.0f && pixel[1] == 0.0f &&
+                            pixel[2] == 0.0f && pixel[3] == 1.0f) {
+                            ++result.covered_pixels;
+                            result.coverage_units += static_cast<uint32_t>(
+                                pixel[0] * sample_count + 0.5f);
                             result.nonzero = true;
+                            row_has_red = true;
+                            if (pixel[0] == 1.0f)
+                                ++result.red_pixels;
                         }
                     }
+                    result.red_rows += row_has_red ? 1u : 0u;
                 }
                 readback->Unmap(0, nullptr);
             }
         }
-        result.exact_shape = result.red_pixels == 14;
+        const UINT expected_rows = line_mode == 2 ? 2u : 1u;
+        const UINT expected_pixels = 14u * expected_rows;
+        if (sample_count == 1) {
+            result.exact_shape = result.red_pixels == expected_pixels &&
+                                 result.red_rows == expected_rows;
+        } else if (sample_count == 2) {
+            result.exact_shape = result.red_pixels == 0 &&
+                                 result.red_rows == 2 &&
+                                 result.covered_pixels == 28 &&
+                                 result.coverage_units == 28;
+        } else if (sample_count == 4 && line_mode == 2) {
+            result.exact_shape = result.red_pixels == 0 &&
+                                 result.red_rows == 2 &&
+                                 result.covered_pixels == 32 &&
+                                 result.coverage_units == 88;
+        } else if (sample_count == 4 && line_mode == 3) {
+            result.exact_shape = result.red_pixels == 0 &&
+                                 result.red_rows == 2 &&
+                                 result.covered_pixels == 30 &&
+                                 result.coverage_units == 58;
+        }
         safe_release(readback);
+        safe_release(resolve_target);
+        safe_release(vertex_buffer);
         safe_release(target);
         safe_release(rtv_heap);
         safe_release(list);
@@ -686,10 +785,25 @@ VSOut vs(uint id : SV_VertexID) {
 }
 float4 ps(VSOut input) : SV_Target0 { return input.color; }
 )HLSL";
+    static const char *quadrilateral_hlsl = R"HLSL(
+struct VSOut { float4 position : SV_POSITION; };
+VSOut vs(float3 position : POSITION) {
+  VSOut o;
+  o.position = float4(position, 1.0);
+  return o;
+}
+float4 ps() : SV_Target0 { return float4(1.0, 0.0, 0.0, 1.0); }
+)HLSL";
     ID3DBlob *vs = nullptr;
     ID3DBlob *ps = nullptr;
+    ID3DBlob *quadrilateral_vs = nullptr;
+    ID3DBlob *quadrilateral_ps = nullptr;
     HRESULT vs_hr = compile_shader(hlsl, "vs", "vs_5_0", &vs, errors);
     HRESULT ps_hr = compile_shader(hlsl, "ps", "ps_5_0", &ps, errors);
+    HRESULT quadrilateral_vs_hr = compile_shader(
+        quadrilateral_hlsl, "vs", "vs_5_0", &quadrilateral_vs, errors);
+    HRESULT quadrilateral_ps_hr = compile_shader(
+        quadrilateral_hlsl, "ps", "ps_5_0", &quadrilateral_ps, errors);
 
     LegacyTopologyResult point = run_legacy_topology(
         device, root, vs, ps, D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT,
@@ -706,16 +820,46 @@ float4 ps(VSOut input) : SV_Target0 { return input.color; }
                              : E_FAIL;
     LegacyTopologyResult rasterizer2[4] = {};
     for (UINT mode = 0; mode < 4; ++mode)
-        rasterizer2[mode] = run_rasterizer2_line(device2, root, vs, ps, mode);
+        rasterizer2[mode] = run_rasterizer2_line(
+            device2, root, quadrilateral_vs, quadrilateral_ps, mode);
+    LegacyTopologyResult quadrilateral_strip[2] = {
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 2, 1,
+                             D3D_PRIMITIVE_TOPOLOGY_LINESTRIP),
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 3, 1,
+                             D3D_PRIMITIVE_TOPOLOGY_LINESTRIP),
+    };
+    LegacyTopologyResult quadrilateral_msaa[4] = {
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 2, 2),
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 2, 4),
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 3, 2),
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 3, 4),
+    };
     InvalidRasterizer2Result invalid_rasterizer2 =
         run_invalid_rasterizer2(device2, root, vs, ps);
 
     bool pass = SUCCEEDED(create_hr) && SUCCEEDED(root_hr) && SUCCEEDED(vs_hr) &&
-                SUCCEEDED(ps_hr) && point.exact_shape && line.exact_shape;
+                SUCCEEDED(ps_hr) && SUCCEEDED(quadrilateral_vs_hr) &&
+                SUCCEEDED(quadrilateral_ps_hr) && point.exact_shape &&
+                line.exact_shape;
     bool rasterizer2_created = SUCCEEDED(device2_hr);
     for (const auto &result : rasterizer2)
         rasterizer2_created &= SUCCEEDED(result.pso_hr) && result.exact_shape;
-    pass = pass && rasterizer2_created && invalid_rasterizer2.exact;
+    bool quadrilateral_strip_exact = true;
+    for (const auto &result : quadrilateral_strip)
+        quadrilateral_strip_exact &=
+            SUCCEEDED(result.pso_hr) && result.exact_shape;
+    bool quadrilateral_msaa_exact = true;
+    for (const auto &result : quadrilateral_msaa)
+        quadrilateral_msaa_exact &=
+            SUCCEEDED(result.pso_hr) && result.exact_shape;
+    pass = pass && rasterizer2_created && quadrilateral_strip_exact &&
+           quadrilateral_msaa_exact && invalid_rasterizer2.exact;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12.rasterization-breadth.v1\",\n");
@@ -737,14 +881,51 @@ float4 ps(VSOut input) : SV_Target0 { return input.color; }
     std::printf("  \"rasterizer2\": [\n");
     for (UINT mode = 0; mode < 4; ++mode) {
         const auto &result = rasterizer2[mode];
-        std::printf("    {\"mode\": %u, \"pso_hr\": \"%s\", \"execute_hr\": \"%s\", \"map_hr\": \"%s\", \"red_pixels\": %u, \"exact_shape\": %s}%s\n",
+        const UINT expected_rows = mode == 2 ? 2u : 1u;
+        std::printf("    {\"mode\": %u, \"pso_hr\": \"%s\", \"execute_hr\": \"%s\", \"map_hr\": \"%s\", \"red_pixels\": %u, \"red_rows\": %u, \"expected_pixels\": %u, \"expected_rows\": %u, \"exact_shape\": %s}%s\n",
                     mode, hr_hex(result.pso_hr).c_str(),
                     hr_hex(result.execute_hr).c_str(),
                     hr_hex(result.map_hr).c_str(), result.red_pixels,
+                    result.red_rows, 14u * expected_rows, expected_rows,
                     result.exact_shape ? "true" : "false",
                     mode == 3 ? "" : ",");
     }
     std::printf("  ],\n");
+    std::printf("  \"quadrilateral_line_strip\": [\n");
+    for (UINT i = 0; i < 2; ++i) {
+        const UINT mode = i + 2;
+        const UINT expected_rows = mode == 2 ? 2u : 1u;
+        const auto &result = quadrilateral_strip[i];
+        std::printf("    {\"mode\": %u, \"pso_hr\": \"%s\", \"execute_hr\": \"%s\", \"map_hr\": \"%s\", \"red_pixels\": %u, \"red_rows\": %u, \"expected_pixels\": %u, \"expected_rows\": %u, \"exact_shape\": %s}%s\n",
+                    mode, hr_hex(result.pso_hr).c_str(),
+                    hr_hex(result.execute_hr).c_str(),
+                    hr_hex(result.map_hr).c_str(), result.red_pixels,
+                    result.red_rows, 14u * expected_rows, expected_rows,
+                    result.exact_shape ? "true" : "false", i == 1 ? "" : ",");
+    }
+    std::printf("  ],\n");
+    std::printf("  \"quadrilateral_line_strip_exact\": %s,\n",
+                quadrilateral_strip_exact ? "true" : "false");
+    std::printf("  \"quadrilateral_msaa\": [\n");
+    for (UINT i = 0; i < 4; ++i) {
+        const UINT mode = i < 2 ? 2 : 3;
+        const UINT samples = (i & 1u) ? 4 : 2;
+        const UINT expected_covered =
+            samples == 2 ? 28u : (mode == 2 ? 32u : 30u);
+        const UINT expected_units =
+            samples == 2 ? 28u : (mode == 2 ? 88u : 58u);
+        const auto &result = quadrilateral_msaa[i];
+        std::printf("    {\"mode\": %u, \"sample_count\": %u, \"pso_hr\": \"%s\", \"execute_hr\": \"%s\", \"map_hr\": \"%s\", \"red_pixels\": %u, \"red_rows\": %u, \"covered_pixels\": %u, \"coverage_units\": %u, \"expected_covered_pixels\": %u, \"expected_coverage_units\": %u, \"expected_rows\": 2, \"exact_shape\": %s}%s\n",
+                    mode, samples, hr_hex(result.pso_hr).c_str(),
+                    hr_hex(result.execute_hr).c_str(),
+                    hr_hex(result.map_hr).c_str(), result.red_pixels,
+                    result.red_rows, result.covered_pixels,
+                    result.coverage_units, expected_covered, expected_units,
+                    result.exact_shape ? "true" : "false", i == 3 ? "" : ",");
+    }
+    std::printf("  ],\n");
+    std::printf("  \"quadrilateral_msaa_exact\": %s,\n",
+                quadrilateral_msaa_exact ? "true" : "false");
     std::printf("  \"pass\": %s,\n", pass ? "true" : "false");
     std::printf("  \"rasterizer2_invalid\": {\"pso_hr\": \"%s\", "
                 "\"object_null\": %s, \"exact\": %s},\n",
@@ -756,6 +937,8 @@ float4 ps(VSOut input) : SV_Target0 { return input.color; }
     std::printf("}\n");
 
     safe_release(device2);
+    safe_release(quadrilateral_ps);
+    safe_release(quadrilateral_vs);
     safe_release(ps);
     safe_release(vs);
     safe_release(root);

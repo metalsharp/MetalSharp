@@ -378,10 +378,47 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 any(mode.get("pso_hr") != "0x00000000" or
                     mode.get("execute_hr") != "0x00000000" or
                     mode.get("map_hr") != "0x00000000" or
-                    mode.get("red_pixels") != 14 or
+                    mode.get("red_pixels") != (28 if mode.get("mode") == 2 else 14) or
+                    mode.get("red_rows") != (2 if mode.get("mode") == 2 else 1) or
+                    mode.get("expected_pixels") != (28 if mode.get("mode") == 2 else 14) or
+                    mode.get("expected_rows") != (2 if mode.get("mode") == 2 else 1) or
                     mode.get("exact_shape") is not True
                     for mode in modes if isinstance(mode, dict))):
                 errors.append("rasterizer2 four-mode exact rows are incomplete")
+            quadrilateral_strip = value.get("quadrilateral_line_strip")
+            if (not isinstance(quadrilateral_strip, list) or
+                len(quadrilateral_strip) != 2 or
+                value.get("quadrilateral_line_strip_exact") is not True or
+                any(not isinstance(case, dict) or case.get("mode") not in (2, 3) or
+                    case.get("red_pixels") != (28 if case.get("mode") == 2 else 14) or
+                    case.get("red_rows") != (2 if case.get("mode") == 2 else 1) or
+                    case.get("pso_hr") != "0x00000000" or
+                    case.get("execute_hr") != "0x00000000" or
+                    case.get("map_hr") != "0x00000000" or
+                    case.get("exact_shape") is not True
+                    for case in quadrilateral_strip)):
+                errors.append("quadrilateral line-strip matrix is incomplete")
+            quadrilateral_msaa = value.get("quadrilateral_msaa")
+            expected_msaa = {(2, 2): (28, 28), (2, 4): (32, 88),
+                             (3, 2): (28, 28), (3, 4): (30, 58)}
+            if (not isinstance(quadrilateral_msaa, list) or
+                len(quadrilateral_msaa) != 4 or
+                value.get("quadrilateral_msaa_exact") is not True or
+                any(not isinstance(case, dict) or
+                    (case.get("mode"), case.get("sample_count")) not in expected_msaa or
+                    case.get("red_pixels") != 0 or case.get("red_rows") != 2 or
+                    case.get("covered_pixels") != expected_msaa.get(
+                        (case.get("mode"), case.get("sample_count")), (-1, -1))[0] or
+                    case.get("coverage_units") != expected_msaa.get(
+                        (case.get("mode"), case.get("sample_count")), (-1, -1))[1] or
+                    case.get("expected_covered_pixels") != case.get("covered_pixels") or
+                    case.get("expected_coverage_units") != case.get("coverage_units") or
+                    case.get("pso_hr") != "0x00000000" or
+                    case.get("execute_hr") != "0x00000000" or
+                    case.get("map_hr") != "0x00000000" or
+                    case.get("exact_shape") is not True
+                    for case in quadrilateral_msaa)):
+                errors.append("quadrilateral line 2x/4x matrix is incomplete")
     rov_dimensions = result.get("rov_dimensions")
     if rov_dimensions is not None:
         if not isinstance(rov_dimensions, dict):
