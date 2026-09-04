@@ -51,6 +51,8 @@
         ["gpu_input_readback_exact"],
         ["multi_node_cpu_readback_exact"],
         ["multi_node_gpu_readback_exact"],
+        ["multi_node_cpu_pointer_free"],
+        ["multi_node_negative_unchanged"],
         ["record_count", 3],
         ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]
