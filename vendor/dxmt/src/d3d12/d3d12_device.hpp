@@ -198,6 +198,9 @@ public:
     std::string msl;
     uint32_t input_record_size = 0;
     uint32_t input_record_alignment = 0;
+    uint32_t launch_type = 0;
+    uint32_t threads[3] = {1, 1, 1};
+    uint32_t grid[3] = {1, 1, 1};
   };
   void RegisterWorkGraphProgram(const uint8_t *identifier,
                                 size_t identifier_size,

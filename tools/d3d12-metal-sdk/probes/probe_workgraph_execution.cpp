@@ -268,6 +268,9 @@ int main() {
     bool input_program_ready = false;
     bool node_input_binding_exact = false;
     bool node_internal_binding_rejected = false;
+    bool node_launch_geometry_exact = false;
+    bool node_dynamic_grid_rejected = false;
+    uint32_t node_launch_values[8] = {};
     bool node_input_gpu_dependency_exact = false;
     uint32_t node_input_gpu_dependency_values[2] = {};
     uint32_t multi_cpu_values[8] = {};
@@ -608,6 +611,20 @@ int main() {
         release(program_properties);
         release(layout_properties);
         input_program_state = layout_state;
+        D3D12_EXPORT_DESC dynamic_export = {};
+        dynamic_export.Name = L"node_dynamic";
+        WorkGraphNodeID dynamic_entry = {L"node_dynamic", 0};
+        WorkGraphNode dynamic_node = {0, {L"node_dynamic", 0, nullptr}};
+        library.NumExports = 1;
+        library.pExports = &dynamic_export;
+        graph.NumEntrypoints = 1;
+        graph.Entrypoints = &dynamic_entry;
+        graph.NumExplicitlyDefinedNodes = 1;
+        graph.Nodes = &dynamic_node;
+        ID3D12StateObject* rejected = reinterpret_cast<ID3D12StateObject*>(uintptr_t(1));
+        const HRESULT rejected_hr = device5->CreateStateObject(&desc, IID_PPV_ARGS(&rejected));
+        node_dynamic_grid_rejected = rejected_hr == E_FAIL && rejected == nullptr;
+        if (rejected && rejected != reinterpret_cast<ID3D12StateObject*>(uintptr_t(1))) release(rejected);
     }
     uint8_t node_shader_identifier[32] = {};
     HRESULT node_shader_hr = E_FAIL;
@@ -1574,6 +1591,30 @@ int main() {
         }
     }
 
+    if (SUCCEEDED(hr) && input_program_ready) {
+        uint32_t records[4] = {101, 202, 303, 404};
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+        SetProgramDesc program = set_program;
+        std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier, 32);
+        DispatchGraphDesc dispatch = {};
+        dispatch.NodeCPUInput = {0, 1, records, sizeof(records)};
+        if (SUCCEEDED(hr)) {
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0, node_output->GetGPUVirtualAddress());
+            list->SetProgram(&program);
+            list->DispatchGraph(&dispatch);
+            for (auto &value : records) value = 0;
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) hr = node_output->ReadFromSubresource(node_launch_values, 32, 32, 0, nullptr);
+        if (SUCCEEDED(hr)) {
+            node_launch_geometry_exact = true;
+            for (UINT i = 0; i < 8; ++i)
+                node_launch_geometry_exact &= node_launch_values[i] == 101u * (1 + i % 4);
+        }
+    }
+
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
@@ -1589,7 +1630,7 @@ int main() {
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
-        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && dxil_multi_node_readback_exact &&
+        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
@@ -1650,6 +1691,9 @@ int main() {
                 node_multi_bytecode_loaded ? "true" : "false");
     std::printf("  \"dxil_multi_node_readback_exact\": %s,\n",
                 dxil_multi_node_readback_exact ? "true" : "false");
+    std::printf("  \"node_dynamic_grid_rejected\": %s,\n", node_dynamic_grid_rejected ? "true" : "false");
+    std::printf("  \"node_launch_geometry_exact\": %s,\n", node_launch_geometry_exact ? "true" : "false");
+    std::printf("  \"node_launch_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n", node_launch_values[0], node_launch_values[1], node_launch_values[2], node_launch_values[3], node_launch_values[4], node_launch_values[5], node_launch_values[6], node_launch_values[7]);
     std::printf("  \"node_input_gpu_dependency_exact\": %s,\n", node_input_gpu_dependency_exact ? "true" : "false");
     std::printf("  \"node_input_gpu_dependency_values\": [%u, %u],\n", node_input_gpu_dependency_values[0], node_input_gpu_dependency_values[1]);
     std::printf("  \"node_internal_binding_rejected\": %s,\n", node_internal_binding_rejected ? "true" : "false");
@@ -1720,7 +1764,7 @@ int main() {
                    dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
-                   node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact &&
+                   node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
                    node_multi_gpu_input_exact
                ? 0

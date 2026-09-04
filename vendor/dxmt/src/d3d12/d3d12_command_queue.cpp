@@ -3312,7 +3312,7 @@ struct ReplayState {
     wmtcmd_compute_setpso set_pso = {};
     set_pso.type = WMTComputeCommandSetPSO;
     set_pso.pso = work_graph_node_pipeline.handle;
-    set_pso.threadgroup_size = {1, 1, 1};
+    set_pso.threadgroup_size = {shader.threads[0], shader.threads[1], shader.threads[2]};
     if (!append(set_pso))
       return false;
     for (uint32_t index = 0; index < 31; ++index) {
@@ -3339,7 +3339,7 @@ struct ReplayState {
     }
     wmtcmd_compute_dispatch dispatch = {};
     dispatch.type = WMTComputeCommandDispatch;
-    dispatch.size = {record_count, 1, 1};
+    dispatch.size = {shader.grid[0], shader.grid[1], shader.grid[2]};
     if (!append(dispatch))
       return false;
     WMT::ComputeCommandEncoder encoder =

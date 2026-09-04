@@ -41,7 +41,11 @@ The warning exception is for an existing unused parser constant. The test
 checks distinct entrypoint record sizes (4 and 16), alignment (4), threadgroup
 sizes (1 and 4), and dispatch grids (1 and 2). It also checks the production
 layout decoder's DWORD padding of a 16-bit record, zero size/alignment for
-empty input, and rejection of missing/duplicate entrypoints. It checks module-copy ownership
+empty input, and rejection of missing/duplicate entrypoints. The launch decoder
+checks fixed per-entrypoint threadgroup/grid values and refuses to substitute a
+max grid for record-driven SV_DispatchGrid. The vector GEP check verifies that
+all three indices survive bitcode parsing, including the dynamic lane index.
+It checks module-copy ownership
 and null, missing, and out-of-range operand lookup. It fails against the prior
 parser because `dx.entryPoints` is discarded. This does not certify arbitrary
 malformed bitcode rejection or implement runtime record allocation.

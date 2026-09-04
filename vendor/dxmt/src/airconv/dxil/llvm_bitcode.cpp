@@ -1318,11 +1318,14 @@ static bool parseFunctionBlock(ParseContext &ctx, LLVMFunction &fn,
       if (cur_block < fn.blocks.size()) {
         LLVMInstruction inst;
         inst.opcode = LLVMInstruction::GetElementPtr;
-        size_t first_operand = rec_code == kFuncCode_InstGEP ? 3 : 1;
-        if (first_operand < ops.size())
-          inst.operands.push_back(value(ops[first_operand]));
-        for (size_t i = first_operand + 2; i < ops.size(); i += 2)
-          inst.operands.push_back(value(ops[i]));
+        size_t slot = rec_code == kFuncCode_InstGEP ? 3 : 1;
+        // Like LLVM's reader, consume a type only for forward references.
+        // Known values have no trailing type ID; advancing by two discarded
+        // indices (including dynamic vector-component indices).
+        while (slot < ops.size()) {
+          uint32_t operand_type = 0;
+          inst.operands.push_back(valueTypePair(ops, slot, operand_type));
+        }
         fn.blocks[cur_block].instructions.push_back(inst);
         noteResult();
       }

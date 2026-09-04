@@ -97,4 +97,52 @@ inline std::optional<NodeInputLayout> nodeInputLayout(
   if (layout.alignment < 4) layout.alignment = 4;
   return layout;
 }
+
+struct NodeShaderMetadata {
+  NodeInputLayout input;
+  uint32_t launch_type = 0;
+  uint32_t threads[3] = {1, 1, 1};
+  uint32_t grid[3] = {1, 1, 1};
+};
+
+inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
+    const LLVMModule &module, const std::string &entrypoint) {
+  using namespace node_metadata_detail;
+  const auto input = nodeInputLayout(module, entrypoint);
+  if (!input) return std::nullopt;
+  NodeShaderMetadata result;
+  result.input = *input;
+  const auto &entries = module.named_metadata.at("dx.entryPoints");
+  const LLVMMetadataRecord *properties = nullptr;
+  for (uint32_t id : entries) {
+    const auto &entry = module.metadata_records[id];
+    const auto *name = module.metadataOperand(entry, 1);
+    if (name && name->kind == LLVMMetadataRecord::Kind::String &&
+        name->string_value == entrypoint)
+      properties = module.metadataOperand(entry, 4);
+  }
+  if (!properties) return std::nullopt;
+  const LLVMMetadataRecord *launch = nullptr, *threads = nullptr, *grid = nullptr;
+  if (!tag(module, *properties, 13, launch) || !integer(module, launch, result.launch_type) ||
+      result.launch_type < 1 || result.launch_type > 3 ||
+      !tag(module, *properties, 4, threads) || !tag(module, *properties, 18, grid))
+    return std::nullopt;
+  // A broadcasting node without a fixed grid needs record-driven grid decoding,
+  // which must not be replaced by the max grid or an invented one-group launch.
+  if (result.launch_type == 1 && !grid) return std::nullopt;
+  if (result.launch_type != 3 && !threads) return std::nullopt;
+  for (unsigned i = 0; i < 3; ++i) {
+    if (threads && (threads->operands.size() != 3 ||
+        !integer(module, module.metadataOperand(*threads, i), result.threads[i])))
+      return std::nullopt;
+    if (grid && (grid->operands.size() != 3 ||
+        !integer(module, module.metadataOperand(*grid, i), result.grid[i])))
+      return std::nullopt;
+    if (!result.threads[i] || result.threads[i] > 1024 ||
+        !result.grid[i] || result.grid[i] > 65535) return std::nullopt;
+  }
+  if (uint64_t(result.threads[0]) * result.threads[1] * result.threads[2] > 1024)
+    return std::nullopt;
+  return result;
+}
 } // namespace dxmt::dxil

@@ -3861,9 +3861,9 @@ static bool DXILUsesHitObjectInvoke(const D3D12_SHADER_BYTECODE &bytecode) {
 
 static bool LowerWorkGraphNodeShader(
     const D3D12_SHADER_BYTECODE &bytecode, LPCWSTR entry_point,
-    std::string &source, dxmt::dxil::NodeInputLayout &input_layout) {
+    std::string &source, dxmt::dxil::NodeShaderMetadata &metadata) {
   source.clear();
-  input_layout = {};
+  metadata = {};
   if (!entry_point || !entry_point[0])
     return false;
   std::vector<uint8_t> dxil;
@@ -3890,7 +3890,7 @@ static bool LowerWorkGraphNodeShader(
   if (!lowered || lowered->unsupported_intrinsics ||
       lowered->unsupported_opcodes)
     return false;
-  const auto layout = dxmt::dxil::nodeInputLayout(*module, shader.entry_point);
+  const auto layout = dxmt::dxil::nodeShaderMetadata(*module, shader.entry_point);
   if (!layout)
     return false;
   // Node input context/payload and output records occupy internal bindings.
@@ -3904,7 +3904,7 @@ static bool LowerWorkGraphNodeShader(
          binding.resource_kind != 12u))
       return false;
   }
-  input_layout = *layout;
+  metadata = *layout;
   source = std::move(lowered->source);
   return !source.empty();
 }
@@ -4170,7 +4170,8 @@ public:
           m_work_graph_nodes.push_back(id);
           std::string node_msl;
           // The library-free reference fixture has a synthetic 16-byte ABI.
-          dxmt::dxil::NodeInputLayout input_layout{16, 16};
+          dxmt::dxil::NodeShaderMetadata input_layout;
+          input_layout.input = {16, 16};
           if (node_library.pShaderBytecode &&
               !LowerWorkGraphNodeShader(node_library, source.Shader.Shader,
                                          node_msl, input_layout))
@@ -4214,7 +4215,8 @@ public:
             id.ArrayIndex = entrypoint.ArrayIndex;
             m_work_graph_nodes.push_back(id);
             std::string node_msl;
-            dxmt::dxil::NodeInputLayout input_layout{16, 16};
+            dxmt::dxil::NodeShaderMetadata input_layout;
+            input_layout.input = {16, 16};
             if (node_library.pShaderBytecode &&
                 !LowerWorkGraphNodeShader(node_library, entrypoint.Name,
                                            node_msl, input_layout))
@@ -5056,8 +5058,14 @@ public:
         if (node < m_work_graph_node_msl.size() &&
             node < m_work_graph_node_layouts.size()) {
           entrypoint_shaders[entry].msl = m_work_graph_node_msl[node];
-          entrypoint_shaders[entry].input_record_size = m_work_graph_node_layouts[node].size;
-          entrypoint_shaders[entry].input_record_alignment = m_work_graph_node_layouts[node].alignment;
+          const auto &metadata = m_work_graph_node_layouts[node];
+          entrypoint_shaders[entry].input_record_size = metadata.input.size;
+          entrypoint_shaders[entry].input_record_alignment = metadata.input.alignment;
+          entrypoint_shaders[entry].launch_type = metadata.launch_type;
+          for (unsigned axis = 0; axis < 3; ++axis) {
+            entrypoint_shaders[entry].threads[axis] = metadata.threads[axis];
+            entrypoint_shaders[entry].grid[axis] = metadata.grid[axis];
+          }
         }
       }
       m_device->RegisterWorkGraphProgram(
@@ -5183,7 +5191,7 @@ public:
       return UINT_MAX;
     const UINT node = GetNodeIndex(graph, m_work_graph_entrypoints[entrypoint]);
     return node < m_work_graph_node_layouts.size()
-               ? m_work_graph_node_layouts[node].size : UINT_MAX;
+               ? m_work_graph_node_layouts[node].input.size : UINT_MAX;
   }
 
   void STDMETHODCALLTYPE GetWorkGraphMemoryRequirements(
@@ -5205,7 +5213,7 @@ public:
       return UINT_MAX;
     const UINT node = GetNodeIndex(graph, m_work_graph_entrypoints[entrypoint]);
     return node < m_work_graph_node_layouts.size()
-               ? m_work_graph_node_layouts[node].alignment : UINT_MAX;
+               ? m_work_graph_node_layouts[node].input.alignment : UINT_MAX;
   }
 
 private:
@@ -5239,7 +5247,7 @@ private:
   std::vector<D3D12WorkGraphNodeIDCompat> m_work_graph_entrypoints;
   std::vector<UINT> m_work_graph_local_root_indices;
   std::vector<std::string> m_work_graph_node_msl;
-  std::vector<dxmt::dxil::NodeInputLayout> m_work_graph_node_layouts;
+  std::vector<dxmt::dxil::NodeShaderMetadata> m_work_graph_node_layouts;
 };
 
 WMT::Reference<WMT::ComputePipelineState>
