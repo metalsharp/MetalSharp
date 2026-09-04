@@ -6291,6 +6291,15 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommittedResource(
       !IsValidOptimizedClearValue(normalized_desc, optimized_clear_value))
     return E_INVALIDARG;
   desc = &normalized_desc;
+  if (desc->SampleDesc.Count > 1 &&
+      !IsWritableMSAAResourceDesc(*desc) &&
+      (desc->SampleDesc.Count >= 32 ||
+       !GetHostCapabilities().supportsTextureSampleCount(
+           static_cast<uint8_t>(desc->SampleDesc.Count)))) {
+    TRACE("CreateCommittedResource rejected unsupported native sample count=%u",
+          desc->SampleDesc.Count);
+    return E_INVALIDARG;
+  }
 
   auto res = new MTLD3D12Resource(
       this, *desc, initial_state,
@@ -6382,6 +6391,15 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePlacedResource(
       !IsValidOptimizedClearValue(normalized_desc, optimized_clear_value))
     return E_INVALIDARG;
   desc = &normalized_desc;
+  if (desc->SampleDesc.Count > 1 &&
+      !IsWritableMSAAResourceDesc(*desc) &&
+      (desc->SampleDesc.Count >= 32 ||
+       !GetHostCapabilities().supportsTextureSampleCount(
+           static_cast<uint8_t>(desc->SampleDesc.Count)))) {
+    TRACE("CreatePlacedResource rejected unsupported native sample count=%u",
+          desc->SampleDesc.Count);
+    return E_INVALIDARG;
+  }
 
   D3D12_HEAP_PROPERTIES heap_props = {};
   D3D12_HEAP_FLAGS heap_flags = D3D12_HEAP_FLAG_NONE;

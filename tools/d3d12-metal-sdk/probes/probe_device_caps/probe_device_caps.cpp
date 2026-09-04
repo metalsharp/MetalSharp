@@ -190,6 +190,8 @@ int main() {
     HRESULT zero_size_feature_hr = E_FAIL;
     HRESULT null_data_feature_hr = E_FAIL;
     HRESULT null_feature_level_list_hr = E_FAIL;
+    HRESULT native_msaa8_resource_hr = E_FAIL;
+    HRESULT writable_msaa8_resource_hr = E_FAIL;
     constexpr UINT kMsaaProbeCounts[] = {1, 2, 4, 8, 16, 32};
     D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS msaa_levels[
         sizeof(kMsaaProbeCounts) / sizeof(kMsaaProbeCounts[0])] = {};
@@ -234,6 +236,36 @@ int main() {
             msaa_level_hr[i] = device->CheckFeatureSupport(
                 D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &msaa_levels[i],
                 sizeof(msaa_levels[i]));
+
+        D3D12_HEAP_PROPERTIES default_heap = {};
+        default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        default_heap.CreationNodeMask = 1;
+        default_heap.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC msaa8_desc = {};
+        msaa8_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        msaa8_desc.Width = 1;
+        msaa8_desc.Height = 1;
+        msaa8_desc.DepthOrArraySize = 1;
+        msaa8_desc.MipLevels = 1;
+        msaa8_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        msaa8_desc.SampleDesc.Count = 8;
+        msaa8_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        msaa8_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        ID3D12Resource* native_msaa8_resource = nullptr;
+        native_msaa8_resource_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &msaa8_desc,
+            D3D12_RESOURCE_STATE_RENDER_TARGET, nullptr,
+            IID_PPV_ARGS(&native_msaa8_resource));
+        if (native_msaa8_resource)
+            native_msaa8_resource->Release();
+        msaa8_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        ID3D12Resource* writable_msaa8_resource = nullptr;
+        writable_msaa8_resource_hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &msaa8_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&writable_msaa8_resource));
+        if (writable_msaa8_resource)
+            writable_msaa8_resource->Release();
 
         D3D12_RESOURCE_DESC reserved_desc = {};
         reserved_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -300,6 +332,9 @@ int main() {
     bool state_objects_unsupported = FAILED(query_device5_hr) || FAILED(create_state_object_hr);
     bool feature_query_validation = invalid_feature_hr == E_INVALIDARG && zero_size_feature_hr == E_INVALIDARG &&
                                     null_data_feature_hr == E_POINTER && null_feature_level_list_hr == E_INVALIDARG;
+    const bool msaa_resource_boundary_exact =
+        native_msaa8_resource_hr == E_INVALIDARG &&
+        writable_msaa8_resource_hr == S_OK;
     bool msaa_quality_query_exact = true;
     for (size_t i = 0; i < sizeof(kMsaaProbeCounts) / sizeof(kMsaaProbeCounts[0]); ++i)
         msaa_quality_query_exact = msaa_quality_query_exact &&
@@ -314,7 +349,8 @@ int main() {
                 atomic64_conservative && advanced_features_reported &&
                 options15_reported && dynamic_depth_bias_reported &&
                 gpu_upload_supported && stream_output_conservative && reserved_resources_unsupported &&
-                state_objects_unsupported && feature_query_validation && msaa_quality_query_exact;
+                state_objects_unsupported && feature_query_validation &&
+                msaa_quality_query_exact && msaa_resource_boundary_exact;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.probe-device-caps.v1\",\n");
@@ -436,7 +472,13 @@ int main() {
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
     std::printf("    \"state_objects_unsupported\": %s,\n", state_objects_unsupported ? "true" : "false");
     std::printf("    \"feature_query_validation\": %s,\n", feature_query_validation ? "true" : "false");
-    std::printf("    \"msaa_quality_query_exact\": %s\n", msaa_quality_query_exact ? "true" : "false");
+    std::printf("    \"msaa_quality_query_exact\": %s,\n", msaa_quality_query_exact ? "true" : "false");
+    std::printf("    \"native_msaa8_resource_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(native_msaa8_resource_hr)));
+    std::printf("    \"writable_msaa8_resource_hr\": \"0x%08lx\",\n",
+                static_cast<unsigned long>(static_cast<uint32_t>(writable_msaa8_resource_hr)));
+    std::printf("    \"msaa_resource_boundary_exact\": %s\n",
+                msaa_resource_boundary_exact ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"requirements\": {\n");
     std::printf("    \"feature_level_12_0_or_better\": %s,\n", feature_level_ok ? "true" : "false");
@@ -462,7 +504,9 @@ int main() {
     std::printf("    \"reserved_resources_unsupported\": %s,\n", reserved_resources_unsupported ? "true" : "false");
     std::printf("    \"state_objects_unsupported\": %s,\n", state_objects_unsupported ? "true" : "false");
     std::printf("    \"feature_query_validation\": %s,\n", feature_query_validation ? "true" : "false");
-    std::printf("    \"msaa_quality_query_exact\": %s\n", msaa_quality_query_exact ? "true" : "false");
+    std::printf("    \"msaa_quality_query_exact\": %s,\n", msaa_quality_query_exact ? "true" : "false");
+    std::printf("    \"msaa_resource_boundary_exact\": %s\n",
+                msaa_resource_boundary_exact ? "true" : "false");
     std::printf("  }\n");
     std::printf("}\n");
 

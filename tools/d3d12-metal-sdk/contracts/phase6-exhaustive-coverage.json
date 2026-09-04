@@ -200,6 +200,19 @@
       "reason": "The exact writable-MSAA provider covers flattened 2/4/8-sample UAV arrays, an array slice, RGBA32/RGBA16/RGBA8 formats, graphics sample-index/coverage/evaluation use, programmable 4x4 positions, and resolve readbacks. Ordinary render-target breadth remains open below."
     },
     {
+      "id": "p6-msaa-capability-resource-boundary",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "host_sample_count_predicate_with_writable_emulation_exception",
+      "covers": {"sample_count": ["1", "2", "4", "8", "16", "32"], "msaa_state": ["single_sample", "color_msaa"], "logic_side_effects": ["none", "uav"]},
+      "positive_probe": "probe-device-caps",
+      "negative_probe": "probe-device-caps",
+      "expected": {"exact_required": true, "readback_required": false, "hresult": "S_OK_or_E_INVALIDARG_by_host_count", "object": "non_null_or_null_by_provider", "quality_level_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "quality_levels": "1/2/4=1 and 8/16/32=0", "resource_boundary": "native 8x=E_INVALIDARG/null while flattened writable 8x=S_OK/non-null"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "Feature queries derive native sample counts from Metal. Native render-target/depth resources reject an unsupported 8x count before execution, while the separately behavior-proven flattened writable-MSAA 8x provider remains legal."
+    },
+    {
       "id": "p6-native-msaa-sample-frequency-mask",
       "legality": "legal",
       "status": "closed",
