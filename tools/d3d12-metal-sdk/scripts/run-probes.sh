@@ -4122,6 +4122,7 @@ PY
 prepare_work_graph_probe() {
   local node_source_dir="$SDK_DIR/probes/probe_workgraph"
   local work_dir="$RESULTS_DIR/workgraph-generated"
+  local d3d12_node_cso="$SDK_DIR/out/bin/probe_workgraph_node.cso"
   local node_compiler="$SDK_DIR/out/bin/compile-node-workgraph"
   local node_probe="$SDK_DIR/out/bin/probe-node-workgraph"
   local aggregate="$WORK_GRAPH_RESULT_FILE"
@@ -4145,6 +4146,16 @@ prepare_work_graph_probe() {
     echo "failed to build node Metal probe" >&2
     return 1
   fi
+  (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -Fo "$d3d12_node_cso" \
+      "$node_source_dir/node_records.hlsl" >/dev/null
+  )
+  [[ -s "$d3d12_node_cso" ]] || {
+    echo "D3D12 node shader compilation produced no bytecode" >&2
+    return 1
+  }
 
   local -a node_cases=(
     "node_handles|1|240,247,248,249,252"

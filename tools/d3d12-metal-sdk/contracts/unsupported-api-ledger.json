@@ -26,7 +26,7 @@
         "tools/d3d12-metal-sdk/probes/probe_workgraph_execution.cpp",
         "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
       ],
-      "reason": "The runtime now creates graph properties, reports local-root indices, validates a non-empty node-local-root table, and executes a bounded GPU-native reference kernel for three CPU-input and three GPU-input records without a CPU scheduler. Multi-node CPU/GPU routing, pointer-free record ownership, ordered dispatch reuse, malformed stride rejection, and bounded backing-memory overflow rejection have exact readback evidence. Recursive/fan-out graphs, barriers, and general node shader conversion remain limited.",
+      "reason": "The runtime now creates graph properties, reports local-root indices, validates a non-empty node-local-root table, and executes a bounded GPU-native reference kernel for three CPU-input and three GPU-input records without a CPU scheduler. Multi-node CPU/GPU routing, pointer-free record ownership, ordered dispatch reuse, malformed stride rejection, and bounded backing-memory overflow rejection have exact readback evidence. Recursive/fan-out graphs, multi-entrypoint resource/record routing, barriers, and general node shader conversion remain limited.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },
@@ -86,7 +86,7 @@
         "tools/d3d12-metal-sdk/probes/probe_workgraph_execution.cpp",
         "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
       ],
-      "reason": "A bounded GPU-native reference node kernel executes three-record CPU/GPU input forms plus two-node CPU/GPU routing, pointer-free record ownership, ordered dispatch reuse, malformed-input rejection, and backing-memory overflow rejection. General DXIL node shader conversion, recursive/fan-out graphs, and node barriers remain limited.",
+      "reason": "A bounded GPU-native reference node kernel executes three-record CPU/GPU input forms plus two-node CPU/GPU routing, pointer-free record ownership, ordered dispatch reuse, malformed-input rejection, and backing-memory overflow rejection. One source-owned `node_records` DXIL library is lowered at runtime into a GPU-native Metal node kernel with exact backing-buffer readback. Multi-entrypoint resource/record routing, recursive/fan-out graphs, and node barriers remain limited.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

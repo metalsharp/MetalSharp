@@ -7,6 +7,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
+#include <vector>
 
 struct WorkGraphNodeID {
     LPCWSTR Name;
@@ -138,6 +141,13 @@ template <typename T> static T load_proc(HMODULE module, const char* name) {
     std::memcpy(&result, &address, sizeof(result));
     return result;
 }
+static bool read_binary_file(const char* path, std::vector<uint8_t>& bytes) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file)
+        return false;
+    bytes.assign(std::istreambuf_iterator<char>(file), {});
+    return !bytes.empty();
+}
 static D3D12_HEAP_PROPERTIES upload_heap() {
     D3D12_HEAP_PROPERTIES result = {};
     result.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -196,6 +206,8 @@ int main() {
     ID3D12Resource* gpu_input_desc = nullptr;
     ID3D12Resource* gpu_multi_input_desc = nullptr;
     ID3D12StateObject* state = nullptr;
+    ID3D12StateObject* node_shader_state = nullptr;
+    ID3D12StateObjectProperties* node_shader_state_properties = nullptr;
     WorkGraphProperties* properties = nullptr;
     uint32_t values[6] = {};
     uint32_t inputs[3] = {41, 42, 43};
@@ -210,8 +222,12 @@ int main() {
     bool node_local_table_validation_exact = false;
     bool backing_overflow_unchanged = false;
     bool multi_dispatch_ordering_exact = false;
+    bool dxil_node_shader_readback_exact = false;
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
+    std::vector<uint8_t> node_shader_bytecode;
+    const bool node_shader_bytecode_loaded =
+        read_binary_file("probe_workgraph_node.cso", node_shader_bytecode);
 
     if (SUCCEEDED(hr))
         hr = device->QueryInterface(IID_PPV_ARGS(&device5));
@@ -369,9 +385,58 @@ int main() {
         using GetProgramIdentifierFn = void* (STDMETHODCALLTYPE *)(
             ID3D12StateObjectProperties*, void*, LPCWSTR);
         auto* vtable = *reinterpret_cast<void***>(state_properties);
-        auto get_identifier = reinterpret_cast<GetProgramIdentifierFn>(vtable[4]);
+        auto get_identifier = reinterpret_cast<GetProgramIdentifierFn>(vtable[7]);
         get_identifier(state_properties, identifier, L"graph");
     }
+    uint8_t node_shader_identifier[32] = {};
+    HRESULT node_shader_hr = E_FAIL;
+    if (SUCCEEDED(hr) && node_shader_bytecode_loaded) {
+        D3D12_EXPORT_DESC node_export = {};
+        node_export.Name = L"node_main";
+        D3D12_DXIL_LIBRARY_DESC node_library = {};
+        node_library.DXILLibrary.pShaderBytecode = node_shader_bytecode.data();
+        node_library.DXILLibrary.BytecodeLength = node_shader_bytecode.size();
+        node_library.NumExports = 1;
+        node_library.pExports = &node_export;
+        WorkGraphNodeID node_entrypoint = {L"node_main", 0};
+        WorkGraphShaderNode node_shader = {L"node_main", 0, nullptr};
+        WorkGraphNode node_node = {0, node_shader};
+        WorkGraphDesc node_graph = {L"actual_graph", 0, 1,
+                                    &node_entrypoint, 1, &node_node};
+        D3D12_STATE_SUBOBJECT node_graph_subobject = {
+            static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &node_graph};
+        const D3D12_STATE_SUBOBJECT* node_graph_subobjects[] = {
+            &node_graph_subobject};
+        GenericProgramDesc node_generic = {L"actual_graph", 0, nullptr, 1,
+                                           node_graph_subobjects};
+        D3D12_STATE_SUBOBJECT node_generic_subobject = {
+            static_cast<D3D12_STATE_SUBOBJECT_TYPE>(29), &node_generic};
+        D3D12_STATE_SUBOBJECT node_state_subobjects[2] = {};
+        node_state_subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+        node_state_subobjects[0].pDesc = &node_library;
+        node_state_subobjects[1] = node_generic_subobject;
+        D3D12_STATE_OBJECT_DESC node_state_desc = {
+            static_cast<D3D12_STATE_OBJECT_TYPE>(4), 2,
+            node_state_subobjects};
+        node_shader_hr = device5->CreateStateObject(
+            &node_state_desc, IID_PPV_ARGS(&node_shader_state));
+        if (SUCCEEDED(node_shader_hr) && node_shader_state) {
+            node_shader_hr = node_shader_state->QueryInterface(
+                kStateObjectProperties1IID,
+                reinterpret_cast<void**>(&node_shader_state_properties));
+            if (SUCCEEDED(node_shader_hr) && node_shader_state_properties) {
+                using GetProgramIdentifierFn = void* (STDMETHODCALLTYPE *)(
+                    ID3D12StateObjectProperties*, void*, LPCWSTR);
+                auto* vtable = *reinterpret_cast<void***>(
+                    node_shader_state_properties);
+                auto get_identifier = reinterpret_cast<GetProgramIdentifierFn>(
+                    vtable[7]);
+                get_identifier(node_shader_state_properties,
+                               node_shader_identifier, L"actual_graph");
+            }
+        }
+    }
+
     SetProgramDesc set_program = {};
     set_program.Type = 5;
     std::memcpy(set_program.WorkGraph.ProgramIdentifier, identifier,
@@ -676,6 +741,41 @@ int main() {
             }
         }
     }
+    if (SUCCEEDED(node_shader_hr) && node_shader_state_properties &&
+        allocator && base_list && list) {
+        SetProgramDesc node_program = set_program;
+        std::memcpy(node_program.WorkGraph.ProgramIdentifier,
+                    node_shader_identifier, sizeof(node_shader_identifier));
+        const uint32_t node_record = 1;
+        NodeCPUInput node_input = {};
+        node_input.EntrypointIndex = 0;
+        node_input.NumRecords = 1;
+        node_input.Records = &node_record;
+        node_input.RecordStrideInBytes = sizeof(node_record);
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc node_dispatch = {};
+            node_dispatch.Mode = 0;
+            node_dispatch.NodeCPUInput = node_input;
+            list->SetProgram(&node_program);
+            list->DispatchGraph(&node_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                uint32_t node_values[2] = {};
+                std::memcpy(node_values, mapped, sizeof(node_values));
+                backing->Unmap(0, nullptr);
+                dxil_node_shader_readback_exact =
+                    node_values[0] == 0xabcdef01u &&
+                    node_values[1] == 0x12345678u;
+            }
+        }
+    }
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
@@ -683,7 +783,8 @@ int main() {
         readback_ok && gpu_input_readback_ok && multi_cpu_readback_ok &&
         multi_cpu_pointer_free && multi_gpu_readback_ok &&
         multi_node_negative_unchanged && node_local_table_validation_exact &&
-        backing_overflow_unchanged && multi_dispatch_ordering_exact;
+        backing_overflow_unchanged && multi_dispatch_ordering_exact &&
+        node_shader_bytecode_loaded && dxil_node_shader_readback_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
@@ -708,6 +809,10 @@ int main() {
                 node_local_table_validation_exact ? "true" : "false");
     std::printf("  \"backing_overflow_unchanged\": %s,\n",
                 backing_overflow_unchanged ? "true" : "false");
+    std::printf("  \"node_shader_bytecode_loaded\": %s,\n",
+                node_shader_bytecode_loaded ? "true" : "false");
+    std::printf("  \"dxil_node_shader_readback_exact\": %s,\n",
+                dxil_node_shader_readback_exact ? "true" : "false");
     std::printf("  \"multi_node_cpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
                 multi_cpu_values[0], multi_cpu_values[1], multi_cpu_values[2],
                 multi_cpu_values[3], multi_cpu_values[4], multi_cpu_values[5],
@@ -718,6 +823,8 @@ int main() {
                 multi_gpu_values[6], multi_gpu_values[7]);
     std::printf("}\n");
 
+    release(node_shader_state_properties);
+    release(node_shader_state);
     release(state_properties);
     release(state);
     release(gpu_multi_input_desc);
@@ -737,7 +844,8 @@ int main() {
                    gpu_input_readback_ok && multi_cpu_readback_ok &&
                    multi_cpu_pointer_free && multi_gpu_readback_ok &&
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
-                   backing_overflow_unchanged && multi_dispatch_ordering_exact
+                   backing_overflow_unchanged && multi_dispatch_ordering_exact &&
+                   node_shader_bytecode_loaded && dxil_node_shader_readback_exact
                ? 0
                : 1;
 }

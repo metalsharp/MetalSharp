@@ -3858,6 +3858,40 @@ static bool DXILUsesHitObjectInvoke(const D3D12_SHADER_BYTECODE &bytecode) {
   return DXILUsesHitObjectFunction(bytecode, "hitObject_Invoke");
 }
 
+static bool LowerWorkGraphNodeShader(
+    const D3D12_SHADER_BYTECODE &bytecode, LPCWSTR entry_point,
+    std::string &source) {
+  source.clear();
+  if (!entry_point || !entry_point[0])
+    return false;
+  std::vector<uint8_t> dxil;
+  if (!ExtractDXILBlob(bytecode, dxil))
+    return false;
+  auto container = dxmt::dxil::DXILContainer::parse(dxil.data(), dxil.size());
+  if (!container)
+    return false;
+  auto shader = container->shader();
+  shader.kind = dxmt::dxil::DxilShaderKind::Node;
+  shader.entry_point.clear();
+  for (const WCHAR *p = entry_point; *p; ++p) {
+    if (*p > 0x7f)
+      return false;
+    shader.entry_point.push_back(static_cast<char>(*p));
+  }
+  auto module = dxmt::dxil::BitcodeReader::parse(shader.bitcode.data,
+                                                  shader.bitcode.size);
+  if (!module)
+    return false;
+  dxmt::dxil::MSLLoweringOptions options = {};
+  options.entry_point = shader.entry_point;
+  auto lowered = dxmt::dxil::MSLLowering::lower(*module, shader, options);
+  if (!lowered || lowered->unsupported_intrinsics ||
+      lowered->unsupported_opcodes)
+    return false;
+  source = std::move(lowered->source);
+  return !source.empty();
+}
+
 static bool BuildHitObjectRaygenLibrary(
     MTLD3D12Device *device, const D3D12_SHADER_BYTECODE &bytecode,
     const std::wstring &entry_point, WMT::Reference<WMT::Library> &library,
@@ -4057,6 +4091,17 @@ public:
     if (!desc || desc->Type != static_cast<D3D12_STATE_OBJECT_TYPE>(4) ||
         (desc->NumSubobjects && !desc->pSubobjects))
       return false;
+    D3D12_SHADER_BYTECODE node_library = {};
+    for (UINT i = 0; i < desc->NumSubobjects; ++i) {
+      const auto &subobject = desc->pSubobjects[i];
+      if (subobject.Type == D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY &&
+          subobject.pDesc) {
+        const auto *library =
+            static_cast<const D3D12_DXIL_LIBRARY_DESC *>(subobject.pDesc);
+        node_library = library->DXILLibrary;
+        break;
+      }
+    }
     for (UINT i = 0; i < desc->NumSubobjects; ++i) {
       const auto &subobject = desc->pSubobjects[i];
       TRACE("StateObject work graph subobject[%u] type=%u desc=%p", i,
@@ -4089,11 +4134,13 @@ public:
         m_work_graph_node_names.clear();
         m_work_graph_entrypoint_names.clear();
         m_work_graph_local_root_indices.clear();
+        m_work_graph_node_msl.clear();
         m_work_graph_node_names.reserve(graph->NumExplicitlyDefinedNodes);
         m_work_graph_entrypoint_names.reserve(graph->NumEntrypoints);
         m_work_graph_nodes.reserve(graph->NumExplicitlyDefinedNodes);
         m_work_graph_entrypoints.reserve(graph->NumEntrypoints);
         m_work_graph_local_root_indices.reserve(graph->NumExplicitlyDefinedNodes);
+        m_work_graph_node_msl.reserve(graph->NumExplicitlyDefinedNodes);
         for (UINT node = 0; node < graph->NumExplicitlyDefinedNodes; ++node) {
           const auto &source = graph->pExplicitlyDefinedNodes[node];
           if (source.NodeType != 0 || !source.Shader.Shader)
@@ -4103,6 +4150,12 @@ public:
           id.Name = m_work_graph_node_names.back().c_str();
           id.ArrayIndex = 0;
           m_work_graph_nodes.push_back(id);
+          std::string node_msl;
+          if (node_library.pShaderBytecode &&
+              !LowerWorkGraphNodeShader(node_library, source.Shader.Shader,
+                                         node_msl))
+            return false;
+          m_work_graph_node_msl.push_back(std::move(node_msl));
           UINT local_root_index = UINT_MAX;
           if (source.Shader.OverridesType == 4 && source.Shader.Overrides) {
             const auto *local_root = static_cast<const UINT *const *>(
@@ -4944,6 +4997,11 @@ public:
           ((uint64_t)m_type << 48) ^ ((uint64_t)m_subobject_types.size() << 32);
       ret->OpaqueData[i] = word;
     }
+    if (m_has_work_graph && program_name &&
+        m_work_graph_name == program_name)
+      m_device->RegisterWorkGraphProgram(
+          reinterpret_cast<const uint8_t *>(ret), sizeof(*ret),
+          m_work_graph_node_msl);
     return ret;
   }
 
@@ -5115,6 +5173,7 @@ private:
   std::vector<D3D12WorkGraphNodeIDCompat> m_work_graph_nodes;
   std::vector<D3D12WorkGraphNodeIDCompat> m_work_graph_entrypoints;
   std::vector<UINT> m_work_graph_local_root_indices;
+  std::vector<std::string> m_work_graph_node_msl;
 };
 
 WMT::Reference<WMT::ComputePipelineState>
@@ -8988,6 +9047,52 @@ void MTLD3D12Device::UnregisterResource(MTLD3D12Resource *res) {
     std::lock_guard<std::mutex> lock(m_resource_mutex);
     m_resources_by_gpu_addr.erase(addr);
   }
+}
+
+void MTLD3D12Device::RegisterWorkGraphProgram(
+    const uint8_t *identifier, size_t identifier_size,
+    const std::vector<std::string> &node_msl) {
+  if (!identifier || identifier_size != 32 || node_msl.empty())
+    return;
+  bool has_shader = false;
+  for (const auto &source : node_msl)
+    has_shader |= !source.empty();
+  if (!has_shader)
+    return;
+  const std::string key(reinterpret_cast<const char *>(identifier),
+                        identifier_size);
+  std::lock_guard<std::mutex> lock(m_work_graph_mutex);
+  m_work_graph_programs[key] = node_msl;
+  uint64_t first = 0;
+  memcpy(&first, identifier, sizeof(first));
+  TRACE("RegisterWorkGraphProgram key_size=%zu nodes=%zu first=0x%llx bytes=%zu",
+        key.size(), node_msl.size(), (unsigned long long)first,
+        node_msl.front().size());
+}
+
+bool MTLD3D12Device::LookupWorkGraphNodeShader(
+    const uint8_t *identifier, size_t identifier_size, UINT node_index,
+    std::string &msl) const {
+  msl.clear();
+  if (!identifier || identifier_size != 32)
+    return false;
+  const std::string key(reinterpret_cast<const char *>(identifier),
+                        identifier_size);
+  std::lock_guard<std::mutex> lock(m_work_graph_mutex);
+  uint64_t first = 0;
+  memcpy(&first, identifier, sizeof(first));
+  auto it = m_work_graph_programs.find(key);
+  if (it == m_work_graph_programs.end() || node_index >= it->second.size() ||
+      it->second[node_index].empty()) {
+    TRACE("LookupWorkGraphNodeShader miss key_size=%zu node=%u first=0x%llx programs=%zu",
+          key.size(), node_index, (unsigned long long)first,
+          m_work_graph_programs.size());
+    return false;
+  }
+  msl = it->second[node_index];
+  TRACE("LookupWorkGraphNodeShader hit node=%u bytes=%zu", node_index,
+        msl.size());
+  return true;
 }
 
 MTLD3D12Resource *
