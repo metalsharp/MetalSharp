@@ -2199,6 +2199,16 @@ whether the scoped FL12_2 gate is green.
 - Reclassified the main roadmap's Phase 6 status as open for that expansion;
   the existing 14-row bounded contract remains closed as a regression gate.
 
+### 2026-09-05 — DXR mixed-descriptor safety hardening
+
+- Stopped the Apple Metal provider from constructing heterogeneous primitive
+  acceleration-structure descriptor arrays that dispatch triangle-only
+  selectors to AABB objects. The Winemetal bridge now rejects that unsafe
+  combination so the D3D12 layer selects its explicit child-BLAS/TLAS
+  compound provider. The current DXR acceleration-structure matrix passes
+  without Objective-C exceptions; native heterogeneous BLAS remains a Phase 8
+  open item.
+
 ### 2026-09-05 — Work Graph input, ordering, and overflow evidence
 
 - Added a source-owned DXIL node-library path: the runtime extracts and

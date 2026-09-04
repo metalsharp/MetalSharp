@@ -6,7 +6,7 @@
         "tools/d3d12-metal-sdk/probes/probe_mini_suite",
         "tools/d3d12-metal-sdk/contracts/feature-support-contract.json"
       ],
-      "reason": "DXR Tier 1.1 is advertised only for the behavior-proven acceleration-structure, state-object, shader-table, direct/indirect dispatch, and tagged mixed triangle/AABB child-hit matrix. Cross-process serialized reconstruction and shader-table shapes outside that matrix remain unsupported.",
+      "reason": "DXR Tier 1.1 is advertised only for the behavior-proven acceleration-structure, state-object, shader-table, direct/indirect dispatch, and tagged mixed triangle/AABB child-hit matrix. The M4/Metal provider now rejects unsafe heterogeneous Metal descriptor arrays and uses the explicit child-BLAS/TLAS compound path for the proven one-triangle/one-AABB shape; native heterogeneous BLAS, cross-process serialized reconstruction, and shader-table shapes outside that matrix remain unsupported.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },
