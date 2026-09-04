@@ -206,16 +206,19 @@ int main() {
     ID3D12Resource* gpu_input_desc = nullptr;
     ID3D12Resource* gpu_multi_input_desc = nullptr;
     ID3D12StateObject* state = nullptr;
+    ID3D12StateObject* include_all_state = nullptr;
     ID3D12StateObject* node_shader_state = nullptr;
     ID3D12StateObject* node_multi_state = nullptr;
     ID3D12StateObjectProperties* node_shader_state_properties = nullptr;
     ID3D12StateObjectProperties* node_multi_state_properties = nullptr;
     WorkGraphProperties* properties = nullptr;
+    WorkGraphProperties* include_all_properties = nullptr;
     WorkGraphProperties* node_multi_properties = nullptr;
     uint32_t values[6] = {};
     uint32_t inputs[3] = {41, 42, 43};
     uint32_t input = inputs[0];
     bool properties_ok = false;
+    bool include_all_properties_ok = false;
     bool readback_ok = false;
     bool gpu_input_readback_ok = false;
     bool multi_cpu_readback_ok = false;
@@ -414,6 +417,44 @@ int main() {
         if (properties)
             properties->Release();
         properties = nullptr;
+    }
+    if (SUCCEEDED(hr)) {
+        WorkGraphNodeID include_all_entry = {L"node0", 0};
+        WorkGraphDesc include_all_graph = {L"include_all_graph", 1, 1,
+                                           &include_all_entry, 0, nullptr};
+        D3D12_STATE_SUBOBJECT include_all_graph_subobject = {
+            static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &include_all_graph};
+        const D3D12_STATE_SUBOBJECT* include_all_graph_subobjects[] = {
+            &include_all_graph_subobject};
+        GenericProgramDesc include_all_generic = {
+            L"include_all_graph", 0, nullptr, 1,
+            include_all_graph_subobjects};
+        D3D12_STATE_SUBOBJECT include_all_generic_subobject = {
+            static_cast<D3D12_STATE_SUBOBJECT_TYPE>(29),
+            &include_all_generic};
+        D3D12_STATE_OBJECT_DESC include_all_state_desc = {
+            static_cast<D3D12_STATE_OBJECT_TYPE>(4), 1,
+            &include_all_generic_subobject};
+        HRESULT include_all_hr = device5->CreateStateObject(
+            &include_all_state_desc, IID_PPV_ARGS(&include_all_state));
+        if (SUCCEEDED(include_all_hr) && include_all_state) {
+            include_all_hr = include_all_state->QueryInterface(
+                kWorkGraphPropertiesIID,
+                reinterpret_cast<void**>(&include_all_properties));
+            WorkGraphNodeID include_all_got = {};
+            include_all_properties_ok =
+                SUCCEEDED(include_all_hr) && include_all_properties &&
+                include_all_properties->GetNumWorkGraphs() == 1 &&
+                include_all_properties->GetNumNodes(0) == 1 &&
+                include_all_properties->GetNumEntrypoints(0) == 1 &&
+                include_all_properties->GetNodeID(&include_all_got, 0, 0) &&
+                include_all_got.Name &&
+                ::wcscmp(include_all_got.Name, L"node0") == 0 &&
+                include_all_properties->GetNodeLocalRootArgumentsTableIndex(
+                    0, 0) == UINT_MAX;
+        }
+        release(include_all_properties);
+        include_all_properties = nullptr;
     }
     ID3D12StateObjectProperties* state_properties = nullptr;
     if (SUCCEEDED(hr))
@@ -1060,7 +1101,8 @@ int main() {
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
-        readback_ok && gpu_input_readback_ok && multi_cpu_readback_ok &&
+        include_all_properties_ok && readback_ok && gpu_input_readback_ok &&
+        multi_cpu_readback_ok &&
         multi_cpu_pointer_free && multi_gpu_readback_ok &&
         multi_node_negative_unchanged && node_local_table_validation_exact &&
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
@@ -1071,6 +1113,8 @@ int main() {
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
+    std::printf("  \"include_all_properties_complete\": %s,\n",
+                include_all_properties_ok ? "true" : "false");
     std::printf("  \"node_local_root_indices\": [%u, %u],\n", local_root_indices[0], local_root_indices[1]);
     std::printf("  \"gpu_native_provider\": true,\n");
     std::printf("  \"cpu_scheduler\": false,\n");
@@ -1131,6 +1175,7 @@ int main() {
     release(node_multi_state);
     release(node_shader_state_properties);
     release(node_shader_state);
+    release(include_all_state);
     release(state_properties);
     release(state);
     release(gpu_multi_input_desc);
@@ -1146,7 +1191,8 @@ int main() {
     release(device);
     if (module)
         FreeLibrary(module);
-    return SUCCEEDED(hr) && properties_ok && readback_ok &&
+    return SUCCEEDED(hr) && properties_ok && include_all_properties_ok &&
+                   readback_ok &&
                    gpu_input_readback_ok && multi_cpu_readback_ok &&
                    multi_cpu_pointer_free && multi_gpu_readback_ok &&
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
