@@ -3189,8 +3189,11 @@ struct ReplayState {
           return false;
         const auto &view = descriptor->uav;
         uint64_t stride = view.Buffer.StructureByteStride;
-        if (view.Format == DXGI_FORMAT_R32_UINT && !stride &&
-            view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_NONE)
+        if (!stride &&
+            ((view.Format == DXGI_FORMAT_R32_UINT &&
+              view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_NONE) ||
+             (view.Format == DXGI_FORMAT_R32_TYPELESS &&
+              view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_RAW)))
           stride = 4;
         else if (view.Format != DXGI_FORMAT_UNKNOWN || !stride ||
                  view.Buffer.Flags != D3D12_BUFFER_UAV_FLAG_NONE)
