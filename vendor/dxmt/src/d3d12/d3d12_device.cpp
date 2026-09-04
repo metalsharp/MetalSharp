@@ -5204,7 +5204,9 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     // The default perspective SV_Barycentrics value is provided directly by
     // Metal's fragment barycentric builtin; other interpolation variants stay
     // outside the bounded provider.
-    o->ViewInstancingTier = D3D12_VIEW_INSTANCING_TIER_1;
+    o->ViewInstancingTier = GetHostCapabilities().device_available
+                                 ? D3D12_VIEW_INSTANCING_TIER_1
+                                 : D3D12_VIEW_INSTANCING_TIER_NOT_SUPPORTED;
     o->BarycentricsSupported =
         GetHostCapabilities().device_available &&
         GetHostCapabilities().supports_shader_barycentrics &&

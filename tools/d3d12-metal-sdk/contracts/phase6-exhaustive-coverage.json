@@ -237,6 +237,19 @@
       "reason": "The source-owned command-replay probe verifies SetSamplePositions(4,4) with exact 2x2 resolve output and then verifies the legal zero-count reset record with a subsequent default-pattern draw."
     },
     {
+      "id": "p6-conservative-sample2-4-reference",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "gpu_reference_conservative_raster_msaa",
+      "covers": {"primitive_topology": ["triangle_list"], "sample_count": ["2", "4"], "msaa_state": ["color_msaa"], "depth_stencil": ["disabled"], "render_targets": ["one"], "viewport_scissor": ["full"], "culling_winding": ["none_ccw"], "interpolation": ["perspective"], "logic_side_effects": ["none"], "vrs": ["disabled"], "view_instancing": ["disabled"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-conservative-msaa",
+      "negative_probe": "probe-graphics-pso",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_pixel_coverage_required": true, "resolved_samples_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "36 red pixels exactly match the CPU/GPU reference for both 2x and 4x resolves"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The reference provider now accepts both native M4 sample counts and resolves a conservative triangle with exact per-pixel coverage agreement at 2x and 4x."
+    },
+    {
       "id": "p6-conservative-inner-coverage-reference",
       "legality": "legal",
       "status": "closed",
