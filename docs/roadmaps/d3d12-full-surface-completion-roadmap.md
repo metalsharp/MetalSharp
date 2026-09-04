@@ -904,10 +904,11 @@ historical regression checkpoint. The closure record is
 single-node CPU-input records and three GPU-input records, and executes both
 multi-node CPU/GPU input modes with exact entrypoint-routed payload readback.
 It also checks both local-root argument table indices, proves nested CPU
-records remain pointer-free after the caller mutates its arrays, and verifies a
-malformed multi-node stride leaves the backing memory unchanged. The command
-path remains pointer-free and records `cpu_scheduler=false`; recursion/fan-out,
-overflow, barriers, and general DXIL node shader conversion remain open.
+records remain pointer-free after the caller mutates its arrays, verifies a malformed multi-node stride leaves the
+backing memory unchanged, and checks ordered back-to-back dispatches after
+command-list reuse. The command path remains pointer-free and records
+`cpu_scheduler=false`; recursion/fan-out, overflow, barriers, and general DXIL
+node shader conversion remain open.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**

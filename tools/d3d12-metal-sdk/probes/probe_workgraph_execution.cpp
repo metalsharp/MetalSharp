@@ -206,6 +206,7 @@ int main() {
     bool multi_cpu_pointer_free = false;
     bool multi_gpu_readback_ok = false;
     bool multi_node_negative_unchanged = false;
+    bool multi_dispatch_ordering_exact = false;
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
 
@@ -549,12 +550,55 @@ int main() {
         }
     }
 
+    if (multi_node_negative_unchanged && allocator && base_list && list) {
+        const uint32_t first_ordered_record = 5;
+        const uint32_t second_ordered_record = 101;
+        NodeCPUInput first_ordered = {};
+        first_ordered.EntrypointIndex = 0;
+        first_ordered.NumRecords = 1;
+        first_ordered.Records = &first_ordered_record;
+        first_ordered.RecordStrideInBytes = sizeof(first_ordered_record);
+        NodeCPUInput second_ordered = {};
+        second_ordered.EntrypointIndex = 1;
+        second_ordered.NumRecords = 1;
+        second_ordered.Records = &second_ordered_record;
+        second_ordered.RecordStrideInBytes = sizeof(second_ordered_record);
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc first_dispatch = {};
+            first_dispatch.Mode = 0;
+            first_dispatch.NodeCPUInput = first_ordered;
+            DispatchGraphDesc second_dispatch = {};
+            second_dispatch.Mode = 0;
+            second_dispatch.NodeCPUInput = second_ordered;
+            list->SetProgram(&set_program);
+            list->DispatchGraph(&first_dispatch);
+            list->DispatchGraph(&second_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                uint32_t ordered_values[2] = {};
+                std::memcpy(ordered_values, mapped, sizeof(ordered_values));
+                backing->Unmap(0, nullptr);
+                multi_dispatch_ordering_exact =
+                    ordered_values[0] == second_ordered_record + 2u &&
+                    ordered_values[1] ==
+                        (second_ordered_record ^ (0x4d4e4f44u + 1u));
+            }
+        }
+    }
+
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
         readback_ok && gpu_input_readback_ok && multi_cpu_readback_ok &&
         multi_cpu_pointer_free && multi_gpu_readback_ok &&
-        multi_node_negative_unchanged;
+        multi_node_negative_unchanged && multi_dispatch_ordering_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
@@ -573,6 +617,8 @@ int main() {
                 multi_cpu_pointer_free ? "true" : "false");
     std::printf("  \"multi_node_negative_unchanged\": %s,\n",
                 multi_node_negative_unchanged ? "true" : "false");
+    std::printf("  \"multi_dispatch_ordering_exact\": %s,\n",
+                multi_dispatch_ordering_exact ? "true" : "false");
     std::printf("  \"multi_node_cpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
                 multi_cpu_values[0], multi_cpu_values[1], multi_cpu_values[2],
                 multi_cpu_values[3], multi_cpu_values[4], multi_cpu_values[5],
@@ -600,7 +646,7 @@ int main() {
     return SUCCEEDED(hr) && properties_ok && readback_ok &&
                    gpu_input_readback_ok && multi_cpu_readback_ok &&
                    multi_cpu_pointer_free && multi_gpu_readback_ok &&
-                   multi_node_negative_unchanged
+                   multi_node_negative_unchanged && multi_dispatch_ordering_exact
                ? 0
                : 1;
 }
