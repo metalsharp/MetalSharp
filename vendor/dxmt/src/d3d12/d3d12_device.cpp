@@ -5035,10 +5035,18 @@ public:
       ret->OpaqueData[i] = word;
     }
     if (m_has_work_graph && program_name &&
-        m_work_graph_name == program_name)
+        m_work_graph_name == program_name) {
+      // DispatchGraph selects an entrypoint, not an index in the node array.
+      // Preserve empty slots for unresolved nodes rather than shifting indices.
+      std::vector<std::string> entrypoint_msl(m_work_graph_entrypoints.size());
+      for (size_t entry = 0; entry < m_work_graph_entrypoints.size(); ++entry) {
+        const UINT node = GetNodeIndex(0, m_work_graph_entrypoints[entry]);
+        if (node < m_work_graph_node_msl.size())
+          entrypoint_msl[entry] = m_work_graph_node_msl[node];
+      }
       m_device->RegisterWorkGraphProgram(
-          reinterpret_cast<const uint8_t *>(ret), sizeof(*ret),
-          m_work_graph_node_msl);
+          reinterpret_cast<const uint8_t *>(ret), sizeof(*ret), entrypoint_msl);
+    }
     return ret;
   }
 

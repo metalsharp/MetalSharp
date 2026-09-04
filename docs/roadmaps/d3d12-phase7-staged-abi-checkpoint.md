@@ -212,6 +212,25 @@ regression. Strict ABI evidence is in `node-layout-stage/`, all beneath
 provenance. This does not fix actual input-record binding or GPU scheduling;
 node-ID overrides, full library discovery and other graph semantics remain open.
 
+## Entrypoint-to-shader execution routing
+
+Program registration now resolves each entrypoint's node identity and stores
+shader text in entrypoint order, matching DispatchGraph's index namespace.
+Previously the registry used node-array order, even though property queries
+correctly resolved entrypoint identities. Unresolved entries retain empty slots
+rather than shifting subsequent indices.
+
+The source-owned three-node execution fixture keeps nodes `[a,b,c]` but declares
+entrypoints `[b,c,a]`. Final CPU dispatch and one-input multi-CPU dispatch to
+entrypoint 2 now observe node a's `[0x11111111,0xaaaa0001]`; one-input multi-GPU
+dispatch to entrypoint 0 observes node b's `[0x22222222,0xbbbb0002]`.
+The same probe fails on the preceding runtime and passes with registration
+remapping. Evidence is under `/private/tmp/metalsharp-phase7-abi/route-before/`,
+`route-after/`, and `node-route-stage/` (strict ABI audit).
+This is shader-selection evidence, not input-payload consumption, node-ID
+customization, fan-out, or general GPU scheduling. Registry-side input-layout
+transport remains to be implemented alongside actual record binding.
+
 ## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit

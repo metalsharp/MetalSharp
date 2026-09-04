@@ -654,9 +654,9 @@ int main() {
         node_library.DXILLibrary.BytecodeLength = node_multi_bytecode.size();
         node_library.NumExports = 3;
         node_library.pExports = node_exports;
-        WorkGraphNodeID node_entrypoints[3] = {{L"node_a", 0},
-                                               {L"node_b", 0},
-                                               {L"node_c", 0}};
+        WorkGraphNodeID node_entrypoints[3] = {{L"node_b", 0},
+                                               {L"node_c", 0},
+                                               {L"node_a", 0}};
         WorkGraphNode node_nodes[3] = {};
         node_nodes[0].NodeType = 0;
         node_nodes[0].Shader.Shader = L"node_a";
@@ -704,7 +704,7 @@ int main() {
                 ::wcscmp(node_multi_got.Name, L"node_c") == 0 &&
                 node_multi_properties->GetNodeIndex(0, node_multi_entry) == 1 &&
                 node_multi_properties->GetEntrypointIndex(0,
-                                                           node_multi_entry) == 1 &&
+                                                           node_multi_entry) == 0 &&
                 node_multi_properties->GetEntrypointRecordSizeInBytes(0, 2) ==
                     0 &&
                 node_multi_properties->GetEntrypointRecordAlignmentInBytes(0,
@@ -1188,8 +1188,8 @@ int main() {
                 sizeof(dxil_multi_node_values), 0, nullptr);
             if (SUCCEEDED(hr)) {
                 dxil_multi_node_readback_exact =
-                    dxil_multi_node_values[0] == 0x33333333u &&
-                    dxil_multi_node_values[1] == 0xcccc0003u;
+                    dxil_multi_node_values[0] == 0x11111111u &&
+                    dxil_multi_node_values[1] == 0xaaaa0001u;
             }
         }
     }
@@ -1228,8 +1228,8 @@ int main() {
                 sizeof(node_multi_cpu_values), 0, nullptr);
             if (SUCCEEDED(hr)) {
                 node_multi_cpu_input_exact =
-                    node_multi_cpu_values[0] == 0x33333333u &&
-                    node_multi_cpu_values[1] == 0xcccc0003u;
+                    node_multi_cpu_values[0] == 0x11111111u &&
+                    node_multi_cpu_values[1] == 0xaaaa0001u;
             }
         }
     }
@@ -1260,8 +1260,8 @@ int main() {
                 sizeof(node_multi_gpu_values), 0, nullptr);
             if (SUCCEEDED(hr)) {
                 node_multi_gpu_input_exact =
-                    node_multi_gpu_values[0] == 0x11111111u &&
-                    node_multi_gpu_values[1] == 0xaaaa0001u;
+                    node_multi_gpu_values[0] == 0x22222222u &&
+                    node_multi_gpu_values[1] == 0xbbbb0002u;
             }
         }
     }
