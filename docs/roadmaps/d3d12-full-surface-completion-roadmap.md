@@ -930,11 +930,15 @@ and one-input multi-node coverage, entrypoint routing, a node-barrier witness,
 and INCLUDE_ALL_AVAILABLE_NODES metadata materialization, explicit backing-memory
 initialization, and direct or descriptor-table node-u0/space0 buffer binding.
 The table proof uses root index 1, nonzero table/range/view offsets, exact
-structured-buffer readback, and unchanged-output checks for short and null UAV
+raw-buffer readback, and unchanged-output checks for short and null UAV
 views. Binding now resolves root-signature register mappings instead of assuming
-root parameter 0 is u0. The bounded table path accepts structured and R32_UINT
-buffers without counters; other resource classes and general binding remain
-open. Evidence: `/private/tmp/metalsharp-phase7-abi/table-negative/`.
+root parameter 0 is u0. The bounded table path accepts raw, structured and R32_UINT
+buffers without counters; only the raw view is shader-type-matched by this
+fixture's `RWByteAddressBuffer`. The initial structured-view test was a type
+mismatch, not valid structured-node evidence. The corrected raw test failed on
+the previous runtime and passes after raw-UAV binding support; other resource
+classes and general binding remain open. Evidence:
+`/private/tmp/metalsharp-phase7-abi/raw-before/` and `raw-after/`.
 Resource/record fan-out,
 recursion, broader cross-queue synchronization, and general node shader conversion
 remain open.

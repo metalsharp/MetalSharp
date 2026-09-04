@@ -1250,7 +1250,10 @@ int main() {
             view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
             view.Buffer.FirstElement = test ? 4 : 2;
             view.Buffer.NumElements = test == 1 ? 1 : 2;
-            view.Buffer.StructureByteStride = 4;
+            // node_records declares RWByteAddressBuffer, so its table must
+            // expose a raw UAV rather than a structured-buffer view.
+            view.Format = DXGI_FORMAT_R32_TYPELESS;
+            view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
             device->CreateUnorderedAccessView(test == 2 ? nullptr : node_output,
                                               nullptr, &view, cpu);
             hr = allocator->Reset();
