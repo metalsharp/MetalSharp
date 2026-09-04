@@ -4,6 +4,7 @@ RWByteAddressBuffer output : register(u0);
 struct ScalarRecord { uint value; };
 struct VectorRecord { uint4 value; };
 struct HalfRecord { uint16_t value; };
+struct DynamicGridRecord { uint3 grid : SV_DispatchGrid; uint value; };
 
 [Shader("node")]
 [NodeLaunch("broadcasting")]
@@ -41,4 +42,14 @@ void node_half(DispatchNodeInputRecord<HalfRecord> input) {
 [NodeIsProgramEntry]
 void node_empty() {
   output.Store(0, 0);
+}
+
+// Requires record-driven launch decoding; max grid is not a fixed grid.
+[Shader("node")]
+[NodeLaunch("broadcasting")]
+[NodeMaxDispatchGrid(2, 1, 1)]
+[NumThreads(1, 1, 1)]
+[NodeIsProgramEntry]
+void node_dynamic(DispatchNodeInputRecord<DynamicGridRecord> input) {
+  output.Store(0, input.Get().value);
 }

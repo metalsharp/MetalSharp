@@ -295,6 +295,46 @@ guard and passes afterward. Evidence: `input-shape-before/`,
 `input-guarded-after/`, and `input-guarded-stage/` under the same scratch root.
 This explicitly rejects an unimplemented shape; it does not implement it.
 
+## Fixed launch geometry and complete GEP index parsing
+
+Node metadata now retains launch type, threadgroup dimensions and fixed dispatch
+grid alongside input layout, through state construction and program registration.
+Command replay uses those dimensions rather than one thread/one group. A source-
+owned broadcasting node with `NumThreads(4,1,1)` and `NodeDispatchGrid(2,1,1)`
+reads a submitted uint4 and produces all eight exact values:
+`[101,202,303,404,101,202,303,404]`. Its CPU input array is mutated after recording.
+
+The test exposed a second defect after the launch fix: all eight lanes initially
+read component zero. GEP bitcode decoding incorrectly advanced by fixed pairs,
+although type IDs are present only for forward references. Parsing now uses
+LLVM/DXC's value/type-pair rule for every operand. The host test checks that the
+vector GEP retains base plus all three indices; the runtime test verifies the
+dynamic component selection. This does not make all nested-record byte-offset
+arithmetic type-aware; arbitrary layouts and non-32-bit indexed aggregates
+remain to be verified and implemented.
+
+Record-driven `SV_DispatchGrid` requires separate runtime decoding. A node with
+only `NodeMaxDispatchGrid` is rejected with `E_FAIL` and null state output, not
+launched with an invented one-group grid or with the maximum as its actual grid.
+The host decoder tests the same boundary. Other launch modes and multi-record
+scheduling are not certified by this fixed broadcasting witness.
+
+Evidence beneath `/private/tmp/metalsharp-phase7-abi/`:
+
+- `launch-before/`: one-thread failure.
+- `launch-after/`: all lanes read 101 before GEP parsing was fixed.
+- `launch-vector-after/` and `launch-final/`: exact eight-lane success and final
+  dynamic-grid rejection proof.
+- `node-launch-vector-stage/`: separate strict ABI audit of matching artifacts.
+- `launch-compute-pso/`, `launch-reflection-abi/`, and `launch-graphics/`:
+  passing compute, reflection, and graphics regressions.
+- `launch-shader-corpus/` and `launch-corpus-before/`: both fail only the existing
+  `two_counter_fail_closed` case; all case outcomes match. The corpus gate has
+  **not** passed, and title-capture gating remains false.
+- `launch-vector-build.log`: all nine runtime targets built.
+
+These are development snapshots, not a clean release or Phase 7 exit.
+
 ## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit

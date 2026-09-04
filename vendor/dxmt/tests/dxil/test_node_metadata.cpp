@@ -31,6 +31,12 @@ static const Record *tag(const LLVMModule &m, const Record &r, uint32_t key) {
 static void check(const LLVMModule &m, const char *name, uint32_t size,
                   uint32_t threads, uint32_t grid, uint32_t alignment = 4) {
   const auto layout = nodeInputLayout(m, name);
+  const auto shader_metadata = nodeShaderMetadata(m, name);
+  require(bool(shader_metadata), "runtime launch metadata decode failed");
+  for (unsigned axis = 0; axis < 3; ++axis) {
+    require(shader_metadata->threads[axis] == (axis ? 1 : threads), "runtime threadgroup shape incorrect");
+    require(shader_metadata->grid[axis] == (axis ? 1 : grid), "runtime dispatch grid incorrect");
+  }
   require(bool(layout), "runtime layout decode failed");
   require(layout->size == ((size + 3u) & ~3u), "wrong padded layout size");
   require(layout->alignment == (alignment < 4 ? 4 : alignment), "wrong padded alignment");
@@ -76,10 +82,24 @@ int main(int argc, char **argv) {
     bytes.clear();
     check(module, "node_main", 4, 1, 1);
     check(module, "node_vector", 16, 4, 2);
+    bool vector_gep = false;
+    for (const auto &function : module.functions) {
+      if (function.name != "node_vector") continue;
+      for (const auto &block : function.blocks)
+        for (const auto &instruction : block.instructions)
+          if (instruction.opcode == LLVMInstruction::GetElementPtr) {
+            require(instruction.operands.size() == 4, "vector GEP indices discarded");
+            vector_gep = true;
+          }
+    }
+    require(vector_gep, "vector GEP fixture absent");
     check(module, "node_half", 2, 1, 1, 2);
     const auto empty = nodeInputLayout(module, "node_empty");
     require(empty && empty->size == 0 && empty->alignment == 0, "empty input layout incorrect");
     require(!nodeInputLayout(module, "absent_entry"), "missing entrypoint accepted");
+    require(!nodeShaderMetadata(module, "absent_entry"), "missing launch entrypoint accepted");
+    require(bool(nodeInputLayout(module, "node_dynamic")), "dynamic-grid input layout missing");
+    require(!nodeShaderMetadata(module, "node_dynamic"), "max grid substituted for record-driven grid");
     auto duplicate = module;
     auto &entries = duplicate.named_metadata["dx.entryPoints"];
     const auto originals = entries;
