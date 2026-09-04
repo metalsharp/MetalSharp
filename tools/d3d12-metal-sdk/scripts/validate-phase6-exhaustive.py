@@ -434,6 +434,12 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                  for item in levels if isinstance(item, dict)} != expected_counts or
                 any(item.get("exact") is not True for item in levels if isinstance(item, dict))):
                 errors.append("device caps sample-count quality matrix is incomplete")
+            unsupported = value.get("unsupported_policy", {}) if isinstance(value, dict) else {}
+            if (not isinstance(unsupported, dict) or
+                unsupported.get("native_msaa8_resource_hr") != "0x80070057" or
+                unsupported.get("writable_msaa8_resource_hr") != "0x00000000" or
+                unsupported.get("msaa_resource_boundary_exact") is not True):
+                errors.append("device caps native/writable 8x resource boundary is incomplete")
     conservative_msaa_2 = result.get("conservative_msaa_2")
     if conservative_msaa_2 is not None:
         if not isinstance(conservative_msaa_2, dict):
