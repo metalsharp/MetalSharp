@@ -56,6 +56,7 @@
         ["multi_node_cpu_pointer_free"],
         ["multi_node_negative_unchanged"],
         ["multi_dispatch_ordering_exact"],
+        ["cross_queue_dispatch_exact"],
         ["node_local_table_validation_exact"],
         ["backing_overflow_unchanged"],
         ["node_shader_bytecode_loaded"],
