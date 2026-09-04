@@ -434,6 +434,24 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                  for item in levels if isinstance(item, dict)} != expected_counts or
                 any(item.get("exact") is not True for item in levels if isinstance(item, dict))):
                 errors.append("device caps sample-count quality matrix is incomplete")
+    sample_positions = result.get("sample_positions")
+    if sample_positions is not None:
+        if not isinstance(sample_positions, dict):
+            errors.append("sample_positions result must be an object or null")
+        elif sample_positions.get("process_status") != 0:
+            errors.append("sample-position probe process did not exit zero")
+        else:
+            value = sample_positions.get("result")
+            pattern = value.get("pattern", {}) if isinstance(value, dict) else {}
+            reset = value.get("reset", {}) if isinstance(value, dict) else {}
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                pattern.get("sample_count") != 4 or
+                pattern.get("pixel_count") != 4 or
+                pattern.get("recorded") is not True or
+                pattern.get("exact") is not True or
+                reset.get("recorded") is not True or
+                reset.get("default_quad_exact") is not True):
+                errors.append("programmable sample-position pattern/reset matrix is incomplete")
     rov_msaa = result.get("rov_msaa")
     if rov_msaa is not None:
         if not isinstance(rov_msaa, dict):

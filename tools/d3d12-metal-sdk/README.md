@@ -118,7 +118,8 @@ The runner builds source-owned DXIL fixtures in the disposable prefix and uses
 `validate-phase6-exhaustive.py` requires exact readbacks, HRESULT/null-object
 invariants, and the pinned target identity. Add `--with-rasterization` to run
 the point/line baseline, `--with-rov-dimensions` for typed 1D/1D-array/3D
-ROVs, `--with-rov-msaa` for four-sample ordered MSAA ROVs, and
+ROVs, `--with-rov-msaa` for four-sample ordered MSAA ROVs,
+`--with-sample-positions` for programmable-position/reset replay, and
 `--with-view-instancing` for the four-view/mask-zero replay matrix,
 `--with-fixed-function` for the established exact PSO matrix, `--with-msaa`
 for native sample-frequency/mask plus writable-MSAA/resolve matrices, and

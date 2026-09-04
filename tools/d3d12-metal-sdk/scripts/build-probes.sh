@@ -166,6 +166,10 @@ build_probe \
   -o "$OUT_DIR/probe_conservative_msaa.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_sample_positions_breadth.cpp" \
+  -o "$OUT_DIR/probe_sample_positions_breadth.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_rov/probe_rov.cpp" \
   -o "$OUT_DIR/probe_rov.exe"
 
