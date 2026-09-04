@@ -175,6 +175,20 @@ warning; other enabled warnings remained errors.
 binding, output allocation, or GPU scheduling.** Those blockers remain open;
 metadata retention is an implementation prerequisite, not Phase 7 completion.
 
+## Invalid entrypoint-layout query contract
+
+The [Work Graph specification](https://microsoft.github.io/DirectX-Specs/d3d/WorkGraphs.html#getentrypointrecordsizeinbytes)
+requires `UINT_MAX` for invalid graph/entrypoint indices in record size and
+alignment queries; zero denotes valid empty input, not an invalid index.
+Both runtime methods now return the required invalid-index sentinel.
+The existing required properties probe includes out-of-range graph and
+entrypoint indices, including `UINT_MAX`. It fails against the preceding
+runtime and passes after the correction, with successful dispatch HRESULTs
+in both runs. Evidence: `/private/tmp/metalsharp-phase7-abi/query-before/`,
+`query-after/`, and `query-stage/` (separate strict ABI audit).
+This changes only the invalid-index contract: valid record layouts remain
+hard-coded and must still be derived from the retained entrypoint metadata.
+
 ## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit

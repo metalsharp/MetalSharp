@@ -5145,7 +5145,7 @@ public:
     return m_has_work_graph && graph == 0 &&
                    entrypoint < m_work_graph_entrypoints.size()
                ? 16u
-               : 0u;
+               : UINT_MAX;
   }
 
   void STDMETHODCALLTYPE GetWorkGraphMemoryRequirements(
@@ -5165,7 +5165,7 @@ public:
     return m_has_work_graph && graph == 0 &&
                    entrypoint < m_work_graph_entrypoints.size()
                ? 16u
-               : 0u;
+               : UINT_MAX;
   }
 
 private:
