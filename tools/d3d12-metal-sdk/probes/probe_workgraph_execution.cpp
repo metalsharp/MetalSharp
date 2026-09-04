@@ -250,6 +250,9 @@ int main() {
     uint32_t cross_queue_values[2] = {};
     bool dxil_node_shader_readback_exact = false;
     bool dxil_node_shader_uav_binding_exact = false;
+    bool node_table_uav_exact = false;
+    bool node_table_short_view_unchanged = false;
+    bool node_table_null_view_unchanged = false;
     bool dxil_node_shader_gpu_readback_exact = false;
     bool dxil_multi_node_readback_exact = false;
     bool node_multi_cpu_input_exact = false;
@@ -1207,6 +1210,88 @@ int main() {
         }
     }
 
+    if (SUCCEEDED(hr) && dxil_node_shader_uav_binding_exact) {
+        ID3D12RootSignature* table_root = nullptr;
+        ID3DBlob* table_blob = nullptr;
+        ID3D12DescriptorHeap* table_heap = nullptr;
+        D3D12_DESCRIPTOR_RANGE range = {};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        range.NumDescriptors = 1;
+        range.OffsetInDescriptorsFromTableStart = 1;
+        D3D12_ROOT_PARAMETER parameters[2] = {};
+        parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[0].Constants.ShaderRegister = 7;
+        parameters[0].Constants.Num32BitValues = 1;
+        parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[1].DescriptorTable.NumDescriptorRanges = 1;
+        parameters[1].DescriptorTable.pDescriptorRanges = &range;
+        D3D12_ROOT_SIGNATURE_DESC root_desc = {};
+        root_desc.NumParameters = 2;
+        root_desc.pParameters = parameters;
+        hr = serialize_root_signature(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+                                      &table_blob, nullptr);
+        if (SUCCEEDED(hr))
+            hr = device->CreateRootSignature(0, table_blob->GetBufferPointer(),
+                table_blob->GetBufferSize(), IID_PPV_ARGS(&table_root));
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
+        heap_desc.NumDescriptors = 3;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        if (SUCCEEDED(hr)) hr = device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&table_heap));
+        const UINT increment = device->GetDescriptorHandleIncrementSize(heap_desc.Type);
+        uint32_t before[16] = {}, after[16] = {};
+        for (unsigned test = 0; test < 3 && SUCCEEDED(hr); ++test) {
+            hr = node_output->ReadFromSubresource(before, sizeof(before), sizeof(before), 0, nullptr);
+            if (FAILED(hr)) break;
+            auto cpu = table_heap->GetCPUDescriptorHandleForHeapStart();
+            cpu.ptr += 2 * increment;
+            auto gpu = table_heap->GetGPUDescriptorHandleForHeapStart();
+            gpu.ptr += increment;
+            D3D12_UNORDERED_ACCESS_VIEW_DESC view = {};
+            view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            view.Buffer.FirstElement = test ? 4 : 2;
+            view.Buffer.NumElements = test == 1 ? 1 : 2;
+            view.Buffer.StructureByteStride = 4;
+            device->CreateUnorderedAccessView(test == 2 ? nullptr : node_output,
+                                              nullptr, &view, cpu);
+            hr = allocator->Reset();
+            if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+            if (SUCCEEDED(hr)) {
+                SetProgramDesc program = set_program;
+                std::memcpy(program.WorkGraph.ProgramIdentifier,
+                            node_shader_identifier, sizeof(node_shader_identifier));
+                const uint32_t record = 1;
+                DispatchGraphDesc dispatch = {};
+                dispatch.Mode = 0;
+                dispatch.NodeCPUInput.NumRecords = 1;
+                dispatch.NodeCPUInput.Records = &record;
+                dispatch.NodeCPUInput.RecordStrideInBytes = sizeof(record);
+                ID3D12DescriptorHeap* heaps[] = {table_heap};
+                list->SetDescriptorHeaps(1, heaps);
+                list->SetComputeRootSignature(table_root);
+                list->SetComputeRootDescriptorTable(1, gpu);
+                list->SetProgram(&program);
+                list->DispatchGraph(&dispatch);
+                hr = execute_and_wait(device, queue, base_list);
+            }
+            if (SUCCEEDED(hr))
+                hr = node_output->ReadFromSubresource(after, sizeof(after), sizeof(after), 0, nullptr);
+            if (SUCCEEDED(hr)) {
+                if (!test) {
+                    before[2] = 0xabcdef01u;
+                    before[3] = 0x12345678u;
+                    node_table_uav_exact = !std::memcmp(before, after, sizeof(after));
+                } else if (test == 1) {
+                    node_table_short_view_unchanged = !std::memcmp(before, after, sizeof(after));
+                } else {
+                    node_table_null_view_unchanged = !std::memcmp(before, after, sizeof(after));
+                }
+            }
+        }
+        release(table_heap);
+        release(table_blob);
+        release(table_root);
+    }
+
     if (compute_queue && compute_base_list && compute_list &&
         SUCCEEDED(hr)) {
         const uint32_t compute_record = 17;
@@ -1319,7 +1404,9 @@ int main() {
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
         cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
         node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
-        dxil_node_shader_uav_binding_exact && dxil_node_shader_gpu_readback_exact &&
+        dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
+        node_table_short_view_unchanged && node_table_null_view_unchanged &&
+        dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
         node_multi_properties_complete && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
@@ -1363,6 +1450,11 @@ int main() {
                 dxil_node_shader_readback_exact ? "true" : "false");
     std::printf("  \"dxil_node_shader_uav_binding_exact\": %s,\n",
                 dxil_node_shader_uav_binding_exact ? "true" : "false");
+    std::printf("  \"node_table_uav_exact\": %s,\n", node_table_uav_exact ? "true" : "false");
+    std::printf("  \"node_table_short_view_unchanged\": %s,\n",
+                node_table_short_view_unchanged ? "true" : "false");
+    std::printf("  \"node_table_null_view_unchanged\": %s,\n",
+                node_table_null_view_unchanged ? "true" : "false");
     std::printf("  \"dxil_node_shader_gpu_readback_exact\": %s,\n",
                 dxil_node_shader_gpu_readback_exact ? "true" : "false");
     std::printf("  \"node_multi_bytecode_loaded\": %s,\n",
@@ -1429,7 +1521,8 @@ int main() {
                    backing_overflow_unchanged && multi_dispatch_ordering_exact &&
                    cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
                    node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
-                   dxil_node_shader_uav_binding_exact &&
+                   dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
+                   node_table_short_view_unchanged && node_table_null_view_unchanged &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
                    node_multi_properties_complete &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&

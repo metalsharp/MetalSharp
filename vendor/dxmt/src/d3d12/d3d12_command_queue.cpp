@@ -3162,26 +3162,66 @@ struct ReplayState {
       RetainResourceMetalObjectsForCompletion(node_table);
     }
 
-    // A work-graph node's UAV register is sourced from the current compute
-    // root bindings.  Keep the backing allocation on the node-record slot
-    // (buffer 30) while honoring a direct u0 root UAV for shader resources.
-    // Descriptor-table resources remain outside this bounded provider and are
-    // rejected by the generic source-selection rules rather than aliased to
-    // the backing memory.
+    // Bounded node u0/space0 binding. Root parameter indices are not shader
+    // registers. Keep node records at buffer 30 and resolve the output through
+    // the root signature, including table/range offsets and buffer view bounds.
     MTLD3D12Resource *node_output_resource = backing_resource;
     uint64_t node_output_offset = backing_offset;
-    if (!comp_uav_set[0] && comp_table_set[0])
-      return false;
-    if (comp_uav_set[0] && comp_uavs[0]) {
-      node_output_resource = device->LookupResourceByGPUAddress(comp_uavs[0]);
-      if (!node_output_resource ||
-          !node_output_resource->GetMTLBuffer().handle)
-        return false;
-      node_output_offset =
-          comp_uavs[0] - node_output_resource->GetGPUVirtualAddress();
-      if (node_output_offset > node_output_resource->GetBufferByteLength() ||
-          8u > node_output_resource->GetBufferByteLength() -
-                    node_output_offset)
+    if (compute_root_sig) {
+      uint32_t root_index = ~0u;
+      uint32_t descriptor_offset = 0;
+      if (compute_root_sig->FindDescriptorTableRange(
+              D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 0, &root_index,
+              &descriptor_offset)) {
+        if (root_index >= kRootParameterSlotCount || !comp_table_set[root_index])
+          return false;
+        D3D12Descriptor *descriptor = nullptr;
+        for (uint32_t h = 0; h < desc_heap_count && !descriptor; ++h) {
+          auto *heap = static_cast<MTLD3D12DescriptorHeap *>(desc_heaps[h]);
+          if (heap && heap->IsShaderVisible() && heap->IsResident())
+            descriptor = heap->GetDescriptorFromGPUHandle(
+                comp_tables[root_index], descriptor_offset);
+        }
+        if (!descriptor || !descriptor->resource ||
+            descriptor->range_type != D3D12_DESCRIPTOR_RANGE_TYPE_UAV ||
+            descriptor->uav.ViewDimension != D3D12_UAV_DIMENSION_BUFFER ||
+            descriptor->resource_uav_counter)
+          return false;
+        const auto &view = descriptor->uav;
+        uint64_t stride = view.Buffer.StructureByteStride;
+        if (view.Format == DXGI_FORMAT_R32_UINT && !stride &&
+            view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_NONE)
+          stride = 4;
+        else if (view.Format != DXGI_FORMAT_UNKNOWN || !stride ||
+                 view.Buffer.Flags != D3D12_BUFFER_UAV_FLAG_NONE)
+          return false;
+        node_output_resource = static_cast<MTLD3D12Resource *>(descriptor->resource);
+        const uint64_t length = node_output_resource->GetBufferByteLength();
+        if (view.Buffer.FirstElement > length / stride)
+          return false;
+        node_output_offset = view.Buffer.FirstElement * stride;
+        if (uint64_t(view.Buffer.NumElements) > (length - node_output_offset) / stride ||
+            uint64_t(view.Buffer.NumElements) * stride < 8)
+          return false;
+      } else {
+        const auto &parameters = compute_root_sig->GetParameters();
+        for (uint32_t p = 0; p < parameters.size() && p < kRootParameterSlotCount; ++p) {
+          if (parameters[p].type == D3D12_ROOT_PARAMETER_TYPE_UAV &&
+              parameters[p].register_index == 0 && parameters[p].register_space == 0) {
+            root_index = p;
+            break;
+          }
+        }
+        if (root_index == ~0u || !comp_uav_set[root_index] || !comp_uavs[root_index])
+          return false;
+        node_output_resource = device->LookupResourceByGPUAddress(comp_uavs[root_index]);
+        if (!node_output_resource)
+          return false;
+        node_output_offset = comp_uavs[root_index] - node_output_resource->GetGPUVirtualAddress();
+      }
+      if (!node_output_resource->GetMTLBuffer().handle ||
+          node_output_offset > node_output_resource->GetBufferByteLength() ||
+          8u > node_output_resource->GetBufferByteLength() - node_output_offset)
         return false;
       RetainResourceMetalObjectsForCompletion(node_output_resource);
     }
