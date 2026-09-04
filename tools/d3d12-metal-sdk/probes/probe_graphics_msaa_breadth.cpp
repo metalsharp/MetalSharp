@@ -133,12 +133,13 @@ static bool exact_float4(const float *actual, const float *expected) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        std::fprintf(stderr, "usage: probe_graphics_msaa_breadth <vs.dxil> <ps.dxil>\n");
+    if (argc != 4) {
+        std::fprintf(stderr, "usage: probe_graphics_msaa_breadth <vs.dxil> <ps.dxil> <alpha-ps.dxil>\n");
         return 2;
     }
     const auto vs_bytes = read_binary_file(argv[1]);
     const auto ps_bytes = read_binary_file(argv[2]);
+    const auto alpha_ps_bytes = read_binary_file(argv[3]);
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     auto create_device = load_proc<HRESULT(WINAPI *)(IUnknown *,
                                                        D3D_FEATURE_LEVEL,
@@ -160,20 +161,24 @@ int main(int argc, char **argv) {
     ID3D12PipelineState *pso2 = nullptr;
     ID3D12PipelineState *pso4 = nullptr;
     ID3D12PipelineState *pso4_mask = nullptr;
+    ID3D12PipelineState *pso4_alpha = nullptr;
     D3D12_SHADER_BYTECODE vs_bytecode = {vs_bytes.data(), vs_bytes.size()};
     D3D12_SHADER_BYTECODE ps_bytecode = {ps_bytes.data(), ps_bytes.size()};
     auto create_pso_from_bytes = [&](UINT samples, UINT sample_mask,
+                                     D3D12_SHADER_BYTECODE pixel,
+                                     bool alpha_to_coverage,
                                      ID3D12PipelineState **pso) {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
         desc.pRootSignature = root;
         desc.VS = vs_bytecode;
-        desc.PS = ps_bytecode;
+        desc.PS = pixel;
         desc.SampleMask = sample_mask;
         desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
         desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
         desc.RasterizerState.DepthClipEnable = TRUE;
         desc.BlendState.RenderTarget[0].RenderTargetWriteMask =
             D3D12_COLOR_WRITE_ENABLE_ALL;
+        desc.BlendState.AlphaToCoverageEnable = alpha_to_coverage;
         desc.DepthStencilState.DepthEnable = FALSE;
         desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
         desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
@@ -184,32 +189,42 @@ int main(int argc, char **argv) {
         return device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(pso));
     };
     HRESULT pso2_hr = (device && root && !vs_bytes.empty() && !ps_bytes.empty())
-                          ? create_pso_from_bytes(2, UINT_MAX, &pso2)
+                          ? create_pso_from_bytes(2, UINT_MAX, ps_bytecode,
+                                                  false, &pso2)
                           : E_FAIL;
     HRESULT pso4_hr = (device && root && !vs_bytes.empty() && !ps_bytes.empty())
-                          ? create_pso_from_bytes(4, UINT_MAX, &pso4)
+                          ? create_pso_from_bytes(4, UINT_MAX, ps_bytecode,
+                                                  false, &pso4)
                           : E_FAIL;
     HRESULT pso4_mask_hr = (device && root && !vs_bytes.empty() && !ps_bytes.empty())
-                               ? create_pso_from_bytes(4, 0x5u, &pso4_mask)
+                               ? create_pso_from_bytes(4, 0x5u, ps_bytecode,
+                                                       false, &pso4_mask)
                                : E_FAIL;
+    D3D12_SHADER_BYTECODE alpha_ps_bytecode = {alpha_ps_bytes.data(),
+                                                alpha_ps_bytes.size()};
+    HRESULT pso4_alpha_hr =
+        (device && root && !vs_bytes.empty() && !alpha_ps_bytes.empty())
+            ? create_pso_from_bytes(4, UINT_MAX, alpha_ps_bytecode, true,
+                                    &pso4_alpha)
+            : E_FAIL;
 
     ID3D12CommandQueue *queue = nullptr;
     ID3D12CommandAllocator *allocator = nullptr;
     ID3D12GraphicsCommandList *list = nullptr;
     ID3D12DescriptorHeap *rtv_heap = nullptr;
-    ID3D12Resource *targets[3] = {};
-    ID3D12Resource *resolves[3] = {};
+    ID3D12Resource *targets[4] = {};
+    ID3D12Resource *resolves[4] = {};
     ID3D12Resource *readback = nullptr;
     HRESULT queue_hr = E_FAIL;
     HRESULT allocator_hr = E_FAIL;
     HRESULT list_hr = E_FAIL;
-    HRESULT target_hr[3] = {E_FAIL, E_FAIL, E_FAIL};
-    HRESULT resolve_hr[3] = {E_FAIL, E_FAIL, E_FAIL};
+    HRESULT target_hr[4] = {E_FAIL, E_FAIL, E_FAIL, E_FAIL};
+    HRESULT resolve_hr[4] = {E_FAIL, E_FAIL, E_FAIL, E_FAIL};
     HRESULT readback_hr = E_FAIL;
     HRESULT rtv_heap_hr = E_FAIL;
     HRESULT execute_hr = E_FAIL;
     HRESULT map_hr = E_FAIL;
-    if (device && root && pso2 && pso4 && pso4_mask) {
+    if (device && root && pso2 && pso4 && pso4_mask && pso4_alpha) {
         D3D12_COMMAND_QUEUE_DESC queue_desc = {};
         queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
         queue_hr = device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue));
@@ -225,7 +240,7 @@ int main(int argc, char **argv) {
             heap_properties(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_HEAP_PROPERTIES readback_heap =
             heap_properties(D3D12_HEAP_TYPE_READBACK);
-        for (UINT i = 0; i < 3 && SUCCEEDED(list_hr); ++i) {
+        for (UINT i = 0; i < 4 && SUCCEEDED(list_hr); ++i) {
             const UINT samples = i == 0 ? 2 : 4;
             D3D12_RESOURCE_DESC source_desc = texture_desc(samples);
             D3D12_CLEAR_VALUE clear = {};
@@ -247,13 +262,13 @@ int main(int argc, char **argv) {
         }
         D3D12_RESOURCE_DESC readback_desc = {};
         readback_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        readback_desc.Width = 3 * 256;
+        readback_desc.Width = 4 * 256;
         readback_desc.Height = 1;
         readback_desc.DepthOrArraySize = 1;
         readback_desc.MipLevels = 1;
         readback_desc.SampleDesc.Count = 1;
         readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        readback_hr = SUCCEEDED(resolve_hr[2])
+        readback_hr = SUCCEEDED(resolve_hr[3])
                           ? device->CreateCommittedResource(
                                 &readback_heap, D3D12_HEAP_FLAG_NONE,
                                 &readback_desc, D3D12_RESOURCE_STATE_COPY_DEST,
@@ -261,7 +276,7 @@ int main(int argc, char **argv) {
                           : E_FAIL;
         D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
         heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        heap_desc.NumDescriptors = 3;
+        heap_desc.NumDescriptors = 4;
         rtv_heap_hr = SUCCEEDED(readback_hr)
                           ? device->CreateDescriptorHeap(&heap_desc,
                                                         IID_PPV_ARGS(&rtv_heap))
@@ -272,17 +287,21 @@ int main(int argc, char **argv) {
             const D3D12_RECT scissor = {0, 0, 1, 1};
             const UINT descriptor_stride = device->GetDescriptorHandleIncrementSize(
                 D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-            for (UINT i = 0; i < 3; ++i) {
+            for (UINT i = 0; i < 4; ++i) {
                 D3D12_CPU_DESCRIPTOR_HANDLE rtv =
                     rtv_heap->GetCPUDescriptorHandleForHeapStart();
                 rtv.ptr += static_cast<SIZE_T>(i) * descriptor_stride;
                 device->CreateRenderTargetView(targets[i], nullptr, rtv);
-                list->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+                const FLOAT alpha_clear[4] = {0, 0, 0, 0};
+                list->ClearRenderTargetView(
+                    rtv, i == 3 ? alpha_clear : clear_color, 0, nullptr);
                 list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
                 list->RSSetViewports(1, &viewport);
                 list->RSSetScissorRects(1, &scissor);
                 list->SetGraphicsRootSignature(root);
-                list->SetPipelineState(i == 0 ? pso2 : (i == 1 ? pso4 : pso4_mask));
+                list->SetPipelineState(i == 0 ? pso2 :
+                                       (i == 1 ? pso4 :
+                                        (i == 2 ? pso4_mask : pso4_alpha)));
                 list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
                 list->DrawInstanced(6, 1, 0, 0);
                 D3D12_RESOURCE_BARRIER source_barrier = {};
@@ -327,19 +346,19 @@ int main(int argc, char **argv) {
         }
     }
 
-    float actual[3][4] = {};
+    float actual[4][4] = {};
     if (SUCCEEDED(execute_hr) && readback) {
         void *mapped = nullptr;
-        D3D12_RANGE range = {0, 3 * 256};
+        D3D12_RANGE range = {0, 4 * 256};
         map_hr = readback->Map(0, &range, &mapped);
         if (SUCCEEDED(map_hr) && mapped) {
             const auto *bytes = static_cast<const uint8_t *>(mapped);
-            for (UINT i = 0; i < 3; ++i)
+            for (UINT i = 0; i < 4; ++i)
                 std::memcpy(actual[i], bytes + i * 256, sizeof(actual[i]));
             readback->Unmap(0, nullptr);
         }
     }
-    SampleResult results[3] = {};
+    SampleResult results[4] = {};
     results[0].samples = 2;
     results[0].sample_mask = UINT_MAX;
     results[0].expected[0] = 1.5f;
@@ -358,8 +377,14 @@ int main(int argc, char **argv) {
     results[2].expected[1] = 0.0f;
     results[2].expected[2] = 0.5f;
     results[2].expected[3] = 1.0f;
+    results[3].samples = 4;
+    results[3].sample_mask = UINT_MAX;
+    results[3].expected[0] = 0.0f;
+    results[3].expected[1] = 0.0f;
+    results[3].expected[2] = 0.0f;
+    results[3].expected[3] = 0.0f;
     bool sample_exact = SUCCEEDED(map_hr);
-    for (UINT i = 0; i < 3; ++i) {
+    for (UINT i = 0; i < 4; ++i) {
         std::memcpy(results[i].values, actual[i], sizeof(actual[i]));
         results[i].exact = exact_float4(actual[i], results[i].expected);
         sample_exact = sample_exact && results[i].exact;
@@ -386,11 +411,13 @@ int main(int argc, char **argv) {
     const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(root_hr) &&
                       SUCCEEDED(vs_hr) && SUCCEEDED(ps_hr) &&
                       SUCCEEDED(pso2_hr) && SUCCEEDED(pso4_hr) &&
-                      SUCCEEDED(pso4_mask_hr) && SUCCEEDED(queue_hr) &&
+                      SUCCEEDED(pso4_mask_hr) && SUCCEEDED(pso4_alpha_hr) &&
+                      SUCCEEDED(queue_hr) &&
                       SUCCEEDED(allocator_hr) && SUCCEEDED(list_hr) &&
                       SUCCEEDED(target_hr[0]) && SUCCEEDED(target_hr[1]) &&
-                      SUCCEEDED(target_hr[2]) && SUCCEEDED(resolve_hr[0]) &&
-                      SUCCEEDED(resolve_hr[1]) && SUCCEEDED(resolve_hr[2]) &&
+                      SUCCEEDED(target_hr[2]) && SUCCEEDED(target_hr[3]) &&
+                      SUCCEEDED(resolve_hr[0]) && SUCCEEDED(resolve_hr[1]) &&
+                      SUCCEEDED(resolve_hr[2]) && SUCCEEDED(resolve_hr[3]) &&
                       SUCCEEDED(readback_hr) && SUCCEEDED(rtv_heap_hr) &&
                       SUCCEEDED(execute_hr) && sample_exact && quality_exact;
 
@@ -398,20 +425,20 @@ int main(int argc, char **argv) {
     std::printf("  \"create_hr\": \"%s\", \"root_hr\": \"%s\", \"vs_hr\": \"%s\", \"ps_hr\": \"%s\",\n",
                 hr_hex(create_hr).c_str(), hr_hex(root_hr).c_str(),
                 hr_hex(vs_hr).c_str(), hr_hex(ps_hr).c_str());
-    std::printf("  \"pso_hr\": [\"%s\", \"%s\", \"%s\"],\n",
+    std::printf("  \"pso_hr\": [\"%s\", \"%s\", \"%s\", \"%s\"],\n",
                 hr_hex(pso2_hr).c_str(), hr_hex(pso4_hr).c_str(),
-                hr_hex(pso4_mask_hr).c_str());
+                hr_hex(pso4_mask_hr).c_str(), hr_hex(pso4_alpha_hr).c_str());
     std::printf("  \"execute_hr\": \"%s\", \"map_hr\": \"%s\",\n",
                 hr_hex(execute_hr).c_str(), hr_hex(map_hr).c_str());
     std::printf("  \"samples\": [\n");
-    for (UINT i = 0; i < 3; ++i) {
-        std::printf("    {\"count\": %u, \"sample_mask\": %u, \"values\": [%g, %g, %g, %g], \"expected\": [%g, %g, %g, %g], \"exact\": %s}%s\n",
+    for (UINT i = 0; i < 4; ++i) {
+        std::printf("    {\"count\": %u, \"sample_mask\": %u, \"alpha_to_coverage\": %s, \"values\": [%g, %g, %g, %g], \"expected\": [%g, %g, %g, %g], \"exact\": %s}%s\n",
                     results[i].samples, results[i].sample_mask,
-                    results[i].values[0], results[i].values[1],
+                    i == 3 ? "true" : "false", results[i].values[0], results[i].values[1],
                     results[i].values[2], results[i].values[3],
                     results[i].expected[0], results[i].expected[1],
                     results[i].expected[2], results[i].expected[3],
-                    results[i].exact ? "true" : "false", i == 2 ? "" : ",");
+                    results[i].exact ? "true" : "false", i == 3 ? "" : ",");
     }
     std::printf("  ],\n  \"quality\": [\n");
     const UINT quality_counts[3] = {1, 2, 4};
@@ -436,6 +463,7 @@ int main(int argc, char **argv) {
     safe_release(list);
     safe_release(allocator);
     safe_release(queue);
+    safe_release(pso4_alpha);
     safe_release(pso4_mask);
     safe_release(pso4);
     safe_release(pso2);

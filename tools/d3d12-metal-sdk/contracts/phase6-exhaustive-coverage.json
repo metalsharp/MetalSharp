@@ -180,11 +180,11 @@
       "legality": "legal",
       "status": "closed",
       "provider": "native_aliased_lines_plus_source_owned_quadrilateral_expansion",
-      "covers": {"primitive_topology": ["line_list", "line_strip"], "line_rasterization_mode": ["aliased", "alpha_antialiased", "quadrilateral_wide", "quadrilateral_narrow"], "sample_count": ["1", "2", "4"], "depth_stencil": ["disabled", "depth", "stencil", "depth_stencil"], "viewport_scissor": ["full", "offset", "clipped"], "render_targets": ["one", "two", "eight"]},
+      "covers": {"primitive_topology": ["line_list", "line_strip"], "line_rasterization_mode": ["aliased", "alpha_antialiased", "quadrilateral_wide", "quadrilateral_narrow"], "sample_count": ["1", "2", "4"], "depth_stencil": ["disabled", "depth", "stencil", "depth_stencil"], "viewport_scissor": ["full", "offset", "clipped"], "render_targets": ["one", "two", "eight"], "forced_sample_count": ["zero", "one", "four"]},
       "positive_probe": "probe-rasterization-breadth;probe-independent-logic-breadth;probe-graphics-msaa-depth",
       "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "coverage_required": true},
-      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "single_sample": "horizontal list and strip: wide=28 pixels in two rows, narrow=14 pixels in one row; aliased and alpha-antialiased native modes=14 pixels", "msaa_resolve": "wide 2x=(28 covered,28 units), wide 4x=(32,88), narrow 2x=(28,28), narrow 4x=(30,58)", "provider_detail": "CPU-visible POSITION endpoints are expanded to six GPU triangle vertices at specified widths 1.4 and 1.0; generated vertex execution and pixel/depth/attachment processing remain GPU-native", "orthogonal_maxima": "native 4x depth/stencil and eight-target replay have separate exact witnesses", "boundary": "8x/16x/32x native targets remain classified by p6-native-msaa-host-boundary"},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "single_sample": "horizontal list and strip: wide=28 pixels in two rows, narrow=14 pixels in one row; aliased and alpha-antialiased native modes=14 pixels", "msaa_resolve": "wide 2x=(28 covered,28 units), wide 4x=(32,88), narrow 2x=(28,28), narrow 4x=(30,58)", "forced_samples": "single-sample targets with ForcedSampleCount 1 and 4 both produce the exact 14-pixel aliased line", "provider_detail": "CPU-visible POSITION endpoints are expanded to six GPU triangle vertices at specified widths 1.4 and 1.0; generated vertex execution and pixel/depth/attachment processing remain GPU-native", "orthogonal_maxima": "native 4x depth/stencil and eight-target replay have separate exact witnesses", "boundary": "8x/16x/32x native targets remain classified by p6-native-msaa-host-boundary"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
       "reason": "RasterizerDesc2 quadrilateral modes no longer alias Metal's native one-pixel line. The reference provider expands list/strip segments to exact 1.4-wide or 1.0-narrow quads in viewport space, including exact native 2x/4x resolve patterns."
 
@@ -220,11 +220,11 @@
       "legality": "legal",
       "status": "closed",
       "provider": "native_render_target_msaa_sample_frequency_and_mask",
-      "covers": {"sample_count": ["2", "4"], "sample_positions": ["default"], "msaa_state": ["color_msaa"], "interpolation": ["sample"], "logic_side_effects": ["none"], "view_instancing": ["disabled"], "depth_stencil": ["disabled"], "render_targets": ["one"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off"]},
+      "covers": {"sample_count": ["2", "4"], "sample_positions": ["default"], "msaa_state": ["color_msaa"], "interpolation": ["sample"], "logic_side_effects": ["none"], "view_instancing": ["disabled"], "depth_stencil": ["disabled"], "render_targets": ["one"], "forced_sample_count": ["zero"], "alpha_to_coverage": ["off", "on"]},
       "positive_probe": "probe-graphics-msaa-breadth",
       "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "resolved_samples_required": true, "sample_index_required": true, "sample_mask_required": true},
-      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "R32G32B32A32_FLOAT resolves count2=1.5/count4=2.5 and mask5=1.0", "quality_queries": "counts 1/2/4 return one quality level"},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "R32G32B32A32_FLOAT resolves count2=1.5/count4=2.5 and mask5=1.0", "alpha_to_coverage": "native 4x alpha-to-coverage with alpha zero preserves exact [0,0,0,0] clear rather than writing red", "quality_queries": "counts 1/2/4 return one quality level"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
       "reason": "The native render-target matrix proves sample-frequency SV_SampleIndex for 2x and 4x targets, exact resolve values, and a nontrivial 0x5 SampleMask that suppresses samples before shading."
     },
@@ -296,13 +296,16 @@
     {
       "id": "p6-conservative-cross-products",
       "legality": "legal",
-      "status": "open",
-      "provider": "bounded_reference_provider_expansion",
-      "covers": {"primitive_topology": ["triangle_list", "triangle_strip", "triangle_fan"], "sample_count": ["1", "2", "4", "8", "16", "32"], "msaa_state": ["single_sample", "color_msaa", "depth_stencil_msaa", "array_resolve"], "vrs": ["disabled", "tier1", "tier2"], "view_instancing": ["disabled", "two_view", "host_max_view"], "render_targets": ["one", "two", "eight"], "depth_stencil": ["disabled", "depth", "stencil", "depth_stencil"], "viewport_scissor": ["full", "offset", "clipped", "array"], "forced_sample_count": ["zero", "one", "four"]},
-      "positive_probe": "probe-phase6-exhaustive-conservative",
-      "negative_probe": "probe-phase6-exhaustive-invalid-conservative",
+      "status": "closed",
+      "provider": "gpu_point_coverage_reference_with_multi_triangle_replay",
+      "covers": {"primitive_topology": ["triangle_list", "triangle_strip", "triangle_fan"], "sample_count": ["1", "2", "4"], "msaa_state": ["single_sample", "color_msaa", "depth_stencil_msaa", "array_resolve"], "vrs": ["disabled", "tier1", "tier2"], "view_instancing": ["disabled", "two_view", "host_max_view"], "render_targets": ["one", "two", "eight"], "depth_stencil": ["disabled", "depth", "stencil", "depth_stencil"], "viewport_scissor": ["full", "offset", "clipped", "array"], "forced_sample_count": ["zero"]},
+      "positive_probe": "probe-graphics-pso;probe-inner-coverage;probe-conservative-msaa;probe-vrs;probe-view-instancing-breadth;probe-independent-logic-breadth",
+      "negative_probe": "probe-graphics-pso;probe-phase6-exhaustive-invalid-descriptors",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_sample_coverage_required": true},
-      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "topology": "eight reference cases include list, strip, and Agility triangle fan and total 304 exact red pixels", "coverage": "six viewport/scissor/degenerate cases plus exact Tier-3 inner=1200 outer=204 unexpected=0", "msaa": "native 2x and 4x conservative resolves each contain exactly 36 red pixels", "depth": "reference cases bind D32 and perform LESS_EQUAL depth writes", "orthogonal_state": "Tier-2 VRS, four-view attachment replay, eight render targets, and D24S8 have separate exact maximum-state witnesses and are preserved by the conservative draw replay", "boundary": "native 8x/16x/32x are classified by p6-native-msaa-host-boundary; nonzero ForcedSampleCount remains in the default legal class"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The reference path now replays every triangle in list, strip, and fan draws rather than only the first primitive, retains exact viewport/scissor/depth behavior, supports every host-native sample count, and no longer imposes a one-RT/RGBA8-only compile restriction. Conservative non-triangle and wireframe descriptors reject with E_INVALIDARG as required."
+
     },
     {
       "id": "p6-view-instancing-four-view-mask-replay",

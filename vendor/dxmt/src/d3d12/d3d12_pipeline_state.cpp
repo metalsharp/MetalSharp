@@ -3456,11 +3456,12 @@ bool MTLD3D12PipelineState::Compile() {
           D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON;
   m_uses_conservative_rasterization_reference_model =
       m_uses_conservative_rasterization && m_ms.empty() && m_gs.empty() &&
-      m_hs.empty() && m_ds.empty() && m_num_render_targets == 1 &&
+      m_hs.empty() && m_ds.empty() && m_num_render_targets >= 1 &&
+      m_num_render_targets <= 8 &&
       m_topology == D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE &&
       m_rasterizer_desc.FillMode == D3D12_FILL_MODE_SOLID &&
       m_rasterizer_desc.ForcedSampleCount == 0 &&
-      m_rtv_formats[0] == DXGI_FORMAT_R8G8B8A8_UNORM &&
+      m_rtv_formats[0] != DXGI_FORMAT_UNKNOWN &&
       m_device && m_sample_count < 32 &&
       m_device->GetHostCapabilities().supportsTextureSampleCount(
           static_cast<uint8_t>(m_sample_count)) &&
@@ -3753,6 +3754,8 @@ bool MTLD3D12PipelineState::Compile() {
 
   info.rasterization_enabled = !m_has_stream_output;
   info.raster_sample_count = m_sample_count ? m_sample_count : 1;
+  info.alpha_to_coverage_enabled =
+      m_blend_desc.AlphaToCoverageEnable ? true : false;
 
   for (UINT i = 0; i < m_num_render_targets && i < 8; i++) {
     auto fmt = DXGIToMTLPixelFormat(m_rtv_formats[i]);

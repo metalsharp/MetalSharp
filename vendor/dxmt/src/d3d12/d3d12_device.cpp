@@ -4693,6 +4693,11 @@ static bool ValidateGraphicsPipelineDesc(
           D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF ||
       desc.RasterizerState.ConservativeRaster >
           D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON ||
+      (desc.RasterizerState.ConservativeRaster ==
+           D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON &&
+       (desc.RasterizerState.FillMode != D3D12_FILL_MODE_SOLID ||
+        desc.PrimitiveTopologyType !=
+            D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE)) ||
       !IsPowerOfTwoSampleCount(desc.SampleDesc.Count, 32) ||
       (desc.RasterizerState.ForcedSampleCount &&
        !IsPowerOfTwoSampleCount(desc.RasterizerState.ForcedSampleCount, 16)))

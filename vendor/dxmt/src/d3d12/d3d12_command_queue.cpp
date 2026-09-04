@@ -4869,6 +4869,18 @@ struct ReplayState {
         pso->GetInputLayout().NumElements == 0)
       return false;
 
+    const bool triangle_list =
+        topology == D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    const bool triangle_strip =
+        topology == D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+    const bool triangle_fan = topology == kD3D12PrimitiveTopologyTriangleFan;
+    if (!triangle_list && !triangle_strip && !triangle_fan)
+      return false;
+    const uint32_t triangle_count =
+        triangle_list ? vertex_count / 3u : vertex_count - 2u;
+    if (!triangle_count)
+      return false;
+
     auto *rt_descriptor =
         reinterpret_cast<const D3D12Descriptor *>(rt_handles[0].ptr);
     auto *target = rt_descriptor
@@ -4903,7 +4915,8 @@ struct ReplayState {
     const uint64_t vertex_offset =
         vbs[0].BufferLocation - vertex_resource->GetGPUVirtualAddress();
     const uint64_t last_byte =
-        vertex_offset + uint64_t(start_vertex + 2) * vbs[0].StrideInBytes +
+        vertex_offset + uint64_t(start_vertex + vertex_count - 1u) *
+                            vbs[0].StrideInBytes +
         position->aligned_byte_offset + sizeof(float) * 3;
     if (last_byte > vertex_resource->GetBufferByteLength())
       return false;
@@ -4928,57 +4941,79 @@ struct ReplayState {
         viewport_count ? viewports[0]
                        : D3D12_VIEWPORT{0.0f, 0.0f, (float)width,
                                          (float)height, 0.0f, 1.0f};
-    float *points[] = {data.p0, data.p1, data.p2};
     const uint8_t *base = static_cast<const uint8_t *>(
         vertex_resource->GetCPUAddress());
-    for (uint32_t i = 0; i < 3; ++i) {
+    auto read_position = [&](uint32_t index, float out[3]) {
       const uint8_t *address =
-          base + vertex_offset + uint64_t(start_vertex + i) *
-                                  vbs[0].StrideInBytes +
+          base + vertex_offset + uint64_t(index) * vbs[0].StrideInBytes +
           position->aligned_byte_offset;
-      float ndc[3] = {};
-      std::memcpy(ndc, address, sizeof(ndc));
-      // The validated reference vertex shader writes float3 input directly
-      // into float4(SV_Position, 1.0); its third component is NDC depth, not
-      // a perspective-divide denominator.
-      const float x = ndc[0];
-      const float y = ndc[1];
-      points[i][0] = viewport.TopLeftX + (x * 0.5f + 0.5f) * viewport.Width;
-      points[i][1] = viewport.TopLeftY + (0.5f - y * 0.5f) * viewport.Height;
-      (&data.z0)[i] = ndc[2];
+      std::memcpy(out, address, sizeof(float) * 3u);
+    };
+
+    for (uint32_t triangle = 0; triangle < triangle_count; ++triangle) {
+      uint32_t indices[3] = {};
+      if (triangle_list) {
+        indices[0] = start_vertex + triangle * 3u;
+        indices[1] = indices[0] + 1u;
+        indices[2] = indices[0] + 2u;
+      } else if (triangle_strip) {
+        indices[0] = start_vertex + triangle;
+        indices[1] = indices[0] + 1u;
+        indices[2] = indices[0] + 2u;
+        if (triangle & 1u)
+          std::swap(indices[0], indices[1]);
+      } else {
+        indices[0] = start_vertex;
+        indices[1] = start_vertex + triangle + 1u;
+        indices[2] = start_vertex + triangle + 2u;
+      }
+
+      data = {};
+      float *points[] = {data.p0, data.p1, data.p2};
+      for (uint32_t i = 0; i < 3; ++i) {
+        float ndc[3] = {};
+        read_position(indices[i], ndc);
+        // The validated reference vertex shader writes float3 input directly
+        // into float4(SV_Position, 1.0); its third component is NDC depth.
+        points[i][0] = viewport.TopLeftX +
+                       (ndc[0] * 0.5f + 0.5f) * viewport.Width;
+        points[i][1] = viewport.TopLeftY +
+                       (0.5f - ndc[1] * 0.5f) * viewport.Height;
+        (&data.z0)[i] = ndc[2];
+      }
+      data.width = width;
+      data.height = height;
+      data.enabled = 1;
+      data.viewport_x = viewport.TopLeftX;
+      data.viewport_y = viewport.TopLeftY;
+      data.viewport_width = viewport.Width;
+      data.viewport_height = viewport.Height;
+
+      auto data_buffer = MakeTransientBuffer(device, sizeof(data));
+      if (!data_buffer.handle)
+        return false;
+      data_buffer.updateContents(0, &data, sizeof(data));
+      if (!SetVertexBufferTracked(data_buffer, 0, 26) ||
+          !SetFragmentBufferTracked(data_buffer, 0, 26))
+        return false;
+      render_enc.useResource(
+          data_buffer, WMTResourceUsageRead,
+          (WMTRenderStages)(WMTRenderStageVertex | WMTRenderStageFragment));
+      BindDirectFragmentCompleteness(device, "conservative_raster_reference");
+
+      struct wmtcmd_render_draw draw = {};
+      draw.type = WMTRenderCommandDraw;
+      draw.next.set(nullptr);
+      draw.primitive_type = WMTPrimitiveTypePoint;
+      draw.vertex_start = 0;
+      draw.vertex_count = width * height;
+      draw.instance_count = 1;
+      draw.base_instance = 0;
+      if (!EncodeRenderCommands(
+              reinterpret_cast<const wmtcmd_render_nop *>(&draw),
+              "conservative_raster_reference"))
+        return false;
     }
-    data.width = width;
-    data.height = height;
-    data.enabled = 1;
-    data.viewport_x = viewport.TopLeftX;
-    data.viewport_y = viewport.TopLeftY;
-    data.viewport_width = viewport.Width;
-    data.viewport_height = viewport.Height;
-
-    auto data_buffer = MakeTransientBuffer(device, sizeof(data));
-    if (!data_buffer.handle)
-      return false;
-    data_buffer.updateContents(0, &data, sizeof(data));
-    if (!SetVertexBufferTracked(data_buffer, 0, 26) ||
-        !SetFragmentBufferTracked(data_buffer, 0, 26))
-      return false;
-    render_enc.useResource(
-        data_buffer, WMTResourceUsageRead,
-        (WMTRenderStages)(WMTRenderStageVertex | WMTRenderStageFragment));
-    BindDirectFragmentCompleteness(device, "conservative_raster_reference");
-
-    struct wmtcmd_render_draw draw = {};
-    draw.type = WMTRenderCommandDraw;
-    draw.next.set(nullptr);
-    draw.primitive_type = WMTPrimitiveTypePoint;
-    draw.vertex_start = 0;
-    draw.vertex_count = width * height;
-    draw.instance_count = 1;
-    draw.base_instance = 0;
-    if (!EncodeRenderCommands(
-            reinterpret_cast<const wmtcmd_render_nop *>(&draw),
-            "conservative_raster_reference"))
-      return false;
     MarkSwapchainWorkEncoded();
     return true;
   }

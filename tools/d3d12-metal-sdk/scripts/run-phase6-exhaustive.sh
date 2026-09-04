@@ -424,6 +424,7 @@ if [[ "$WITH_MSAA" == "1" ]]; then
   for spec in \
     "vs_main vs_6_0 graphics_msaa_vs" \
     "ps_main ps_6_7 graphics_msaa_ps" \
+    "ps_alpha ps_6_0 graphics_msaa_alpha_ps" \
     "vs_main vs_6_0 graphics_msaa_depth_vs" \
     "ps_main ps_6_0 graphics_msaa_depth_ps"; do
     read -r entry target output <<<"$spec"
@@ -712,7 +713,8 @@ if [[ "$WITH_MSAA" == "1" ]]; then
     --output "$SANDBOX/graphics_msaa.json" \
     --stderr "$LOG_DIR/probe-graphics-msaa.stderr" -- \
     "$WINE_BIN" "$WORK/probe_graphics_msaa_breadth.exe" \
-    "$WORK/graphics_msaa_vs.cso" "$WORK/graphics_msaa_ps.cso"
+    "$WORK/graphics_msaa_vs.cso" "$WORK/graphics_msaa_ps.cso" \
+    "$WORK/graphics_msaa_alpha_ps.cso"
   GRAPHICS_MSAA_STATUS=$?
   set -e
   set +e

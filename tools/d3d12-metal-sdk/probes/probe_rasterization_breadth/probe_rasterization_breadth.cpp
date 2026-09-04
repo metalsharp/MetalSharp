@@ -406,7 +406,8 @@ static LegacyTopologyResult run_rasterizer2_line(
     ID3D12Device2 *device2, ID3D12RootSignature *root, ID3DBlob *vs,
     ID3DBlob *ps, UINT line_mode, UINT sample_count = 1,
     D3D12_PRIMITIVE_TOPOLOGY draw_topology =
-        D3D_PRIMITIVE_TOPOLOGY_LINELIST) {
+        D3D_PRIMITIVE_TOPOLOGY_LINELIST,
+    UINT forced_sample_count = 0) {
     LegacyTopologyResult result;
     if (!device2 || !root || !vs || !ps)
         return result;
@@ -426,6 +427,7 @@ static LegacyTopologyResult run_rasterizer2_line(
     rasterizer.CullMode = D3D12_CULL_MODE_NONE;
     rasterizer.DepthClipEnable = TRUE;
     rasterizer.LineRasterizationMode = line_mode;
+    rasterizer.ForcedSampleCount = forced_sample_count;
     D3D12_DEPTH_STENCIL_DESC depth = {};
     depth.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     D3D12_INPUT_ELEMENT_DESC position_element = {
@@ -822,6 +824,14 @@ float4 ps() : SV_Target0 { return float4(1.0, 0.0, 0.0, 1.0); }
     for (UINT mode = 0; mode < 4; ++mode)
         rasterizer2[mode] = run_rasterizer2_line(
             device2, root, quadrilateral_vs, quadrilateral_ps, mode);
+    LegacyTopologyResult forced_samples[2] = {
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 0, 1,
+                             D3D_PRIMITIVE_TOPOLOGY_LINELIST, 1),
+        run_rasterizer2_line(device2, root, quadrilateral_vs,
+                             quadrilateral_ps, 0, 1,
+                             D3D_PRIMITIVE_TOPOLOGY_LINELIST, 4),
+    };
     LegacyTopologyResult quadrilateral_strip[2] = {
         run_rasterizer2_line(device2, root, quadrilateral_vs,
                              quadrilateral_ps, 2, 1,
@@ -850,6 +860,9 @@ float4 ps() : SV_Target0 { return float4(1.0, 0.0, 0.0, 1.0); }
     bool rasterizer2_created = SUCCEEDED(device2_hr);
     for (const auto &result : rasterizer2)
         rasterizer2_created &= SUCCEEDED(result.pso_hr) && result.exact_shape;
+    bool forced_samples_exact = true;
+    for (const auto &result : forced_samples)
+        forced_samples_exact &= SUCCEEDED(result.pso_hr) && result.exact_shape;
     bool quadrilateral_strip_exact = true;
     for (const auto &result : quadrilateral_strip)
         quadrilateral_strip_exact &=
@@ -858,8 +871,9 @@ float4 ps() : SV_Target0 { return float4(1.0, 0.0, 0.0, 1.0); }
     for (const auto &result : quadrilateral_msaa)
         quadrilateral_msaa_exact &=
             SUCCEEDED(result.pso_hr) && result.exact_shape;
-    pass = pass && rasterizer2_created && quadrilateral_strip_exact &&
-           quadrilateral_msaa_exact && invalid_rasterizer2.exact;
+    pass = pass && rasterizer2_created && forced_samples_exact &&
+           quadrilateral_strip_exact && quadrilateral_msaa_exact &&
+           invalid_rasterizer2.exact;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12.rasterization-breadth.v1\",\n");
@@ -891,6 +905,20 @@ float4 ps() : SV_Target0 { return float4(1.0, 0.0, 0.0, 1.0); }
                     mode == 3 ? "" : ",");
     }
     std::printf("  ],\n");
+    std::printf("  \"forced_sample_count\": [\n");
+    for (UINT i = 0; i < 2; ++i) {
+        const UINT forced = i == 0 ? 1 : 4;
+        const auto &result = forced_samples[i];
+        std::printf("    {\"forced_count\": %u, \"target_count\": 1, \"pso_hr\": \"%s\", \"execute_hr\": \"%s\", \"map_hr\": \"%s\", \"red_pixels\": %u, \"red_rows\": %u, \"exact_shape\": %s}%s\n",
+                    forced, hr_hex(result.pso_hr).c_str(),
+                    hr_hex(result.execute_hr).c_str(),
+                    hr_hex(result.map_hr).c_str(), result.red_pixels,
+                    result.red_rows, result.exact_shape ? "true" : "false",
+                    i == 1 ? "" : ",");
+    }
+    std::printf("  ],\n");
+    std::printf("  \"forced_sample_count_exact\": %s,\n",
+                forced_samples_exact ? "true" : "false");
     std::printf("  \"quadrilateral_line_strip\": [\n");
     for (UINT i = 0; i < 2; ++i) {
         const UINT mode = i + 2;
