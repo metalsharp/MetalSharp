@@ -1275,7 +1275,9 @@ static bool run_conservative_coverage_probe(ID3D12Device* device, ID3D12RootSign
 
 struct IndependentLogicOpProbeResult {
     bool passed = false;
-    bool side_effect_rejected = false;
+    bool side_effect_supported = false;
+    bool side_effect_readback = false;
+    uint32_t side_effect_value = 0;
     HRESULT compile_hr = E_FAIL;
     HRESULT vertex_compile_hr = E_FAIL;
     HRESULT pixel_compile_hr = E_FAIL;
@@ -1400,9 +1402,10 @@ PSOut logic_ps_with_uav(VSOut input) {
             &side_desc, IID_PPV_ARGS(&side_pso));
     else
         result.side_effect_hr = side_root_hr;
-    result.side_effect_rejected = FAILED(result.side_effect_hr);
-    safe_release(side_pso);
-    safe_release(side_root);
+    result.side_effect_supported = SUCCEEDED(result.side_effect_hr) && side_pso;
+    // Keep side_pso/side_root alive until the guarded provider witness below
+    // has been recorded. The second replay target must not duplicate the UAV
+    // store.
     safe_release(side_root_blob);
 
     ID3D12PipelineState* pso = nullptr;
@@ -1424,6 +1427,9 @@ PSOut logic_ps_with_uav(VSOut input) {
     ID3D12Resource* targets[2] = {};
     ID3D12Resource* readbacks[2] = {};
     ID3D12Resource* depth = nullptr;
+    ID3D12Resource* side_uav = nullptr;
+    ID3D12Resource* side_uav_readback = nullptr;
+    ID3D12DescriptorHeap* side_uav_heap = nullptr;
     D3D12_COMMAND_QUEUE_DESC queue_desc = {};
     HRESULT hr = device->CreateCommandQueue(
         &queue_desc, IID_PPV_ARGS(&queue));
@@ -1499,6 +1505,44 @@ PSOut logic_ps_with_uav(VSOut input) {
             &default_heap, D3D12_HEAP_FLAG_NONE, &depth_desc,
             D3D12_RESOURCE_STATE_DEPTH_WRITE, &depth_clear,
             IID_PPV_ARGS(&depth));
+    D3D12_RESOURCE_DESC side_uav_desc = {};
+    side_uav_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    side_uav_desc.Width = 4;
+    side_uav_desc.Height = 1;
+    side_uav_desc.DepthOrArraySize = 1;
+    side_uav_desc.MipLevels = 1;
+    side_uav_desc.SampleDesc.Count = 1;
+    side_uav_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    side_uav_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    if (SUCCEEDED(hr) && result.side_effect_supported)
+        hr = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &side_uav_desc,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&side_uav));
+    D3D12_RESOURCE_DESC side_readback_desc = side_uav_desc;
+    side_readback_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+    if (SUCCEEDED(hr) && side_uav)
+        hr = device->CreateCommittedResource(
+            &readback_heap, D3D12_HEAP_FLAG_NONE, &side_readback_desc,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&side_uav_readback));
+    D3D12_DESCRIPTOR_HEAP_DESC side_uav_heap_desc = {};
+    side_uav_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    side_uav_heap_desc.NumDescriptors = 1;
+    side_uav_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (SUCCEEDED(hr) && side_uav_readback)
+        hr = device->CreateDescriptorHeap(&side_uav_heap_desc,
+                                          IID_PPV_ARGS(&side_uav_heap));
+    if (SUCCEEDED(hr) && side_uav_heap) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC side_view = {};
+        side_view.Format = DXGI_FORMAT_R32_TYPELESS;
+        side_view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        side_view.Buffer.NumElements = 1;
+        side_view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(
+            side_uav, nullptr, &side_view,
+            side_uav_heap->GetCPUDescriptorHandleForHeapStart());
+    }
 
     if (SUCCEEDED(hr)) {
         const UINT descriptor_size = device->GetDescriptorHandleIncrementSize(
@@ -1511,6 +1555,33 @@ PSOut logic_ps_with_uav(VSOut input) {
         D3D12_CPU_DESCRIPTOR_HANDLE dsv =
             dsv_heap->GetCPUDescriptorHandleForHeapStart();
         device->CreateDepthStencilView(depth, nullptr, dsv);
+        if (result.side_effect_supported && side_pso && side_root &&
+            side_uav_heap && side_uav && side_uav_readback) {
+            list->SetPipelineState(side_pso);
+            list->SetGraphicsRootSignature(side_root);
+            ID3D12DescriptorHeap *side_heaps[] = {side_uav_heap};
+            list->SetDescriptorHeaps(1, side_heaps);
+            list->SetGraphicsRootDescriptorTable(
+                0, side_uav_heap->GetGPUDescriptorHandleForHeapStart());
+            D3D12_VIEWPORT side_viewport = {0, 0, 1, 1, 0, 1};
+            D3D12_RECT side_scissor = {0, 0, 1, 1};
+            list->RSSetViewports(1, &side_viewport);
+            list->RSSetScissorRects(1, &side_scissor);
+            list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            list->OMSetRenderTargets(2, rtvs, FALSE, &dsv);
+            list->DrawInstanced(3, 1, 0, 0);
+            D3D12_RESOURCE_BARRIER side_barrier = {};
+            side_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            side_barrier.Transition.pResource = side_uav;
+            side_barrier.Transition.Subresource =
+                D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            side_barrier.Transition.StateBefore =
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            side_barrier.Transition.StateAfter =
+                D3D12_RESOURCE_STATE_COPY_SOURCE;
+            list->ResourceBarrier(1, &side_barrier);
+            list->CopyResource(side_uav_readback, side_uav);
+        }
         const float clear0[4] = {15.0f / 255.0f, 240.0f / 255.0f,
                                  170.0f / 255.0f, 85.0f / 255.0f};
         const float clear1[4] = {240.0f / 255.0f, 204.0f / 255.0f,
@@ -1556,6 +1627,17 @@ PSOut logic_ps_with_uav(VSOut input) {
     }
 
     if (SUCCEEDED(result.execute_hr)) {
+        if (side_uav_readback) {
+            void *mapped = nullptr;
+            D3D12_RANGE range = {0, 4};
+            HRESULT side_map_hr = side_uav_readback->Map(
+                0, &range, &mapped);
+            result.side_effect_readback = SUCCEEDED(side_map_hr) && mapped;
+            if (result.side_effect_readback) {
+                std::memcpy(&result.side_effect_value, mapped, sizeof(uint32_t));
+                side_uav_readback->Unmap(0, nullptr);
+            }
+        }
         for (UINT i = 0; i < 2; ++i) {
             void* mapped = nullptr;
             D3D12_RANGE range = {0, total_bytes};
@@ -1572,7 +1654,9 @@ PSOut logic_ps_with_uav(VSOut input) {
     }
     result.passed = SUCCEEDED(result.compile_hr) &&
                     SUCCEEDED(result.execute_hr) &&
-                    result.side_effect_rejected &&
+                    result.side_effect_supported &&
+                    result.side_effect_readback &&
+                    result.side_effect_value == 0x12345678u &&
                     result.target0 == 0xaaffff3cu &&
                     result.target1 == 0x550a0c30u;
 
@@ -1580,6 +1664,11 @@ PSOut logic_ps_with_uav(VSOut input) {
         safe_release(resource);
     for (auto*& resource : targets)
         safe_release(resource);
+    safe_release(side_uav_readback);
+    safe_release(side_uav);
+    safe_release(side_uav_heap);
+    safe_release(side_pso);
+    safe_release(side_root);
     safe_release(depth);
     safe_release(dsv_heap);
     safe_release(rtv_heap);
@@ -2142,8 +2231,12 @@ float4 tess_ps(TessCP input) : SV_Target {
                 independent_logic_op.target0);
     std::printf("    \"logic_op_independent_target1\": %u,\n",
                 independent_logic_op.target1);
-    std::printf("    \"logic_op_uav_side_effect_rejected\": %s,\n",
-                independent_logic_op.side_effect_rejected ? "true" : "false");
+    std::printf("    \"logic_op_uav_side_effect_supported\": %s,\n",
+                independent_logic_op.side_effect_supported ? "true" : "false");
+    std::printf("    \"logic_op_uav_side_effect_readback\": %s,\n",
+                independent_logic_op.side_effect_readback ? "true" : "false");
+    std::printf("    \"logic_op_uav_side_effect_value\": %u,\n",
+                independent_logic_op.side_effect_value);
     std::printf("    \"logic_op_uav_side_effect_hr\": \"%s\",\n",
                 hr_hex(independent_logic_op.side_effect_hr).c_str());
     std::printf("    \"logic_op_vertex_compile_hr\": \"%s\",\n",

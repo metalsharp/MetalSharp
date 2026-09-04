@@ -23,6 +23,7 @@ WITH_MSAA=0
 WITH_HOST_INVENTORY=0
 MSAA_TIMEOUT_SECONDS=120
 KEEP_SANDBOX_ON_FAILURE=0
+REQUIRE_COMPLETE=0
 
 usage() {
   cat <<'EOF'
@@ -48,6 +49,8 @@ Options:
   --profile NAME        Result profile (default phase6-exhaustive).
   --keep-sandbox-on-failure Preserve the disposable sandbox for diagnosis;
                         normal runs always remove it.
+  --require-complete    Require the closed exhaustive manifest and all
+                        declared legal rows to validate.
   --help                Show this help.
 
 The runtime build is not enabled by default: use --build-runtime when a fresh
@@ -69,6 +72,7 @@ while (($#)); do
     --with-msaa) WITH_MSAA=1 ;;
     --with-host-inventory) WITH_HOST_INVENTORY=1 ;;
     --keep-sandbox-on-failure) KEEP_SANDBOX_ON_FAILURE=1 ;;
+    --require-complete) REQUIRE_COMPLETE=1 ;;
     --profile)
       (($# >= 2)) || { echo "--profile requires a value" >&2; exit 2; }
       PROFILE="$2"; shift ;;
@@ -750,7 +754,8 @@ python3 - "$SANDBOX/interpolation.json" "$STAGE_MANIFEST" "$ABI_RESULT" \
   "$MSAA_STATUS" "$SANDBOX/msaa.json" "$GRAPHICS_MSAA_STATUS" \
   "$SANDBOX/graphics_msaa.json" "$GRAPHICS_MSAA_DEPTH_STATUS" \
   "$SANDBOX/graphics_msaa_depth.json" "$HOST_STATUS" \
-  "$SANDBOX/host_inventory.json" "$CAPS_STATUS" "$SANDBOX/device_caps.json" <<'PY'
+  "$SANDBOX/host_inventory.json" "$CAPS_STATUS" "$SANDBOX/device_caps.json" \
+  "$REQUIRE_COMPLETE" <<'PY'
 import json
 import pathlib
 import sys
@@ -774,7 +779,7 @@ import sys
  independent_logic_4_status, independent_logic_4_path,
  msaa_status, msaa_path, graphics_msaa_status, graphics_msaa_path,
  graphics_msaa_depth_status, graphics_msaa_depth_path,
- host_status, host_path, caps_status, caps_path) = sys.argv[1:]
+ host_status, host_path, caps_status, caps_path, require_complete) = sys.argv[1:]
 def load(path):
     p = pathlib.Path(path)
     if not p.exists() or not p.read_text(encoding="utf-8").strip():
@@ -939,8 +944,22 @@ if pathlib.Path(host_path).exists():
     payload["host_inventory"] = {"process_status": int(host_status), "result": load(host_path)}
 if pathlib.Path(caps_path).exists():
     payload["device_caps"] = {"process_status": int(caps_status), "result": load(caps_path)}
+required_probe_fields = [
+    "interpolation", "invalid_descriptors", "rasterization", "rov_dimensions",
+    "rov_msaa_2", "rov_msaa", "rov_msaa_8", "sample_positions",
+    "view_instancing", "view_instancing_msaa", "view_id_instancing", "vrs",
+    "fixed_function", "inner_coverage", "conservative_msaa",
+    "conservative_msaa_2", "independent_logic", "independent_logic_2",
+    "independent_logic_4", "msaa", "graphics_msaa", "graphics_msaa_depth",
+    "host_inventory", "device_caps",
+]
+missing_required = [name for name in required_probe_fields
+                    if payload.get(name) is None]
+payload["complete_probe_set"] = not missing_required
+payload["missing_required_probes"] = missing_required
 payload["exact"] = (
-    bool(stage.get("ok"))
+    (not missing_required if require_complete == "1" else True)
+    and bool(stage.get("ok"))
     and bool(abi.get("ok"))
     and int(interpolation_status) == 0
     and interpolation.get("exact") is True
@@ -1040,6 +1059,8 @@ payload["exact"] = (
         and payload["device_caps"]["result"].get("pass") is True
     ))
 )
+if require_complete == "1":
+    payload["exact"] = payload["exact"] and payload["complete_probe_set"]
 pathlib.Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(output_path)
 PY
@@ -1048,8 +1069,14 @@ if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || 
   echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa_2=$ROV_MSAA_2_STATUS rov_msaa_4=$ROV_MSAA_STATUS rov_msaa_8=$ROV_MSAA_8_STATUS sample_positions=$SAMPLE_POSITIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_instancing_msaa=$VIEW_INSTANCING_MSAA_STATUS view_id=$VIEW_ID_STATUS vrs=$VRS_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS conservative_msaa_2=$CONSERVATIVE_MSAA_2_STATUS independent_logic=$INDEPENDENT_LOGIC_STATUS independent_logic_2=$INDEPENDENT_LOGIC_2_STATUS independent_logic_4=$INDEPENDENT_LOGIC_4_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS graphics_msaa_depth=$GRAPHICS_MSAA_DEPTH_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
   exit 1
 fi
+validate_args=(
+  --result "$RESULTS_DIR/phase6-exhaustive-$PROFILE.json"
+)
+if [[ "$REQUIRE_COMPLETE" == "1" ]]; then
+  validate_args+=(--require-complete)
+fi
 if ! python3 "$SDK_DIR/scripts/validate-phase6-exhaustive.py" \
-  --result "$RESULTS_DIR/phase6-exhaustive-$PROFILE.json" >/dev/null; then
+  "${validate_args[@]}" >/dev/null; then
   echo "[FAIL] exhaustive manifest/result validation failed" >&2
   exit 1
 fi

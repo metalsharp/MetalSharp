@@ -4309,6 +4309,8 @@ struct SM50_SHADER_PSO_PIXEL_SHADER_DATA32 {
   bool dual_source_blending;
   bool disable_depth_output;
   uint32_t unorm_output_reg_mask;
+  bool side_effect_guard;
+  uint32_t side_effect_guard_buffer;
 };
 
 struct SM50_SHADER_GS_PASS_THROUGH_DATA32 {
@@ -4383,6 +4385,8 @@ sm50_compilation_argument32_convert(
       data->disable_depth_output = src->disable_depth_output;
       data->sample_mask = src->sample_mask;
       data->dual_source_blending = src->dual_source_blending;
+      data->side_effect_guard = src->side_effect_guard;
+      data->side_effect_guard_buffer = src->side_effect_guard_buffer;
       break;
     }
     case SM50_SHADER_IA_INPUT_LAYOUT: {

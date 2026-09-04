@@ -230,8 +230,21 @@ def validate(manifest: dict[str, Any], require_complete: bool = False) -> list[s
     return errors
 
 
-def validate_result(result: dict[str, Any]) -> list[str]:
+def validate_result(result: dict[str, Any], require_complete: bool = False) -> list[str]:
     errors: list[str] = []
+    if require_complete:
+        required = {
+            "interpolation", "invalid_descriptors", "rasterization", "rov_dimensions",
+            "rov_msaa_2", "rov_msaa", "rov_msaa_8", "sample_positions",
+            "view_instancing", "view_instancing_msaa", "view_id_instancing", "vrs",
+            "fixed_function", "inner_coverage", "conservative_msaa",
+            "conservative_msaa_2", "independent_logic", "independent_logic_2",
+            "independent_logic_4", "msaa", "graphics_msaa", "graphics_msaa_depth",
+            "host_inventory", "device_caps",
+        }
+        missing = sorted(name for name in required if result.get(name) is None)
+        if missing:
+            errors.append("complete result is missing probes: " + ", ".join(missing))
     if result.get("schema") != "metalsharp.d3d12.phase6-exhaustive-result.v1":
         errors.append("result schema is not phase6 exhaustive result v1")
     target = result.get("target")
@@ -664,14 +677,16 @@ def validate_result(result: dict[str, Any]) -> list[str]:
             required = (
                 "vertex_pixel", "depth_only", "color_only", "color_depth", "msaa",
                 "blend", "logic_op_xor", "logic_op_independent_readback",
-                "logic_op_uav_side_effect_rejected", "front_back_stencil_reference",
+                "logic_op_uav_side_effect_supported", "logic_op_uav_side_effect_readback", "front_back_stencil_reference",
                 "conservative_rasterization_negative_matrix_verified",
                 "triangle_fan_exact", "dynamic_depth_bias_exact",
             )
             if (not isinstance(coverage, dict) or
                 any(coverage.get(field) is not True for field in required) or
                 coverage.get("conservative_rasterization_case_count") != 8 or
-                coverage.get("conservative_rasterization_rendered_pixels") != 304):
+                coverage.get("conservative_rasterization_rendered_pixels") != 304 or
+                coverage.get("logic_op_uav_side_effect_value") != 0x12345678 or
+                coverage.get("logic_op_uav_side_effect_hr") != "0x00000000"):
                 errors.append("fixed-function coverage evidence is incomplete")
     graphics_msaa_depth = result.get("graphics_msaa_depth")
     if graphics_msaa_depth is not None:
@@ -797,7 +812,7 @@ def main() -> int:
                 if not isinstance(result, dict):
                     errors.append("result top-level value must be an object")
                 else:
-                    errors.extend(validate_result(result))
+                    errors.extend(validate_result(result, args.require_complete))
     if errors:
         for error in errors:
             print(f"[FAIL] {error}")

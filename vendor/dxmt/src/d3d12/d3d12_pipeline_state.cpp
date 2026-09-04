@@ -2211,6 +2211,12 @@ bool MTLD3D12PipelineState::CompileShader(
       bytecode, size, type,
       type == ShaderType::Vertex ? &m_input_layout : nullptr);
   hash = ApplyShaderVariantHash(hash, type);
+  // Independent-logic replay may bind the same DXBC with an internal
+  // exactly-once side-effect guard. Keep guarded and unguarded AIR/Metal
+  // functions in distinct cache entries; otherwise a prior ordinary PSO could
+  // silently reuse a function with no guard (or vice versa).
+  if (type == ShaderType::Pixel && m_uses_independent_logic_op_emulation)
+    hash = hash * 131 + 0x4d31325369646545ull;
   if ((type == ShaderType::Vertex || type == ShaderType::Pixel) &&
       DXBCContainerHasChunk(bytecode, size, "DXIL"))
     m_uses_vrs_runtime_state = true;
@@ -2909,9 +2915,23 @@ bool MTLD3D12PipelineState::CompileShader(
 
   SM50_SHADER_IA_INPUT_LAYOUT_DATA ia_layout = {};
   SM50_SHADER_EMULATE_VERTEX_STREAM_OUTPUT_DATA stream_output = {};
+  SM50_SHADER_PSO_PIXEL_SHADER_DATA pixel = {};
   std::vector<SM50_STREAM_OUTPUT_ELEMENT> stream_output_elements;
   SM50_SHADER_COMPILATION_ARGUMENT_DATA *compile_args =
       (SM50_SHADER_COMPILATION_ARGUMENT_DATA *)&common;
+  if (type == ShaderType::Pixel) {
+    pixel.next = &common;
+    pixel.type = SM50_SHADER_PSO_PIXEL_SHADER;
+    pixel.sample_mask = m_sample_mask;
+    pixel.dual_source_blending = false;
+    pixel.disable_depth_output = false;
+    pixel.unorm_output_reg_mask = 0;
+    pixel.side_effect_guard =
+        m_uses_independent_logic_op_emulation && reflection.UAVSlotMask != 0;
+    pixel.side_effect_guard_buffer = 25;
+    compile_args =
+        reinterpret_cast<SM50_SHADER_COMPILATION_ARGUMENT_DATA *>(&pixel);
+  }
   if (type == ShaderType::Vertex) {
     ia_layout.next = &common;
     ia_layout.type = SM50_SHADER_IA_INPUT_LAYOUT;
@@ -3732,17 +3752,10 @@ bool MTLD3D12PipelineState::Compile() {
       return false;
   }
 
-  // Replaying a draw once per attachment is only semantics-preserving when
-  // the fragment shader has no UAV side effects.  A repeated atomic/store or
-  // ROV access would otherwise execute multiple times. Reject that valid but
-  // not-yet-modeled combination instead of silently duplicating side effects.
-  if (m_uses_independent_logic_op_emulation &&
-      m_ps_reflection.UAVSlotMask != 0) {
-    return RecordCompileFailure(
-        "pso/independent_logic_op_side_effects",
-        "Independent per-render-target logic-op emulation requires a pixel "
-        "shader without UAV side effects");
-  }
+  // Independent logic replay binds an internal per-pass guard for DXBC UAV
+  // stores.  Target zero executes app-visible side effects; later color and
+  // depth-only passes preserve color/depth semantics without multiplying the
+  // store.  Shaders without UAVs do not consume the extra binding.
 
   WMTRenderPipelineInfo info;
   WMT::InitializeRenderPipelineInfo(info);

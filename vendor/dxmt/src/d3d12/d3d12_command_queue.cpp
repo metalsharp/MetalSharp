@@ -6003,6 +6003,16 @@ struct ReplayState {
     if (target_count == 0)
       return EncodeRenderCommands(cmd, label);
 
+    uint32_t guard_values[8] = {1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u};
+    auto side_effect_guard =
+        MakeTransientBuffer(replay_device, target_count * sizeof(uint32_t));
+    if (!side_effect_guard.handle)
+      return false;
+    side_effect_guard.updateContents(0, guard_values,
+                                     target_count * sizeof(uint32_t));
+    render_enc.useResource(side_effect_guard, WMTResourceUsageRead,
+                           WMTRenderStageFragment);
+
     const auto original_depth = pso->GetDepthStencilState();
     const bool depth_replay = pso->UsesIndependentLogicOpDepthReplay();
     if (depth_replay) {
@@ -6025,6 +6035,9 @@ struct ReplayState {
       }
       render_enc.setRenderPipelineState(variant);
       RetainMTLObjectForCompletion(variant);
+      if (!SetFragmentBufferTracked(side_effect_guard,
+                                    target * sizeof(uint32_t), 25))
+        return false;
       if (!EncodeRenderCommands(cmd, label))
         return false;
     }
@@ -6043,6 +6056,8 @@ struct ReplayState {
         render_enc.setDepthStencilState(original_depth);
         RetainMTLObjectForCompletion(original_depth);
       }
+      if (!SetFragmentBufferTracked(side_effect_guard, sizeof(uint32_t), 25))
+        return false;
       if (!EncodeRenderCommands(cmd, label))
         return false;
     }
