@@ -3268,10 +3268,28 @@ struct ReplayState {
         !work_graph_backing_size)
       return !cmd.num_records;
 
-    if (cmd.dispatch_mode == 0u && resolved.num_records == 1u &&
+    const bool node_cpu_input = cmd.dispatch_mode == 0u;
+    const bool node_gpu_input = cmd.dispatch_mode == 1u;
+    if ((node_cpu_input || node_gpu_input) && resolved.num_records == 1u &&
         resolved.record_stride && (resolved.record_stride & 3u) == 0 &&
-        resolved.record_data_size >= resolved.record_stride &&
-        resolved.record_data_size <= sizeof(resolved.record_data)) {
+        ((node_cpu_input && resolved.record_data_size >= resolved.record_stride &&
+          resolved.record_data_size <= sizeof(resolved.record_data)) ||
+         (node_gpu_input && resolved.record_gpu_address))) {
+      if (node_gpu_input) {
+        auto *record_resource = device->LookupResourceByGPUAddress(
+            resolved.record_gpu_address);
+        const uint64_t record_offset =
+            record_resource
+                ? resolved.record_gpu_address -
+                      record_resource->GetGPUVirtualAddress()
+                : 0;
+        if (!record_resource || !record_resource->GetMTLBuffer().handle ||
+            record_offset > record_resource->GetBufferByteLength() ||
+            resolved.record_stride >
+                record_resource->GetBufferByteLength() - record_offset)
+          return false;
+        RetainResourceMetalObjectsForCompletion(record_resource);
+      }
       std::string node_source;
       if (device->LookupWorkGraphNodeShader(
               work_graph_program_identifier,

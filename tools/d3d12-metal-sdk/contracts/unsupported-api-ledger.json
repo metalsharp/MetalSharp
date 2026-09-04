@@ -86,7 +86,7 @@
         "tools/d3d12-metal-sdk/probes/probe_workgraph_execution.cpp",
         "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
       ],
-      "reason": "A bounded GPU-native reference node kernel executes three-record CPU/GPU input forms plus two-node CPU/GPU routing, pointer-free record ownership, ordered dispatch reuse, malformed-input rejection, and backing-memory overflow rejection. One source-owned `node_records` DXIL library is lowered at runtime into a GPU-native Metal node kernel with exact backing-buffer readback. Multi-entrypoint resource/record routing, recursive/fan-out graphs, and node barriers remain limited.",
+      "reason": "A bounded GPU-native reference node kernel executes three-record CPU/GPU input forms plus two-node CPU/GPU routing, pointer-free record ownership, ordered dispatch reuse, malformed-input rejection, and backing-memory overflow rejection. Source-owned `node_records` and three-entrypoint `node_multi` DXIL libraries are lowered at runtime into GPU-native Metal node kernels with exact CPU/GPU single-node backing-buffer readback, entrypoint routing, and a node-barrier witness. Resource/record fan-out, recursive graphs, cross-queue synchronization, and general node conversion remain limited.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },
