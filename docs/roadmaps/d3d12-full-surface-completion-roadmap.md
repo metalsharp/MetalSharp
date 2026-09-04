@@ -995,10 +995,11 @@ general node shader conversion remain open.
 stable video-device ABI, one behavior-backed feature query, decoder/decoder
 heap/processor object creation, exact descriptor round trips, and null/unknown
 validation. A separate CPU-reference provider executes RGBA8 nearest-neighbor
-`VIDEO_PROCESS` scaling and clockwise-180 orientation plus NV12-to-RGBA8
-BT.601 conversion into independent array subresources through a submitted
-video queue with exact readback. VideoToolbox codec execution, P010 conversion,
-profiles, pixel conversion, metadata, broader video queues, and protected video
+`VIDEO_PROCESS` scaling and clockwise-180 orientation, NV12-to-RGBA8 BT.601
+conversion, RGBA8-to-NV12 limited-range conversion, and P010-to-RGBA8
+conversion into independent array subresources through a submitted video queue
+with exact readback. P010 output encoding, VideoToolbox codec execution,
+profiles, references, metadata, broader video queues, and protected video
 remain unimplemented and no codec capability is promoted.
 
 **Exit gate:**
@@ -2229,12 +2230,21 @@ whether the scoped FL12_2 gate is green.
   bounded provider remains non-promoted because recursive/fan-out graphs,
   barriers, and general node conversion remain open.
 
+### 2026-09-05 — Video planar reference matrix
+
+- Expanded the CPU-reference `VIDEO_PROCESS` provider with RGBA8 orientation,
+  NV12-to-RGBA8 and RGBA8-to-NV12 limited-range BT.601 conversion, and
+  P010-to-RGBA8 conversion. The source-staged queue probe verifies exact
+  per-plane/per-subresource readback; VideoToolbox codec behavior remains
+  unpromoted.
+
 ### 2026-09-04 — Bounded command, video, diagnostics, and display providers
 
 - Added a real `VIDEO_PROCESS` command-list adapter with actual video-device/
   processor ABI exposure, CPU-reference nearest-neighbor RGBA8 scaling,
   clockwise-180 orientation, NV12-to-RGBA8 BT.601 conversion,
-  array-subresource output, queue submission, fence completion, and exact
+  RGBA8-to-NV12 limited-range conversion, P010-to-RGBA8 conversion,
+  array-subresource/plane output, queue submission, fence completion, and exact
   readback. VideoToolbox codec execution remains explicitly unpromoted.
 - Added InfoQueue1 callback registration/filter delivery, the manual-write
   tracking resource interface with exact upload-buffer evidence, and the

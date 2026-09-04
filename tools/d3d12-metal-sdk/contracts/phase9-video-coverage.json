@@ -32,23 +32,39 @@
       "result": "probe-video-process",
       "checks": [
         ["pass"],
+        ["create_processor", "0x00000000"],
         ["create_nv12_processor", "0x00000000"],
+        ["create_rgba_to_nv12_processor", "0x00000000"],
+        ["create_p010_processor", "0x00000000"],
         ["create_video_queue", "0x00000000"],
         ["create_video_command_list", "0x00000000"],
         ["close", "0x00000000"],
+        ["create_input", "0x00000000"],
+        ["create_output", "0x00000000"],
         ["create_nv12_input", "0x00000000"],
+        ["create_p010_input", "0x00000000"],
         ["nv12_y_write", "0x00000000"],
         ["nv12_uv_write", "0x00000000"],
+        ["p010_y_write", "0x00000000"],
+        ["p010_uv_write", "0x00000000"],
         ["output_readback", "0x00000000"],
         ["output_rotated_readback", "0x00000000"],
         ["output_nv12_readback", "0x00000000"],
         ["output_scaled_exact"],
         ["output_rotated_exact"],
         ["output_nv12_exact"],
+        ["output_p010_readback", "0x00000000"],
+        ["output_p010_exact"],
+        ["rgba_to_nv12_y_readback", "0x00000000"],
+        ["rgba_to_nv12_uv_readback", "0x00000000"],
+        ["rgba_to_nv12_exact"],
         ["provider_scope", "CPU-reference-video-process"]
       ],
-      "negative_checks": [],
-      "remaining": "The CPU-reference provider covers RGBA8 nearest-neighbor scaling and clockwise-180 orientation plus NV12-to-RGBA8 BT.601 conversion, one output queue submission, fence completion, and exact per-subresource readback. VideoToolbox decode/encode, P010 conversion, references, metadata, protected video, and broader processor filters remain open."
+      "negative_checks": [
+        ["p010_output_reject", "0x80070057"],
+        ["p010_output_rejected"]
+      ],
+      "remaining": "The CPU-reference provider covers RGBA8 nearest-neighbor scaling and clockwise-180 orientation, NV12-to-RGBA8 BT.601 conversion, RGBA8-to-NV12 limited-range conversion, and P010-to-RGBA8 conversion, with one output queue submission, fence completion, and exact per-subresource/plane readback. P010 output encoding, VideoToolbox decode/encode, references, metadata, protected video, and broader processor filters remain open."
     },
     {
       "id": "video-toolbox-codec-and-pixel-roundtrip",
