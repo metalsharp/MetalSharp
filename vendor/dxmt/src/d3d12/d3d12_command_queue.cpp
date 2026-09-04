@@ -14537,6 +14537,51 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                   st.work_graph_node_table_address))
             st.RetainResourceMetalObjectsForCompletion(table);
         }
+        if (cmd->program_type == 5u && cmd->descriptor_size >= 44u) {
+          uint32_t work_graph_flags = 0;
+          std::memcpy(&work_graph_flags, cmd->descriptor + 40,
+                      sizeof(work_graph_flags));
+          if (work_graph_flags & ~1u) {
+            st.work_graph_program_set = false;
+            QTRACE("SetProgram rejected unknown work-graph flags=0x%x",
+                   work_graph_flags);
+          } else if (work_graph_flags & 1u) {
+            auto *backing = m_device->LookupResourceByGPUAddress(
+                st.work_graph_backing_address);
+            const uint64_t backing_offset =
+                backing
+                    ? st.work_graph_backing_address -
+                          backing->GetGPUVirtualAddress()
+                    : 0;
+            if (!backing || !backing->GetMTLBuffer().handle ||
+                backing_offset > backing->GetBufferByteLength() ||
+                st.work_graph_backing_size >
+                    backing->GetBufferByteLength() - backing_offset) {
+              st.work_graph_program_set = false;
+              QTRACE("SetProgram initialize rejected invalid backing");
+            } else {
+              auto blit = cmdbuf.blitCommandEncoder();
+              if (!blit.handle) {
+                st.work_graph_program_set = false;
+                QTRACE("SetProgram initialize rejected missing blit encoder");
+              } else {
+                wmtcmd_blit_fillbuffer fill = {};
+                fill.type = WMTBlitCommandFillBuffer;
+                fill.next.set(nullptr);
+                fill.buffer = backing->GetMTLBuffer().handle;
+                fill.offset = backing_offset;
+                fill.length = st.work_graph_backing_size;
+                fill.value = 0;
+                st.RetainResourceMetalObjectsForCompletion(backing);
+                blit.encodeCommands(
+                    reinterpret_cast<const wmtcmd_blit_nop *>(&fill));
+                EndMetalEncoder(blit, "workgraph_initialize");
+                QTRACE("SetProgram initialized work-graph backing size=%llu",
+                       (unsigned long long)st.work_graph_backing_size);
+              }
+            }
+          }
+        }
         uint64_t program_first = 0;
         memcpy(&program_first, st.work_graph_program_identifier,
                sizeof(program_first));

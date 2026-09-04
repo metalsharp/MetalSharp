@@ -4,6 +4,7 @@
 
 #include "d3d12_command_list_extensions.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -225,6 +226,7 @@ int main() {
     bool multi_cpu_pointer_free = false;
     bool multi_gpu_readback_ok = false;
     bool multi_node_negative_unchanged = false;
+    bool work_graph_initialize_exact = false;
     bool node_local_table_validation_exact = false;
     bool backing_overflow_unchanged = false;
     bool multi_dispatch_ordering_exact = false;
@@ -615,6 +617,39 @@ int main() {
         node_local_table ? 64 : 0;
     set_program.WorkGraph.NodeLocalRootArgumentsTable.StrideInBytes =
         node_local_table ? 32 : 0;
+    uint32_t initialize_sentinel[64] = {};
+    std::fill(std::begin(initialize_sentinel), std::end(initialize_sentinel),
+              0xdeadbeefu);
+    if (SUCCEEDED(hr) && backing) {
+        void* mapped = nullptr;
+        hr = backing->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr) && mapped) {
+            std::memcpy(mapped, initialize_sentinel,
+                        sizeof(initialize_sentinel));
+            backing->Unmap(0, nullptr);
+        }
+    }
+    if (SUCCEEDED(hr) && allocator && base_list && list) {
+        SetProgramDesc initialize_program = set_program;
+        initialize_program.WorkGraph.Flags = 1;
+        list->SetProgram(&initialize_program);
+        hr = execute_and_wait(device, queue, base_list);
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                work_graph_initialize_exact = true;
+                for (UINT i = 0; i < 64; ++i)
+                    work_graph_initialize_exact =
+                        work_graph_initialize_exact &&
+                        static_cast<const uint32_t*>(mapped)[i] == 0;
+                backing->Unmap(0, nullptr);
+            }
+        }
+    }
+    hr = allocator->Reset();
+    if (SUCCEEDED(hr))
+        hr = base_list->Reset(allocator, nullptr);
     DispatchGraphDesc dispatch = {};
     dispatch.Mode = 0;
     dispatch.NodeCPUInput.EntrypointIndex = 0;
@@ -1101,8 +1136,8 @@ int main() {
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
-        include_all_properties_ok && readback_ok && gpu_input_readback_ok &&
-        multi_cpu_readback_ok &&
+        include_all_properties_ok && work_graph_initialize_exact &&
+        readback_ok && gpu_input_readback_ok && multi_cpu_readback_ok &&
         multi_cpu_pointer_free && multi_gpu_readback_ok &&
         multi_node_negative_unchanged && node_local_table_validation_exact &&
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
@@ -1115,6 +1150,8 @@ int main() {
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
     std::printf("  \"include_all_properties_complete\": %s,\n",
                 include_all_properties_ok ? "true" : "false");
+    std::printf("  \"work_graph_initialize_exact\": %s,\n",
+                work_graph_initialize_exact ? "true" : "false");
     std::printf("  \"node_local_root_indices\": [%u, %u],\n", local_root_indices[0], local_root_indices[1]);
     std::printf("  \"gpu_native_provider\": true,\n");
     std::printf("  \"cpu_scheduler\": false,\n");
@@ -1192,7 +1229,7 @@ int main() {
     if (module)
         FreeLibrary(module);
     return SUCCEEDED(hr) && properties_ok && include_all_properties_ok &&
-                   readback_ok &&
+                   work_graph_initialize_exact && readback_ok &&
                    gpu_input_readback_ok && multi_cpu_readback_ok &&
                    multi_cpu_pointer_free && multi_gpu_readback_ok &&
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
