@@ -117,7 +117,7 @@
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
         "tools/d3d12-metal-sdk/probes/probe_resources"
       ],
-      "reason": "Named and unnamed CPU-visible buffers, upload heaps, fences, and inherited handle paths now use pointer-free CreateFileMappingW metadata and pass independent-object plus cross-process read/write/signal checks. A committed shared RGBA8 texture uses a Metal MTLSharedTextureHandle Mach-port service and passes same-process and independent-process read/write validation; non-shared textures and texture shapes without that provider remain explicit E_NOTIMPL boundaries. Shared events beyond the mapped-fence bridge and complete security/access-policy coverage remain unproven. Those gaps must not be hidden behind the legacy in-process registry used only for unsupported object kinds.",
+      "reason": "Named and unnamed buffers, upload heaps, fences, and inherited handle paths use pointer-free CreateFileMappingW metadata and pass independent-object plus cross-process read/write/signal checks. A committed shared RGBA8 texture uses a Metal MTLSharedTextureHandle Mach-port service and passes same-process and independent-process read/write validation. The D3D12 sharing-contract provider also records same-device resource presentation, capturable-work GUID lifetime, and shared-fence signaling. Non-shared texture shapes, window-backed capture, shared events beyond the mapped-fence bridge, and complete security/access-policy coverage remain unproven; those gaps must not be hidden behind the legacy in-process registry used only for unsupported object kinds.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },

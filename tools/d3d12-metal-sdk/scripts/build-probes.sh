@@ -136,6 +136,14 @@ build_probe \
   -o "$OUT_DIR/probe_discard_texture.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_manual_write_tracking.cpp" \
+  -o "$OUT_DIR/probe_manual_write_tracking.exe"
+
+build_probe \
+  "$SDK_DIR/probes/probe_sharing_contract.cpp" \
+  -o "$OUT_DIR/probe_sharing_contract.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_diagnostics.cpp" \
   -o "$OUT_DIR/probe_diagnostics.exe"
 
@@ -360,6 +368,8 @@ echo "$OUT_DIR/probe_video.exe"
 echo "$OUT_DIR/probe_video_process.exe"
 echo "$OUT_DIR/probe_infoqueue_callback.exe"
 echo "$OUT_DIR/probe_discard_texture.exe"
+echo "$OUT_DIR/probe_manual_write_tracking.exe"
+echo "$OUT_DIR/probe_sharing_contract.exe"
 echo "$OUT_DIR/probe_diagnostics.exe"
 echo "$OUT_DIR/probe_dxgi_factory.exe"
 echo "$OUT_DIR/probe_m12_runtime_identity.exe"

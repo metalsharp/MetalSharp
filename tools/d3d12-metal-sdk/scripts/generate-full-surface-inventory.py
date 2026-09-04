@@ -293,10 +293,22 @@ def provider_contract() -> dict[str, Any]:
         ("metal-emulation", "Metal compute/replay semantic provider", "phase1_selection_integrated"),
         ("cpu-reference", "Deterministic CPU/WARP-compatible provider", "phase1_selection_integrated"),
         ("videotoolbox-corevideo", "D3D12 video and surface provider", "selection_reserved_phase9"),
-        ("display-coreanimation", "DXGI window/display/duplication provider", "selection_reserved_phase12"),
+        ("display-coreanimation", "DXGI window/display/duplication provider", "bounded_phase12"),
         ("shared-mach-iosurface", "Cross-process resources/heaps/fences", "selection_reserved_phase3"),
         ("protected-platform", "Protected-memory/security provider", "selection_reserved_phase10"),
     ]
+    provider_evidence = {
+        "videotoolbox-corevideo": [
+            "tools/d3d12-metal-sdk/probes/probe_video.cpp",
+            "tools/d3d12-metal-sdk/probes/probe_video_process.cpp",
+            "tools/d3d12-metal-sdk/contracts/phase9-video-coverage.json",
+        ],
+        "display-coreanimation": [
+            "tools/d3d12-metal-sdk/probes/probe_dxgi_factory/probe_dxgi_factory.cpp",
+            "vendor/dxmt/src/dxgi/dxgi_output.cpp",
+            "tools/d3d12-metal-sdk/contracts/phase12-display-coverage.json",
+        ],
+    }
     return {
         "schema": "metalsharp.d3d12-metal.provider-contract.v1",
         "state": "phase1_architecture",
@@ -332,10 +344,10 @@ def provider_contract() -> dict[str, Any]:
                 "id": provider_id,
                 "purpose": purpose,
                 "implementation_status": status,
-                "positive_evidence": [
+                "positive_evidence": provider_evidence.get(provider_id, [
                     "tools/d3d12-metal-sdk/scripts/run-provider-architecture-probe.sh",
                     "docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md",
-                ],
+                ]),
                 "negative_evidence": [],
             }
             for provider_id, purpose, status in providers

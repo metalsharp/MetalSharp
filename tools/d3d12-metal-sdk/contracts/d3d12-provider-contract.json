@@ -71,18 +71,20 @@
       "implementation_status": "selection_reserved_phase9",
       "negative_evidence": [],
       "positive_evidence": [
-        "tools/d3d12-metal-sdk/scripts/run-provider-architecture-probe.sh",
-        "docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md"
+        "tools/d3d12-metal-sdk/probes/probe_video.cpp",
+        "tools/d3d12-metal-sdk/probes/probe_video_process.cpp",
+        "tools/d3d12-metal-sdk/contracts/phase9-video-coverage.json"
       ],
       "purpose": "D3D12 video and surface provider"
     },
     {
       "id": "display-coreanimation",
-      "implementation_status": "selection_reserved_phase12",
+      "implementation_status": "bounded_phase12",
       "negative_evidence": [],
       "positive_evidence": [
-        "tools/d3d12-metal-sdk/scripts/run-provider-architecture-probe.sh",
-        "docs/roadmaps/d3d12-full-surface-phase1-provider-proof.md"
+        "tools/d3d12-metal-sdk/probes/probe_dxgi_factory/probe_dxgi_factory.cpp",
+        "vendor/dxmt/src/dxgi/dxgi_output.cpp",
+        "tools/d3d12-metal-sdk/contracts/phase12-display-coverage.json"
       ],
       "purpose": "DXGI window/display/duplication provider"
     },

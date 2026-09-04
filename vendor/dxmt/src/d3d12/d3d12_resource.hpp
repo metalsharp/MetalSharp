@@ -62,7 +62,15 @@ struct ID3D12Resource1Compat : public ID3D12Resource {
   virtual HRESULT STDMETHODCALLTYPE GetProtectedResourceSession(
       REFIID riid, void **protected_session) = 0;
 };
-struct ID3D12Resource2Compat : public ID3D12Resource1Compat {
+inline constexpr GUID kIID_ID3D12ManualWriteTrackingResource = {
+    0x86ca3b85, 0x49ad, 0x4b6e,
+    {0xae, 0xd5, 0xed, 0xdb, 0x18, 0x54, 0x0f, 0x41}};
+struct ID3D12ManualWriteTrackingResourceCompat : public IUnknown {
+  virtual void STDMETHODCALLTYPE TrackWrite(
+      UINT subresource, const D3D12_RANGE *written_range) = 0;
+};
+struct ID3D12Resource2Compat : public ID3D12Resource1Compat,
+                               public ID3D12ManualWriteTrackingResourceCompat {
   virtual D3D12_RESOURCE_DESC1Compat *STDMETHODCALLTYPE GetDesc1(
       D3D12_RESOURCE_DESC1Compat *ret) = 0;
 };
@@ -131,6 +139,8 @@ public:
       UINT src_sub_resource, const D3D12_BOX *src_box) override;
   HRESULT DiscardContents(UINT first_subresource, UINT subresource_count,
                           UINT rect_count, const RECT *rects);
+  void STDMETHODCALLTYPE TrackWrite(UINT subresource,
+                                    const D3D12_RANGE *written_range) override;
   HRESULT STDMETHODCALLTYPE GetProtectedResourceSession(
       REFIID riid, void **protected_session) override;
   D3D12_RESOURCE_DESC1Compat *STDMETHODCALLTYPE GetDesc1(

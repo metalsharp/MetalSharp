@@ -27,6 +27,8 @@ RUN_VIDEO=0
 RUN_VIDEO_PROCESS=0
 RUN_INFOQUEUE=0
 RUN_DISCARD_TEXTURE=0
+RUN_MANUAL_WRITE_TRACKING=0
+RUN_SHARING_CONTRACT=0
 RUN_DIAGNOSTICS=0
 RUN_DXGI=1
 RUN_RESOURCES=1
@@ -140,6 +142,12 @@ Options:
   --infoqueue-only        Run only the InfoQueue1 callback/filter probe.
   --discard-texture       Run the texture DiscardResource region probe.
   --discard-texture-only  Run only the texture DiscardResource region probe.
+  --manual-write-tracking Run the manual-write tracking interface probe.
+  --manual-write-tracking-only
+                        Run only the manual-write tracking interface probe.
+  --sharing-contract    Run the D3D12 sharing-contract/fence provider probe.
+  --sharing-contract-only
+                        Run only the D3D12 sharing-contract/fence provider probe.
   --diagnostics         Run Agility diagnostics/tools/settings probes.
   --diagnostics-only    Run only Agility diagnostics/tools/settings probes.
   --no-dxgi             Skip probe_dxgi_factory.
@@ -501,6 +509,14 @@ while [[ $# -gt 0 ]]; do
       RUN_DISCARD_TEXTURE=1
       shift
       ;;
+    --manual-write-tracking)
+      RUN_MANUAL_WRITE_TRACKING=1
+      shift
+      ;;
+    --sharing-contract)
+      RUN_SHARING_CONTRACT=1
+      shift
+      ;;
     --diagnostics)
       RUN_DIAGNOSTICS=1
       shift
@@ -517,6 +533,8 @@ while [[ $# -gt 0 ]]; do
       RUN_VIDEO_PROCESS=0
       RUN_INFOQUEUE=0
       RUN_DISCARD_TEXTURE=0
+      RUN_MANUAL_WRITE_TRACKING=0
+      RUN_SHARING_CONTRACT=0
       RUN_DIAGNOSTICS=1
       RUN_DXGI=0
       RUN_RESOURCES=0
@@ -685,6 +703,97 @@ while [[ $# -gt 0 ]]; do
       RUN_VIDEO_PROCESS=0
       RUN_INFOQUEUE=0
       RUN_DISCARD_TEXTURE=1
+      RUN_MANUAL_WRITE_TRACKING=0
+      RUN_DIAGNOSTICS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_ROV=0
+      RUN_BARYCENTRICS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
+    --manual-write-tracking-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_META_COMMAND=0
+      RUN_VIDEO=0
+      RUN_VIDEO_PROCESS=0
+      RUN_INFOQUEUE=0
+      RUN_DISCARD_TEXTURE=0
+      RUN_MANUAL_WRITE_TRACKING=1
+      RUN_SHARING_CONTRACT=0
+      RUN_DIAGNOSTICS=0
+      RUN_DXGI=0
+      RUN_RESOURCES=0
+      RUN_QUEUES=0
+      RUN_DESCRIPTORS=0
+      RUN_SHADERS=0
+      RUN_DXIL_SEMANTICS=0
+      RUN_SHADER_CORPUS=0
+      RUN_SM66_CAPABILITIES=0
+      RUN_WRITABLE_MSAA=0
+      RUN_VRS=0
+      RUN_ROV=0
+      RUN_BARYCENTRICS=0
+      RUN_SAMPLER_FEEDBACK=0
+      RUN_WAVE_OPS=0
+      RUN_REFLECTION_ABI=0
+      RUN_GRAPHICS_PSO=0
+      RUN_COMPUTE_PSO=0
+      RUN_COMMAND_REPLAY=0
+      RUN_WORK_GRAPH=0
+      RUN_ATTRIBUTE_AT_VERTEX=0
+      RUN_CYCLE_COUNTER=0
+      RUN_BARRIERS_RENDER_PASS=0
+      RUN_RESOURCE_VIEWS_FORMATS=0
+      RUN_RENDER_HEADLESS=0
+      RUN_MINI=0
+      RUN_WINEMETAL_ABI=0
+      RUN_PRESENT_WINDOWED=0
+      RUN_FULL_STRESS=0
+      shift
+      ;;
+    --sharing-contract-only)
+      RUN_LEGACY_REGRESSION=0
+      RUN_LOADER=0
+      RUN_AGILITY=0
+      RUN_CAPS=0
+      RUN_FEATURE_LEVELS=0
+      RUN_OBJECT_CONTRACTS=0
+      RUN_META_COMMAND=0
+      RUN_VIDEO=0
+      RUN_VIDEO_PROCESS=0
+      RUN_INFOQUEUE=0
+      RUN_DISCARD_TEXTURE=0
+      RUN_MANUAL_WRITE_TRACKING=0
+      RUN_SHARING_CONTRACT=1
       RUN_DIAGNOSTICS=0
       RUN_DXGI=0
       RUN_RESOURCES=0
@@ -1789,6 +1898,8 @@ VIDEO_PROBE_EXE="$SDK_DIR/out/bin/probe_video.exe"
 VIDEO_PROCESS_PROBE_EXE="$SDK_DIR/out/bin/probe_video_process.exe"
 INFOQUEUE_PROBE_EXE="$SDK_DIR/out/bin/probe_infoqueue_callback.exe"
 DISCARD_TEXTURE_PROBE_EXE="$SDK_DIR/out/bin/probe_discard_texture.exe"
+MANUAL_WRITE_TRACKING_PROBE_EXE="$SDK_DIR/out/bin/probe_manual_write_tracking.exe"
+SHARING_CONTRACT_PROBE_EXE="$SDK_DIR/out/bin/probe_sharing_contract.exe"
 DIAGNOSTICS_PROBE_EXE="$SDK_DIR/out/bin/probe_diagnostics.exe"
 WORK_GRAPH_EXECUTION_PROBE_EXE="$SDK_DIR/out/bin/probe_workgraph_execution.exe"
 ATTRIBUTE_AT_VERTEX_PROBE_EXE="$SDK_DIR/out/bin/probe_attribute_at_vertex.exe"
@@ -1877,6 +1988,8 @@ if [[ ! -f "$SDK_DIR/out/bin/compile-geometry-corpus.exe" ||
       ! -f "$VIDEO_PROCESS_PROBE_EXE" ||
       ! -f "$INFOQUEUE_PROBE_EXE" ||
       ! -f "$DISCARD_TEXTURE_PROBE_EXE" ||
+      ! -f "$MANUAL_WRITE_TRACKING_PROBE_EXE" ||
+      ! -f "$SHARING_CONTRACT_PROBE_EXE" ||
       ! -f "$DIAGNOSTICS_PROBE_EXE" ]]; then
   NEED_BUILD=1
 fi
@@ -1963,6 +2076,8 @@ VIDEO_RESULT_FILE="$RESULTS_DIR/probe-video-${PROFILE}.json"
 VIDEO_PROCESS_RESULT_FILE="$RESULTS_DIR/probe-video-process-${PROFILE}.json"
 INFOQUEUE_RESULT_FILE="$RESULTS_DIR/probe-infoqueue-${PROFILE}.json"
 DISCARD_TEXTURE_RESULT_FILE="$RESULTS_DIR/probe-discard-texture-${PROFILE}.json"
+MANUAL_WRITE_TRACKING_RESULT_FILE="$RESULTS_DIR/probe-manual-write-tracking-${PROFILE}.json"
+SHARING_CONTRACT_RESULT_FILE="$RESULTS_DIR/probe-sharing-contract-${PROFILE}.json"
 DIAGNOSTICS_RESULT_FILE="$RESULTS_DIR/probe-diagnostics-${PROFILE}.json"
 SM5_SM69_OPCODE_CONTRACT_RESULT_FILE="$RESULTS_DIR/sm5-sm69-opcode-contract-${PROFILE}.json"
 SM66_CAPABILITIES_WARMUP_RESULT_FILE="$RESULTS_DIR/probe-sm66-capabilities-warmup-${PROFILE}.json"
@@ -5925,6 +6040,14 @@ fi
 
 if [[ "$RUN_DISCARD_TEXTURE" == "1" ]]; then
   run_probe_exe "$DISCARD_TEXTURE_PROBE_EXE" "$DISCARD_TEXTURE_RESULT_FILE"
+fi
+
+if [[ "$RUN_MANUAL_WRITE_TRACKING" == "1" ]]; then
+  run_probe_exe "$MANUAL_WRITE_TRACKING_PROBE_EXE" "$MANUAL_WRITE_TRACKING_RESULT_FILE"
+fi
+
+if [[ "$RUN_SHARING_CONTRACT" == "1" ]]; then
+  run_probe_exe "$SHARING_CONTRACT_PROBE_EXE" "$SHARING_CONTRACT_RESULT_FILE"
 fi
 
 if [[ "$RUN_DIAGNOSTICS" == "1" ]]; then

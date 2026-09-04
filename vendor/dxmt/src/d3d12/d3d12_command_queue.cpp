@@ -556,12 +556,15 @@ static bool ClearTextureUAV(MTLD3D12Resource *resource,
                                   D3D12_RESOURCE_DIMENSION_TEXTURE3D
                               ? 1
                               : std::max<UINT>(resource_desc.DepthOrArraySize, 1);
-  if (mip >= mip_levels || first_slice >= array_size || !slice_count ||
-      slice_count > array_size - first_slice ||
-      (resource_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D
-           ? (first_slice + slice_count >
-              std::max<UINT>(1, static_cast<UINT>(resource_desc.DepthOrArraySize >> mip)))
-           : false))
+  if (mip >= mip_levels)
+    return false;
+  const UINT slice_limit = resource_desc.Dimension ==
+                                   D3D12_RESOURCE_DIMENSION_TEXTURE3D
+                               ? std::max<UINT>(
+                                     1, static_cast<UINT>(resource_desc.DepthOrArraySize >> mip))
+                               : array_size;
+  if (first_slice >= slice_limit || !slice_count ||
+      slice_count > slice_limit - first_slice)
     return false;
   const uint64_t width64 = std::max<uint64_t>(1, resource_desc.Width >> mip);
   const uint64_t height64 = resource_desc.Dimension ==
@@ -1497,8 +1500,8 @@ struct ReplayState {
                   static_cast<const uint8_t *>(resource->GetCPUAddress()) +
                       predication_offset,
                   sizeof(value));
-    } else if (FAILED(resource->ReadFromSubresource(
-                   &value, sizeof(value), sizeof(value), 0, nullptr))) {
+    } else if (!resource->ReadBufferRange(predication_offset, &value,
+                                          sizeof(value))) {
       return false;
     }
     switch (predication_operation) {
