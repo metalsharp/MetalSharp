@@ -161,6 +161,8 @@ public:
   llvm::Optional<UAVCounterHandle> LoadCounter(const AtomicDstOperandUAV &SrcOp);
 
   llvm::Value *LoadAtomicOpAddress(const AtomicBufferResourceHandle &Handle, const SrcOperand &Address);
+  llvm::BasicBlock *BeginGuardedSideEffect();
+  void EndGuardedSideEffect(llvm::BasicBlock *continuation);
 
   llvm::Optional<InterpolantHandle> LoadInterpolant(uint32_t Index);
 

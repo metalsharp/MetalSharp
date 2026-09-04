@@ -235,6 +235,7 @@ struct context {
   io_binding_map &resource;
   air::AirType &types; // hmmm
   uint32_t pso_sample_mask;
+  llvm::Value *side_effect_guard = nullptr;
   microsoft::D3D10_SB_TOKENIZED_PROGRAM_TYPE shader_type;
   SM50_SHADER_METAL_VERSION metal_version;
 };

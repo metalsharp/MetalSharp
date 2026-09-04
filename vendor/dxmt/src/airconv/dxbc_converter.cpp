@@ -495,12 +495,16 @@ llvm::Error convert_dxbc_pixel_shader(
   bool pso_dual_source_blending = false;
   bool pso_disable_depth_output = false;
   uint32_t pso_unorm_output_reg_mask = 0;
+  bool pso_side_effect_guard = false;
+  uint32_t pso_side_effect_guard_buffer = 25;
   SM50_SHADER_PSO_PIXEL_SHADER_DATA *pso_data = nullptr;
   if (args_get_data<SM50_SHADER_PSO_PIXEL_SHADER, SM50_SHADER_PSO_PIXEL_SHADER_DATA>(pArgs, &pso_data)) {
     pso_dual_source_blending = pso_data->dual_source_blending;
     pso_disable_depth_output = pso_data->disable_depth_output;
     pso_unorm_output_reg_mask = pso_data->unorm_output_reg_mask;
     pso_sample_mask = pso_data->sample_mask;
+    pso_side_effect_guard = pso_data->side_effect_guard;
+    pso_side_effect_guard_buffer = pso_data->side_effect_guard_buffer;
   }
   SM50_SHADER_METAL_VERSION metal_version = SM50_SHADER_METAL_310;
   SM50_SHADER_FLAG shader_flags = {};
@@ -546,6 +550,19 @@ llvm::Error convert_dxbc_pixel_shader(
     };
   }
 
+  uint32_t side_effect_guard_index = ~0u;
+  if (pso_side_effect_guard) {
+    side_effect_guard_index = func_signature.DefineInput(
+        air::ArgumentBindingBuffer{
+            .buffer_size = 4,
+            .location_index = pso_side_effect_guard_buffer,
+            .array_size = 0,
+            .memory_access = air::MemoryAccess::read,
+            .address_space = air::AddressSpace::constant,
+            .type = air::MSLUint{},
+            .arg_name = "m12_side_effect_guard",
+            .raster_order_group = {}});
+  }
   setup_binding_table(shader_info, resource_map, func_signature, module);
 
   auto [function, function_metadata] =
@@ -586,10 +603,19 @@ llvm::Error convert_dxbc_pixel_shader(
     shader_info, resource_map, types, module, builder
   );
 
+  llvm::Value *side_effect_guard = nullptr;
+  if (side_effect_guard_index != ~0u) {
+    auto *argument = function->getArg(side_effect_guard_index);
+    auto *element_type =
+        argument->getType()->getNonOpaquePointerElementType();
+    side_effect_guard = builder.CreateLoad(element_type, argument);
+  }
+
   struct context ctx {
     .builder = builder, .air = air, .llvm = context, .module = module, .function = function,
     .resource = resource_map, .types = types,
     .pso_sample_mask = pso_sample_mask,
+    .side_effect_guard = side_effect_guard,
     .shader_type = pShaderInternal->shader_type,
     .metal_version = metal_version,
   };

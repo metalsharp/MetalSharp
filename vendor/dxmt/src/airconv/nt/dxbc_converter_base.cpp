@@ -1558,7 +1558,10 @@ Converter::operator()(const InstStoreUAVTyped &store) {
 
   auto Value = LoadOperand(store.src, kMaskAll);
 
-  air.CreateWrite(Tex->Texture, Tex->Handle, Address, ArrayIndex, nullptr, ir.getInt32(0), Value, Tex->GlobalCoherent);
+  auto *continuation = BeginGuardedSideEffect();
+  air.CreateWrite(Tex->Texture, Tex->Handle, Address, ArrayIndex, nullptr,
+                  ir.getInt32(0), Value, Tex->GlobalCoherent);
+  EndGuardedSideEffect(continuation);
 }
 
 llvm::Value *
@@ -2339,6 +2342,27 @@ Converter::operator()(const InstLoadStructured &load) {
   StoreOperand(load.dst, MaskSwizzle(ValueVec, Mask, Buf->Swizzle));
 }
 
+llvm::BasicBlock *Converter::BeginGuardedSideEffect() {
+  if (!ctx.side_effect_guard)
+    return nullptr;
+  auto *side_effect =
+      llvm::BasicBlock::Create(ctx.llvm, "side_effect.enabled", ctx.function);
+  auto *continuation =
+      llvm::BasicBlock::Create(ctx.llvm, "side_effect.continue", ctx.function);
+  auto *enabled =
+      ir.CreateICmpNE(ctx.side_effect_guard, ir.getInt32(0));
+  ir.CreateCondBr(enabled, side_effect, continuation);
+  ir.SetInsertPoint(side_effect);
+  return continuation;
+}
+
+void Converter::EndGuardedSideEffect(llvm::BasicBlock *continuation) {
+  if (!continuation)
+    return;
+  ir.CreateBr(continuation);
+  ir.SetInsertPoint(continuation);
+}
+
 void
 Converter::operator()(const InstStoreRaw &store) {
   using namespace llvm::air;
@@ -2362,6 +2386,7 @@ Converter::operator()(const InstStoreRaw &store) {
 
   auto Value = LoadOperand(store.src, Buf->Mask);
 
+  auto *continuation = BeginGuardedSideEffect();
   for (auto [DstComp, _] : EnumerateComponents(Buf->Mask)) {
     auto Ptr = CreateGEPInt32WithBoundCheck(Buf.value(), ir.CreateAdd(Index, ir.getInt32(DstComp)));
     if (Buf->GlobalCoherent)
@@ -2369,6 +2394,7 @@ Converter::operator()(const InstStoreRaw &store) {
     else
       ir.CreateStore(ExtractElement(Value, DstComp), Ptr, Volatile);
   }
+  EndGuardedSideEffect(continuation);
 }
 
 void
@@ -2396,6 +2422,7 @@ Converter::operator()(const InstStoreStructured &store) {
 
   auto Value = LoadOperand(store.src, Buf->Mask);
 
+  auto *continuation = BeginGuardedSideEffect();
   for (auto [DstComp, _] : EnumerateComponents(Buf->Mask)) {
     auto Ptr = CreateGEPInt32WithBoundCheck(Buf.value(), ir.CreateAdd(Index, ir.getInt32(DstComp)));
     if (Buf->GlobalCoherent)
@@ -2403,6 +2430,7 @@ Converter::operator()(const InstStoreStructured &store) {
     else
       ir.CreateStore(ExtractElement(Value, DstComp), Ptr, Volatile);
   }
+  EndGuardedSideEffect(continuation);
 }
 
 llvm::Value *

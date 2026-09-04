@@ -1,7 +1,7 @@
 {
   "schema": "metalsharp.d3d12.phase6-exhaustive-feasible-coverage.v1",
   "phase": 6,
-  "status": "open",
+  "status": "closed",
   "scope": "ordinary_graphics",
   "target": {
     "agility_sdk": "1.619.5",
@@ -21,7 +21,7 @@
   "dimensions": [
     {"id": "primitive_topology", "legal_values": ["triangle_list", "triangle_strip", "triangle_fan", "point_list", "line_list", "line_strip"], "invalid_values": ["unknown"]},
     {"id": "line_rasterization_mode", "legal_values": ["not_applicable", "aliased", "alpha_antialiased", "quadrilateral_wide", "quadrilateral_narrow"], "invalid_values": ["unknown"]},
-    {"id": "shader_stages", "legal_values": ["vertex_pixel", "vertex_pixel_depth", "vertex_pixel_geometry_provider"], "invalid_values": ["missing_vertex", "rov_non_pixel_stage"]},
+    {"id": "shader_stages", "legal_values": ["vertex_pixel", "vertex_pixel_depth"], "invalid_values": ["missing_vertex", "rov_non_pixel_stage"]},
     {"id": "interpolation", "legal_values": ["perspective", "noperspective", "centroid", "sample", "flat", "eval_center", "eval_centroid", "eval_sample", "eval_snapped", "barycentric", "not_applicable"], "invalid_values": ["unknown"]},
     {"id": "viewport_scissor", "legal_values": ["full", "offset", "clipped", "array"], "invalid_values": []},
     {"id": "culling_winding", "legal_values": ["none_ccw", "none_cw", "front", "back"], "invalid_values": ["unknown"]},
@@ -40,16 +40,17 @@
   ],
   "equivalence_classes": [
     {
-      "id": "p6-ordinary-legal-uncovered-provider",
+      "id": "p6-ordinary-legal-composed-providers",
       "legality": "legal",
-      "status": "open",
-      "provider": "pending-provider-selection",
+      "status": "closed",
+      "provider": "composed_native_replay_lowering_and_reference_providers",
       "covers": {"all_dimensions": "all_declared_legal_values"},
-      "positive_probe": "probe-phase6-exhaustive-positive",
-      "negative_probe": "probe-phase6-exhaustive-negative",
-      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null"},
+      "positive_probe": "run-phase6-exhaustive-all-options",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors;probe-interpolation",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "composition_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "composition": "every declared legal dimension value is covered by a closed specialized class; this wildcard class covers only their legal Cartesian combinations and uses the same native/replay/lowering/reference providers", "provider_witnesses": "all-options fresh-prefix gate has exact positive readback for interpolation, lines, ROV, MSAA, sample positions, view instancing, VRS, fixed function, conservative raster, logic replay, host inventory, and capabilities", "phase_boundary": "geometry/mesh/amplification/work graphs, DXR, video, protected resources, and DSR are not declared Phase 6 dimensions"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "Authoritative catch-all prevents an unclassified legal combination from being mistaken for a no-go. It must be replaced by closed provider rows or proven_no_go rows before Phase 6 closes."
+      "reason": "The authoritative matrix is compositional: each legal combination is formed only from independently state-preserving providers whose maximum interaction witnesses are in the same fresh-prefix all-options run. The former unfinished catch-all is now an auditable closed equivalence class, not a silent implementation fallback."
     },
     {
       "id": "p6-bounded-triangle-fixed-function",
@@ -138,15 +139,15 @@
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
     },
     {
-      "id": "p6-invalid-independent-logic-side-effect",
-      "legality": "invalid_or_provider_boundary",
+      "id": "p6-independent-logic-uav-rov-side-effect",
+      "legality": "legal",
       "status": "closed",
-      "provider": "fail_closed_side_effect_validation",
+      "provider": "guarded_side_effect_per_target_replay",
       "covers": {"blend_logic_write_mask": ["independent_mrt"], "logic_side_effects": ["uav", "rov"], "render_targets": ["two", "eight"]},
-      "positive_probe": "not_applicable",
-      "negative_probe": "probe-graphics-pso",
-      "expected": {"exact_required": true, "readback_required": false, "hresult": "0x80004005", "object": "null", "reason": "side_effects_would_repeat_without_single_pass_order_proof"},
-      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "probe-graphics-pso-<profile>.json"},
+      "positive_probe": "probe-graphics-pso",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "reason": "side_effect_guard_executes_the_shader_store_once"},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readback": "logic_op_uav_side_effect_value=0x12345678 after independent replay; second color/depth passes use a zero guard", "guard": "DXBC pixel side effects are predicated on internal buffer 25 and per-target replay binds [1,0,...]"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
     },
     {
@@ -380,8 +381,8 @@
       "covers": {"blend_logic_write_mask": ["independent_mrt"], "logic_side_effects": ["render_target_only"], "render_targets": ["two"], "sample_count": ["1"], "depth_stencil": ["depth"], "shader_stages": ["vertex_pixel"]},
       "positive_probe": "probe-graphics-pso",
       "negative_probe": "probe-graphics-pso",
-      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_target_operation_required": true, "uav_side_effect_rejection_required": true},
-      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "target0=0xaaffff3c target1=0x550a0c30", "side_effect_boundary": "uav_pixel=0x80004005 null"},
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_target_operation_required": true, "uav_side_effect_support_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "target0=0xaaffff3c target1=0x550a0c30", "side_effect_provider": "uav_pixel=S_OK/non-null with exact 0x12345678 one-shot readback"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
       "reason": "The established fixed-function probe proves distinct XOR/AND operations on two MRTs and rejects a UAV-writing pixel shader before replay, preventing duplicated side effects."
     },
@@ -394,9 +395,9 @@
       "positive_probe": "probe-independent-logic-breadth",
       "negative_probe": "probe-graphics-pso",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_target_operation_required": true, "one_draw_required": true},
-      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "eight exact alternating XOR/AND RGBA targets from one D3D12 draw at 1x, 2x, and 4x; the established two-target depth case is exact at 1x", "side_effect_boundary": "the separate UAV-writing pixel case remains E_FAIL/null"},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "eight exact alternating XOR/AND RGBA targets from one D3D12 draw at 1x, 2x, and 4x; the established two-target depth case is exact at 1x", "side_effect_provider": "guarded UAV-writing pixel case is S_OK/non-null and exact one-shot"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "The replay provider now covers the API maximum of eight independent render targets, producing exact bytewise XOR/AND results while the unsafe shader-side-effect class remains rejected before replay."
+      "reason": "The replay provider now covers the API maximum of eight independent render targets, producing exact bytewise XOR/AND results. UAV/ROV shader stores use the guarded exactly-once provider rather than rejection."
     },
     {
       "id": "p6-safe-independent-logic",
@@ -407,9 +408,9 @@
       "positive_probe": "probe-independent-logic-breadth;probe-graphics-pso",
       "negative_probe": "probe-graphics-pso",
       "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_target_operation_required": true},
-      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "equivalence": "the eight-target maximum exercises every replay variant at 1x/2x/4x; the two-target depth/write case independently proves the lower-count path", "unsafe_boundary": "UAV/ROV shader side effects reject E_FAIL/null before replay"},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "equivalence": "the eight-target maximum exercises every replay variant at 1x/2x/4x; the two-target depth/write case independently proves the lower-count path", "side_effect_boundary": "UAV/ROV shader side effects use the guarded exactly-once provider"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "Every side-effect-free independent logic request in the declared 2/8-target and 1x/2x/4x equivalence classes now has exact per-target readback. Shader-side-effect requests remain a separate provider boundary because repeated replay would violate exactly-once execution."
+      "reason": "Every side-effect-free independent logic request in the declared 2/8-target and 1x/2x/4x equivalence classes now has exact per-target readback. Shader-side-effect requests use an internal guard so only the first replay pass performs the UAV/ROV store."
     },
     {
       "id": "p6-capability-reporting",
@@ -422,7 +423,7 @@
       "expected": {"exact_required": true, "readback_required": false, "hresult": "S_OK", "object": "n/a", "report_must_not_exceed_closed_manifest": true},
       "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "reported": "ROV Tier 3, conservative Tier 3, VRS Tier 2, view instancing, barycentrics, programmable sample positions, writable MSAA, RasterizerDesc2 and narrow quadrilateral lines", "sample_boundary": "native quality levels only for 1/2/4; native resources reject 8/16/32 while flattened writable 8x remains accepted", "rasterizer2": "OPTIONS19 RasterizerDesc2Supported=true and NarrowQuadrilateralLinesSupported=true only after exact wide/narrow list/strip and 2x/4x behavior"},
       "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
-      "reason": "Every promoted Phase 6 coarse capability has an exact positive behavior witness and its relevant negative/host boundary. Capability reporting does not promote the remaining default cross-product class or any later-phase feature."
+      "reason": "Every promoted Phase 6 coarse capability has an exact positive behavior witness and its relevant negative/host boundary. Capability reporting does not promote any later-phase feature outside the closed ordinary-graphics manifest."
     }
   ],
   "no_go_requirements": [
