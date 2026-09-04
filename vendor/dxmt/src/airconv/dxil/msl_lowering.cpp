@@ -2090,7 +2090,14 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  if (output == 0u || count == 0u) return 0u;\n";
         os << "  return (output & 0xffffu) | ((count & 0xffu) << 16) | ((per_thread & 1u) << 24);\n";
         os << "}\n";
-        os << "static inline device char *m12_node_record_ptr(device char *backing, uint record, uint index) {\n";
+        os << "struct m12_node_input_context { uint version; uint count; ulong stride; ulong size; ulong length; };\n";
+        os << "static inline device char *m12_node_record_ptr(device char *backing, device char *input, device char *context, uint record, uint index) {\n";
+        os << "  if ((record & 0x80000000u) != 0u) {\n";
+        os << "    if (input == nullptr || context == nullptr) return nullptr;\n";
+        os << "    device const m12_node_input_context *c = reinterpret_cast<device const m12_node_input_context *>(context);\n";
+        os << "    if (c->version != 1u || index >= c->count || c->size > c->length || (index != 0u && c->stride > (c->length - c->size) / index)) return nullptr;\n";
+        os << "    return input + ulong(index) * c->stride;\n";
+        os << "  }\n";
         os << "  if (backing == nullptr || record == 0u || index >= 256u) return nullptr;\n";
         os << "  return backing + ((ulong)(index) * 256ul);\n";
         os << "}\n\n";
@@ -7603,8 +7610,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 literalArg(0, UINT32_MAX, "node input metadata index");
             if (metadata == UINT32_MAX)
                 return reject_node("node input metadata index must be literal");
-            return "m12_node_create_output_handle(" +
-                   std::to_string(metadata) + "u, 0u)";
+            return "(m12_node_create_output_handle(" +
+                   std::to_string(metadata) + "u, 0u) | 0x80000000u)";
         }
         case DXOP_AllocateNodeOutputRecords: {
             if (args.size() < 3)
@@ -7628,7 +7635,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 literalArg(1, UINT32_MAX, "node record index");
             if (index == UINT32_MAX || index >= 256u)
                 return reject_node("node record index is outside the bounded storage");
-            return "m12_node_record_ptr(buf30 != nullptr ? buf30 : buf0, (uint)(" +
+            return "m12_node_record_ptr(buf30 != nullptr ? buf30 : buf0, buf29, buf28, (uint)(" +
                    valueArg(0, "0u") + "), " + std::to_string(index) + "u)";
         }
         case DXOP_IncrementOutputCount: {

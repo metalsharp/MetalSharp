@@ -263,6 +263,13 @@ int main() {
     bool node_multi_gpu_input_exact = false;
     bool node_multi_properties_complete = false;
     bool node_input_layouts_exact = false;
+    uint8_t input_program_identifier[32] = {};
+    ID3D12StateObject* input_program_state = nullptr;
+    bool input_program_ready = false;
+    bool node_input_binding_exact = false;
+    bool node_internal_binding_rejected = false;
+    bool node_input_gpu_dependency_exact = false;
+    uint32_t node_input_gpu_dependency_values[2] = {};
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
     uint32_t node_shader_values[2] = {};
@@ -590,8 +597,17 @@ int main() {
                 layout_properties->GetEntrypointRecordSizeInBytes(0, 4) == UINT_MAX &&
                 layout_properties->GetEntrypointRecordAlignmentInBytes(1, 0) == UINT_MAX;
         }
+        ID3D12StateObjectProperties* program_properties = nullptr;
+        if (layout_state && SUCCEEDED(layout_state->QueryInterface(kStateObjectProperties1IID,
+                reinterpret_cast<void**>(&program_properties)))) {
+            using GetIdentifier = void* (STDMETHODCALLTYPE *)(ID3D12StateObjectProperties*, void*, LPCWSTR);
+            auto* vtable = *reinterpret_cast<void***>(program_properties);
+            reinterpret_cast<GetIdentifier>(vtable[7])(program_properties, input_program_identifier, L"layout_graph");
+            input_program_ready = true;
+        }
+        release(program_properties);
         release(layout_properties);
-        release(layout_state);
+        input_program_state = layout_state;
     }
     uint8_t node_shader_identifier[32] = {};
     HRESULT node_shader_hr = E_FAIL;
@@ -638,6 +654,14 @@ int main() {
                     vtable[7]);
                 get_identifier(node_shader_state_properties,
                                node_shader_identifier, L"actual_graph");
+                std::vector<uint8_t> collision_bytecode;
+                if (read_binary_file("probe_workgraph_node_collision.cso", collision_bytecode)) {
+                    node_library.DXILLibrary = {collision_bytecode.data(), collision_bytecode.size()};
+                    ID3D12StateObject* rejected = reinterpret_cast<ID3D12StateObject*>(uintptr_t(1));
+                    const HRESULT rejected_hr = device5->CreateStateObject(&node_state_desc, IID_PPV_ARGS(&rejected));
+                    node_internal_binding_rejected = rejected_hr == E_FAIL && rejected == nullptr;
+                    if (rejected && rejected != reinterpret_cast<ID3D12StateObject*>(uintptr_t(1))) release(rejected);
+                }
             }
         }
     }
@@ -1381,8 +1405,9 @@ int main() {
 
     // Submit the GPU-input consumer before its producer, with no intervening
     // host completion wait. The queue fence must make the new record visible.
-    for (unsigned multi = 0; multi < 3 && SUCCEEDED(hr) && cross_queue_dispatch_exact; ++multi) {
-        uint32_t* cycle_values = multi == 2 ? cross_queue_multi_values
+    for (unsigned multi = 0; multi < 4 && SUCCEEDED(hr) && cross_queue_dispatch_exact; ++multi) {
+        uint32_t* cycle_values = multi == 3 ? node_input_gpu_dependency_values
+            : multi == 2 ? cross_queue_multi_values
             : multi ? cross_queue_repeated_values : cross_queue_values;
         ID3D12Fence* dependency = nullptr;
         ID3D12Fence* completion = nullptr;
@@ -1393,6 +1418,7 @@ int main() {
             hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                                      IID_PPV_ARGS(&completion));
         NodeGPUInput consumer_input = {};
+        consumer_input.EntrypointIndex = multi == 3 ? 2u : 0u;
         consumer_input.NumRecords = 1;
         consumer_input.Records = backing->GetGPUVirtualAddress();
         consumer_input.RecordStrideInBytes = sizeof(uint32_t);
@@ -1419,6 +1445,11 @@ int main() {
             consumer_program.WorkGraph.BackingMemory.StartAddress =
                 node_output->GetGPUVirtualAddress();
             consumer_program.WorkGraph.BackingMemory.SizeInBytes = 8;
+            if (multi == 3) {
+                std::memcpy(consumer_program.WorkGraph.ProgramIdentifier, input_program_identifier, 32);
+                compute_list->SetComputeRootSignature(node_root);
+                compute_list->SetComputeRootUnorderedAccessView(0, node_output->GetGPUVirtualAddress());
+            }
             DispatchGraphDesc consumer_dispatch = {};
             consumer_dispatch.Mode = multi == 2 ? 3 : 1;
             consumer_dispatch.Raw[0] = multi == 2
@@ -1457,11 +1488,16 @@ int main() {
                     cycle_values, sizeof(cross_queue_values),
                     sizeof(cross_queue_values), 0, nullptr);
             if (SUCCEEDED(hr)) {
-                bool& exact = multi == 2 ? cross_queue_multi_gpu_dependency_exact
+                bool& exact = multi == 3 ? node_input_gpu_dependency_exact
+                    : multi == 2 ? cross_queue_multi_gpu_dependency_exact
                     : multi ? cross_queue_repeated_gpu_dependency_exact
                             : cross_queue_gpu_dependency_exact;
-                exact = cycle_values[0] == producer_record + 2u &&
-                    cycle_values[1] == ((producer_record + 1u) ^ 0x57475250u);
+                if (multi == 3)
+                    exact = input_program_ready && cycle_values[0] == 0xabcdef00u + producer_record + 1u &&
+                        cycle_values[1] == 0x12345678u;
+                else
+                    exact = cycle_values[0] == producer_record + 2u &&
+                        cycle_values[1] == ((producer_record + 1u) ^ 0x57475250u);
             }
         }
         std::fprintf(stderr, "crossqueue cycle=%u hr=%08lx dependency=%llu completion=%llu\n",
@@ -1471,6 +1507,71 @@ int main() {
         if (event) CloseHandle(event);
         release(completion);
         release(dependency);
+    }
+
+    if (SUCCEEDED(hr) && input_program_ready) {
+        node_input_binding_exact = true;
+        uint32_t previous[2] = {};
+        for (UINT mode = 0; mode < 6 && SUCCEEDED(hr); ++mode) {
+            uint32_t value = mode == 0 ? 1u : mode == 1 ? 9u : 37u;
+            hr = allocator->Reset();
+            if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+            SetProgramDesc program = set_program;
+            std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier, 32);
+            DispatchGraphDesc dispatch = {};
+            dispatch.NodeCPUInput = {mode == 3 ? 0u : 2u, 1, &value, 4};
+            uint32_t two_records[2] = {1, 2};
+            uint32_t backing_before[4] = {};
+            if (mode == 5) {
+                dispatch.NodeCPUInput.NumRecords = 2;
+                dispatch.NodeCPUInput.Records = two_records;
+                program.WorkGraph.Flags = 0;
+                if (SUCCEEDED(hr)) hr = backing->ReadFromSubresource(backing_before, 16, 16, 0, nullptr);
+            }
+            if (mode == 2 || mode == 4) {
+                void* mapped = nullptr;
+                if (SUCCEEDED(hr)) hr = gpu_records->Map(0, nullptr, &mapped);
+                if (SUCCEEDED(hr) && mapped) {
+                    std::memcpy(mapped, &value, sizeof(value));
+                    gpu_records->Unmap(0, nullptr);
+                }
+                NodeGPUInput input = {};
+                input.EntrypointIndex = 2;
+                input.NumRecords = 1;
+                input.Records = gpu_records->GetGPUVirtualAddress() + (mode == 4 ? 1 : 0);
+                input.RecordStrideInBytes = 4;
+                if (SUCCEEDED(hr)) hr = gpu_input_desc->Map(0, nullptr, &mapped);
+                if (SUCCEEDED(hr) && mapped) {
+                    std::memcpy(mapped, &input, sizeof(input));
+                    gpu_input_desc->Unmap(0, nullptr);
+                }
+                dispatch.Mode = 1;
+                dispatch.Raw[0] = gpu_input_desc->GetGPUVirtualAddress();
+            }
+            if (SUCCEEDED(hr)) {
+                list->SetComputeRootSignature(node_root);
+                list->SetComputeRootUnorderedAccessView(0, node_output->GetGPUVirtualAddress());
+                list->SetProgram(&program);
+                list->DispatchGraph(&dispatch);
+                value = 0xdeadbeefu; // Recorded CPU input must already be owned.
+                hr = execute_and_wait(device, queue, base_list);
+            }
+            uint32_t actual[2] = {};
+            if (SUCCEEDED(hr)) hr = node_output->ReadFromSubresource(actual, 8, 8, 0, nullptr);
+            if (SUCCEEDED(hr)) {
+                if (mode < 3)
+                    node_input_binding_exact &= actual[0] == 0xabcdef00u + (mode == 0 ? 1u : mode == 1 ? 9u : 37u) && actual[1] == 0x12345678u;
+                else
+                    node_input_binding_exact &= std::memcmp(actual, previous, sizeof(actual)) == 0;
+                std::memcpy(previous, actual, sizeof(actual));
+                if (mode == 5) {
+                    uint32_t backing_after[4] = {};
+                    hr = backing->ReadFromSubresource(backing_after, 16, 16, 0, nullptr);
+                    node_input_binding_exact &= SUCCEEDED(hr) &&
+                        std::memcmp(backing_before, backing_after, sizeof(backing_before)) == 0;
+                }
+            } else node_input_binding_exact = false;
+        }
     }
 
     std::printf("{\n");
@@ -1488,7 +1589,7 @@ int main() {
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
-        node_multi_properties_complete && node_input_layouts_exact && dxil_multi_node_readback_exact &&
+        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
@@ -1549,6 +1650,10 @@ int main() {
                 node_multi_bytecode_loaded ? "true" : "false");
     std::printf("  \"dxil_multi_node_readback_exact\": %s,\n",
                 dxil_multi_node_readback_exact ? "true" : "false");
+    std::printf("  \"node_input_gpu_dependency_exact\": %s,\n", node_input_gpu_dependency_exact ? "true" : "false");
+    std::printf("  \"node_input_gpu_dependency_values\": [%u, %u],\n", node_input_gpu_dependency_values[0], node_input_gpu_dependency_values[1]);
+    std::printf("  \"node_internal_binding_rejected\": %s,\n", node_internal_binding_rejected ? "true" : "false");
+    std::printf("  \"node_input_binding_exact\": %s,\n", node_input_binding_exact ? "true" : "false");
     std::printf("  \"node_input_layouts_exact\": %s,\n", node_input_layouts_exact ? "true" : "false");
     std::printf("  \"node_multi_properties_complete\": %s,\n",
                 node_multi_properties_complete ? "true" : "false");
@@ -1577,6 +1682,7 @@ int main() {
     release(node_multi_properties);
     release(node_multi_state_properties);
     release(node_multi_state);
+    release(input_program_state);
     release(node_shader_state_properties);
     release(node_shader_state);
     release(include_all_state);
@@ -1614,7 +1720,7 @@ int main() {
                    dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
-                   node_multi_properties_complete && node_input_layouts_exact &&
+                   node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
                    node_multi_gpu_input_exact
                ? 0

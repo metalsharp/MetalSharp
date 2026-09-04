@@ -3893,6 +3893,17 @@ static bool LowerWorkGraphNodeShader(
   const auto layout = dxmt::dxil::nodeInputLayout(*module, shader.entry_point);
   if (!layout)
     return false;
+  // Node input context/payload and output records occupy internal bindings.
+  // Until the general node argument table exists, accept only the user UAV
+  // binding that command replay actually resolves; never alias user resources
+  // onto the internal record context.
+  for (const auto &binding : module->resource_bindings) {
+    if (binding.resource_class != 1u || binding.register_space != 0u ||
+        binding.lower_bound != 0u || binding.count != 1u || binding.has_counter ||
+        (binding.resource_kind != 10u && binding.resource_kind != 11u &&
+         binding.resource_kind != 12u))
+      return false;
+  }
   input_layout = *layout;
   source = std::move(lowered->source);
   return !source.empty();
