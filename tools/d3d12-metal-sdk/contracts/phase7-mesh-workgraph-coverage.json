@@ -75,6 +75,11 @@
         ["node_input_binding_exact"],
         ["node_launch_geometry_exact"],
         ["node_record_offsets_exact"],
+        ["node_broadcast_multi_exact"],
+        ["node_broadcast_multi_gpu_exact"],
+        ["node_thread_multi_exact"],
+        ["node_coalescing_multi_exact"],
+        ["node_coalescing_gpu_exact"],
         ["node_dynamic_grid_rejected"],
         ["node_input_gpu_dependency_exact"],
         ["node_internal_binding_rejected"],
@@ -89,7 +94,7 @@
         ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]
       ],
-      "remaining": "The proof implements one GPU-native reference node kernel, one source-owned DXIL node-library lowering path, graph properties, backing memory, three-record CPU-input dispatch, GPU-input descriptor dispatch, two-node CPU/GPU input flattening with entrypoint routing, local-root-index reporting, INCLUDE_ALL_AVAILABLE_NODES metadata materialization, explicit backing-memory initialization, and exact readback without a CPU scheduler. Recursive/fan-out graphs, multi-entrypoint resource/record routing, barriers, and general DXIL node shader conversion remain open."
+      "remaining": "The proof implements one GPU-native reference node kernel, one source-owned DXIL node-library lowering path, graph properties, backing memory, three-record CPU-input dispatch, GPU-input descriptor dispatch, two-node CPU/GPU input flattening with entrypoint routing, local-root-index reporting, INCLUDE_ALL_AVAILABLE_NODES metadata materialization, explicit backing-memory initialization, and exact readback without a CPU scheduler. Fixed-grid broadcasting/thread nodes prove two-record CPU/GPU input routing with GPU execution and post-recording CPU mutation. Coalescing nodes now prove declared-MaxRecords batching, dynamic input indexing, six-record CPU/GPU input routing, and exact readback. Recursive/fan-out graphs, multi-entrypoint resource/record routing, barriers, and general DXIL node shader conversion remain open."
     }
   ]
 }

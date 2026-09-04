@@ -5061,6 +5061,7 @@ public:
           const auto &metadata = m_work_graph_node_layouts[node];
           entrypoint_shaders[entry].input_record_size = metadata.input.size;
           entrypoint_shaders[entry].input_record_alignment = metadata.input.alignment;
+          entrypoint_shaders[entry].input_max_records = metadata.max_input_records;
           entrypoint_shaders[entry].launch_type = metadata.launch_type;
           for (unsigned axis = 0; axis < 3; ++axis) {
             entrypoint_shaders[entry].threads[axis] = metadata.threads[axis];
@@ -9166,9 +9167,10 @@ bool MTLD3D12Device::LookupWorkGraphNodeShader(
     return false;
   }
   shader = it->second[node_index];
-  TRACE("LookupWorkGraphNodeShader hit node=%u bytes=%zu input_size=%u input_alignment=%u",
+  TRACE("LookupWorkGraphNodeShader hit node=%u bytes=%zu input_size=%u input_alignment=%u max_records=%u launch=%u",
         node_index, shader.msl.size(), shader.input_record_size,
-        shader.input_record_alignment);
+        shader.input_record_alignment, shader.input_max_records,
+        shader.launch_type);
   return true;
 }
 

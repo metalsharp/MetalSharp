@@ -373,8 +373,35 @@ Evidence under `/private/tmp/metalsharp-phase7-abi/`:
 - `offset-cfg-build.log`: all nine runtime targets built.
 
 These remain dirty-source development proofs. Pointer transformations beyond
-tracked record/GEP chains, arbitrary IR type forms, multiple input records,
-record publication and the complete GPU scheduler remain open.
+tracked record/GEP chains, arbitrary IR type forms, record publication and the
+complete GPU scheduler remain open.
+
+## Multiple fixed-grid input records
+
+The source-owned node provider now accepts a bounded array of input records for
+fixed-grid broadcasting nodes and thread-launch nodes. It allocates or validates
+the complete input byte range, then emits one GPU compute dispatch per record
+with the input buffer offset and one-record context view selected for that
+invocation. Coalescing nodes instead use the declared input `[MaxRecords]` as
+the batch boundary, set the context count/byte bounds for each batch, and allow
+dynamic `input[threadIndex]` GEP indices to resolve through the GPU input ABI.
+This preserves input-record access without a host readback or CPU shader
+execution. Dynamic record grids, output publication, and downstream scheduling
+are still rejected rather than approximated.
+
+`node_broadcast_multi` writes two distinct slots from two records. The CPU input
+case mutates both source records after command recording and reads back slots 1
+and 6 exactly. The GPU descriptor case reads two records from a GPU-addressed
+buffer and reads back slots 0 and 7 exactly. `node_thread_multi` proves the same
+CPU multi-record path for thread launch. `node_coalescing_multi` processes six
+records with a declared `[MaxRecords(4)]`, forcing two GPU batches; both CPU
+(post-recording mutation) and GPU-addressed input arrays have exact slot
+readback. All cases use lowered DXIL node shaders and root `u0` binding.
+Evidence is in `/private/tmp/metalsharp-phase7-abi/node-max-record/`; the final
+aggregate reports `pass=true`, `node_broadcast_multi_exact=true`,
+`node_broadcast_multi_gpu_exact=true`, `node_thread_multi_exact=true`,
+`node_coalescing_multi_exact=true`, and `node_coalescing_gpu_exact=true` (with
+the intentionally false `cpu_scheduler` witness).
 
 ## Original observations
 

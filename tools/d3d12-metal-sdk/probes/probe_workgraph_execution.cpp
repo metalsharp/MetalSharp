@@ -270,6 +270,16 @@ int main() {
     bool node_internal_binding_rejected = false;
     bool node_record_offsets_exact = false;
     uint32_t node_record_offset_values[12] = {};
+    bool node_broadcast_multi_exact = false;
+    uint32_t node_broadcast_multi_values[8] = {};
+    bool node_broadcast_multi_gpu_exact = false;
+    uint32_t node_broadcast_multi_gpu_values[8] = {};
+    bool node_thread_multi_exact = false;
+    uint32_t node_thread_multi_values[8] = {};
+    bool node_coalescing_multi_exact = false;
+    uint32_t node_coalescing_multi_values[8] = {};
+    bool node_coalescing_gpu_exact = false;
+    uint32_t node_coalescing_gpu_values[8] = {};
     bool node_launch_geometry_exact = false;
     bool node_dynamic_grid_rejected = false;
     uint32_t node_launch_values[8] = {};
@@ -564,21 +574,21 @@ int main() {
     // must resolve node identity, not use the entrypoint as a node-array index.
     std::vector<uint8_t> layout_bytecode;
     if (SUCCEEDED(hr) && read_binary_file("probe_workgraph_node_layout.cso", layout_bytecode)) {
-        const wchar_t* names[5] = {L"node_main", L"node_vector", L"node_half", L"node_empty", L"node_offsets"};
-        D3D12_EXPORT_DESC exports[5] = {};
-        WorkGraphNode layout_nodes[5] = {};
-        for (UINT i = 0; i < 5; ++i) {
+        const wchar_t* names[8] = {L"node_main", L"node_vector", L"node_half", L"node_empty", L"node_offsets", L"node_broadcast_multi", L"node_thread_multi", L"node_coalescing_multi"};
+        D3D12_EXPORT_DESC exports[8] = {};
+        WorkGraphNode layout_nodes[8] = {};
+        for (UINT i = 0; i < 8; ++i) {
             exports[i].Name = names[i];
             layout_nodes[i] = {0, {names[i], 0, nullptr}};
         }
-        WorkGraphNodeID entries[5] = {{names[1], 0}, {names[3], 0}, {names[0], 0}, {names[2], 0}, {names[4], 0}};
-        WorkGraphDesc graph = {L"layout_graph", 0, 5, entries, 5, layout_nodes};
+        WorkGraphNodeID entries[8] = {{names[1], 0}, {names[3], 0}, {names[0], 0}, {names[2], 0}, {names[4], 0}, {names[5], 0}, {names[6], 0}, {names[7], 0}};
+        WorkGraphDesc graph = {L"layout_graph", 0, 8, entries, 8, layout_nodes};
         D3D12_STATE_SUBOBJECT graph_sub = {static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &graph};
         const D3D12_STATE_SUBOBJECT* graph_subs[] = {&graph_sub};
         GenericProgramDesc generic = {L"layout_graph", 0, nullptr, 1, graph_subs};
         D3D12_DXIL_LIBRARY_DESC library = {};
         library.DXILLibrary = {layout_bytecode.data(), layout_bytecode.size()};
-        library.NumExports = 5;
+        library.NumExports = 8;
         library.pExports = exports;
         D3D12_STATE_SUBOBJECT subs[2] = {
             {D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY, &library},
@@ -591,15 +601,15 @@ int main() {
             layout_hr = layout_state->QueryInterface(kWorkGraphPropertiesIID,
                 reinterpret_cast<void**>(&layout_properties));
         if (SUCCEEDED(layout_hr) && layout_properties) {
-            const UINT sizes[5] = {16, 0, 4, 4, 48};
-            const UINT alignments[5] = {4, 0, 4, 4, 8};
+            const UINT sizes[8] = {16, 0, 4, 4, 48, 8, 8, 8};
+            const UINT alignments[8] = {4, 0, 4, 4, 8, 4, 4, 4};
             node_input_layouts_exact = true;
-            for (UINT i = 0; i < 5; ++i)
+            for (UINT i = 0; i < 8; ++i)
                 node_input_layouts_exact &=
                     layout_properties->GetEntrypointRecordSizeInBytes(0, i) == sizes[i] &&
                     layout_properties->GetEntrypointRecordAlignmentInBytes(0, i) == alignments[i];
             node_input_layouts_exact &=
-                layout_properties->GetEntrypointRecordSizeInBytes(0, 5) == UINT_MAX &&
+                layout_properties->GetEntrypointRecordSizeInBytes(0, 8) == UINT_MAX &&
                 layout_properties->GetEntrypointRecordAlignmentInBytes(1, 0) == UINT_MAX;
         }
         ID3D12StateObjectProperties* program_properties = nullptr;
@@ -1580,6 +1590,9 @@ int main() {
             if (SUCCEEDED(hr)) {
                 if (mode < 3)
                     node_input_binding_exact &= actual[0] == 0xabcdef00u + (mode == 0 ? 1u : mode == 1 ? 9u : 37u) && actual[1] == 0x12345678u;
+                else if (mode == 5)
+                    node_input_binding_exact &= actual[0] == 0xabcdef02u &&
+                        actual[1] == 0x12345678u;
                 else
                     node_input_binding_exact &= std::memcmp(actual, previous, sizeof(actual)) == 0;
                 std::memcpy(previous, actual, sizeof(actual));
@@ -1644,6 +1657,198 @@ int main() {
             std::memcmp(expected, node_record_offset_values, sizeof(expected)) == 0;
     }
 
+    if (SUCCEEDED(hr) && input_program_ready) {
+        struct BroadcastRecord { uint32_t slot; uint32_t value; };
+        BroadcastRecord records[2] = {{1u, 0x11223344u}, {6u, 0x55667788u}};
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+        SetProgramDesc program = set_program;
+        std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier,
+                    sizeof(input_program_identifier));
+        DispatchGraphDesc dispatch = {};
+        dispatch.NodeCPUInput = {5u, 2u, records, sizeof(BroadcastRecord)};
+        if (SUCCEEDED(hr)) {
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&program);
+            list->DispatchGraph(&dispatch);
+            std::memset(records, 0, sizeof(records));
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr))
+            hr = node_output->ReadFromSubresource(node_broadcast_multi_values,
+                                                  sizeof(node_broadcast_multi_values),
+                                                  sizeof(node_broadcast_multi_values),
+                                                  0, nullptr);
+        node_broadcast_multi_exact = SUCCEEDED(hr) &&
+            node_broadcast_multi_values[1] == 0x11223344u &&
+            node_broadcast_multi_values[6] == 0x55667788u;
+    }
+
+    if (SUCCEEDED(hr) && input_program_ready) {
+        struct ThreadRecord { uint32_t slot; uint32_t value; };
+        ThreadRecord records[2] = {{2u, 0x0badc0deu}, {5u, 0x13579bdfu}};
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+        SetProgramDesc program = set_program;
+        std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier,
+                    sizeof(input_program_identifier));
+        DispatchGraphDesc dispatch = {};
+        dispatch.NodeCPUInput = {6u, 2u, records, sizeof(ThreadRecord)};
+        if (SUCCEEDED(hr)) {
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&program);
+            list->DispatchGraph(&dispatch);
+            std::memset(records, 0, sizeof(records));
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr))
+            hr = node_output->ReadFromSubresource(node_thread_multi_values,
+                                                  sizeof(node_thread_multi_values),
+                                                  sizeof(node_thread_multi_values),
+                                                  0, nullptr);
+        node_thread_multi_exact = SUCCEEDED(hr) &&
+            node_thread_multi_values[2] == 0x0badc0deu &&
+            node_thread_multi_values[5] == 0x13579bdfu;
+    }
+
+    if (SUCCEEDED(hr) && input_program_ready) {
+        struct CoalescingRecord { uint32_t slot; uint32_t value; };
+        CoalescingRecord records[6] = {{0u, 0x10203040u},
+                                       {1u, 0x50607080u},
+                                       {2u, 0x90a0b0c0u},
+                                       {3u, 0xd0e0f000u},
+                                       {4u, 0x11223344u},
+                                       {5u, 0x55667788u}};
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+        SetProgramDesc program = set_program;
+        std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier,
+                    sizeof(input_program_identifier));
+        DispatchGraphDesc dispatch = {};
+        dispatch.NodeCPUInput = {7u, 6u, records, sizeof(CoalescingRecord)};
+        if (SUCCEEDED(hr)) {
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&program);
+            list->DispatchGraph(&dispatch);
+            std::memset(records, 0, sizeof(records));
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr))
+            hr = node_output->ReadFromSubresource(node_coalescing_multi_values,
+                                                  sizeof(node_coalescing_multi_values),
+                                                  sizeof(node_coalescing_multi_values),
+                                                  0, nullptr);
+        node_coalescing_multi_exact = SUCCEEDED(hr) &&
+            node_coalescing_multi_values[0] == 0x10203040u &&
+            node_coalescing_multi_values[1] == 0x50607080u &&
+            node_coalescing_multi_values[2] == 0x90a0b0c0u &&
+            node_coalescing_multi_values[3] == 0xd0e0f000u &&
+            node_coalescing_multi_values[4] == 0x11223344u &&
+            node_coalescing_multi_values[5] == 0x55667788u;
+    }
+
+    if (SUCCEEDED(hr) && input_program_ready && gpu_input_desc && gpu_records) {
+        struct BroadcastRecord { uint32_t slot; uint32_t value; };
+        BroadcastRecord records[2] = {{0u, 0xcafebabeu}, {7u, 0xdeadbeefu}};
+        void* mapped = nullptr;
+        hr = gpu_records->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr) && mapped) {
+            std::memcpy(mapped, records, sizeof(records));
+            gpu_records->Unmap(0, nullptr);
+        }
+        NodeGPUInput input = {};
+        input.EntrypointIndex = 5;
+        input.NumRecords = 2;
+        input.Records = gpu_records->GetGPUVirtualAddress();
+        input.RecordStrideInBytes = sizeof(BroadcastRecord);
+        if (SUCCEEDED(hr)) hr = gpu_input_desc->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr) && mapped) {
+            std::memcpy(mapped, &input, sizeof(input));
+            gpu_input_desc->Unmap(0, nullptr);
+        }
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+        SetProgramDesc program = set_program;
+        std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier,
+                    sizeof(input_program_identifier));
+        DispatchGraphDesc dispatch = {};
+        dispatch.Mode = 1;
+        dispatch.Raw[0] = gpu_input_desc->GetGPUVirtualAddress();
+        if (SUCCEEDED(hr)) {
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&program);
+            list->DispatchGraph(&dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr))
+            hr = node_output->ReadFromSubresource(node_broadcast_multi_gpu_values,
+                                                  sizeof(node_broadcast_multi_gpu_values),
+                                                  sizeof(node_broadcast_multi_gpu_values),
+                                                  0, nullptr);
+        node_broadcast_multi_gpu_exact = SUCCEEDED(hr) &&
+            node_broadcast_multi_gpu_values[0] == 0xcafebabeu &&
+            node_broadcast_multi_gpu_values[7] == 0xdeadbeefu;
+    }
+
+    if (SUCCEEDED(hr) && input_program_ready && gpu_input_desc && backing) {
+        struct CoalescingRecord { uint32_t slot; uint32_t value; };
+        const CoalescingRecord records[6] = {
+            {0u, 0xa0a0a0a0u}, {1u, 0xb0b0b0b0u}, {2u, 0xc0c0c0c0u},
+            {3u, 0xd0d0d0d0u}, {4u, 0xe0e0e0e0u}, {5u, 0xf0f0f0f0u}};
+        void* mapped = nullptr;
+        hr = backing->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr) && mapped) {
+            std::memcpy(mapped, records, sizeof(records));
+            backing->Unmap(0, nullptr);
+        }
+        NodeGPUInput input = {};
+        input.EntrypointIndex = 7;
+        input.NumRecords = 6;
+        input.Records = backing->GetGPUVirtualAddress();
+        input.RecordStrideInBytes = sizeof(CoalescingRecord);
+        if (SUCCEEDED(hr)) hr = gpu_input_desc->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr) && mapped) {
+            std::memcpy(mapped, &input, sizeof(input));
+            gpu_input_desc->Unmap(0, nullptr);
+        }
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
+        SetProgramDesc program = set_program;
+        std::memcpy(program.WorkGraph.ProgramIdentifier, input_program_identifier,
+                    sizeof(input_program_identifier));
+        DispatchGraphDesc dispatch = {};
+        dispatch.Mode = 1;
+        dispatch.Raw[0] = gpu_input_desc->GetGPUVirtualAddress();
+        if (SUCCEEDED(hr)) {
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&program);
+            list->DispatchGraph(&dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr))
+            hr = node_output->ReadFromSubresource(node_coalescing_gpu_values,
+                                                  sizeof(node_coalescing_gpu_values),
+                                                  sizeof(node_coalescing_gpu_values),
+                                                  0, nullptr);
+        node_coalescing_gpu_exact = SUCCEEDED(hr) &&
+            node_coalescing_gpu_values[0] == 0xa0a0a0a0u &&
+            node_coalescing_gpu_values[1] == 0xb0b0b0b0u &&
+            node_coalescing_gpu_values[2] == 0xc0c0c0c0u &&
+            node_coalescing_gpu_values[3] == 0xd0d0d0d0u &&
+            node_coalescing_gpu_values[4] == 0xe0e0e0e0u &&
+            node_coalescing_gpu_values[5] == 0xf0f0f0f0u;
+    }
+
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
@@ -1659,7 +1864,7 @@ int main() {
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
-        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && node_record_offsets_exact && dxil_multi_node_readback_exact &&
+        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && node_record_offsets_exact && node_broadcast_multi_exact && node_broadcast_multi_gpu_exact && node_thread_multi_exact && node_coalescing_multi_exact && node_coalescing_gpu_exact && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
@@ -1721,6 +1926,36 @@ int main() {
     std::printf("  \"dxil_multi_node_readback_exact\": %s,\n",
                 dxil_multi_node_readback_exact ? "true" : "false");
     std::printf("  \"node_record_offsets_exact\": %s,\n", node_record_offsets_exact ? "true" : "false");
+    std::printf("  \"node_broadcast_multi_exact\": %s,\n", node_broadcast_multi_exact ? "true" : "false");
+    std::printf("  \"node_broadcast_multi_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n",
+                node_broadcast_multi_values[0], node_broadcast_multi_values[1],
+                node_broadcast_multi_values[2], node_broadcast_multi_values[3],
+                node_broadcast_multi_values[4], node_broadcast_multi_values[5],
+                node_broadcast_multi_values[6], node_broadcast_multi_values[7]);
+    std::printf("  \"node_broadcast_multi_gpu_exact\": %s,\n", node_broadcast_multi_gpu_exact ? "true" : "false");
+    std::printf("  \"node_broadcast_multi_gpu_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n",
+                node_broadcast_multi_gpu_values[0], node_broadcast_multi_gpu_values[1],
+                node_broadcast_multi_gpu_values[2], node_broadcast_multi_gpu_values[3],
+                node_broadcast_multi_gpu_values[4], node_broadcast_multi_gpu_values[5],
+                node_broadcast_multi_gpu_values[6], node_broadcast_multi_gpu_values[7]);
+    std::printf("  \"node_thread_multi_exact\": %s,\n", node_thread_multi_exact ? "true" : "false");
+    std::printf("  \"node_thread_multi_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n",
+                node_thread_multi_values[0], node_thread_multi_values[1],
+                node_thread_multi_values[2], node_thread_multi_values[3],
+                node_thread_multi_values[4], node_thread_multi_values[5],
+                node_thread_multi_values[6], node_thread_multi_values[7]);
+    std::printf("  \"node_coalescing_multi_exact\": %s,\n", node_coalescing_multi_exact ? "true" : "false");
+    std::printf("  \"node_coalescing_multi_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n",
+                node_coalescing_multi_values[0], node_coalescing_multi_values[1],
+                node_coalescing_multi_values[2], node_coalescing_multi_values[3],
+                node_coalescing_multi_values[4], node_coalescing_multi_values[5],
+                node_coalescing_multi_values[6], node_coalescing_multi_values[7]);
+    std::printf("  \"node_coalescing_gpu_exact\": %s,\n", node_coalescing_gpu_exact ? "true" : "false");
+    std::printf("  \"node_coalescing_gpu_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n",
+                node_coalescing_gpu_values[0], node_coalescing_gpu_values[1],
+                node_coalescing_gpu_values[2], node_coalescing_gpu_values[3],
+                node_coalescing_gpu_values[4], node_coalescing_gpu_values[5],
+                node_coalescing_gpu_values[6], node_coalescing_gpu_values[7]);
     std::printf("  \"node_record_offset_values\": [");
     for (UINT i = 0; i < 12; ++i) std::printf("%s%u", i ? "," : "", node_record_offset_values[i]);
     std::printf("],\n");

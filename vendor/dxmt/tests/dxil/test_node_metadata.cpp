@@ -96,6 +96,16 @@ int main(int argc, char **argv) {
     require(vector_gep, "vector GEP fixture absent");
     check(module, "node_half", 2, 1, 1, 2);
     check(module, "node_offsets", 48, 4, 3, 8);
+    const auto coalescing_layout = nodeInputLayout(module, "node_coalescing_multi");
+    const auto coalescing_metadata = nodeShaderMetadata(module, "node_coalescing_multi");
+    require(coalescing_layout && coalescing_layout->max_records == 4,
+            "coalescing MaxRecords metadata lost");
+    require(coalescing_metadata && coalescing_metadata->max_input_records == 4 &&
+                coalescing_metadata->launch_type == 2,
+            "coalescing launch metadata lost");
+    const auto thread_metadata = nodeShaderMetadata(module, "node_thread_multi");
+    require(thread_metadata && thread_metadata->launch_type == 3,
+            "thread launch metadata lost");
     bool offsets_type = false;
     for (const auto &function : module.functions) {
       if (function.name != "node_offsets") continue;

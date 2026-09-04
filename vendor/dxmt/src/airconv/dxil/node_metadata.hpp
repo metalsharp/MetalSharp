@@ -8,6 +8,7 @@ namespace dxmt::dxil {
 struct NodeInputLayout {
   uint32_t size = 0;
   uint32_t alignment = 0;
+  uint32_t max_records = 0;
 };
 
 namespace node_metadata_detail {
@@ -84,11 +85,15 @@ inline std::optional<NodeInputLayout> nodeInputLayout(
       !tag(module, *input, 2, type)) return std::nullopt;
   if (flags & 8u) return NodeInputLayout{};
   const LLVMMetadataRecord *size_record = nullptr, *alignment_record = nullptr;
+  const LLVMMetadataRecord *max_records_record = nullptr;
   NodeInputLayout layout;
   if (!type || !tag(module, *type, 0, size_record) ||
       !tag(module, *type, 2, alignment_record) ||
       !integer(module, size_record, layout.size) ||
       !integer(module, alignment_record, layout.alignment) ||
+      !tag(module, *input, 3, max_records_record) ||
+      (max_records_record && !integer(module, max_records_record,
+                                      layout.max_records)) ||
       !layout.alignment || (layout.alignment & (layout.alignment - 1)) ||
       layout.size > std::numeric_limits<uint32_t>::max() - 3u)
     return std::nullopt;
@@ -100,6 +105,7 @@ inline std::optional<NodeInputLayout> nodeInputLayout(
 
 struct NodeShaderMetadata {
   NodeInputLayout input;
+  uint32_t max_input_records = 0;
   uint32_t launch_type = 0;
   uint32_t threads[3] = {1, 1, 1};
   uint32_t grid[3] = {1, 1, 1};
@@ -112,6 +118,7 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
   if (!input) return std::nullopt;
   NodeShaderMetadata result;
   result.input = *input;
+  result.max_input_records = result.input.max_records;
   const auto &entries = module.named_metadata.at("dx.entryPoints");
   const LLVMMetadataRecord *properties = nullptr;
   for (uint32_t id : entries) {
