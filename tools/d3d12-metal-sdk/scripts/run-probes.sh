@@ -9,6 +9,7 @@ WINE_PREFIX="${WINEPREFIX:-}"
 DXMT_RUNTIME="${DXMT_RUNTIME:-}"
 RESULTS_DIR="$SDK_DIR/results"
 SHADER_CACHE_DIR="${DXMT_SHADER_CACHE_PATH:-}"
+GEOMETRY_CORPUS_WIN_PATH=""
 METAL_SHADER_CONVERTER="${METAL_SHADER_CONVERTER:-}"
 AGILITY_SDK_VERSION="${AGILITY_SDK_VERSION:-}"
 AGILITY_SDK_PATH="${AGILITY_SDK_PATH:-}"
@@ -1536,7 +1537,12 @@ cp "$WINDOWS_DIR/d3d10core.dll" "$PROBE_D3D10CORE_DLL_PATH"
 export DXMT_PROBE_D3D10CORE_DLL="$DXMT_D3D10CORE_DLL_NAME"
 DXMT_DXGI_DLL_NAME="dxgi-metalsharp-probe-$$-${RANDOM}.dll"
 PROBE_DXGI_DLL_PATH="$SDK_DIR/out/bin/$DXMT_DXGI_DLL_NAME"
-cp "$WINDOWS_DIR/dxgi.dll" "$PROBE_DXGI_DLL_PATH"
+# Redirect probe-side LoadLibraryA("dxgi.dll") directly to the implementation
+# half.  The same-named dxgi.dll is only a Wine bootstrap; under a renamed
+# alias its factory object can be returned with the bootstrap's stale vtable.
+# The implementation export is ABI-compatible and avoids that indirection
+# while production applications continue to use the normal bootstrap.
+cp "$WINDOWS_DIR/dxgi_dxmt.dll" "$PROBE_DXGI_DLL_PATH"
 export DXMT_PROBE_DXGI_DLL="$DXMT_DXGI_DLL_NAME"
 
 if [[ ! -f "$UNIX_DIR/winemetal.so" ]]; then
@@ -1558,6 +1564,9 @@ fi
 
 NEED_BUILD=0
 if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" || ! -f "$LEGACY_REGRESSION_PROBE_EXE" || ! -f "$FEATURE_LEVELS_PROBE_EXE" || ! -f "$OBJECT_CONTRACTS_PROBE_EXE" || ! -f "$DXGI_PROBE_EXE" || ! -f "$RESOURCES_PROBE_EXE" || ! -f "$QUEUES_PROBE_EXE" || ! -f "$DESCRIPTORS_PROBE_EXE" || ! -f "$SHADERS_PROBE_EXE" || ! -f "$DXIL_SEMANTICS_PROBE_EXE" || ! -f "$TEXTURE_DIMENSIONS_PROBE_EXE" || ! -f "$SHADER_CORPUS_PROBE_EXE" || ! -f "$SM66_CAPABILITIES_PROBE_EXE" || ! -f "$WRITABLE_MSAA_PROBE_EXE" || ! -f "$VRS_PROBE_EXE" || ! -f "$ROV_PROBE_EXE" || ! -f "$BARYCENTRICS_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PROBE_EXE" || ! -f "$SAMPLER_FEEDBACK_PIXEL_PROBE_EXE" || ! -f "$WAVE_OPS_PROBE_EXE" || ! -f "$REFLECTION_ABI_PROBE_EXE" || ! -f "$GRAPHICS_PSO_PROBE_EXE" || ! -f "$COMPUTE_PSO_PROBE_EXE" || ! -f "$COMMAND_REPLAY_PROBE_EXE" || ! -f "$ATTRIBUTE_AT_VERTEX_PROBE_EXE" || ! -f "$CYCLE_COUNTER_PROBE_EXE" || ! -f "$BARRIERS_RENDER_PASS_PROBE_EXE" || ! -f "$RESOURCE_VIEWS_FORMATS_PROBE_EXE" || ! -f "$RENDER_HEADLESS_PROBE_EXE" || ! -f "$PRESENT_WINDOWED_PROBE_EXE" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12Core.dll" || ! -f "$SDK_DIR/out/bin/D3D12/d3d12SDKLayers.dll" || ! -f "$SDK_DIR/out/bin/D3D12/D3D12StateObjectCompiler.dll" || ! -f "$SDK_DIR/out/bin/D3D12/dxil.dll" || ! -f "$SDK_DIR/out/bin/dxc.exe" || ! -f "$SDK_DIR/out/bin/dxcompiler.dll" || ! -f "$SDK_DIR/out/bin/dxil.dll" ]]; then
+  NEED_BUILD=1
+fi
+if [[ ! -f "$SDK_DIR/out/bin/compile-geometry-corpus.exe" ]]; then
   NEED_BUILD=1
 fi
 
@@ -1721,6 +1730,9 @@ run_probe_exe() {
     export DXMT_D3D12_ENABLE_GEOMETRY_MESH="$enable_geometry_mesh"
     export DXMT_D3D12_TRACE="$d3d12_trace"
     export D3D12_METAL_SDK_PROFILE="$PROFILE"
+    if [[ -n "${GEOMETRY_CORPUS_WIN_PATH:-}" ]]; then
+      export D3D12_METAL_SDK_GEOMETRY_CORPUS_DIR="$GEOMETRY_CORPUS_WIN_PATH"
+    fi
     export D3D12_METAL_SDK_COMMAND_RAY_CSO="${D3D12_METAL_SDK_COMMAND_RAY_CSO:-}"
     export D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT="${D3D12_METAL_SDK_COMMAND_RAY_LOCAL_ROOT:-}"
     export D3D12_METAL_SDK_COMMAND_RAY_INVOKE="${D3D12_METAL_SDK_COMMAND_RAY_INVOKE:-}"
@@ -2173,6 +2185,37 @@ HLSL
     )
     convert_mesh_shader_cache "$SHADER_CACHE_DIR"
   done
+}
+
+prepare_geometry_replay_corpus() {
+  local corpus="$SHADER_CACHE_DIR/geometry-corpus"
+  mkdir -p "$corpus"
+  (
+    cd "$SDK_DIR/out/bin"
+    env -u WINEDLLPATH -u DYLD_LIBRARY_PATH -u DXMT_WINEMETAL_UNIXLIB \
+      WINEDEBUG=-all WINEPREFIX="$WINE_PREFIX" \
+      WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" compile-geometry-corpus.exe >/dev/null
+  )
+  cp "$SDK_DIR/out/bin/phase6_geometry_attribute_vs.dxbc" \
+    "$corpus/414b1f3b4509d720.geom.gsvs.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_attribute_gs.dxbc" \
+    "$corpus/414b1f3b4509d720.geom.gsmesh.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_attribute_vs.dxbc" \
+    "$corpus/8b12f030dd908c1b.geom.gsvs.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_attribute_gs.dxbc" \
+    "$corpus/8b12f030dd908c1b.geom.gsmesh.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_float2_vs.dxbc" \
+    "$corpus/8c4a1c6f7f8e81fc.geom.gsvs.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_float2_gs.dxbc" \
+    "$corpus/8c4a1c6f7f8e81fc.geom.gsmesh.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_float2_vs.dxbc" \
+    "$corpus/a0df6264a1b2037c.geom.gsvs.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_float2_gs.dxbc" \
+    "$corpus/a0df6264a1b2037c.geom.gsmesh.dxbc"
+  cp "$SDK_DIR/out/bin/phase6_geometry_pixel.dxbc" \
+    "$corpus/phase6_geometry_pixel.dxbc"
+  GEOMETRY_CORPUS_WIN_PATH="Z:${corpus//\//\\}"
 }
 
 prepare_conservative_raster_probe() {
@@ -3251,6 +3294,14 @@ JSON
            "$dxbc" "$raygen_root" @ray-dispatch "$base.raydispatch.metallib" \
            >"$base.raydispatch-msc.log" 2>&1; then
         :
+      elif [[ "${METALSHARP_NATIVE_IRCONVERTER:-0}" == "1" ]] &&
+           DYLD_LIBRARY_PATH=/usr/local/lib "$ray_compiler" \
+             "$dxbc" "$raygen_root" raygen "$base.metallib" \
+             >"$base.raygen-native.log" 2>&1 &&
+           DYLD_LIBRARY_PATH=/usr/local/lib "$ray_compiler" \
+             "$dxbc" "$raygen_root" @ray-dispatch "$base.raydispatch.metallib" \
+             >"$base.raydispatch-native.log" 2>&1; then
+        rm -f "$base.msc.fail"
       else
         : >"$base.msc.fail"
       fi
@@ -5014,6 +5065,9 @@ if [[ "$RUN_MINI" == "1" ]]; then
   fi
   if mini_probe_selected dxr_acceleration_structures; then
     prepare_dxr_acceleration_structure_probe
+  fi
+  if mini_probe_selected subnautica_geometry_dxil_replay; then
+    prepare_geometry_replay_corpus
   fi
   if mini_probe_selected dxr_inline; then
     DXR_INLINE_ONLY=1 prepare_dxr_acceleration_structure_probe

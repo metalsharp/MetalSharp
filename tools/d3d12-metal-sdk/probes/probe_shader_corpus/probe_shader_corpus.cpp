@@ -419,6 +419,25 @@ float4 ps_main(TessCP input) : SV_Target0 { return input.color; }
     HRESULT ps_hr = compile_shader("ps_main", "ps_5_0", &ps);
     result.tessellation_compile_ok = SUCCEEDED(vs_hr) && vs && SUCCEEDED(hs_hr) && hs &&
                                      SUCCEEDED(ds_hr) && ds && SUCCEEDED(ps_hr) && ps;
+    auto hash_blob = [](ID3DBlob *blob) {
+        uint64_t hash = 1469598103934665603ull;
+        if (blob) {
+            const auto *bytes = static_cast<const uint8_t *>(blob->GetBufferPointer());
+            for (SIZE_T i = 0; i < blob->GetBufferSize(); ++i) {
+                hash ^= bytes[i];
+                hash *= 1099511628211ull;
+            }
+        }
+        return hash;
+    };
+    char tessellation_hashes[192] = {};
+    std::snprintf(tessellation_hashes, sizeof(tessellation_hashes),
+                  "tess_hashes=vs:%016llx,hs:%016llx,ds:%016llx,ps:%016llx",
+                  static_cast<unsigned long long>(hash_blob(vs)),
+                  static_cast<unsigned long long>(hash_blob(hs)),
+                  static_cast<unsigned long long>(hash_blob(ds)),
+                  static_cast<unsigned long long>(hash_blob(ps)));
+    result.detail = tessellation_hashes;
 
     if (result.tessellation_compile_ok && device && root) {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
@@ -450,9 +469,9 @@ float4 ps_main(TessCP input) : SV_Target0 { return input.color; }
     }
     result.case_pass = result.tessellation_compile_ok && result.tessellation_pso_created;
     if (result.case_pass)
-        result.detail = "SM 5.0 vertex/hull/domain/pixel stages compiled and linked";
+        result.detail = std::string("SM 5.0 vertex/hull/domain/pixel stages compiled and linked ") + tessellation_hashes;
     else if (result.detail.empty())
-        result.detail = "SM 5.0 tessellation stage compilation or PSO linking failed";
+        result.detail = std::string("SM 5.0 tessellation stage compilation or PSO linking failed ") + tessellation_hashes;
 
     safe_release(vs);
     safe_release(hs);

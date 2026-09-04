@@ -398,6 +398,8 @@ private:
   WMT::Reference<WMT::Function> m_conservative_vertex_function;
   WMT::Reference<WMT::Library> m_quadrilateral_line_vertex_library;
   WMT::Reference<WMT::Function> m_quadrilateral_line_vertex_function;
+  WMT::Reference<WMT::Library> m_phase7_mesh_reference_library;
+  WMT::Reference<WMT::Library> m_phase4_mesh_reference_library;
   WMT::Reference<WMT::RenderPipelineState>
       m_native_tessellation_indexed_render_pso;
   WMT::Reference<WMT::ComputePipelineState> m_compute_pso;

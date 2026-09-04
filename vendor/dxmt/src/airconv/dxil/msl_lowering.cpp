@@ -5201,6 +5201,10 @@ static MSLType inferDXIntrinsicResultType(LowerContext &ctx, uint32_t intrinsic_
         }
         return {MSLTypeKind::DeviceCharPtr, 0, {}};
     }
+    case DXOP_WriteSamplerFeedback:
+    case DXOP_WriteSamplerFeedbackBias:
+    case DXOP_WriteSamplerFeedbackLevel:
+    case DXOP_WriteSamplerFeedbackGrad:
     case DXOP_TextureStore:
     case DXOP_BufferStore:
     case DXOP_RawBufferStore:

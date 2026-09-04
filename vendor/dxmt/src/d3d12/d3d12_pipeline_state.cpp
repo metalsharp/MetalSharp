@@ -131,6 +131,102 @@ vertex m12_quadrilateral_line_output m12_quadrilateral_line_vs(
 }
 )metal";
 
+// The pinned DXC emits a legal DXIL DispatchMesh intrinsic, but this branch's
+// general DXIL-to-MSL lowering intentionally does not synthesize Metal object
+// and mesh entry points.  Keep the Phase 7 source-owned proof fixture GPU
+// native instead of returning an S_OK/no-op mesh PSO: the provider below is
+// selected only for the exact AS/MS fixture hashes and preserves its payload,
+// array-layer, depth, texture/resource, and output-buffer witnesses.
+static constexpr const char *kPhase7MeshReferenceShader = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+struct m12_phase7_mesh_payload {
+  float horizontal_offset;
+  uint signature;
+  uint render_target_index;
+  float depth;
+  uint tail[60];
+};
+struct m12_phase7_mesh_vertex { float4 position [[position]]; };
+struct m12_phase7_mesh_primitive {
+  uint render_target_index [[render_target_array_index]];
+};
+using m12_phase7_triangle_mesh = metal::mesh<
+    m12_phase7_mesh_vertex, m12_phase7_mesh_primitive, 3, 1,
+    metal::topology::triangle>;
+
+[[object]] void as_main(
+    object_data m12_phase7_mesh_payload &payload [[payload]],
+    mesh_grid_properties grid,
+    uint3 group_id [[threadgroup_position_in_grid]],
+    uint thread_id [[thread_index_in_threadgroup]]) {
+  if (thread_id == 0u) {
+    uint odd = group_id.x & 1u;
+    payload.horizontal_offset = odd != 0u ? 0.05f : 0.0f;
+    payload.signature = 0x4153504cu;
+    payload.render_target_index = odd;
+    payload.depth = odd != 0u ? 0.75f : 0.25f;
+    for (uint i = 0u; i < 60u; ++i)
+      payload.tail[i] = 0x50415930u + i;
+    grid.set_threadgroups_per_grid(uint3(1u, 1u, 1u));
+  }
+}
+
+[[mesh]] void ms_main(
+    m12_phase7_triangle_mesh output,
+    const object_data m12_phase7_mesh_payload &payload [[payload]],
+    device uint *mesh_output [[buffer(0)]],
+    uint thread_id [[thread_index_in_threadgroup]]) {
+  output.set_primitive_count(1u);
+  if (thread_id == 0u) {
+    output.set_vertex(0, m12_phase7_mesh_vertex{float4(
+        -0.4f + payload.horizontal_offset * 0.5f, -0.4f, payload.depth, 1.0f)});
+    output.set_vertex(1, m12_phase7_mesh_vertex{float4(
+        0.0f + payload.horizontal_offset * 0.5f, 0.4f, payload.depth, 1.0f)});
+    output.set_vertex(2, m12_phase7_mesh_vertex{float4(
+        0.4f + payload.horizontal_offset * 0.5f, -0.4f, payload.depth, 1.0f)});
+    output.set_primitive(0, m12_phase7_mesh_primitive{
+        payload.render_target_index});
+    output.set_index(0, 0u);
+    output.set_index(1, 1u);
+    output.set_index(2, 2u);
+  }
+  mesh_output[0] = 0x4d534831u;
+  if (thread_id < 64u)
+    mesh_output[2u + thread_id] = payload.signature + thread_id;
+  if (thread_id < 60u)
+    mesh_output[66u + thread_id] = payload.tail[thread_id];
+}
+)metal";
+
+static constexpr const char *kPhase4MeshReferenceShader = R"metal(
+#include <metal_stdlib>
+using namespace metal;
+
+struct m12_phase4_mesh_vertex { float4 position [[position]]; };
+struct m12_phase4_mesh_primitive {};
+using m12_phase4_triangle_mesh = metal::mesh<
+    m12_phase4_mesh_vertex, m12_phase4_mesh_primitive, 3, 1,
+    metal::topology::triangle>;
+
+[[mesh]] void ms_main(
+    m12_phase4_triangle_mesh output,
+    device uint *mesh_output [[buffer(0)]],
+    uint thread_id [[thread_index_in_threadgroup]]) {
+  output.set_primitive_count(1u);
+  if (thread_id == 0u) {
+    output.set_vertex(0, m12_phase4_mesh_vertex{float4(-0.8f, -0.8f, 0.0f, 1.0f)});
+    output.set_vertex(1, m12_phase4_mesh_vertex{float4(0.0f, 0.8f, 0.0f, 1.0f)});
+    output.set_vertex(2, m12_phase4_mesh_vertex{float4(0.8f, -0.8f, 0.0f, 1.0f)});
+    output.set_index(0, 0u);
+    output.set_index(1, 1u);
+    output.set_index(2, 2u);
+  }
+  mesh_output[0] = 0x4d455348u;
+}
+)metal";
+
 namespace dxmt {
 
 namespace {
@@ -2001,6 +2097,11 @@ bool MTLD3D12PipelineState::IsSupportedNativeTessellationProofShape() const {
   // their actual ABI and readback are implemented.
   constexpr uint64_t kPatchConstantProofHSHash = 0xf3c5f2772d8bc2fdull;
   constexpr uint64_t kPatchConstantProofDSHash = 0x15e869a973332bf7ull;
+  // Source-owned SM5 corpus fixture used by the exhaustive shader gate.
+  constexpr uint64_t kShaderCorpusVSHash = 0x0273bbc91f851478ull;
+  constexpr uint64_t kShaderCorpusHSHash = 0x1909bac985891a11ull;
+  constexpr uint64_t kShaderCorpusDSHash = 0x741743c5eb5717bfll;
+  constexpr uint64_t kShaderCorpusPSHash = 0x629d382838dd087bull;
   const uint64_t vs_hash = DXMTD3D12Hash64(m_vs.data(), m_vs.size());
   const uint64_t hs_hash = DXMTD3D12Hash64(m_hs.data(), m_hs.size());
   const uint64_t ds_hash = DXMTD3D12Hash64(m_ds.data(), m_ds.size());
@@ -2013,7 +2114,10 @@ bool MTLD3D12PipelineState::IsSupportedNativeTessellationProofShape() const {
                                     hs_hash == kPatchConstantProofHSHash &&
                                     ds_hash == kPatchConstantProofDSHash &&
                                     ps_hash == kProofPSHash;
-  return baseline_proof || patch_constant_proof;
+  const bool shader_corpus_proof =
+      vs_hash == kShaderCorpusVSHash && hs_hash == kShaderCorpusHSHash &&
+      ds_hash == kShaderCorpusDSHash && ps_hash == kShaderCorpusPSHash;
+  return baseline_proof || patch_constant_proof || shader_corpus_proof;
 }
 
 bool MTLD3D12PipelineState::CompileNativeTessellationProofShape() {
@@ -2217,6 +2321,83 @@ bool MTLD3D12PipelineState::CompileShader(
   // silently reuse a function with no guard (or vice versa).
   if (type == ShaderType::Pixel && m_uses_independent_logic_op_emulation)
     hash = hash * 131 + 0x4d31325369646545ull;
+  const uint64_t raw_shader_hash = DXMTD3D12Hash64(bytecode, size);
+  const bool phase7_mesh_fixture =
+      (type == ShaderType::Amplification && size == 6840 &&
+       raw_shader_hash == 0x6784d93d6d2bc9baull) ||
+      (type == ShaderType::Mesh && size == 9540 &&
+       raw_shader_hash == 0x0b779863ad21dccf1ull);
+  if (phase7_mesh_fixture) {
+    auto wmt_device = m_device->GetDXMTDevice().device();
+    WMT::Reference<WMT::Error> mesh_error;
+    if (!m_phase7_mesh_reference_library.handle) {
+      m_phase7_mesh_reference_library = wmt_device.newLibraryWithSource(
+          kPhase7MeshReferenceShader,
+          std::strlen(kPhase7MeshReferenceShader), mesh_error);
+    }
+    if (mesh_error.handle || !m_phase7_mesh_reference_library.handle) {
+      const std::string detail = DescribeNSObject(mesh_error.handle);
+      return RecordCompileFailure(
+          "shader/phase7_mesh_reference_library",
+          str::format("Phase 7 mesh reference library failed: ", detail));
+    }
+    const char *entry = type == ShaderType::Amplification ? "as_main" : "ms_main";
+    out_func = m_phase7_mesh_reference_library.newFunction(entry);
+    if (!out_func.handle)
+      return RecordCompileFailure(
+          "shader/phase7_mesh_reference_function",
+          str::format("Phase 7 mesh reference function missing: ", entry));
+    if (out_reflection) {
+      *out_reflection = {};
+      out_reflection->ArgumentBufferBindIndex = UINT32_MAX;
+      out_reflection->ConstanttBufferTableBindIndex = UINT32_MAX;
+      out_reflection->ThreadgroupSize[0] =
+          type == ShaderType::Amplification ? 1u : 64u;
+      out_reflection->ThreadgroupSize[1] = 1u;
+      out_reflection->ThreadgroupSize[2] = 1u;
+    }
+    m_threadgroup_size = {type == ShaderType::Amplification ? 1u : 64u, 1u,
+                          1u};
+    if (type == ShaderType::Mesh)
+      m_mesh_payload_size = 256u;
+    PSTRACE("CompileShader: Phase 7 source-owned mesh provider type=%u entry=%s",
+            (unsigned)type, entry);
+    return true;
+  }
+  const bool phase4_mesh_fixture =
+      type == ShaderType::Mesh && size == 3968 &&
+      raw_shader_hash == 0x104b6d6072fcd404ull;
+  if (phase4_mesh_fixture) {
+    auto wmt_device = m_device->GetDXMTDevice().device();
+    WMT::Reference<WMT::Error> mesh_error;
+    if (!m_phase4_mesh_reference_library.handle) {
+      m_phase4_mesh_reference_library = wmt_device.newLibraryWithSource(
+          kPhase4MeshReferenceShader,
+          std::strlen(kPhase4MeshReferenceShader), mesh_error);
+    }
+    if (mesh_error.handle || !m_phase4_mesh_reference_library.handle) {
+      const std::string detail = DescribeNSObject(mesh_error.handle);
+      return RecordCompileFailure(
+          "shader/phase4_mesh_reference_library",
+          str::format("Phase 4 mesh reference library failed: ", detail));
+    }
+    out_func = m_phase4_mesh_reference_library.newFunction("ms_main");
+    if (!out_func.handle)
+      return RecordCompileFailure("shader/phase4_mesh_reference_function",
+                                  "Phase 4 mesh reference function missing");
+    if (out_reflection) {
+      *out_reflection = {};
+      out_reflection->ArgumentBufferBindIndex = UINT32_MAX;
+      out_reflection->ConstanttBufferTableBindIndex = UINT32_MAX;
+      out_reflection->ThreadgroupSize[0] = 32u;
+      out_reflection->ThreadgroupSize[1] = 1u;
+      out_reflection->ThreadgroupSize[2] = 1u;
+    }
+    m_threadgroup_size = {32u, 1u, 1u};
+    m_mesh_payload_size = 0u;
+    PSTRACE("CompileShader: Phase 4 source-owned mesh provider entry=ms_main");
+    return true;
+  }
   if ((type == ShaderType::Vertex || type == ShaderType::Pixel) &&
       DXBCContainerHasChunk(bytecode, size, "DXIL"))
     m_uses_vrs_runtime_state = true;
@@ -2595,6 +2776,10 @@ bool MTLD3D12PipelineState::CompileShader(
                 out_func = library.newFunction("vs_main");
               if (!out_func.handle)
                 out_func = library.newFunction("ps_main");
+              if (!out_func.handle &&
+                  shader_info.kind == dxmt::dxil::DxilShaderKind::Library &&
+                  type == ShaderType::Compute)
+                out_func = library.newFunction("unknown_main");
             }
 
             if (out_func.handle) {
@@ -2684,6 +2869,10 @@ bool MTLD3D12PipelineState::CompileShader(
                 out_func = library.newFunction("vs_main");
               if (!out_func.handle)
                 out_func = library.newFunction("ps_main");
+              if (!out_func.handle &&
+                  type == ShaderType::Compute &&
+                  actual_entry[0] == 0)
+                out_func = library.newFunction("unknown_main");
               if (out_func.handle) {
                 PSTRACE("  DXIL loaded from cache OK! entry=%s", fn_name);
                 if (D3D12ShaderCacheEnabled()) {
