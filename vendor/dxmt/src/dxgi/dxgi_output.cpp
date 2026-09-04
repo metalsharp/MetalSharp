@@ -978,6 +978,51 @@ private:
     device12->Release();
     if (FAILED(hr) || !resource)
       return false;
+    if (output_) {
+      Com<IDXGISurface> source_surface;
+      DXGI_SURFACE_DESC source_desc = {};
+      {
+        std::lock_guard lock(output_->surface_mutex_);
+        source_surface = output_->display_surface_;
+        source_desc = output_->display_surface_desc_;
+      }
+      if (source_surface && source_desc.Width == desc_.ModeDesc.Width &&
+          source_desc.Height == desc_.ModeDesc.Height &&
+          source_desc.Format == format_ && source_desc.SampleDesc.Count == 1) {
+        DXGI_MAPPED_RECT mapped = {};
+        hr = source_surface->Map(&mapped, DXGI_MAP_READ);
+        if (FAILED(hr) || !mapped.pBits || mapped.Pitch <= 0) {
+          resource->Release();
+          return false;
+        }
+        const uint64_t required = uint64_t(mapped.Pitch) * source_desc.Height;
+        if (required > UINT32_MAX) {
+          source_surface->Unmap();
+          resource->Release();
+          return false;
+        }
+        std::vector<uint8_t> pixels;
+        try {
+          pixels.resize(static_cast<size_t>(required));
+        } catch (const std::bad_alloc &) {
+          source_surface->Unmap();
+          resource->Release();
+          return false;
+        }
+        for (UINT y = 0; y < source_desc.Height; ++y)
+          std::memcpy(pixels.data() + size_t(y) * mapped.Pitch,
+                      mapped.pBits + size_t(y) * mapped.Pitch,
+                      static_cast<size_t>(mapped.Pitch));
+        source_surface->Unmap();
+        hr = resource->WriteToSubresource(
+            0, nullptr, pixels.data(), static_cast<UINT>(mapped.Pitch),
+            static_cast<UINT>(required));
+        if (FAILED(hr)) {
+          resource->Release();
+          return false;
+        }
+      }
+    }
     hr = resource->QueryInterface(
         IID_IDXGIResource, reinterpret_cast<void **>(&desktop_resource_));
     resource->Release();

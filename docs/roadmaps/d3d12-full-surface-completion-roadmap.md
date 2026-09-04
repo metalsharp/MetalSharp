@@ -1079,10 +1079,12 @@ real alternate provider or host target, not `E_NOTIMPL` hidden behind a report.
 
 **Bounded checkpoint (not the exit gate):** The source-staged DXGI probe now
 covers `DuplicateOutput`/`AcquireNextFrame` with a GPU desktop resource, exact
-full-frame dirty-rectangle sizing, and release ordering. The swapchain mini
-probe also verifies background-color and matrix state round trips, rotation,
-HDR metadata reset, and the CoreWindow null-output validation. DisplayLink/
-IOSurface capture, cursor/move metadata, composition/CoreWindow ownership,
+full-frame dirty-rectangle sizing, and release ordering. It also creates a
+composition swapchain and verifies its descriptor/backbuffer, and maps a
+surface through a DIB-backed `GetDC`/`ReleaseDC` round trip. The swapchain mini
+probe verifies background-color and matrix state round trips,
+rotation, HDR metadata reset, and the CoreWindow null-output validation.
+DisplayLink/IOSurface capture, cursor/move metadata, composition/CoreWindow ownership,
 software/WARP adapters, and complete color/presentation behavior remain open.
 
 **Exit gate:**

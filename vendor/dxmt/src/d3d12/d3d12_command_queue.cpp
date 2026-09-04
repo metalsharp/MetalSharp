@@ -8337,7 +8337,11 @@ static bool ApplyTriangleGeometryTransform(
   if (!vertex_resource || !transform_resource ||
       !vertex_resource->GetMTLBuffer().handle ||
       !transform_resource->GetMTLBuffer().handle ||
-      geometry.Triangles.VertexBuffer.StrideInBytes < 12 ||
+      geometry.Triangles.VertexBuffer.StrideInBytes <
+          ((geometry.Triangles.VertexFormat == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+            geometry.Triangles.VertexFormat == DXGI_FORMAT_R32G32_FLOAT)
+               ? 8u
+               : 12u) ||
       geometry.Triangles.VertexBuffer.StrideInBytes > 4096)
     return false;
   float matrix[12] = {};

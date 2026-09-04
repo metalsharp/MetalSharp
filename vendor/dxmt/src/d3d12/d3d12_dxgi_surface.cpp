@@ -6,6 +6,7 @@
 #include "util_string.hpp"
 
 #include <algorithm>
+#include <windows.h>
 #include <cstring>
 
 namespace dxmt {
@@ -92,6 +93,17 @@ MTLD3D12DXGISurface::MTLD3D12DXGISurface(
 }
 
 MTLD3D12DXGISurface::~MTLD3D12DXGISurface() {
+  if (m_dc) {
+    if (m_dc_old_bitmap)
+      SelectObject(m_dc, m_dc_old_bitmap);
+    if (m_dc_bitmap)
+      DeleteObject(m_dc_bitmap);
+    DeleteDC(m_dc);
+    m_dc = nullptr;
+    m_dc_bitmap = nullptr;
+    m_dc_old_bitmap = nullptr;
+    m_dc_bits = nullptr;
+  }
   if (m_resource)
     m_resource->Release();
   if (m_device)
@@ -169,7 +181,11 @@ HRESULT MTLD3D12DXGISurface::CopyResourceToShadow() {
   const uint64_t bytes = uint64_t(m_row_pitch) * m_desc.Height;
   if (bytes > SIZE_MAX)
     return E_OUTOFMEMORY;
-  m_shadow.assign(static_cast<size_t>(bytes), 0);
+  try {
+    m_shadow.assign(static_cast<size_t>(bytes), 0);
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
   return m_resource->ReadFromSubresource(m_shadow.data(), m_row_pitch,
                                          m_row_pitch * m_desc.Height,
                                          m_subresource, nullptr);
@@ -206,7 +222,11 @@ HRESULT STDMETHODCALLTYPE MTLD3D12DXGISurface::Map(
     const uint64_t bytes = uint64_t(m_row_pitch) * m_desc.Height;
     if (bytes > SIZE_MAX)
       return E_OUTOFMEMORY;
-    m_shadow.assign(static_cast<size_t>(bytes), 0);
+    try {
+      m_shadow.assign(static_cast<size_t>(bytes), 0);
+    } catch (const std::bad_alloc &) {
+      return E_OUTOFMEMORY;
+    }
   }
   m_map_flags = flags;
   mapped_rect->Pitch = static_cast<INT>(m_row_pitch);
@@ -225,15 +245,132 @@ HRESULT STDMETHODCALLTYPE MTLD3D12DXGISurface::Unmap() {
   return hr;
 }
 
-HRESULT STDMETHODCALLTYPE MTLD3D12DXGISurface::GetDC(WINBOOL, HDC *hdc) {
+HRESULT STDMETHODCALLTYPE MTLD3D12DXGISurface::GetDC(WINBOOL discard,
+                                                        HDC *hdc) {
   if (!hdc)
     return E_POINTER;
   *hdc = nullptr;
-  return DXGI_ERROR_UNSUPPORTED;
+  if (m_dc)
+    return DXGI_ERROR_WAS_STILL_DRAWING;
+  if (BytesPerPixel() != 4 || !m_desc.Width || !m_desc.Height ||
+      m_desc.Width > INT_MAX || m_desc.Height > INT_MAX)
+    return DXGI_ERROR_UNSUPPORTED;
+  if (m_map_flags)
+    return DXGI_ERROR_WAS_STILL_DRAWING;
+  HRESULT hr = S_OK;
+  if (!discard) {
+    hr = CopyResourceToShadow();
+  } else {
+    try {
+      m_shadow.assign(static_cast<size_t>(m_row_pitch) * m_desc.Height, 0);
+    } catch (const std::bad_alloc &) {
+      return E_OUTOFMEMORY;
+    }
+  }
+  if (FAILED(hr))
+    return hr;
+
+  BITMAPINFO bitmap_info = {};
+  bitmap_info.bmiHeader.biSize = sizeof(bitmap_info.bmiHeader);
+  bitmap_info.bmiHeader.biWidth = static_cast<LONG>(m_desc.Width);
+  bitmap_info.bmiHeader.biHeight = -static_cast<LONG>(m_desc.Height);
+  bitmap_info.bmiHeader.biPlanes = 1;
+  bitmap_info.bmiHeader.biBitCount = 32;
+  bitmap_info.bmiHeader.biCompression = BI_RGB;
+  HDC dc = CreateCompatibleDC(nullptr);
+  if (!dc)
+    return HRESULT_FROM_WIN32(GetLastError());
+  void *bits = nullptr;
+  HBITMAP bitmap = CreateDIBSection(dc, &bitmap_info, DIB_RGB_COLORS,
+                                    &bits, nullptr, 0);
+  if (!bitmap || !bits) {
+    if (bitmap)
+      DeleteObject(bitmap);
+    DeleteDC(dc);
+    return E_OUTOFMEMORY;
+  }
+  HGDIOBJ old_bitmap = SelectObject(dc, bitmap);
+  if (!old_bitmap || old_bitmap == HGDI_ERROR) {
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    return E_FAIL;
+  }
+  m_dc_row_pitch = m_desc.Width * 4;
+  auto *dib = static_cast<uint8_t *>(bits);
+  const auto *shadow = m_shadow.data();
+  for (UINT y = 0; y < m_desc.Height; ++y) {
+    auto *dst = dib + size_t(y) * m_dc_row_pitch;
+    const auto *src = shadow + size_t(y) * m_row_pitch;
+    for (UINT x = 0; x < m_desc.Width; ++x) {
+      const uint8_t r = src[x * 4 + 0];
+      const uint8_t g = src[x * 4 + 1];
+      const uint8_t b = src[x * 4 + 2];
+      const uint8_t a = src[x * 4 + 3];
+      if (m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+          m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB) {
+        dst[x * 4 + 0] = b;
+        dst[x * 4 + 1] = g;
+        dst[x * 4 + 2] = r;
+        dst[x * 4 + 3] = a;
+      } else {
+        dst[x * 4 + 0] = r;
+        dst[x * 4 + 1] = g;
+        dst[x * 4 + 2] = b;
+        dst[x * 4 + 3] = a;
+      }
+    }
+  }
+  m_dc = dc;
+  m_dc_bitmap = bitmap;
+  m_dc_old_bitmap = old_bitmap;
+  m_dc_bits = bits;
+  return (*hdc = dc) ? S_OK : E_FAIL;
 }
 
-HRESULT STDMETHODCALLTYPE MTLD3D12DXGISurface::ReleaseDC(RECT *) {
-  return DXGI_ERROR_INVALID_CALL;
+HRESULT STDMETHODCALLTYPE MTLD3D12DXGISurface::ReleaseDC(RECT *dirty_rect) {
+  if (!m_dc)
+    return DXGI_ERROR_INVALID_CALL;
+  if (dirty_rect &&
+      (dirty_rect->left < 0 || dirty_rect->top < 0 ||
+       dirty_rect->right < dirty_rect->left ||
+       dirty_rect->bottom < dirty_rect->top ||
+       static_cast<UINT>(dirty_rect->right) > m_desc.Width ||
+       static_cast<UINT>(dirty_rect->bottom) > m_desc.Height))
+    return E_INVALIDARG;
+  auto *dib = static_cast<const uint8_t *>(m_dc_bits);
+  auto *shadow = m_shadow.data();
+  const UINT left = dirty_rect ? static_cast<UINT>(dirty_rect->left) : 0;
+  const UINT top = dirty_rect ? static_cast<UINT>(dirty_rect->top) : 0;
+  const UINT right = dirty_rect ? static_cast<UINT>(dirty_rect->right) : m_desc.Width;
+  const UINT bottom = dirty_rect ? static_cast<UINT>(dirty_rect->bottom) : m_desc.Height;
+  for (UINT y = top; y < bottom; ++y) {
+    const auto *src = dib + size_t(y) * m_dc_row_pitch;
+    auto *dst = shadow + size_t(y) * m_row_pitch;
+    for (UINT x = left; x < right; ++x) {
+      uint8_t r = src[x * 4 + 0];
+      uint8_t g = src[x * 4 + 1];
+      uint8_t b = src[x * 4 + 2];
+      const uint8_t a = src[x * 4 + 3];
+      if (m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM ||
+          m_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+        std::swap(r, b);
+      dst[x * 4 + 0] = r;
+      dst[x * 4 + 1] = g;
+      dst[x * 4 + 2] = b;
+      dst[x * 4 + 3] = a;
+    }
+  }
+  HRESULT hr = CopyShadowToResource();
+  SelectObject(m_dc, m_dc_old_bitmap);
+  DeleteObject(m_dc_bitmap);
+  DeleteDC(m_dc);
+  m_dc = nullptr;
+  m_dc_bitmap = nullptr;
+  m_dc_old_bitmap = nullptr;
+  m_dc_bits = nullptr;
+  m_dc_row_pitch = 0;
+  m_shadow.clear();
+  return hr;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12DXGISurface::GetResource(

@@ -9,6 +9,9 @@
       "status": "limited",
       "result": "probe-diagnostics",
       "checks": [
+        ["resource1_boundary_ok", true],
+        ["resource2_qi", "0x00000000"],
+        ["resource2_desc_ok", true],
         ["statistics_qi", "0x00000000"],
         ["statistics", "0x00000000"],
         ["tools_qi", "0x00000000"],

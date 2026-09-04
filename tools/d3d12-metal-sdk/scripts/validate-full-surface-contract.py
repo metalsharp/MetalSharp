@@ -96,6 +96,15 @@ def validate(args: argparse.Namespace) -> list[str]:
         errors.append("provider contract is missing phase-1 evidence")
     if full.get("summary", {}).get("promotion_ready") is not False:
         errors.append("phase-0 full-surface contract cannot be promotion-ready")
+    checkpoint_manifests = full.get("inventory", {}).get("phase_checkpoint_manifests", [])
+    if not isinstance(checkpoint_manifests, list) or not checkpoint_manifests:
+        errors.append("full-surface contract is missing phase checkpoint manifests")
+    else:
+        for manifest_name in checkpoint_manifests:
+            manifest_path = ROOT_DIR / manifest_name
+            manifest = required_object(manifest_path, errors)
+            if manifest is not None and not manifest.get("schema", "").startswith("metalsharp.d3d12."):
+                errors.append(f"phase checkpoint manifest has invalid schema: {manifest_path}")
     if provider.get("no_silent_fallback") is not True:
         errors.append("provider contract must forbid silent fallback")
 

@@ -214,7 +214,15 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     ID3D12Device* d3d12_device = nullptr;
     IDXGIDevice* dxgi_device = nullptr;
     IDXGISurface* display_source = nullptr;
+    IDXGISurface1* display_source1 = nullptr;
     IDXGISurface* display_copy = nullptr;
+    IDXGISwapChain1* composition_swapchain = nullptr;
+    IDXGIResource* composition_buffer = nullptr;
+    DXGI_SWAP_CHAIN_DESC1 composition_desc = {};
+    DXGI_SWAP_CHAIN_DESC1 composition_desc_copy = {};
+    HRESULT create_composition_hr = E_FAIL;
+    HRESULT composition_desc_hr = E_FAIL;
+    HRESULT composition_buffer_hr = E_FAIL;
     DXGI_SURFACE_DESC display_surface_desc = {4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}};
     HRESULT create_d3d12_hr = create_device
                                   ? create_device(nullptr, D3D_FEATURE_LEVEL_11_0,
@@ -224,6 +232,25 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
                                        ? d3d12_device->QueryInterface(
                                              IID_PPV_ARGS(&dxgi_device))
                                        : E_FAIL;
+    composition_desc.Width = 8;
+    composition_desc.Height = 8;
+    composition_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    composition_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    composition_desc.BufferCount = 2;
+    composition_desc.SampleDesc.Count = 1;
+    composition_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    create_composition_hr = factory2 && d3d12_device
+                                ? factory2->CreateSwapChainForComposition(
+                                      d3d12_device, &composition_desc, nullptr,
+                                      &composition_swapchain)
+                                : E_NOINTERFACE;
+    if (composition_swapchain) {
+        composition_desc_hr = composition_swapchain->GetDesc1(
+            &composition_desc_copy);
+        composition_buffer_hr = composition_swapchain->GetBuffer(
+            0, __uuidof(IDXGIResource),
+            reinterpret_cast<void**>(&composition_buffer));
+    }
     duplicate_output_hr = output1 && d3d12_device
                               ? output1->DuplicateOutput(d3d12_device,
                                                          &duplication)
@@ -255,6 +282,9 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
                                          : E_FAIL;
     HRESULT source_map_hr = E_FAIL;
     HRESULT source_unmap_hr = E_FAIL;
+    HRESULT surface_get_dc_hr = E_FAIL;
+    HRESULT surface_release_dc_hr = E_FAIL;
+    HDC surface_dc = nullptr;
     if (display_source) {
         DXGI_MAPPED_RECT mapped = {};
         source_map_hr = display_source->Map(&mapped, DXGI_MAP_WRITE | DXGI_MAP_DISCARD);
@@ -269,6 +299,15 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
                 }
             source_unmap_hr = display_source->Unmap();
         }
+        if (SUCCEEDED(source_unmap_hr)) {
+            HRESULT source1_qi_hr = display_source->QueryInterface(
+                __uuidof(IDXGISurface1),
+                reinterpret_cast<void**>(&display_source1));
+            if (SUCCEEDED(source1_qi_hr))
+                surface_get_dc_hr = display_source1->GetDC(FALSE, &surface_dc);
+        }
+        if (SUCCEEDED(surface_get_dc_hr))
+            surface_release_dc_hr = display_source1->ReleaseDC(nullptr);
     }
     HRESULT take_ownership_hr = output && d3d12_device
                                      ? output->TakeOwnership(d3d12_device, TRUE)
@@ -377,9 +416,16 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
         unregister_unknown_adapter_cookie_hr == DXGI_ERROR_INVALID_CALL && SUCCEEDED(adapter3_qi_hr) &&
         SUCCEEDED(register_budget_hr) && budget_cookie != 0 && SUCCEEDED(query_budget_hr) && memory_info.Budget > 0 &&
         budget_event_wait == WAIT_TIMEOUT && register_protection_hr == DXGI_ERROR_UNSUPPORTED && protection_cookie == 0 &&
-        SUCCEEDED(create_d3d12_hr) && SUCCEEDED(query_dxgi_device_hr) && SUCCEEDED(create_surface_hr) &&
+        SUCCEEDED(create_d3d12_hr) && SUCCEEDED(query_dxgi_device_hr) &&
+        SUCCEEDED(create_composition_hr) && SUCCEEDED(composition_desc_hr) &&
+        SUCCEEDED(composition_buffer_hr) && composition_buffer != nullptr &&
+        composition_desc_copy.Width == composition_desc.Width &&
+        composition_desc_copy.Height == composition_desc.Height &&
+        SUCCEEDED(create_surface_hr) &&
         SUCCEEDED(create_copy_surface_hr) && SUCCEEDED(source_map_hr) && SUCCEEDED(source_unmap_hr) &&
-        SUCCEEDED(take_ownership_hr) && SUCCEEDED(set_display_surface_hr) &&
+        SUCCEEDED(surface_get_dc_hr) && surface_dc != nullptr &&
+        SUCCEEDED(surface_release_dc_hr) && SUCCEEDED(take_ownership_hr) &&
+        SUCCEEDED(set_display_surface_hr) &&
         SUCCEEDED(get_display_surface_data_hr) && SUCCEEDED(copy_map_hr) && display_copy_pixel == 0x44332211u &&
         SUCCEEDED(output_stats_hr) && SUCCEEDED(subresource_surface_hr) && subresource_surface != nullptr;
 
@@ -438,10 +484,15 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     print_hr("RegisterHardwareContentProtectionTeardownStatusEvent", register_protection_hr);
     print_hr("CreateD3D12Device", create_d3d12_hr);
     print_hr("QueryInterface_IDXGIDevice", query_dxgi_device_hr);
+    print_hr("CreateSwapChainForComposition", create_composition_hr);
+    print_hr("Composition_GetDesc1", composition_desc_hr);
+    print_hr("Composition_GetBuffer", composition_buffer_hr);
     print_hr("CreateSurface", create_surface_hr);
     print_hr("CreateSurface_copy", create_copy_surface_hr);
     print_hr("Surface_Map_write_discard", source_map_hr);
     print_hr("Surface_Unmap_write", source_unmap_hr);
+    print_hr("Surface_GetDC", surface_get_dc_hr);
+    print_hr("Surface_ReleaseDC", surface_release_dc_hr);
     print_hr("TakeOwnership", take_ownership_hr);
     print_hr("SetDisplaySurface", set_display_surface_hr);
     print_hr("GetDisplaySurfaceData", get_display_surface_data_hr);
@@ -464,10 +515,16 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     std::printf("  }\n");
     std::printf("}\n");
 
+    if (composition_buffer)
+        composition_buffer->Release();
+    if (composition_swapchain)
+        composition_swapchain->Release();
     if (subresource_surface)
         subresource_surface->Release();
     if (display_copy)
         display_copy->Release();
+    if (display_source1)
+        display_source1->Release();
     if (display_source)
         display_source->Release();
     if (dxgi_device)
