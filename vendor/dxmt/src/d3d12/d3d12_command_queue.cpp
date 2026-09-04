@@ -3124,10 +3124,11 @@ struct ReplayState {
   }
 
   bool EncodeWorkGraphNodeShader(MTLD3D12Device *device,
-                                 const std::string &source,
+                                 const MTLD3D12Device::WorkGraphNodeShader &shader,
                                  uint32_t node_index,
                                  uint32_t record_count,
                                  WMT::CommandBuffer command_buffer) {
+    const auto &source = shader.msl;
     if (!device || !command_buffer.handle || source.empty() ||
         !work_graph_backing_address || !work_graph_backing_size ||
         !record_count)
@@ -3446,13 +3447,13 @@ struct ReplayState {
       }
     }
     if (generic_node_candidate) {
-      std::string node_source;
+      MTLD3D12Device::WorkGraphNodeShader node_shader;
       if (device->LookupWorkGraphNodeShader(
               work_graph_program_identifier,
               sizeof(work_graph_program_identifier), generic_entrypoint,
-              node_source))
+              node_shader))
         return EncodeWorkGraphNodeShader(
-            device, node_source, generic_entrypoint, 1u, command_buffer);
+            device, node_shader, generic_entrypoint, 1u, command_buffer);
       if (device->HasWorkGraphProgram(
               work_graph_program_identifier,
               sizeof(work_graph_program_identifier)))

@@ -194,12 +194,17 @@ public:
   MTLD3D12Resource *LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr);
   void RegisterCommandQueue(MTLD3D12CommandQueue *queue);
   void UnregisterCommandQueue(MTLD3D12CommandQueue *queue);
+  struct WorkGraphNodeShader {
+    std::string msl;
+    uint32_t input_record_size = 0;
+    uint32_t input_record_alignment = 0;
+  };
   void RegisterWorkGraphProgram(const uint8_t *identifier,
                                 size_t identifier_size,
-                                const std::vector<std::string> &node_msl);
+                                const std::vector<WorkGraphNodeShader> &nodes);
   bool LookupWorkGraphNodeShader(const uint8_t *identifier,
                                  size_t identifier_size,
-                                 UINT node_index, std::string &msl) const;
+                                 UINT node_index, WorkGraphNodeShader &shader) const;
   bool HasWorkGraphProgram(const uint8_t *identifier,
                            size_t identifier_size) const;
   HRESULT EnqueueSetEvent(HANDLE event);
@@ -621,7 +626,7 @@ private:
   std::mutex m_command_queue_mutex;
   std::vector<MTLD3D12CommandQueue *> m_command_queues;
   mutable std::mutex m_work_graph_mutex;
-  std::unordered_map<std::string, std::vector<std::string>>
+  std::unordered_map<std::string, std::vector<WorkGraphNodeShader>>
       m_work_graph_programs;
   std::mutex m_background_mutex;
   HANDLE m_background_event = nullptr;

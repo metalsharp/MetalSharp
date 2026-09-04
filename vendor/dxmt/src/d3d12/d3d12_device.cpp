@@ -5038,14 +5038,19 @@ public:
         m_work_graph_name == program_name) {
       // DispatchGraph selects an entrypoint, not an index in the node array.
       // Preserve empty slots for unresolved nodes rather than shifting indices.
-      std::vector<std::string> entrypoint_msl(m_work_graph_entrypoints.size());
+      std::vector<MTLD3D12Device::WorkGraphNodeShader> entrypoint_shaders(
+          m_work_graph_entrypoints.size());
       for (size_t entry = 0; entry < m_work_graph_entrypoints.size(); ++entry) {
         const UINT node = GetNodeIndex(0, m_work_graph_entrypoints[entry]);
-        if (node < m_work_graph_node_msl.size())
-          entrypoint_msl[entry] = m_work_graph_node_msl[node];
+        if (node < m_work_graph_node_msl.size() &&
+            node < m_work_graph_node_layouts.size()) {
+          entrypoint_shaders[entry].msl = m_work_graph_node_msl[node];
+          entrypoint_shaders[entry].input_record_size = m_work_graph_node_layouts[node].size;
+          entrypoint_shaders[entry].input_record_alignment = m_work_graph_node_layouts[node].alignment;
+        }
       }
       m_device->RegisterWorkGraphProgram(
-          reinterpret_cast<const uint8_t *>(ret), sizeof(*ret), entrypoint_msl);
+          reinterpret_cast<const uint8_t *>(ret), sizeof(*ret), entrypoint_shaders);
     }
     return ret;
   }
@@ -9101,29 +9106,31 @@ void MTLD3D12Device::UnregisterResource(MTLD3D12Resource *res) {
 
 void MTLD3D12Device::RegisterWorkGraphProgram(
     const uint8_t *identifier, size_t identifier_size,
-    const std::vector<std::string> &node_msl) {
-  if (!identifier || identifier_size != 32 || node_msl.empty())
+    const std::vector<WorkGraphNodeShader> &nodes) {
+  if (!identifier || identifier_size != 32 || nodes.empty())
     return;
   bool has_shader = false;
-  for (const auto &source : node_msl)
-    has_shader |= !source.empty();
+  for (const auto &shader : nodes)
+    has_shader |= !shader.msl.empty();
   if (!has_shader)
     return;
   const std::string key(reinterpret_cast<const char *>(identifier),
                         identifier_size);
   std::lock_guard<std::mutex> lock(m_work_graph_mutex);
-  m_work_graph_programs[key] = node_msl;
+  // Own both text and layout; command replay must not reference state-object
+  // vectors or temporary lowering modules after registration.
+  m_work_graph_programs[key] = nodes;
   uint64_t first = 0;
   memcpy(&first, identifier, sizeof(first));
   TRACE("RegisterWorkGraphProgram key_size=%zu nodes=%zu first=0x%llx bytes=%zu",
-        key.size(), node_msl.size(), (unsigned long long)first,
-        node_msl.front().size());
+        key.size(), nodes.size(), (unsigned long long)first,
+        nodes.front().msl.size());
 }
 
 bool MTLD3D12Device::LookupWorkGraphNodeShader(
     const uint8_t *identifier, size_t identifier_size, UINT node_index,
-    std::string &msl) const {
-  msl.clear();
+    WorkGraphNodeShader &shader) const {
+  shader = {};
   if (!identifier || identifier_size != 32)
     return false;
   const std::string key(reinterpret_cast<const char *>(identifier),
@@ -9133,15 +9140,16 @@ bool MTLD3D12Device::LookupWorkGraphNodeShader(
   memcpy(&first, identifier, sizeof(first));
   auto it = m_work_graph_programs.find(key);
   if (it == m_work_graph_programs.end() || node_index >= it->second.size() ||
-      it->second[node_index].empty()) {
+      it->second[node_index].msl.empty()) {
     TRACE("LookupWorkGraphNodeShader miss key_size=%zu node=%u first=0x%llx programs=%zu",
           key.size(), node_index, (unsigned long long)first,
           m_work_graph_programs.size());
     return false;
   }
-  msl = it->second[node_index];
-  TRACE("LookupWorkGraphNodeShader hit node=%u bytes=%zu", node_index,
-        msl.size());
+  shader = it->second[node_index];
+  TRACE("LookupWorkGraphNodeShader hit node=%u bytes=%zu input_size=%u input_alignment=%u",
+        node_index, shader.msl.size(), shader.input_record_size,
+        shader.input_record_alignment);
   return true;
 }
 
