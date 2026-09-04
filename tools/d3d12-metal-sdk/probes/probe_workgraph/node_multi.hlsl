@@ -28,3 +28,14 @@ void node_b([MaxRecords(1)] NodeOutput<RECORD> node_output) {
   output.Store(0, 0x22222222);
   output.Store(4, 0xbbbb0002);
 }
+
+[Shader("node")]
+[NodeLaunch("coalescing")]
+[NumThreads(1, 1, 1)]
+[NodeIsProgramEntry]
+void node_c() {
+  Barrier(1, 3);
+  Barrier(output, 3);
+  output.Store(0, 0x33333333);
+  output.Store(4, 0xcccc0003);
+}
