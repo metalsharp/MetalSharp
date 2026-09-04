@@ -313,6 +313,19 @@
       "reason": "The host maximum view count is four. Draw-level replay routes each mask to a distinct array slice and verifies SetViewInstanceMask(0) does not fall back to an uninstanced draw. Depth/MSAA/VRS combinations remain open below."
     },
     {
+      "id": "p6-view-instancing-four-view-msaa-depth",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "draw_level_view_replay_with_native_msaa_depth",
+      "covers": {"view_instancing": ["host_max_view"], "viewport_scissor": ["array"], "render_targets": ["one"], "sample_count": ["4"], "depth_stencil": ["depth"], "msaa_state": ["depth_stencil_msaa", "array_resolve"], "vrs": ["disabled"], "shader_stages": ["vertex_pixel_depth"], "logic_side_effects": ["none", "render_target_only"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-view-instancing",
+      "negative_probe": "probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_view_slice_required": true, "zero_mask_no_work_required": true, "resolved_samples_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "four distinct 4x-resolved array slices under a D32 MSAA array and masks 1,2,4,8; mask 0 preserves slice zero"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The host-max four-view replay now composes with native 4x render-target MSAA, a D32 depth array, per-slice resolve, and zero-mask no-work behavior."
+    },
+    {
       "id": "p6-view-instancing-cross-products",
       "legality": "legal",
       "status": "open",

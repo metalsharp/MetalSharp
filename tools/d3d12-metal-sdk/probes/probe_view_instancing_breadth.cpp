@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -126,7 +127,7 @@ static HRESULT create_root_signature(ID3D12Device *device,
 static StreamBuilder make_stream(ID3D12RootSignature *root, ID3DBlob *vs,
                                  ID3DBlob *ps,
                                  const ViewInstanceLocationProbe *locations,
-                                 UINT view_count) {
+                                 UINT view_count, UINT sample_count) {
     StreamBuilder stream;
     const D3D12_SHADER_BYTECODE vs_bytecode = {vs->GetBufferPointer(),
                                                vs->GetBufferSize()};
@@ -140,16 +141,18 @@ static StreamBuilder make_stream(ID3D12RootSignature *root, ID3DBlob *vs,
     rasterizer.CullMode = D3D12_CULL_MODE_NONE;
     rasterizer.DepthClipEnable = TRUE;
     D3D12_DEPTH_STENCIL_DESC depth = {};
-    depth.DepthEnable = FALSE;
-    depth.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    depth.DepthEnable = sample_count > 1 ? TRUE : FALSE;
+    depth.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+    depth.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
     D3D12_INPUT_LAYOUT_DESC input = {};
     D3D12_PRIMITIVE_TOPOLOGY_TYPE topology =
         D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     RTFormatArrayProbe formats = {};
     formats.Formats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
     formats.NumRenderTargets = 1;
-    DXGI_FORMAT dsv_format = DXGI_FORMAT_UNKNOWN;
-    DXGI_SAMPLE_DESC sample = {1, 0};
+    DXGI_FORMAT dsv_format = sample_count > 1 ? DXGI_FORMAT_D32_FLOAT
+                                               : DXGI_FORMAT_UNKNOWN;
+    DXGI_SAMPLE_DESC sample = {sample_count, 0};
     D3D12_PIPELINE_STATE_FLAGS flags = D3D12_PIPELINE_STATE_FLAG_NONE;
     ViewInstancingDescProbe view = {view_count, locations, 0x1u};
 
@@ -173,8 +176,10 @@ static HRESULT create_view_pso(ID3D12Device2 *device,
                                ID3D12RootSignature *root, ID3DBlob *vs,
                                ID3DBlob *ps,
                                const ViewInstanceLocationProbe *locations,
-                               UINT count, ID3D12PipelineState **pso) {
-    StreamBuilder stream = make_stream(root, vs, ps, locations, count);
+                               UINT count, UINT sample_count,
+                               ID3D12PipelineState **pso) {
+    StreamBuilder stream =
+        make_stream(root, vs, ps, locations, count, sample_count);
     D3D12_PIPELINE_STATE_STREAM_DESC desc = {stream.bytes.size(),
                                              stream.bytes.data()};
     return device->CreatePipelineState(&desc, IID_PPV_ARGS(pso));
@@ -215,7 +220,17 @@ static HRESULT wait_for_queue(ID3D12Device *device, ID3D12CommandQueue *queue,
     return hr;
 }
 
-int main() {
+int main(int argc, char **argv) {
+    if (argc > 2) {
+        std::fprintf(stderr,
+                     "usage: probe_view_instancing_breadth [1|4]\n");
+        return 2;
+    }
+    const UINT sample_count = argc == 2
+                                  ? static_cast<UINT>(std::strtoul(argv[1], nullptr, 10))
+                                  : 1u;
+    if (sample_count != 1 && sample_count != 4)
+        return 2;
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     auto create_device = load_proc<HRESULT(WINAPI *)(IUnknown *,
                                                        D3D_FEATURE_LEVEL,
@@ -269,7 +284,7 @@ VSOut main(uint id : SV_VertexID) {
     for (size_t i = 0; i < 4; ++i)
         pso_hr[i] = (device2 && root && vs && ps[i])
                         ? create_view_pso(device2, root, vs, ps[i], locations,
-                                          4, &psos[i])
+                                          4, sample_count, &psos[i])
                         : E_FAIL;
 
     ID3D12CommandQueue *queue = nullptr;
@@ -277,14 +292,20 @@ VSOut main(uint id : SV_VertexID) {
     ID3D12GraphicsCommandList *list = nullptr;
     ID3D12GraphicsCommandList1 *list1 = nullptr;
     ID3D12Resource *target = nullptr;
+    ID3D12Resource *resolved = nullptr;
+    ID3D12Resource *depth = nullptr;
     ID3D12Resource *readback = nullptr;
     ID3D12DescriptorHeap *rtv_heap = nullptr;
+    ID3D12DescriptorHeap *dsv_heap = nullptr;
     HRESULT queue_hr = E_FAIL;
     HRESULT allocator_hr = E_FAIL;
     HRESULT list_hr = E_FAIL;
     HRESULT list1_hr = E_FAIL;
     HRESULT target_hr = E_FAIL;
+    HRESULT resolved_hr = sample_count == 1 ? S_OK : E_FAIL;
+    HRESULT depth_hr = sample_count == 1 ? S_OK : E_FAIL;
     HRESULT readback_hr = E_FAIL;
+    HRESULT dsv_heap_hr = sample_count == 1 ? S_OK : E_FAIL;
     HRESULT execute_hr = E_FAIL;
     if (device && root && vs && psos[0] && psos[1] && psos[2] && psos[3]) {
         D3D12_COMMAND_QUEUE_DESC queue_desc = {};
@@ -306,7 +327,7 @@ VSOut main(uint id : SV_VertexID) {
         target_desc.DepthOrArraySize = 4;
         target_desc.MipLevels = 1;
         target_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        target_desc.SampleDesc.Count = 1;
+        target_desc.SampleDesc.Count = sample_count;
         target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         D3D12_CLEAR_VALUE clear = {};
@@ -319,6 +340,26 @@ VSOut main(uint id : SV_VertexID) {
                 &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
                 IID_PPV_ARGS(&target));
+        if (SUCCEEDED(target_hr) && sample_count > 1) {
+            D3D12_RESOURCE_DESC resolved_desc = target_desc;
+            resolved_desc.SampleDesc.Count = 1;
+            resolved_hr = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &resolved_desc,
+                D3D12_RESOURCE_STATE_RESOLVE_DEST, nullptr,
+                IID_PPV_ARGS(&resolved));
+            D3D12_RESOURCE_DESC depth_desc = target_desc;
+            depth_desc.Format = DXGI_FORMAT_D32_FLOAT;
+            depth_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+            D3D12_CLEAR_VALUE depth_clear = {};
+            depth_clear.Format = DXGI_FORMAT_D32_FLOAT;
+            depth_clear.DepthStencil.Depth = 1.0f;
+            depth_hr = SUCCEEDED(resolved_hr)
+                           ? device->CreateCommittedResource(
+                                 &default_heap, D3D12_HEAP_FLAG_NONE,
+                                 &depth_desc, D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                                 &depth_clear, IID_PPV_ARGS(&depth))
+                           : E_FAIL;
+        }
         D3D12_HEAP_PROPERTIES readback_heap =
             heap_properties(D3D12_HEAP_TYPE_READBACK);
         D3D12_RESOURCE_DESC readback_desc = {};
@@ -329,7 +370,8 @@ VSOut main(uint id : SV_VertexID) {
         readback_desc.MipLevels = 1;
         readback_desc.SampleDesc.Count = 1;
         readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        if (SUCCEEDED(target_hr))
+        if (SUCCEEDED(target_hr) && SUCCEEDED(resolved_hr) &&
+            SUCCEEDED(depth_hr))
             readback_hr = device->CreateCommittedResource(
                 &readback_heap, D3D12_HEAP_FLAG_NONE, &readback_desc,
                 D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
@@ -340,16 +382,40 @@ VSOut main(uint id : SV_VertexID) {
         if (SUCCEEDED(readback_hr))
             readback_hr = device->CreateDescriptorHeap(
                 &heap_desc, IID_PPV_ARGS(&rtv_heap));
-        if (SUCCEEDED(readback_hr)) {
+        if (SUCCEEDED(readback_hr) && sample_count > 1) {
+            D3D12_DESCRIPTOR_HEAP_DESC dsv_desc = {};
+            dsv_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+            dsv_desc.NumDescriptors = 1;
+            dsv_heap_hr = device->CreateDescriptorHeap(
+                &dsv_desc, IID_PPV_ARGS(&dsv_heap));
+        }
+        if (SUCCEEDED(readback_hr) && SUCCEEDED(dsv_heap_hr)) {
             D3D12_CPU_DESCRIPTOR_HANDLE rtv =
                 rtv_heap->GetCPUDescriptorHandleForHeapStart();
             D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {};
             rtv_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
-            rtv_desc.Texture2DArray.ArraySize = 4;
+            if (sample_count > 1) {
+                rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DMSARRAY;
+                rtv_desc.Texture2DMSArray.ArraySize = 4;
+            } else {
+                rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+                rtv_desc.Texture2DArray.ArraySize = 4;
+            }
             device->CreateRenderTargetView(target, &rtv_desc, rtv);
+            D3D12_CPU_DESCRIPTOR_HANDLE dsv = {};
+            if (sample_count > 1) {
+                dsv = dsv_heap->GetCPUDescriptorHandleForHeapStart();
+                D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+                dsv_desc.Format = DXGI_FORMAT_D32_FLOAT;
+                dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DMSARRAY;
+                dsv_desc.Texture2DMSArray.ArraySize = 4;
+                device->CreateDepthStencilView(depth, &dsv_desc, dsv);
+            }
             const FLOAT clear_color[4] = {0, 0, 0, 1};
             list->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+            if (sample_count > 1)
+                list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f,
+                                            0, 0, nullptr);
             const D3D12_VIEWPORT viewports[4] = {
                 {0, 0, 1, 1, 0, 1}, {0, 0, 1, 1, 0, 1},
                 {0, 0, 1, 1, 0, 1}, {0, 0, 1, 1, 0, 1}};
@@ -358,7 +424,8 @@ VSOut main(uint id : SV_VertexID) {
             list->RSSetViewports(4, viewports);
             list->RSSetScissorRects(4, scissors);
             list->SetGraphicsRootSignature(root);
-            list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+            list->OMSetRenderTargets(1, &rtv, FALSE,
+                                     sample_count > 1 ? &dsv : nullptr);
             list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             for (UINT i = 0; i < 4; ++i) {
                 list->SetPipelineState(psos[i]);
@@ -375,14 +442,31 @@ VSOut main(uint id : SV_VertexID) {
             barrier.Transition.pResource = target;
             barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            barrier.Transition.StateAfter = sample_count > 1
+                                                ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE
+                                                : D3D12_RESOURCE_STATE_COPY_SOURCE;
             list->ResourceBarrier(1, &barrier);
+            if (sample_count > 1) {
+                for (UINT slice = 0; slice < 4; ++slice)
+                    list->ResolveSubresource(resolved, slice, target, slice,
+                                             DXGI_FORMAT_R8G8B8A8_UNORM);
+                D3D12_RESOURCE_BARRIER resolved_barrier = {};
+                resolved_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                resolved_barrier.Transition.pResource = resolved;
+                resolved_barrier.Transition.Subresource =
+                    D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                resolved_barrier.Transition.StateBefore =
+                    D3D12_RESOURCE_STATE_RESOLVE_DEST;
+                resolved_barrier.Transition.StateAfter =
+                    D3D12_RESOURCE_STATE_COPY_SOURCE;
+                list->ResourceBarrier(1, &resolved_barrier);
+            }
             // This 1x1 RGBA8 array has one 256-byte readback row per slice.
             // Keep the footprint local to each copy; GetCopyableFootprints
             // would otherwise write one structure per subresource.
             for (UINT slice = 0; slice < 4; ++slice) {
                 D3D12_TEXTURE_COPY_LOCATION source = {};
-                source.pResource = target;
+                source.pResource = sample_count > 1 ? resolved : target;
                 source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
                 source.SubresourceIndex = slice;
                 D3D12_TEXTURE_COPY_LOCATION destination = {};
@@ -430,8 +514,10 @@ VSOut main(uint id : SV_VertexID) {
                       pso_exact &&
                       SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) &&
                       SUCCEEDED(list_hr) && SUCCEEDED(list1_hr) &&
-                      SUCCEEDED(target_hr) && SUCCEEDED(readback_hr) &&
-                      SUCCEEDED(execute_hr) && readback_exact;
+                      SUCCEEDED(target_hr) && SUCCEEDED(resolved_hr) &&
+                      SUCCEEDED(depth_hr) && SUCCEEDED(dsv_heap_hr) &&
+                      SUCCEEDED(readback_hr) && SUCCEEDED(execute_hr) &&
+                      readback_exact;
 
     std::printf("{\n  \"schema\": \"metalsharp.d3d12.phase6-view-instancing-breadth.v1\",\n");
     std::printf("  \"create_hr\": \"%s\", \"device2_hr\": \"%s\", \"root_hr\": \"%s\",\n",
@@ -449,7 +535,8 @@ VSOut main(uint id : SV_VertexID) {
     std::printf("],\n  \"queue_hr\": \"%s\", \"execute_hr\": \"%s\", \"map_hr\": \"%s\",\n",
                 hr_hex(queue_hr).c_str(), hr_hex(execute_hr).c_str(),
                 hr_hex(map_hr).c_str());
-    std::printf("  \"view_count\": 4, \"masks\": [1, 2, 4, 8, 0],\n");
+    std::printf("  \"view_count\": 4, \"sample_count\": %u, \"depth_enabled\": %s, \"masks\": [1, 2, 4, 8, 0],\n",
+                sample_count, sample_count > 1 ? "true" : "false");
     std::printf("  \"slices\": [\n");
     for (size_t i = 0; i < 4; ++i) {
         std::printf("    {\"slice\": %zu, \"rgba\": [%u, %u, %u, %u], \"expected\": [%u, %u, %u, %u], \"exact\": %s}%s\n",
@@ -470,7 +557,10 @@ VSOut main(uint id : SV_VertexID) {
         safe_release(blob);
     safe_release(vs);
     safe_release(readback);
+    safe_release(depth);
+    safe_release(resolved);
     safe_release(target);
+    safe_release(dsv_heap);
     safe_release(rtv_heap);
     safe_release(list1);
     safe_release(list);

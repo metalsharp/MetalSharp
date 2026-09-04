@@ -488,6 +488,23 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 value.get("sample_count") != 4 or
                 value.get("draw_count") != 3):
                 errors.append("ROV MSAA ordered four-sample matrix is incomplete")
+    view_instancing_msaa = result.get("view_instancing_msaa")
+    if view_instancing_msaa is not None:
+        if not isinstance(view_instancing_msaa, dict):
+            errors.append("view_instancing_msaa result must be an object or null")
+        elif view_instancing_msaa.get("process_status") != 0:
+            errors.append("view-instancing MSAA probe process did not exit zero")
+        else:
+            value = view_instancing_msaa.get("result")
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                value.get("view_count") != 4 or value.get("sample_count") != 4 or
+                value.get("depth_enabled") is not True or
+                value.get("zero_mask_preserved") is not True or
+                not isinstance(value.get("slices"), list) or
+                len(value.get("slices")) != 4 or
+                any(item.get("exact") is not True for item in value.get("slices", [])
+                    if isinstance(item, dict))):
+                errors.append("view-instancing 4x MSAA/depth matrix is incomplete")
     view_instancing = result.get("view_instancing")
     if view_instancing is not None:
         if not isinstance(view_instancing, dict):
@@ -499,6 +516,8 @@ def validate_result(result: dict[str, Any]) -> list[str]:
             if not isinstance(value, dict) or value.get("pass") is not True:
                 errors.append("view instancing probe is not pass=true")
             elif (value.get("view_count") != 4 or
+                  value.get("sample_count") != 1 or
+                  value.get("depth_enabled") is not False or
                   value.get("zero_mask_preserved") is not True or
                   value.get("shader_exact") is not True or
                   value.get("pso_exact") is not True or
