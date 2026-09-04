@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -118,7 +119,17 @@ static HRESULT wait_for_queue(ID3D12Device *device, ID3D12CommandQueue *queue,
     return hr;
 }
 
-int main() {
+int main(int argc, char **argv) {
+    if (argc > 2) {
+        std::fprintf(stderr,
+                     "usage: probe_independent_logic_breadth [1|2|4]\n");
+        return 2;
+    }
+    const UINT sample_count = argc == 2
+                                  ? static_cast<UINT>(std::strtoul(argv[1], nullptr, 10))
+                                  : 1u;
+    if (sample_count != 1 && sample_count != 2 && sample_count != 4)
+        return 2;
     const char *hlsl = R"HLSL(
 struct VSOut { float4 position : SV_Position; };
 VSOut vs_main(uint id : SV_VertexID) {
@@ -188,7 +199,7 @@ PSOut ps_main(VSOut input) {
     desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
     desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     desc.NumRenderTargets = 8;
-    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Count = sample_count;
     ID3D12PipelineState *pso = nullptr;
     HRESULT pso_hr = (device && root && vs && ps)
                          ? device->CreateGraphicsPipelineState(&desc,
@@ -200,6 +211,7 @@ PSOut ps_main(VSOut input) {
     ID3D12GraphicsCommandList *list = nullptr;
     ID3D12DescriptorHeap *rtv_heap = nullptr;
     ID3D12Resource *targets[8] = {};
+    ID3D12Resource *resolves[8] = {};
     ID3D12Resource *readback = nullptr;
     HRESULT queue_hr = E_FAIL;
     HRESULT allocator_hr = E_FAIL;
@@ -207,6 +219,8 @@ PSOut ps_main(VSOut input) {
     HRESULT rtv_heap_hr = E_FAIL;
     HRESULT target_hr[8] = {E_FAIL, E_FAIL, E_FAIL, E_FAIL,
                             E_FAIL, E_FAIL, E_FAIL, E_FAIL};
+    HRESULT resolve_hr[8] = {S_OK, S_OK, S_OK, S_OK,
+                             S_OK, S_OK, S_OK, S_OK};
     HRESULT readback_hr = E_FAIL;
     HRESULT execute_hr = E_FAIL;
     HRESULT map_hr = E_FAIL;
@@ -230,7 +244,7 @@ PSOut ps_main(VSOut input) {
         target_desc.DepthOrArraySize = 1;
         target_desc.MipLevels = 1;
         target_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        target_desc.SampleDesc.Count = 1;
+        target_desc.SampleDesc.Count = sample_count;
         target_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
         target_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         D3D12_CLEAR_VALUE clear = {};
@@ -239,11 +253,24 @@ PSOut ps_main(VSOut input) {
         clear.Color[1] = 170.0f / 255.0f;
         clear.Color[2] = 170.0f / 255.0f;
         clear.Color[3] = 1.0f;
-        for (UINT i = 0; i < 8 && SUCCEEDED(list_hr); ++i)
+        for (UINT i = 0; i < 8 && SUCCEEDED(list_hr); ++i) {
             target_hr[i] = device->CreateCommittedResource(
                 &default_heap, D3D12_HEAP_FLAG_NONE, &target_desc,
                 D3D12_RESOURCE_STATE_RENDER_TARGET, &clear,
                 IID_PPV_ARGS(&targets[i]));
+            if (sample_count > 1) {
+                D3D12_RESOURCE_DESC resolve_desc = target_desc;
+                resolve_desc.SampleDesc.Count = 1;
+                resolve_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
+                resolve_hr[i] = SUCCEEDED(target_hr[i])
+                                    ? device->CreateCommittedResource(
+                                          &default_heap, D3D12_HEAP_FLAG_NONE,
+                                          &resolve_desc,
+                                          D3D12_RESOURCE_STATE_RESOLVE_DEST,
+                                          nullptr, IID_PPV_ARGS(&resolves[i]))
+                                    : E_FAIL;
+            }
+        }
         D3D12_HEAP_PROPERTIES readback_heap =
             heap_properties(D3D12_HEAP_TYPE_READBACK);
         D3D12_RESOURCE_DESC readback_desc = {};
@@ -254,7 +281,7 @@ PSOut ps_main(VSOut input) {
         readback_desc.MipLevels = 1;
         readback_desc.SampleDesc.Count = 1;
         readback_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-        readback_hr = SUCCEEDED(target_hr[7])
+        readback_hr = SUCCEEDED(target_hr[7]) && SUCCEEDED(resolve_hr[7])
                           ? device->CreateCommittedResource(
                                 &readback_heap, D3D12_HEAP_FLAG_NONE,
                                 &readback_desc, D3D12_RESOURCE_STATE_COPY_DEST,
@@ -300,13 +327,32 @@ PSOut ps_main(VSOut input) {
                     D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
                 barriers[i].Transition.StateBefore =
                     D3D12_RESOURCE_STATE_RENDER_TARGET;
-                barriers[i].Transition.StateAfter =
-                    D3D12_RESOURCE_STATE_COPY_SOURCE;
+                barriers[i].Transition.StateAfter = sample_count > 1
+                                                        ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE
+                                                        : D3D12_RESOURCE_STATE_COPY_SOURCE;
             }
             list->ResourceBarrier(8, barriers);
+            if (sample_count > 1) {
+                for (UINT i = 0; i < 8; ++i)
+                    list->ResolveSubresource(resolves[i], 0, targets[i], 0,
+                                             DXGI_FORMAT_R8G8B8A8_UNORM);
+                D3D12_RESOURCE_BARRIER resolve_barriers[8] = {};
+                for (UINT i = 0; i < 8; ++i) {
+                    resolve_barriers[i].Type =
+                        D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                    resolve_barriers[i].Transition.pResource = resolves[i];
+                    resolve_barriers[i].Transition.Subresource =
+                        D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                    resolve_barriers[i].Transition.StateBefore =
+                        D3D12_RESOURCE_STATE_RESOLVE_DEST;
+                    resolve_barriers[i].Transition.StateAfter =
+                        D3D12_RESOURCE_STATE_COPY_SOURCE;
+                }
+                list->ResourceBarrier(8, resolve_barriers);
+            }
             for (UINT i = 0; i < 8; ++i) {
                 D3D12_TEXTURE_COPY_LOCATION source = {};
-                source.pResource = targets[i];
+                source.pResource = sample_count > 1 ? resolves[i] : targets[i];
                 source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
                 D3D12_TEXTURE_COPY_LOCATION destination = {};
                 destination.pResource = readback;
@@ -350,8 +396,9 @@ PSOut ps_main(VSOut input) {
                        std::memcmp(actual[i], expected[i], 4) == 0;
     }
     bool resources_exact = true;
-    for (HRESULT hr : target_hr)
-        resources_exact = resources_exact && hr == S_OK;
+    for (UINT i = 0; i < 8; ++i)
+        resources_exact = resources_exact && target_hr[i] == S_OK &&
+                          resolve_hr[i] == S_OK;
     const bool pass = SUCCEEDED(create_hr) && SUCCEEDED(root_hr) &&
                       SUCCEEDED(vs_hr) && SUCCEEDED(ps_hr) && SUCCEEDED(pso_hr) &&
                       SUCCEEDED(queue_hr) && SUCCEEDED(allocator_hr) &&
@@ -364,8 +411,9 @@ PSOut ps_main(VSOut input) {
                 hr_hex(create_hr).c_str(), hr_hex(root_hr).c_str(),
                 hr_hex(vs_hr).c_str(), hr_hex(ps_hr).c_str(),
                 hr_hex(pso_hr).c_str());
-    std::printf("  \"execute_hr\": \"%s\", \"map_hr\": \"%s\", \"target_count\": 8,\n",
-                hr_hex(execute_hr).c_str(), hr_hex(map_hr).c_str());
+    std::printf("  \"execute_hr\": \"%s\", \"map_hr\": \"%s\", \"target_count\": 8, \"sample_count\": %u,\n",
+                hr_hex(execute_hr).c_str(), hr_hex(map_hr).c_str(),
+                sample_count);
     std::printf("  \"targets\": [\n");
     for (UINT i = 0; i < 8; ++i) {
         std::printf("    {\"index\": %u, \"operation\": \"%s\", \"rgba\": [%u, %u, %u, %u], \"expected\": [%u, %u, %u, %u], \"exact\": %s}%s\n",
@@ -382,6 +430,8 @@ PSOut ps_main(VSOut input) {
     std::fflush(stdout);
 
     safe_release(readback);
+    for (auto &resolve : resolves)
+        safe_release(resolve);
     for (auto &target : targets)
         safe_release(target);
     safe_release(rtv_heap);
