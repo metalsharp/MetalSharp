@@ -837,6 +837,8 @@ public:
   ~MTLDXGIOutputDuplication() {
     if (desktop_resource_)
       desktop_resource_->Release();
+    if (desktop_d3d_resource_)
+      desktop_d3d_resource_->Release();
     if (device_)
       device_->Release();
     if (output_)
@@ -953,13 +955,49 @@ public:
       return DXGI_ERROR_INVALID_CALL;
     locked->Pitch = 0;
     locked->pBits = nullptr;
-    return DXGI_ERROR_UNSUPPORTED;
+    if (desktop_mapped_)
+      return DXGI_ERROR_WAS_STILL_DRAWING;
+    if (!EnsureDesktopResource())
+      return DXGI_ERROR_UNSUPPORTED;
+    if (format_ != DXGI_FORMAT_B8G8R8A8_UNORM &&
+        format_ != DXGI_FORMAT_R8G8B8A8_UNORM)
+      return DXGI_ERROR_UNSUPPORTED;
+    ID3D12Resource *resource = desktop_d3d_resource_;
+    if (!resource)
+      return DXGI_ERROR_UNSUPPORTED;
+    HRESULT hr = S_OK;
+    const uint64_t pitch = uint64_t(desc_.ModeDesc.Width) * 4u;
+    const uint64_t bytes = pitch * desc_.ModeDesc.Height;
+    if (pitch > INT_MAX || bytes > UINT32_MAX || bytes > SIZE_MAX)
+      return E_OUTOFMEMORY;
+    try {
+      desktop_shadow_.assign(static_cast<size_t>(bytes), 0);
+    } catch (const std::bad_alloc &) {
+      return E_OUTOFMEMORY;
+    }
+    hr = resource->ReadFromSubresource(
+        desktop_shadow_.data(), static_cast<UINT>(pitch),
+        static_cast<UINT>(bytes), 0, nullptr);
+    if (FAILED(hr)) {
+      desktop_shadow_.clear();
+      return hr;
+    }
+    desktop_pitch_ = static_cast<UINT>(pitch);
+    desktop_mapped_ = true;
+    locked->Pitch = static_cast<INT>(desktop_pitch_);
+    locked->pBits = desktop_shadow_.data();
+    return S_OK;
   }
   HRESULT STDMETHODCALLTYPE UnMapDesktopSurface() override {
-    return held_ ? S_OK : DXGI_ERROR_INVALID_CALL;
+    if (!held_ || !desktop_mapped_)
+      return DXGI_ERROR_INVALID_CALL;
+    desktop_shadow_.clear();
+    desktop_pitch_ = 0;
+    desktop_mapped_ = false;
+    return S_OK;
   }
   HRESULT STDMETHODCALLTYPE ReleaseFrame() override {
-    if (!held_)
+    if (!held_ || desktop_mapped_)
       return DXGI_ERROR_INVALID_CALL;
     held_ = false;
     return S_OK;
@@ -1045,14 +1083,21 @@ private:
     }
     hr = resource->QueryInterface(
         IID_IDXGIResource, reinterpret_cast<void **>(&desktop_resource_));
+    if (SUCCEEDED(hr) && desktop_resource_) {
+      desktop_d3d_resource_ = resource;
+      desktop_d3d_resource_->AddRef();
+      resource->Release();
+      return true;
+    }
     resource->Release();
-    return SUCCEEDED(hr) && desktop_resource_;
+    return false;
   }
 
   std::atomic<ULONG> ref_count_ = {1};
   MTLDXGIOutputImpl *output_ = nullptr;
   IUnknown *device_ = nullptr;
   IDXGIResource *desktop_resource_ = nullptr;
+  ID3D12Resource *desktop_d3d_resource_ = nullptr;
   DXGI_OUTPUT_DESC output_desc_ = {};
   DXGI_OUTDUPL_DESC desc_ = {};
   DXGI_FORMAT format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -1060,6 +1105,9 @@ private:
   uint64_t last_generation_ = 0;
   bool frame_delivered_ = false;
   bool held_ = false;
+  bool desktop_mapped_ = false;
+  UINT desktop_pitch_ = 0;
+  std::vector<uint8_t> desktop_shadow_;
   ComPrivateData private_data_;
 };
 

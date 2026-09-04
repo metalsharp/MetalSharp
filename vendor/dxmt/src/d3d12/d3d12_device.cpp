@@ -1449,7 +1449,28 @@ static void UpdateDescriptorTableMirror(MTLD3D12Device *device,
 
 } // namespace
 
-class MTLD3D12InfoQueue : public ID3D12InfoQueue {
+using D3D12InfoQueueMessageCallback = void(STDMETHODCALLTYPE *)(
+    D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY, D3D12_MESSAGE_ID,
+    LPCSTR, void *);
+static constexpr UINT kD3D12MessageCallbackFlagNone = 0;
+static constexpr UINT kD3D12MessageCallbackFlagIgnoreFilters = 1;
+static constexpr GUID kIID_ID3D12InfoQueue1 = {
+    0x2852dd88, 0xb484, 0x4c0c,
+    {0xb6, 0xb1, 0x67, 0x16, 0x85, 0x00, 0xe6, 0x00}};
+struct ID3D12InfoQueue1Compat : public ID3D12InfoQueue {
+  virtual HRESULT STDMETHODCALLTYPE RegisterMessageCallback(
+      D3D12InfoQueueMessageCallback callback, UINT flags, void *context,
+      DWORD *cookie) = 0;
+  virtual HRESULT STDMETHODCALLTYPE UnregisterMessageCallback(
+      DWORD cookie) = 0;
+};
+
+class MTLD3D12InfoQueue : public ID3D12InfoQueue1Compat {
+  struct Callback {
+    D3D12InfoQueueMessageCallback function = nullptr;
+    UINT flags = kD3D12MessageCallbackFlagNone;
+    void *context = nullptr;
+  };
   struct Filter {
     std::vector<D3D12_MESSAGE_CATEGORY> allow_categories;
     std::vector<D3D12_MESSAGE_SEVERITY> allow_severities;
@@ -1619,11 +1640,14 @@ public:
       return E_POINTER;
     *ppvObject = nullptr;
     if (riid == IID_IUnknown || riid == IID_ID3D12InfoQueue) {
-      *ppvObject = this;
-      AddRef();
-      return S_OK;
+      *ppvObject = static_cast<ID3D12InfoQueue *>(this);
+    } else if (riid == kIID_ID3D12InfoQueue1) {
+      *ppvObject = static_cast<ID3D12InfoQueue1Compat *>(this);
+    } else {
+      return E_NOINTERFACE;
     }
-    return E_NOINTERFACE;
+    AddRef();
+    return S_OK;
   }
 
   ULONG STDMETHODCALLTYPE AddRef() override { return ++m_refCount; }
@@ -1837,21 +1861,69 @@ public:
                                        const char *description) override {
     if (!description)
       return E_INVALIDARG;
+    std::vector<Callback> callbacks;
+    {
+      std::lock_guard lock(m_mutex);
+      const bool allowed = m_storage_filter.matches(category, severity, id);
+      if (!allowed)
+        ++m_messages_denied_by_storage_filter;
+      else
+        ++m_messages_allowed_by_storage_filter;
+      if (allowed && m_messages.size() >= m_messageCountLimit)
+        ++m_messages_discarded_by_limit;
+      if (allowed && m_messages.size() < m_messageCountLimit) {
+        try {
+          m_messages.push_back({category, severity, id, description});
+        } catch (const std::bad_alloc &) {
+          return E_OUTOFMEMORY;
+        }
+      }
+      for (const auto &[cookie, callback] : m_callbacks) {
+        (void)cookie;
+        if (allowed || (callback.flags & kD3D12MessageCallbackFlagIgnoreFilters)) {
+          try {
+            callbacks.push_back(callback);
+          } catch (const std::bad_alloc &) {
+            return E_OUTOFMEMORY;
+          }
+        }
+      }
+    }
+    for (const auto &callback : callbacks) {
+      if (callback.function)
+        callback.function(category, severity, id, description,
+                         callback.context);
+    }
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE RegisterMessageCallback(
+      D3D12InfoQueueMessageCallback callback, UINT flags, void *context,
+      DWORD *cookie) override {
+    if (!cookie)
+      return E_POINTER;
+    *cookie = 0;
+    if (!callback || (flags & ~kD3D12MessageCallbackFlagIgnoreFilters))
+      return E_INVALIDARG;
     std::lock_guard lock(m_mutex);
-    if (!m_storage_filter.matches(category, severity, id)) {
-      ++m_messages_denied_by_storage_filter;
-      return S_OK;
-    }
-    ++m_messages_allowed_by_storage_filter;
-    if (m_messages.size() >= m_messageCountLimit) {
-      ++m_messages_discarded_by_limit;
-      return S_OK;
-    }
+    DWORD value = m_next_callback_cookie++;
+    while (!value || m_callbacks.contains(value))
+      value = m_next_callback_cookie++;
     try {
-      m_messages.push_back({category, severity, id, description});
+      m_callbacks.emplace(value, Callback{callback, flags, context});
     } catch (const std::bad_alloc &) {
       return E_OUTOFMEMORY;
     }
+    *cookie = value;
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE UnregisterMessageCallback(DWORD cookie) override {
+    std::lock_guard lock(m_mutex);
+    auto it = m_callbacks.find(cookie);
+    if (it == m_callbacks.end())
+      return E_INVALIDARG;
+    m_callbacks.erase(it);
     return S_OK;
   }
   HRESULT STDMETHODCALLTYPE AddApplicationMessage(D3D12_MESSAGE_SEVERITY severity,
@@ -1925,6 +1997,8 @@ private:
   std::unordered_set<D3D12_MESSAGE_CATEGORY> m_break_categories;
   std::unordered_set<D3D12_MESSAGE_SEVERITY> m_break_severities;
   std::unordered_set<D3D12_MESSAGE_ID> m_break_ids;
+  std::unordered_map<DWORD, Callback> m_callbacks;
+  DWORD m_next_callback_cookie = 1;
 };
 
 struct D3D12ProgramIdentifierCompat {
@@ -5658,7 +5732,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandQueue(
   if (desc->Type == D3D12_COMMAND_LIST_TYPE_BUNDLE ||
       desc->Type > D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE ||
       (static_cast<UINT>(desc->Flags) &
-       ~static_cast<UINT>(D3D12_COMMAND_QUEUE_FLAG_NONE)) != 0 ||
+       ~static_cast<UINT>(D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT)) != 0 ||
       (desc->NodeMask & ~1u) != 0 ||
       (desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_NORMAL &&
        desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_HIGH &&

@@ -394,6 +394,8 @@ struct CmdClearRTV {
   CmdHeader header;
   D3D12_CPU_DESCRIPTOR_HANDLE rtv;
   float color[4];
+  uint32_t rect_count;
+  RECT rects[1];
 };
 
 struct CmdClearDSV {
@@ -411,6 +413,8 @@ struct CmdClearUAV {
   ID3D12Resource *resource;
   uint32_t values[4];
   uint8_t is_float;
+  uint32_t rect_count;
+  RECT rects[1];
 };
 
 struct CmdDiscardResource {
@@ -418,6 +422,8 @@ struct CmdDiscardResource {
   ID3D12Resource *resource;
   uint32_t first_subresource;
   uint32_t num_subresources;
+  uint32_t rect_count;
+  RECT rects[1];
 };
 
 struct CmdResourceBarrier {

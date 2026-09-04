@@ -129,6 +129,8 @@ public:
   HRESULT STDMETHODCALLTYPE ReadFromSubresource(
       void *dst_data, UINT dst_row_pitch, UINT dst_slice_pitch,
       UINT src_sub_resource, const D3D12_BOX *src_box) override;
+  HRESULT DiscardContents(UINT first_subresource, UINT subresource_count,
+                          UINT rect_count, const RECT *rects);
   HRESULT STDMETHODCALLTYPE GetProtectedResourceSession(
       REFIID riid, void **protected_session) override;
   D3D12_RESOURCE_DESC1Compat *STDMETHODCALLTYPE GetDesc1(

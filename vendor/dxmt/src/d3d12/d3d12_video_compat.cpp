@@ -661,7 +661,7 @@ HRESULT CreateD3D12VideoProcessCommandList(
   if (!command_list)
     return E_POINTER;
   *command_list = nullptr;
-  if (!device || !allocator)
+  if (!device)
     return E_INVALIDARG;
   auto *created = new (std::nothrow)
       MTLD3D12VideoProcessCommandList(device, allocator);

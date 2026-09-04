@@ -1573,31 +1573,57 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearDepthStencilView(
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearRenderTargetView(
     D3D12_CPU_DESCRIPTOR_HANDLE rtv, const FLOAT color[4], UINT rect_count,
     const D3D12_RECT *rects) {
+  if (m_closed || (rect_count && !rects) || rect_count > 256)
+    return;
+  const size_t base_size = offsetof(CmdClearRTV, rects);
+  if (rect_count > (UINT32_MAX - base_size) / sizeof(RECT))
+    return;
+  const size_t total_size = base_size + size_t(rect_count) * sizeof(RECT);
+  const size_t offset = m_cmds.size();
+  m_cmds.resize(offset + total_size);
   CmdClearRTV cmd = {};
-  cmd.header = {CmdType::ClearRenderTargetView, sizeof(cmd)};
+  cmd.header = {CmdType::ClearRenderTargetView,
+                static_cast<uint32_t>(total_size)};
   cmd.rtv = rtv;
+  cmd.rect_count = rect_count;
   if (color)
     memcpy(cmd.color, color, 16);
   else
     TRACE("ClearRenderTargetView called with null color pointer");
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (rect_count)
+    memcpy(m_cmds.data() + offset + base_size, rects,
+           size_t(rect_count) * sizeof(RECT));
   RetainDescriptor(rtv);
-  Emit(cmd);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ClearUnorderedAccessViewUint(
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle,
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
     const UINT values[4], UINT rect_count, const D3D12_RECT *rects) {
+  if (m_closed || (rect_count && !rects) || rect_count > 256)
+    return;
+  const size_t base_size = offsetof(CmdClearUAV, rects);
+  if (rect_count > (UINT32_MAX - base_size) / sizeof(RECT))
+    return;
+  const size_t total_size = base_size + size_t(rect_count) * sizeof(RECT);
+  const size_t offset = m_cmds.size();
+  m_cmds.resize(offset + total_size);
   CmdClearUAV cmd = {};
-  cmd.header = {CmdType::ClearUnorderedAccessView, sizeof(cmd)};
+  cmd.header = {CmdType::ClearUnorderedAccessView,
+                static_cast<uint32_t>(total_size)};
   cmd.gpu_handle = gpu_handle;
   cmd.cpu_handle = cpu_handle;
   cmd.resource = resource;
+  cmd.rect_count = rect_count;
   if (values)
     memcpy(cmd.values, values, sizeof(cmd.values));
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (rect_count)
+    memcpy(m_cmds.data() + offset + base_size, rects,
+           size_t(rect_count) * sizeof(RECT));
   RetainResource(resource);
   RetainDescriptor(cpu_handle);
-  Emit(cmd);
 }
 
 void STDMETHODCALLTYPE
@@ -1605,33 +1631,57 @@ MTLD3D12GraphicsCommandList::ClearUnorderedAccessViewFloat(
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle,
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, ID3D12Resource *resource,
     const float values[4], UINT rect_count, const D3D12_RECT *rects) {
+  if (m_closed || (rect_count && !rects) || rect_count > 256)
+    return;
+  const size_t base_size = offsetof(CmdClearUAV, rects);
+  if (rect_count > (UINT32_MAX - base_size) / sizeof(RECT))
+    return;
+  const size_t total_size = base_size + size_t(rect_count) * sizeof(RECT);
+  const size_t offset = m_cmds.size();
+  m_cmds.resize(offset + total_size);
   CmdClearUAV cmd = {};
-  cmd.header = {CmdType::ClearUnorderedAccessView, sizeof(cmd)};
+  cmd.header = {CmdType::ClearUnorderedAccessView,
+                static_cast<uint32_t>(total_size)};
   cmd.gpu_handle = gpu_handle;
   cmd.cpu_handle = cpu_handle;
   cmd.resource = resource;
   cmd.is_float = 1;
+  cmd.rect_count = rect_count;
   if (values)
     memcpy(cmd.values, values, sizeof(cmd.values));
+  memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (rect_count)
+    memcpy(m_cmds.data() + offset + base_size, rects,
+           size_t(rect_count) * sizeof(RECT));
   RetainResource(resource);
   RetainDescriptor(cpu_handle);
-  Emit(cmd);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DiscardResource(
     ID3D12Resource *resource, const D3D12_DISCARD_REGION *region) {
+  if (m_closed || !resource ||
+      (region && region->NumRects && !region->pRects) ||
+      (region && region->NumRects > 256))
+    return;
+  const UINT rect_count = region ? region->NumRects : 0;
+  const size_t base_size = offsetof(CmdDiscardResource, rects);
+  if (rect_count > (UINT32_MAX - base_size) / sizeof(RECT))
+    return;
+  const size_t total_size = base_size + size_t(rect_count) * sizeof(RECT);
+  const size_t offset = m_cmds.size();
+  m_cmds.resize(offset + total_size);
   CmdDiscardResource cmd = {};
-  cmd.header = {CmdType::DiscardResource, sizeof(cmd)};
+  cmd.header = {CmdType::DiscardResource, static_cast<uint32_t>(total_size)};
   cmd.resource = resource;
-  if (region) {
-    cmd.first_subresource = region->FirstSubresource;
-    cmd.num_subresources = region->NumSubresources;
-  } else {
-    cmd.first_subresource = 0;
-    cmd.num_subresources = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-  }
+  cmd.first_subresource = region ? region->FirstSubresource : 0;
+  cmd.num_subresources =
+      region ? region->NumSubresources : D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  cmd.rect_count = rect_count;
+  std::memcpy(m_cmds.data() + offset, &cmd, base_size);
+  if (rect_count)
+    std::memcpy(m_cmds.data() + offset + base_size, region->pRects,
+                size_t(rect_count) * sizeof(RECT));
   RetainResource(resource);
-  Emit(cmd);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BeginQuery(

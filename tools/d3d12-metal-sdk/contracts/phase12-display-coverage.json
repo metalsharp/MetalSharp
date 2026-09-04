@@ -16,6 +16,8 @@
         ["DuplicateOutput_GetFrameDirtyRects", "0x00000000"],
         ["DuplicateOutput_ReleaseFrame", "0x00000000"],
         ["DuplicateOutput_AcquireNextFrame_again", "0x80070102"],
+        ["DuplicateOutput_MapDesktopSurface", "0x00000000"],
+        ["DuplicateOutput_UnMapDesktopSurface", "0x00000000"],
         ["CreateSwapChainForComposition", "0x00000000"],
         ["Composition_GetDesc1", "0x00000000"],
         ["Composition_GetBuffer", "0x00000000"],
