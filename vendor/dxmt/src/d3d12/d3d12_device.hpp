@@ -200,6 +200,8 @@ public:
   bool LookupWorkGraphNodeShader(const uint8_t *identifier,
                                  size_t identifier_size,
                                  UINT node_index, std::string &msl) const;
+  bool HasWorkGraphProgram(const uint8_t *identifier,
+                           size_t identifier_size) const;
   HRESULT EnqueueSetEvent(HANDLE event);
   void NotifyTrimCallbacks(UINT64 bytes_to_trim = 0);
 

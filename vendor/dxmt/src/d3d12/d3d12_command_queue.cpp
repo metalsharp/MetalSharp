@@ -3381,6 +3381,10 @@ struct ReplayState {
               node_source))
         return EncodeWorkGraphNodeShader(
             device, node_source, generic_entrypoint, 1u, command_buffer);
+      if (device->HasWorkGraphProgram(
+              work_graph_program_identifier,
+              sizeof(work_graph_program_identifier)))
+        return false;
     }
 
     WMT::Reference<WMT::Buffer> records;

@@ -9095,6 +9095,16 @@ bool MTLD3D12Device::LookupWorkGraphNodeShader(
   return true;
 }
 
+bool MTLD3D12Device::HasWorkGraphProgram(const uint8_t *identifier,
+                                         size_t identifier_size) const {
+  if (!identifier || identifier_size != 32)
+    return false;
+  const std::string key(reinterpret_cast<const char *>(identifier),
+                        identifier_size);
+  std::lock_guard<std::mutex> lock(m_work_graph_mutex);
+  return m_work_graph_programs.find(key) != m_work_graph_programs.end();
+}
+
 MTLD3D12Resource *
 MTLD3D12Device::LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr) {
   if (!addr)
