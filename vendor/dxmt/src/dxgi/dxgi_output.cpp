@@ -429,8 +429,13 @@ public:
       source->Unmap();
       return DXGI_ERROR_INVALID_CALL;
     }
-    std::vector<uint8_t> pixels(static_cast<size_t>(copy_pitch) *
-                                source_desc.Height);
+    std::vector<uint8_t> pixels;
+    try {
+      pixels.resize(static_cast<size_t>(copy_pitch) * source_desc.Height);
+    } catch (const std::bad_alloc &) {
+      source->Unmap();
+      return E_OUTOFMEMORY;
+    }
     for (UINT y = 0; y < source_desc.Height; ++y)
       std::memcpy(pixels.data() + size_t(y) * copy_pitch,
                   source_map.pBits + size_t(y) * source_map.Pitch,
@@ -669,8 +674,14 @@ public:
       d3d_destination->Release();
       return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
     }
-    std::vector<uint8_t> pixels(static_cast<size_t>(source_map.Pitch) *
-                                source_desc.Height);
+    std::vector<uint8_t> pixels;
+    try {
+      pixels.resize(static_cast<size_t>(source_map.Pitch) * source_desc.Height);
+    } catch (const std::bad_alloc &) {
+      source->Unmap();
+      d3d_destination->Release();
+      return E_OUTOFMEMORY;
+    }
     for (UINT y = 0; y < source_desc.Height; ++y)
       std::memcpy(pixels.data() + size_t(y) * source_map.Pitch,
                   source_map.pBits + size_t(y) * source_map.Pitch,
@@ -882,9 +893,18 @@ public:
     *desktop_resource = nullptr;
     if (held_)
       return DXGI_ERROR_INVALID_CALL;
+    uint64_t generation = 0;
+    if (output_) {
+      std::lock_guard lock(output_->surface_mutex_);
+      generation = output_->frame_statistics_.PresentCount;
+    }
+    if (frame_delivered_ && generation <= last_generation_)
+      return HRESULT_FROM_WIN32(WAIT_TIMEOUT);
     if (!EnsureDesktopResource())
       return DXGI_ERROR_UNSUPPORTED;
     held_ = true;
+    frame_delivered_ = true;
+    last_generation_ = generation;
     ++frame_id_;
     frame_info->LastPresentTime.QuadPart = static_cast<LONGLONG>(frame_id_);
     frame_info->LastMouseUpdateTime.QuadPart =
@@ -1037,6 +1057,8 @@ private:
   DXGI_OUTDUPL_DESC desc_ = {};
   DXGI_FORMAT format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
   uint64_t frame_id_ = 0;
+  uint64_t last_generation_ = 0;
+  bool frame_delivered_ = false;
   bool held_ = false;
   ComPrivateData private_data_;
 };

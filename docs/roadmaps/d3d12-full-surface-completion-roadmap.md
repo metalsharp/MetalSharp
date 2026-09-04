@@ -985,9 +985,11 @@ not promoted.
 **Bounded checkpoint (not the exit gate):** `probe-video` now exposes the
 stable video-device ABI, one behavior-backed feature query, decoder/decoder
 heap/processor object creation, exact descriptor round trips, and null/unknown
-validation. The result is explicitly object-and-feature-contract-only;
-VideoToolbox codec execution, profiles, pixel conversion, metadata, and video
-queues remain unimplemented and no video capability is promoted.
+validation. A separate CPU-reference provider executes one RGBA8
+nearest-neighbor `VIDEO_PROCESS` scaling shape through a submitted video queue
+with exact readback. VideoToolbox codec execution, NV12/P010 conversion,
+profiles, pixel conversion, metadata, broader video queues, and protected video
+remain unimplemented and no codec capability is promoted.
 
 **Exit gate:**
 
@@ -1946,9 +1948,11 @@ whether the scoped FL12_2 gate is green.
   recursion depth.
 - The provider is explicitly GPU-native and does not add a CPU scheduler. The
   aggregate proof reports `opcode_count=16`, `d3d12_work_graph_api_supported=false`,
-  and `cpu_scheduler=false`; D3D12 Work Graph state objects, backing-memory
-  binding, `SetProgram`, `DispatchGraph`, multi-node execution, and feature
-  promotion remain unsupported and fail-closed.
+  and `cpu_scheduler=false`; the separate API compatibility provider now
+  exposes pointer-free graph properties, `SetProgram`, and a bounded
+  three-record `DispatchGraph` path. Multi-node execution, graph state-object
+  composition, backing-memory breadth, overflow, and feature promotion remain
+  limited and fail-closed outside that proof.
 - The strict opcode validator is now **278 observed / 2 open / 32 reserved**;
   only CycleCounterLegacy `109` and AttributeAtVertex `137` remain open. Phase 5
   itself remains open until those rows have exact positive or semantically

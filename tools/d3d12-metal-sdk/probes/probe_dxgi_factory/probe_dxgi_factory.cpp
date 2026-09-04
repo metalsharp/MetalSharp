@@ -204,6 +204,9 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     RECT dirty_rect = {};
     HRESULT dirty_rect_hr = E_FAIL;
     HRESULT release_frame_hr = E_FAIL;
+    HRESULT acquire_frame_again_hr = E_FAIL;
+    DXGI_OUTDUPL_FRAME_INFO duplicate_frame_again = {};
+    IDXGIResource* duplicated_resource_again = nullptr;
 
     HMODULE d3d12 = LoadLibraryA("d3d12.dll");
     CreateDeviceFn create_device = nullptr;
@@ -267,6 +270,11 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
                 sizeof(dirty_rect), &dirty_rect, &dirty_rect_bytes);
         if (SUCCEEDED(acquire_frame_hr))
             release_frame_hr = duplication->ReleaseFrame();
+        if (SUCCEEDED(release_frame_hr))
+            acquire_frame_again_hr = duplication->AcquireNextFrame(
+                0, &duplicate_frame_again, &duplicated_resource_again);
+        if (duplicated_resource_again)
+            duplicated_resource_again->Release();
     }
     HRESULT create_surface_hr = dxgi_device
                                     ? dxgi_device->CreateSurface(
@@ -424,7 +432,9 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
         SUCCEEDED(create_surface_hr) &&
         SUCCEEDED(create_copy_surface_hr) && SUCCEEDED(source_map_hr) && SUCCEEDED(source_unmap_hr) &&
         SUCCEEDED(surface_get_dc_hr) && surface_dc != nullptr &&
-        SUCCEEDED(surface_release_dc_hr) && SUCCEEDED(take_ownership_hr) &&
+        SUCCEEDED(surface_release_dc_hr) &&
+        acquire_frame_again_hr == HRESULT_FROM_WIN32(WAIT_TIMEOUT) &&
+        SUCCEEDED(take_ownership_hr) &&
         SUCCEEDED(set_display_surface_hr) &&
         SUCCEEDED(get_display_surface_data_hr) && SUCCEEDED(copy_map_hr) && display_copy_pixel == 0x44332211u &&
         SUCCEEDED(output_stats_hr) && SUCCEEDED(subresource_surface_hr) && subresource_surface != nullptr;
@@ -464,6 +474,7 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     print_hr("DuplicateOutput_GetFrameDirtyRects_query", dirty_rect_query_hr);
     print_hr("DuplicateOutput_GetFrameDirtyRects", dirty_rect_hr);
     print_hr("DuplicateOutput_ReleaseFrame", release_frame_hr);
+    print_hr("DuplicateOutput_AcquireNextFrame_again", acquire_frame_again_hr);
     std::printf("    \"factory_versions_supported\": %s,\n", factory_versions_supported ? "true" : "false");
     std::printf("    \"adapter_stable\": %s,\n", adapter_stable ? "true" : "false");
     std::printf("    \"description\": \"%s\",\n", json_escape(wide_to_utf8(desc.Description)).c_str());
@@ -515,6 +526,10 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     std::printf("  }\n");
     std::printf("}\n");
 
+    if (duplicated_resource)
+        duplicated_resource->Release();
+    if (duplication)
+        duplication->Release();
     if (composition_buffer)
         composition_buffer->Release();
     if (composition_swapchain)

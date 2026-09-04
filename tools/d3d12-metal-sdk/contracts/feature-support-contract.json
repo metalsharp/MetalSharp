@@ -219,7 +219,7 @@
         "SamplerFeedbackTier",
         "PIPELINE_STATISTICS1 ASInvocations/MSInvocations/MSPrimitives"
       ],
-      "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking; committed/placed resources, invalid descriptors, clear, min-mip, mip-region-used, arrays, encode/decode, contention, and all four HLSL write forms pass exact readback. Mesh Tier 1 is backed by AS/MS pipeline streams, stage resources, payloads, direct/indirect two-group DispatchMesh, layered depth/blend/wireframe/VRS-compatible state, render-target arrays, and exact PIPELINE_STATISTICS1 invocation/primitive readback. Unimplemented work-graph and video paths remain explicitly unsupported.",
+      "risk": "Sampler feedback uses padded software maps with SIMD-cooperative locking; committed/placed resources, invalid descriptors, clear, min-mip, mip-region-used, arrays, encode/decode, contention, and all four HLSL write forms pass exact readback. Mesh Tier 1 is backed by a source-owned AS/MS proof provider covering stage resources, payloads, direct/indirect two-group DispatchMesh, layered depth/blend/wireframe/VRS-compatible state, render-target arrays, and exact PIPELINE_STATISTICS1 invocation/primitive readback; broader mesh capability remains bounded. Work graphs now have a separate three-record GPU-native reference proof, while video object/descriptor compatibility is bounded and codec execution remains unimplemented.",
       "state": "required",
       "tier": "required"
     },

@@ -15,6 +15,7 @@
         ["DuplicateOutput_GetFrameDirtyRects_query", "0x887a0003"],
         ["DuplicateOutput_GetFrameDirtyRects", "0x00000000"],
         ["DuplicateOutput_ReleaseFrame", "0x00000000"],
+        ["DuplicateOutput_AcquireNextFrame_again", "0x80070102"],
         ["CreateSwapChainForComposition", "0x00000000"],
         ["Composition_GetDesc1", "0x00000000"],
         ["Composition_GetBuffer", "0x00000000"],

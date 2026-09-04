@@ -3,26 +3,26 @@
 **State:** Phase 0 inventory complete; implementation and behavior gates remain open.
 **Stable baseline:** Microsoft DirectX Agility SDK 1.619.5 (`D3D12SDKVersion=619`)
 **Preview lane:** Agility SDK 1.721.3-preview (`D3D12SDKVersion=721`), opt-in only
-**Generated:** 2026-09-04T11:21:53.947389+00:00
-**Git HEAD:** `d2dd6551f8c11e9438c2cdee4125d849d5c6f69d`
+**Generated:** 2026-09-04T12:19:35.154220+00:00
+**Git HEAD:** `c07933214f2eba84f346ac3d3267f49e141a5c69`
 **Runtime source files scanned:** 172
-**Runtime source tree SHA-256:** `733adb69bf4b795a3d92adac3f1d5035016b9a7c6b0c0aa44de6aefb98e1cb8d`
+**Runtime source tree SHA-256:** `9ffdee237964bd543ef58d93f03b70871713e1caef8dd6fc7763bec642b18800`
 
 ## Interface census
 
 - Interfaces: **145**
 - Methods: **537**
-- Methods with no textual source reference: **160**
+- Methods with no textual source reference: **159**
 - Textual source references are inventory clues only; they do not promote behavior.
 
 ## Static runtime findings
 
-- Total findings: **1743**
-- `capability_literal`: **132**
+- Total findings: **1768**
+- `capability_literal`: **142**
 - `empty_function_body`: **77**
-- `placeholder_return`: **804**
-- `success_or_zero_return`: **685**
-- `unsupported_return`: **45**
+- `placeholder_return`: **811**
+- `success_or_zero_return`: **689**
+- `unsupported_return`: **49**
 
 These findings are intentionally not suppressed. Later phases must attach a behavior probe and clear each legal-operation finding; expected invalid-input returns remain explicitly classified.
 
@@ -113,41 +113,41 @@ These findings are intentionally not suppressed. Later phases must attach a beha
 - `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2091` — `CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "`
 - `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2118` — `CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",`
 - `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2145` — `CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:146` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:148` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:380` — `return 0;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:434` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:446` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:450` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:532` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:541` — `return 0;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:639` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:672` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:675` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:678` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:682` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:686` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:690` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:694` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:696` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:706` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:710` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:714` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:718` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:722` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:726` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:730` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:732` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:739` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:755` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:756` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:766` — `return true;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:769` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:778` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:800` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:810` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:875` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:887` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:147` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:149` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:381` — `return 0;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:435` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:447` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:451` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:533` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:542` — `return 0;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:640` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:673` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:676` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:679` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:683` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:687` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:691` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:695` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:697` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:707` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:711` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:715` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:719` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:723` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:727` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:731` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:733` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:740` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:756` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:757` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:767` — `return true;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:770` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:779` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:801` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:811` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:876` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:888` — `return 0;`
 
 ## Phase 0 artifacts
 
