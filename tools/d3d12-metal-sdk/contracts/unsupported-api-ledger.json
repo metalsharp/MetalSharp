@@ -36,7 +36,7 @@
         "tools/d3d12-metal-sdk/probes/probe_video.cpp",
         "vendor/dxmt/src/d3d12/d3d12_video_compat.cpp"
       ],
-      "reason": "The compatibility provider creates video device, decoder, decoder-heap, and processor objects, reports one input stream, and round-trips descriptors exactly. A CPU-reference video-process command-list provider executes RGBA8 input/output nearest-neighbor scaling, clockwise-180 orientation, and NV12-to-RGBA8 BT.601 conversion through a VIDEO_PROCESS queue with exact per-subresource readback. VideoToolbox codec execution, P010 conversion, profiles, metadata, and broader video queues remain limited.",
+      "reason": "The compatibility provider creates video device, decoder, decoder-heap, and processor objects, reports one input stream, and round-trips descriptors exactly. A CPU-reference video-process command-list provider executes RGBA8 input/output nearest-neighbor scaling, clockwise-180 orientation, NV12-to-RGBA8 BT.601 conversion, RGBA8-to-NV12 limited-range conversion, and P010-to-RGBA8 conversion through a VIDEO_PROCESS queue with exact per-subresource/plane readback; P010 output encoding remains fail-closed. VideoToolbox codec execution, profiles, metadata, and broader video queues remain limited.",
       "state": "limited_to_proven_probe",
       "tier": "stubbed-safe"
     },
