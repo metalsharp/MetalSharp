@@ -1114,10 +1114,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::SetSourceSize(UINT Width,
 }
 HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::GetSourceSize(UINT *pWidth,
                                                            UINT *pHeight) {
-  if (pWidth)
-    *pWidth = m_source_width ? m_source_width : m_desc.Width;
-  if (pHeight)
-    *pHeight = m_source_height ? m_source_height : m_desc.Height;
+  if (!pWidth || !pHeight)
+    return E_INVALIDARG;
+  *pWidth = m_source_width ? m_source_width : m_desc.Width;
+  *pHeight = m_source_height ? m_source_height : m_desc.Height;
   return S_OK;
 }
 HRESULT STDMETHODCALLTYPE
@@ -1129,8 +1129,9 @@ MTLD3D12SwapChain::SetMaximumFrameLatency(UINT MaxLatency) {
 }
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::GetMaximumFrameLatency(UINT *pMaxLatency) {
-  if (pMaxLatency)
-    *pMaxLatency = m_frame_latency;
+  if (!pMaxLatency)
+    return E_INVALIDARG;
+  *pMaxLatency = m_frame_latency;
   return S_OK;
 }
 HANDLE STDMETHODCALLTYPE MTLD3D12SwapChain::GetFrameLatencyWaitableObject() {

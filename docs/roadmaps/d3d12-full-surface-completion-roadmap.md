@@ -1127,7 +1127,9 @@ path.
 state-object statistics, a serialized device-tools allocation-state blob,
 mutable DRED settings, and the DSR factory boundary with null-on-rejection.
 The InfoQueue1 callback probe additionally verifies registration, storage-filter
-suppression, ignore-filter delivery, and unregister cleanup. The full DRED data
+suppression, ignore-filter delivery, and unregister cleanup; the manual-write
+probe verifies Options17 reporting, TrackWrite, and exact upload-buffer
+visibility. The full DRED data
 outputs, pageable tools, cache corruption/restart matrix, and DSR execution
 remain open; these interfaces are not promoted as complete from compatibility
 objects alone.
@@ -1315,8 +1317,10 @@ not check its children.
       readbacks; 64-KB MSAA alignment remains conservative.
 - [ ] Full RT-array and mesh/amplification derivative fields are tested.
 - [ ] Mesh per-primitive VRS is tested and reported correctly.
-- [ ] Options 13/15/16/17/19/20/21/22 fields are each implemented or the
-      declared target is expanded to include their provider.
+- [ ] Options 13/20/21/22 fields are each implemented or the declared target
+      is expanded to include their provider. Options 15/16/19 are bounded
+      providers; Options17 now reports manual-write tracking from its exact
+      upload-buffer provider while non-normalized samplers remain false.
 - [ ] Hardware copy, async commands, fence barriers, and barrier layouts have
       real behavior.
 - [ ] Shader cache ABI, MLIR, linear algebra, SER, and byte-offset views have
@@ -2179,3 +2183,18 @@ whether the scoped FL12_2 gate is green.
   positions, view layouts, ROV breadth, and side-effect-safe logic-op replay.
 - Reclassified the main roadmap's Phase 6 status as open for that expansion;
   the existing 14-row bounded contract remains closed as a regression gate.
+
+### 2026-09-04 — Bounded command, video, diagnostics, and display providers
+
+- Added a real `VIDEO_PROCESS` command-list adapter with actual video-device/
+  processor ABI exposure, CPU-reference nearest-neighbor RGBA8 scaling,
+  queue submission, fence completion, and exact readback. VideoToolbox codec
+  execution remains explicitly unpromoted.
+- Added InfoQueue1 callback registration/filter delivery, the manual-write
+  tracking resource interface with exact upload-buffer evidence, and the
+  D3D12 sharing-contract provider with capturable-work bookkeeping, resource
+  checksum, and shared-fence signaling.
+- Added texture `DiscardResource`, rectangular UAV/RTV clear replay, and
+  duplication `MapDesktopSurface`/one-frame timeout behavior, with exact
+  isolated source-staged probes. Feature promotion and the full-surface gate
+  remain disabled for all still-limited providers.

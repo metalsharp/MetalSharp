@@ -1479,6 +1479,11 @@ MTLD3D12Resource::QueryInterface(REFIID riid, void **ppvObject) {
     AddRef();
     return S_OK;
   }
+  if (riid == kIID_ID3D12ManualWriteTrackingResource) {
+    *ppvObject = static_cast<ID3D12ManualWriteTrackingResourceCompat *>(this);
+    AddRef();
+    return S_OK;
+  }
   if (riid == __uuidof(IDXGIObject) ||
       riid == __uuidof(IDXGIDeviceSubObject) ||
       riid == __uuidof(IDXGIResource) ||
@@ -1722,6 +1727,18 @@ MTLD3D12Resource::Map(UINT sub_resource,
   return E_FAIL;
 }
 
+void STDMETHODCALLTYPE MTLD3D12Resource::TrackWrite(
+    UINT sub_resource, const D3D12_RANGE *written_range) {
+  if (sub_resource != 0 || !m_cpu_addr || !m_mtl_buffer.handle ||
+      m_desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+    return;
+  const UINT64 start = written_range ? written_range->Begin : 0;
+  const UINT64 end = written_range ? written_range->End : m_desc.Width;
+  if (start >= end || start >= m_desc.Width || end > m_desc.Width)
+    return;
+  m_mtl_buffer.didModifyRange(start, end - start);
+}
+
 void STDMETHODCALLTYPE MTLD3D12Resource::Unmap(
     UINT sub_resource, const D3D12_RANGE *written_range) {
   RTRACE("Unmap sub=%u written_range=%p", sub_resource, written_range);
@@ -1730,12 +1747,7 @@ void STDMETHODCALLTYPE MTLD3D12Resource::Unmap(
     return;
   if (sub_resource != 0)
     return;
-  const UINT64 start = written_range ? written_range->Begin : 0;
-  const UINT64 end = written_range ? written_range->End : m_desc.Width;
-  if (start >= end || start >= m_desc.Width)
-    return;
-  m_mtl_buffer.didModifyRange(
-      start, std::min<UINT64>(end, m_desc.Width) - start);
+  TrackWrite(sub_resource, written_range);
 }
 
 D3D12_RESOURCE_DESC *STDMETHODCALLTYPE

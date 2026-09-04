@@ -24,6 +24,33 @@
       "remaining": "The probe verifies state-statistics output, a serialized tool allocation-state blob, tool status, and mutable DRED settings. Full DRED breadcrumb/page-fault output, debugger callbacks, pageable allocation tools, cache diagnostics, and cross-process corruption/restart evidence remain open."
     },
     {
+      "id": "sharing-contract-fence-and-capturable-work-provider",
+      "status": "limited",
+      "result": "probe-sharing-contract",
+      "checks": [
+        ["pass"],
+        ["query", "0x00000000"],
+        ["fence_completed", 9],
+        ["present_count", 1]
+      ],
+      "remaining": "The sharing contract provider validates same-device resource presentation bookkeeping, fence signaling, and capturable-work GUID lifetime. Window-backed presentation, cross-process capture delivery, and complete sharing-contract integration remain open."
+    },
+    {
+      "id": "manual-write-tracking-resource-provider",
+      "status": "limited",
+      "result": "probe-manual-write-tracking",
+      "checks": [
+        ["pass"],
+        ["options17", "0x00000000"],
+        ["manual_write_tracking_supported", true],
+        ["query", "0x00000000"],
+        ["map", "0x00000000"],
+        ["readback", "0x00000000"],
+        ["exact_value", "0x11223344"]
+      ],
+      "remaining": "The provider covers TrackWrite and exact CPU-backed upload-buffer visibility. Non-normalized samplers, texture/manual-write combinations, and write-watch tooling remain open."
+    },
+    {
       "id": "infoqueue1-callback-filter-lifecycle",
       "status": "limited",
       "result": "probe-infoqueue",

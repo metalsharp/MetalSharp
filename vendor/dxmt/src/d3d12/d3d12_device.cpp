@@ -2127,6 +2127,138 @@ static constexpr GUID IID_ID3D12DeviceTools1Compat = {
     0xe30e9fc7, 0xe641, 0x4d6e,
     {0x8a, 0x81, 0x9d, 0xd9, 0x20, 0x6e, 0xc4, 0x7a}};
 
+struct ID3D12SharingContractCompat : public IUnknown {
+  virtual void STDMETHODCALLTYPE Present(ID3D12Resource *resource,
+                                         UINT subresource, HWND window) = 0;
+  virtual void STDMETHODCALLTYPE SharedFenceSignal(ID3D12Fence *fence,
+                                                    UINT64 value) = 0;
+  virtual void STDMETHODCALLTYPE BeginCapturableWork(REFGUID guid) = 0;
+  virtual void STDMETHODCALLTYPE EndCapturableWork(REFGUID guid) = 0;
+  virtual UINT64 STDMETHODCALLTYPE GetPresentCount() = 0;
+  virtual UINT64 STDMETHODCALLTYPE GetLastPresentChecksum() = 0;
+};
+static constexpr GUID IID_ID3D12SharingContractCompat = {
+    0x0adf7d52, 0x929c, 0x4e61,
+    {0xad, 0xdb, 0xff, 0xed, 0x30, 0xde, 0x66, 0xef}};
+
+class MTLD3D12SharingContract final : public ID3D12SharingContractCompat {
+public:
+  explicit MTLD3D12SharingContract(MTLD3D12Device *device) : m_device(device) {
+    if (m_device)
+      m_device->AddRef();
+  }
+  ~MTLD3D12SharingContract() {
+    if (m_device)
+      m_device->Release();
+  }
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid != IID_IUnknown && riid != IID_ID3D12SharingContractCompat)
+      return E_NOINTERFACE;
+    *object = static_cast<ID3D12SharingContractCompat *>(this);
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref_count; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG ref = --m_ref_count;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  void STDMETHODCALLTYPE Present(ID3D12Resource *resource, UINT subresource,
+                                 HWND window) override {
+    (void)window;
+    if (!resource || !m_device)
+      return;
+    ID3D12Device *owner = nullptr;
+    if (FAILED(resource->GetDevice(IID_ID3D12Device,
+                                   reinterpret_cast<void **>(&owner))) ||
+        owner != static_cast<ID3D12Device *>(m_device)) {
+      if (owner)
+        owner->Release();
+      return;
+    }
+    owner->Release();
+    D3D12_RESOURCE_DESC desc = {};
+    if (!resource->GetDesc(&desc) || desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+      return;
+    const UINT width = static_cast<UINT>(std::min<UINT64>(desc.Width, 1024));
+    const UINT height = std::max<UINT>(1, std::min<UINT>(desc.Height, 1024));
+    if (!width || !height)
+      return;
+    std::vector<uint8_t> pixels;
+    try {
+      pixels.resize(size_t(width) * height * 4u);
+    } catch (const std::bad_alloc &) {
+      return;
+    }
+    if (FAILED(resource->ReadFromSubresource(pixels.data(), width * 4u,
+                                             width * height * 4u, subresource,
+                                             nullptr)))
+      return;
+    uint64_t checksum = 1469598103934665603ull;
+    for (uint8_t byte : pixels) {
+      checksum ^= byte;
+      checksum *= 1099511628211ull;
+    }
+    std::lock_guard lock(m_mutex);
+    m_last_present_checksum = checksum;
+    ++m_present_count;
+  }
+  void STDMETHODCALLTYPE SharedFenceSignal(ID3D12Fence *fence,
+                                            UINT64 value) override {
+    if (!fence || !m_device)
+      return;
+    ID3D12Device *owner = nullptr;
+    if (FAILED(fence->GetDevice(IID_ID3D12Device,
+                                reinterpret_cast<void **>(&owner))) ||
+        owner != static_cast<ID3D12Device *>(m_device)) {
+      if (owner)
+        owner->Release();
+      return;
+    }
+    owner->Release();
+    fence->Signal(value);
+  }
+  void STDMETHODCALLTYPE BeginCapturableWork(REFGUID guid) override {
+    std::lock_guard lock(m_mutex);
+    const auto matches = [&guid](const GUID &value) {
+      return std::memcmp(&value, &guid, sizeof(guid)) == 0;
+    };
+    if (std::find_if(m_capturable_work.begin(), m_capturable_work.end(), matches) ==
+        m_capturable_work.end())
+      m_capturable_work.push_back(guid);
+  }
+  void STDMETHODCALLTYPE EndCapturableWork(REFGUID guid) override {
+    std::lock_guard lock(m_mutex);
+    const auto matches = [&guid](const GUID &value) {
+      return std::memcmp(&value, &guid, sizeof(guid)) == 0;
+    };
+    auto it = std::find_if(m_capturable_work.begin(), m_capturable_work.end(), matches);
+    if (it != m_capturable_work.end())
+      m_capturable_work.erase(it);
+  }
+  UINT64 STDMETHODCALLTYPE GetPresentCount() override {
+    std::lock_guard lock(m_mutex);
+    return m_present_count;
+  }
+  UINT64 STDMETHODCALLTYPE GetLastPresentChecksum() override {
+    std::lock_guard lock(m_mutex);
+    return m_last_present_checksum;
+  }
+
+private:
+  std::atomic<ULONG> m_ref_count = {1};
+  MTLD3D12Device *m_device = nullptr;
+  std::mutex m_mutex;
+  std::vector<GUID> m_capturable_work;
+  uint64_t m_last_present_checksum = 0;
+  uint64_t m_present_count = 0;
+};
+
 // Lifetime tracking is a CPU-side ownership protocol in D3D12.  Metal has no
 // matching object, but the protocol itself is independent of the provider:
 // retain the owner, accept an owned child, and release that child exactly once
@@ -5614,6 +5746,15 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::QueryInterface(REFIID riid,
     return CreateD3D12VideoDevice(this, riid, ppvObject);
   }
 
+  if (riid == IID_ID3D12SharingContractCompat) {
+    auto *sharing = new (std::nothrow) MTLD3D12SharingContract(this);
+    if (!sharing)
+      return E_OUTOFMEMORY;
+    HRESULT hr = sharing->QueryInterface(riid, ppvObject);
+    sharing->Release();
+    return hr;
+  }
+
   if (riid == IID_ID3D12DeviceStatisticsCompat) {
     auto *statistics = new (std::nothrow) MTLD3D12DeviceStatistics(this);
     if (!statistics)
@@ -6606,8 +6747,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CheckFeatureSupport(
     auto *o = (D3D12FeatureOptions17 *)feature_data;
     if (feature_data_size < sizeof(*o))
       return E_INVALIDARG;
-    memset(o, 0, sizeof(*o));
-    TRACE("  OPTIONS17: conservative unsupported");
+    o->NonNormalizedCoordinateSamplersSupported = FALSE;
+    // Upload/readback buffers expose the stable ManualWriteTrackingResource
+    // ABI and TrackWrite commits the written range through the same shared
+    // backing used by Unmap. Non-normalized samplers remain unsupported.
+    o->ManualWriteTrackingResourceSupported = TRUE;
+    TRACE("  OPTIONS17: NonNormalizedSamplers=%d ManualWriteTracking=%d",
+          o->NonNormalizedCoordinateSamplersSupported,
+          o->ManualWriteTrackingResourceSupported);
     return S_OK;
   }
   case 47: { // D3D12_FEATURE_D3D12_OPTIONS18

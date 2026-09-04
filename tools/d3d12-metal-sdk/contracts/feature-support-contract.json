@@ -406,6 +406,24 @@
       "risk": "Game captures must remain diagnostic; shader support claims require synthetic corpus coverage.",
       "state": "required",
       "tier": "required"
+    },
+    "D3D12_FEATURE_D3D12_OPTIONS17": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_manual_write_tracking",
+      "behavior_probes": [
+        "tools/d3d12-metal-sdk/probes/probe_manual_write_tracking"
+      ],
+      "probe_status": "manual_write_tracking_query_trackwrite_and_exact_upload_visibility_passed",
+      "reported": "partial",
+      "required_fields": [
+        "ManualWriteTrackingResourceSupported",
+        "NonNormalizedCoordinateSamplersSupported"
+      ],
+      "proven_subset": [
+        "upload-buffer TrackWrite and exact CPU/GPU-visible write-range behavior"
+      ],
+      "risk": "Manual write tracking is behavior-backed for upload/readback buffer resources. Non-normalized coordinate samplers and texture/write-watch breadth remain unsupported and are not reported.",
+      "state": "required",
+      "tier": "required"
     }
   },
   "purpose": "Keep D3D12 feature reports aligned with executable implementation reality.",
