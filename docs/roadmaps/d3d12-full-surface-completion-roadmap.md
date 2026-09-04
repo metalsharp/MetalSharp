@@ -364,7 +364,7 @@ red.
 - [x] Phase 3 — Resources, heaps, virtual memory, residency, and sharing
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
 - [x] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (280/280 required opcode rows observed; 0 open)
-- [ ] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (bounded provider matrix closed; exhaustive-feasible completion open — see [Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md))
+- [x] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (exhaustive-feasible ordinary-graphics matrix closed; see [Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md))
 - [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
 - [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
 - [ ] Phase 9 — D3D12 video provider
@@ -836,11 +836,12 @@ full table breadth, SER, OMM, and portable serialization remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
-**Goal:** Complete every legal ordinary-graphics combination that can be
-implemented on the Apple M4/Metal 4 host, with exact readbacks and explicit
-proof for any genuine host/toolchain no-go. The bounded provider contract in
-`phase6-graphics-coverage.json` is closed, but it is only the regression
-checkpoint. The exhaustive-feasible completion plan is
+**Status:** Closed for the declared ordinary-graphics surface. Every legal
+combination in the exhaustive-feasible manifest has a composed native,
+replay/lowering, or GPU-reference provider with exact fresh-prefix evidence;
+mesh/amplification/work graphs, DXR, video, protected resources, DSR, and
+presentation remain separate phases. The bounded provider contract remains the
+historical regression checkpoint. The closure record is
 [Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md).
 
 **Implemented provider matrix:**
@@ -850,17 +851,19 @@ checkpoint. The exhaustive-feasible completion plan is
   strip-cut expansion, and GraphicsCommandList8/9 state all have exact
   readback probes.
 - ROV semantics use Metal raster-order groups for raw/structured/typed
-  buffers and typed 2D/2D-array textures, with D32/D24S8 state coverage and
-  exact non-pixel/independent-logic rejection.
-- Conservative rasterization uses a CPU/GPU reference provider covering
-  clipping, winding, viewport/scissor, D32 depth, degenerate triangles, and
-  `SV_InnerCoverage`; VRS, view instancing, barycentrics, programmable sample
-  positions, writable MSAA, formats, native16, binary64 emulation, and dynamic
-  depth bias are each tied to their exact declared probes.
-- Unsupported line/MSAA/VRS/array conservative combinations, unverified
-  interpolation and raster-state variants, and resource/view combinations
-  outside the declared matrices remain explicitly fail-closed. They are not
-  converted into false capability reports or counted as silent success.
+  buffers and typed 1D/1D-array/2D/2D-array/3D/MSAA resources, with D32/D24S8
+  state coverage and exact non-pixel-stage validation. Independent-logic UAV/
+  ROV stores use a guarded exactly-once replay provider.
+- Conservative rasterization uses a GPU point-coverage reference provider
+  covering list/strip/fan, native 2x/4x, clipping, winding, viewport/scissor,
+  D32 depth, degenerate triangles, and `SV_InnerCoverage`; VRS, view
+  instancing, barycentrics, programmable sample positions, writable MSAA,
+  formats, native16, binary64 emulation, alpha-to-coverage, and dynamic depth
+  bias are each tied to exact declared probes.
+- Native target MSAA is advertised only for host counts 1/2/4; flattened
+  writable/ROV 8x is a separate provider. Invalid descriptors return exact
+  HRESULT/null-object pairs, while valid declared combinations are not
+  rejected as unfinished.
 
 **Exit gate:**
 
@@ -869,10 +872,10 @@ checkpoint. The exhaustive-feasible completion plan is
   ROV/VRS/barycentric/MSAA/format, and D3D10/D3D11 regression probes pass.
 - Feature queries are derived from those passing matrices, while every
   unverified combination remains unadvertised or rejects before execution.
-- Broader geometry/tessellation, conservative-raster, MSAA, and interpolation
-  expansion is tracked by the [exhaustive-feasible Phase 6 roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md).
-  The bounded contract must not be presented as final Phase 6 completion until
-  that roadmap's no-open-feasible-row gate passes.
+- The exhaustive manifest, all-options fresh-prefix gate, ABI/provenance
+  checks, and `--require-complete` validator report zero open legal classes
+  and zero unclassified legal values. Geometry-stage breadth is intentionally
+  owned by the separate Phase 7 geometry/tessellation work.
 
 ### Phase 7 — Complete mesh, amplification, work graphs, and node shaders
 
