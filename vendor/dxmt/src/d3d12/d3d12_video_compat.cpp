@@ -266,6 +266,127 @@ static bool VideoFormatBytesPerPixel(DXGI_FORMAT format, UINT *bytes) {
   }
 }
 
+static HRESULT CopyVideoProcessNV12ToRGBA8(
+    const VideoProcessOperation &operation, MTLD3D12Resource *input,
+    MTLD3D12Resource *output, const D3D12_RESOURCE_DESC &input_desc,
+    const D3D12_RESOURCE_DESC &output_desc) {
+  if (!input || !output || input_desc.Format != DXGI_FORMAT_NV12 ||
+      output_desc.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
+      operation.transform.Orientation !=
+          D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT)
+    return E_NOTIMPL;
+  const UINT input_mips = input_desc.MipLevels ? input_desc.MipLevels : 1;
+  const UINT output_mips = output_desc.MipLevels ? output_desc.MipLevels : 1;
+  const UINT input_arrays =
+      input_desc.DepthOrArraySize ? input_desc.DepthOrArraySize : 1;
+  const UINT output_arrays =
+      output_desc.DepthOrArraySize ? output_desc.DepthOrArraySize : 1;
+  if (operation.input_subresource >= input_mips * input_arrays ||
+      operation.output_subresource >= output_mips * output_arrays)
+    return E_INVALIDARG;
+  const UINT input_mip = operation.input_subresource % input_mips;
+  const UINT output_mip = operation.output_subresource % output_mips;
+  const UINT input_width = std::max<UINT>(1, input_desc.Width >> input_mip);
+  const UINT input_height = std::max<UINT>(1, input_desc.Height >> input_mip);
+  const UINT output_width = std::max<UINT>(1, output_desc.Width >> output_mip);
+  const UINT output_height = std::max<UINT>(1, output_desc.Height >> output_mip);
+  const UINT uv_width = std::max<UINT>(1, (input_width + 1) / 2);
+  const UINT uv_height = std::max<UINT>(1, (input_height + 1) / 2);
+  std::vector<uint8_t> y_plane;
+  std::vector<uint8_t> uv_plane;
+  std::vector<uint8_t> output_pixels;
+  try {
+    y_plane.resize(uint64_t(input_width) * input_height);
+    uv_plane.resize(uint64_t(uv_width) * uv_height * 2u);
+    output_pixels.resize(uint64_t(output_width) * output_height * 4u);
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
+  HRESULT hr = input->ReadFromSubresource(
+      y_plane.data(), input_width, input_width * input_height,
+      operation.input_subresource, nullptr);
+  if (FAILED(hr))
+    return hr;
+  const UINT input_base_subresources = input_mips * input_arrays;
+  hr = input->ReadFromSubresource(
+      uv_plane.data(), uv_width * 2u, uv_width * uv_height * 2u,
+      input_base_subresources + operation.input_subresource, nullptr);
+  if (FAILED(hr))
+    return hr;
+  const UINT output_row = output_width * 4u;
+  hr = output->ReadFromSubresource(
+      output_pixels.data(), output_row, output_row * output_height,
+      operation.output_subresource, nullptr);
+  if (FAILED(hr))
+    return hr;
+
+  RECT source = {0, 0, static_cast<LONG>(input_width),
+                 static_cast<LONG>(input_height)};
+  RECT destination = {0, 0, static_cast<LONG>(output_width),
+                      static_cast<LONG>(output_height)};
+  if (operation.transform.SourceRectangle.right >
+          operation.transform.SourceRectangle.left &&
+      operation.transform.SourceRectangle.bottom >
+          operation.transform.SourceRectangle.top)
+    source = operation.transform.SourceRectangle;
+  if (operation.transform.DestinationRectangle.right >
+          operation.transform.DestinationRectangle.left &&
+      operation.transform.DestinationRectangle.bottom >
+          operation.transform.DestinationRectangle.top)
+    destination = operation.transform.DestinationRectangle;
+  if (operation.target.right > operation.target.left &&
+      operation.target.bottom > operation.target.top)
+    destination = operation.target;
+  if (source.left < 0 || source.top < 0 ||
+      source.right > static_cast<LONG>(input_width) ||
+      source.bottom > static_cast<LONG>(input_height) || destination.left < 0 ||
+      destination.top < 0 || destination.right > static_cast<LONG>(output_width) ||
+      destination.bottom > static_cast<LONG>(output_height))
+    return E_INVALIDARG;
+  const UINT source_width = static_cast<UINT>(source.right - source.left);
+  const UINT source_height = static_cast<UINT>(source.bottom - source.top);
+  const UINT destination_width =
+      static_cast<UINT>(destination.right - destination.left);
+  const UINT destination_height =
+      static_cast<UINT>(destination.bottom - destination.top);
+  if (!source_width || !source_height || !destination_width ||
+      !destination_height)
+    return E_INVALIDARG;
+  auto clamp_byte = [](int value) -> uint8_t {
+    return static_cast<uint8_t>(std::clamp(value, 0, 255));
+  };
+  for (UINT y = 0; y < destination_height; ++y) {
+    const UINT source_y = static_cast<UINT>(source.top) +
+                          (uint64_t(y) * source_height) / destination_height;
+    for (UINT x = 0; x < destination_width; ++x) {
+      const UINT source_x = static_cast<UINT>(source.left) +
+                            (uint64_t(x) * source_width) / destination_width;
+      const uint8_t y_value = y_plane[uint64_t(source_y) * input_width +
+                                      source_x];
+      const uint64_t uv_index =
+          (uint64_t(source_y / 2u) * uv_width + source_x / 2u) * 2u;
+      const int chroma_u = static_cast<int>(uv_plane[uv_index]);
+      const int chroma_v = static_cast<int>(uv_plane[uv_index + 1u]);
+      const int c = static_cast<int>(y_value) - 16;
+      const int d = chroma_u - 128;
+      const int e = chroma_v - 128;
+      const uint8_t red = clamp_byte((298 * c + 409 * e + 128) >> 8);
+      const uint8_t green = clamp_byte((298 * c - 100 * d - 208 * e + 128) >> 8);
+      const uint8_t blue = clamp_byte((298 * c + 516 * d + 128) >> 8);
+      uint8_t *pixel = output_pixels.data() +
+                       uint64_t(destination.top + y) * output_row +
+                       uint64_t(destination.left + x) * 4u;
+      pixel[0] = red;
+      pixel[1] = green;
+      pixel[2] = blue;
+      pixel[3] = 255;
+    }
+  }
+  return output->WriteToSubresource(operation.output_subresource, nullptr,
+                                    output_pixels.data(), output_row,
+                                    output_row * output_height);
+}
+
 static HRESULT CopyVideoProcessFrame(const VideoProcessOperation &operation) {
   if (!operation.processor || !operation.input || !operation.output)
     return E_INVALIDARG;
@@ -285,6 +406,9 @@ static HRESULT CopyVideoProcessFrame(const VideoProcessOperation &operation) {
       output_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
       input_desc.SampleDesc.Count != 1 || output_desc.SampleDesc.Count != 1)
     return E_NOTIMPL;
+  if (input_desc.Format == DXGI_FORMAT_NV12)
+    return CopyVideoProcessNV12ToRGBA8(operation, input, output, input_desc,
+                                       output_desc);
   UINT input_bpp = 0;
   UINT output_bpp = 0;
   if (!VideoFormatBytesPerPixel(input_desc.Format, &input_bpp) ||

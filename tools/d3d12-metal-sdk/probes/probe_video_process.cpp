@@ -45,12 +45,14 @@ int main() {
     ID3D12Device* device = nullptr;
     ID3D12VideoDevice* video = nullptr;
     ID3D12VideoProcessor* processor = nullptr;
+    ID3D12VideoProcessor* nv12_processor = nullptr;
     ID3D12CommandQueue* queue = nullptr;
     ID3D12CommandAllocator* allocator = nullptr;
     ID3D12VideoProcessCommandList* command_list = nullptr;
     ID3D12Fence* fence = nullptr;
     HANDLE event = nullptr;
     ID3D12Resource* input = nullptr;
+    ID3D12Resource* nv12_input = nullptr;
     ID3D12Resource* output = nullptr;
 
     HRESULT create_hr = create_device
@@ -71,6 +73,14 @@ int main() {
                                                              kIIDVideoProcessor,
                                                              reinterpret_cast<void**>(&processor))
                                : video_hr;
+    D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC nv12_input_desc = input_desc;
+    nv12_input_desc.Format = DXGI_FORMAT_NV12;
+    HRESULT nv12_processor_hr = video_hr == S_OK
+                                    ? video->CreateVideoProcessor(
+                                          1, &output_desc, 1,
+                                          &nv12_input_desc, kIIDVideoProcessor,
+                                          reinterpret_cast<void**>(&nv12_processor))
+                                    : video_hr;
 
     D3D12_COMMAND_QUEUE_DESC queue_desc = {};
     queue_desc.Type = D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS;
@@ -105,7 +115,7 @@ int main() {
     D3D12_RESOURCE_DESC output_resource_desc = input_resource_desc;
     output_resource_desc.Width = 4;
     output_resource_desc.Height = 4;
-    output_resource_desc.DepthOrArraySize = 2;
+    output_resource_desc.DepthOrArraySize = 3;
     HRESULT input_resource_hr = device
                                     ? device->CreateCommittedResource(
                                           &heap, D3D12_HEAP_FLAG_NONE,
@@ -120,12 +130,31 @@ int main() {
                                            D3D12_RESOURCE_STATE_COMMON, nullptr,
                                            IID_PPV_ARGS(&output))
                                      : E_FAIL;
+    D3D12_RESOURCE_DESC nv12_resource_desc = input_resource_desc;
+    nv12_resource_desc.Format = DXGI_FORMAT_NV12;
+    HRESULT nv12_resource_hr = device
+                                   ? device->CreateCommittedResource(
+                                         &heap, D3D12_HEAP_FLAG_NONE,
+                                         &nv12_resource_desc,
+                                         D3D12_RESOURCE_STATE_COMMON, nullptr,
+                                         IID_PPV_ARGS(&nv12_input))
+                                   : E_FAIL;
     const uint32_t input_pixels[4] = {
         0xff0000ffu, 0xff00ff00u, 0xffff0000u, 0xffffffffu};
     HRESULT input_write_hr = input
                                  ? input->WriteToSubresource(
                                        0, nullptr, input_pixels, 2 * 4, 2 * 2 * 4)
                                  : E_FAIL;
+    const uint8_t nv12_y[4] = {16, 235, 81, 145};
+    const uint8_t nv12_uv[2] = {128, 128};
+    HRESULT nv12_y_write_hr = nv12_input
+                                  ? nv12_input->WriteToSubresource(
+                                        0, nullptr, nv12_y, 2, 4)
+                                  : E_FAIL;
+    HRESULT nv12_uv_write_hr = nv12_input
+                                   ? nv12_input->WriteToSubresource(
+                                         1, nullptr, nv12_uv, 2, 2)
+                                   : E_FAIL;
 
     D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS output_arguments = {};
     output_arguments.OutputStream[0].pTexture2D = output;
@@ -150,6 +179,18 @@ int main() {
         command_list->ProcessFrames(
             processor, &rotated_output_arguments, 1,
             &rotated_input_arguments);
+    D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS nv12_output_arguments =
+        output_arguments;
+    nv12_output_arguments.OutputStream[0].Subresource = 2;
+    D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS nv12_input_arguments = {};
+    nv12_input_arguments.InputStream[0].pTexture2D = nv12_input;
+    nv12_input_arguments.InputStream[0].Subresource = 0;
+    nv12_input_arguments.Transform.SourceRectangle = {0, 0, 2, 2};
+    nv12_input_arguments.Transform.DestinationRectangle = {0, 0, 4, 4};
+    if (command_list && nv12_processor && SUCCEEDED(nv12_y_write_hr) &&
+        SUCCEEDED(nv12_uv_write_hr))
+        command_list->ProcessFrames(nv12_processor, &nv12_output_arguments, 1,
+                                     &nv12_input_arguments);
     HRESULT close_hr = command_list ? command_list->Close() : E_FAIL;
     if (queue && command_list && SUCCEEDED(close_hr)) {
         ID3D12CommandList* lists[] = {
@@ -166,6 +207,7 @@ int main() {
                             : WAIT_FAILED;
     uint32_t output_pixels[16] = {};
     uint32_t rotated_pixels[16] = {};
+    uint32_t nv12_pixels[16] = {};
     HRESULT output_read_hr = output
                                  ? output->ReadFromSubresource(
                                        output_pixels, 4 * 4, 4 * 4 * 4, 0, nullptr)
@@ -175,6 +217,10 @@ int main() {
                                         rotated_pixels, 4 * 4, 4 * 4 * 4, 1,
                                         nullptr)
                                   : E_FAIL;
+    HRESULT nv12_read_hr = output
+                               ? output->ReadFromSubresource(
+                                     nv12_pixels, 4 * 4, 4 * 4 * 4, 2, nullptr)
+                               : E_FAIL;
     const bool scaled = SUCCEEDED(output_read_hr) &&
                         output_pixels[0] == input_pixels[0] &&
                         output_pixels[1] == input_pixels[0] &&
@@ -190,14 +236,24 @@ int main() {
                          rotated_pixels[3] == input_pixels[2] &&
                          rotated_pixels[12] == input_pixels[1] &&
                          rotated_pixels[15] == input_pixels[0];
+    const bool nv12_converted = SUCCEEDED(nv12_read_hr) &&
+                                nv12_pixels[0] == 0xff000000u &&
+                                nv12_pixels[2] == 0xffffffffu &&
+                                nv12_pixels[8] == 0xff4c4c4cu &&
+                                nv12_pixels[10] == 0xff969696u &&
+                                nv12_pixels[15] == 0xff969696u;
     const bool passed = create_hr == S_OK && video_hr == S_OK &&
-                        processor_hr == S_OK && queue_hr == S_OK &&
+                        processor_hr == S_OK && nv12_processor_hr == S_OK &&
+                        queue_hr == S_OK &&
                         allocator_hr == S_OK && list_hr == S_OK &&
                         input_resource_hr == S_OK && output_resource_hr == S_OK &&
-                        input_write_hr == S_OK && close_hr == S_OK &&
-                        fence_hr == S_OK && signal_hr == S_OK && event_hr == S_OK &&
+                        input_write_hr == S_OK && nv12_resource_hr == S_OK &&
+                        nv12_y_write_hr == S_OK && nv12_uv_write_hr == S_OK &&
+                        close_hr == S_OK && fence_hr == S_OK &&
+                        signal_hr == S_OK && event_hr == S_OK &&
                         wait_result == WAIT_OBJECT_0 && output_read_hr == S_OK &&
-                        rotated_read_hr == S_OK && scaled && rotated;
+                        rotated_read_hr == S_OK && nv12_read_hr == S_OK &&
+                        scaled && rotated && nv12_converted;
 
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.video-process.v1\",\n");
@@ -205,12 +261,20 @@ int main() {
     std::printf("  \"create_device\": \"0x%08lx\",\n", hr_value(create_hr));
     std::printf("  \"query_video_device\": \"0x%08lx\",\n", hr_value(video_hr));
     std::printf("  \"create_processor\": \"0x%08lx\",\n", hr_value(processor_hr));
+    std::printf("  \"create_nv12_processor\": \"0x%08lx\",\n",
+                hr_value(nv12_processor_hr));
     std::printf("  \"create_video_queue\": \"0x%08lx\",\n", hr_value(queue_hr));
     std::printf("  \"create_video_command_list\": \"0x%08lx\",\n", hr_value(list_hr));
     std::printf("  \"close\": \"0x%08lx\",\n", hr_value(close_hr));
     std::printf("  \"create_input\": \"0x%08lx\",\n", hr_value(input_resource_hr));
     std::printf("  \"create_output\": \"0x%08lx\",\n", hr_value(output_resource_hr));
+    std::printf("  \"create_nv12_input\": \"0x%08lx\",\n",
+                hr_value(nv12_resource_hr));
     std::printf("  \"input_write\": \"0x%08lx\",\n", hr_value(input_write_hr));
+    std::printf("  \"nv12_y_write\": \"0x%08lx\",\n",
+                hr_value(nv12_y_write_hr));
+    std::printf("  \"nv12_uv_write\": \"0x%08lx\",\n",
+                hr_value(nv12_uv_write_hr));
     std::printf("  \"create_fence\": \"0x%08lx\",\n", hr_value(fence_hr));
     std::printf("  \"signal\": \"0x%08lx\",\n", hr_value(signal_hr));
     std::printf("  \"event_completion\": \"0x%08lx\",\n", hr_value(event_hr));
@@ -221,6 +285,10 @@ int main() {
                 hr_value(rotated_read_hr));
     std::printf("  \"output_rotated_exact\": %s,\n",
                 rotated ? "true" : "false");
+    std::printf("  \"output_nv12_readback\": \"0x%08lx\",\n",
+                hr_value(nv12_read_hr));
+    std::printf("  \"output_nv12_exact\": %s,\n",
+                nv12_converted ? "true" : "false");
     std::printf("  \"output_pixels\": [");
     for (size_t i = 0; i < 16; ++i)
         std::printf("\"0x%08x\"%s", output_pixels[i],
@@ -231,6 +299,11 @@ int main() {
         std::printf("\"0x%08x\"%s", rotated_pixels[i],
                     i + 1 == 16 ? "" : ",");
     std::printf("],\n");
+    std::printf("  \"output_nv12_pixels\": [");
+    for (size_t i = 0; i < 16; ++i)
+        std::printf("\"0x%08x\"%s", nv12_pixels[i],
+                    i + 1 == 16 ? "" : ",");
+    std::printf("],\n");
     std::printf("  \"gpu_execution\": false,\n");
     std::printf("  \"provider_scope\": \"CPU-reference-video-process\"\n");
     std::printf("}\n");
@@ -238,11 +311,13 @@ int main() {
     if (event)
         CloseHandle(event);
     release(output);
+    release(nv12_input);
     release(input);
     release(fence);
     release(command_list);
     release(allocator);
     release(queue);
+    release(nv12_processor);
     release(processor);
     release(device);
     if (module)
