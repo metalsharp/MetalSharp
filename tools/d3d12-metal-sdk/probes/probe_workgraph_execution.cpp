@@ -247,7 +247,9 @@ int main() {
     bool multi_dispatch_ordering_exact = false;
     bool cross_queue_dispatch_exact = false;
     bool cross_queue_gpu_dependency_exact = false;
+    bool cross_queue_repeated_gpu_dependency_exact = false;
     uint32_t cross_queue_values[2] = {};
+    uint32_t cross_queue_repeated_values[2] = {};
     bool dxil_node_shader_readback_exact = false;
     bool dxil_node_shader_uav_binding_exact = false;
     bool node_table_uav_exact = false;
@@ -1325,7 +1327,8 @@ int main() {
 
     // Submit the GPU-input consumer before its producer, with no intervening
     // host completion wait. The queue fence must make the new record visible.
-    if (SUCCEEDED(hr) && cross_queue_dispatch_exact) {
+    for (unsigned multi = 0; multi < 2 && SUCCEEDED(hr) && cross_queue_dispatch_exact; ++multi) {
+        uint32_t* cycle_values = multi ? cross_queue_repeated_values : cross_queue_values;
         ID3D12Fence* dependency = nullptr;
         ID3D12Fence* completion = nullptr;
         HANDLE event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
@@ -1360,7 +1363,7 @@ int main() {
         }
         if (SUCCEEDED(hr)) hr = allocator->Reset();
         if (SUCCEEDED(hr)) hr = base_list->Reset(allocator, nullptr);
-        const uint32_t producer_record = 123;
+        const uint32_t producer_record = multi ? 234 : 123;
         if (SUCCEEDED(hr)) {
             DispatchGraphDesc producer_dispatch = {};
             producer_dispatch.Mode = 0;
@@ -1371,27 +1374,32 @@ int main() {
             list->DispatchGraph(&producer_dispatch);
             hr = base_list->Close();
         }
-        if (SUCCEEDED(hr)) hr = compute_queue->Wait(dependency, 1);
+        if (SUCCEEDED(hr)) hr = compute_queue->Wait(dependency, multi + 1);
         if (SUCCEEDED(hr)) {
             ID3D12CommandList* consumer_lists[] = {compute_base_list};
             compute_queue->ExecuteCommandLists(1, consumer_lists);
             ID3D12CommandList* producer_lists[] = {base_list};
             queue->ExecuteCommandLists(1, producer_lists);
-            hr = queue->Signal(dependency, 1);
-            if (SUCCEEDED(hr)) hr = compute_queue->Signal(completion, 1);
-            if (SUCCEEDED(hr)) hr = completion->SetEventOnCompletion(1, event);
+            hr = queue->Signal(dependency, multi + 1);
+            if (SUCCEEDED(hr)) hr = compute_queue->Signal(completion, multi + 1);
+            if (SUCCEEDED(hr)) hr = completion->SetEventOnCompletion(multi + 1, event);
             if (SUCCEEDED(hr) && WaitForSingleObject(event, 5000) != WAIT_OBJECT_0)
                 hr = E_FAIL;
             if (SUCCEEDED(hr))
                 hr = node_output->ReadFromSubresource(
-                    cross_queue_values, sizeof(cross_queue_values),
+                    cycle_values, sizeof(cross_queue_values),
                     sizeof(cross_queue_values), 0, nullptr);
             if (SUCCEEDED(hr)) {
-                cross_queue_gpu_dependency_exact =
-                    cross_queue_values[0] == producer_record + 2u &&
-                    cross_queue_values[1] == ((producer_record + 1u) ^ 0x57475250u);
+                bool& exact = multi ? cross_queue_repeated_gpu_dependency_exact
+                                    : cross_queue_gpu_dependency_exact;
+                exact = cycle_values[0] == producer_record + 2u &&
+                    cycle_values[1] == ((producer_record + 1u) ^ 0x57475250u);
             }
         }
+        std::fprintf(stderr, "crossqueue cycle=%u hr=%08lx dependency=%llu completion=%llu\n",
+                     multi, static_cast<unsigned long>(hr),
+                     dependency ? dependency->GetCompletedValue() : 0,
+                     completion ? completion->GetCompletedValue() : 0);
         if (event) CloseHandle(event);
         release(completion);
         release(dependency);
@@ -1406,6 +1414,7 @@ int main() {
         multi_node_negative_unchanged && node_local_table_validation_exact &&
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
         cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
+        cross_queue_repeated_gpu_dependency_exact &&
         node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
         dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
@@ -1441,8 +1450,12 @@ int main() {
                 cross_queue_dispatch_exact ? "true" : "false");
     std::printf("  \"cross_queue_gpu_dependency_exact\": %s,\n",
                 cross_queue_gpu_dependency_exact ? "true" : "false");
+    std::printf("  \"cross_queue_repeated_gpu_dependency_exact\": %s,\n",
+                cross_queue_repeated_gpu_dependency_exact ? "true" : "false");
     std::printf("  \"cross_queue_values\": [%u, %u],\n",
                 cross_queue_values[0], cross_queue_values[1]);
+    std::printf("  \"cross_queue_repeated_values\": [%u, %u],\n",
+                cross_queue_repeated_values[0], cross_queue_repeated_values[1]);
     std::printf("  \"node_local_table_validation_exact\": %s,\n",
                 node_local_table_validation_exact ? "true" : "false");
     std::printf("  \"backing_overflow_unchanged\": %s,\n",
@@ -1523,6 +1536,7 @@ int main() {
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
                    backing_overflow_unchanged && multi_dispatch_ordering_exact &&
                    cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
+                   cross_queue_repeated_gpu_dependency_exact &&
                    node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
                    dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&

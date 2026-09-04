@@ -917,6 +917,15 @@ before its direct producer with `Queue::Wait/Signal`, then verifies the GPU-writ
 record yields `[125, 1464291884]` without an intervening host completion wait.
 Outstanding waits are encoded into dependent Metal execution/signaling buffers;
 a standalone wait buffer previously allowed the stale record to yield `19`.
+The repeated-cycle regression additionally checks reuse of the same compute
+queue with a new producer record and new fences, yielding `[236, 1464292027]`.
+The one-command-buffer native queue stalled the second completion fence; raising
+its capacity to 64 passes this bounded reuse case. This does not establish
+unbounded wait depth or general multi-input GPU descriptor/payload ordering.
+Development evidence: `/private/tmp/metalsharp-phase7-abi/repeat-work-graph/`,
+`repeat-queues/`, and `capacity-stage/` (strict ABI audit). The earlier
+`two-single/` and `two-values/` failures and `two-queues/` fresh-queue control
+are retained. This dirty-source sandbox is not clean-release provenance.
 This is a bounded single-record reference-kernel dependency proof, not arbitrary
 graph synchronization coverage. Final Work Graph and ordinary queue probes
 passed against the rebuilt sandbox, together with the strict Winemetal ABI

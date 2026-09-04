@@ -11202,7 +11202,9 @@ MTLD3D12CommandQueue::MTLD3D12CommandQueue(MTLD3D12Device *device,
     : m_device(device), m_queue(queue), m_desc(desc) {
   m_device->AddRef();
   auto wmt_dev = m_device->GetDXMTDevice().device();
-  m_wmt_queue = wmt_dev.newCommandQueue(1);
+  // A queue wait, its dependent work and fence signals must coexist in flight.
+  // A one-buffer queue stalls completion on repeated cross-queue dependencies.
+  m_wmt_queue = wmt_dev.newCommandQueue(64);
   m_wmt4_queue = wmt_dev.newMTL4CommandQueue();
   m_barrier_event = wmt_dev.newEvent();
   m_completion_event = wmt_dev.newSharedEvent();
