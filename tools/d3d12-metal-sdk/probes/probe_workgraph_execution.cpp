@@ -191,6 +191,7 @@ int main() {
     ID3D12GraphicsCommandList* base_list = nullptr;
     dxmt::GraphicsCommandList10Extension* list = nullptr;
     ID3D12Resource* backing = nullptr;
+    ID3D12Resource* node_local_table = nullptr;
     ID3D12Resource* gpu_records = nullptr;
     ID3D12Resource* gpu_input_desc = nullptr;
     ID3D12Resource* gpu_multi_input_desc = nullptr;
@@ -206,6 +207,8 @@ int main() {
     bool multi_cpu_pointer_free = false;
     bool multi_gpu_readback_ok = false;
     bool multi_node_negative_unchanged = false;
+    bool node_local_table_validation_exact = false;
+    bool backing_overflow_unchanged = false;
     bool multi_dispatch_ordering_exact = false;
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
@@ -230,6 +233,13 @@ int main() {
         hr = device->CreateCommittedResource(
             &heap, D3D12_HEAP_FLAG_NONE, &resource_desc,
             D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&backing));
+    if (SUCCEEDED(hr)) {
+        auto node_table_desc = buffer_desc(64);
+        hr = device->CreateCommittedResource(
+            &heap, D3D12_HEAP_FLAG_NONE, &node_table_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&node_local_table));
+    }
     struct NodeGPUInputCompat {
         UINT EntrypointIndex;
         UINT NumRecords;
@@ -368,6 +378,12 @@ int main() {
                 sizeof(identifier));
     set_program.WorkGraph.BackingMemory.StartAddress = backing->GetGPUVirtualAddress();
     set_program.WorkGraph.BackingMemory.SizeInBytes = 256;
+    set_program.WorkGraph.NodeLocalRootArgumentsTable.StartAddress =
+        node_local_table ? node_local_table->GetGPUVirtualAddress() : 0;
+    set_program.WorkGraph.NodeLocalRootArgumentsTable.SizeInBytes =
+        node_local_table ? 64 : 0;
+    set_program.WorkGraph.NodeLocalRootArgumentsTable.StrideInBytes =
+        node_local_table ? 32 : 0;
     DispatchGraphDesc dispatch = {};
     dispatch.Mode = 0;
     dispatch.NodeCPUInput.EntrypointIndex = 0;
@@ -551,6 +567,74 @@ int main() {
     }
 
     if (multi_node_negative_unchanged && allocator && base_list && list) {
+        const uint32_t valid_record = 73;
+        SetProgramDesc invalid_table_program = set_program;
+        invalid_table_program.WorkGraph.NodeLocalRootArgumentsTable.StrideInBytes = 0;
+        NodeCPUInput valid_input = {};
+        valid_input.EntrypointIndex = 0;
+        valid_input.NumRecords = 1;
+        valid_input.Records = &valid_record;
+        valid_input.RecordStrideInBytes = sizeof(valid_record);
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc valid_dispatch = {};
+            valid_dispatch.Mode = 0;
+            valid_dispatch.NodeCPUInput = valid_input;
+            list->SetProgram(&invalid_table_program);
+            list->DispatchGraph(&valid_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                uint32_t after_invalid_table[8] = {};
+                std::memcpy(after_invalid_table, mapped,
+                            sizeof(after_invalid_table));
+                backing->Unmap(0, nullptr);
+                node_local_table_validation_exact =
+                    std::memcmp(after_invalid_table, multi_gpu_values,
+                                sizeof(after_invalid_table)) == 0;
+            }
+        }
+
+        const uint32_t overflow_records[2] = {201, 202};
+        NodeCPUInput overflow_input = {};
+        overflow_input.EntrypointIndex = 0;
+        overflow_input.NumRecords = 2;
+        overflow_input.Records = overflow_records;
+        overflow_input.RecordStrideInBytes = sizeof(overflow_records[0]);
+        SetProgramDesc overflow_program = set_program;
+        overflow_program.WorkGraph.BackingMemory.SizeInBytes = 8;
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc overflow_dispatch = {};
+            overflow_dispatch.Mode = 0;
+            overflow_dispatch.NodeCPUInput = overflow_input;
+            list->SetProgram(&overflow_program);
+            list->DispatchGraph(&overflow_dispatch);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                uint32_t after_overflow[8] = {};
+                std::memcpy(after_overflow, mapped, sizeof(after_overflow));
+                backing->Unmap(0, nullptr);
+                backing_overflow_unchanged =
+                    std::memcmp(after_overflow, multi_gpu_values,
+                                sizeof(after_overflow)) == 0;
+            }
+        }
+    }
+
+    if (multi_node_negative_unchanged && backing_overflow_unchanged &&
+        allocator && base_list && list) {
         const uint32_t first_ordered_record = 5;
         const uint32_t second_ordered_record = 101;
         NodeCPUInput first_ordered = {};
@@ -598,7 +682,8 @@ int main() {
     const bool all_readbacks =
         readback_ok && gpu_input_readback_ok && multi_cpu_readback_ok &&
         multi_cpu_pointer_free && multi_gpu_readback_ok &&
-        multi_node_negative_unchanged && multi_dispatch_ordering_exact;
+        multi_node_negative_unchanged && node_local_table_validation_exact &&
+        backing_overflow_unchanged && multi_dispatch_ordering_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
@@ -619,6 +704,10 @@ int main() {
                 multi_node_negative_unchanged ? "true" : "false");
     std::printf("  \"multi_dispatch_ordering_exact\": %s,\n",
                 multi_dispatch_ordering_exact ? "true" : "false");
+    std::printf("  \"node_local_table_validation_exact\": %s,\n",
+                node_local_table_validation_exact ? "true" : "false");
+    std::printf("  \"backing_overflow_unchanged\": %s,\n",
+                backing_overflow_unchanged ? "true" : "false");
     std::printf("  \"multi_node_cpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
                 multi_cpu_values[0], multi_cpu_values[1], multi_cpu_values[2],
                 multi_cpu_values[3], multi_cpu_values[4], multi_cpu_values[5],
@@ -634,6 +723,7 @@ int main() {
     release(gpu_multi_input_desc);
     release(gpu_input_desc);
     release(gpu_records);
+    release(node_local_table);
     release(backing);
     release(list);
     release(base_list);
@@ -646,7 +736,8 @@ int main() {
     return SUCCEEDED(hr) && properties_ok && readback_ok &&
                    gpu_input_readback_ok && multi_cpu_readback_ok &&
                    multi_cpu_pointer_free && multi_gpu_readback_ok &&
-                   multi_node_negative_unchanged && multi_dispatch_ordering_exact
+                   multi_node_negative_unchanged && node_local_table_validation_exact &&
+                   backing_overflow_unchanged && multi_dispatch_ordering_exact
                ? 0
                : 1;
 }
