@@ -58,6 +58,10 @@
         ["backing_overflow_unchanged"],
         ["node_shader_bytecode_loaded"],
         ["dxil_node_shader_readback_exact"],
+        ["node_multi_bytecode_loaded"],
+        ["dxil_multi_node_readback_exact"],
+        ["dxil_node_shader_values", [2882400001, 305419896]],
+        ["dxil_multi_node_values", [572662306, 3149594626]],
         ["record_count", 3],
         ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]
