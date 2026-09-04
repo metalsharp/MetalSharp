@@ -10,6 +10,7 @@
 #include <atomic>
 #include <array>
 #include <memory>
+#include <vector>
 
 namespace dxmt {
 
@@ -128,6 +129,12 @@ private:
   DXGI_SWAP_CHAIN_DESC1 m_desc = {};
   DXGI_SWAP_CHAIN_FULLSCREEN_DESC m_fs_desc = {};
   DXGI_COLOR_SPACE_TYPE m_color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+  DXGI_RGBA m_background_color = {};
+  DXGI_MODE_ROTATION m_rotation = DXGI_MODE_ROTATION_IDENTITY;
+  DXGI_MATRIX_3X2_F m_matrix_transform = {
+      1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+  DXGI_HDR_METADATA_TYPE m_hdr_metadata_type = DXGI_HDR_METADATA_TYPE_NONE;
+  std::vector<uint8_t> m_hdr_metadata;
   Com<IDXGIOutput> m_fullscreen_target;
   UINT m_source_width = 0;
   UINT m_source_height = 0;

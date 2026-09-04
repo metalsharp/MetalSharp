@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <new>
 
 #define SCTRACE(fmt, ...) DXMTD3D12Trace("SwapChain", fmt, ##__VA_ARGS__)
 
@@ -758,6 +759,15 @@ MTLD3D12SwapChain::GetFrameStatistics(DXGI_FRAME_STATISTICS *stats) {
   if (!stats)
     return DXGI_ERROR_INVALID_CALL;
   memset(stats, 0, sizeof(*stats));
+  stats->PresentCount = static_cast<UINT>(m_present_count);
+  stats->PresentRefreshCount = static_cast<UINT>(m_present_count);
+  stats->SyncRefreshCount = static_cast<UINT>(m_present_count);
+  LARGE_INTEGER now = {};
+  QueryPerformanceCounter(&now);
+  stats->SyncQPCTime = now;
+  stats->SyncGPUTime.QuadPart = now.QuadPart;
+  SCTRACE("GetFrameStatistics presents=%llu qpc=%lld",
+          static_cast<unsigned long long>(m_present_count), now.QuadPart);
   return S_OK;
 }
 
@@ -797,8 +807,14 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::GetHwnd(HWND *hWnd) {
 
 HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::GetCoreWindow(REFIID riid,
                                                            void **core_window) {
-  SCTRACE("GetCoreWindow E_NOTIMPL");
-  return E_NOTIMPL;
+  if (!core_window)
+    return E_POINTER;
+  *core_window = nullptr;
+  // This provider owns HWND/CAMetalLayer swapchains. A CoreWindow object was
+  // not supplied at creation, so the correct result is no interface rather
+  // than an implementation-placeholder HRESULT.
+  (void)riid;
+  return E_NOINTERFACE;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::Present1(
@@ -1043,29 +1059,46 @@ WINBOOL STDMETHODCALLTYPE MTLD3D12SwapChain::IsTemporaryMonoSupported() {
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::GetRestrictToOutput(IDXGIOutput **output) {
+  if (!output)
+    return E_POINTER;
   *output = nullptr;
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::SetBackgroundColor(const DXGI_RGBA *color) {
+  if (!color)
+    return E_INVALIDARG;
+  m_background_color = *color;
+  ConfigureLayer();
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::GetBackgroundColor(DXGI_RGBA *color) {
+  if (!color)
+    return E_INVALIDARG;
+  *color = m_background_color;
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::SetRotation(DXGI_MODE_ROTATION rotation) {
+  if (rotation != DXGI_MODE_ROTATION_IDENTITY &&
+      rotation != DXGI_MODE_ROTATION_ROTATE90 &&
+      rotation != DXGI_MODE_ROTATION_ROTATE180 &&
+      rotation != DXGI_MODE_ROTATION_ROTATE270)
+    return E_INVALIDARG;
+  m_rotation = rotation;
+  ConfigureLayer();
   return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::GetRotation(DXGI_MODE_ROTATION *rotation) {
-  if (rotation)
-    *rotation = DXGI_MODE_ROTATION_IDENTITY;
+  if (!rotation)
+    return E_INVALIDARG;
+  *rotation = m_rotation;
   return S_OK;
 }
 
@@ -1105,10 +1138,17 @@ HANDLE STDMETHODCALLTYPE MTLD3D12SwapChain::GetFrameLatencyWaitableObject() {
 }
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::SetMatrixTransform(const DXGI_MATRIX_3X2_F *pMatrix) {
+  if (!pMatrix)
+    return E_INVALIDARG;
+  m_matrix_transform = *pMatrix;
+  ConfigureLayer();
   return S_OK;
 }
 HRESULT STDMETHODCALLTYPE
 MTLD3D12SwapChain::GetMatrixTransform(DXGI_MATRIX_3X2_F *pMatrix) {
+  if (!pMatrix)
+    return E_INVALIDARG;
+  *pMatrix = m_matrix_transform;
   return S_OK;
 }
 UINT STDMETHODCALLTYPE MTLD3D12SwapChain::GetCurrentBackBufferIndex() {
@@ -1140,7 +1180,25 @@ HRESULT STDMETHODCALLTYPE MTLD3D12SwapChain::ResizeBuffers1(
   return ResizeBuffers(BufferCount, Width, Height, Format, SwapChainFlags);
 }
 HRESULT STDMETHODCALLTYPE
-MTLD3D12SwapChain::SetHDRMetaData(DXGI_HDR_METADATA_TYPE, UINT, void *) {
+MTLD3D12SwapChain::SetHDRMetaData(DXGI_HDR_METADATA_TYPE type, UINT size,
+                                   void *metadata) {
+  if (size && !metadata)
+    return E_INVALIDARG;
+  if (type != DXGI_HDR_METADATA_TYPE_NONE &&
+      type != DXGI_HDR_METADATA_TYPE_HDR10 &&
+      type != DXGI_HDR_METADATA_TYPE_HDR10PLUS)
+    return E_INVALIDARG;
+  try {
+    if (size)
+      m_hdr_metadata.assign(static_cast<const uint8_t *>(metadata),
+                            static_cast<const uint8_t *>(metadata) + size);
+    else
+      m_hdr_metadata.clear();
+  } catch (const std::bad_alloc &) {
+    return E_OUTOFMEMORY;
+  }
+  m_hdr_metadata_type = type;
+  ConfigureLayer();
   return S_OK;
 }
 

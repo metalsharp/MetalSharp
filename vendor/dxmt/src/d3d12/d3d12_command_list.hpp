@@ -17,7 +17,7 @@ class MTLD3D12Device;
 class MTLD3D12CommandAllocator;
 
 
-class MTLD3D12GraphicsCommandList : public GraphicsCommandList9Extension {
+class MTLD3D12GraphicsCommandList : public GraphicsCommandList10Extension {
 public:
   MTLD3D12GraphicsCommandList(MTLD3D12Device *device,
                               MTLD3D12CommandAllocator *allocator,
@@ -261,6 +261,8 @@ public:
       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_COPY_MODE mode) override;
   void STDMETHODCALLTYPE SetPipelineState1(
       ID3D12StateObject *state_object) override;
+  void STDMETHODCALLTYPE SetProgram(const void *desc) override;
+  void STDMETHODCALLTYPE DispatchGraph(const void *desc) override;
   void STDMETHODCALLTYPE DispatchRays(
       const D3D12_DISPATCH_RAYS_DESC *desc) override;
 

@@ -29,4 +29,13 @@ struct GraphicsCommandList9Extension : public GraphicsCommandList8Extension {
       D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut_value) = 0;
 };
 
+static const GUID kID3D12GraphicsCommandList10 = {
+    0x7013c015, 0xd161, 0x4b63,
+    {0xa0, 0x8c, 0x23, 0x85, 0x52, 0xdd, 0x8a, 0xcc}};
+
+struct GraphicsCommandList10Extension : public GraphicsCommandList9Extension {
+  virtual void STDMETHODCALLTYPE SetProgram(const void *desc) = 0;
+  virtual void STDMETHODCALLTYPE DispatchGraph(const void *desc) = 0;
+};
+
 } // namespace dxmt

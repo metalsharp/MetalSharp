@@ -1,8 +1,10 @@
 #include "d3d12_dxgi_device.hpp"
+#include "d3d12_dxgi_surface.hpp"
 #include "d3d12_device.hpp"
 #include "d3d12_heap.hpp"
 #include "d3d12_resource.hpp"
 #include "d3d12_swapchain.hpp"
+#include "d3d12_video_compat.hpp"
 #include "../dxgi/dxgi_trace.hpp"
 #include "log/log.hpp"
 #include "util_string.hpp"
@@ -13,6 +15,22 @@
 namespace dxmt {
 
 namespace {
+
+constexpr GUID kIIDDevice11Compat = {
+    0x5405c344, 0xd457, 0x444e,
+    {0xb4, 0xdd, 0x23, 0x66, 0xe4, 0x5a, 0xee, 0x39}};
+constexpr GUID kIIDDevice12Compat = {
+    0x5af5c532, 0x4c91, 0x4cd0,
+    {0xb5, 0x41, 0x15, 0xa4, 0x05, 0x39, 0x5f, 0xc5}};
+constexpr GUID kIIDDevice13Compat = {
+    0x14eecffc, 0x4df8, 0x40f7,
+    {0xa1, 0x18, 0x5c, 0x81, 0x6f, 0x45, 0x69, 0x5e}};
+constexpr GUID kIIDDevice14Compat = {
+    0x5f6e592d, 0xd895, 0x44c2,
+    {0x8e, 0x4a, 0x88, 0xad, 0x49, 0x26, 0xd3, 0x23}};
+constexpr GUID kIIDDevice15Compat = {
+    0x76cff76f, 0x1e9b, 0x4450,
+    {0x8c, 0xdc, 0x34, 0xf1, 0xaf, 0x78, 0x8e, 0x5b}};
 
 static bool QueryD3D12Residency(IUnknown *object, bool *resident) {
   if (!object || !resident)
@@ -122,6 +140,9 @@ MTLD3D12DXGIDevice::QueryInterface(REFIID riid, void **ppvObject) {
     return E_POINTER;
   *ppvObject = nullptr;
 
+  if (riid.Data1 == 0x1f052807u)
+    return m_d3d12_device->QueryInterface(riid, ppvObject);
+
   if (riid == __uuidof(IUnknown) || riid == __uuidof(IDXGIObject) ||
       riid == __uuidof(IDXGIDevice) || riid == __uuidof(IDXGIDevice1) ||
       riid == __uuidof(IDXGIDevice2) || riid == __uuidof(IDXGIDevice3) ||
@@ -135,8 +156,10 @@ MTLD3D12DXGIDevice::QueryInterface(REFIID riid, void **ppvObject) {
       riid == IID_ID3D12Device4 || riid == IID_ID3D12Device5 ||
       riid == IID_ID3D12Device6 || riid == IID_ID3D12Device7 ||
       riid == IID_ID3D12Device8 || riid == IID_ID3D12Device9 ||
-      riid == IID_ID3D12Device10 || riid == __uuidof(ID3D12Object) ||
-      riid == __uuidof(ID3D12DeviceChild)) {
+      riid == IID_ID3D12Device10 || riid == kIIDDevice11Compat ||
+      riid == kIIDDevice12Compat || riid == kIIDDevice13Compat ||
+      riid == kIIDDevice14Compat || riid == kIIDDevice15Compat ||
+      riid == __uuidof(ID3D12Object) || riid == __uuidof(ID3D12DeviceChild)) {
     return m_d3d12_device->QueryInterface(riid, ppvObject);
   }
 
@@ -162,8 +185,74 @@ MTLD3D12DXGIDevice::CreateSurface(const DXGI_SURFACE_DESC *desc,
                                    UINT surface_count, DXGI_USAGE usage,
                                    const DXGI_SHARED_RESOURCE *shared_resource,
                                    IDXGISurface **surface) {
-  DDTRACE("CreateSurface E_NOTIMPL");
-  return E_NOTIMPL;
+  DDTRACE("CreateSurface count=%u usage=0x%x desc=%p", surface_count,
+          static_cast<unsigned>(usage), (const void *)desc);
+  if (!desc || !surface)
+    return E_POINTER;
+  if (!surface_count || surface_count > 16 ||
+      desc->Width == 0 || desc->Height == 0 ||
+      desc->SampleDesc.Count != 1 || desc->SampleDesc.Quality != 0)
+    return DXGI_ERROR_INVALID_CALL;
+  if (shared_resource)
+    return DXGI_ERROR_UNSUPPORTED;
+  constexpr DXGI_USAGE known_usage =
+      static_cast<DXGI_USAGE>(DXGI_USAGE_SHADER_INPUT |
+                              DXGI_USAGE_RENDER_TARGET_OUTPUT |
+                              DXGI_USAGE_BACK_BUFFER |
+                              DXGI_USAGE_SHARED |
+                              DXGI_USAGE_READ_ONLY |
+                              DXGI_USAGE_DISCARD_ON_PRESENT |
+                              DXGI_USAGE_UNORDERED_ACCESS);
+  if (usage & ~known_usage)
+    return DXGI_ERROR_INVALID_CALL;
+
+  for (UINT i = 0; i < surface_count; ++i)
+    surface[i] = nullptr;
+  D3D12_RESOURCE_DESC resource_desc = {};
+  resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  resource_desc.Width = desc->Width;
+  resource_desc.Height = desc->Height;
+  resource_desc.DepthOrArraySize = 1;
+  resource_desc.MipLevels = 1;
+  resource_desc.Format = desc->Format;
+  resource_desc.SampleDesc = desc->SampleDesc;
+  resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  if (usage & DXGI_USAGE_RENDER_TARGET_OUTPUT)
+    resource_desc.Flags = static_cast<D3D12_RESOURCE_FLAGS>(
+        resource_desc.Flags | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET);
+  if (usage & DXGI_USAGE_UNORDERED_ACCESS)
+    resource_desc.Flags = static_cast<D3D12_RESOURCE_FLAGS>(
+        resource_desc.Flags | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+  D3D12_HEAP_PROPERTIES heap = {};
+  heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+  heap.CreationNodeMask = 1;
+  heap.VisibleNodeMask = 1;
+  D3D12_RESOURCE_STATES initial_state = D3D12_RESOURCE_STATE_COMMON;
+  if (!(usage & (DXGI_USAGE_RENDER_TARGET_OUTPUT |
+                 DXGI_USAGE_UNORDERED_ACCESS))) {
+    initial_state = D3D12_RESOURCE_STATE_GENERIC_READ;
+  }
+
+  for (UINT i = 0; i < surface_count; ++i) {
+    ID3D12Resource *resource = nullptr;
+    HRESULT hr = m_d3d12_device->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &resource_desc, initial_state, nullptr,
+        IID_PPV_ARGS(&resource));
+    if (FAILED(hr) || !resource) {
+      for (UINT j = 0; j < i; ++j)
+        surface[j]->Release();
+      return FAILED(hr) ? hr : E_FAIL;
+    }
+    auto *dxmt_resource = static_cast<MTLD3D12Resource *>(resource);
+    surface[i] = CreateD3D12DXGISurface(this, dxmt_resource, 0, *desc);
+    resource->Release();
+    if (!surface[i]) {
+      for (UINT j = 0; j < i; ++j)
+        surface[j]->Release();
+      return DXGI_ERROR_UNSUPPORTED;
+    }
+  }
+  return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -269,9 +358,13 @@ MTLD3D12DXGIDevice::EnqueueSetEvent(HANDLE hEvent) {
 }
 
 void STDMETHODCALLTYPE MTLD3D12DXGIDevice::Trim() {
-  std::lock_guard lock(m_offered_resource_mutex);
-  for (auto *resource : m_offered_resources)
-    SetD3D12Residency(resource, false);
+  {
+    std::lock_guard lock(m_offered_resource_mutex);
+    for (auto *resource : m_offered_resources)
+      SetD3D12Residency(resource, false);
+  }
+  if (m_d3d12_device)
+    m_d3d12_device->NotifyTrimCallbacks();
 }
 
 WMT::Device STDMETHODCALLTYPE MTLD3D12DXGIDevice::GetMTLDevice() {

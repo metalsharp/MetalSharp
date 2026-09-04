@@ -1,5 +1,11 @@
 #include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <mutex>
 #include <numeric>
+#include <new>
+#include <vector>
+#include <d3d12.h>
 
 #include "com/com_guid.hpp"
 #include "com/com_pointer.hpp"
@@ -13,6 +19,20 @@
 #include "wsi_monitor.hpp"
 
 namespace dxmt {
+
+static constexpr GUID kIID_ID3D12DeviceForDuplication = {
+    0x189819f1, 0x1db6, 0x4b57,
+    {0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}};
+static constexpr GUID kIID_ID3D12ResourceForSurface = {
+    0x696442be, 0xa72e, 0x4059,
+    {0xbc, 0x79, 0x5b, 0x5c, 0x98, 0x04, 0x0f, 0xad}};
+
+class MTLDXGIOutputImpl;
+static HRESULT CreateOutputDuplication(MTLDXGIOutputImpl *output,
+                                       IUnknown *device,
+                                       IDXGIOutputDuplication **duplication,
+                                       UINT format_count = 0,
+                                       const DXGI_FORMAT *formats = nullptr);
 
 /*
  * \see
@@ -45,7 +65,11 @@ DXGI_MODE_DESC1 ConvertDisplayMode(const wsi::WsiMode &WsiMode) {
   dxgiMode.Height = WsiMode.height;
   dxgiMode.RefreshRate = DXGI_RATIONAL{WsiMode.refreshRate.numerator,
                                        WsiMode.refreshRate.denominator};
-  dxgiMode.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; // FIXME
+  dxgiMode.Format = WsiMode.bitsPerPixel >= 64
+                         ? DXGI_FORMAT_R16G16B16A16_FLOAT
+                         : (WsiMode.bitsPerPixel >= 30
+                                ? DXGI_FORMAT_R10G10B10A2_UNORM
+                                : DXGI_FORMAT_R8G8B8A8_UNORM);
   dxgiMode.ScanlineOrdering = WsiMode.interlaced
                                   ? DXGI_MODE_SCANLINE_ORDER_UPPER_FIELD_FIRST
                                   : DXGI_MODE_SCANLINE_ORDER_PROGRESSIVE;
@@ -291,12 +315,20 @@ public:
   HRESULT
   STDMETHODCALLTYPE
   TakeOwnership(IUnknown *device, BOOL exclusive) final {
-    WARN("TakeOwnership: Stub");
+    if (!device)
+      return DXGI_ERROR_INVALID_CALL;
+    std::lock_guard lock(surface_mutex_);
+    if (exclusive && ownership_taken_)
+      return DXGI_ERROR_ACCESS_DENIED;
+    ownership_taken_ = true;
+    exclusive_ = exclusive != FALSE;
     return S_OK;
   }
 
   void STDMETHODCALLTYPE ReleaseOwnership() final {
-    WARN("ReleaseOwnership: Stub");
+    std::lock_guard lock(surface_mutex_);
+    ownership_taken_ = false;
+    exclusive_ = false;
   }
 
   HRESULT
@@ -350,22 +382,88 @@ public:
   HRESULT
   STDMETHODCALLTYPE
   SetDisplaySurface(IDXGISurface *surface) final {
-    ERR("Not implemented");
-    return E_NOTIMPL;
+    if (!surface)
+      return DXGI_ERROR_INVALID_CALL;
+    DXGI_SURFACE_DESC desc = {};
+    HRESULT hr = surface->GetDesc(&desc);
+    if (FAILED(hr) || !desc.Width || !desc.Height ||
+        desc.SampleDesc.Count != 1)
+      return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
+    std::lock_guard lock(surface_mutex_);
+    display_surface_ = surface;
+    display_surface_desc_ = desc;
+    ++frame_statistics_.PresentCount;
+    return S_OK;
   }
 
   HRESULT
   STDMETHODCALLTYPE
   GetDisplaySurfaceData(IDXGISurface *surface) final {
-    ERR("Not implemented");
-    return E_NOTIMPL;
+    if (!surface)
+      return DXGI_ERROR_INVALID_CALL;
+    Com<IDXGISurface> source;
+    DXGI_SURFACE_DESC source_desc = {};
+    {
+      std::lock_guard lock(surface_mutex_);
+      if (!display_surface_)
+        return DXGI_ERROR_NOT_FOUND;
+      source = display_surface_;
+      source_desc = display_surface_desc_;
+    }
+    DXGI_SURFACE_DESC destination_desc = {};
+    HRESULT hr = surface->GetDesc(&destination_desc);
+    if (FAILED(hr))
+      return hr;
+    if (destination_desc.Width != source_desc.Width ||
+        destination_desc.Height != source_desc.Height ||
+        destination_desc.Format != source_desc.Format ||
+        destination_desc.SampleDesc.Count != source_desc.SampleDesc.Count)
+      return DXGI_ERROR_INVALID_CALL;
+
+    DXGI_MAPPED_RECT source_map = {};
+    hr = source->Map(&source_map, DXGI_MAP_READ);
+    if (FAILED(hr))
+      return hr;
+    const UINT copy_pitch = static_cast<UINT>(std::max(source_map.Pitch, 0));
+    if (!source_map.pBits || !copy_pitch) {
+      source->Unmap();
+      return DXGI_ERROR_INVALID_CALL;
+    }
+    std::vector<uint8_t> pixels(static_cast<size_t>(copy_pitch) *
+                                source_desc.Height);
+    for (UINT y = 0; y < source_desc.Height; ++y)
+      std::memcpy(pixels.data() + size_t(y) * copy_pitch,
+                  source_map.pBits + size_t(y) * source_map.Pitch,
+                  copy_pitch);
+    source->Unmap();
+
+    DXGI_MAPPED_RECT destination_map = {};
+    hr = surface->Map(&destination_map, DXGI_MAP_WRITE | DXGI_MAP_DISCARD);
+    if (FAILED(hr))
+      return hr;
+    if (!destination_map.pBits || destination_map.Pitch < 0 ||
+        static_cast<UINT>(destination_map.Pitch) < copy_pitch) {
+      surface->Unmap();
+      return DXGI_ERROR_INVALID_CALL;
+    }
+    for (UINT y = 0; y < source_desc.Height; ++y)
+      std::memcpy(destination_map.pBits + size_t(y) * destination_map.Pitch,
+                  pixels.data() + size_t(y) * copy_pitch, copy_pitch);
+    return surface->Unmap();
   }
 
   HRESULT
   STDMETHODCALLTYPE
   GetFrameStatistics(DXGI_FRAME_STATISTICS *stats) final {
-    ERR("Not implemented");
-    return E_NOTIMPL;
+    if (!stats)
+      return DXGI_ERROR_INVALID_CALL;
+    std::lock_guard lock(surface_mutex_);
+    *stats = frame_statistics_;
+    LARGE_INTEGER qpc = {};
+    QueryPerformanceCounter(&qpc);
+    stats->SyncQPCTime = qpc;
+    stats->SyncGPUTime.QuadPart = 0;
+    return S_OK;
   }
 
   HRESULT
@@ -540,8 +638,49 @@ public:
   HRESULT
   STDMETHODCALLTYPE
   GetDisplaySurfaceData1(IDXGIResource *destination) final {
-    ERR("Not implemented");
-    return E_NOTIMPL;
+    if (!destination)
+      return DXGI_ERROR_INVALID_CALL;
+    Com<IDXGISurface> source;
+    DXGI_SURFACE_DESC source_desc = {};
+    {
+      std::lock_guard lock(surface_mutex_);
+      if (!display_surface_)
+        return DXGI_ERROR_NOT_FOUND;
+      source = display_surface_;
+      source_desc = display_surface_desc_;
+    }
+    ID3D12Resource *d3d_destination = nullptr;
+    if (FAILED(destination->QueryInterface(
+            kIID_ID3D12ResourceForSurface,
+            reinterpret_cast<void **>(&d3d_destination))))
+      return DXGI_ERROR_UNSUPPORTED;
+    D3D12_RESOURCE_DESC destination_desc = {};
+    d3d_destination->GetDesc(&destination_desc);
+    if (destination_desc.Width != source_desc.Width ||
+        destination_desc.Height != source_desc.Height ||
+        destination_desc.Format != source_desc.Format ||
+        destination_desc.SampleDesc.Count != source_desc.SampleDesc.Count) {
+      d3d_destination->Release();
+      return DXGI_ERROR_INVALID_CALL;
+    }
+    DXGI_MAPPED_RECT source_map = {};
+    HRESULT hr = source->Map(&source_map, DXGI_MAP_READ);
+    if (FAILED(hr) || !source_map.pBits || source_map.Pitch <= 0) {
+      d3d_destination->Release();
+      return FAILED(hr) ? hr : DXGI_ERROR_INVALID_CALL;
+    }
+    std::vector<uint8_t> pixels(static_cast<size_t>(source_map.Pitch) *
+                                source_desc.Height);
+    for (UINT y = 0; y < source_desc.Height; ++y)
+      std::memcpy(pixels.data() + size_t(y) * source_map.Pitch,
+                  source_map.pBits + size_t(y) * source_map.Pitch,
+                  static_cast<size_t>(source_map.Pitch));
+    source->Unmap();
+    hr = d3d_destination->WriteToSubresource(
+        0, nullptr, pixels.data(), static_cast<UINT>(source_map.Pitch),
+        static_cast<UINT>(pixels.size()));
+    d3d_destination->Release();
+    return hr;
   }
 
   HRESULT
@@ -549,14 +688,9 @@ public:
   DuplicateOutput(IUnknown *pDevice,
                   IDXGIOutputDuplication **ppOutputDuplication) final {
     InitReturnPtr(ppOutputDuplication);
-
     if (!pDevice)
       return E_INVALIDARG;
-
-    ERR("Not implemented");
-
-    // At least return a valid error code
-    return DXGI_ERROR_UNSUPPORTED;
+    return CreateOutputDuplication(this, pDevice, ppOutputDuplication);
   }
 
   HRESULT
@@ -635,21 +769,260 @@ public:
                    const DXGI_FORMAT *formats,
                    IDXGIOutputDuplication **ppOutputDuplication) override {
     InitReturnPtr(ppOutputDuplication);
-    if (!pDevice)
+    if (!pDevice || flags != 0 || (format_count && !formats) ||
+        format_count > 16)
       return E_INVALIDARG;
-
-    ERR("Not implemented");
-
-    return DXGI_ERROR_UNSUPPORTED;
+    return CreateOutputDuplication(this, pDevice, ppOutputDuplication,
+                                   format_count, formats);
   }
 
 private:
+  friend class MTLDXGIOutputDuplication;
   Com<IMTLDXGIAdapter> adapter_ = nullptr;
   HMONITOR monitor_ = nullptr;
   WMTDisplayDescription native_desc_;
   DxgiOptions &options_;
   DXMTGammaRamp gamma_ramp_;
+  std::mutex surface_mutex_;
+  Com<IDXGISurface> display_surface_;
+  DXGI_SURFACE_DESC display_surface_desc_ = {};
+  DXGI_FRAME_STATISTICS frame_statistics_ = {};
+  bool ownership_taken_ = false;
+  bool exclusive_ = false;
 };
+
+class MTLDXGIOutputDuplication final : public IDXGIOutputDuplication {
+public:
+  MTLDXGIOutputDuplication(MTLDXGIOutputImpl *output, IUnknown *device,
+                           const DXGI_OUTPUT_DESC &output_desc,
+                           const DXGI_FORMAT *formats, UINT format_count)
+      : output_(output), device_(device), output_desc_(output_desc) {
+    if (output_)
+      output_->AddRef();
+    if (device_)
+      device_->AddRef();
+    desc_ = {};
+    const LONG width = std::max<LONG>(
+        1, output_desc.DesktopCoordinates.right -
+               output_desc.DesktopCoordinates.left);
+    const LONG height = std::max<LONG>(
+        1, output_desc.DesktopCoordinates.bottom -
+               output_desc.DesktopCoordinates.top);
+    desc_.ModeDesc.Width = static_cast<UINT>(width);
+    desc_.ModeDesc.Height = static_cast<UINT>(height);
+    desc_.ModeDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc_.ModeDesc.RefreshRate = {60, 1};
+    desc_.ModeDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_PROGRESSIVE;
+    desc_.ModeDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+    desc_.Rotation = output_desc.Rotation;
+    desc_.DesktopImageInSystemMemory = FALSE;
+    if (format_count && formats &&
+        (formats[0] == DXGI_FORMAT_B8G8R8A8_UNORM ||
+         formats[0] == DXGI_FORMAT_R8G8B8A8_UNORM))
+      format_ = formats[0];
+    desc_.ModeDesc.Format = format_;
+  }
+
+  ~MTLDXGIOutputDuplication() {
+    if (desktop_resource_)
+      desktop_resource_->Release();
+    if (device_)
+      device_->Release();
+    if (output_)
+      output_->Release();
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == IID_IDXGIObject ||
+        riid == IID_IDXGIOutputDuplication) {
+      *object = static_cast<IDXGIOutputDuplication *>(this);
+      AddRef();
+      return S_OK;
+    }
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++ref_count_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG ref = --ref_count_;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID guid, UINT size,
+                                           const void *data) override {
+    return private_data_.setData(guid, size, data);
+  }
+  HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID guid,
+                                                     const IUnknown *object) override {
+    return private_data_.setInterface(guid, object);
+  }
+  HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID guid, UINT *size,
+                                           void *data) override {
+    return private_data_.getData(guid, size, data);
+  }
+  HRESULT STDMETHODCALLTYPE GetParent(REFIID riid, void **parent) override {
+    if (!parent)
+      return E_POINTER;
+    *parent = nullptr;
+    return output_ ? output_->QueryInterface(riid, parent) : E_NOINTERFACE;
+  }
+  void STDMETHODCALLTYPE GetDesc(DXGI_OUTDUPL_DESC *desc) override {
+    if (desc)
+      *desc = desc_;
+  }
+  HRESULT STDMETHODCALLTYPE AcquireNextFrame(
+      UINT timeout, DXGI_OUTDUPL_FRAME_INFO *frame_info,
+      IDXGIResource **desktop_resource) override {
+    if (!frame_info || !desktop_resource)
+      return DXGI_ERROR_INVALID_CALL;
+    *frame_info = {};
+    *desktop_resource = nullptr;
+    if (held_)
+      return DXGI_ERROR_INVALID_CALL;
+    if (!EnsureDesktopResource())
+      return DXGI_ERROR_UNSUPPORTED;
+    held_ = true;
+    ++frame_id_;
+    frame_info->LastPresentTime.QuadPart = static_cast<LONGLONG>(frame_id_);
+    frame_info->LastMouseUpdateTime.QuadPart =
+        static_cast<LONGLONG>(frame_id_);
+    frame_info->AccumulatedFrames = 1;
+    frame_info->RectsCoalesced = TRUE;
+    frame_info->PointerPosition.Visible = FALSE;
+    *desktop_resource = desktop_resource_;
+    desktop_resource_->AddRef();
+    (void)timeout;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetFrameDirtyRects(UINT size, RECT *rects,
+                                                UINT *required) override {
+    if (!required || !held_)
+      return DXGI_ERROR_INVALID_CALL;
+    *required = sizeof(RECT);
+    if (!rects || size < sizeof(RECT))
+      return DXGI_ERROR_MORE_DATA;
+    rects[0] = output_desc_.DesktopCoordinates;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetFrameMoveRects(UINT size,
+                                               DXGI_OUTDUPL_MOVE_RECT *rects,
+                                               UINT *required) override {
+    if (!required || !held_)
+      return DXGI_ERROR_INVALID_CALL;
+    *required = 0;
+    if (size && !rects)
+      return DXGI_ERROR_INVALID_CALL;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetFramePointerShape(
+      UINT size, void *shape, UINT *required,
+      DXGI_OUTDUPL_POINTER_SHAPE_INFO *info) override {
+    if (!required || !info || !held_)
+      return DXGI_ERROR_INVALID_CALL;
+    *required = 0;
+    *info = {};
+    if (size && !shape)
+      return DXGI_ERROR_INVALID_CALL;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE MapDesktopSurface(DXGI_MAPPED_RECT *locked) override {
+    if (!locked || !held_)
+      return DXGI_ERROR_INVALID_CALL;
+    locked->Pitch = 0;
+    locked->pBits = nullptr;
+    return DXGI_ERROR_UNSUPPORTED;
+  }
+  HRESULT STDMETHODCALLTYPE UnMapDesktopSurface() override {
+    return held_ ? S_OK : DXGI_ERROR_INVALID_CALL;
+  }
+  HRESULT STDMETHODCALLTYPE ReleaseFrame() override {
+    if (!held_)
+      return DXGI_ERROR_INVALID_CALL;
+    held_ = false;
+    return S_OK;
+  }
+
+private:
+  bool EnsureDesktopResource() {
+    if (desktop_resource_)
+      return true;
+    if (!device_)
+      return false;
+    ID3D12Device *device12 = nullptr;
+    HRESULT hr = device_->QueryInterface(
+        kIID_ID3D12DeviceForDuplication,
+        reinterpret_cast<void **>(&device12));
+    if (FAILED(hr) || !device12)
+      return false;
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    heap.CreationNodeMask = 1;
+    heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC resource_desc = {};
+    resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    resource_desc.Width = desc_.ModeDesc.Width;
+    resource_desc.Height = desc_.ModeDesc.Height;
+    resource_desc.DepthOrArraySize = 1;
+    resource_desc.MipLevels = 1;
+    resource_desc.Format = format_;
+    resource_desc.SampleDesc.Count = 1;
+    resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    ID3D12Resource *resource = nullptr;
+    hr = device12->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &resource_desc,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        kIID_ID3D12ResourceForSurface, reinterpret_cast<void **>(&resource));
+    device12->Release();
+    if (FAILED(hr) || !resource)
+      return false;
+    hr = resource->QueryInterface(
+        IID_IDXGIResource, reinterpret_cast<void **>(&desktop_resource_));
+    resource->Release();
+    return SUCCEEDED(hr) && desktop_resource_;
+  }
+
+  std::atomic<ULONG> ref_count_ = {1};
+  MTLDXGIOutputImpl *output_ = nullptr;
+  IUnknown *device_ = nullptr;
+  IDXGIResource *desktop_resource_ = nullptr;
+  DXGI_OUTPUT_DESC output_desc_ = {};
+  DXGI_OUTDUPL_DESC desc_ = {};
+  DXGI_FORMAT format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+  uint64_t frame_id_ = 0;
+  bool held_ = false;
+  ComPrivateData private_data_;
+};
+
+static HRESULT CreateOutputDuplication(MTLDXGIOutputImpl *output,
+                                       IUnknown *device,
+                                       IDXGIOutputDuplication **duplication,
+                                       UINT format_count,
+                                       const DXGI_FORMAT *formats) {
+  if (!duplication)
+    return E_POINTER;
+  *duplication = nullptr;
+  if (!output || !device)
+    return E_INVALIDARG;
+  for (UINT i = 0; i < format_count; ++i) {
+    if (formats[i] != DXGI_FORMAT_B8G8R8A8_UNORM &&
+        formats[i] != DXGI_FORMAT_R8G8B8A8_UNORM)
+      return DXGI_ERROR_UNSUPPORTED;
+  }
+  DXGI_OUTPUT_DESC output_desc = {};
+  HRESULT hr = output->GetDesc(&output_desc);
+  if (FAILED(hr))
+    return hr;
+  auto *created = new (std::nothrow)
+      MTLDXGIOutputDuplication(output, device, output_desc, formats,
+                               format_count);
+  if (!created)
+    return E_OUTOFMEMORY;
+  *duplication = created;
+  return S_OK;
+}
 
 Com<IDXGIOutput> CreateOutput(IMTLDXGIAdapter *pAadapter, HMONITOR monitor, DxgiOptions &options) {
   return Com<IDXGIOutput>::transfer(new MTLDXGIOutputImpl(pAadapter, monitor, options));

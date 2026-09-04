@@ -899,6 +899,15 @@ historical regression checkpoint. The closure record is
 - Add multigraph, multi-node, recursive/fan-out, record-overflow, and
   cross-queue tests.
 
+**Bounded checkpoint (not the exit gate):** The source-owned
+`probe-workgraph-execution` now executes three CPU-input records and three
+GPU-input records through the GPU-native reference kernel, checks the local
+root argument table index, and reads back exact payload transformations. The
+command path remains pointer-free and records `cpu_scheduler=false`; multi-node
+routing, recursion/fan-out, overflow, barriers, and general DXIL node shader
+conversion remain open. `D3D12_OPTIONS21.WorkGraphsTier` is therefore still
+not promoted.
+
 **Exit gate:**
 
 - `D3D12_OPTIONS21.WorkGraphsTier` and all mesh/amplification fields are
@@ -972,6 +981,13 @@ historical regression checkpoint. The closure record is
 - Add H.264/H.265/AV1 and every host-supported codec/profile matrix, including
   unsupported-profile validation and exact decoded/encoded byte or pixel
   comparison.
+
+**Bounded checkpoint (not the exit gate):** `probe-video` now exposes the
+stable video-device ABI, one behavior-backed feature query, decoder/decoder
+heap/processor object creation, exact descriptor round trips, and null/unknown
+validation. The result is explicitly object-and-feature-contract-only;
+VideoToolbox codec execution, profiles, pixel conversion, metadata, and video
+queues remain unimplemented and no video capability is promoted.
 
 **Exit gate:**
 
@@ -1061,6 +1077,14 @@ real alternate provider or host target, not `E_NOTIMPL` hidden behind a report.
 - Implement swapchain frame latency, tearing, fullscreen, present statistics,
   CoreWindow, composition, and `GetCoreWindow` behavior.
 
+**Bounded checkpoint (not the exit gate):** The source-staged DXGI probe now
+covers `DuplicateOutput`/`AcquireNextFrame` with a GPU desktop resource, exact
+full-frame dirty-rectangle sizing, and release ordering. The swapchain mini
+probe also verifies background-color and matrix state round trips, rotation,
+HDR metadata reset, and the CoreWindow null-output validation. DisplayLink/
+IOSurface capture, cursor/move metadata, composition/CoreWindow ownership,
+software/WARP adapters, and complete color/presentation behavior remain open.
+
 **Exit gate:**
 
 - DXGI 1.6 factory/adapter/output/surface/swapchain/duplication tests pass on
@@ -1093,6 +1117,13 @@ path.
 - Complete `ID3D12Device13`–`ID3D12Device15` and later declared interfaces,
   including try-create views, trim callbacks, byte-offset views, and new
   allocation/view paths.
+
+**Bounded checkpoint (not the exit gate):** `probe-diagnostics` verifies
+state-object statistics, a serialized device-tools allocation-state blob,
+mutable DRED settings, and the DSR factory boundary with null-on-rejection.
+The full DRED data outputs, pageable tools, cache corruption/restart matrix,
+and DSR execution remain open; these interfaces are not promoted as complete
+from compatibility objects alone.
 
 **Exit gate:**
 

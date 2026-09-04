@@ -64,6 +64,30 @@ constexpr GUID kCLSID_D3D12StateObjectFactory = {
     0x1303,
     0x4112,
     {0xbf, 0x8e, 0x7b, 0xf2, 0xbb, 0x60, 0x6a, 0x73}};
+constexpr GUID kCLSID_D3D12DeviceRemovedExtendedData = {
+    0x4a75bbc4,
+    0x9ff4,
+    0x4ad8,
+    {0x9f, 0x18, 0xab, 0xae, 0x84, 0xdc, 0x5f, 0xf2}};
+constexpr GUID kIID_ID3D12DeviceRemovedExtendedDataSettings = {
+    0x82bc481c, 0x6b9b, 0x4030,
+    {0xae, 0xdb, 0x7e, 0xe3, 0xd1, 0xdf, 0x1e, 0x63}};
+constexpr GUID kIID_ID3D12DeviceRemovedExtendedDataSettings1 = {
+    0xdbd5ae51, 0x3317, 0x4f0a,
+    {0xad, 0xf9, 0x1d, 0x7c, 0xed, 0xca, 0xae, 0x0b}};
+constexpr GUID kIID_ID3D12DeviceRemovedExtendedDataSettings2 = {
+    0x61552388, 0x01ab, 0x4008,
+    {0xa4, 0x36, 0x83, 0xdb, 0x18, 0x95, 0x66, 0xea}};
+constexpr GUID kCLSID_D3D12DSRDeviceFactory = {
+    0xbb6dd27e,
+    0x94a9,
+    0x41a6,
+    {0x9f, 0x1b, 0x13, 0x37, 0x72, 0x17, 0x24, 0x28}};
+constexpr GUID kIID_ID3D12DSRDeviceFactory = {
+    0xf343d1a0,
+    0xafe3,
+    0x439f,
+    {0xb1, 0x3d, 0xcd, 0x87, 0xa4, 0x3b, 0x70, 0xca}};
 constexpr GUID kCLSID_D3D12RuntimeValidationControl = {
     0xe5b53e74,
     0x3fca,
@@ -113,6 +137,36 @@ enum D3D12DeviceFactoryFlagsCompat : UINT {
   D3D12DeviceFactoryFlagAllowReturningExistingDevice = 1,
   D3D12DeviceFactoryFlagAllowReturningIncompatibleExistingDevice = 2,
   D3D12DeviceFactoryFlagDisallowStoringNewDeviceAsSingleton = 4,
+};
+
+enum D3D12DredEnablementCompat : UINT {
+  D3D12DredEnablementDefault = 0,
+  D3D12DredEnablementForceEnable = 1,
+  D3D12DredEnablementForceDisable = 2,
+};
+struct ID3D12DeviceRemovedExtendedDataSettingsCompat : public IUnknown {
+  virtual void STDMETHODCALLTYPE SetAutoBreadcrumbsEnablement(
+      D3D12DredEnablementCompat enablement) = 0;
+  virtual void STDMETHODCALLTYPE SetPageFaultEnablement(
+      D3D12DredEnablementCompat enablement) = 0;
+  virtual void STDMETHODCALLTYPE SetWatsonDumpEnablement(
+      D3D12DredEnablementCompat enablement) = 0;
+};
+struct ID3D12DeviceRemovedExtendedDataSettings1Compat
+    : public ID3D12DeviceRemovedExtendedDataSettingsCompat {
+  virtual void STDMETHODCALLTYPE SetBreadcrumbContextEnablement(
+      D3D12DredEnablementCompat enablement) = 0;
+};
+struct ID3D12DeviceRemovedExtendedDataSettings2Compat
+    : public ID3D12DeviceRemovedExtendedDataSettings1Compat {
+  virtual void STDMETHODCALLTYPE UseMarkersOnlyAutoBreadcrumbs(
+      BOOL markers_only) = 0;
+};
+
+struct ID3D12DSRDeviceFactoryCompat : public IUnknown {
+  virtual HRESULT STDMETHODCALLTYPE CreateDSRDevice(
+      ID3D12Device *device, UINT node_mask, REFIID riid,
+      void **dsr_device) = 0;
 };
 
 struct ID3D12DeviceFactoryCompat : public IUnknown {
@@ -432,6 +486,103 @@ public:
 
   void STDMETHODCALLTYPE FreeUnusedSDKs() override {
     TraceAgility("ID3D12SDKConfiguration1::FreeUnusedSDKs");
+  }
+
+private:
+  std::atomic<ULONG> m_ref = {1};
+};
+
+class MTLD3D12DredSettings final
+    : public ID3D12DeviceRemovedExtendedDataSettings2Compat {
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown ||
+        riid == kIID_ID3D12DeviceRemovedExtendedDataSettings) {
+      *object = static_cast<ID3D12DeviceRemovedExtendedDataSettingsCompat *>(this);
+    } else if (riid == kIID_ID3D12DeviceRemovedExtendedDataSettings1) {
+      *object = static_cast<ID3D12DeviceRemovedExtendedDataSettings1Compat *>(this);
+    } else if (riid == kIID_ID3D12DeviceRemovedExtendedDataSettings2) {
+      *object = static_cast<ID3D12DeviceRemovedExtendedDataSettings2Compat *>(this);
+    } else {
+      return E_NOINTERFACE;
+    }
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    ULONG ref = --m_ref;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  void STDMETHODCALLTYPE SetAutoBreadcrumbsEnablement(
+      D3D12DredEnablementCompat enablement) override {
+    m_auto_breadcrumbs = enablement;
+  }
+  void STDMETHODCALLTYPE SetPageFaultEnablement(
+      D3D12DredEnablementCompat enablement) override {
+    m_page_fault = enablement;
+  }
+  void STDMETHODCALLTYPE SetWatsonDumpEnablement(
+      D3D12DredEnablementCompat enablement) override {
+    m_watson = enablement;
+  }
+  void STDMETHODCALLTYPE SetBreadcrumbContextEnablement(
+      D3D12DredEnablementCompat enablement) override {
+    m_breadcrumb_context = enablement;
+  }
+  void STDMETHODCALLTYPE UseMarkersOnlyAutoBreadcrumbs(BOOL markers_only) override {
+    m_markers_only = markers_only != FALSE;
+  }
+
+private:
+  std::atomic<ULONG> m_ref = {1};
+  D3D12DredEnablementCompat m_auto_breadcrumbs = D3D12DredEnablementDefault;
+  D3D12DredEnablementCompat m_page_fault = D3D12DredEnablementDefault;
+  D3D12DredEnablementCompat m_watson = D3D12DredEnablementDefault;
+  D3D12DredEnablementCompat m_breadcrumb_context = D3D12DredEnablementDefault;
+  bool m_markers_only = false;
+};
+
+class MTLD3D12DSRDeviceFactory final
+    : public ID3D12DSRDeviceFactoryCompat {
+public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **object) override {
+    if (!object)
+      return E_POINTER;
+    *object = nullptr;
+    if (riid == IID_IUnknown || riid == kIID_ID3D12DSRDeviceFactory) {
+      *object = static_cast<ID3D12DSRDeviceFactoryCompat *>(this);
+      AddRef();
+      return S_OK;
+    }
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++m_ref; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    ULONG ref = --m_ref;
+    if (!ref)
+      delete this;
+    return ref;
+  }
+  HRESULT STDMETHODCALLTYPE CreateDSRDevice(ID3D12Device *device,
+                                            UINT node_mask, REFIID riid,
+                                            void **dsr_device) override {
+    if (!dsr_device)
+      return E_POINTER;
+    *dsr_device = nullptr;
+    if (!device || (node_mask != 0 && node_mask != 1))
+      return E_INVALIDARG;
+    // The stable public header carries only the factory and intentionally
+    // leaves the device IID opaque. Do not return an unrelated IUnknown for
+    // an unknown vtable; callers receive a deterministic interface rejection
+    // until a DSR provider with the exact device ABI is available.
+    (void)riid;
+    return E_NOINTERFACE;
   }
 
 private:
@@ -1085,6 +1236,8 @@ public:
               std::move(export_entry));
         }
       } else {
+        if (!subobject.pDesc)
+          return E_INVALIDARG;
         const size_t desc_size = StateSubobjectDescSize(subobject.Type);
         if (!desc_size) {
           TraceAgility("StateObjectDatabase::StoreStateObjectDesc key_size=%u "
@@ -1379,6 +1532,14 @@ private:
       return sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG);
     case D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG1:
       return sizeof(D3D12_RAYTRACING_PIPELINE_CONFIG1);
+    case D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE:
+      return sizeof(D3D12_GLOBAL_ROOT_SIGNATURE);
+    case D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE:
+      return sizeof(D3D12_LOCAL_ROOT_SIGNATURE);
+    case D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+      return sizeof(D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION);
+    case D3D12_STATE_SUBOBJECT_TYPE_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+      return sizeof(D3D12_DXIL_SUBOBJECT_TO_EXPORTS_ASSOCIATION);
     default:
       return 0;
     }
@@ -2966,6 +3127,22 @@ extern "C" HRESULT WINAPI D3D12GetInterface(REFCLSID clsid, REFIID riid,
     HRESULT hr = configuration->QueryInterface(riid, ppv);
     configuration->Release();
     TraceAgility("D3D12GetInterface SDKConfiguration riid=%s -> 0x%lx out=%p",
+                 str::format(riid).c_str(), hr, ppv ? *ppv : nullptr);
+    return hr;
+  }
+  if (clsid == kCLSID_D3D12DeviceRemovedExtendedData) {
+    auto *settings = new MTLD3D12DredSettings();
+    HRESULT hr = settings->QueryInterface(riid, ppv);
+    settings->Release();
+    TraceAgility("D3D12GetInterface DREDSettings riid=%s -> 0x%lx out=%p",
+                 str::format(riid).c_str(), hr, ppv ? *ppv : nullptr);
+    return hr;
+  }
+  if (clsid == kCLSID_D3D12DSRDeviceFactory) {
+    auto *factory = new MTLD3D12DSRDeviceFactory();
+    HRESULT hr = factory->QueryInterface(riid, ppv);
+    factory->Release();
+    TraceAgility("D3D12GetInterface DSRDeviceFactory riid=%s -> 0x%lx out=%p",
                  str::format(riid).c_str(), hr, ppv ? *ppv : nullptr);
     return hr;
   }

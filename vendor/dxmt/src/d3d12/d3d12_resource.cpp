@@ -17,6 +17,13 @@ namespace dxmt {
 
 namespace {
 
+static constexpr GUID kIID_ID3D12Resource1Stable = {
+    0x9d5e227a, 0x4430, 0x4161,
+    {0x88, 0xb3, 0x3e, 0xca, 0x6b, 0xb1, 0x6e, 0x19}};
+static constexpr GUID kIID_ID3D12Resource2Stable = {
+    0xbe36ec3b, 0xea85, 0x4aeb,
+    {0xa4, 0x5a, 0xe9, 0xd7, 0x64, 0x04, 0xa4, 0x95}};
+
 static bool IsCPUAccessibleHeap(
     const D3D12_HEAP_PROPERTIES &properties) {
   const UINT type = static_cast<UINT>(properties.Type);
@@ -1359,6 +1366,8 @@ bool MTLD3D12Resource::ConfigureSamplerFeedback(
 
   const uint32_t region_width = std::max<UINT>(region.Width, 1);
   const uint32_t region_height = std::max<UINT>(region.Height, 1);
+  std::memcpy(m_sampler_feedback_mip_region, &region,
+              sizeof(m_sampler_feedback_mip_region));
   m_sampler_feedback_data_offset = 512;
   const uint64_t array_length = std::max<uint16_t>(m_desc.DepthOrArraySize, 1);
   const bool min_mip =
@@ -1442,6 +1451,10 @@ MTLD3D12Resource::~MTLD3D12Resource() {
     m_parent_heap->Release();
     m_parent_heap = nullptr;
   }
+  if (m_protected_session) {
+    m_protected_session->Release();
+    m_protected_session = nullptr;
+  }
   m_mtl_buffer = nullptr;
   m_mtl_texture = nullptr;
   m_device->Release();
@@ -1455,9 +1468,15 @@ MTLD3D12Resource::QueryInterface(REFIID riid, void **ppvObject) {
 
   if (riid == IID_IUnknown || riid == IID_ID3D12Object ||
       riid == IID_ID3D12DeviceChild || riid == IID_ID3D12Pageable ||
-      riid == IID_ID3D12Resource || riid == IID_ID3D12Resource1 ||
-      riid == IID_ID3D12Resource2) {
+      riid == IID_ID3D12Resource) {
     *ppvObject = ref(this);
+    return S_OK;
+  }
+  if (riid == IID_ID3D12Resource1 || riid == IID_ID3D12Resource2 ||
+      riid == kIID_ID3D12Resource1Stable ||
+      riid == kIID_ID3D12Resource2Stable) {
+    *ppvObject = static_cast<ID3D12Resource2Compat *>(this);
+    AddRef();
     return S_OK;
   }
   if (riid == __uuidof(IDXGIObject) ||
@@ -1577,6 +1596,38 @@ MTLD3D12Resource::GetDevice(REFIID riid, void **device) {
   return m_device->QueryInterface(riid, device);
 }
 
+HRESULT STDMETHODCALLTYPE MTLD3D12Resource::GetProtectedResourceSession(
+    REFIID riid, void **protected_session) {
+  if (!protected_session)
+    return E_POINTER;
+  *protected_session = nullptr;
+  if (!m_protected_session)
+    return E_NOINTERFACE;
+  return m_protected_session->QueryInterface(riid, protected_session);
+}
+
+D3D12_RESOURCE_DESC1Compat *STDMETHODCALLTYPE
+MTLD3D12Resource::GetDesc1(D3D12_RESOURCE_DESC1Compat *ret) {
+  if (!ret)
+    return nullptr;
+  ret->base = m_desc;
+  std::memcpy(ret->sampler_feedback_mip_region,
+              m_sampler_feedback_mip_region,
+              sizeof(ret->sampler_feedback_mip_region));
+  return ret;
+}
+
+void MTLD3D12Resource::SetProtectedResourceSession(
+    ID3D12ProtectedResourceSession *session) {
+  if (m_protected_session == session)
+    return;
+  if (session)
+    session->AddRef();
+  if (m_protected_session)
+    m_protected_session->Release();
+  m_protected_session = session;
+}
+
 bool MTLD3D12Resource::IsResident() const {
   return m_residency.isResident() &&
          (!m_parent_heap || m_parent_heap->IsResident());
@@ -1615,6 +1666,9 @@ void MTLD3D12Resource::SetParentHeap(MTLD3D12Heap *heap) {
   if (m_parent_heap)
     m_parent_heap->Release();
   m_parent_heap = heap;
+  if (!m_protected_session && m_parent_heap &&
+      m_parent_heap->GetProtectedResourceSession())
+    SetProtectedResourceSession(m_parent_heap->GetProtectedResourceSession());
 }
 
 HRESULT STDMETHODCALLTYPE
@@ -1625,6 +1679,10 @@ MTLD3D12Resource::Map(UINT sub_resource,
   (void)read_range;
   if (!data)
     return E_POINTER;
+  if (m_protected_session) {
+    *data = nullptr;
+    return E_ACCESSDENIED;
+  }
   if (!IsResident()) {
     *data = nullptr;
     return DXGI_ERROR_INVALID_CALL;
@@ -1702,6 +1760,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
   RTRACE("WriteToSubresource sub=%u box=%p", dst_sub_resource, dst_box);
   if (!src_data)
     return E_POINTER;
+  if (m_protected_session)
+    return E_ACCESSDENIED;
   if (!IsResident())
     return DXGI_ERROR_INVALID_CALL;
   if (!IsSharedMappingWritable() ||
@@ -1873,6 +1933,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::WriteToSubresource(
 
 bool MTLD3D12Resource::ReadBufferRange(uint64_t offset, void *dst_data,
                                        uint64_t length) {
+  if (m_protected_session)
+    return false;
   if (!dst_data || !length || !IsBuffer() || !IsResident() ||
       offset > m_desc.Width || length > m_desc.Width - offset ||
       length > static_cast<uint64_t>(SIZE_MAX))
@@ -1907,6 +1969,8 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
          m_desc.Dimension, (void *)this);
   if (!dst_data)
     return E_POINTER;
+  if (m_protected_session)
+    return E_ACCESSDENIED;
   if (!IsResident())
     return DXGI_ERROR_INVALID_CALL;
 
@@ -2049,9 +2113,28 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Resource::ReadFromSubresource(
   return S_OK;
 }
 
+HRESULT MTLD3D12Resource::CreateSubresourceSurface(
+    UINT subresource, IDXGISurface2 **surface) {
+  if (!surface)
+    return E_POINTER;
+  *surface = nullptr;
+  IUnknown *unknown = nullptr;
+  if (FAILED(QueryInterface(IID_IUnknown,
+                            reinterpret_cast<void **>(&unknown))))
+    return DXGI_ERROR_INVALID_CALL;
+  auto *created = CreateD3D12DXGISurfaceFromResource(unknown, subresource);
+  unknown->Release();
+  if (!created)
+    return DXGI_ERROR_INVALID_CALL;
+  *surface = created;
+  return S_OK;
+}
+
 HRESULT STDMETHODCALLTYPE
 MTLD3D12Resource::GetHeapProperties(D3D12_HEAP_PROPERTIES *heap_properties,
                                     D3D12_HEAP_FLAGS *flags) {
+  if (!heap_properties && !flags)
+    return E_INVALIDARG;
   if (heap_properties)
     *heap_properties = m_heap_properties;
   if (flags)

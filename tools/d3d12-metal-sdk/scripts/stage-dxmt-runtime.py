@@ -97,6 +97,14 @@ def main() -> int:
     artifacts = list(ARTIFACTS)
     artifacts.extend(
         [
+            # A cross-built DXMT target is a Wine builtin PE. Keep the active
+            # Wine module directory in lockstep with the selected runtime;
+            # otherwise Wine can resolve an older builtin before the staged
+            # x86_64-windows copy and silently run stale code.
+            ("src/d3d10/d3d10core.dll", str(wine_lib_dir / "x86_64-windows" / "d3d10core.dll")),
+            ("src/d3d11/d3d11.dll", str(wine_lib_dir / "x86_64-windows" / "d3d11.dll")),
+            ("src/d3d12/d3d12.dll", str(wine_lib_dir / "x86_64-windows" / "d3d12.dll")),
+            ("src/dxgi/dxgi_dxmt.dll", str(wine_lib_dir / "x86_64-windows" / "dxgi.dll")),
             ("src/winemetal/winemetal.dll", str(wine_lib_dir / "x86_64-windows" / "winemetal.dll")),
             ("src/winemetal/unix/winemetal.so", str(wine_lib_dir / "x86_64-unix" / "winemetal.so")),
             ("src/winemetal/winemetal.dll", str(prefix / "drive_c" / "windows" / "system32" / "winemetal.dll")),

@@ -82,6 +82,20 @@ while (($#)); do
   shift
 done
 
+if [[ "$REQUIRE_COMPLETE" == "1" ]]; then
+  # A complete-manifest request must execute every optional breadth provider;
+  # otherwise the validator can only report missing evidence after the run.
+  WITH_RASTERIZATION=1
+  WITH_ROV_DIMENSIONS=1
+  WITH_ROV_MSAA=1
+  WITH_SAMPLE_POSITIONS=1
+  WITH_VIEW_INSTANCING=1
+  WITH_VRS=1
+  WITH_FIXED_FUNCTION=1
+  WITH_MSAA=1
+  WITH_HOST_INVENTORY=1
+fi
+
 [[ -x "$WINE_BIN" ]] || { echo "missing Wine binary: $WINE_BIN" >&2; exit 2; }
 [[ -x "$WINE_SERVER" ]] || { echo "missing wineserver: $WINE_SERVER" >&2; exit 2; }
 [[ -d "$BUILD_DIR" ]] || { echo "missing DXMT build directory: $BUILD_DIR" >&2; exit 2; }

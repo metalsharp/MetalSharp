@@ -8,6 +8,9 @@
 #include "util_string.hpp"
 #include "wsi_window.hpp"
 #include "Metal.hpp"
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 
@@ -33,10 +36,20 @@ class MTLDXGIFactory : public MTLDXGIObject<IDXGIFactory7> {
 public:
   MTLDXGIFactory(UINT Flags) : flags_(Flags) {};
   ~MTLDXGIFactory() {
-    std::lock_guard lock(adapter_event_mutex_);
-    for (const auto &[cookie, event] : adapter_events_) {
-      (void)cookie;
-      CloseHandle(event);
+    {
+      std::lock_guard lock(adapter_event_mutex_);
+      for (const auto &[cookie, event] : adapter_events_) {
+        (void)cookie;
+        CloseHandle(event);
+      }
+    }
+    {
+      std::lock_guard lock(status_mutex_);
+      for (const auto &[cookie, registration] : status_registrations_) {
+        (void)cookie;
+        if (registration.event)
+          CloseHandle(registration.event);
+      }
     }
   }
 
@@ -189,18 +202,46 @@ public:
       IUnknown *pDevice, IUnknown *pWindow, const DXGI_SWAP_CHAIN_DESC1 *pDesc,
       IDXGIOutput *pRestrictToOutput, IDXGISwapChain1 **ppSwapChain) final {
     InitReturnPtr(ppSwapChain);
-
-    ERR("Not implemented");
-    return E_NOTIMPL;
+    if (!pDevice || !pWindow || !pDesc || !ppSwapChain)
+      return DXGI_ERROR_INVALID_CALL;
+    if (pDesc->Width == 0 || pDesc->Height == 0 ||
+        pDesc->BufferCount == 0 || pDesc->BufferCount > 16 ||
+        pDesc->SampleDesc.Count != 1 || pDesc->SampleDesc.Quality != 0)
+      return DXGI_ERROR_INVALID_CALL;
+    Com<IMTLDXGIDevice> metal_dxgi_device;
+    HRESULT hr = pDevice->QueryInterface(IID_PPV_ARGS(&metal_dxgi_device));
+    if (FAILED(hr))
+      return DXGI_ERROR_UNSUPPORTED;
+    DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreen = {};
+    fullscreen.Windowed = TRUE;
+    DGTRACE("CreateSwapChainForCoreWindow using headless CoreWindow provider "
+            "size=%ux%u buffers=%u",
+            pDesc->Width, pDesc->Height, pDesc->BufferCount);
+    return metal_dxgi_device->CreateSwapChain(this, nullptr, pDesc,
+                                               &fullscreen, ppSwapChain);
   }
 
   HRESULT STDMETHODCALLTYPE CreateSwapChainForComposition(
       IUnknown *pDevice, const DXGI_SWAP_CHAIN_DESC1 *pDesc,
       IDXGIOutput *pRestrictToOutput, IDXGISwapChain1 **ppSwapChain) final {
     InitReturnPtr(ppSwapChain);
-
-    ERR("Not implemented");
-    return E_NOTIMPL;
+    if (!pDevice || !pDesc || !ppSwapChain)
+      return DXGI_ERROR_INVALID_CALL;
+    if (pDesc->Width == 0 || pDesc->Height == 0 ||
+        pDesc->BufferCount == 0 || pDesc->BufferCount > 16 ||
+        pDesc->SampleDesc.Count != 1 || pDesc->SampleDesc.Quality != 0)
+      return DXGI_ERROR_INVALID_CALL;
+    Com<IMTLDXGIDevice> metal_dxgi_device;
+    HRESULT hr = pDevice->QueryInterface(IID_PPV_ARGS(&metal_dxgi_device));
+    if (FAILED(hr))
+      return DXGI_ERROR_UNSUPPORTED;
+    DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreen = {};
+    fullscreen.Windowed = TRUE;
+    DGTRACE("CreateSwapChainForComposition using CoreAnimation-compatible "
+            "offscreen provider size=%ux%u buffers=%u",
+            pDesc->Width, pDesc->Height, pDesc->BufferCount);
+    return metal_dxgi_device->CreateSwapChain(this, nullptr, pDesc,
+                                               &fullscreen, ppSwapChain);
   }
 
   HRESULT STDMETHODCALLTYPE EnumAdapters(UINT Adapter,
@@ -273,8 +314,44 @@ public:
 
   HRESULT STDMETHODCALLTYPE GetSharedResourceAdapterLuid(HANDLE hResource,
                                                          LUID *pLuid) final {
-    ERR("Not implemented");
-    return E_NOTIMPL;
+    if (!hResource || !pLuid)
+      return DXGI_ERROR_INVALID_CALL;
+    *pLuid = {};
+    void *view = MapViewOfFile(hResource, FILE_MAP_READ, 0, 0, 4096);
+    if (!view)
+      return HRESULT_FROM_WIN32(GetLastError());
+    const auto *bytes = static_cast<const uint8_t *>(view);
+    uint32_t magic = 0, version = 0, kind = 0;
+    std::memcpy(&magic, bytes + 0, sizeof(magic));
+    std::memcpy(&version, bytes + 4, sizeof(version));
+    std::memcpy(&kind, bytes + 8, sizeof(kind));
+    constexpr uint32_t kMagic = 0x4d534852u;
+    constexpr uint32_t kVersion = 1u;
+    size_t luid_offset = SIZE_MAX;
+    if (magic == kMagic && version == kVersion) {
+      if (kind == 1u)
+        luid_offset = 128;
+      else if (kind == 2u)
+        luid_offset = 88;
+      else if (kind == 3u)
+        luid_offset = 48;
+      else if (kind == 4u)
+        luid_offset = 112;
+    }
+    HRESULT hr = DXGI_ERROR_INVALID_CALL;
+    if (luid_offset != SIZE_MAX) {
+      uint64_t value = 0;
+      std::memcpy(&value, bytes + luid_offset, sizeof(value));
+      if (value) {
+        pLuid->LowPart = static_cast<LONG>(value & 0xffffffffu);
+        pLuid->HighPart = static_cast<LONG>(value >> 32);
+        hr = S_OK;
+      }
+    }
+    UnmapViewOfFile(view);
+    DGTRACE("GetSharedResourceAdapterLuid kind=%u -> hr=0x%lx luid=%08lx:%08lx",
+            kind, hr, pLuid->HighPart, pLuid->LowPart);
+    return hr;
   }
 
   HRESULT STDMETHODCALLTYPE MakeWindowAssociation(HWND WindowHandle,
@@ -283,6 +360,7 @@ public:
     window_assoc_flags_ = Flags;
     DGTRACE("MakeWindowAssociation hwnd=%p flags=0x%x valid=%u", WindowHandle,
             Flags, WindowHandle ? (wsi::isWindow(WindowHandle) ? 1 : 0) : 0);
+    NotifyStatus(false);
     return S_OK;
   }
 
@@ -290,50 +368,31 @@ public:
 
   HRESULT STDMETHODCALLTYPE RegisterOcclusionStatusWindow(
       HWND WindowHandle, UINT wMsg, DWORD *pdwCookie) final {
-    if (!pdwCookie)
-      return DXGI_ERROR_INVALID_CALL;
-    *pdwCookie = next_status_cookie_++;
-    DGTRACE("RegisterOcclusionStatusWindow hwnd=%p msg=%u cookie=%u",
-            WindowHandle, wMsg, *pdwCookie);
-    return S_OK;
+    return RegisterStatusWindow(WindowHandle, wMsg, pdwCookie, false);
   }
 
   HRESULT STDMETHODCALLTYPE RegisterStereoStatusEvent(HANDLE hEvent,
                                                       DWORD *pdwCookie) final {
-    if (!pdwCookie)
-      return DXGI_ERROR_INVALID_CALL;
-    *pdwCookie = next_status_cookie_++;
-    DGTRACE("RegisterStereoStatusEvent event=%p cookie=%u", hEvent, *pdwCookie);
-    return S_OK;
+    return RegisterStatusEvent(hEvent, pdwCookie, true);
   }
 
   HRESULT STDMETHODCALLTYPE RegisterStereoStatusWindow(HWND WindowHandle,
                                                        UINT wMsg,
                                                        DWORD *pdwCookie) final {
-    if (!pdwCookie)
-      return DXGI_ERROR_INVALID_CALL;
-    *pdwCookie = next_status_cookie_++;
-    DGTRACE("RegisterStereoStatusWindow hwnd=%p msg=%u cookie=%u",
-            WindowHandle, wMsg, *pdwCookie);
-    return S_OK;
+    return RegisterStatusWindow(WindowHandle, wMsg, pdwCookie, true);
   }
 
   HRESULT STDMETHODCALLTYPE
   RegisterOcclusionStatusEvent(HANDLE hEvent, DWORD *pdwCookie) final {
-    if (!pdwCookie)
-      return DXGI_ERROR_INVALID_CALL;
-    *pdwCookie = next_status_cookie_++;
-    DGTRACE("RegisterOcclusionStatusEvent event=%p cookie=%u", hEvent,
-            *pdwCookie);
-    return S_OK;
+    return RegisterStatusEvent(hEvent, pdwCookie, false);
   }
 
   void STDMETHODCALLTYPE UnregisterStereoStatus(DWORD dwCookie) final {
-    DGTRACE("UnregisterStereoStatus cookie=%u", dwCookie);
+    UnregisterStatus(dwCookie);
   }
 
   void STDMETHODCALLTYPE UnregisterOcclusionStatus(DWORD dwCookie) final {
-    DGTRACE("UnregisterOcclusionStatus cookie=%u", dwCookie);
+    UnregisterStatus(dwCookie);
   }
 
   UINT STDMETHODCALLTYPE GetCreationFlags() override { return flags_; }
@@ -447,11 +506,89 @@ public:
   }
 
 private:
+  struct StatusRegistration {
+    HANDLE event = nullptr;
+    HWND window = nullptr;
+    UINT message = 0;
+    bool stereo = false;
+  };
+
+  HRESULT RegisterStatusEvent(HANDLE event, DWORD *cookie, bool stereo) {
+    if (!cookie)
+      return DXGI_ERROR_INVALID_CALL;
+    *cookie = 0;
+    if (!event)
+      return DXGI_ERROR_INVALID_CALL;
+    HANDLE duplicate = nullptr;
+    if (!DuplicateHandle(GetCurrentProcess(), event, GetCurrentProcess(),
+                         &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS))
+      return HRESULT_FROM_WIN32(GetLastError());
+    std::lock_guard lock(status_mutex_);
+    DWORD value = next_status_cookie_++;
+    while (!value || status_registrations_.contains(value))
+      value = next_status_cookie_++;
+    status_registrations_.emplace(value,
+                                   StatusRegistration{duplicate, nullptr, 0,
+                                                      stereo});
+    *cookie = value;
+    DGTRACE("RegisterStatusEvent event=%p stereo=%u cookie=%u", event,
+            stereo ? 1u : 0u, value);
+    return S_OK;
+  }
+
+  HRESULT RegisterStatusWindow(HWND window, UINT message, DWORD *cookie,
+                               bool stereo) {
+    if (!cookie)
+      return DXGI_ERROR_INVALID_CALL;
+    *cookie = 0;
+    if (!window || !message)
+      return DXGI_ERROR_INVALID_CALL;
+    std::lock_guard lock(status_mutex_);
+    DWORD value = next_status_cookie_++;
+    while (!value || status_registrations_.contains(value))
+      value = next_status_cookie_++;
+    status_registrations_.emplace(value,
+                                   StatusRegistration{nullptr, window, message,
+                                                      stereo});
+    *cookie = value;
+    DGTRACE("RegisterStatusWindow hwnd=%p msg=%u stereo=%u cookie=%u", window,
+            message, stereo ? 1u : 0u, value);
+    return S_OK;
+  }
+
+  void NotifyStatus(bool stereo) {
+    std::lock_guard lock(status_mutex_);
+    for (const auto &[cookie, registration] : status_registrations_) {
+      (void)cookie;
+      if (registration.stereo != stereo)
+        continue;
+      if (registration.event)
+        SetEvent(registration.event);
+      else if (registration.window)
+        PostMessageW(registration.window, registration.message, 0, 0);
+    }
+  }
+
+  void UnregisterStatus(DWORD cookie) {
+    std::lock_guard lock(status_mutex_);
+    auto it = status_registrations_.find(cookie);
+    if (it == status_registrations_.end()) {
+      DGTRACE("UnregisterStatus unknown cookie=%u", cookie);
+      return;
+    }
+    if (it->second.event)
+      CloseHandle(it->second.event);
+    status_registrations_.erase(it);
+    DGTRACE("UnregisterStatus cookie=%u", cookie);
+  }
+
   UINT flags_;
 
   HWND associated_window_ = nullptr;
   UINT window_assoc_flags_ = 0;
   DWORD next_status_cookie_ = 1;
+  std::mutex status_mutex_;
+  std::unordered_map<DWORD, StatusRegistration> status_registrations_;
   std::mutex adapter_event_mutex_;
   std::unordered_map<DWORD, HANDLE> adapter_events_;
   DWORD next_adapter_event_cookie_ = 1;

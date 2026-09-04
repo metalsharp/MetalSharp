@@ -161,6 +161,34 @@ def main() -> int:
             }
         )
 
+    # Cross-built DXMT PE targets are Wine builtin modules. Mirror the
+    # selected build into the sandbox builtin directory as well as the route
+    # directory; otherwise WINEDLLPATH can fall through to an older global
+    # d3d12/dxgi module even though the route copy has the new source hash.
+    for source_name, builtin_name in (
+        ("d3d10core.dll", "d3d10core.dll"),
+        ("d3d11.dll", "d3d11.dll"),
+        ("d3d12.dll", "d3d12.dll"),
+        ("dxgi_dxmt.dll", "dxgi.dll"),
+    ):
+        source = runtime_windows / source_name
+        destination = wine_windows / builtin_name
+        source_record = record(source)
+        if not source_record["exists"]:
+            failures.append(f"missing builtin source artifact: {source}")
+            continue
+        shutil.copy2(source, destination)
+        staged.append(
+            {
+                "source": source_record,
+                "destination": record(destination),
+                "source_hash_before_postprocess": source_record["sha256"],
+                "postprocessed": False,
+                "match": source_record["sha256"] == sha256(destination),
+                "builtin_duplicate": True,
+            }
+        )
+
     # The Unix loader resolves its module and Wine dependencies from a Wine
     # builtin tree.  Keep those copies inside the disposable sandbox.
     wmt_pe = runtime_windows / "winemetal.dll"

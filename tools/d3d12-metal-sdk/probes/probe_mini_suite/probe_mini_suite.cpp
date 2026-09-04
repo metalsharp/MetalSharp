@@ -22,6 +22,18 @@
 #endif
 
 static const GUID IID_D3D12DeviceProbe = {0x189819f1, 0x1db6, 0x4b57, {0xbe, 0x54, 0x18, 0x21, 0x33, 0x9b, 0x85, 0xf7}};
+static const GUID IID_DXGISwapChain4Probe = {
+    0x3d585d5a, 0xbd4a, 0x489e,
+    {0xb1, 0xf4, 0x3d, 0xbc, 0xb6, 0x45, 0x2f, 0xfb}};
+enum DXGI_HDR_METADATA_TYPE : UINT {
+    DXGI_HDR_METADATA_TYPE_NONE = 0,
+    DXGI_HDR_METADATA_TYPE_HDR10 = 1,
+    DXGI_HDR_METADATA_TYPE_HDR10PLUS = 2,
+};
+struct DXGISwapChain4Probe : public IDXGISwapChain3 {
+    virtual HRESULT STDMETHODCALLTYPE SetHDRMetaData(DXGI_HDR_METADATA_TYPE,
+                                                       UINT, void*) = 0;
+};
 
 using D3D12CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, void**);
 using D3D12SerializeRootSignatureFn = HRESULT(WINAPI*)(const D3D12_ROOT_SIGNATURE_DESC*, D3D_ROOT_SIGNATURE_VERSION,
@@ -3011,6 +3023,8 @@ static ProbeResult probe_swapchain_present() {
 
     ID3D12CommandQueue* queue = nullptr;
     IDXGISwapChain1* swapchain1 = nullptr;
+    IDXGISwapChain2* swapchain2 = nullptr;
+    DXGISwapChain4Probe* swapchain4 = nullptr;
     HRESULT make_assoc_hr = E_FAIL;
     HRESULT get_assoc_hr = E_FAIL;
     HRESULT get_hwnd_hr = E_FAIL;
@@ -3019,6 +3033,21 @@ static ProbeResult probe_swapchain_present() {
     HWND associated_hwnd = nullptr;
     HWND swapchain_hwnd = nullptr;
     DXGI_SWAP_CHAIN_DESC swapchain_desc = {};
+    DXGI_RGBA background = {0.1f, 0.2f, 0.3f, 1.0f};
+    DXGI_RGBA background_copy = {};
+    DXGI_MATRIX_3X2_F matrix = {1.0f, 0.0f, 0.0f, 1.0f, 2.0f, 3.0f};
+    DXGI_MATRIX_3X2_F matrix_copy = {};
+    DXGI_MODE_ROTATION rotation = DXGI_MODE_ROTATION_IDENTITY;
+    HRESULT swapchain2_qi_hr = E_FAIL;
+    HRESULT swapchain4_qi_hr = E_FAIL;
+    HRESULT set_background_hr = E_FAIL;
+    HRESULT get_background_hr = E_FAIL;
+    HRESULT set_rotation_hr = E_FAIL;
+    HRESULT get_rotation_hr = E_FAIL;
+    HRESULT set_matrix_hr = E_FAIL;
+    HRESULT get_matrix_hr = E_FAIL;
+    HRESULT set_hdr_hr = E_FAIL;
+    HRESULT get_core_window_hr = E_FAIL;
     DWORD occ_cookie = 0;
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
@@ -3043,14 +3072,42 @@ static ProbeResult probe_swapchain_present() {
     if (SUCCEEDED(hr)) {
         get_hwnd_hr = swapchain1->GetHwnd(&swapchain_hwnd);
         get_desc_hr = swapchain1->GetDesc(&swapchain_desc);
+        swapchain2_qi_hr = swapchain1->QueryInterface(IID_PPV_ARGS(&swapchain2));
+        swapchain4_qi_hr = swapchain1->QueryInterface(
+            IID_DXGISwapChain4Probe, reinterpret_cast<void**>(&swapchain4));
+        set_background_hr = swapchain1->SetBackgroundColor(&background);
+        get_background_hr = swapchain1->GetBackgroundColor(&background_copy);
+        set_rotation_hr = swapchain1->SetRotation(DXGI_MODE_ROTATION_ROTATE90);
+        get_rotation_hr = swapchain1->GetRotation(&rotation);
+        if (swapchain2) {
+            set_matrix_hr = swapchain2->SetMatrixTransform(&matrix);
+            get_matrix_hr = swapchain2->GetMatrixTransform(&matrix_copy);
+        }
+        if (swapchain4)
+            set_hdr_hr = swapchain4->SetHDRMetaData(
+                static_cast<DXGI_HDR_METADATA_TYPE>(0), 0, nullptr);
+        get_core_window_hr = swapchain1->GetCoreWindow(IID_IUnknown, nullptr);
     }
     HRESULT present_hr = E_FAIL;
     if (SUCCEEDED(hr))
         present_hr = swapchain1->Present(0, 0);
 
+    const bool background_roundtrip =
+        background_copy.r == background.r &&
+        background_copy.g == background.g &&
+        background_copy.b == background.b &&
+        background_copy.a == background.a;
+    const bool matrix_roundtrip =
+        std::memcmp(&matrix, &matrix_copy, sizeof(matrix)) == 0;
     bool ok = SUCCEEDED(hr) && SUCCEEDED(present_hr) && SUCCEEDED(make_assoc_hr) && SUCCEEDED(get_assoc_hr) &&
               SUCCEEDED(get_hwnd_hr) && SUCCEEDED(get_desc_hr) && SUCCEEDED(register_occ_hr) &&
-              associated_hwnd == hwnd && swapchain_hwnd == hwnd && swapchain_desc.OutputWindow == hwnd;
+              SUCCEEDED(swapchain2_qi_hr) && SUCCEEDED(swapchain4_qi_hr) &&
+              SUCCEEDED(set_background_hr) && SUCCEEDED(get_background_hr) && background_roundtrip &&
+              SUCCEEDED(set_rotation_hr) && SUCCEEDED(get_rotation_hr) &&
+              rotation == DXGI_MODE_ROTATION_ROTATE90 && SUCCEEDED(set_matrix_hr) &&
+              SUCCEEDED(get_matrix_hr) && matrix_roundtrip && SUCCEEDED(set_hdr_hr) &&
+              get_core_window_hr == E_POINTER && associated_hwnd == hwnd &&
+              swapchain_hwnd == hwnd && swapchain_desc.OutputWindow == hwnd;
     char dxgi_alias[128] = {};
     GetEnvironmentVariableA("DXMT_PROBE_DXGI_DLL", dxgi_alias,
                             sizeof(dxgi_alias));
@@ -3061,9 +3118,24 @@ static ProbeResult probe_swapchain_present() {
                         "\",\"register_occlusion_status_window_hr\":\"" + hr_hex(register_occ_hr) +
                         "\",\"create_swapchain_hr\":\"" + hr_hex(hr) + "\",\"get_hwnd_hr\":\"" + hr_hex(get_hwnd_hr) +
                         "\",\"get_desc_hr\":\"" + hr_hex(get_desc_hr) + "\",\"present_hr\":\"" + hr_hex(present_hr) +
+                        "\",\"swapchain2_qi_hr\":\"" + hr_hex(swapchain2_qi_hr) +
+                        "\",\"swapchain4_qi_hr\":\"" + hr_hex(swapchain4_qi_hr) +
+                        "\",\"set_background_hr\":\"" + hr_hex(set_background_hr) +
+                        "\",\"get_background_hr\":\"" + hr_hex(get_background_hr) +
+                        "\",\"background_roundtrip\":" + (background_roundtrip ? "true" : "false") +
+                        ",\"set_rotation_hr\":\"" + hr_hex(set_rotation_hr) +
+                        "\",\"get_rotation_hr\":\"" + hr_hex(get_rotation_hr) +
+                        "\",\"rotation\":" + std::to_string(static_cast<unsigned>(rotation)) +
+                        ",\"set_matrix_hr\":\"" + hr_hex(set_matrix_hr) +
+                        "\",\"get_matrix_hr\":\"" + hr_hex(get_matrix_hr) +
+                        "\",\"matrix_roundtrip\":" + (matrix_roundtrip ? "true" : "false") +
+                        ",\"set_hdr_hr\":\"" + hr_hex(set_hdr_hr) +
+                        "\",\"get_core_window_hr\":\"" + hr_hex(get_core_window_hr) +
                         "\",\"associated_matches\":" + (associated_hwnd == hwnd ? "true" : "false") +
                         ",\"swapchain_hwnd_matches\":" + (swapchain_hwnd == hwnd ? "true" : "false") +
                         ",\"desc_output_window_matches\":" + (swapchain_desc.OutputWindow == hwnd ? "true" : "false");
+    safe_release(swapchain4);
+    safe_release(swapchain2);
     safe_release(swapchain1);
     safe_release(queue);
     if (hwnd)
@@ -4129,6 +4201,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     ID3D12Resource* vertices = nullptr;
     ID3D12Resource* updated_vertices = nullptr;
     ID3D12Resource* indices = nullptr;
+    ID3D12Resource* geometry_transform = nullptr;
     ID3D12Resource* acceleration_structure = nullptr;
     ID3D12Resource* cloned_acceleration_structure = nullptr;
     ID3D12Resource* compacted_acceleration_structure = nullptr;
@@ -4711,10 +4784,33 @@ static ProbeResult probe_dxr_acceleration_structures() {
             indices->Unmap(0, nullptr);
         }
     }
+    if (SUCCEEDED(hr)) {
+        static const float identity_transform[12] = {
+            1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+        };
+        D3D12_HEAP_PROPERTIES upload_heap = heap_props(D3D12_HEAP_TYPE_UPLOAD);
+        D3D12_RESOURCE_DESC transform_desc = buffer_desc(sizeof(identity_transform));
+        hr = device->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE,
+                                             &transform_desc,
+                                             D3D12_RESOURCE_STATE_GENERIC_READ,
+                                             nullptr, IID_PPV_ARGS(&geometry_transform));
+        void* mapped = nullptr;
+        if (SUCCEEDED(hr))
+            hr = geometry_transform->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(hr)) {
+            std::memcpy(mapped, identity_transform, sizeof(identity_transform));
+            geometry_transform->Unmap(0, nullptr);
+        }
+    }
 
     D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
     geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
     geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
+    geometry.Triangles.Transform3x4 = geometry_transform
+                                           ? geometry_transform->GetGPUVirtualAddress()
+                                           : 0;
     geometry.Triangles.VertexBuffer.StartAddress = vertices ? vertices->GetGPUVirtualAddress() : 0;
     geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
     geometry.Triangles.VertexCount = 3;
@@ -5772,6 +5868,7 @@ static ProbeResult probe_dxr_acceleration_structures() {
     safe_release(vertices);
     safe_release(updated_vertices);
     safe_release(indices);
+    safe_release(geometry_transform);
     safe_release(ray_query_heap);
     safe_release(local_sampler_heap);
     safe_release(local_texture_rtv_heap);

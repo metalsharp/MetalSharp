@@ -2102,10 +2102,21 @@ _MTLComputeCommandEncoder_encodeCommands(void *obj) {
   struct unixcall_generic_obj_cmd_noret *params = obj;
   const struct wmtcmd_base *next = params->cmd_head.ptr;
   id<MTLComputeCommandEncoder> encoder = (id<MTLComputeCommandEncoder>)params->encoder;
+  FILE *debug = winemetal_debug_log();
+  if (debug) {
+    fprintf(debug, "compute_encode_begin encoder=%p cmd=%p type=%u next=%p\\n",
+            encoder, next, next ? next->type : 0, next ? next->next.ptr : NULL);
+    fflush(debug);
+  }
   MTLSize threadgroup_size = {0, 0, 0};
   while (next) {
     switch ((enum WMTComputeCommandType)next->type) {
     default:
+      if (debug) {
+        fprintf(debug, "compute_encode_unknown type=%u cmd=%p\\n", next->type,
+                next);
+        fflush(debug);
+      }
       assert(!next->type && "unhandled compute command type");
       break;
     case WMTComputeCommandDispatch: {
@@ -2129,6 +2140,14 @@ _MTLComputeCommandEncoder_encodeCommands(void *obj) {
     }
     case WMTComputeCommandSetPSO: {
       struct wmtcmd_compute_setpso *body = (struct wmtcmd_compute_setpso *)next;
+      if (debug) {
+        fprintf(debug, "compute_encode_pso cmd=%p pso=%p tg=%llu,%llu,%llu\\n",
+                body, (void *)body->pso,
+                (unsigned long long)body->threadgroup_size.width,
+                (unsigned long long)body->threadgroup_size.height,
+                (unsigned long long)body->threadgroup_size.depth);
+        fflush(debug);
+      }
       [encoder setComputePipelineState:(id<MTLComputePipelineState>)body->pso];
       threadgroup_size.width = body->threadgroup_size.width;
       threadgroup_size.height = body->threadgroup_size.height;
@@ -2137,6 +2156,12 @@ _MTLComputeCommandEncoder_encodeCommands(void *obj) {
     }
     case WMTComputeCommandSetBuffer: {
       struct wmtcmd_compute_setbuffer *body = (struct wmtcmd_compute_setbuffer *)next;
+      if (debug) {
+        fprintf(debug, "compute_encode_buffer cmd=%p buffer=%p offset=%llu index=%u\\n",
+                body, (void *)body->buffer,
+                (unsigned long long)body->offset, body->index);
+        fflush(debug);
+      }
       [encoder setBuffer:(id<MTLBuffer>)body->buffer offset:body->offset atIndex:body->index];
       break;
     }
@@ -2751,7 +2776,17 @@ create_triangle_acceleration_structure_descriptors(
     geometry.vertexBuffer = (id<MTLBuffer>)info->vertex_buffer;
     geometry.vertexBufferOffset = info->vertex_buffer_offset;
     geometry.vertexStride = info->vertex_stride;
-    geometry.vertexFormat = MTLAttributeFormatFloat3;
+    switch (info->reserved) {
+    case 1:
+      geometry.vertexFormat = MTLAttributeFormatHalf4;
+      break;
+    case 2:
+      geometry.vertexFormat = MTLAttributeFormatFloat2;
+      break;
+    default:
+      geometry.vertexFormat = MTLAttributeFormatFloat3;
+      break;
+    }
     geometry.triangleCount = info->triangle_count;
     geometry.opaque = info->opaque != 0;
     if (info->index_buffer &&
@@ -2946,7 +2981,11 @@ create_mixed_acceleration_structure_descriptor(
       geometry.vertexBuffer = (id<MTLBuffer>)triangle->vertex_buffer;
       geometry.vertexBufferOffset = triangle->vertex_buffer_offset;
       geometry.vertexStride = triangle->vertex_stride;
-      geometry.vertexFormat = MTLAttributeFormatFloat3;
+      geometry.vertexFormat = triangle->reserved == 1
+                                  ? MTLAttributeFormatHalf4
+                                  : (triangle->reserved == 2
+                                         ? MTLAttributeFormatFloat2
+                                         : MTLAttributeFormatFloat3);
       geometry.triangleCount = triangle->triangle_count;
       geometry.opaque = triangle->opaque != 0;
       if (triangle->index_buffer &&

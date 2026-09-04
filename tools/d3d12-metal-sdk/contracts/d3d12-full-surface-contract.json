@@ -9,6 +9,12 @@
   "inventory": {
     "interface_census": "tools/d3d12-metal-sdk/contracts/d3d12-interface-census.json",
     "no_op_policy": "tools/d3d12-metal-sdk/contracts/d3d12-no-op-policy.json",
+    "phase_checkpoint_manifests": [
+      "tools/d3d12-metal-sdk/contracts/phase7-mesh-workgraph-coverage.json",
+      "tools/d3d12-metal-sdk/contracts/phase9-video-coverage.json",
+      "tools/d3d12-metal-sdk/contracts/phase12-display-coverage.json",
+      "tools/d3d12-metal-sdk/contracts/phase13-diagnostics-coverage.json"
+    ],
     "static_scan": "docs/roadmaps/d3d12-full-surface-phase0-inventory.md"
   },
   "required_surfaces": [
@@ -40,6 +46,6 @@
     "legal_methods_require_behavior_proof": true,
     "method_count": 537,
     "promotion_ready": false,
-    "static_finding_count": 1588
+    "static_finding_count": 1743
   }
 }

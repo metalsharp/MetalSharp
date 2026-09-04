@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 
 #define CLTRACE(fmt, ...) do { FILE *_tf = dxmt::openDiagnosticLog("dxmt-d3d12-trace.log"); if (_tf) { fprintf(_tf, "CmdList::" fmt "\n", ##__VA_ARGS__); fclose(_tf); } } while(0)
 
@@ -275,6 +276,11 @@ MTLD3D12GraphicsCommandList::QueryInterface(REFIID riid, void **ppvObject) {
   }
   if (riid == kID3D12GraphicsCommandList9) {
     *ppvObject = static_cast<GraphicsCommandList9Extension *>(this);
+    AddRef();
+    return S_OK;
+  }
+  if (riid == kID3D12GraphicsCommandList10) {
+    *ppvObject = static_cast<GraphicsCommandList10Extension *>(this);
     AddRef();
     return S_OK;
   }
@@ -1966,13 +1972,13 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::InitializeMetaCommand(
     SIZE_T initialization_parameters_data_size_in_bytes) {
   if (m_closed || !meta_command ||
       initialization_parameters_data_size_in_bytes > UINT32_MAX -
-          offsetof(CmdMetaCommand, data) ||
+          (sizeof(CmdMetaCommand) - 1) ||
       (initialization_parameters_data_size_in_bytes &&
        !initialization_parameters_data))
     return;
   CmdMetaCommand cmd = {};
   cmd.header = {CmdType::InitializeMetaCommand,
-                static_cast<uint32_t>(offsetof(CmdMetaCommand, data) +
+                static_cast<uint32_t>((sizeof(CmdMetaCommand) - 1) +
                                       initialization_parameters_data_size_in_bytes)};
   cmd.meta_command = meta_command;
   cmd.data_size = static_cast<uint32_t>(
@@ -1989,13 +1995,13 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::ExecuteMetaCommand(
     SIZE_T execution_parameters_data_size_in_bytes) {
   if (m_closed || !meta_command ||
       execution_parameters_data_size_in_bytes > UINT32_MAX -
-          offsetof(CmdMetaCommand, data) ||
+          (sizeof(CmdMetaCommand) - 1) ||
       (execution_parameters_data_size_in_bytes &&
        !execution_parameters_data))
     return;
   CmdMetaCommand cmd = {};
   cmd.header = {CmdType::ExecuteMetaCommand,
-                static_cast<uint32_t>(offsetof(CmdMetaCommand, data) +
+                static_cast<uint32_t>((sizeof(CmdMetaCommand) - 1) +
                                       execution_parameters_data_size_in_bytes)};
   cmd.meta_command = meta_command;
   cmd.data_size = static_cast<uint32_t>(execution_parameters_data_size_in_bytes);
@@ -2151,6 +2157,108 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetPipelineState1(
   RetainStateObject(state_object);
   Emit(cmd);
   CLTRACE("SetPipelineState1 state=%p", (void *)state_object);
+}
+
+void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::SetProgram(
+    const void *desc) {
+  if (m_closed || !desc)
+    return;
+  CmdSetProgram cmd = {};
+  cmd.header = {CmdType::SetProgram, sizeof(cmd)};
+  cmd.descriptor_size = sizeof(cmd.descriptor);
+  std::memcpy(cmd.descriptor, desc, sizeof(cmd.descriptor));
+  std::memcpy(&cmd.program_type, cmd.descriptor, sizeof(cmd.program_type));
+  Emit(cmd);
+  CLTRACE("SetProgram type=%u", cmd.program_type);
+}
+
+void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchGraph(
+    const void *desc) {
+  if (m_closed || !desc)
+    return;
+  // The fields below match D3D12_DISPATCH_GRAPH_DESC and its four union
+  // members from the 1.619.5 header.  Keep the command stream pointer-free;
+  // CPU records are copied into the bounded command payload and GPU ranges
+  // retain their resources for asynchronous replay.
+  struct GraphCPUInput {
+    uint32_t entrypoint_index;
+    uint32_t num_records;
+    const void *records;
+    uint64_t record_stride;
+  };
+  struct GraphGPUInput {
+    uint64_t node_input;
+  };
+  struct GraphMultiCPUInput {
+    uint32_t num_node_inputs;
+    const void *node_inputs;
+    uint64_t node_input_stride;
+  };
+  struct GraphMultiGPUInput {
+    uint32_t num_node_inputs;
+    uint32_t padding;
+    uint64_t node_inputs;
+    uint64_t node_input_stride;
+  };
+  struct GraphDesc {
+    uint32_t mode;
+    uint32_t padding;
+    union {
+      GraphCPUInput cpu;
+      GraphGPUInput gpu;
+      GraphMultiCPUInput multi_cpu;
+      GraphMultiGPUInput multi_gpu;
+    } input;
+  };
+  const auto *source = static_cast<const GraphDesc *>(desc);
+  CmdDispatchGraph cmd = {};
+  cmd.header = {CmdType::DispatchGraph, sizeof(cmd)};
+  cmd.dispatch_mode = source->mode;
+  switch (source->mode) {
+  case 0: {
+    cmd.entrypoint_index = source->input.cpu.entrypoint_index;
+    cmd.num_records = source->input.cpu.num_records;
+    cmd.record_stride = source->input.cpu.record_stride;
+    const uint64_t bytes = uint64_t(cmd.num_records) * cmd.record_stride;
+    if (!source->input.cpu.records || !cmd.record_stride || bytes > sizeof(cmd.record_data))
+      return;
+    cmd.record_data_size = static_cast<uint32_t>(bytes);
+    std::memcpy(cmd.record_data, source->input.cpu.records,
+                cmd.record_data_size);
+    break;
+  }
+  case 1:
+    cmd.node_input_gpu_address = source->input.gpu.node_input;
+    if (!cmd.node_input_gpu_address)
+      return;
+    RetainGPUAddress(cmd.node_input_gpu_address);
+    break;
+  case 2:
+    cmd.num_records = source->input.multi_cpu.num_node_inputs;
+    cmd.node_input_stride = source->input.multi_cpu.node_input_stride;
+    // Multi-node CPU records are copied only when they fit the bounded
+    // pointer-free command record.  The node-input descriptors themselves are
+    // interpreted by a provider at replay time.
+    if (!source->input.multi_cpu.node_inputs || !cmd.node_input_stride ||
+        uint64_t(cmd.num_records) * cmd.node_input_stride > sizeof(cmd.record_data))
+      return;
+    cmd.record_data_size = static_cast<uint32_t>(
+        uint64_t(cmd.num_records) * cmd.node_input_stride);
+    std::memcpy(cmd.record_data, source->input.multi_cpu.node_inputs,
+                cmd.record_data_size);
+    break;
+  case 3:
+    cmd.num_records = source->input.multi_gpu.num_node_inputs;
+    cmd.node_input_gpu_address = source->input.multi_gpu.node_inputs;
+    cmd.node_input_stride = source->input.multi_gpu.node_input_stride;
+    RetainGPUAddress(cmd.node_input_gpu_address);
+    break;
+  default:
+    return;
+  }
+  Emit(cmd);
+  CLTRACE("DispatchGraph mode=%u records=%u gpu=0x%llx", cmd.dispatch_mode,
+          cmd.num_records, (unsigned long long)cmd.record_gpu_address);
 }
 
 void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchRays(
