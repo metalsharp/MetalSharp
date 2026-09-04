@@ -349,13 +349,7 @@ struct MetadataNode {
 // NODE operands are encoded as record_id + 1 (zero is null).  Named metadata
 // operands use the unshifted record ID.  Keep that unified record stream so
 // resource tuples can be resolved without guessing from the printable module.
-struct MetadataRecord {
-  enum class Kind { String, Value, Node } kind = Kind::Node;
-  std::string string_value;
-  uint32_t type_id = 0;
-  uint64_t value_id = 0;
-  std::vector<uint32_t> operands;
-};
+using MetadataRecord = LLVMMetadataRecord;
 
 struct MetadataState {
   std::vector<MetadataValue> values;
@@ -2258,6 +2252,11 @@ std::optional<LLVMModule> BitcodeReader::parse(const uint8_t *data, uint32_t siz
 
   recoverNumthreadsFromEntryPointMetadata(module, md_state);
   recoverResourcesFromMetadata(module, md_state);
+  // Transfer ownership only after all parse-time metadata consumers finish.
+  // Do not renumber/filter the pool: tuples can refer forward or to strings
+  // and values, and dx.entryPoints carries per-function node properties.
+  module.metadata_records = std::move(md_state.records);
+  module.named_metadata = std::move(md_state.named_nodes);
 
   return module;
 }

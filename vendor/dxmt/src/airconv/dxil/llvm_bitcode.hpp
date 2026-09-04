@@ -151,16 +151,42 @@ struct DxilResourceBinding {
   bool rasterizer_ordered = false;
 };
 
+// Preserve the metadata graph, not just a few recovered resource properties.
+// Node operands are nullable, one-based record references; named metadata uses
+// zero-based record IDs. Value records refer to the module's LLVM values.
+// Keeping these namespaces distinct is necessary for per-entrypoint node IO
+// types, routing, launch parameters and forward metadata references.
+struct LLVMMetadataRecord {
+  enum class Kind { String, Value, Node } kind = Kind::Node;
+  std::string string_value;
+  uint32_t type_id = 0;
+  uint64_t value_id = 0;
+  std::vector<uint32_t> operands;
+};
+
 struct LLVMModule {
   std::vector<LLVMType> types;
   std::vector<LLVMValue> constants;
   std::vector<LLVMFunction> functions;
   std::vector<LLVMGlobal> globals;
   std::vector<DxilResourceBinding> resource_bindings;
+  std::vector<LLVMMetadataRecord> metadata_records;
+  std::unordered_map<std::string, std::vector<uint32_t>> named_metadata;
   std::unordered_map<std::string, size_t> function_map;
   std::string source_filename;
   std::string target_triple;
   uint32_t num_threads[3] = {1, 1, 1};
+
+  const LLVMMetadataRecord *metadataOperand(
+      const LLVMMetadataRecord &record, size_t index) const {
+    if (record.kind != LLVMMetadataRecord::Kind::Node ||
+        index >= record.operands.size())
+      return nullptr;
+    const uint32_t ref = record.operands[index];
+    return ref && ref <= metadata_records.size()
+               ? &metadata_records[ref - 1]
+               : nullptr;
+  }
 };
 
 class BitcodeReader {

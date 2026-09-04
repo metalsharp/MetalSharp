@@ -4,7 +4,178 @@ Inspected source revision: `ce695fdf` (bounded Work Graph compute-queue probe).
 This checkpoint is **not** a Phase 7 exit, clean-source build attestation, or
 full-surface promotion.
 
-## Observations
+## Clean-source queue and raw-UAV follow-up (`cce1ca8d`)
+
+All nine runtime targets were rebuilt incrementally in the external Meson build
+and staged from clean commit `cce1ca8ddb730e332557b8464a6d939cf1027662`.
+`stage-phase6-sandbox-phase7-clean-queue.json` reports `ok=true`,
+`failure_count=0`, and `source_dirty=false`. The separate strict prefix/bridge
+ABI audit passes. This is a clean-source staging checkpoint, **not** an
+independent repeated clean-build reproducibility proof.
+
+The committed Work Graph probe and ordinary queue regression pass against
+`/Volumes/AverySSD/metalsharp-phase7-source.tjzA3h/clean-queue/runtime`.
+Exact dependency readbacks are:
+
+- First single-input cycle: `[125, 1464291884]`.
+- Repeated single-input cycle on the same compute queue: `[236, 1464292027]`.
+- Multi-input dispatch form with one GPU-produced record: `[347, 1464292106]`.
+
+The raw UAV table test and short/null-view rejection checks also pass. The
+multi-input payload is copied on the GPU after queued dependencies; dispatch
+metadata is still host-authored and host-read. Neither this bounded proof nor
+the queue's increased command-buffer capacity closes general graph scheduling,
+GPU-generated metadata, or unbounded dependency-depth requirements.
+
+Evidence beneath `/private/tmp/metalsharp-phase7-abi/`:
+
+- `clean-queue-stage/stage-phase6-sandbox-phase7-clean-queue.json`
+- `clean-queue-stage/winemetal-abi-phase7-clean-queue.json`
+- `clean-work-graph/probe-workgraph-execution-metalsharp.json`
+- `clean-work-graph/probe-workgraph-metalsharp.json`
+- `clean-queues/probe-queues-metalsharp.json`
+- `clean-queue-build.log`
+
+A separate scratch-only two-input, mixed-stride experiment passes with
+`[347, 1464292106, 348, 1296977439]`; its source and results are
+`probe-mixed-strides.cpp` and `mixed-strides/` under that scratch directory.
+It is **not** part of the committed required probe matrix. The generated probe
+executable was subsequently rebuilt from committed source for the clean
+checkpoint above. A follow-up scratch test gives the second input a distinct
+GPU-produced value at byte offset 8, retaining the 4-/8-byte stride difference;
+`probe-mixed-offsets.cpp` and `mixed-offsets/` record the passing exact result
+`[347, 1464292106, 1348, 1296976391]` against the clean sandbox. This additional
+routing/offset witness is also scratch-only, not a required matrix promotion.
+
+## Independent rebuild follow-up (`cce1ca8d`)
+
+A fresh Meson build directory, `rebuild-independent`, rebuilt all nine runtime
+targets with the same cross file, LLVM 15 path, Wine install path, and enabled
+NVAPI/NVNGX options. No object files from the incremental build were reused.
+The independently staged sandbox records the same clean source commit with
+`source_dirty=false`; strict ABI and the committed Work Graph and queue probes
+pass against its own runtime and Wine loader alias.
+
+Raw artifact SHA-256 hashes differ for all nine files: **byte reproducibility
+has not passed**. Section comparison finds:
+
+- All eight PE DLL `.text` sections are identical.
+- PE section differences are limited to debug sections and `.edata` bytes 4/5
+  (within the export-directory timestamp). PE COFF timestamps also differ.
+- All parsed Mach-O sections, including `__TEXT,__text`, are identical; the
+  bridge UUID differs. Whole-file metadata differences remain unnormalized.
+
+This establishes a second build's bounded execution/ABI result, not a release
+reproducibility gate or a claim that every byte difference has been explained.
+The pending checkpoint documentation was preserved in a scratch patch and
+briefly reverted for clean-source staging, then restored without runtime edits.
+
+Evidence beneath `/private/tmp/metalsharp-phase7-abi/`:
+
+- `rebuild-independent-setup.log`, `rebuild-independent-build.log`
+- `rebuild-independent-comparison.json` (raw hashes and section comparison)
+- `independent-stage/stage-phase6-sandbox-phase7-independent.json`
+- `independent-stage/winemetal-abi-phase7-independent.json`
+- `independent-work-graph/probe-workgraph-execution-metalsharp.json`
+- `independent-work-graph/probe-workgraph-metalsharp.json`
+- `independent-queues/probe-queues-metalsharp.json`
+
+The independent sandbox is
+`/Volumes/AverySSD/metalsharp-phase7-source.tjzA3h/independent-sandbox`.
+No generated build or probe artifacts are tracked.
+
+## Unresolved real node input-record consumption
+
+A separate scratch HLSL shader reads `DispatchNodeInputRecord<RECORD>` and
+writes `0xabcdef00 + input.Get().value` plus marker `0x12345678` to u0.
+Pinned DXC compilation succeeds and the runtime returns `hr=0x00000000`, but:
+
+| CPU input record | Expected first output | Actual first output |
+| --- | --- | --- |
+| 1 | `0xabcdef01` | `0xabcdef67` |
+| 9 | `0xabcdef09` | `0xabcdef67` |
+
+The same backing-derived value 103 is read in both cases. This is a correctness
+failure, not successful support or a fail-closed rejection. Existing constant
+output node fixtures do not exercise submitted input-record consumption.
+
+Source inspection identifies the missing connection:
+`EncodeWorkGraphNodeShader` receives node index and record count but not the
+submitted input buffer/offset or owned CPU payload. The lowering's
+`GetNodeRecordPtr` uses buffer 30 (graph backing), with an output-buffer fallback;
+input and output handles share the same bounded pointer helper. A future fix
+must distinguish input-record storage from output-record allocation and preserve
+GPU dependency ordering, resource lifetime, input bounds, and existing output
+record semantics. General record scheduling remains open.
+
+Scratch evidence under `/private/tmp/metalsharp-phase7-abi/`:
+`node-input-read.hlsl`, `node-input-compile.log`, `probe-node-input.cpp`,
+`probe-node-input-nine.cpp`, `node-input-before/`, and `node-input-nine/`.
+The runtime is the independently staged `cce1ca8d` build. The generated probe
+executable was restored from committed source after these diagnostic tests.
+No runtime fix is claimed in this checkpoint.
+
+### Source audit: full record-model dependencies
+
+Pinned DXC's `DxilMetadataHelper.h` identifies node properties under
+`dx.entryPoints`: launch type (13), program-entry flag (14), node ID (15), local
+root index (16), shared input (17), dispatch grid (18), recursion depth (19),
+inputs (20), outputs (21), and max grid (22). Input/output descriptors carry
+flags, record types, record/output limits, array sizes, and sparse-node policy;
+record type metadata carries size, SV_DispatchGrid layout, and alignment.
+`node-input-dump.txt` preserves the compiled test shader's size/alignment 4/4.
+
+Current source does not provide the full corresponding behavior:
+
+- `GetEntrypointRecordSizeInBytes` and `GetEntrypointRecordAlignmentInBytes`
+  return fixed 16 rather than the selected entrypoint's record metadata.
+- `LowerWorkGraphNodeShader` returns MSL text; the program registry retains
+  strings rather than the node's record/scheduling metadata.
+- `EncodeWorkGraphNodeShader` fixes the Metal threadgroup shape to `{1,1,1}`.
+- The lowering initializes input-record count to 1 and recursion budget to 32,
+  regardless of dispatched record count or graph recursion configuration.
+- `OutputComplete` sets a thread-local variable; output-count bookkeeping is
+  also thread-local, with no downstream scheduler consumption at those sites.
+- `FinishedCrossGroupSharing` returns literal true; node barrier variants lower
+  to a threadgroup-memory barrier, not a general device-record sharing protocol.
+
+These are explicit implementation blockers, not additional passing opcode
+semantics. A complete design must retain per-entrypoint metadata through
+parsing/lowering, graph construction and registry lookup; derive properties and
+backing layout from it; distinguish input and allocated output records; and
+publish/consume GPU work with proper record lifetime, routing, recursion,
+overflow and visibility. Tests must exercise dependent consumer shaders and
+actual input data across launch modes, not just constant-output witnesses.
+The existing Phase 7 exit stays open pending these behaviors.
+
+## Metadata retention implementation checkpoint
+
+The parser now transfers its owned metadata graph and named roots into
+`LLVMModule` after parse-time resource recovery. Tuple operands retain their
+nullable one-based reference encoding; named roots retain zero-based IDs.
+A bounds-checked module accessor handles missing/null/out-of-range operands.
+This preserves forward references and per-entrypoint metadata without guessing
+sizes or selecting the first entrypoint's properties for every node.
+
+The source-owned `node_input_records.hlsl` fixture and `test_node_metadata.cpp`
+verify scalar/vector input sizes 4/16, alignment 4, distinct threadgroup sizes
+1/4 and dispatch grids 1/2, and ownership after module copying. The same test
+fails against the previous parser (`entrypoint metadata lost`). Reproduction
+instructions are in `vendor/dxmt/tests/dxil/node-metadata.md`.
+
+All nine runtime targets build, the separate strict ABI audit passes, and the
+committed Work Graph regression passes against the matching `node-metadata`
+sandbox. Evidence is under `/private/tmp/metalsharp-phase7-abi/` in
+`node-metadata-stage/`, `node-metadata-work-graph/`, and
+`node-metadata-final-build.log`. This stage has a dirty source snapshot.
+The host test needed an exception for the pre-existing unused parser constant
+warning; other enabled warnings remained errors.
+
+**This does not yet change runtime record size/alignment queries, input-record
+binding, output allocation, or GPU scheduling.** Those blockers remain open;
+metadata retention is an implementation prerequisite, not Phase 7 completion.
+
+## Original observations
 
 - The staged `dxmt_m12` bridge passed the Winemetal export/source-layout audit
   (contract ABI version 31). The staged and Wine builtin x64 bridge hashes matched.
