@@ -60,6 +60,7 @@
         ["backing_overflow_unchanged"],
         ["node_shader_bytecode_loaded"],
         ["dxil_node_shader_readback_exact"],
+        ["dxil_node_shader_uav_binding_exact"],
         ["dxil_node_shader_gpu_readback_exact"],
         ["node_multi_bytecode_loaded"],
         ["node_multi_properties_complete"],

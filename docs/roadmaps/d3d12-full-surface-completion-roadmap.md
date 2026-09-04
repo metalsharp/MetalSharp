@@ -913,9 +913,10 @@ records `cpu_scheduler=false`. The source-owned `node_records` and
 three-entrypoint `node_multi` DXIL libraries lower at runtime into GPU-native
 Metal compute kernels with exact backing-buffer readback, CPU/GPU single-node
 and one-input multi-node coverage, entrypoint routing, a node-barrier witness,
-and INCLUDE_ALL_AVAILABLE_NODES metadata materialization, plus explicit
-backing-memory initialization; resource/record fan-out, recursion, cross-queue
-synchronization, and general node shader conversion remain open.
+and INCLUDE_ALL_AVAILABLE_NODES metadata materialization, explicit backing-memory
+initialization, and a direct node-u0 resource binding; resource/record fan-out,
+recursion, cross-queue synchronization, and general node shader conversion
+remain open.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**
@@ -2221,8 +2222,8 @@ whether the scoped FL12_2 gate is green.
   `node_records` fixture plus a three-entrypoint `node_multi` fixture,
   verifies exact backing-buffer writes, CPU/GPU single-node and one-input
   multi-node dispatch, entrypoint routing, INCLUDE_ALL_AVAILABLE_NODES metadata,
-  backing-memory initialization, and a node barrier, and keeps the existing
-  pointer/overflow/ordering negatives. This is bounded node coverage, not
+  backing-memory initialization, a direct node-u0 resource binding, and a node
+  barrier, and keeps the existing pointer/overflow/ordering negatives. This is bounded node coverage, not
   general graph promotion.
 
 - Extended the bounded GPU-native Work Graph proof with a valid node-local-root
