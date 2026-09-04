@@ -241,13 +241,15 @@
     {
       "id": "p6-msaa-sample-frequency-and-resolve",
       "legality": "legal",
-      "status": "open",
-      "provider": "pending_msaa_provider",
+      "status": "closed",
+      "provider": "native_msaa_plus_flattened_writable_and_replay_providers",
       "covers": {"sample_count": ["2", "4", "8", "16", "32"], "sample_positions": ["default", "programmable_4x4", "programmable_equivalent", "reset"], "msaa_state": ["color_msaa", "depth_stencil_msaa", "array_resolve"], "interpolation": ["sample", "eval_sample"], "logic_side_effects": ["none", "render_target_only", "rov"], "view_instancing": ["disabled", "two_view", "host_max_view"]},
-      "positive_probe": "probe-phase6-exhaustive-msaa",
-      "negative_probe": "probe-phase6-exhaustive-invalid-msaa",
-      "expected": {"exact_required": true, "readback_required": true, "hresult": "host-dependent-for-count", "object": "non_null_or_documented_null", "raw_samples_required": true, "resolved_samples_required": true},
-      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true}
+      "positive_probe": "probe-graphics-msaa-breadth;probe-graphics-msaa-depth;probe-writable-msaa;probe-sample-positions;probe-view-instancing;probe-rov-msaa",
+      "negative_probe": "probe-device-caps;probe-phase6-exhaustive-invalid-descriptors",
+      "expected": {"exact_required": true, "readback_required": "for_supported_provider_counts", "hresult": "S_OK_for_provider_or_E_INVALIDARG_for_native_host_rejection", "object": "non_null_or_documented_null", "raw_samples_required": true, "resolved_samples_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "native_counts": "1/2/4 quality=1 with 2x/4x sample-frequency, mask, D32/D24S8, resolve, and view-instancing evidence", "writable_counts": "2x/4x/8x flattened raw sample and format/array resolve evidence", "programmable_positions": "4-sample/4-pixel pattern, equivalent command provider, and reset", "ordered_side_effects": "4x MSAA ROV texture and array slice", "host_rejections": "native 8x/16x/32x quality=0 and committed render-target creation E_INVALIDARG/null"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The exhaustive MSAA equivalence class is closed by separate native render-target, depth/stencil, programmable-position, view replay, writable-array, and ordered-ROV providers. Unsupported native counts fail before execution; writable 8x remains an explicit emulated provider and is not misreported as native Metal support."
     },
     {
       "id": "p6-programmable-sample-position-pattern",
