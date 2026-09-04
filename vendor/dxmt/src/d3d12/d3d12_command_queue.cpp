@@ -3268,14 +3268,16 @@ struct ReplayState {
         !work_graph_backing_size)
       return !cmd.num_records;
 
-    const bool node_cpu_input = cmd.dispatch_mode == 0u;
-    const bool node_gpu_input = cmd.dispatch_mode == 1u;
-    if ((node_cpu_input || node_gpu_input) && resolved.num_records == 1u &&
-        resolved.record_stride && (resolved.record_stride & 3u) == 0 &&
-        ((node_cpu_input && resolved.record_data_size >= resolved.record_stride &&
+    uint32_t generic_entrypoint = resolved.entrypoint_index;
+    bool generic_node_candidate = false;
+    if ((cmd.dispatch_mode == 0u || cmd.dispatch_mode == 1u) &&
+        resolved.num_records == 1u && resolved.record_stride &&
+        (resolved.record_stride & 3u) == 0 &&
+        ((cmd.dispatch_mode == 0u &&
+          resolved.record_data_size >= resolved.record_stride &&
           resolved.record_data_size <= sizeof(resolved.record_data)) ||
-         (node_gpu_input && resolved.record_gpu_address))) {
-      if (node_gpu_input) {
+         (cmd.dispatch_mode == 1u && resolved.record_gpu_address))) {
+      if (cmd.dispatch_mode == 1u) {
         auto *record_resource = device->LookupResourceByGPUAddress(
             resolved.record_gpu_address);
         const uint64_t record_offset =
@@ -3290,14 +3292,95 @@ struct ReplayState {
           return false;
         RetainResourceMetalObjectsForCompletion(record_resource);
       }
+      generic_node_candidate = true;
+    } else if (cmd.dispatch_mode == 2u && cmd.node_input_count == 1u &&
+               cmd.num_records == 1u &&
+               cmd.node_input_stride == sizeof(PackedWorkGraphNodeInput) &&
+               cmd.record_data_size >= sizeof(PackedWorkGraphNodeInput) &&
+               cmd.record_data_size <= sizeof(cmd.record_data)) {
+      const auto *input = reinterpret_cast<const PackedWorkGraphNodeInput *>(
+          cmd.record_data);
+      if (input->num_records == 1u && input->record_stride &&
+          (input->record_stride & 3u) == 0 &&
+          input->data_offset >= sizeof(PackedWorkGraphNodeInput) &&
+          input->data_offset <= cmd.record_data_size &&
+          input->record_stride <=
+              cmd.record_data_size - input->data_offset) {
+        generic_entrypoint = input->entrypoint_index;
+        generic_node_candidate = true;
+      }
+    } else if (cmd.dispatch_mode == 3u) {
+      struct MultiNodeGPUInput {
+        uint32_t num_node_inputs;
+        uint32_t reserved;
+        uint64_t node_inputs;
+        uint64_t node_input_stride;
+      } header = {};
+      auto *header_resource = device->LookupResourceByGPUAddress(
+          cmd.node_input_gpu_address);
+      const uint64_t header_offset =
+          header_resource
+              ? cmd.node_input_gpu_address -
+                    header_resource->GetGPUVirtualAddress()
+              : 0;
+      if (!cmd.node_input_gpu_address || !header_resource ||
+          !header_resource->GetMTLBuffer().handle ||
+          header_offset > header_resource->GetBufferByteLength() ||
+          sizeof(header) >
+              header_resource->GetBufferByteLength() - header_offset ||
+          !header_resource->ReadBufferRange(header_offset, &header,
+                                            sizeof(header)))
+        return false;
+      if (header.num_node_inputs == 1u && header.node_inputs &&
+          header.node_input_stride >= sizeof(uint32_t) * 6u &&
+          (header.node_input_stride & (alignof(uint64_t) - 1)) == 0) {
+        auto *node_resource = device->LookupResourceByGPUAddress(
+            header.node_inputs);
+        const uint64_t node_offset =
+            node_resource
+                ? header.node_inputs - node_resource->GetGPUVirtualAddress()
+                : 0;
+        struct NodeGPUInput {
+          uint32_t entrypoint_index;
+          uint32_t num_records;
+          uint64_t records;
+          uint64_t record_stride;
+        } input = {};
+        if (!node_resource || !node_resource->GetMTLBuffer().handle ||
+            node_offset > node_resource->GetBufferByteLength() ||
+            sizeof(input) >
+                node_resource->GetBufferByteLength() - node_offset ||
+            !node_resource->ReadBufferRange(node_offset, &input,
+                                            sizeof(input)) ||
+            input.num_records != 1u || !input.records ||
+            !input.record_stride || (input.record_stride & 3u))
+          return false;
+        auto *record_resource =
+            device->LookupResourceByGPUAddress(input.records);
+        const uint64_t record_offset =
+            record_resource
+                ? input.records - record_resource->GetGPUVirtualAddress()
+                : 0;
+        if (!record_resource || !record_resource->GetMTLBuffer().handle ||
+            record_offset > record_resource->GetBufferByteLength() ||
+            input.record_stride >
+                record_resource->GetBufferByteLength() - record_offset)
+          return false;
+        generic_entrypoint = input.entrypoint_index;
+        generic_node_candidate = true;
+        RetainResourceMetalObjectsForCompletion(header_resource);
+        RetainResourceMetalObjectsForCompletion(node_resource);
+        RetainResourceMetalObjectsForCompletion(record_resource);
+      }
+    }
+    if (generic_node_candidate) {
       std::string node_source;
       if (device->LookupWorkGraphNodeShader(
               work_graph_program_identifier,
-              sizeof(work_graph_program_identifier), resolved.entrypoint_index,
+              sizeof(work_graph_program_identifier), generic_entrypoint,
               node_source))
         return EncodeWorkGraphNodeShader(
-            device, node_source, resolved.entrypoint_index, 1u,
-            command_buffer);
+            device, node_source, generic_entrypoint, 1u, command_buffer);
     }
 
     WMT::Reference<WMT::Buffer> records;
