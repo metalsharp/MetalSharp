@@ -4672,6 +4672,66 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateGraphicsPipelineState(
                                              false);
 }
 
+static bool IsPowerOfTwoSampleCount(UINT count, UINT maximum) {
+  return count && count <= maximum && (count & (count - 1u)) == 0;
+}
+
+static bool IsValidBlend(UINT value) {
+  return value >= D3D12_BLEND_ZERO && value <= D3D12_BLEND_INV_SRC1_ALPHA;
+}
+
+static bool ValidateGraphicsPipelineDesc(
+    const D3D12_GRAPHICS_PIPELINE_STATE_DESC &desc) {
+  if (desc.NumRenderTargets > 8 ||
+      desc.PrimitiveTopologyType < D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT ||
+      desc.PrimitiveTopologyType > D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH ||
+      (desc.RasterizerState.FillMode != D3D12_FILL_MODE_WIREFRAME &&
+       desc.RasterizerState.FillMode != D3D12_FILL_MODE_SOLID) ||
+      desc.RasterizerState.CullMode < D3D12_CULL_MODE_NONE ||
+      desc.RasterizerState.CullMode > D3D12_CULL_MODE_BACK ||
+      desc.RasterizerState.ConservativeRaster <
+          D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF ||
+      desc.RasterizerState.ConservativeRaster >
+          D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON ||
+      !IsPowerOfTwoSampleCount(desc.SampleDesc.Count, 32) ||
+      (desc.RasterizerState.ForcedSampleCount &&
+       !IsPowerOfTwoSampleCount(desc.RasterizerState.ForcedSampleCount, 16)))
+    return false;
+
+  const auto valid_comparison = [](D3D12_COMPARISON_FUNC value) {
+    return value >= D3D12_COMPARISON_FUNC_NEVER &&
+           value <= D3D12_COMPARISON_FUNC_ALWAYS;
+  };
+  if (desc.DepthStencilState.DepthEnable &&
+      (!valid_comparison(desc.DepthStencilState.DepthFunc) ||
+       !IsDepthStencilFormat(desc.DSVFormat)))
+    return false;
+  if (desc.DepthStencilState.StencilEnable) {
+    if (!IsDepthStencilFormat(desc.DSVFormat) ||
+        !valid_comparison(desc.DepthStencilState.FrontFace.StencilFunc) ||
+        !valid_comparison(desc.DepthStencilState.BackFace.StencilFunc))
+      return false;
+  }
+
+  for (UINT i = 0; i < desc.NumRenderTargets; ++i) {
+    const auto &rt = desc.BlendState.RenderTarget[i];
+    if (rt.BlendEnable &&
+        (!IsValidBlend(rt.SrcBlend) || !IsValidBlend(rt.DestBlend) ||
+         rt.BlendOp < D3D12_BLEND_OP_ADD ||
+         rt.BlendOp > D3D12_BLEND_OP_MAX ||
+         !IsValidBlend(rt.SrcBlendAlpha) ||
+         !IsValidBlend(rt.DestBlendAlpha) ||
+         rt.BlendOpAlpha < D3D12_BLEND_OP_ADD ||
+         rt.BlendOpAlpha > D3D12_BLEND_OP_MAX))
+      return false;
+    if (rt.LogicOpEnable &&
+        (rt.LogicOp < D3D12_LOGIC_OP_CLEAR ||
+         rt.LogicOp > D3D12_LOGIC_OP_OR_INVERTED))
+      return false;
+  }
+  return true;
+}
+
 HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc, REFIID riid,
     void **pipeline_state, bool depth_bounds_test_enable,
@@ -4680,6 +4740,8 @@ HRESULT MTLD3D12Device::CreateGraphicsPipelineStateInternal(
   if (!desc || !pipeline_state)
     return E_POINTER;
   InitReturnPtr(pipeline_state);
+  if (!ValidateGraphicsPipelineDesc(*desc))
+    return E_INVALIDARG;
 
   TRACE(
       "CreateGraphicsPSO ENTER: VS=%p(%zu) PS=%p(%zu) NumRT=%u DSV=%u Topo=%u",

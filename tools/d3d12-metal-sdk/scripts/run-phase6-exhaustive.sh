@@ -17,6 +17,7 @@ WITH_ROV_DIMENSIONS=0
 WITH_ROV_MSAA=0
 WITH_SAMPLE_POSITIONS=0
 WITH_VIEW_INSTANCING=0
+WITH_VRS=0
 WITH_FIXED_FUNCTION=0
 WITH_MSAA=0
 WITH_HOST_INVENTORY=0
@@ -40,6 +41,7 @@ Options:
   --with-rov-msaa      Also run the flattened MSAA ROV ordering probe.
   --with-sample-positions Also run programmable 4x4 positions and reset.
   --with-view-instancing Also run the four-view/mask-zero replay probe.
+  --with-vrs           Also run the exact Tier-2 VRS and viewport-array matrix.
   --with-fixed-function Also run the established fixed-function graphics matrix.
   --with-msaa          Also run the writable-MSAA/sample-position matrix.
   --with-host-inventory Compile/run the native Metal interpolation inventory.
@@ -62,6 +64,7 @@ while (($#)); do
     --with-rov-msaa) WITH_ROV_MSAA=1 ;;
     --with-sample-positions) WITH_SAMPLE_POSITIONS=1 ;;
     --with-view-instancing) WITH_VIEW_INSTANCING=1 ;;
+    --with-vrs) WITH_VRS=1 ;;
     --with-fixed-function) WITH_FIXED_FUNCTION=1 ;;
     --with-msaa) WITH_MSAA=1 ;;
     --with-host-inventory) WITH_HOST_INVENTORY=1 ;;
@@ -243,6 +246,11 @@ if [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
     -DMINI_PROBE_CASE=20 "-DMINI_PROBE_NAME=\"view_id_instancing\"" \
     "$SDK_DIR/probes/probe_mini_suite/probe_mini_suite.cpp" \
     -o "$WORK/probe_mini_view_id_instancing.exe"
+fi
+if [[ "$WITH_VRS" == "1" ]]; then
+  "$CXX" "${probe_flags[@]}" \
+    "$SDK_DIR/probes/probe_vrs/probe_vrs.cpp" \
+    -o "$WORK/probe_vrs.exe"
 fi
 if [[ "$WITH_FIXED_FUNCTION" == "1" ]]; then
   "$CXX" "${probe_flags[@]}" \
@@ -616,6 +624,16 @@ if [[ "$WITH_VIEW_INSTANCING" == "1" && "$VIEW_ID_COMPILE_STATUS" == "0" ]]; the
 elif [[ "$WITH_VIEW_INSTANCING" == "1" ]]; then
   VIEW_ID_STATUS=1
 fi
+VRS_STATUS=0
+if [[ "$WITH_VRS" == "1" ]]; then
+  set +e
+  python3 "$BOUNDED_RUNNER" --timeout 120 --cwd "$WORK" \
+    --output "$SANDBOX/vrs.json" \
+    --stderr "$LOG_DIR/probe-vrs.stderr" -- \
+    "$WINE_BIN" "$WORK/probe_vrs.exe"
+  VRS_STATUS=$?
+  set -e
+fi
 FIXED_FUNCTION_STATUS=0
 INNER_COVERAGE_STATUS=0
 CONSERVATIVE_MSAA_STATUS=0
@@ -719,6 +737,7 @@ python3 - "$SANDBOX/interpolation.json" "$STAGE_MANIFEST" "$ABI_RESULT" \
   "$VIEW_INSTANCING_STATUS" "$SANDBOX/view_instancing.json" \
   "$VIEW_INSTANCING_MSAA_STATUS" "$SANDBOX/view_instancing_msaa.json" \
   "$VIEW_ID_STATUS" "$VIEW_ID_COMPILE_STATUS" "$SANDBOX/view_id.json" \
+  "$VRS_STATUS" "$SANDBOX/vrs.json" \
   "$FIXED_FUNCTION_STATUS" "$SANDBOX/fixed_function.json" \
   "$INNER_COVERAGE_STATUS" "$SANDBOX/inner_coverage.json" \
   "$CONSERVATIVE_MSAA_STATUS" "$SANDBOX/conservative_msaa.json" \
@@ -743,6 +762,7 @@ import sys
  view_instancing_status, view_instancing_path,
  view_instancing_msaa_status, view_instancing_msaa_path,
  view_id_status, view_id_compile_status, view_id_path,
+ vrs_status, vrs_path,
  fixed_function_status, fixed_function_path,
  inner_coverage_status, inner_coverage_path,
  conservative_msaa_status, conservative_msaa_path,
@@ -795,6 +815,7 @@ payload = {
     "view_instancing": None,
     "view_instancing_msaa": None,
     "view_id_instancing": None,
+    "vrs": None,
     "fixed_function": None,
     "inner_coverage": None,
     "conservative_msaa": None,
@@ -859,6 +880,11 @@ if pathlib.Path(view_id_path).exists():
         "compile_status": int(view_id_compile_status),
         "process_status": int(view_id_status),
         "result": load(view_id_path),
+    }
+if pathlib.Path(vrs_path).exists():
+    payload["vrs"] = {
+        "process_status": int(vrs_status),
+        "result": load(vrs_path),
     }
 if pathlib.Path(fixed_function_path).exists():
     payload["fixed_function"] = {
@@ -959,6 +985,10 @@ payload["exact"] = (
         and int(view_id_status) == 0
         and payload["view_id_instancing"]["result"].get("ok") is True
     ))
+    and (payload["vrs"] is None or (
+        int(vrs_status) == 0
+        and payload["vrs"]["result"].get("pass") is True
+    ))
     and (payload["fixed_function"] is None or (
         int(fixed_function_status) == 0
         and payload["fixed_function"]["result"].get("pass") is True
@@ -1012,8 +1042,8 @@ pathlib.Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encod
 print(output_path)
 PY
 
-if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$ROV_MSAA_STATUS" != "0" || "$ROV_MSAA_2_STATUS" != "0" || "$ROV_MSAA_8_STATUS" != "0" || "$SAMPLE_POSITIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$VIEW_INSTANCING_MSAA_STATUS" != "0" || "$VIEW_ID_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$INNER_COVERAGE_STATUS" != "0" || "$CONSERVATIVE_MSAA_STATUS" != "0" || "$CONSERVATIVE_MSAA_2_STATUS" != "0" || "$INDEPENDENT_LOGIC_STATUS" != "0" || "$INDEPENDENT_LOGIC_2_STATUS" != "0" || "$INDEPENDENT_LOGIC_4_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_DEPTH_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
-  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa_2=$ROV_MSAA_2_STATUS rov_msaa_4=$ROV_MSAA_STATUS rov_msaa_8=$ROV_MSAA_8_STATUS sample_positions=$SAMPLE_POSITIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_instancing_msaa=$VIEW_INSTANCING_MSAA_STATUS view_id=$VIEW_ID_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS conservative_msaa_2=$CONSERVATIVE_MSAA_2_STATUS independent_logic=$INDEPENDENT_LOGIC_STATUS independent_logic_2=$INDEPENDENT_LOGIC_2_STATUS independent_logic_4=$INDEPENDENT_LOGIC_4_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS graphics_msaa_depth=$GRAPHICS_MSAA_DEPTH_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
+if [[ "$INTERPOLATION_STATUS" != "0" || "$INVALID_DESCRIPTORS_STATUS" != "0" || "$RASTER_STATUS" != "0" || "$ROV_DIMENSIONS_STATUS" != "0" || "$ROV_MSAA_STATUS" != "0" || "$ROV_MSAA_2_STATUS" != "0" || "$ROV_MSAA_8_STATUS" != "0" || "$SAMPLE_POSITIONS_STATUS" != "0" || "$VIEW_INSTANCING_STATUS" != "0" || "$VIEW_INSTANCING_MSAA_STATUS" != "0" || "$VIEW_ID_STATUS" != "0" || "$VRS_STATUS" != "0" || "$FIXED_FUNCTION_STATUS" != "0" || "$INNER_COVERAGE_STATUS" != "0" || "$CONSERVATIVE_MSAA_STATUS" != "0" || "$CONSERVATIVE_MSAA_2_STATUS" != "0" || "$INDEPENDENT_LOGIC_STATUS" != "0" || "$INDEPENDENT_LOGIC_2_STATUS" != "0" || "$INDEPENDENT_LOGIC_4_STATUS" != "0" || "$MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_STATUS" != "0" || "$GRAPHICS_MSAA_DEPTH_STATUS" != "0" || "$HOST_STATUS" != "0" || "$CAPS_STATUS" != "0" ]]; then
+  echo "[FAIL] Phase 6 probe process failed (interpolation=$INTERPOLATION_STATUS invalid_descriptors=$INVALID_DESCRIPTORS_STATUS rasterization=$RASTER_STATUS rov_dimensions=$ROV_DIMENSIONS_STATUS rov_msaa_2=$ROV_MSAA_2_STATUS rov_msaa_4=$ROV_MSAA_STATUS rov_msaa_8=$ROV_MSAA_8_STATUS sample_positions=$SAMPLE_POSITIONS_STATUS view_instancing=$VIEW_INSTANCING_STATUS view_instancing_msaa=$VIEW_INSTANCING_MSAA_STATUS view_id=$VIEW_ID_STATUS vrs=$VRS_STATUS fixed_function=$FIXED_FUNCTION_STATUS inner_coverage=$INNER_COVERAGE_STATUS conservative_msaa=$CONSERVATIVE_MSAA_STATUS conservative_msaa_2=$CONSERVATIVE_MSAA_2_STATUS independent_logic=$INDEPENDENT_LOGIC_STATUS independent_logic_2=$INDEPENDENT_LOGIC_2_STATUS independent_logic_4=$INDEPENDENT_LOGIC_4_STATUS writable_msaa=$MSAA_STATUS graphics_msaa=$GRAPHICS_MSAA_STATUS graphics_msaa_depth=$GRAPHICS_MSAA_DEPTH_STATUS host_inventory=$HOST_STATUS device_caps=$CAPS_STATUS)" >&2
   exit 1
 fi
 if ! python3 "$SDK_DIR/scripts/validate-phase6-exhaustive.py" \

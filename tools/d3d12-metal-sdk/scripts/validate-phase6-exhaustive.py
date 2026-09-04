@@ -330,7 +330,19 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                 "view_instance_count_5",
                 "view_instance_flags_2",
                 "view_instance_locations_missing",
+                "rasterizer_fill_mode_0",
+                "rasterizer_cull_mode_0",
+                "conservative_mode_2",
+                "forced_sample_count_3",
+                "sample_count_0",
                 "sample_count_3",
+                "sample_count_64",
+                "primitive_topology_unknown",
+                "render_target_count_9",
+                "missing_vertex_shader",
+                "depth_func_0",
+                "depth_format_r8_unorm",
+                "blend_op_0",
                 "unknown_subobject_type",
             }
             if (not isinstance(cases, list) or
@@ -531,6 +543,21 @@ def validate_result(result: dict[str, Any]) -> list[str]:
                   any(item.get("exact") is not True for item in value.get("slices", [])
                       if isinstance(item, dict))):
                 errors.append("view instancing four-view/mask-zero matrix is incomplete")
+    vrs = result.get("vrs")
+    if vrs is not None:
+        if not isinstance(vrs, dict):
+            errors.append("vrs result must be an object or null")
+        elif vrs.get("process_status") != 0:
+            errors.append("VRS probe process did not exit zero")
+        else:
+            value = vrs.get("result")
+            summary = value.get("summary", {}) if isinstance(value, dict) else {}
+            if (not isinstance(value, dict) or value.get("pass") is not True or
+                value.get("viewport_array_index_verified") is not True or
+                not isinstance(summary, dict) or
+                summary.get("tier2_matrix_complete") is not True or
+                summary.get("per_primitive_viewport_indexing_complete") is not True):
+                errors.append("VRS Tier-2/viewport-array matrix is incomplete")
     view_id = result.get("view_id_instancing")
     if view_id is not None:
         if not isinstance(view_id, dict):
