@@ -375,6 +375,19 @@
       "reason": "The established fixed-function probe proves distinct XOR/AND operations on two MRTs and rejects a UAV-writing pixel shader before replay, preventing duplicated side effects."
     },
     {
+      "id": "p6-independent-logic-eight-target",
+      "legality": "legal",
+      "status": "closed",
+      "provider": "per_target_logic_pipeline_replay",
+      "covers": {"blend_logic_write_mask": ["independent_mrt"], "logic_side_effects": ["render_target_only"], "render_targets": ["eight"], "sample_count": ["1"], "depth_stencil": ["disabled"], "shader_stages": ["vertex_pixel"], "primitive_topology": ["triangle_list"], "view_instancing": ["disabled"], "vrs": ["disabled"], "alpha_to_coverage": ["off"]},
+      "positive_probe": "probe-independent-logic-breadth",
+      "negative_probe": "probe-graphics-pso",
+      "expected": {"exact_required": true, "readback_required": true, "hresult": "S_OK", "object": "non_null", "per_target_operation_required": true, "one_draw_required": true},
+      "evidence": {"positive_exact": true, "negative_exact": true, "result_artifact": "phase6-exhaustive-<profile>.json", "readbacks": "eight exact alternating XOR/AND RGBA targets from one D3D12 draw", "side_effect_boundary": "the separate UAV-writing pixel case remains E_FAIL/null"},
+      "provenance": {"source_required": true, "runtime_required": true, "abi_required": true},
+      "reason": "The replay provider now covers the API maximum of eight independent render targets, producing exact bytewise XOR/AND results while the unsafe shader-side-effect class remains rejected before replay."
+    },
+    {
       "id": "p6-safe-independent-logic",
       "legality": "legal",
       "status": "open",

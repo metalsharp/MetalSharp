@@ -170,6 +170,10 @@ build_probe \
   -o "$OUT_DIR/probe_conservative_msaa.exe"
 
 build_probe \
+  "$SDK_DIR/probes/probe_independent_logic_breadth.cpp" \
+  -o "$OUT_DIR/probe_independent_logic_breadth.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_sample_positions_breadth.cpp" \
   -o "$OUT_DIR/probe_sample_positions_breadth.exe"
 
