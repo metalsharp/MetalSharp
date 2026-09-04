@@ -2203,15 +2203,17 @@ whether the scoped FL12_2 gate is green.
   lowers a node entrypoint with the existing DXIL-to-MSL lowering pipeline,
   registers it by the stable program identifier, and dispatches the resulting
   Metal compute kernel without a CPU scheduler. The D3D12 probe compiles the
-  `node_records` fixture and verifies exact backing-buffer writes. This is one
-  bounded node shape, not general graph promotion.
+  `node_records` fixture plus a two-entrypoint `node_multi` fixture, verifies
+  exact backing-buffer writes and entrypoint routing, and keeps the existing
+  pointer/overflow/ordering negatives. This is bounded node coverage, not
+  general graph promotion.
 
 - Extended the bounded GPU-native Work Graph proof with a valid node-local-root
   table, pointer-free caller-record ownership, ordered back-to-back dispatches
   after command-list reuse, malformed node-table/record-stride rejection, and
   backing-memory overflow rejection with unchanged output readback. The
   bounded provider remains non-promoted because recursive/fan-out graphs,
-  barriers, and general DXIL node conversion are still open.
+  barriers, and general node conversion remain open.
 
 ### 2026-09-04 — Bounded command, video, diagnostics, and display providers
 

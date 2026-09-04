@@ -207,7 +207,9 @@ int main() {
     ID3D12Resource* gpu_multi_input_desc = nullptr;
     ID3D12StateObject* state = nullptr;
     ID3D12StateObject* node_shader_state = nullptr;
+    ID3D12StateObject* node_multi_state = nullptr;
     ID3D12StateObjectProperties* node_shader_state_properties = nullptr;
+    ID3D12StateObjectProperties* node_multi_state_properties = nullptr;
     WorkGraphProperties* properties = nullptr;
     uint32_t values[6] = {};
     uint32_t inputs[3] = {41, 42, 43};
@@ -223,11 +225,17 @@ int main() {
     bool backing_overflow_unchanged = false;
     bool multi_dispatch_ordering_exact = false;
     bool dxil_node_shader_readback_exact = false;
+    bool dxil_multi_node_readback_exact = false;
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
+    uint32_t node_shader_values[2] = {};
+    uint32_t node_multi_values[2] = {};
     std::vector<uint8_t> node_shader_bytecode;
+    std::vector<uint8_t> node_multi_bytecode;
     const bool node_shader_bytecode_loaded =
         read_binary_file("probe_workgraph_node.cso", node_shader_bytecode);
+    const bool node_multi_bytecode_loaded =
+        read_binary_file("probe_workgraph_node_multi.cso", node_multi_bytecode);
 
     if (SUCCEEDED(hr))
         hr = device->QueryInterface(IID_PPV_ARGS(&device5));
@@ -433,6 +441,61 @@ int main() {
                     vtable[7]);
                 get_identifier(node_shader_state_properties,
                                node_shader_identifier, L"actual_graph");
+            }
+        }
+    }
+
+    uint8_t node_multi_identifier[32] = {};
+    HRESULT node_multi_hr = E_FAIL;
+    if (SUCCEEDED(hr) && node_multi_bytecode_loaded) {
+        D3D12_EXPORT_DESC node_exports[2] = {};
+        node_exports[0].Name = L"node_a";
+        node_exports[1].Name = L"node_b";
+        D3D12_DXIL_LIBRARY_DESC node_library = {};
+        node_library.DXILLibrary.pShaderBytecode = node_multi_bytecode.data();
+        node_library.DXILLibrary.BytecodeLength = node_multi_bytecode.size();
+        node_library.NumExports = 2;
+        node_library.pExports = node_exports;
+        WorkGraphNodeID node_entrypoints[2] = {{L"node_a", 0},
+                                               {L"node_b", 0}};
+        WorkGraphNode node_nodes[2] = {};
+        node_nodes[0].NodeType = 0;
+        node_nodes[0].Shader.Shader = L"node_a";
+        node_nodes[1].NodeType = 0;
+        node_nodes[1].Shader.Shader = L"node_b";
+        WorkGraphDesc node_graph = {L"actual_multi_graph", 0, 2,
+                                    node_entrypoints, 2, node_nodes};
+        D3D12_STATE_SUBOBJECT node_graph_subobject = {
+            static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &node_graph};
+        const D3D12_STATE_SUBOBJECT* node_graph_subobjects[] = {
+            &node_graph_subobject};
+        GenericProgramDesc node_generic = {L"actual_multi_graph", 0, nullptr,
+                                           1, node_graph_subobjects};
+        D3D12_STATE_SUBOBJECT node_generic_subobject = {
+            static_cast<D3D12_STATE_SUBOBJECT_TYPE>(29), &node_generic};
+        D3D12_STATE_SUBOBJECT node_state_subobjects[2] = {};
+        node_state_subobjects[0].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+        node_state_subobjects[0].pDesc = &node_library;
+        node_state_subobjects[1] = node_generic_subobject;
+        D3D12_STATE_OBJECT_DESC node_state_desc = {
+            static_cast<D3D12_STATE_OBJECT_TYPE>(4), 2,
+            node_state_subobjects};
+        node_multi_hr = device5->CreateStateObject(
+            &node_state_desc, IID_PPV_ARGS(&node_multi_state));
+        if (SUCCEEDED(node_multi_hr) && node_multi_state) {
+            node_multi_hr = node_multi_state->QueryInterface(
+                kStateObjectProperties1IID,
+                reinterpret_cast<void**>(&node_multi_state_properties));
+            if (SUCCEEDED(node_multi_hr) && node_multi_state_properties) {
+                using GetProgramIdentifierFn = void* (STDMETHODCALLTYPE *)(
+                    ID3D12StateObjectProperties*, void*, LPCWSTR);
+                auto* vtable = *reinterpret_cast<void***>(
+                    node_multi_state_properties);
+                auto get_identifier = reinterpret_cast<GetProgramIdentifierFn>(
+                    vtable[7]);
+                get_identifier(node_multi_state_properties,
+                               node_multi_identifier,
+                               L"actual_multi_graph");
             }
         }
     }
@@ -767,12 +830,57 @@ int main() {
             void* mapped = nullptr;
             hr = backing->Map(0, nullptr, &mapped);
             if (SUCCEEDED(hr) && mapped) {
-                uint32_t node_values[2] = {};
-                std::memcpy(node_values, mapped, sizeof(node_values));
+                std::memcpy(node_shader_values, mapped,
+                            sizeof(node_shader_values));
                 backing->Unmap(0, nullptr);
                 dxil_node_shader_readback_exact =
-                    node_values[0] == 0xabcdef01u &&
-                    node_values[1] == 0x12345678u;
+                    node_shader_values[0] == 0xabcdef01u &&
+                    node_shader_values[1] == 0x12345678u;
+            }
+        }
+    }
+    if (SUCCEEDED(node_multi_hr) && node_multi_state_properties &&
+        allocator && base_list && list) {
+        SetProgramDesc node_multi_program = set_program;
+        std::memcpy(node_multi_program.WorkGraph.ProgramIdentifier,
+                    node_multi_identifier, sizeof(node_multi_identifier));
+        const uint32_t node_multi_record_a = 7;
+        const uint32_t node_multi_record_b = 8;
+        NodeCPUInput node_multi_input_a = {};
+        node_multi_input_a.EntrypointIndex = 0;
+        node_multi_input_a.NumRecords = 1;
+        node_multi_input_a.Records = &node_multi_record_a;
+        node_multi_input_a.RecordStrideInBytes = sizeof(node_multi_record_a);
+        NodeCPUInput node_multi_input_b = {};
+        node_multi_input_b.EntrypointIndex = 1;
+        node_multi_input_b.NumRecords = 1;
+        node_multi_input_b.Records = &node_multi_record_b;
+        node_multi_input_b.RecordStrideInBytes = sizeof(node_multi_record_b);
+        hr = allocator->Reset();
+        if (SUCCEEDED(hr))
+            hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr)) {
+            DispatchGraphDesc node_multi_dispatch_a = {};
+            node_multi_dispatch_a.Mode = 0;
+            node_multi_dispatch_a.NodeCPUInput = node_multi_input_a;
+            DispatchGraphDesc node_multi_dispatch_b = {};
+            node_multi_dispatch_b.Mode = 0;
+            node_multi_dispatch_b.NodeCPUInput = node_multi_input_b;
+            list->SetProgram(&node_multi_program);
+            list->DispatchGraph(&node_multi_dispatch_a);
+            list->DispatchGraph(&node_multi_dispatch_b);
+            hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(hr)) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memcpy(node_multi_values, mapped,
+                            sizeof(node_multi_values));
+                backing->Unmap(0, nullptr);
+                dxil_multi_node_readback_exact =
+                    node_multi_values[0] == 0x22222222u &&
+                    node_multi_values[1] == 0xbbbb0002u;
             }
         }
     }
@@ -784,7 +892,8 @@ int main() {
         multi_cpu_pointer_free && multi_gpu_readback_ok &&
         multi_node_negative_unchanged && node_local_table_validation_exact &&
         backing_overflow_unchanged && multi_dispatch_ordering_exact &&
-        node_shader_bytecode_loaded && dxil_node_shader_readback_exact;
+        node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
+        node_multi_bytecode_loaded && dxil_multi_node_readback_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
@@ -813,6 +922,14 @@ int main() {
                 node_shader_bytecode_loaded ? "true" : "false");
     std::printf("  \"dxil_node_shader_readback_exact\": %s,\n",
                 dxil_node_shader_readback_exact ? "true" : "false");
+    std::printf("  \"node_multi_bytecode_loaded\": %s,\n",
+                node_multi_bytecode_loaded ? "true" : "false");
+    std::printf("  \"dxil_multi_node_readback_exact\": %s,\n",
+                dxil_multi_node_readback_exact ? "true" : "false");
+    std::printf("  \"dxil_node_shader_values\": [%u, %u],\n",
+                node_shader_values[0], node_shader_values[1]);
+    std::printf("  \"dxil_multi_node_values\": [%u, %u],\n",
+                node_multi_values[0], node_multi_values[1]);
     std::printf("  \"multi_node_cpu_values\": [%u, %u, %u, %u, %u, %u, %u, %u],\n",
                 multi_cpu_values[0], multi_cpu_values[1], multi_cpu_values[2],
                 multi_cpu_values[3], multi_cpu_values[4], multi_cpu_values[5],
@@ -823,6 +940,8 @@ int main() {
                 multi_gpu_values[6], multi_gpu_values[7]);
     std::printf("}\n");
 
+    release(node_multi_state_properties);
+    release(node_multi_state);
     release(node_shader_state_properties);
     release(node_shader_state);
     release(state_properties);
@@ -845,7 +964,8 @@ int main() {
                    multi_cpu_pointer_free && multi_gpu_readback_ok &&
                    multi_node_negative_unchanged && node_local_table_validation_exact &&
                    backing_overflow_unchanged && multi_dispatch_ordering_exact &&
-                   node_shader_bytecode_loaded && dxil_node_shader_readback_exact
+                   node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
+                   node_multi_bytecode_loaded && dxil_multi_node_readback_exact
                ? 0
                : 1;
 }
