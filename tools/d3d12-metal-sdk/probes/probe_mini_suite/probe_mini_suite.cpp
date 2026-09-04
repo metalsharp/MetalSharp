@@ -2441,6 +2441,7 @@ static ProbeResult probe_subnautica_geometry_dxil_replay() {
         const std::string base = corpus_dir + "/" + replay.hash + ".geom";
         std::vector<uint8_t> vs;
         std::vector<uint8_t> gs;
+        std::vector<uint8_t> ps;
         if (!read_binary_file(base + ".gsvs.dxbc", vs) || !read_binary_file(base + ".gsmesh.dxbc", gs)) {
             if (first_failure.empty()) {
                 first_failure = std::string("missing captured DXIL blobs for ") + replay.hash;
@@ -2456,6 +2457,10 @@ static ProbeResult probe_subnautica_geometry_dxil_replay() {
         desc.VS.BytecodeLength = vs.size();
         desc.GS.pShaderBytecode = gs.data();
         desc.GS.BytecodeLength = gs.size();
+        if (read_binary_file(corpus_dir + "/phase6_geometry_pixel.dxbc", ps)) {
+            desc.PS.pShaderBytecode = ps.data();
+            desc.PS.BytecodeLength = ps.size();
+        }
         desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
         desc.SampleMask = UINT_MAX;
         desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -3046,7 +3051,12 @@ static ProbeResult probe_swapchain_present() {
     bool ok = SUCCEEDED(hr) && SUCCEEDED(present_hr) && SUCCEEDED(make_assoc_hr) && SUCCEEDED(get_assoc_hr) &&
               SUCCEEDED(get_hwnd_hr) && SUCCEEDED(get_desc_hr) && SUCCEEDED(register_occ_hr) &&
               associated_hwnd == hwnd && swapchain_hwnd == hwnd && swapchain_desc.OutputWindow == hwnd;
-    std::string extra = "\"make_window_association_hr\":\"" + hr_hex(make_assoc_hr) +
+    char dxgi_alias[128] = {};
+    GetEnvironmentVariableA("DXMT_PROBE_DXGI_DLL", dxgi_alias,
+                            sizeof(dxgi_alias));
+    std::string extra = "\"dxgi_module_path\":\"" + json_escape(module_path(dxgi)) +
+                        "\",\"dxgi_alias\":\"" + json_escape(dxgi_alias) +
+                        "\",\"make_window_association_hr\":\"" + hr_hex(make_assoc_hr) +
                         "\",\"get_window_association_hr\":\"" + hr_hex(get_assoc_hr) +
                         "\",\"register_occlusion_status_window_hr\":\"" + hr_hex(register_occ_hr) +
                         "\",\"create_swapchain_hr\":\"" + hr_hex(hr) + "\",\"get_hwnd_hr\":\"" + hr_hex(get_hwnd_hr) +
@@ -4170,17 +4180,24 @@ static ProbeResult probe_dxr_acceleration_structures() {
     bool local_sampler_table_written = false;
     bool local_static_sampler_written = false;
     bool source_acceleration_structures_released_before_traversal = false;
-    hr = device->QueryInterface(IID_PPV_ARGS(&device5));
-    if (SUCCEEDED(hr))
-        hr = device->QueryInterface(IID_PPV_ARGS(&device7));
+    HRESULT device5_hr = device->QueryInterface(IID_PPV_ARGS(&device5));
+    HRESULT device7_hr = E_FAIL;
+    HRESULT list4_hr = E_FAIL;
+    hr = device5_hr;
+    if (SUCCEEDED(hr)) {
+        device7_hr = device->QueryInterface(IID_PPV_ARGS(&device7));
+        hr = device7_hr;
+    }
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
     if (SUCCEEDED(hr))
         hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
     if (SUCCEEDED(hr))
         hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, nullptr, IID_PPV_ARGS(&list));
-    if (SUCCEEDED(hr))
-        hr = list->QueryInterface(IID_PPV_ARGS(&list4));
+    if (SUCCEEDED(hr)) {
+        list4_hr = list->QueryInterface(IID_PPV_ARGS(&list4));
+        hr = list4_hr;
+    }
 
     D3D12_DESCRIPTOR_RANGE compute_ranges[2] = {};
     compute_ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -5857,8 +5874,11 @@ static ProbeResult probe_dxr_acceleration_structures() {
             ",\"ignore_hit_behavior_verified\":" + (ignore_hit_behavior_verified ? "true" : "false") +
             ",\"accept_hit_behavior_verified\":" + (accept_hit_behavior_verified ? "true" : "false") +
             ",\"unknown_identifier_null\":" + (!unknown_identifier ? "true" : "false") +
-            ",\"tier1_1_matrix_complete\":" + (verified ? "true" : "false") + ",\"removed_reason\":\"" +
-            hr_hex(removed_reason) + "\""};
+            ",\"tier1_1_matrix_complete\":" + (verified ? "true" : "false") +
+            ",\"device5_hr\":\"" + hr_hex(device5_hr) +
+            "\",\"device7_hr\":\"" + hr_hex(device7_hr) +
+            "\",\"list4_hr\":\"" + hr_hex(list4_hr) +
+            "\",\"removed_reason\":\"" + hr_hex(removed_reason) + "\""};
 }
 
 static ProbeResult run_probe() {

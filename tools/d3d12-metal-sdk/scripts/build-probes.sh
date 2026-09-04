@@ -72,6 +72,10 @@ build_probe \
   "$SDK_DIR/probes/probe_loader/probe_loader.cpp" \
   -o "$OUT_DIR/probe_loader.exe"
 
+build_probe \
+  "$SDK_DIR/scripts/compile-geometry-corpus.cpp" \
+  -o "$OUT_DIR/compile-geometry-corpus.exe"
+
 for dll in D3D12Core.dll d3d12SDKLayers.dll D3D12StateObjectCompiler.dll; do
   if [[ ! -f "$AGILITY_BIN/$dll" ]]; then
     echo "Missing Agility SDK DLL: $AGILITY_BIN/$dll" >&2
