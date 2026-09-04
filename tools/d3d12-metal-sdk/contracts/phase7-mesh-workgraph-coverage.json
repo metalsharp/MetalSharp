@@ -49,11 +49,13 @@
         ["cpu_scheduler", false],
         ["readback_exact"],
         ["gpu_input_readback_exact"],
+        ["multi_node_cpu_readback_exact"],
+        ["multi_node_gpu_readback_exact"],
         ["record_count", 3],
-        ["node_local_root_index", 3],
+        ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]
       ],
-      "remaining": "The proof implements one GPU-native node kernel, graph properties, backing memory, three-record CPU-input dispatch, GPU-input descriptor dispatch, local-root-index reporting, and exact readback without a CPU scheduler. Multi-node routing, recursive/fan-out graphs, overflow, barriers, and general DXIL node shader conversion remain open."
+      "remaining": "The proof implements one GPU-native node kernel, graph properties, backing memory, three-record CPU-input dispatch, GPU-input descriptor dispatch, two-node CPU/GPU input flattening with entrypoint routing, local-root-index reporting, and exact readback without a CPU scheduler. Recursive/fan-out graphs, overflow, barriers, and general DXIL node shader conversion remain open."
     }
   ]
 }

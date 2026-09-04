@@ -121,17 +121,35 @@ struct CmdSetProgram {
   uint8_t descriptor[88];
 };
 
+// Pointer-free representation of one D3D12 multi-node input.  CPU dispatch
+// records are packed behind an array of these descriptors before the command
+// is emitted; GPU dispatches use the same shape only as a transient replay
+// description after the queue has validated the source ranges.
+struct PackedWorkGraphNodeInput {
+  uint32_t entrypoint_index;
+  uint32_t num_records;
+  uint64_t record_stride;
+  uint32_t data_offset;
+  uint32_t reserved;
+};
+
 struct CmdDispatchGraph {
   CmdHeader header;
   uint32_t dispatch_mode;
   uint32_t entrypoint_index;
+  // For NODE_* modes this is the record count.  For MULTI_NODE_* modes it is
+  // the number of node-input descriptors and node_input_count is identical.
   uint32_t num_records;
   uint32_t record_data_size;
+  uint32_t node_input_count;
+  uint32_t reserved;
   uint64_t record_gpu_address;
   uint64_t record_stride;
   uint64_t node_input_gpu_address;
   uint64_t node_input_stride;
-  uint8_t record_data[256];
+  // Mode 0/1 contains record bytes.  Mode 2 contains a packed descriptor
+  // array followed by each descriptor's copied CPU records.
+  uint8_t record_data[1024];
 };
 
 struct CmdSetPipelineState1 {

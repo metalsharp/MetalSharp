@@ -2401,10 +2401,10 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchGraph(
     uint64_t node_input_stride;
   };
   struct GraphMultiGPUInput {
-    uint32_t num_node_inputs;
-    uint32_t padding;
+    // D3D12 names this union member a GPU virtual address.  It points to a
+    // D3D12_MULTI_NODE_GPU_INPUT header, which in turn points to the node
+    // input array.
     uint64_t node_inputs;
-    uint64_t node_input_stride;
   };
   struct GraphDesc {
     uint32_t mode;
@@ -2439,24 +2439,60 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchGraph(
       return;
     RetainGPUAddress(cmd.node_input_gpu_address);
     break;
-  case 2:
+  case 2: {
+    // D3D12_MULTI_NODE_CPU_INPUT contains pointers to application-owned
+    // record arrays.  Do not copy those pointers into the command stream:
+    // replay may happen after the caller has returned.  Instead, pack a
+    // bounded descriptor table followed by each node's record bytes.
     cmd.num_records = source->input.multi_cpu.num_node_inputs;
-    cmd.node_input_stride = source->input.multi_cpu.node_input_stride;
-    // Multi-node CPU records are copied only when they fit the bounded
-    // pointer-free command record.  The node-input descriptors themselves are
-    // interpreted by a provider at replay time.
-    if (!source->input.multi_cpu.node_inputs || !cmd.node_input_stride ||
-        uint64_t(cmd.num_records) * cmd.node_input_stride > sizeof(cmd.record_data))
+    cmd.node_input_count = cmd.num_records;
+    const uint64_t source_stride =
+        source->input.multi_cpu.node_input_stride;
+    if ((cmd.num_records && !source->input.multi_cpu.node_inputs) ||
+        !source_stride || source_stride < sizeof(GraphCPUInput) ||
+        source_stride > 4096u ||
+        (cmd.num_records - (cmd.num_records ? 1u : 0u)) >
+            (UINT64_MAX - sizeof(GraphCPUInput)) / source_stride)
       return;
-    cmd.record_data_size = static_cast<uint32_t>(
-        uint64_t(cmd.num_records) * cmd.node_input_stride);
-    std::memcpy(cmd.record_data, source->input.multi_cpu.node_inputs,
-                cmd.record_data_size);
+    cmd.node_input_stride = sizeof(PackedWorkGraphNodeInput);
+    const uint64_t descriptor_bytes =
+        uint64_t(cmd.num_records) * sizeof(PackedWorkGraphNodeInput);
+    if (descriptor_bytes > sizeof(cmd.record_data))
+      return;
+    const auto *input_bytes = static_cast<const uint8_t *>(
+        source->input.multi_cpu.node_inputs);
+    auto *packed = reinterpret_cast<PackedWorkGraphNodeInput *>(
+        cmd.record_data);
+    uint64_t data_offset = descriptor_bytes;
+    for (uint32_t i = 0; i < cmd.num_records; ++i) {
+      const auto *input = reinterpret_cast<const GraphCPUInput *>(
+          input_bytes + uint64_t(i) * source_stride);
+      if ((input->num_records && !input->records) ||
+          !input->record_stride || input->record_stride > UINT32_MAX ||
+          input->record_stride > sizeof(cmd.record_data) ||
+          uint64_t(input->num_records) * input->record_stride >
+              sizeof(cmd.record_data) - data_offset)
+        return;
+      packed[i].entrypoint_index = input->entrypoint_index;
+      packed[i].num_records = input->num_records;
+      packed[i].record_stride = input->record_stride;
+      packed[i].data_offset = static_cast<uint32_t>(data_offset);
+      packed[i].reserved = 0;
+      const uint64_t bytes =
+          uint64_t(input->num_records) * input->record_stride;
+      if (bytes) {
+        std::memcpy(cmd.record_data + data_offset, input->records,
+                    static_cast<size_t>(bytes));
+        data_offset += bytes;
+      }
+    }
+    cmd.record_data_size = static_cast<uint32_t>(data_offset);
     break;
+  }
   case 3:
-    cmd.num_records = source->input.multi_gpu.num_node_inputs;
     cmd.node_input_gpu_address = source->input.multi_gpu.node_inputs;
-    cmd.node_input_stride = source->input.multi_gpu.node_input_stride;
+    if (!cmd.node_input_gpu_address)
+      return;
     RetainGPUAddress(cmd.node_input_gpu_address);
     break;
   default:

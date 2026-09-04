@@ -1410,8 +1410,13 @@ kernel void m12_work_graph_reference(
   if (tid >= record_count)
     return;
   uint source = records[tid * max(record_stride_words, 1u)];
-  backing[tid * 2u] = source + 1u;
-  backing[tid * 2u + 1u] = source ^ 0x57475250u;
+  // The zero tag is the original one-node provider.  Multi-node inputs use
+  // their entrypoint index as a bounded routing tag; each route remains a
+  // single GPU kernel invocation rather than a CPU scheduler.
+  uint node = metadata[2u + tid];
+  backing[tid * 2u] = source + node + 1u;
+  backing[tid * 2u + 1u] =
+      source ^ (node == 0u ? 0x57475250u : 0x4d4e4f44u + node);
 }
 )MSL";
 
@@ -3117,6 +3122,7 @@ struct ReplayState {
                                 const CmdDispatchGraph &cmd,
                                 WMT::CommandBuffer command_buffer) {
     CmdDispatchGraph resolved = cmd;
+    const bool multi_node = cmd.dispatch_mode == 2u || cmd.dispatch_mode == 3u;
     if (cmd.dispatch_mode == 1u) {
       if (!cmd.node_input_gpu_address)
         return false;
@@ -3146,9 +3152,229 @@ struct ReplayState {
     }
     if (!device || !command_buffer.handle || !work_graph_program_set ||
         work_graph_program_type != 5u || !work_graph_backing_address ||
-        !work_graph_backing_size || !resolved.num_records ||
-        !resolved.record_stride || (resolved.record_stride & 3u))
-      return resolved.num_records == 0;
+        !work_graph_backing_size)
+      return !cmd.num_records;
+
+    WMT::Reference<WMT::Buffer> records;
+    uint64_t records_offset = 0;
+    uint32_t record_count = 0;
+    uint32_t record_stride_words = 0;
+    std::vector<uint32_t> route_tags;
+    std::vector<uint8_t> flattened_records;
+
+    if (!multi_node) {
+      if (!resolved.num_records || !resolved.record_stride ||
+          (resolved.record_stride & 3u))
+        return resolved.num_records == 0;
+      record_count = resolved.num_records;
+      record_stride_words = static_cast<uint32_t>(
+          std::max<uint64_t>(resolved.record_stride / 4u, 1u));
+      try {
+        route_tags.assign(record_count, resolved.entrypoint_index);
+      } catch (const std::bad_alloc &) {
+        return false;
+      }
+      if (resolved.dispatch_mode == 0u) {
+        if (!resolved.record_data_size ||
+            resolved.record_data_size > sizeof(resolved.record_data))
+          return false;
+        records = MakeTransientBuffer(device, resolved.record_data_size);
+        if (!records.handle)
+          return false;
+        records.updateContents(0, resolved.record_data,
+                               resolved.record_data_size);
+      } else {
+        if (!resolved.record_gpu_address)
+          return false;
+        auto *record_resource = device->LookupResourceByGPUAddress(
+            resolved.record_gpu_address);
+        if (!record_resource || !record_resource->GetMTLBuffer().handle)
+          return false;
+        records = record_resource->GetMTLBuffer();
+        records_offset = resolved.record_gpu_address -
+                         record_resource->GetGPUVirtualAddress();
+        const uint64_t bytes = uint64_t(record_count) * resolved.record_stride;
+        if (records_offset > record_resource->GetBufferByteLength() ||
+            bytes > record_resource->GetBufferByteLength() - records_offset)
+          return false;
+        RetainResourceMetalObjectsForCompletion(record_resource);
+      }
+    } else {
+      // Multi-node dispatches are flattened into one GPU kernel launch.  The
+      // bounded provider preserves each node's entrypoint tag and record
+      // bytes, while normalizing strides to the largest 32-bit-word stride.
+      struct NodeSource {
+        uint32_t entrypoint_index;
+        uint32_t num_records;
+        uint64_t record_stride;
+        uint64_t records_gpu_address;
+        const uint8_t *records_cpu;
+      };
+      std::vector<NodeSource> sources;
+      uint32_t source_count = cmd.node_input_count;
+      if (cmd.dispatch_mode == 2u) {
+        if (!source_count || source_count != cmd.num_records)
+          return false;
+        if (cmd.node_input_stride != sizeof(PackedWorkGraphNodeInput) ||
+            cmd.record_data_size <
+                uint64_t(source_count) * sizeof(PackedWorkGraphNodeInput) ||
+            cmd.record_data_size > sizeof(cmd.record_data))
+          return false;
+        auto *packed = reinterpret_cast<const PackedWorkGraphNodeInput *>(
+            cmd.record_data);
+        try {
+          sources.reserve(source_count);
+        } catch (const std::bad_alloc &) {
+          return false;
+        }
+        for (uint32_t i = 0; i < source_count; ++i) {
+          const auto &input = packed[i];
+          if (!input.record_stride || (input.record_stride & 3u) ||
+              input.record_stride > 4096u ||
+              input.data_offset < source_count * sizeof(*packed) ||
+              input.data_offset > cmd.record_data_size ||
+              uint64_t(input.num_records) * input.record_stride >
+                  cmd.record_data_size - input.data_offset)
+            return false;
+          sources.push_back({input.entrypoint_index, input.num_records,
+                             input.record_stride, 0,
+                             cmd.record_data + input.data_offset});
+        }
+      } else {
+        struct MultiNodeGPUInput {
+          uint32_t num_node_inputs;
+          uint32_t reserved;
+          uint64_t node_inputs;
+          uint64_t node_input_stride;
+        } header = {};
+        auto *header_resource = device->LookupResourceByGPUAddress(
+            cmd.node_input_gpu_address);
+        if (!cmd.node_input_gpu_address || !header_resource ||
+            !header_resource->GetMTLBuffer().handle)
+          return false;
+        const uint64_t header_offset =
+            cmd.node_input_gpu_address - header_resource->GetGPUVirtualAddress();
+        if (header_offset > header_resource->GetBufferByteLength() ||
+            sizeof(header) >
+                header_resource->GetBufferByteLength() - header_offset ||
+            !header_resource->ReadBufferRange(header_offset, &header,
+                                              sizeof(header)))
+          return false;
+        source_count = header.num_node_inputs;
+        if (!source_count)
+          return true;
+        if (!header.node_inputs || header.node_input_stride < 24u ||
+            (header.node_input_stride & (alignof(uint64_t) - 1)) != 0 ||
+            uint64_t(source_count - 1u) >
+                (UINT64_MAX - 24u) / header.node_input_stride)
+          return false;
+        auto *node_input_resource = device->LookupResourceByGPUAddress(
+            header.node_inputs);
+        if (!node_input_resource || !node_input_resource->GetMTLBuffer().handle)
+          return false;
+        const uint64_t base_offset =
+            header.node_inputs - node_input_resource->GetGPUVirtualAddress();
+        const uint64_t table_bytes =
+            uint64_t(source_count - 1u) * header.node_input_stride + 24u;
+        if (base_offset > node_input_resource->GetBufferByteLength() ||
+            table_bytes > node_input_resource->GetBufferByteLength() -
+                               base_offset)
+          return false;
+        try {
+          sources.reserve(source_count);
+        } catch (const std::bad_alloc &) {
+          return false;
+        }
+        for (uint32_t i = 0; i < source_count; ++i) {
+          struct NodeGPUInput {
+            uint32_t entrypoint_index;
+            uint32_t num_records;
+            uint64_t records;
+            uint64_t record_stride;
+          } input = {};
+          const uint64_t offset = base_offset + uint64_t(i) *
+                                                     header.node_input_stride;
+          if (!node_input_resource->ReadBufferRange(offset, &input,
+                                                    sizeof(input)) ||
+              !input.record_stride || (input.record_stride & 3u) ||
+              input.record_stride > 4096u)
+            return false;
+          sources.push_back({input.entrypoint_index, input.num_records,
+                             input.record_stride, input.records, nullptr});
+        }
+        RetainResourceMetalObjectsForCompletion(header_resource);
+        RetainResourceMetalObjectsForCompletion(node_input_resource);
+      }
+
+      uint64_t total_records = 0;
+      uint64_t max_stride = 0;
+      for (const auto &source : sources) {
+        if (source.num_records && !source.records_cpu &&
+            !source.records_gpu_address)
+          return false;
+        if (uint64_t(source.num_records) >
+            (UINT64_MAX - total_records) / source.record_stride)
+          return false;
+        total_records += source.num_records;
+        max_stride = std::max(max_stride, source.record_stride);
+      }
+      if (!total_records || !max_stride || max_stride > 4096u ||
+          total_records > UINT32_MAX ||
+          total_records > UINT64_MAX / max_stride ||
+          total_records * max_stride > 64ull * 1024ull * 1024ull)
+        return false;
+      record_count = static_cast<uint32_t>(total_records);
+      record_stride_words = static_cast<uint32_t>(max_stride / 4u);
+      try {
+        flattened_records.assign(static_cast<size_t>(total_records * max_stride),
+                                  0u);
+        route_tags.reserve(record_count);
+      } catch (const std::bad_alloc &) {
+        return false;
+      }
+      uint32_t flat_index = 0;
+      for (const auto &source : sources) {
+        const uint64_t source_bytes =
+            uint64_t(source.num_records) * source.record_stride;
+        std::vector<uint8_t> gpu_snapshot;
+        const uint8_t *source_bytes_ptr = source.records_cpu;
+        if (!source_bytes_ptr) {
+          auto *record_resource = device->LookupResourceByGPUAddress(
+              source.records_gpu_address);
+          if (!record_resource || !record_resource->GetMTLBuffer().handle)
+            return false;
+          const uint64_t offset = source.records_gpu_address -
+                                  record_resource->GetGPUVirtualAddress();
+          if (offset > record_resource->GetBufferByteLength() ||
+              source_bytes > record_resource->GetBufferByteLength() - offset)
+            return false;
+          try {
+            gpu_snapshot.resize(static_cast<size_t>(source_bytes));
+          } catch (const std::bad_alloc &) {
+            return false;
+          }
+          if (!record_resource->ReadBufferRange(offset, gpu_snapshot.data(),
+                                                source_bytes))
+            return false;
+          source_bytes_ptr = gpu_snapshot.data();
+          RetainResourceMetalObjectsForCompletion(record_resource);
+        }
+        for (uint32_t record = 0; record < source.num_records; ++record) {
+          std::memcpy(flattened_records.data() +
+                          uint64_t(flat_index) * max_stride,
+                      source_bytes_ptr + uint64_t(record) * source.record_stride,
+                      static_cast<size_t>(source.record_stride));
+          route_tags.push_back(source.entrypoint_index);
+          ++flat_index;
+        }
+      }
+      records = MakeTransientBuffer(device, flattened_records.size());
+      if (!records.handle)
+        return false;
+      records.updateContents(0, flattened_records.data(),
+                             flattened_records.size());
+    }
+
     auto *backing_resource = device->LookupResourceByGPUAddress(
         work_graph_backing_address);
     if (!backing_resource || !backing_resource->GetMTLBuffer().handle)
@@ -3158,7 +3384,7 @@ struct ReplayState {
     if (backing_offset > backing_resource->GetBufferByteLength() ||
         work_graph_backing_size >
             backing_resource->GetBufferByteLength() - backing_offset ||
-        uint64_t(cmd.num_records) * 8u > work_graph_backing_size)
+        uint64_t(record_count) * 8u > work_graph_backing_size)
       return false;
     if (work_graph_node_table_address || work_graph_node_table_size ||
         work_graph_node_table_stride) {
@@ -3180,37 +3406,6 @@ struct ReplayState {
       RetainResourceMetalObjectsForCompletion(node_table);
     }
 
-    WMT::Reference<WMT::Buffer> records;
-    uint64_t records_offset = 0;
-    uint32_t record_count = resolved.num_records;
-    uint32_t record_stride_words = static_cast<uint32_t>(
-        std::max<uint64_t>(resolved.record_stride / 4u, 1u));
-    if (resolved.dispatch_mode == 0u || resolved.dispatch_mode == 2u) {
-      if (!resolved.record_data_size ||
-          resolved.record_data_size > sizeof(resolved.record_data))
-        return false;
-      records = MakeTransientBuffer(device, resolved.record_data_size);
-      if (!records.handle)
-        return false;
-      records.updateContents(0, resolved.record_data,
-                             resolved.record_data_size);
-    } else {
-      if (!resolved.record_gpu_address)
-        return false;
-      auto *record_resource = device->LookupResourceByGPUAddress(
-          resolved.record_gpu_address);
-      if (!record_resource || !record_resource->GetMTLBuffer().handle)
-        return false;
-      records = record_resource->GetMTLBuffer();
-      records_offset = resolved.record_gpu_address -
-                       record_resource->GetGPUVirtualAddress();
-      const uint64_t bytes = uint64_t(record_count) * resolved.record_stride;
-      if (records_offset > record_resource->GetBufferByteLength() ||
-          bytes > record_resource->GetBufferByteLength() - records_offset)
-        return false;
-      RetainResourceMetalObjectsForCompletion(record_resource);
-    }
-
     if (!work_graph_reference_pipeline.handle) {
       WMT::Reference<WMT::Error> error;
       auto wmt_device = device->GetMTLDevice();
@@ -3229,11 +3424,25 @@ struct ReplayState {
         return false;
     }
 
-    uint32_t metadata[2] = {record_count, record_stride_words};
-    auto metadata_buffer = MakeTransientBuffer(device, sizeof(metadata));
+    const uint64_t metadata_words = 2ull + record_count;
+    if (metadata_words > UINT64_MAX / sizeof(uint32_t))
+      return false;
+    std::vector<uint32_t> metadata;
+    try {
+      metadata.resize(static_cast<size_t>(metadata_words));
+    } catch (const std::bad_alloc &) {
+      return false;
+    }
+    metadata[0] = record_count;
+    metadata[1] = record_stride_words;
+    for (uint32_t i = 0; i < record_count; ++i)
+      metadata[2u + i] = route_tags[i];
+    auto metadata_buffer =
+        MakeTransientBuffer(device, metadata_words * sizeof(uint32_t));
     if (!metadata_buffer.handle)
       return false;
-    metadata_buffer.updateContents(0, metadata, sizeof(metadata));
+    metadata_buffer.updateContents(0, metadata.data(),
+                                   metadata_words * sizeof(uint32_t));
 
     // Use the same pointer-free command-chain construction as the ordinary
     // compute replay path.  A single Unix call also keeps the temporary
