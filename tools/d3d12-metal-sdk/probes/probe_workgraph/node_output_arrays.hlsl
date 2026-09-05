@@ -7,7 +7,7 @@ struct Record { uint index; uint value; };
 [NumThreads(1,1,1)]
 #elif defined(GPU_ENTRY_BROADCASTING)
 [NodeLaunch("broadcasting")]
-[NodeDispatchGrid(2,1,1)]
+[NodeDispatchGrid(2,2,2)]
 [NumThreads(1,1,1)]
 #else
 [NodeLaunch("thread")]

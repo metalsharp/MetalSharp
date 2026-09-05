@@ -138,6 +138,14 @@ paired ABI evidence is `/Volumes/AverySSD/phase7-broadcast-fixed-abi/` (optional
 prefix, not strict release ABI). The 13-artifact manifest was regenerated for
 this stage. Clean-source release reproducibility remains unproven.
 
+### XYZ broadcasting follow-up
+
+`/Volumes/AverySSD/phase7-broadcast-xyz/results/` extends the fixed-grid
+GPU-header fixture to 2x2x2 groups. Exact atomic contributions are
+`[808,1616,2424,3232,505,0,0,0,0,0,0,0,0,0,0,0]`; the independent sparse
+entry remains unchanged. This verifies eight contributions per dense input
+record across all three grid axes, not general system-value or thread shapes.
+
 ## Remaining
 
 - Multi-node broadcasting, duplicate/zero-stride descriptors, larger descriptor

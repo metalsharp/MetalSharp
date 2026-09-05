@@ -204,7 +204,7 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
         }
     }
     const uint32_t array_expected[16] = {101,202,303,404,505};
-    const uint32_t gpu_broadcast_expected[16] = {202,404,606,808,505};
+    const uint32_t gpu_broadcast_expected[16] = {808,1616,2424,3232,505};
     const uint32_t gpu_coalescing_expected[16] = {101,202,303,404,505,2,4};
     const uint32_t recursion_expected[16] = {4,3,2,1,0,99,14};
     const uint32_t fanout_expected[16] = {32,12,4,1,0,99,14};
