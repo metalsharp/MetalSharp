@@ -81,7 +81,9 @@ static_assert(offsetof(D3D12NodeRoutingContext, routing_table_count) == 48);
 static_assert(offsetof(D3D12NodeRoutingContext, source_node) == 52);
 
 // Versions 6 (raw) and 7 (descriptor stream) add per-expansion recursion
-// state. Producers must set the version explicitly when using this layout.
+// state. Versions 8 (legacy routing) and 9 (table routing) use the same layout
+// for GPU-entry raw streams: count/stride/length describe the full stream and
+// the shader selects its record by group. Producers set the version explicitly.
 struct D3D12NodeRecursionContext {
   D3D12NodeRoutingContext routing;
   uint32_t remaining_levels = 0;

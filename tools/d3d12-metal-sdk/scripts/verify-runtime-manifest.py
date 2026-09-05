@@ -17,6 +17,13 @@ DEFAULT_MANIFEST = (
     ROOT_DIR / "tools" / "d3d12-metal-sdk" / "contracts" / "dxmt-runtime-manifest.json"
 )
 
+# Match the staged PE/Unix provider and its required loader sidecars.
+REQUIRED_ARTIFACTS = (
+    "d3d10core.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "dxgi_dxmt.dll",
+    "nvapi64.dll", "nvngx.dll", "winemetal.dll", "winemetal.so", "ntdll.so",
+    "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib",
+)
+
 DEFAULT_RUNTIME_SEARCH_PATHS = [
     Path(os.path.expanduser("~/.metalsharp/runtime/wine/lib/dxmt")),
     Path(os.path.expanduser("~/.metalsharp/runtime/wine")),
@@ -50,7 +57,7 @@ def locate_artifact(runtime_dir: Path, name: str) -> Path:
         windows_sub = runtime_dir / "x86_64-windows" / name
         if windows_sub.exists():
             return windows_sub
-    if name.endswith(".so"):
+    if name.endswith((".so", ".dylib")):
         unix_sub = runtime_dir / "x86_64-unix" / name
         if unix_sub.exists():
             return unix_sub
@@ -74,8 +81,12 @@ def verify_manifest(manifest_path: Path, runtime_dir: Path, verbose: bool) -> in
         return 1
 
     artifacts = manifest.get("artifacts", {})
-    if not artifacts:
-        print("[FAIL] manifest has no artifacts", file=sys.stderr)
+    if not isinstance(artifacts, dict) or not artifacts:
+        print("[FAIL] manifest has no artifact map", file=sys.stderr)
+        return 1
+    missing = sorted(set(REQUIRED_ARTIFACTS) - artifacts.keys())
+    if missing:
+        print(f"[FAIL] manifest omits required artifacts: {', '.join(missing)}", file=sys.stderr)
         return 1
 
     if verbose:
@@ -131,23 +142,17 @@ def generate_manifest(runtime_dir: Path, output_path: Path | None, verbose: bool
         print(f"[FAIL] runtime directory not found: {runtime_dir}", file=sys.stderr)
         return 1
 
-    artifact_names = [
-        "d3d11.dll",
-        "d3d12.dll",
-        "dxgi.dll",
-        "winemetal.dll",
-        "winemetal.so",
-        "d3d10.dll",
-        "nvapi64.dll",
-    ]
-
+    # Keep the manifest aligned with stage-phase6-sandbox.py.  d3d10core,
+    # dxgi_dxmt and nvngx are staged runtime artifacts; d3d10.dll is not.
+    # The Unix C++ runtime sidecars are required by winemetal.so and must be
+    # hashed as part of the same provenance record.
     artifacts: dict[str, dict] = {}
     found = 0
-    for name in artifact_names:
+    missing: list[str] = []
+    for name in REQUIRED_ARTIFACTS:
         path = locate_artifact(runtime_dir, name)
-        if not path.exists():
-            if verbose:
-                print(f"  {name}: not found at {path}")
+        if not path.is_file() or path.stat().st_size == 0:
+            missing.append(name)
             continue
         file_hash = sha256(path)
         file_size = path.stat().st_size
@@ -158,6 +163,11 @@ def generate_manifest(runtime_dir: Path, output_path: Path | None, verbose: bool
         found += 1
         if verbose:
             print(f"  {name}: size={file_size} sha256={file_hash}")
+
+    if missing:
+        print(f"[FAIL] missing or empty required artifacts: {', '.join(missing)}", file=sys.stderr)
+        # Never replace an existing manifest with a partial inventory.
+        return 1
 
     manifest = {
         "version": 1,
@@ -176,7 +186,7 @@ def generate_manifest(runtime_dir: Path, output_path: Path | None, verbose: bool
     else:
         print(manifest_text, end="")
 
-    return 0 if found > 0 else 1
+    return 0
 
 
 def main() -> int:

@@ -22,6 +22,7 @@ DEFAULT_RESULTS_DIR = SDK_DIR / "results"
 DEFAULT_MANIFEST = CONTRACT_DIR / "phase3-exhaustive-coverage.json"
 PHASE4_MANIFEST = CONTRACT_DIR / "phase4-command-coverage.json"
 PHASE5_MANIFEST = CONTRACT_DIR / "phase5-shader-coverage.json"
+PHASE7_MANIFEST = CONTRACT_DIR / "phase7-mesh-workgraph-coverage.json"
 VALIDATORS = (
     "validate-contracts.py",
     "validate-probe-matrix.py",
@@ -45,8 +46,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path,
                         help="Coverage manifest (defaults to the selected phase).")
     parser.add_argument(
-        "--phase", choices=("3", "4", "5", "all"), default="all",
-        help="Gate Phase 3, Phase 4, Phase 5, or all currently declared phases (default: all).",
+        "--phase", choices=("3", "4", "5", "7", "all"), default="all",
+        help="Gate Phase 3, Phase 4, Phase 5, Phase 7, or all currently declared phases (default: all).",
     )
     parser.add_argument(
         "--format", choices=("text", "json"), default="text"
@@ -151,6 +152,43 @@ def check_result(
             [str(row.get("id"))],
         )
 
+    # Each probe invocation writes a host-runtime identity record before any
+    # evidence result.  Require every named result to be newer than the
+    # identity record for its declared profile; otherwise a narrowed or
+    # interrupted run could silently reuse a previous passing JSON file.
+    stale: list[str] = []
+    identity_errors: list[str] = []
+    for path, (_, result_profile) in zip(paths, specs):
+        identity_path = result_file(results_dir, "host-runtime", result_profile)
+        try:
+            identity = load_json(identity_path)
+            run_started_at = identity.get("run_started_at")
+            loader_audit = identity.get("loader_pe_copy_audit")
+            loader_ok = isinstance(loader_audit, dict) and bool(loader_audit) and all(
+                isinstance(record, dict) and record.get("match") is True
+                for record in loader_audit.values()
+            )
+            if (identity.get("profile") != result_profile or
+                    not isinstance(run_started_at, (int, float)) or not loader_ok):
+                identity_errors.append(
+                    f"{identity_path}: missing matching profile/run_started_at/loader_pe_copy_audit"
+                )
+            elif path.stat().st_mtime + 1e-6 < float(run_started_at):
+                stale.append(f"{path} (before run_started_at={run_started_at})")
+        except (OSError, json.JSONDecodeError) as exc:
+            identity_errors.append(f"{identity_path}: {exc}")
+    if identity_errors or stale:
+        detail_parts = []
+        if identity_errors:
+            detail_parts.append("invalid or missing run identity: " + ", ".join(identity_errors))
+        if stale:
+            detail_parts.append("stale behavior result: " + ", ".join(stale))
+        return (
+            {"id": row.get("id"), "result": ";".join(str(path) for path in paths),
+             "pass": False, "detail": "; ".join(detail_parts)},
+            [str(row.get("id"))],
+        )
+
     results: list[Any] = []
     invalid: list[str] = []
     for path in paths:
@@ -232,7 +270,8 @@ def check_result(
 def build_summary(args: argparse.Namespace) -> dict[str, Any]:
     manifest_path = args.manifest or (
         PHASE4_MANIFEST if args.phase == "4" else
-        PHASE5_MANIFEST if args.phase == "5" else DEFAULT_MANIFEST
+        PHASE5_MANIFEST if args.phase == "5" else
+        PHASE7_MANIFEST if args.phase == "7" else DEFAULT_MANIFEST
     )
     blockers: list[dict[str, str]] = []
     validator_rows = run_validators()
@@ -284,13 +323,14 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
             "3": "metalsharp.d3d12.phase3-exhaustive-coverage.v1",
             "4": "metalsharp.d3d12.phase4-command-coverage.v1",
             "5": "metalsharp.d3d12.phase5-shader-coverage.v1",
+            "7": "metalsharp.d3d12.phase7-mesh-workgraph-coverage.v1",
         }.get(args.phase)
         if args.phase == "all":
             expected_schema = "metalsharp.d3d12.phase3-exhaustive-coverage.v1"
         if expected_schema and manifest.get("schema") != expected_schema:
             blockers.append({"id": f"phase{args.phase}-coverage-manifest-schema",
                              "detail": "unexpected coverage manifest schema"})
-        if args.phase in ("3", "4", "5", "all"):
+        if args.phase in ("3", "4", "5", "7", "all"):
             if manifest.get("status") != "closed":
                 blockers.append({"id": f"phase{args.phase}-coverage-status",
                                  "detail": f"manifest status is {manifest.get('status')!r}, not 'closed'"})
@@ -316,7 +356,7 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
         # Keep the historical Phase 3 manifest as the primary input while
         # making an all-phase gate fail closed when a later declared phase has
         # an open manifest of its own.
-        additional_manifests.extend((str(PHASE4_MANIFEST), str(PHASE5_MANIFEST)))
+        additional_manifests.extend((str(PHASE4_MANIFEST), str(PHASE5_MANIFEST), str(PHASE7_MANIFEST)))
         try:
             phase4_manifest = load_json(PHASE4_MANIFEST)
         except (OSError, json.JSONDecodeError) as exc:
@@ -385,6 +425,41 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
                                          "detail": "required behavior evidence failed"})
                     if row.get("status") != "closed":
                         blockers.append({"id": f"phase5:{row['id']}",
+                                         "detail": row.get("remaining", "coverage row is still open")})
+
+        try:
+            phase7_manifest = load_json(PHASE7_MANIFEST)
+        except (OSError, json.JSONDecodeError) as exc:
+            phase7_manifest = {}
+            blockers.append({"id": "phase7-coverage-manifest",
+                             "detail": f"coverage manifest cannot be loaded: {exc}"})
+        if isinstance(phase7_manifest, dict):
+            if phase7_manifest.get("schema") != "metalsharp.d3d12.phase7-mesh-workgraph-coverage.v1":
+                blockers.append({"id": "phase7-coverage-manifest-schema",
+                                 "detail": "unexpected Phase 7 coverage manifest schema"})
+            if phase7_manifest.get("status") != "closed":
+                blockers.append({"id": "phase7-coverage-status",
+                                 "detail": f"manifest status is {phase7_manifest.get('status')!r}, not 'closed'"})
+            phase7_rows = phase7_manifest.get("rows")
+            if not isinstance(phase7_rows, list) or not phase7_rows:
+                blockers.append({"id": "phase7-coverage-rows",
+                                 "detail": "coverage manifest rows are missing or empty"})
+            else:
+                for row in phase7_rows:
+                    if not isinstance(row, dict) or not row.get("id"):
+                        blockers.append({"id": "phase7-coverage-row-shape",
+                                         "detail": "coverage row is not a named object"})
+                        continue
+                    evidence, row_blockers = check_result(
+                        args.results_dir, args.profile, row
+                    )
+                    evidence["phase"] = 7
+                    manifest_rows.append(evidence)
+                    for row_id in row_blockers:
+                        blockers.append({"id": f"phase7:{row_id}",
+                                         "detail": "required behavior evidence failed"})
+                    if row.get("status") != "closed":
+                        blockers.append({"id": f"phase7:{row['id']}",
                                          "detail": row.get("remaining", "coverage row is still open")})
 
     result = {

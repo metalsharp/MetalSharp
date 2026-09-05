@@ -14,13 +14,14 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 DEFAULT_CONTRACT = ROOT_DIR / "tools/d3d12-metal-sdk/contracts/agility-1.619.5-contract.json"
 DEFAULT_CENSUS = ROOT_DIR / "tools/d3d12-metal-sdk/contracts/d3d12-interface-census.json"
 RUNTIME_ROOTS = (
+    ROOT_DIR / "vendor/dxmt/src/airconv",
     ROOT_DIR / "vendor/dxmt/src/d3d12",
     ROOT_DIR / "vendor/dxmt/src/dxgi",
     ROOT_DIR / "vendor/dxmt/src/dxmt",
     ROOT_DIR / "vendor/dxmt/src/winemetal",
     ROOT_DIR / "vendor/dxmt/src/util",
 )
-EXTENSIONS = {".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm"}
+EXTENSIONS = {".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm", ".metal"}
 
 
 def load(path: Path) -> Any:

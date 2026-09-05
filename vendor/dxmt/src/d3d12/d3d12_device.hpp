@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstddef>
 #include <unordered_map>
+#include <unordered_set>
 #include <mutex>
 #include <new>
 #include <string>
@@ -194,6 +195,13 @@ public:
   void RegisterResource(MTLD3D12Resource *res);
   void UnregisterResource(MTLD3D12Resource *res);
   MTLD3D12Resource *LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr);
+  struct WorkGraphBufferRange {
+    uint64_t address = 0;
+    uint64_t length = 0;
+    WMT::Reference<WMT::Buffer> buffer;
+    uint64_t native_offset = 0;
+  };
+  bool SnapshotWorkGraphBufferRanges(std::vector<WorkGraphBufferRange> &ranges);
   void RegisterCommandQueue(MTLD3D12CommandQueue *queue);
   void UnregisterCommandQueue(MTLD3D12CommandQueue *queue);
   struct WorkGraphNodeOutput {
@@ -233,10 +241,17 @@ public:
     // Canonical and entrypoint copies share an immutable program snapshot.
     std::shared_ptr<const std::vector<D3D12NodeOutputRoute>> routing_table;
   };
+  struct WorkGraphProgramSnapshot {
+    uint32_t entrypoint_count = 0;
+    std::vector<WorkGraphNodeShader> nodes;
+  };
   void RegisterWorkGraphProgram(const uint8_t *identifier,
                                 size_t identifier_size,
-                                const std::vector<WorkGraphNodeShader> &nodes);
+                                const std::vector<WorkGraphNodeShader> &nodes,
+                                uint32_t entrypoint_count);
   void UnregisterWorkGraphPrograms(uint64_t state_object_identity);
+  bool SnapshotWorkGraphProgram(const uint8_t *identifier, size_t identifier_size,
+                                WorkGraphProgramSnapshot &program) const;
   bool LookupWorkGraphNodeShader(const uint8_t *identifier,
                                  size_t identifier_size,
                                  UINT node_index, WorkGraphNodeShader &shader,
@@ -659,10 +674,13 @@ private:
   std::atomic<uint32_t> m_refPrivate = {1ul};
   std::mutex m_resource_mutex;
   std::unordered_map<uint64_t, MTLD3D12Resource *> m_resources_by_gpu_addr;
+  // Preserve all aliases for GPU-header range validation, not just the most
+  // recently registered resource at a given address.
+  std::unordered_set<MTLD3D12Resource *> m_work_graph_buffer_resources;
   std::mutex m_command_queue_mutex;
   std::vector<MTLD3D12CommandQueue *> m_command_queues;
   mutable std::mutex m_work_graph_mutex;
-  std::unordered_map<std::string, std::vector<WorkGraphNodeShader>>
+  std::unordered_map<std::string, WorkGraphProgramSnapshot>
       m_work_graph_programs;
   std::mutex m_background_mutex;
   HANDLE m_background_event = nullptr;

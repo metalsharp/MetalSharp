@@ -22,6 +22,7 @@ ROOT_DIR = Path(__file__).resolve().parents[3]
 SDK_DIR = ROOT_DIR / "tools" / "d3d12-metal-sdk"
 CONTRACT_DIR = SDK_DIR / "contracts"
 RUNTIME_ROOTS = (
+    ROOT_DIR / "vendor" / "dxmt" / "src" / "airconv",
     ROOT_DIR / "vendor" / "dxmt" / "src" / "d3d12",
     ROOT_DIR / "vendor" / "dxmt" / "src" / "dxgi",
     ROOT_DIR / "vendor" / "dxmt" / "src" / "dxmt",
@@ -58,7 +59,7 @@ def git_output(*args: str) -> str:
 
 def runtime_files() -> list[Path]:
     files: list[Path] = []
-    extensions = {".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm"}
+    extensions = {".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm", ".metal"}
     for root in RUNTIME_ROOTS:
         if root.exists():
             files.extend(path for path in root.rglob("*") if path.is_file() and path.suffix in extensions)

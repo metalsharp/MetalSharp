@@ -26,6 +26,7 @@ REQUIRED_CONTRACTS = [
     "winemetal-bridge-contract.json",
     "phase3-exhaustive-coverage.json",
     "phase6-graphics-coverage.json",
+    "phase7-mesh-workgraph-coverage.json",
 ]
 
 DECLARED_TIERS = {"required", "emulated", "stubbed-safe", "unsupported"}

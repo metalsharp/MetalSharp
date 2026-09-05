@@ -409,8 +409,9 @@ being mistaken for full completion.
 
 - Stable 1.619.5 inventory: **145 interfaces / 537 methods** with a primary
   source owner recorded for every method.
-- Runtime static scan: **163 files / 1,153 findings**, including 58
-  unsupported-return candidates, 77 empty bodies, 78 capability literals, and
+- Source identity covers **229 files**, including AIR/DXIL compiler and Metal
+  shader sources. The runtime static scan remains **175 files / 2,080 findings**, including 55
+  unsupported-return candidates, 77 empty bodies, 154 capability literals, and
   all success/placeholder-return candidates. Findings remain open work; none
   are silently suppressed or promoted.
 - Source-tree digest is recorded in the census and validated by
@@ -992,11 +993,17 @@ over-depth rejection; non-self cycles still reject.
 Empty thread/group output requests now publish logical records to coalescing
 consumers, with exact batching, zero-request allocation suppression and payload-input
 mismatch rejection before producer writes or allocations.
-All fifty-one official Work Graph/bridge result files and their required contract rows pass in the
-development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
-Broader recursive execution, output-array/empty-record shapes, GPU-generated input headers,
+GPU-produced single-node headers for thread, coalescing, and broadcasting
+entry programs are now selected and executed on the GPU, with a real compute
+producer and dense/sparse downstream readback. A bounded
+`D3D12_MULTI_NODE_GPU_INPUT` producer also validates and compacts two GPU
+input descriptors, with separate invalid-entry/capacity/stride/record and
+zero-descriptor rejection witnesses. Larger tables, duplicate/zero-stride
+descriptors, broader recursive execution, output-array/empty-record shapes,
 general resource/argument tables, overflow and broader synchronization remain
 open. Cycles and unsupported downstream shapes reject before upstream writes.
+All fifty-two official Work Graph/bridge result files and their required contract rows pass in the
+development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
 Clean-source staging and release reproducibility are still required.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 

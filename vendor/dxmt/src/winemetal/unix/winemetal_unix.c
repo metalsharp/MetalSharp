@@ -922,6 +922,10 @@ _MTL4CommandQueue_updateTextureMappings(void *obj) {
       params->operation_count > 1048576)
     return STATUS_SUCCESS;
   if (@available(macOS 26.0, *)) {
+    if (params->operation_count == 0) {
+      params->ret_success = 1;
+      return STATUS_SUCCESS;
+    }
     MTL4UpdateSparseTextureMappingOperation *native =
         calloc((size_t)params->operation_count, sizeof(*native));
     if (!native && params->operation_count)
@@ -963,6 +967,10 @@ _MTL4CommandQueue_copyTextureMappings(void *obj) {
       params->operation_count > 1048576)
     return STATUS_SUCCESS;
   if (@available(macOS 26.0, *)) {
+    if (params->operation_count == 0) {
+      params->ret_success = 1;
+      return STATUS_SUCCESS;
+    }
     MTL4CopySparseTextureMappingOperation *native =
         calloc((size_t)params->operation_count, sizeof(*native));
     if (!native && params->operation_count)
@@ -1009,6 +1017,10 @@ _MTL4CommandQueue_updateBufferMappings(void *obj) {
       params->operation_count > 1048576)
     return STATUS_SUCCESS;
   if (@available(macOS 26.0, *)) {
+    if (params->operation_count == 0) {
+      params->ret_success = 1;
+      return STATUS_SUCCESS;
+    }
     if (!params->heap) {
       for (uint64_t i = 0; i < params->operation_count; i++)
         if (operations[i].mode == MTLSparseTextureMappingModeMap)
@@ -1049,6 +1061,10 @@ _MTL4CommandQueue_copyBufferMappings(void *obj) {
       params->operation_count > 1048576)
     return STATUS_SUCCESS;
   if (@available(macOS 26.0, *)) {
+    if (params->operation_count == 0) {
+      params->ret_success = 1;
+      return STATUS_SUCCESS;
+    }
     MTL4CopySparseBufferMappingOperation *native = calloc(
         (size_t)params->operation_count, sizeof(*native));
     if (!native)
