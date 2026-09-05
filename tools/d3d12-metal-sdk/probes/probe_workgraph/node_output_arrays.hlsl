@@ -97,5 +97,6 @@ void target_three(ThreadNodeInputRecord<Record> input) {
 [NodeLaunch("thread")]
 [NodeID("sparse_target", 65536)]
 void target_sparse(ThreadNodeInputRecord<Record> input) {
-    result.Store(16, input.Get().value);
+    // An atomic sum detects duplicate scheduling, not just a final store.
+    result.InterlockedAdd(16, input.Get().value);
 }

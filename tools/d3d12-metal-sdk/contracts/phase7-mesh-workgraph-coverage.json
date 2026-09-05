@@ -67,6 +67,16 @@
       "remaining": "A GPU-produced child entrypoint outside the immutable table rejects without an allocator reset, output writes or ICB execution. Other malformed multi-header cases remain separate rows."
     },
     {
+      "id": "workgraph-gpu-generated-multi-empty-child-compaction",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-empty-child",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_multi_mode", 10], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A zero-count child with an unused UINT64_MAX payload pointer is skipped while a later nonempty sparse child contributes exactly 505 through an atomic sum. Broader empty-child permutations, table sizes and queue dependencies remain open."
+    },
+    {
       "id": "workgraph-gpu-generated-multi-misaligned-table",
       "status": "closed",
       "result": "probe-workgraph-gpu-generated-multi-misaligned-table",
