@@ -2127,6 +2127,19 @@ if [[ "$NEED_BUILD" == "1" ]]; then
 fi
 
 mkdir -p "$RESULTS_DIR"
+# Result files are evidence for one exact runtime/source invocation.  A
+# narrowed or filtered run must not inherit a passing JSON from an earlier
+# invocation with the same profile.  Keep shader caches separate below, but
+# clear profile-scoped result and trace files unless an explicit caller opts
+# into preserving them for forensic inspection.
+if [[ "${D3D12_METAL_SDK_KEEP_RESULTS:-0}" != "1" ]]; then
+  find "$RESULTS_DIR" -maxdepth 1 -type f \
+    \( -name "*-${PROFILE}.json" -o -name "*-${PROFILE}.trace.log" \) \
+    -delete
+  # Node/work-graph preparation writes auxiliary result files below this
+  # profile's result root; do not retain them across a narrowed invocation.
+  rm -rf "$RESULTS_DIR/workgraph-generated"
+fi
 shader_cache_explicit=0
 if [[ -n "$SHADER_CACHE_DIR" ]]; then
   shader_cache_explicit=1
@@ -2265,6 +2278,17 @@ fi
 run_probe_exe() {
   local exe="$1"
   local result_file="$2"
+  # Development-only literal result-name filter. Filtered runs are not full
+  # profile/promotion evidence; use a fresh results directory for them.
+  if [[ -n "${D3D12_METAL_SDK_PROBE_FILTER:-}" && "$(basename "$result_file")" != *"$D3D12_METAL_SDK_PROBE_FILTER"* ]]; then
+    rm -f "$result_file"
+    # A caller may copy the probe's trace immediately after this helper. Do
+    # not let a trace from an earlier, skipped invocation become evidence for
+    # the filtered run.
+    rm -f "$SDK_DIR/out/bin"/*_dxmt-d3d12-trace.log \
+      "$SDK_DIR/out/bin"/*_dxmt-d3d12-pso.log
+    return 0
+  fi
   shift 2
   local -a probe_args=("$@")
   local enable_geometry_mesh="${DXMT_D3D12_ENABLE_GEOMETRY_MESH:-0}"
@@ -4214,13 +4238,14 @@ prepare_work_graph_probe() {
   compile_work_graph_chain_variant "_empty_entry" -DEMPTY_ENTRY=1 || return 1
   compile_work_graph_chain_variant "_empty_multi" -DEMPTY_MULTI=1 || return 1
   compile_named_node_fixture() {
-    local output_name="$1" source_name="$2"
+    local output_name="$1" source_name="$2" target="lib_6_8"
     shift 2
+    if [[ "${1:-}" == "--compute" ]]; then target="cs_6_0"; shift; fi
     rm -f "$SDK_DIR/out/bin/$output_name"
     if ! (
       cd "$SDK_DIR/out/bin"
       WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-        "$WINE_BIN" dxc.exe -nologo -T lib_6_8 "$@" \
+        "$WINE_BIN" dxc.exe -nologo -T "$target" "$@" \
         -Fo "$output_name" "$node_source_dir/$source_name" >/dev/null
     ) || [[ ! -s "$SDK_DIR/out/bin/$output_name" ]]; then
       rm -f "$SDK_DIR/out/bin/$output_name"
@@ -4228,6 +4253,12 @@ prepare_work_graph_probe() {
     fi
   }
   compile_named_node_fixture probe_workgraph_arrays.cso node_output_arrays.hlsl || return 1
+  compile_named_node_fixture probe_workgraph_arrays_replication.cso node_output_arrays.hlsl -DGPU_ENTRY_REPLICATION=1 || return 1
+  compile_named_node_fixture probe_workgraph_arrays_replication_coalescing.cso node_output_arrays.hlsl -DGPU_ENTRY_REPLICATION=1 -DGPU_ENTRY_COALESCING=1 || return 1
+  compile_named_node_fixture probe_workgraph_arrays_coalescing.cso node_output_arrays.hlsl -DGPU_ENTRY_COALESCING=1 || return 1
+  compile_named_node_fixture probe_workgraph_arrays_broadcasting.cso node_output_arrays.hlsl -DGPU_ENTRY_BROADCASTING=1 || return 1
+  compile_named_node_fixture probe_workgraph_gpu_header_producer.cso gpu_header_producer.hlsl --compute -E produce || return 1
+  compile_named_node_fixture probe_workgraph_gpu_multi_header_producer.cso gpu_multi_header_producer.hlsl --compute -E produce || return 1
   compile_named_node_fixture probe_workgraph_empty_outputs.cso node_empty_outputs.hlsl || return 1
   compile_named_node_fixture probe_workgraph_empty_mismatch.cso node_empty_outputs.hlsl -DDATA_CONSUMER=1 || return 1
   compile_named_node_fixture probe_workgraph_recursion.cso node_recursion.hlsl || return 1
@@ -4298,7 +4329,12 @@ prepare_work_graph_probe() {
     result_files+=("$result|$opcode_list")
   done
 
-  python3 - "$aggregate" "${result_files[@]}" <<'PY'
+  if [[ -n "${D3D12_METAL_SDK_PROBE_FILTER:-}" && "$(basename "$aggregate")" != *"$D3D12_METAL_SDK_PROBE_FILTER"* ]]; then
+    # The aggregate is produced directly by this preparation function rather
+    # than through run_probe_exe, so apply the same filtered-result isolation.
+    rm -f "$aggregate"
+  else
+    python3 - "$aggregate" "${result_files[@]}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -4325,7 +4361,11 @@ aggregate.write_text(json.dumps({
     "cases": cases,
 }, indent=2) + "\n", encoding="utf-8")
 PY
-  echo "$aggregate"
+  fi
+  if [[ -f "$aggregate" ]]; then
+    echo "$aggregate"
+  fi
+  return 0
 }
 
 prepare_dxil_semantic_probes() {
@@ -5677,7 +5717,50 @@ for line in status.splitlines():
 print("true" if changed else "false")
 PY
 )"
-RUN_STARTED_AT="$(date +%s)"
+# Keep sub-second precision so a stale result written earlier in the same
+# wall-clock second cannot satisfy the freshness gate.
+RUN_STARTED_AT="$(python3 - <<'PY_RUN_STARTED_AT'
+import time
+print(f"{time.time():.6f}")
+PY_RUN_STARTED_AT
+)"
+# Wine resolves the probe executable's application directory before the
+# selected route. The PE copies in out/bin are intentional, but their hashes
+# must be recorded and checked against the selected staged runtime so a stale
+# build-tree DLL cannot masquerade as staged provenance.
+LOADER_PE_COPY_AUDIT="$(python3 - "$WINDOWS_DIR" "$SDK_DIR/out/bin" \
+  "d3d12.dll=$DXMT_D3D12_DLL_NAME" \
+  "d3d11.dll=$DXMT_D3D11_DLL_NAME" \
+  "d3d10core.dll=$DXMT_D3D10CORE_DLL_NAME" \
+  "dxgi_dxmt.dll=$DXMT_DXGI_DLL_NAME" <<'PY_LOADER_PE_AUDIT'
+import hashlib
+import json
+import pathlib
+import sys
+
+selected = pathlib.Path(sys.argv[1])
+probe = pathlib.Path(sys.argv[2])
+pairs = [tuple(argument.split("=", 1)) for argument in sys.argv[3:]]
+
+def digest(path):
+    data = path.read_bytes()
+    return {"path": str(path), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+audit = {}
+for source_name, probe_name in pairs + [(name, name) for name in (
+        "d3d12.dll", "d3d11.dll", "d3d10core.dll", "dxgi_dxmt.dll", "dxgi.dll", "winemetal.dll")]:
+    source = selected / source_name
+    copy = probe / probe_name
+    if not source.is_file() or not copy.is_file():
+        raise SystemExit(f"missing loader PE audit artifact: {source} / {copy}")
+    source_record = digest(source)
+    copy_record = digest(copy)
+    if source_record["sha256"] != copy_record["sha256"] or source_record["size"] != copy_record["size"]:
+        raise SystemExit(f"loader PE copy mismatch: {source_name} -> {probe_name}")
+    audit[probe_name] = {"selected": source_record, "probe_copy": copy_record, "match": True}
+print(json.dumps(audit, sort_keys=True))
+PY_LOADER_PE_AUDIT
+)"
 
 cat > "$RESULTS_DIR/host-runtime-${PROFILE}.json" <<EOF
 {
@@ -5687,6 +5770,8 @@ cat > "$RESULTS_DIR/host-runtime-${PROFILE}.json" <<EOF
   "source_tree_sha256": "$SOURCE_TREE_SHA256",
   "source_dirty": $SOURCE_DIRTY,
   "run_started_at": $RUN_STARTED_AT,
+  "loader_pe_copy_audit": $LOADER_PE_COPY_AUDIT,
+  "loader_pe_probe_dir": "$SDK_DIR/out/bin",
   "wine": "$REAL_WINE_BIN",
   "prefix": "$WINE_PREFIX",
   "dxmt_runtime": "$DXMT_RUNTIME",
@@ -5717,7 +5802,7 @@ if [[ "$RUN_WINEMETAL_ABI" == "1" ]]; then
   python3 "$SDK_DIR/scripts/check-winemetal-abi.py" \
     --profile "$PROFILE" \
     --dxmt-runtime "$DXMT_RUNTIME" \
-    --wine-runtime "$WINE_RUNTIME_ROOT" \
+    --wine-runtime "$WINE_INSTALL_ROOT" \
     --prefix "$WINE_PREFIX" \
     --results-dir "$RESULTS_DIR"
 fi
@@ -6393,6 +6478,56 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-empty-output-zero-${PROFILE}.json" probe_workgraph_empty_outputs.cso --empty-output-zero
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-empty-output-mismatch-${PROFILE}.json" probe_workgraph_empty_mismatch.cso --empty-output-mismatch
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
+  DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
+    run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-headers-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-headers
+  if [[ -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" ]]; then
+    cp "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" \
+      "$RESULTS_DIR/workgraph-gpu-generated-headers-${PROFILE}.trace.log"
+  fi
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
+  DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
+    run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-headers-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers
+  if [[ -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" ]]; then
+    cp "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" \
+      "$RESULTS_DIR/workgraph-gpu-generated-multi-headers-${PROFILE}.trace.log"
+  fi
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-invalid-entry-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-invalid-entry
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-invalid-capacity-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-invalid-capacity
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-invalid-stride-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-invalid-stride
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-invalid-records-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-invalid-records
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-empty-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-empty
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-invalid-second-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-invalid-second
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-replication-${PROFILE}.json" probe_workgraph_arrays_replication.cso --gpu-multi-headers-replication
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-replication-coalescing-${PROFILE}.json" probe_workgraph_arrays_replication_coalescing.cso --gpu-multi-headers-replication-coalescing
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-partial-coalescing-${PROFILE}.json" probe_workgraph_arrays_replication_coalescing.cso --gpu-multi-headers-partial-coalescing
+  DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
+    run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-coalescing-headers-${PROFILE}.json" probe_workgraph_arrays_coalescing.cso --gpu-headers-coalescing
+  if [[ -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" ]]; then
+    cp "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" \
+      "$RESULTS_DIR/workgraph-gpu-generated-coalescing-headers-${PROFILE}.trace.log"
+  fi
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
+  DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
+    run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-broadcasting-headers-${PROFILE}.json" probe_workgraph_arrays_broadcasting.cso --gpu-headers-broadcasting
+  if [[ -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" ]]; then
+    cp "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" \
+      "$RESULTS_DIR/workgraph-gpu-generated-broadcasting-headers-${PROFILE}.trace.log"
+  fi
   rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
   DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
     run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \

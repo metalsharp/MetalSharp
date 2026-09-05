@@ -30,15 +30,26 @@ struct Program {
 struct GraphInput { UINT entry, count; const void *records; UINT64 stride; };
 struct GraphDispatch { UINT mode = 0, padding = 0; GraphInput input = {}; };
 struct FixtureOptions {
-    bool recursion, fanout, early, icb, overdepth, boundary, coalescing, empty_output, zero, mismatch;
+    bool recursion, fanout, early, icb, overdepth, boundary, coalescing, empty_output, zero, mismatch, gpu_headers, gpu_headers_coalescing, gpu_multi_headers, gpu_headers_broadcasting;
+    uint32_t gpu_multi_mode = 0;
 };
 static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMODULE module, uint32_t (&values)[16], bool &backing_unchanged, bool &empty_allocation_exact, const FixtureOptions &options) {
-    const auto &[recursion, fanout, early, icb, overdepth, boundary, coalescing, empty_output, zero, mismatch] = options;
+    const auto &[recursion, fanout, early, icb, overdepth, boundary, coalescing, empty_output, zero, mismatch, gpu_headers, gpu_headers_coalescing, gpu_multi_headers, gpu_headers_broadcasting, gpu_multi_mode] = options;
+    // Coalescing and broadcasting fixtures deliberately share the single-node
+    // GPU-header ABI; their compiled node launch type selects the downstream
+    // grouping behavior. Keep the distinction explicit rather than silently
+    // treating the command-line variants as aliases.
+    const bool gpu_header_single_launch =
+        gpu_headers_coalescing || gpu_headers_broadcasting;
+    const bool gpu_multi_no_work = gpu_multi_mode >= 1u && gpu_multi_mode <= 6u;
     Owned<ID3D12CommandQueue> queue;
     Owned<ID3D12CommandAllocator> allocator;
     Owned<ID3D12GraphicsCommandList> list;
     Owned<dxmt::GraphicsCommandList10Extension> extension;
-    Owned<ID3D12Resource> backing, output;
+    Owned<ID3D12Resource> backing, output, header_data;
+    Owned<ID3D12RootSignature> producer_root;
+    Owned<ID3DBlob> producer_blob;
+    Owned<ID3D12PipelineState> producer_pipeline;
     Owned<ID3D12RootSignature> root;
     Owned<ID3DBlob> blob;
     Owned<ID3D12Fence> fence;
@@ -61,13 +72,16 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     };
     if (SUCCEEDED(hr)) hr = make_buffer(2u << 20, false, &backing.p);
     if (SUCCEEDED(hr)) hr = make_buffer(64, true, &output.p);
-    uint32_t sentinel[20];
-    for (auto &word : sentinel) word = 0x31415926u;
-    if (SUCCEEDED(hr) && overdepth) {
+    // Cover allocator metadata, record payload slots, and the trailing backing
+    // range. A prefix-only sentinel misses writes outside the first entries.
+    std::vector<uint32_t> sentinel((2u << 20) / sizeof(uint32_t));
+    for (size_t i = 0; i < sentinel.size(); ++i)
+        sentinel[i] = 0x31415926u ^ (uint32_t(i) * 0x9e3779b9u);
+    if (SUCCEEDED(hr) && (overdepth || gpu_multi_no_work)) {
         void *data = nullptr;
         hr = backing->Map(0, nullptr, &data);
         if (SUCCEEDED(hr)) {
-            if (data) std::memcpy(data, sentinel, sizeof(sentinel)); else hr = E_FAIL;
+            if (data) std::memcpy(data, sentinel.data(), sentinel.size() * sizeof(uint32_t)); else hr = E_FAIL;
             backing->Unmap(0, nullptr);
         }
     }
@@ -80,6 +94,38 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     if (SUCCEEDED(hr)) hr = serialize ? serialize(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob.p, nullptr) : E_FAIL;
     if (SUCCEEDED(hr)) hr = device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&root.p));
     if (SUCCEEDED(hr)) hr = state->QueryInterface({0x460caac7,0x1d24,0x446a,{0xa1,0x84,0xca,0x67,0xdb,0x49,0x41,0x38}}, reinterpret_cast<void **>(&properties.p));
+    if (SUCCEEDED(hr) && gpu_headers) {
+        hr = make_buffer(256, true, &header_data.p);
+        uint32_t poison[64]; for (auto &word : poison) word = 0xdeadbeefu;
+        if (SUCCEEDED(hr)) hr = header_data->WriteToSubresource(0, nullptr, poison, 256, 256);
+        D3D12_ROOT_PARAMETER parameters[2] = {};
+        parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[0].Constants.Num32BitValues = 3;
+        parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+        D3D12_ROOT_SIGNATURE_DESC description = {}; description.NumParameters = 2; description.pParameters = parameters;
+        if (SUCCEEDED(hr)) hr = serialize(&description, D3D_ROOT_SIGNATURE_VERSION_1, &producer_blob.p, nullptr);
+        if (SUCCEEDED(hr)) hr = device->CreateRootSignature(0, producer_blob->GetBufferPointer(), producer_blob->GetBufferSize(), IID_PPV_ARGS(&producer_root.p));
+        std::ifstream shader_file(gpu_multi_headers ? "probe_workgraph_gpu_multi_header_producer.cso" : "probe_workgraph_gpu_header_producer.cso", std::ios::binary);
+        std::vector<char> shader((std::istreambuf_iterator<char>(shader_file)), {});
+        if (shader.empty()) hr = E_FAIL;
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline = {}; pipeline.pRootSignature = producer_root.p;
+        pipeline.CS = {shader.data(), shader.size()};
+        if (SUCCEEDED(hr)) hr = device->CreateComputePipelineState(&pipeline, IID_PPV_ARGS(&producer_pipeline.p));
+        if (SUCCEEDED(hr)) {
+            const uint64_t address = header_data->GetGPUVirtualAddress();
+            const uint32_t words[3] = {uint32_t(address), uint32_t(address >> 32), options.gpu_multi_mode};
+            list->SetComputeRootSignature(producer_root.p); list->SetPipelineState(producer_pipeline.p);
+            list->SetComputeRoot32BitConstants(0, 3, words, 0);
+            list->SetComputeRootUnorderedAccessView(1, address);
+            list->Dispatch(1,1,1);
+            D3D12_RESOURCE_BARRIER barrier = {}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Transition.pResource = header_data.p;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+            list->ResourceBarrier(1, &barrier);
+        }
+    }
     Program program;
     if (SUCCEEDED(hr)) {
         using Get = void *(STDMETHODCALLTYPE *)(ID3D12StateObjectProperties *, void *, LPCWSTR);
@@ -90,7 +136,7 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
         program.backing = {backing->GetGPUVirtualAddress(), 2u << 20};
         // Do not request an independent SetProgram initialization when checking
         // that rejected DispatchGraph leaves backing storage untouched.
-        if (overdepth) program.flags = 0;
+        if (overdepth || gpu_multi_no_work) program.flags = 0;
         extension->SetComputeRootSignature(root.p);
         extension->SetComputeRootUnorderedAccessView(0, output->GetGPUVirtualAddress());
         extension->SetProgram(&program);
@@ -101,9 +147,22 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
         uint32_t recursive_grid[4] = {1,1,1,1}, nonrecursive_grid[4] = {99,1,1,1};
         uint32_t coalesced_values[4] = {1,2,3,4};
         GraphDispatch dispatch; dispatch.input = coalescing ? GraphInput{0,4,coalesced_values,4} : (recursion || empty_output) ? GraphInput{0,1,icb ? recursive_grid : &recursive_value,icb ? 16u : 4u} : GraphInput{0,4,dense,8};
+        if (gpu_headers) {
+            dispatch.mode = gpu_multi_headers ? 3u : 1u;
+            if (gpu_header_single_launch && !gpu_multi_headers) dispatch.mode = 1u;
+            const uint64_t address = header_data->GetGPUVirtualAddress();
+            std::memcpy(&dispatch.input, &address, sizeof(address));
+        }
         extension->DispatchGraph(&dispatch);
-        dispatch.input = (recursion || empty_output) ? GraphInput{1,1,icb ? nonrecursive_grid : &nonrecursive_value,icb ? 16u : 4u} : GraphInput{1,4,sparse,8};
-        extension->DispatchGraph(&dispatch);
+        if (!gpu_multi_headers) {
+            dispatch.input = (recursion || empty_output) ? GraphInput{1,1,icb ? nonrecursive_grid : &nonrecursive_value,icb ? 16u : 4u} : GraphInput{1,4,sparse,8};
+            if (gpu_headers) {
+                dispatch.mode = 1u;
+                const uint64_t address = header_data->GetGPUVirtualAddress() + 24u;
+                std::memcpy(&dispatch.input, &address, sizeof(address));
+            }
+            extension->DispatchGraph(&dispatch);
+        }
         recursive_value = nonrecursive_value = 0;
         std::memset(coalesced_values, 0, sizeof(coalesced_values));
         std::memset(recursive_grid, 0, sizeof(recursive_grid));
@@ -125,11 +184,11 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     }
     if (event) CloseHandle(event);
     if (SUCCEEDED(hr)) hr = output->ReadFromSubresource(values, 64, 64, 0, nullptr);
-    if (SUCCEEDED(hr) && overdepth) {
+    if (SUCCEEDED(hr) && (overdepth || gpu_multi_no_work)) {
         void *data = nullptr;
         hr = backing->Map(0, nullptr, &data);
         if (SUCCEEDED(hr)) {
-            backing_unchanged = data && !std::memcmp(data, sentinel, sizeof(sentinel));
+            backing_unchanged = data && !std::memcmp(data, sentinel.data(), sentinel.size() * sizeof(uint32_t));
             backing->Unmap(0, nullptr);
         }
     }
@@ -145,21 +204,27 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
         }
     }
     const uint32_t array_expected[16] = {101,202,303,404,505};
+    const uint32_t gpu_broadcast_expected[16] = {202,404,606,808,505};
+    const uint32_t gpu_coalescing_expected[16] = {101,202,303,404,505,2,4};
     const uint32_t recursion_expected[16] = {4,3,2,1,0,99,14};
     const uint32_t fanout_expected[16] = {32,12,4,1,0,99,14};
     const uint32_t early_expected[16] = {0,0,2,1,0,99,12};
     const uint32_t overdepth_expected[16] = {0,0,0,0,0,99};
+    const uint32_t gpu_multi_negative_expected[16] = {};
+    const uint32_t gpu_replication_expected[16] = {404,0,0,0,505};
+    const uint32_t gpu_replication_coalescing_expected[16] = {404,0,0,0,505,2,4};
+    const uint32_t gpu_partial_coalescing_expected[16] = {303,0,0,0,505,2,6};
     const uint32_t boundary_expected[16] = {528,496,32,UINT32_MAX,0,99,0xfffffffeu};
     const uint32_t coalescing_expected[16] = {22,18,14,10,0,99,14,0,8,4};
     const uint32_t empty_expected[16] = {12,4,20,3};
     const uint32_t empty_zero_expected[16] = {0,0,0,3};
     const uint32_t mismatch_expected[16] = {};
-    const auto *expected = mismatch ? mismatch_expected : empty_output ? (zero ? empty_zero_expected : empty_expected) : coalescing ? coalescing_expected : boundary ? boundary_expected : (overdepth ? overdepth_expected : (early ? early_expected : (fanout ? fanout_expected : (recursion ? recursion_expected : array_expected))));
+    const auto *expected = gpu_headers_broadcasting ? gpu_broadcast_expected : gpu_multi_mode == 8u ? gpu_partial_coalescing_expected : gpu_multi_mode == 7u ? (gpu_headers_coalescing ? gpu_replication_coalescing_expected : gpu_replication_expected) : gpu_multi_no_work ? gpu_multi_negative_expected : mismatch ? mismatch_expected : empty_output ? (zero ? empty_zero_expected : empty_expected) : coalescing ? coalescing_expected : boundary ? boundary_expected : (overdepth ? overdepth_expected : (early ? early_expected : (fanout ? fanout_expected : (recursion ? recursion_expected : (gpu_headers_coalescing ? gpu_coalescing_expected : array_expected)))));
     std::fprintf(stderr, "array dispatch hr=%08x values=%u,%u,%u,%u,%u\n", unsigned(hr),values[0],values[1],values[2],values[3],values[4]);
-    return SUCCEEDED(hr) && (!overdepth || backing_unchanged) && (!empty_output || empty_allocation_exact) && std::memcmp(values, expected, sizeof(values)) == 0;
+    return SUCCEEDED(hr) && (!(overdepth || gpu_multi_no_work) || backing_unchanged) && (!empty_output || empty_allocation_exact) && std::memcmp(values, expected, sizeof(values)) == 0;
 }
 int main(int argc, char **argv) {
-    if (argc != 2 && !(argc == 3 && (!std::strcmp(argv[2], "--dispatch") || !std::strcmp(argv[2], "--recursion") || !std::strcmp(argv[2], "--recursion-fanout") || !std::strcmp(argv[2], "--recursion-early") || !std::strcmp(argv[2], "--recursion-icb") || !std::strcmp(argv[2], "--recursion-overdepth") || !std::strcmp(argv[2], "--recursion-boundary") || !std::strcmp(argv[2], "--recursion-coalescing") || !std::strcmp(argv[2], "--empty-output") || !std::strcmp(argv[2], "--empty-output-zero") || !std::strcmp(argv[2], "--empty-output-mismatch")))) return 2;
+    if (argc != 2 && !(argc == 3 && (!std::strcmp(argv[2], "--dispatch") || !std::strcmp(argv[2], "--recursion") || !std::strcmp(argv[2], "--recursion-fanout") || !std::strcmp(argv[2], "--recursion-early") || !std::strcmp(argv[2], "--recursion-icb") || !std::strcmp(argv[2], "--recursion-overdepth") || !std::strcmp(argv[2], "--recursion-boundary") || !std::strcmp(argv[2], "--recursion-coalescing") || !std::strcmp(argv[2], "--empty-output") || !std::strcmp(argv[2], "--empty-output-zero") || !std::strcmp(argv[2], "--empty-output-mismatch") || !std::strcmp(argv[2], "--gpu-headers") || !std::strcmp(argv[2], "--gpu-headers-coalescing") || !std::strcmp(argv[2], "--gpu-headers-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-entry") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-capacity") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-stride") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-records") || !std::strcmp(argv[2], "--gpu-multi-headers-empty") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-second") || !std::strcmp(argv[2], "--gpu-multi-headers-replication") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing")))) return 2;
     const bool fanout = argc == 3 && !std::strcmp(argv[2], "--recursion-fanout");
     const bool early = argc == 3 && !std::strcmp(argv[2], "--recursion-early");
     const bool icb = argc == 3 && !std::strcmp(argv[2], "--recursion-icb");
@@ -170,7 +235,20 @@ int main(int argc, char **argv) {
     const bool zero = argc == 3 && !std::strcmp(argv[2], "--empty-output-zero");
     const bool mismatch = argc == 3 && !std::strcmp(argv[2], "--empty-output-mismatch");
     const bool empty_output = mismatch || zero || (argc == 3 && !std::strcmp(argv[2], "--empty-output"));
-    const FixtureOptions options = {recursion,fanout,early,icb,overdepth,boundary,coalescing,empty_output,zero,mismatch};
+    const bool gpu_multi_headers = argc == 3 && std::strncmp(argv[2], "--gpu-multi-headers", 19) == 0;
+    const bool gpu_headers_broadcasting = argc == 3 && !std::strcmp(argv[2], "--gpu-headers-broadcasting");
+    const bool gpu_headers = argc == 3 && (!std::strcmp(argv[2], "--gpu-headers") || !std::strcmp(argv[2], "--gpu-headers-coalescing") || gpu_multi_headers || gpu_headers_broadcasting);
+    const bool gpu_headers_coalescing = argc == 3 && (!std::strcmp(argv[2], "--gpu-headers-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing"));
+    uint32_t gpu_multi_mode = 0;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-invalid-entry")) gpu_multi_mode = 1;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-invalid-capacity")) gpu_multi_mode = 2;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-invalid-stride")) gpu_multi_mode = 3;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-invalid-records")) gpu_multi_mode = 4;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-empty")) gpu_multi_mode = 5;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-invalid-second")) gpu_multi_mode = 6;
+    if (argc == 3 && (!std::strcmp(argv[2], "--gpu-multi-headers-replication") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing"))) gpu_multi_mode = 7;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing")) gpu_multi_mode = 8;
+    const FixtureOptions options = {recursion,fanout,early,icb,overdepth,boundary,coalescing,empty_output,zero,mismatch,gpu_headers,gpu_headers_coalescing,gpu_multi_headers,gpu_headers_broadcasting,gpu_multi_mode};
     std::ifstream input(argv[1], std::ios::binary);
     std::vector<char> bytes((std::istreambuf_iterator<char>(input)), {});
     HMODULE module = LoadLibraryW(L"d3d12.dll");
@@ -205,8 +283,8 @@ int main(int argc, char **argv) {
     bool backing_unchanged = false, empty_allocation_exact = false;
     const bool exact = creation_pass && tested && dispatch_arrays(device, valid, module, values, backing_unchanged, empty_allocation_exact, options);
     const bool pass = creation_pass && (!tested || exact);
-    std::printf("{\"pass\":%s,\"creation_hr\":%u,\"missing_dense_hr\":%u,\"missing_dense_null\":%s,\"dispatch_tested\":%s,\"readback_exact\":%s,\"recursion\":%s,\"overdepth\":%s,\"backing_unchanged\":%s,\"empty_allocation_exact\":%s,\"values\":[",
-        pass ? "true" : "false", unsigned(positive), unsigned(negative), invalid ? "false" : "true", tested ? "true" : "false", exact ? "true" : "false", recursion ? "true" : "false", overdepth ? "true" : "false", backing_unchanged ? "true" : "false", empty_allocation_exact ? "true" : "false");
+    std::printf("{\"pass\":%s,\"creation_hr\":%u,\"missing_dense_hr\":%u,\"missing_dense_null\":%s,\"dispatch_tested\":%s,\"readback_exact\":%s,\"recursion\":%s,\"overdepth\":%s,\"backing_unchanged\":%s,\"empty_allocation_exact\":%s,\"gpu_generated_headers\":%s,\"gpu_header_coalescing\":%s,\"gpu_header_broadcasting\":%s,\"gpu_multi_headers\":%s,\"gpu_multi_mode\":%u,\"values\":[",
+        pass ? "true" : "false", unsigned(positive), unsigned(negative), invalid ? "false" : "true", tested ? "true" : "false", exact ? "true" : "false", recursion ? "true" : "false", overdepth ? "true" : "false", backing_unchanged ? "true" : "false", empty_allocation_exact ? "true" : "false", gpu_headers ? "true" : "false", gpu_headers_coalescing ? "true" : "false", gpu_headers_broadcasting ? "true" : "false", gpu_multi_headers ? "true" : "false", gpu_multi_mode);
     for (unsigned i = 0; i < 16; ++i) std::printf("%s%u", i ? "," : "", values[i]);
     std::printf("]}\n");
     if (invalid) invalid->Release();

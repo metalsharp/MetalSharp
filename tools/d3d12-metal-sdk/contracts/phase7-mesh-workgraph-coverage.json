@@ -3,7 +3,145 @@
   "phase": 7,
   "profile": "phase7-mesh",
   "status": "partial",
+  "evidence": [
+    {
+      "kind": "source",
+      "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp",
+      "note": "GPU-generated Work Graph input validation, GPU command generation, and gated downstream execution path."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_workgraph_array_creation.cpp",
+      "note": "D3D12 producer-to-Work-Graph GPU-header fixtures and exact rejection/readback assertions."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_workgraph_execution.cpp",
+      "note": "Integrated Work Graph input, coalescing, routing, queue-dependency, and readback evidence."
+    }
+  ],
   "rows": [
+    {
+      "id": "workgraph-gpu-generated-thread-entry-headers",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-headers",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["readback_exact"],
+        ["values", [101, 202, 303, 404, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A compute producer writes two single-node GPU headers and payloads; thread entrypoints are GPU-selected and dense/sparse downstream routing is exact. Trace records host_header_read=0 events. Coalescing, broadcasting, covered multi-node forms and bounded rejection rows are separate closures; capacity/lifetime, larger tables and broader launch/resource breadth remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-entry-headers",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-headers",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"], ["readback_exact"],
+        ["values", [101, 202, 303, 404, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "An ordinary compute producer writes a D3D12_MULTI_NODE_GPU_INPUT header and two GPU node-input descriptors. The GPU validates the table and records, compacts two selected entry commands and produces exact dense/sparse routing without host descriptor/header reads. Bounded malformed entry/capacity/stride/record and zero-descriptor rows also pass; larger tables, duplicate/zero-stride descriptors and cross-queue lifetime remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-coalescing-entry-headers",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-coalescing-headers",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_header_coalescing"], ["readback_exact"],
+        ["values", [101, 202, 303, 404, 505, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "The same GPU-produced headers select a coalescing entrypoint with two-record batches and a thread entrypoint without host header reads. Exact dense/sparse routing and coalescing group/bitmap counters pass. Covered multi-node headers are separate evidence; broader launch, resource-argument, table-capacity and lifetime breadth remains open."
+    },
+    {
+      "id": "workgraph-gpu-generated-broadcasting-entry-headers",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-broadcasting-headers",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_header_broadcasting"], ["readback_exact"],
+        ["values", [202, 404, 606, 808, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced header selects a fixed two-group broadcasting entrypoint. Each command binds one record and both groups read it through the raw single-record context; atomic sums prove both contributions. The previous stream-context version silently dropped the second group's contribution. Broader XYZ grids and resource arguments remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-invalid-entry",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-invalid-entry",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"], ["gpu_multi_mode", 1], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced child entrypoint outside the immutable table rejects without an allocator reset, output writes or ICB execution. Other malformed multi-header cases remain separate rows."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-coalescing-partial-batch",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-partial-coalescing",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_header_coalescing"], ["gpu_multi_mode", 8], ["readback_exact"],
+        ["values", [303, 0, 0, 0, 505, 2, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Three GPU-produced zero-stride records form batches of two and one: atomic sum 303, group count two and batch-size bitmap six. An independent sparse child produces 505. Larger batches, capacities and cross-queue replication remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-coalescing-replication",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-replication-coalescing",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_header_coalescing"], ["gpu_multi_mode", 7], ["readback_exact"],
+        ["values", [404, 0, 0, 0, 505, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Four zero-stride records form two coalescing batches of two. An atomic downstream sum of 404, batch count two and batch-size bitmap four prove exact replication and grouping; the independent sparse child produces 505. Partial batches and larger streams remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-record-replication",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-replication",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_multi_mode", 7], ["readback_exact"],
+        ["values", [404, 0, 0, 0, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced child descriptor with four records and zero record stride replicates value 101 four times; an atomic downstream sum proves exact multiplicity without overlapping non-atomic writes. The independent sparse child still produces 505. Descriptor-table zero stride, larger streams and coalescing replication remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-invalid-second",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-invalid-second",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_multi_mode", 6], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A valid first descriptor followed by an invalid entrypoint rejects the entire GPU-produced input table. All user output words and the entire 2 MiB backing allocation (including allocator metadata, payload slots and trailing bytes) remain unchanged under an offset-varying sentinel. Larger mixed tables remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-invalid-capacity",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-invalid-capacity",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_multi_mode", 2], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced descriptor count beyond the bounded ICB capacity rejects before backing reset and execution."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-invalid-stride",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-invalid-stride",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_multi_mode", 3], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced descriptor stride below the child-header ABI rejects without writes or allocation."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-invalid-record-address",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-invalid-records",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_multi_mode", 4], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced record span outside registered address bounds rejects the entire multi-input dispatch atomically."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-empty",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-empty",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_multi_mode", 5], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced zero-descriptor input is valid no-work and preserves the allocator table."
+    },
     {
       "id": "workgraph-empty-output-payload-mismatch",
       "status": "closed",

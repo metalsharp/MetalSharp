@@ -219,6 +219,7 @@ int main() {
     ID3DBlob* node_root_blob = nullptr;
     ID3D12Resource* node_local_table = nullptr;
     ID3D12Resource* gpu_records = nullptr;
+    ID3D12Resource* gpu_coalescing_records = nullptr;
     ID3D12Resource* gpu_input_desc = nullptr;
     ID3D12Resource* gpu_multi_input_desc = nullptr;
     ID3D12StateObject* state = nullptr;
@@ -395,6 +396,13 @@ int main() {
                         multi_inputs, sizeof(multi_inputs));
             gpu_records->Unmap(0, nullptr);
         }
+    }
+    if (SUCCEEDED(hr)) {
+        auto gpu_coalescing_desc = buffer_desc(64);
+        hr = device->CreateCommittedResource(
+            &heap, D3D12_HEAP_FLAG_NONE, &gpu_coalescing_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&gpu_coalescing_records));
     }
     if (SUCCEEDED(hr)) {
         auto gpu_input_resource_desc = buffer_desc(64);
@@ -1837,21 +1845,21 @@ int main() {
             node_broadcast_multi_gpu_values[7] == 0xdeadbeefu;
     }
 
-    if (SUCCEEDED(hr) && input_program_ready && gpu_input_desc && backing) {
+    if (SUCCEEDED(hr) && input_program_ready && gpu_input_desc && gpu_coalescing_records && backing) {
         struct CoalescingRecord { uint32_t slot; uint32_t value; };
         const CoalescingRecord records[6] = {
             {0u, 0xa0a0a0a0u}, {1u, 0xb0b0b0b0u}, {2u, 0xc0c0c0c0u},
             {3u, 0xd0d0d0d0u}, {4u, 0xe0e0e0e0u}, {5u, 0xf0f0f0f0u}};
         void* mapped = nullptr;
-        hr = backing->Map(0, nullptr, &mapped);
+        hr = gpu_coalescing_records->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr) && mapped) {
             std::memcpy(mapped, records, sizeof(records));
-            backing->Unmap(0, nullptr);
+            gpu_coalescing_records->Unmap(0, nullptr);
         }
         NodeGPUInput input = {};
         input.EntrypointIndex = 7;
         input.NumRecords = 6;
-        input.Records = backing->GetGPUVirtualAddress();
+        input.Records = gpu_coalescing_records->GetGPUVirtualAddress();
         input.RecordStrideInBytes = sizeof(CoalescingRecord);
         if (SUCCEEDED(hr)) hr = gpu_input_desc->Map(0, nullptr, &mapped);
         if (SUCCEEDED(hr) && mapped) {
@@ -2045,6 +2053,7 @@ int main() {
     release(state);
     release(gpu_multi_input_desc);
     release(gpu_input_desc);
+    release(gpu_coalescing_records);
     release(gpu_records);
     release(node_root_blob);
     release(node_root);

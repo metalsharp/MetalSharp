@@ -5220,7 +5220,7 @@ public:
           return nullptr;
       }
       m_device->RegisterWorkGraphProgram(
-          reinterpret_cast<const uint8_t *>(ret), sizeof(*ret), entrypoint_shaders);
+          reinterpret_cast<const uint8_t *>(ret), sizeof(*ret), entrypoint_shaders, static_cast<uint32_t>(m_work_graph_entrypoints.size()));
     }
     return ret;
   }
@@ -9262,7 +9262,13 @@ void MTLD3D12Device::RegisterResource(MTLD3D12Resource *res) {
   D3D12_GPU_VIRTUAL_ADDRESS addr = res->GetGPUVirtualAddress();
   if (addr) {
     std::lock_guard<std::mutex> lock(m_resource_mutex);
-    m_resources_by_gpu_addr[addr] = res;
+    const auto [position, inserted] = m_work_graph_buffer_resources.insert(res);
+    try {
+      m_resources_by_gpu_addr[addr] = res;
+    } catch (...) {
+      if (inserted) m_work_graph_buffer_resources.erase(position);
+      throw;
+    }
   }
 }
 
@@ -9273,20 +9279,21 @@ void MTLD3D12Device::UnregisterResource(MTLD3D12Resource *res) {
   if (addr) {
     std::lock_guard<std::mutex> lock(m_resource_mutex);
     m_resources_by_gpu_addr.erase(addr);
+    m_work_graph_buffer_resources.erase(res);
   }
 }
 
 void MTLD3D12Device::RegisterWorkGraphProgram(
     const uint8_t *identifier, size_t identifier_size,
-    const std::vector<WorkGraphNodeShader> &nodes) {
-  if (!identifier || identifier_size != 32 || nodes.empty())
+    const std::vector<WorkGraphNodeShader> &nodes, uint32_t entrypoint_count) {
+  if (!identifier || identifier_size != 32 || nodes.empty() || entrypoint_count > nodes.size())
     return;
   const std::string key(reinterpret_cast<const char *>(identifier),
                         identifier_size);
   std::lock_guard<std::mutex> lock(m_work_graph_mutex);
   // Own both text and layout; command replay must not reference state-object
   // vectors or temporary lowering modules after registration.
-  m_work_graph_programs[key] = nodes;
+  m_work_graph_programs[key] = WorkGraphProgramSnapshot{entrypoint_count, nodes};
   uint64_t first = 0;
   memcpy(&first, identifier, sizeof(first));
   TRACE("RegisterWorkGraphProgram key_size=%zu nodes=%zu first=0x%llx bytes=%zu",
@@ -9307,6 +9314,24 @@ void MTLD3D12Device::UnregisterWorkGraphPrograms(uint64_t state_object_identity)
   }
 }
 
+bool MTLD3D12Device::SnapshotWorkGraphProgram(
+    const uint8_t *identifier, size_t identifier_size,
+    WorkGraphProgramSnapshot &program) const {
+  program = {};
+  if (!identifier || identifier_size != 32) return false;
+  try {
+    const std::string key(reinterpret_cast<const char *>(identifier), identifier_size);
+    std::lock_guard<std::mutex> lock(m_work_graph_mutex);
+    const auto found = m_work_graph_programs.find(key);
+    if (found == m_work_graph_programs.end()) return false;
+    auto snapshot = found->second;
+    program = std::move(snapshot);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 bool MTLD3D12Device::LookupWorkGraphNodeShader(
     const uint8_t *identifier, size_t identifier_size, UINT node_index,
     WorkGraphNodeShader &shader, bool by_source_node) const {
@@ -9320,20 +9345,20 @@ bool MTLD3D12Device::LookupWorkGraphNodeShader(
   memcpy(&first, identifier, sizeof(first));
   auto it = m_work_graph_programs.find(key);
   if (by_source_node && it != m_work_graph_programs.end()) {
-    const auto found = std::find_if(it->second.begin(), it->second.end(),
+    const auto found = std::find_if(it->second.nodes.begin(), it->second.nodes.end(),
         [&](const auto &candidate) { return candidate.source_node_index == node_index; });
-    if (found == it->second.end()) return false;
-    node_index = static_cast<UINT>(found - it->second.begin());
+    if (found == it->second.nodes.end()) return false;
+    node_index = static_cast<UINT>(found - it->second.nodes.begin());
   }
-  if (it == m_work_graph_programs.end() || node_index >= it->second.size() ||
-      it->second[node_index].msl.empty() ||
-      (!by_source_node && !it->second[node_index].is_entrypoint)) {
+  if (it == m_work_graph_programs.end() || node_index >= it->second.nodes.size() ||
+      it->second.nodes[node_index].msl.empty() ||
+      (!by_source_node && !it->second.nodes[node_index].is_entrypoint)) {
     TRACE("LookupWorkGraphNodeShader miss key_size=%zu node=%u first=0x%llx programs=%zu",
           key.size(), node_index, (unsigned long long)first,
           m_work_graph_programs.size());
     return false;
   }
-  shader = it->second[node_index];
+  shader = it->second.nodes[node_index];
   TRACE("LookupWorkGraphNodeShader hit node=%u bytes=%zu input_size=%u input_alignment=%u max_records=%u launch=%u",
         node_index, shader.msl.size(), shader.input_record_size,
         shader.input_record_alignment, shader.input_max_records,
@@ -9350,8 +9375,36 @@ bool MTLD3D12Device::IsReferenceWorkGraphProgram(const uint8_t *identifier,
   std::lock_guard<std::mutex> lock(m_work_graph_mutex);
   const auto it = m_work_graph_programs.find(key);
   return it != m_work_graph_programs.end() &&
-      std::all_of(it->second.begin(), it->second.end(),
+      std::all_of(it->second.nodes.begin(), it->second.nodes.end(),
                   [](const auto &shader) { return shader.msl.empty(); });
+}
+
+bool MTLD3D12Device::SnapshotWorkGraphBufferRanges(
+    std::vector<WorkGraphBufferRange> &ranges) {
+  ranges.clear();
+  try {
+    std::lock_guard<std::mutex> lock(m_resource_mutex);
+    std::vector<WorkGraphBufferRange> snapshot;
+    snapshot.reserve(m_work_graph_buffer_resources.size());
+    for (auto *resource : m_work_graph_buffer_resources) {
+      if (resource->IsProtectedResource()) continue;
+      const uint64_t address = resource->GetGPUVirtualAddress();
+      const uint64_t length = resource->GetBufferByteLength();
+      auto buffer = resource->GetMTLBuffer();
+      if (!address || !length || !buffer.handle || length > UINT64_MAX - address) continue;
+      // Resource destruction unregisters before releasing its native buffer.
+      // Capture the strong native owner under that same registry lock; do not
+      // attempt to resurrect a COM object whose final Release may be underway.
+      snapshot.push_back({address, length, std::move(buffer), resource->GetMTLBufferOffset()});
+    }
+    std::sort(snapshot.begin(), snapshot.end(), [](const auto &a, const auto &b) {
+      return a.address != b.address ? a.address < b.address : a.length > b.length;
+    });
+    ranges = std::move(snapshot);
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 MTLD3D12Resource *

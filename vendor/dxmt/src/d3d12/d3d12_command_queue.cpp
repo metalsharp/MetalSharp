@@ -5,6 +5,9 @@
 #include "d3d12_descriptor_heap.hpp"
 #include "d3d12_device.hpp"
 #include "d3d12_node_dispatch_abi.hpp"
+#include "d3d12_node_gpu_input.hpp"
+#include "dxil/node_gpu_input_msl.hpp"
+#include "dxil/node_gpu_entry_msl.hpp"
 #include "d3d12_fence.hpp"
 #include "d3d12_heap.hpp"
 #include "d3d12_pipeline_state.hpp"
@@ -1429,7 +1432,7 @@ struct m12_node_schedule_parameters {
   uint grid_y;
   uint grid_z;
   uint broadcasting;
-  uint source_remaining, recursive_source;
+  uint source_remaining, recursive_source, gated;
 };
 
 // Compact published output allocations into a descriptor stream and produce
@@ -1441,13 +1444,21 @@ kernel void m12_work_graph_schedule(
     device uint *dispatch_args [[buffer(2)]],
     device m12_node_input_context *context [[buffer(3)]],
     constant m12_node_schedule_parameters &parameters [[buffer(4)]],
+    device const uint *execution_gate [[buffer(5)]],
     uint tid [[thread_position_in_grid]]) {
   if (tid != 0u)
     return;
+  if (parameters.gated != 0u && (execution_gate[0] != 0u || execution_gate[1] == 0u)) {
+    context->count = 0u; context->length = 0ul;
+    dispatch_args[0] = 0u; dispatch_args[1] = 0u; dispatch_args[2] = 0u;
+    return;
+  }
   uint count = 0u;
   const uint batch = parameters.batch_size != 0u ? parameters.batch_size : 1u;
   for (uint allocation = 0u; allocation < 256u; ++allocation) {
-    device uint *entry = backing + 8u + allocation * 4u;
+    // The first two words are allocator counters; allocation descriptors start
+    // at the same 32-byte base used by the lowering's publication ABI.
+    device uint *entry = backing + 32u / sizeof(uint) + allocation * 4u;
     const uint base_slot = entry[0];
     const uint record_count = entry[1];
     const uint output = entry[2];
@@ -1469,7 +1480,9 @@ kernel void m12_work_graph_schedule(
   context->count = count;
   context->stride = 8ul;
   context->size = ulong(parameters.record_size);
-  context->length = ulong(count);
+  // length is the descriptor stream byte length, not its logical record
+  // count. Consumers use count for indexing and length for bounds checks.
+  context->length = ulong(count) * context->stride;
   context->batch_size = batch;
   context->reserved = parameters.broadcasting != 0u ? parameters.grid_x : 0u;
   dispatch_args[0] = parameters.broadcasting != 0u ? count * parameters.grid_x : (count + batch - 1u) / batch;
@@ -1559,7 +1572,9 @@ kernel void m12_work_graph_build_icb(
   const bool routed = input->version == 5u || recursive;
   device m12_node_input_context *child = reinterpret_cast<device m12_node_input_context *>(
       contexts + ulong(tid) * (recursive ? 64ul : (routed ? 56ul : 40ul)));
-  *child = {recursive ? 7u : (routed ? 5u : 3u), 1u, 8ul, ulong(parameters.record_size), 1ul, 1u, x};
+  // buffer(29) points at one two-word descriptor.  Its byte length must
+  // describe that descriptor stream, not the logical record count.
+  *child = {recursive ? 7u : (routed ? 5u : 3u), 1u, 8ul, ulong(parameters.record_size), 8ul, 1u, x};
   if (routed) {
     auto parent = reinterpret_cast<device const m12_node_routed_input_context *>(input);
     auto destination = reinterpret_cast<device m12_node_routed_input_context *>(child);
@@ -3321,6 +3336,74 @@ struct ReplayState {
     return buffer;
   }
 
+  struct WorkGraphGPUEntryPipeline {
+    MTLD3D12Device::WorkGraphNodeShader shader;
+    WMT::Reference<WMT::Library> library;
+    WMT::Reference<WMT::ComputePipelineState> pipeline;
+    uint64_t pipeline_id = 0;
+    D3D12NodeGPUEntryLayout layout;
+    D3D12NodeRecursionContext context_template;
+    WMT::Reference<WMT::Buffer> routing_buffer;
+  };
+
+  bool PrepareWorkGraphGPUEntryPipelines(MTLD3D12Device *device,
+      std::vector<WorkGraphGPUEntryPipeline> &entries) {
+    entries.clear();
+    if (!device) return false;
+    MTLD3D12Device::WorkGraphProgramSnapshot snapshot;
+    if (!device->SnapshotWorkGraphProgram(work_graph_program_identifier,
+          sizeof(work_graph_program_identifier), snapshot) ||
+        !snapshot.entrypoint_count || snapshot.entrypoint_count > snapshot.nodes.size()) return false;
+    try {
+      std::vector<WorkGraphGPUEntryPipeline> prepared(snapshot.entrypoint_count);
+      bool available = false;
+      for (uint32_t index = 0; index < snapshot.entrypoint_count; ++index) {
+        const auto &shader = snapshot.nodes[index];
+        // Preserve index holes. A GPU-selected unavailable slot must reject,
+        // never select the next compiled entrypoint or a synthetic program.
+        if (!shader.is_entrypoint || shader.msl.empty()) continue;
+        auto &entry = prepared[index];
+        entry.shader = shader;
+        const std::string &gpu_source = shader.msl;
+        WMT::Reference<WMT::Error> error;
+        entry.library = device->GetMTLDevice().newLibraryWithSource(
+            gpu_source.c_str(), gpu_source.size(), error);
+        if (!entry.library.handle || error.handle) { QTRACE("GPU entry library failed index=%u handle=%p error=%p", index, entry.library.handle, error.handle); return false; }
+        auto function = entry.library.newFunction("node_main");
+        if (!function.handle) { QTRACE("GPU entry function failed index=%u", index); return false; }
+        entry.pipeline = device->GetMTLDevice().newIndirectComputePipelineState(function, error);
+        if (!entry.pipeline.handle || error.handle) { QTRACE("GPU entry indirect pipeline failed index=%u handle=%p error=%p", index, entry.pipeline.handle, error.handle); return false; }
+        entry.pipeline_id = entry.pipeline.gpuResourceID();
+        if (!entry.pipeline_id) { QTRACE("GPU entry pipeline id failed index=%u", index); return false; }
+        entry.layout = {shader.input_record_size, shader.input_record_alignment, 1u, shader.launch_type};
+        for (unsigned axis = 0; axis < 3; ++axis) {
+          entry.layout.threads[axis] = shader.threads[axis];
+          entry.layout.grid[axis] = shader.grid[axis];
+        }
+        entry.layout.max_records = shader.launch_type == 2u ? shader.input_max_records : 1u;
+        entry.layout.grid_from_record = shader.grid_from_record ? 1u : 0u;
+        WorkGraphRoutingBinding routing;
+        if (!PrepareWorkGraphRouting(device, shader, routing)) { QTRACE("GPU entry routing failed index=%u", index); return false; }
+        entry.routing_buffer = routing.buffer;
+        auto &context = entry.context_template.routing;
+        context.version = routing.buffer.handle ? (shader.is_recursive ? 6u : 4u) : 2u;
+        context.source_node = shader.source_node_index;
+        context.record_size = shader.input_record_size;
+        context.routing_table_address = routing.gpu_address;
+        context.routing_table_count = routing.count;
+        entry.context_template.remaining_levels = shader.is_recursive ? shader.max_recursion_depth : 0u;
+        available = true;
+      }
+      if (!available) return false;
+      entries = std::move(prepared);
+      QTRACE("GPU entry pipelines prepared entries=%zu", entries.size());
+      return true;
+    } catch (...) {
+      QTRACE("GPU entry pipelines threw");
+      return false;
+    }
+  }
+
   struct WorkGraphRoutingBinding {
     std::shared_ptr<const std::vector<D3D12NodeOutputRoute>> snapshot;
     WMT::Reference<WMT::Buffer> buffer;
@@ -3354,6 +3437,208 @@ struct ReplayState {
     work_graph_routing_binding = uploaded;
     binding = std::move(uploaded);
     return true;
+  }
+
+  struct WorkGraphGPUInputBundle {
+    std::vector<WorkGraphGPUEntryPipeline> entries;
+    std::vector<MTLD3D12Device::WorkGraphBufferRange> resources;
+    WMT::Reference<WMT::ComputeIndirectCommandBuffer> commands;
+    WMT::Reference<WMT::Buffer> handles, layouts, bounds, templates, contexts, range, status;
+    WMT::Reference<WMT::Buffer> header;
+    WMT::Reference<WMT::Library> library;
+    WMT::Reference<WMT::ComputePipelineState> prepare, builder;
+    uint64_t header_offset = 0;
+    uint32_t bound_count = 0;
+    uint32_t command_capacity = 0;
+    bool multi = false;
+  };
+
+  bool PrepareWorkGraphGPUInputBundle(MTLD3D12Device *device, uint64_t header_address,
+      uint32_t command_capacity, WorkGraphGPUInputBundle &bundle, bool multi = false) {
+    bundle = {};
+    if (!device || !header_address || (header_address & 7u) || !command_capacity) return false;
+    try {
+      WorkGraphGPUInputBundle prepared;
+      if (!PrepareWorkGraphGPUEntryPipelines(device, prepared.entries) ||
+          !device->SnapshotWorkGraphBufferRanges(prepared.resources) ||
+          prepared.resources.size() > UINT32_MAX) return false;
+      std::vector<D3D12NodeGPUAddressRange> ranges;
+      ranges.reserve(prepared.resources.size());
+      for (const auto &resource : prepared.resources) {
+        ranges.push_back({resource.address, resource.length});
+        if (!prepared.header.handle && header_address >= resource.address &&
+            header_address - resource.address <= resource.length &&
+            sizeof(D3D12NodeGPUInputHeader) <= resource.length - (header_address - resource.address)) {
+          prepared.header = resource.buffer;
+          // Placed resources can start within the native buffer. Bind against
+          // its actual Metal address rather than assuming resource-relative zero.
+          const uint64_t relative = header_address - resource.address;
+          if (resource.native_offset > UINT64_MAX - relative) return false;
+          prepared.header_offset = resource.native_offset + relative;
+        }
+      }
+      if (!prepared.header.handle) return false;
+      auto bounds = BuildNodeGPUAddressBounds(std::move(ranges));
+      if (!bounds || bounds->empty()) return false;
+      prepared.bound_count = static_cast<uint32_t>(bounds->size());
+      prepared.command_capacity = command_capacity;
+      prepared.multi = multi;
+      prepared.commands = device->GetMTLDevice().newComputeIndirectCommandBuffer(command_capacity, 31);
+      if (!prepared.commands.handle) return false;
+      std::vector<uint64_t> handles(prepared.entries.size() + 1u);
+      std::vector<D3D12NodeGPUEntryLayout> layouts(prepared.entries.size());
+      std::vector<D3D12NodeRecursionContext> templates(prepared.entries.size());
+      handles[0] = prepared.commands.gpuResourceID();
+      if (!handles[0]) return false;
+      for (size_t index = 0; index < prepared.entries.size(); ++index) {
+        const auto &entry = prepared.entries[index];
+        handles[index + 1u] = entry.pipeline_id;
+        layouts[index] = entry.layout;
+        templates[index] = entry.context_template;
+      }
+      auto upload = [&](const void *data, uint64_t size) {
+        auto buffer = MakeTransientBuffer(device, size);
+        if (buffer.handle) buffer.updateContents(0, data, size);
+        return buffer;
+      };
+      prepared.handles = upload(handles.data(), handles.size() * sizeof(handles[0]));
+      prepared.layouts = upload(layouts.data(), layouts.size() * sizeof(layouts[0]));
+      prepared.templates = upload(templates.data(), templates.size() * sizeof(templates[0]));
+      prepared.bounds = upload(bounds->data(), bounds->size() * sizeof((*bounds)[0]));
+      prepared.contexts = MakeTransientBuffer(device, uint64_t(command_capacity) * sizeof(D3D12NodeRecursionContext));
+      const uint32_t zero[2] = {};
+      prepared.range = upload(zero, sizeof(zero));
+      prepared.status = upload(zero, sizeof(zero));
+      if (!prepared.handles.handle || !prepared.layouts.handle || !prepared.templates.handle ||
+          !prepared.bounds.handle || !prepared.contexts.handle || !prepared.range.handle || !prepared.status.handle)
+        return false;
+      std::string source = "#include <metal_stdlib>\n#include <metal_command_buffer>\nusing namespace metal;\n#define M12_GPU_ENTRY_COUNT " +
+          std::to_string(prepared.entries.size()) + "\n";
+      source += dxmt::dxil::kNodeGPUInputMSL;
+      source += dxmt::dxil::kNodeGPUEntryMSL;
+      WMT::Reference<WMT::Error> error;
+      prepared.library = device->GetMTLDevice().newLibraryWithSource(source.c_str(), source.size(), error);
+      if (!prepared.library.handle || error.handle) return false;
+      auto prepare_function = prepared.library.newFunction(
+          multi ? "m12_prepare_gpu_multi_entry" : "m12_prepare_gpu_entry");
+      if (!prepare_function.handle) return false;
+      prepared.prepare = device->GetMTLDevice().newComputePipelineState(prepare_function, error);
+      if (!prepared.prepare.handle || error.handle) return false;
+      auto function = prepared.library.newFunction(
+          multi ? "m12_build_gpu_multi_entry_commands" : "m12_build_gpu_entry_commands");
+      if (!function.handle) return false;
+      prepared.builder = device->GetMTLDevice().newComputePipelineState(function, error);
+      if (!prepared.builder.handle || error.handle) return false;
+      bundle = std::move(prepared);
+      QTRACE("GPU entry input bundle prepared entries=%zu bounds=%u capacity=%u", bundle.entries.size(), bundle.bound_count, bundle.command_capacity);
+      return true;
+    } catch (...) {
+      QTRACE("GPU entry input bundle threw");
+      return false;
+    }
+  }
+
+  // Caller must validate graph topology and arrange GPU-gated backing reset
+  // before enabling this path in DispatchGraph. No header contents are read here.
+  bool EncodeWorkGraphGPUInputBundle(MTLD3D12Device *device,
+      const WorkGraphGPUInputBundle &bundle, WMT::Buffer backing, uint64_t backing_offset,
+      WMT::Buffer output, uint64_t output_offset, WMT::CommandBuffer command_buffer) {
+    if (!device || !command_buffer.handle || !bundle.prepare.handle || !bundle.builder.handle ||
+        !bundle.commands.handle || !bundle.header.handle || !bundle.command_capacity ||
+        !backing.handle || !output.handle || work_graph_backing_size < kNodeOutputBackingBytes) return false;
+    try {
+      // Retain before encoding: even the GPU builder dereferences indirect
+      // pipeline handles, and an error after encoding must not retire them.
+      RetainMTLObjectForCompletion(bundle.commands);
+      RetainMTLObjectForCompletion(bundle.prepare);
+      RetainMTLObjectForCompletion(bundle.builder);
+      RetainMTLObjectForCompletion(bundle.library);
+      RetainMTLObjectForCompletion(backing);
+      RetainMTLObjectForCompletion(output);
+      for (const auto &resource : bundle.resources) RetainMTLObjectForCompletion(resource.buffer);
+      for (const auto &entry : bundle.entries) {
+        if (entry.pipeline.handle) RetainMTLObjectForCompletion(entry.pipeline);
+        if (entry.library.handle) RetainMTLObjectForCompletion(entry.library);
+        if (entry.routing_buffer.handle) RetainMTLObjectForCompletion(entry.routing_buffer);
+      }
+      const uint32_t parameters[2] = {bundle.bound_count, bundle.command_capacity};
+      auto parameter_buffer = MakeTransientBuffer(device, sizeof(parameters));
+      if (!parameter_buffer.handle) return false;
+      parameter_buffer.updateContents(0, parameters, sizeof(parameters));
+      const size_t packet_count = bundle.resources.size() + bundle.entries.size() + 32u;
+      if (packet_count > SIZE_MAX / 128u) return false;
+      std::vector<uint8_t> storage(packet_count * 128u);
+      size_t used = 0;
+      wmtcmd_base *tail = nullptr;
+      auto append = [&](const auto &value) {
+        if (sizeof(value) > storage.size() - used) return false;
+        auto *packet = reinterpret_cast<wmtcmd_base *>(storage.data() + used);
+        std::memcpy(packet, &value, sizeof(value)); packet->next.set(nullptr);
+        if (tail) tail->next.set(packet);
+        tail = packet; used += sizeof(value); return true;
+      };
+      wmtcmd_compute_setpso pso = {};
+      pso.type = WMTComputeCommandSetPSO; pso.pso = bundle.prepare.handle;
+      pso.threadgroup_size = {64,1,1};
+      if (!append(pso)) return false;
+      const WMT::Buffer buffers[] = {bundle.handles, bundle.header, bundle.layouts, bundle.bounds,
+          output, bundle.range, bundle.status, parameter_buffer, bundle.templates, bundle.contexts, backing};
+      for (uint32_t index = 0; index < 11u; ++index) {
+        wmtcmd_compute_setbuffer bind = {};
+        bind.type = WMTComputeCommandSetBuffer; bind.index = index; bind.buffer = buffers[index].handle;
+        bind.offset = index == 1u ? bundle.header_offset : (index == 4u ? output_offset : (index == 10u ? backing_offset : 0u));
+        if (!append(bind)) return false;
+      }
+      wmtcmd_compute_useresource use = {};
+      use.type = WMTComputeCommandUseResource; use.resource = bundle.commands.handle;
+      use.usage = WMTResourceUsageWrite;
+      if (!append(use)) return false;
+      wmtcmd_compute_dispatch dispatch = {};
+      dispatch.type = WMTComputeCommandDispatch;
+      dispatch.size = {1,1,1};
+      if (!append(dispatch)) return false;
+      auto prepare_encoder = command_buffer.computeCommandEncoder(false);
+      ScopedMetalEncoderEnd prepare_end{prepare_encoder, "workgraph_gpu_entry_prepare"};
+      if (!prepare_encoder.handle || !prepare_encoder.encodeCommands(
+            reinterpret_cast<const wmtcmd_compute_nop *>(storage.data()))) return false;
+      EndMetalEncoder(prepare_encoder, "workgraph_gpu_entry_prepare");
+      reinterpret_cast<wmtcmd_compute_setpso *>(storage.data())->pso = bundle.builder.handle;
+      reinterpret_cast<wmtcmd_compute_dispatch *>(tail)->size = {(bundle.command_capacity - 1u) / 64u + 1u,1,1};
+      auto builder_encoder = command_buffer.computeCommandEncoder(false);
+      ScopedMetalEncoderEnd builder_end{builder_encoder, "workgraph_gpu_entry_build"};
+      if (!builder_encoder.handle || !builder_encoder.encodeCommands(
+            reinterpret_cast<const wmtcmd_compute_nop *>(storage.data()))) return false;
+      EndMetalEncoder(builder_encoder, "workgraph_gpu_entry_build");
+
+      used = 0; tail = nullptr;
+      for (const auto &resource : bundle.resources) {
+        use.resource = resource.buffer.handle; use.usage = WMTResourceUsageRead;
+        if (!append(use)) return false;
+      }
+      for (const auto &entry : bundle.entries) {
+        if (entry.routing_buffer.handle) {
+          use.resource = entry.routing_buffer.handle; use.usage = WMTResourceUsageRead;
+          if (!append(use)) return false;
+        }
+      }
+      const WMT::Object indirect_resources[] = {bundle.commands, bundle.contexts, backing, output};
+      for (auto resource : indirect_resources) {
+        use.resource = resource.handle;
+        use.usage = static_cast<WMTResourceUsage>(WMTResourceUsageRead | WMTResourceUsageWrite);
+        if (!append(use)) return false;
+      }
+      wmtcmd_compute_execute_indirect_commands execute = {};
+      execute.type = WMTComputeCommandExecuteIndirectCommands;
+      execute.indirect_commands = bundle.commands.handle;
+      execute.execution_range_buffer = bundle.range.handle;
+      if (!append(execute)) return false;
+      auto execute_encoder = command_buffer.computeCommandEncoder(false);
+      ScopedMetalEncoderEnd execute_end{execute_encoder, "workgraph_gpu_entry_execute"};
+      return execute_encoder.handle && execute_encoder.encodeCommands(
+          reinterpret_cast<const wmtcmd_compute_nop *>(storage.data()));
+    } catch (...) {
+      return false;
+    }
   }
 
   struct WorkGraphScheduledInput {
@@ -3407,7 +3692,7 @@ struct ReplayState {
       const MTLD3D12Device::WorkGraphNodeShader &target_shader,
       WorkGraphScheduledInput &scheduled, WMT::CommandBuffer command_buffer,
       uint32_t remaining_levels = 0, uint32_t source_remaining = 0,
-      bool recursive_source = false) {
+      bool recursive_source = false, WMT::Reference<WMT::Buffer> execution_gate = {}) {
     if (!device || !command_buffer.handle || !target_output || !consume_bit ||
         (!record_size && !target_shader.empty_input) || record_size > kNodeOutputRecordStride || !batch_size ||
         !work_graph_backing_address ||
@@ -3433,7 +3718,7 @@ struct ReplayState {
     scheduled.context = MakeTransientBuffer(device, routing.buffer.handle
         ? (target_shader.is_recursive ? sizeof(D3D12NodeRecursionContext) : sizeof(D3D12NodeRoutingContext))
         : sizeof(D3D12NodeDynamicInputContext));
-    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 10u);
+    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 11u);
     if (!scheduled.descriptors.handle || !scheduled.dispatch_args.handle ||
         !scheduled.context.handle || !parameters.handle)
       return false;
@@ -3467,11 +3752,11 @@ struct ReplayState {
       uint32_t batch_size;
       uint32_t record_size;
       uint32_t grid_x, grid_y, grid_z, broadcasting;
-      uint32_t source_remaining, recursive_source;
+      uint32_t source_remaining, recursive_source, gated;
     } parameter_data = {target_output, consume_bit, batch_size, record_size,
         target_shader.grid[0], target_shader.grid[1], target_shader.grid[2],
-        target_shader.launch_type == 1u ? 1u : 0u, source_remaining, recursive_source ? 1u : 0u};
-    static_assert(sizeof(Parameters) == sizeof(uint32_t) * 10u);
+        target_shader.launch_type == 1u ? 1u : 0u, source_remaining, recursive_source ? 1u : 0u, execution_gate.handle ? 1u : 0u};
+    static_assert(sizeof(Parameters) == sizeof(uint32_t) * 11u);
     parameters.updateContents(0, &parameter_data, sizeof(parameter_data));
 
     if (!work_graph_scheduler_pipeline.handle) {
@@ -3536,12 +3821,17 @@ struct ReplayState {
     set_parameters.type = WMTComputeCommandSetBuffer;
     set_parameters.buffer = parameters.handle;
     set_parameters.index = 4;
+    wmtcmd_compute_setbuffer set_gate = {};
+    set_gate.type = WMTComputeCommandSetBuffer;
+    set_gate.buffer = execution_gate.handle ? execution_gate.handle : parameters.handle;
+    set_gate.index = 5;
+    if (execution_gate.handle) RetainMTLObjectForCompletion(execution_gate);
     wmtcmd_compute_dispatch dispatch = {};
     dispatch.type = WMTComputeCommandDispatch;
     dispatch.size = {1, 1, 1};
     if (!append(set_pso) || !append(set_backing) || !append(set_descriptors) ||
         !append(set_args) || !append(set_context) ||
-        !append(set_parameters) || !append(dispatch))
+        !append(set_parameters) || !append(set_gate) || !append(dispatch))
       return false;
     auto encoder = command_buffer.computeCommandEncoder(false);
     ENC_CREATE("workgraph_schedule", encoder.handle);
@@ -3778,6 +4068,76 @@ struct ReplayState {
         reinterpret_cast<const wmtcmd_compute_nop *>(storage.data()));
   }
 
+  bool ResolveWorkGraphUserOutput(MTLD3D12Device *device,
+      MTLD3D12Resource *backing_resource, uint64_t backing_offset,
+      MTLD3D12Resource *&node_output_resource, uint64_t &node_output_offset) {
+    node_output_resource = backing_resource;
+    node_output_offset = backing_offset;
+    if (compute_root_sig) {
+      uint32_t root_index = ~0u;
+      uint32_t descriptor_offset = 0;
+      if (compute_root_sig->FindDescriptorTableRange(
+              D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 0, &root_index,
+              &descriptor_offset)) {
+        if (root_index >= kRootParameterSlotCount || !comp_table_set[root_index])
+          return false;
+        D3D12Descriptor *descriptor = nullptr;
+        for (uint32_t h = 0; h < desc_heap_count && !descriptor; ++h) {
+          auto *heap = static_cast<MTLD3D12DescriptorHeap *>(desc_heaps[h]);
+          if (heap && heap->IsShaderVisible() && heap->IsResident())
+            descriptor = heap->GetDescriptorFromGPUHandle(
+                comp_tables[root_index], descriptor_offset);
+        }
+        if (!descriptor || !descriptor->resource ||
+            descriptor->range_type != D3D12_DESCRIPTOR_RANGE_TYPE_UAV ||
+            descriptor->uav.ViewDimension != D3D12_UAV_DIMENSION_BUFFER ||
+            descriptor->resource_uav_counter)
+          return false;
+        const auto &view = descriptor->uav;
+        uint64_t stride = view.Buffer.StructureByteStride;
+        if (!stride &&
+            ((view.Format == DXGI_FORMAT_R32_UINT &&
+              view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_NONE) ||
+             (view.Format == DXGI_FORMAT_R32_TYPELESS &&
+              view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_RAW)))
+          stride = 4;
+        else if (view.Format != DXGI_FORMAT_UNKNOWN || !stride ||
+                 view.Buffer.Flags != D3D12_BUFFER_UAV_FLAG_NONE)
+          return false;
+        node_output_resource = static_cast<MTLD3D12Resource *>(descriptor->resource);
+        const uint64_t length = node_output_resource->GetBufferByteLength();
+        if (view.Buffer.FirstElement > length / stride)
+          return false;
+        node_output_offset = view.Buffer.FirstElement * stride;
+        if (uint64_t(view.Buffer.NumElements) > (length - node_output_offset) / stride ||
+            uint64_t(view.Buffer.NumElements) * stride < 8)
+          return false;
+      } else {
+        const auto &parameters = compute_root_sig->GetParameters();
+        for (uint32_t p = 0; p < parameters.size() && p < kRootParameterSlotCount; ++p) {
+          if (parameters[p].type == D3D12_ROOT_PARAMETER_TYPE_UAV &&
+              parameters[p].register_index == 0 && parameters[p].register_space == 0) {
+            root_index = p;
+            break;
+          }
+        }
+        if (root_index == ~0u || !comp_uav_set[root_index] || !comp_uavs[root_index])
+          return false;
+        node_output_resource = device->LookupResourceByGPUAddress(comp_uavs[root_index]);
+        if (!node_output_resource)
+          return false;
+        node_output_offset = comp_uavs[root_index] - node_output_resource->GetGPUVirtualAddress();
+      }
+      if (!node_output_resource->GetMTLBuffer().handle ||
+          node_output_offset > node_output_resource->GetBufferByteLength() ||
+          8u > node_output_resource->GetBufferByteLength() - node_output_offset)
+        return false;
+      RetainResourceMetalObjectsForCompletion(node_output_resource);
+    }
+
+    return true;
+  }
+
   bool EncodeWorkGraphNodeShader(
       MTLD3D12Device *device,
       const MTLD3D12Device::WorkGraphNodeShader &shader, uint32_t node_index,
@@ -3990,72 +4350,10 @@ struct ReplayState {
         return false;
     }
 
-    // Bounded node u0/space0 binding. Root parameter indices are not shader
-    // registers. Keep node records at buffer 30 and resolve the output through
-    // the root signature, including table/range offsets and buffer view bounds.
-    MTLD3D12Resource *node_output_resource = backing_resource;
-    uint64_t node_output_offset = backing_offset;
-    if (compute_root_sig) {
-      uint32_t root_index = ~0u;
-      uint32_t descriptor_offset = 0;
-      if (compute_root_sig->FindDescriptorTableRange(
-              D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 0, 0, &root_index,
-              &descriptor_offset)) {
-        if (root_index >= kRootParameterSlotCount || !comp_table_set[root_index])
-          return false;
-        D3D12Descriptor *descriptor = nullptr;
-        for (uint32_t h = 0; h < desc_heap_count && !descriptor; ++h) {
-          auto *heap = static_cast<MTLD3D12DescriptorHeap *>(desc_heaps[h]);
-          if (heap && heap->IsShaderVisible() && heap->IsResident())
-            descriptor = heap->GetDescriptorFromGPUHandle(
-                comp_tables[root_index], descriptor_offset);
-        }
-        if (!descriptor || !descriptor->resource ||
-            descriptor->range_type != D3D12_DESCRIPTOR_RANGE_TYPE_UAV ||
-            descriptor->uav.ViewDimension != D3D12_UAV_DIMENSION_BUFFER ||
-            descriptor->resource_uav_counter)
-          return false;
-        const auto &view = descriptor->uav;
-        uint64_t stride = view.Buffer.StructureByteStride;
-        if (!stride &&
-            ((view.Format == DXGI_FORMAT_R32_UINT &&
-              view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_NONE) ||
-             (view.Format == DXGI_FORMAT_R32_TYPELESS &&
-              view.Buffer.Flags == D3D12_BUFFER_UAV_FLAG_RAW)))
-          stride = 4;
-        else if (view.Format != DXGI_FORMAT_UNKNOWN || !stride ||
-                 view.Buffer.Flags != D3D12_BUFFER_UAV_FLAG_NONE)
-          return false;
-        node_output_resource = static_cast<MTLD3D12Resource *>(descriptor->resource);
-        const uint64_t length = node_output_resource->GetBufferByteLength();
-        if (view.Buffer.FirstElement > length / stride)
-          return false;
-        node_output_offset = view.Buffer.FirstElement * stride;
-        if (uint64_t(view.Buffer.NumElements) > (length - node_output_offset) / stride ||
-            uint64_t(view.Buffer.NumElements) * stride < 8)
-          return false;
-      } else {
-        const auto &parameters = compute_root_sig->GetParameters();
-        for (uint32_t p = 0; p < parameters.size() && p < kRootParameterSlotCount; ++p) {
-          if (parameters[p].type == D3D12_ROOT_PARAMETER_TYPE_UAV &&
-              parameters[p].register_index == 0 && parameters[p].register_space == 0) {
-            root_index = p;
-            break;
-          }
-        }
-        if (root_index == ~0u || !comp_uav_set[root_index] || !comp_uavs[root_index])
-          return false;
-        node_output_resource = device->LookupResourceByGPUAddress(comp_uavs[root_index]);
-        if (!node_output_resource)
-          return false;
-        node_output_offset = comp_uavs[root_index] - node_output_resource->GetGPUVirtualAddress();
-      }
-      if (!node_output_resource->GetMTLBuffer().handle ||
-          node_output_offset > node_output_resource->GetBufferByteLength() ||
-          8u > node_output_resource->GetBufferByteLength() - node_output_offset)
-        return false;
-      RetainResourceMetalObjectsForCompletion(node_output_resource);
-    }
+    MTLD3D12Resource *node_output_resource = nullptr;
+    uint64_t node_output_offset = 0;
+    if (!ResolveWorkGraphUserOutput(device, backing_resource, backing_offset,
+                                   node_output_resource, node_output_offset)) return false;
 
     const bool indirect_consumer = scheduled_records && shader.grid_from_record;
     if (work_graph_node_source != source ||
@@ -4190,7 +4488,9 @@ struct ReplayState {
       const MTLD3D12Device::WorkGraphNodeShader &initial_shader,
       uint32_t initial_node_index, uint32_t record_count,
       const void *cpu_records, uint64_t gpu_records, uint64_t record_stride,
-      WMT::CommandBuffer command_buffer) {
+      WMT::CommandBuffer command_buffer, bool encode_initial = true,
+      bool reset_backing = true, WMT::Reference<WMT::Buffer> execution_gate = {},
+      bool validate_only = false) {
     if (!device || !command_buffer.handle || initial_node_index == UINT32_MAX ||
         !record_count || (!record_stride && initial_shader.input_record_size) ||
         initial_shader.source_node_index != initial_node_index)
@@ -4257,9 +4557,9 @@ struct ReplayState {
       return true;
     };
     const uint32_t initial_remaining = initial_shader.is_recursive ? initial_shader.max_recursion_depth : 0u;
-    if (!validate(validate, initial_shader, 0u, initial_remaining) ||
-        !ResetWorkGraphOutputTable(device, command_buffer))
-      return false;
+    if (!validate(validate, initial_shader, 0u, initial_remaining)) return false;
+    if (validate_only) return true;
+    if (reset_backing && !ResetWorkGraphOutputTable(device, command_buffer)) return false;
     auto encode_node = [&](auto &&self, uint32_t node_index, uint32_t depth,
                            bool initial, uint32_t remaining) -> bool {
       if (depth >= kMaxGraphDepth)
@@ -4313,7 +4613,7 @@ struct ReplayState {
         if (!EncodeWorkGraphOutputSchedule(
                 device, target_output, consume_bit,
                 target_shader.input_record_size, batch_size, target_shader, scheduled,
-                command_buffer, target_remaining, remaining, shader.is_recursive) ||
+                command_buffer, target_remaining, remaining, shader.is_recursive, execution_gate) ||
             !EncodeWorkGraphNodeShader(
                 device, target_shader, output.target_node_index, 1u, nullptr,
                 0, sizeof(uint32_t) * 2u, command_buffer, &scheduled, {}, target_remaining))
@@ -4323,12 +4623,92 @@ struct ReplayState {
       }
       return true;
     };
-    return encode_node(encode_node, initial_node_index, 0u, true, initial_remaining);
+    return encode_node(encode_node, initial_node_index, 0u, encode_initial, initial_remaining);
+  }
+
+  bool CanUseGPUEntry(MTLD3D12Device *device, bool multi = false) {
+    if (!device || !work_graph_program_set || work_graph_program_type != 5u ||
+        work_graph_backing_size < kNodeOutputBackingBytes) return false;
+    MTLD3D12Device::WorkGraphProgramSnapshot program;
+    if (!device->SnapshotWorkGraphProgram(work_graph_program_identifier,
+          sizeof(work_graph_program_identifier), program) || !program.entrypoint_count) {
+      QTRACE("GPU entry unavailable: no program snapshot");
+      return false;
+    }
+    bool available = false;
+    for (uint32_t index = 0; index < program.entrypoint_count; ++index) {
+      const auto &entry = program.nodes[index];
+      if (!entry.is_entrypoint || entry.msl.empty()) continue;
+      QTRACE("GPU entry candidate index=%u launch=%u threads=%ux%ux%u grid=%ux%ux%u grid_from_record=%u records=%u", index, entry.launch_type, entry.threads[0], entry.threads[1], entry.threads[2], entry.grid[0], entry.grid[1], entry.grid[2], entry.grid_from_record ? 1u : 0u, entry.input_max_records);
+      if (entry.launch_type != 1u && entry.launch_type != 2u && entry.launch_type != 3u) { QTRACE("GPU entry reject launch index=%u", index); return false; }
+      // The bounded multi-input builder emits one command per descriptor. It
+      // cannot yet expand a broadcasting descriptor into one command per
+      // record without first doing a GPU prefix allocation, so reject that
+      // mixed/unsupported form before selecting a success path. Single-node
+      // thread streams remain covered by the one-command launch-3 path.
+      if (multi && entry.launch_type == 1u) { QTRACE("GPU multi entry reject broadcasting launch index=%u", index); return false; }
+      if (!entry.threads[0] || !entry.threads[1] || !entry.threads[2] ||
+          uint64_t(entry.threads[0]) * entry.threads[1] * entry.threads[2] > 1024u ||
+          (entry.launch_type == 3u && uint64_t(entry.threads[0]) * entry.threads[1] * entry.threads[2] != 1u) ||
+          (entry.launch_type == 2u && !entry.input_max_records) ||
+          (entry.launch_type == 1u && (entry.grid_from_record || !entry.grid[0] || !entry.grid[1] || !entry.grid[2]))) { QTRACE("GPU entry reject shape index=%u", index); return false; }
+      available = true;
+    }
+    return available;
+  }
+
+  bool EncodeWorkGraphGPUEntry(MTLD3D12Device *device, uint64_t header_address,
+      WMT::CommandBuffer command_buffer, bool multi) {
+    QTRACE("GPU entry encode begin header=0x%llx multi=%u", (unsigned long long)header_address, multi ? 1u : 0u);
+    WorkGraphGPUInputBundle bundle;
+    // Single-node thread/coalescing streams use one command. Multi-node input
+    // uses one bounded command slot per descriptor; the GPU compacts empty
+    // descriptors before publishing the execution range.
+    const uint32_t command_capacity = multi ? kNodeOutputMaxAllocations : kNodeOutputRecordSlots;
+    if (!PrepareWorkGraphGPUInputBundle(device, header_address, command_capacity,
+                                        bundle, multi)) {
+      QTRACE("GPU entry input bundle rejected header=0x%llx", (unsigned long long)header_address);
+      return false;
+    }
+    for (const auto &entry : bundle.entries) {
+      if (!entry.pipeline_id) continue;
+      const auto &shader = entry.shader;
+      if (!EncodeWorkGraphNodeGraph(device, shader, shader.source_node_index, 1u,
+            nullptr, 0u, shader.input_record_size, command_buffer, false, false, {}, true)) return false;
+    }
+    auto *backing_resource = device->LookupResourceByGPUAddress(work_graph_backing_address);
+    if (!backing_resource) return false;
+    const uint64_t relative = work_graph_backing_address - backing_resource->GetGPUVirtualAddress();
+    if (relative > backing_resource->GetBufferByteLength() ||
+        work_graph_backing_size > backing_resource->GetBufferByteLength() - relative ||
+        backing_resource->GetMTLBufferOffset() > UINT64_MAX - relative) return false;
+    const uint64_t backing_offset = backing_resource->GetMTLBufferOffset() + relative;
+    MTLD3D12Resource *output = nullptr;
+    uint64_t output_relative = 0;
+    if (!ResolveWorkGraphUserOutput(device, backing_resource, relative, output, output_relative) ||
+        !output || output->GetMTLBufferOffset() > UINT64_MAX - output_relative) return false;
+    RetainResourceMetalObjectsForCompletion(backing_resource);
+    RetainResourceMetalObjectsForCompletion(output);
+    if (!EncodeWorkGraphGPUInputBundle(device, bundle, backing_resource->GetMTLBuffer(), backing_offset,
+          output->GetMTLBuffer(), output->GetMTLBufferOffset() + output_relative, command_buffer)) return false;
+    for (const auto &entry : bundle.entries) {
+      if (!entry.pipeline_id) continue;
+      const auto &shader = entry.shader;
+      if (!EncodeWorkGraphNodeGraph(device, shader, shader.source_node_index, 1u,
+            nullptr, 0u, shader.input_record_size, command_buffer, false, false, bundle.status)) return false;
+    }
+    QTRACE("WorkGraph GPU-selected entry header=0x%llx entries=%zu host_header_read=0",
+           (unsigned long long)header_address, bundle.entries.size());
+    return true;
   }
 
   bool EncodeWorkGraphReference(MTLD3D12Device *device,
                                 const CmdDispatchGraph &cmd,
                                 WMT::CommandBuffer command_buffer) {
+    if (cmd.dispatch_mode == 1u && CanUseGPUEntry(device, false))
+      return EncodeWorkGraphGPUEntry(device, cmd.node_input_gpu_address, command_buffer, false);
+    if (cmd.dispatch_mode == 3u && CanUseGPUEntry(device, true))
+      return EncodeWorkGraphGPUEntry(device, cmd.node_input_gpu_address, command_buffer, true);
     CmdDispatchGraph resolved = cmd;
     const bool multi_node = cmd.dispatch_mode == 2u || cmd.dispatch_mode == 3u;
     if (cmd.dispatch_mode == 1u) {
@@ -5241,6 +5621,7 @@ struct ReplayState {
       return true;
 
     WMTSamplerInfo info = {};
+    info.max_anisotroy = 1;
     info.min_filter = WMTSamplerMinMagFilterNearest;
     info.mag_filter = WMTSamplerMinMagFilterNearest;
     info.mip_filter = WMTSamplerMipFilterNearest;
@@ -11721,9 +12102,15 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
         st.comp_table_set[i] ? st.comp_tables[i] : st.root_tables[i];
 
     if (const_set && const_size > 0) {
-      struct wmtcmd_compute_setbytes sb = {};
-      sb.type = WMTComputeCommandSetBytes;
-      sb.length = const_size;
+      // Generic MSL buffer arguments can carry read/write access qualifiers.
+      // Metal's setBytes storage is read-only; use retained buffer storage for
+      // root constants rather than binding incompatible transient bytes.
+      auto constant_buffer = st.MakeTransientBuffer(device, const_size);
+      if (!constant_buffer.handle) return;
+      constant_buffer.updateContents(0, const_buf + const_off, const_size);
+      struct wmtcmd_compute_setbuffer sb = {};
+      sb.type = WMTComputeCommandSetBuffer;
+      sb.buffer = constant_buffer.handle;
       uint32_t constant_register = i;
       if (compute_sig && i < compute_sig->GetParameters().size() &&
           compute_sig->GetParameters()[i].type ==
@@ -11732,7 +12119,6 @@ static void ReplayComputeDispatch(ReplayState &st, MTLD3D12Device *device,
       uint32_t constant_slot = DirectBufferSlotForRange(
           D3D12_DESCRIPTOR_RANGE_TYPE_CBV, constant_register);
       sb.index = constant_slot == UINT32_MAX ? i : constant_slot;
-      sb.bytes.ptr = (void *)(const_buf + const_off);
       if (append_cmd(&sb, sizeof(sb)))
         mark_compute_buffer(sb.index);
     }

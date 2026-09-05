@@ -1070,6 +1070,7 @@ void MTLD3D12Resource::InitializeResource(
     }
     if (!m_native_sparse_buffer && backing_buffer.handle) {
       m_mtl_buffer = std::move(backing_buffer);
+      m_mtl_buffer_offset = backing_offset;
       m_cpu_addr = backing_cpu_addr
                        ? static_cast<void *>(static_cast<char *>(backing_cpu_addr) +
                                              backing_offset)

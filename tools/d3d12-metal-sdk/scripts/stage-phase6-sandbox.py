@@ -203,12 +203,17 @@ def main() -> int:
         if not source.is_file():
             failures.append(f"missing Wine Unix dependency: {source}")
         else:
-            # Wine's loader searches the selected DXMT route first.  Keep the
-            # loader dependencies in that route as well as in the sandbox
-            # builtin tree; otherwise WINEDLLPATH masks ntdll.so and Wine
-            # reports the misleading "could not exec the wine loader" error.
+            # Keep Wine's own winemac implementation in the selected Wine
+            # installation only.  Copying it into the DXMT route loads two
+            # Objective-C Wine GUI implementations at once and can corrupt
+            # class identity. ntdll.so is the only loader dependency that
+            # must also be present in the route root.
             shutil.copy2(source, destination)
-            shutil.copy2(source, runtime_unix / name)
+            route_copy = runtime_unix / name
+            if name == "ntdll.so":
+                shutil.copy2(source, route_copy)
+            else:
+                route_copy.unlink(missing_ok=True)
     for name in SIDE_CARS:
         source = runtime_unix / name
         if not source.is_file():
