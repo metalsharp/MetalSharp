@@ -67,6 +67,16 @@
       "remaining": "A GPU-produced child entrypoint outside the immutable table rejects without an allocator reset, output writes or ICB execution. Other malformed multi-header cases remain separate rows."
     },
     {
+      "id": "workgraph-gpu-generated-multi-misaligned-table",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-misaligned-table",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_multi_mode", 9], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A compute-produced table address misaligned by one byte rejects before child descriptor dereference. All 2 MiB of backing memory and user output remain unchanged. Other address/range and lifetime combinations remain open."
+    },
+    {
       "id": "workgraph-gpu-generated-multi-coalescing-partial-batch",
       "status": "closed",
       "result": "probe-workgraph-gpu-generated-multi-partial-coalescing",

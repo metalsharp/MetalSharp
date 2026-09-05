@@ -8,7 +8,7 @@ uint2 addressAt(uint offset) {
 void produce() {
     // D3D12_MULTI_NODE_GPU_INPUT: count, padding, node-input address/stride.
     data.Store(0, mode == 2u ? 257u : (mode == 5u ? 0u : 2u)); data.Store(4, 0u);
-    data.Store2(8, addressAt(64)); data.Store2(16, uint2(mode == 3u ? 4u : 24u,0));
+    data.Store2(8, addressAt(mode == 9u ? 65u : 64u)); data.Store2(16, uint2(mode == 3u ? 4u : 24u,0));
     // Two D3D12_NODE_GPU_INPUT descriptors.
     data.Store2(64, uint2(mode == 1u ? 9u : 0u, mode == 8u ? 3u : 4u));
     data.Store2(72, addressAt(mode == 4u ? 240u : 112u));

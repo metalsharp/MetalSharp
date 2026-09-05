@@ -6513,6 +6513,8 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-replication-coalescing-${PROFILE}.json" probe_workgraph_arrays_replication_coalescing.cso --gpu-multi-headers-replication-coalescing
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-partial-coalescing-${PROFILE}.json" probe_workgraph_arrays_replication_coalescing.cso --gpu-multi-headers-partial-coalescing
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-misaligned-table-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-misaligned-table
   DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
     run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-gpu-generated-coalescing-headers-${PROFILE}.json" probe_workgraph_arrays_coalescing.cso --gpu-headers-coalescing
