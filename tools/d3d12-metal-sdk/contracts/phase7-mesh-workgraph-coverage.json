@@ -5,6 +5,167 @@
   "status": "partial",
   "rows": [
     {
+      "id": "workgraph-oversized-terminal-output-rejection",
+      "status": "closed",
+      "result": "probe-workgraph-oversized-output",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "An unconnected 264-byte output rejects before entry writes because bounded slots are 256 bytes. Larger-record execution remains unsupported."
+    },
+    {
+      "id": "workgraph-cross-queue-copied-grid-records",
+      "status": "closed",
+      "result": "probe-workgraph-cross-queue-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["gpu_input"], ["post_recording_mutation"], ["queued_gpu_copy"],
+        ["cross_queue_dependency"], ["consumer_blocked_until_release"],
+        ["values", [36, 10, 18, 5, 8, 4, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Compute-queue copy into DEFAULT-heap records, gated producer and dependent direct-queue chain. GPU-generated headers and broader multi-queue graph synchronization remain open."
+    },
+    {
+      "id": "workgraph-queued-copy-grid-records",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-copy-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["gpu_input"], ["post_recording_mutation"], ["queued_gpu_copy"],
+        ["values", [36, 10, 18, 5, 8, 4, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Same-queue copy and transition into DEFAULT-heap records; GPU-generated headers remain open."
+    },
+    {
+      "id": "workgraph-u16-three-axis-record-grid",
+      "status": "closed",
+      "result": "probe-workgraph-u16-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [36, 10, 18, 5, 8, 4, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "U16 three-axis grid at byte offset 2 in an 8-byte record is verified. GPU-produced U16 payloads, downstream broadcasting and overflow remain open."
+    },
+    {
+      "id": "workgraph-cycle-no-partial-execution",
+      "status": "closed",
+      "result": "probe-workgraph-cycle-rejection",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Self-recursive downstream node rejects before entry shader side effects, even with NodeMaxRecursionDepth metadata. This certifies fail-closed behavior only; recursive execution and remaining-recursion semantics are still unsupported."
+    },
+    {
+      "id": "workgraph-unsupported-edge-no-partial-execution",
+      "status": "closed",
+      "result": "probe-workgraph-unsupported-target",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Unsupported downstream broadcasting rejects without upstream shader writes or allocations. This is fail-closed coverage, not downstream broadcasting support; runtime expansion-bound probes remain open."
+    },
+    {
+      "id": "workgraph-two-path-fanout",
+      "status": "closed",
+      "result": "probe-workgraph-fanout",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [18, 5, 18, 5, 6, 3, 6, 3, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Two distinct outputs converge through direct and intermediate-node paths. Output arrays, recursion and general graph topology remain open."
+    },
+    {
+      "id": "workgraph-fanout-allocation-capacity",
+      "status": "closed",
+      "result": "probe-workgraph-fanout-capacity",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [1040, 1040, 1040, 1040, 48, 48, 48, 48, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Exactly 256 allocations and 320 records with multiple coalescing batches. Behavior beyond allocation capacity and dynamic backing sizing remain open."
+    },
+    {
+      "id": "workgraph-gpu-three-axis-record-grid",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-vector-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["gpu_input"], ["post_recording_mutation"],
+        ["values", [36, 10, 18, 5, 8, 4, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Upload-backed GPU input with CPU publication after recording is verified. Cross-queue GPU-produced chain payloads and GPU-generated input headers remain open."
+    },
+    {
+      "id": "workgraph-three-axis-record-grid",
+      "status": "closed",
+      "result": "probe-workgraph-vector-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [36, 10, 18, 5, 8, 4, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Bounded U32 three-axis grids with non-unit Y and Z are verified; general downstream broadcasting and overflow semantics remain open."
+    },
+    {
+      "id": "workgraph-offset-record-grid",
+      "status": "closed",
+      "result": "probe-workgraph-offset-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [18, 5, 18, 5, 4, 2, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Scalar U32 grid at byte offset 4 in a 16-byte record is verified; general downstream broadcasting remains open."
+    },
+    {
+      "id": "workgraph-zero-record-grids",
+      "status": "closed",
+      "result": "probe-workgraph-zero-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [18, 0, 18, 0, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Mixed zero/nonzero scalar grids only; multidimensional and general record layouts remain open."
+    },
+    {
+      "id": "workgraph-empty-record-grids",
+      "status": "closed",
+      "result": "probe-workgraph-empty-grid",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Four zero scalar grids produce no downstream records; this is not general empty graph or cancellation coverage."
+    },
+    {
+      "id": "workgraph-bounded-three-node-chain",
+      "status": "closed",
+      "result": "probe-workgraph-chain",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"],
+        ["cpu_scheduler", false],
+        ["readback_exact"],
+        ["allocations_exact"],
+        ["values", [18, 5, 18, 5, 4, 2, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Bounded broadcasting-to-thread-to-coalescing chain only, with first-field scalar record grids and groupshared reduction. General grid layouts, fan-out, recursion, output arrays, resource/argument tables and overflow semantics remain open; dirty-source staging is not release provenance."
+    },
+    {
       "id": "mesh-amplification-native-direct-indirect",
       "status": "closed",
       "result": "probe-mini-mesh_object_shader_pso",
@@ -81,7 +242,7 @@
         ["node_thread_multi_exact"],
         ["node_coalescing_multi_exact"],
         ["node_coalescing_gpu_exact"],
-        ["node_dynamic_grid_rejected"],
+        ["node_dynamic_grid_accepted"],
         ["node_input_gpu_dependency_exact"],
         ["node_internal_binding_rejected"],
         ["node_multi_cpu_input_exact"],
@@ -89,9 +250,9 @@
         ["dxil_multi_node_readback_exact"],
         ["dxil_node_shader_values", [2882400001, 305419896]],
         ["node_output_record_values", [2882400001, 1]],
-        ["dxil_multi_node_values", [858993459, 3435921411]],
-        ["node_multi_cpu_values", [858993459, 3435921411]],
-        ["node_multi_gpu_values", [286331153, 2863267841]],
+        ["dxil_multi_node_values", [286331153, 2863267841]],
+        ["node_multi_cpu_values", [286331153, 2863267841]],
+        ["node_multi_gpu_values", [572662306, 3149594626]],
         ["record_count", 3],
         ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]

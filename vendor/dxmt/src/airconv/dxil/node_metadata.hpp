@@ -2,6 +2,8 @@
 #include "llvm_bitcode.hpp"
 #include <charconv>
 #include <limits>
+#include <string>
+#include <vector>
 
 namespace dxmt::dxil {
 
@@ -9,6 +11,19 @@ struct NodeInputLayout {
   uint32_t size = 0;
   uint32_t alignment = 0;
   uint32_t max_records = 0;
+};
+
+// A node output is identified by its metadata ordinal within the entrypoint.
+// The destination name and array index are retained so command replay can
+// route GPU-published records without guessing from the node array order.
+struct NodeOutputLayout {
+  std::string node_name;
+  uint32_t array_index = 0;
+  uint32_t metadata_index = 0;
+  uint32_t size = 0;
+  uint32_t alignment = 0;
+  uint32_t max_records = 0;
+  uint32_t flags = 0;
 };
 
 namespace node_metadata_detail {
@@ -109,6 +124,12 @@ struct NodeShaderMetadata {
   uint32_t launch_type = 0;
   uint32_t threads[3] = {1, 1, 1};
   uint32_t grid[3] = {1, 1, 1};
+  uint32_t max_grid[3] = {1, 1, 1};
+  bool grid_from_record = false;
+  uint32_t grid_byte_offset = 0;
+  uint32_t grid_components = 0;
+  uint32_t grid_component_bytes = 0;
+  std::vector<NodeOutputLayout> outputs;
 };
 
 inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
@@ -130,14 +151,38 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
   }
   if (!properties) return std::nullopt;
   const LLVMMetadataRecord *launch = nullptr, *threads = nullptr, *grid = nullptr;
+  const LLVMMetadataRecord *max_grid = nullptr;
   if (!tag(module, *properties, 13, launch) || !integer(module, launch, result.launch_type) ||
       result.launch_type < 1 || result.launch_type > 3 ||
-      !tag(module, *properties, 4, threads) || !tag(module, *properties, 18, grid))
+      !tag(module, *properties, 4, threads) || !tag(module, *properties, 18, grid) ||
+      !tag(module, *properties, 22, max_grid))
     return std::nullopt;
-  // A broadcasting node without a fixed grid needs record-driven grid decoding,
-  // which must not be replaced by the max grid or an invented one-group launch.
-  if (result.launch_type == 1 && !grid) return std::nullopt;
+  // A broadcasting node may carry either a fixed NodeDispatchGrid or a
+  // bounded record-driven NodeMaxDispatchGrid. Never substitute the maximum
+  // for the actual per-record grid; replay builds indirect arguments on GPU.
+  if (result.launch_type == 1 && !grid && !max_grid) return std::nullopt;
   if (result.launch_type != 3 && !threads) return std::nullopt;
+  result.grid_from_record = result.launch_type == 1 && !grid;
+  if (result.grid_from_record) {
+    const LLVMMetadataRecord *inputs = nullptr, *type = nullptr, *semantic = nullptr;
+    if (!tag(module, *properties, 20, inputs) || !inputs || inputs->operands.size() != 1)
+      return std::nullopt;
+    const auto *input_record = module.metadataOperand(*inputs, 0);
+    uint32_t component_type = 0;
+    if (!input_record || !tag(module, *input_record, 2, type) || !type ||
+        !tag(module, *type, 1, semantic) || !semantic || semantic->operands.size() != 3 ||
+        !integer(module, module.metadataOperand(*semantic, 0), result.grid_byte_offset) ||
+        !integer(module, module.metadataOperand(*semantic, 1), component_type) ||
+        !integer(module, module.metadataOperand(*semantic, 2), result.grid_components) ||
+        (component_type != 3u && component_type != 5u) ||
+        result.grid_components < 1u || result.grid_components > 3u)
+      return std::nullopt;
+    result.grid_component_bytes = component_type == 3u ? 2u : 4u;
+    if (result.grid_byte_offset % result.grid_component_bytes ||
+        result.grid_byte_offset > result.input.size ||
+        result.grid_components * result.grid_component_bytes > result.input.size - result.grid_byte_offset)
+      return std::nullopt;
+  }
   for (unsigned i = 0; i < 3; ++i) {
     if (threads && (threads->operands.size() != 3 ||
         !integer(module, module.metadataOperand(*threads, i), result.threads[i])))
@@ -145,11 +190,72 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
     if (grid && (grid->operands.size() != 3 ||
         !integer(module, module.metadataOperand(*grid, i), result.grid[i])))
       return std::nullopt;
+    if (max_grid && (max_grid->operands.size() != 3 ||
+        !integer(module, module.metadataOperand(*max_grid, i), result.max_grid[i])))
+      return std::nullopt;
     if (!result.threads[i] || result.threads[i] > 1024 ||
-        !result.grid[i] || result.grid[i] > 65535) return std::nullopt;
+        (grid && (!result.grid[i] || result.grid[i] > 65535)) ||
+        (max_grid && (!result.max_grid[i] || result.max_grid[i] > 65535)))
+      return std::nullopt;
+    if (result.grid_from_record)
+      result.grid[i] = 1;
+    else if (!grid)
+      result.grid[i] = result.max_grid[i];
+    if (!max_grid)
+      result.max_grid[i] = result.grid[i];
   }
   if (uint64_t(result.threads[0]) * result.threads[1] * result.threads[2] > 1024)
     return std::nullopt;
+
+  const LLVMMetadataRecord *outputs = nullptr;
+  if (!tag(module, *properties, 21, outputs))
+    return std::nullopt;
+  if (outputs) {
+    if (outputs->kind != LLVMMetadataRecord::Kind::Node)
+      return std::nullopt;
+    try {
+      result.outputs.reserve(outputs->operands.size());
+    } catch (...) {
+      return std::nullopt;
+    }
+    for (size_t output_index = 0; output_index < outputs->operands.size();
+         ++output_index) {
+      const auto *output = module.metadataOperand(*outputs, output_index);
+      const LLVMMetadataRecord *flags_record = nullptr;
+      const LLVMMetadataRecord *type = nullptr;
+      const LLVMMetadataRecord *max_records_record = nullptr;
+      const LLVMMetadataRecord *node_id = nullptr;
+      NodeOutputLayout layout;
+      layout.metadata_index = static_cast<uint32_t>(output_index);
+      if (!output || !tag(module, *output, 1, flags_record) ||
+          !integer(module, flags_record, layout.flags) ||
+          !tag(module, *output, 2, type) || !type ||
+          !tag(module, *type, 0, flags_record) ||
+          !integer(module, flags_record, layout.size) ||
+          !tag(module, *type, 2, flags_record) ||
+          !integer(module, flags_record, layout.alignment) ||
+          !tag(module, *output, 3, max_records_record) ||
+          (max_records_record &&
+           !integer(module, max_records_record, layout.max_records)) ||
+          !tag(module, *output, 0, node_id) || !node_id ||
+          node_id->kind != LLVMMetadataRecord::Kind::Node ||
+          node_id->operands.size() != 2)
+        return std::nullopt;
+      const auto *name = module.metadataOperand(*node_id, 0);
+      const auto *array_index = module.metadataOperand(*node_id, 1);
+      if (!name || name->kind != LLVMMetadataRecord::Kind::String ||
+          name->string_value.empty() || !integer(module, array_index,
+                                                  layout.array_index) ||
+          !layout.alignment || (layout.alignment & (layout.alignment - 1)) ||
+          layout.size > std::numeric_limits<uint32_t>::max() - 3u)
+        return std::nullopt;
+      layout.node_name = name->string_value;
+      layout.size = (layout.size + 3u) & ~3u;
+      if (layout.alignment < 4)
+        layout.alignment = 4;
+      result.outputs.push_back(std::move(layout));
+    }
+  }
   return result;
 }
 } // namespace dxmt::dxil

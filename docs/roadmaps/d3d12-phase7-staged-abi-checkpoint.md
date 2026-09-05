@@ -4,6 +4,165 @@ Inspected source revision: `ce695fdf` (bounded Work Graph compute-queue probe).
 This checkpoint is **not** a Phase 7 exit, clean-source build attestation, or
 full-surface promotion.
 
+## Downstream chain development witness (uncommitted scheduler)
+
+Follow-up: the original HelloWorkGraphs sample and the new source-owned
+`probes/probe_workgraph/node_chain.hlsl` both now pass the same exact readback.
+The latter uses uniform group barriers and is executed by
+`probes/probe_workgraph_chain.cpp`, built and run by the official SDK scripts.
+The official runner now completes: chain, existing execution matrix, and
+opcode probes all report `pass=true` under
+`/private/tmp/wg-chain-final/` with profile `phase7-workgraph`. Both Work Graph
+contract rows match every required field, including the explicitly permuted
+entrypoint readbacks (node_a for CPU/final dispatch and node_b for GPU input).
+`abi/winemetal-abi-chain-final.json` passes the strict audit. Staging is still
+dirty-source; none of this closes Phase 7 or release provenance.
+
+Additional fixes preserve constant-expression GEPs instead of converting
+threadgroup addresses to zero, seed checked direct-global threadgroup offsets,
+separate canonical node identities from reordered entrypoint indices, and avoid
+resetting backing memory before terminal-only GPU inputs have been copied.
+`tests/dxil/test_constant_gep.cpp` verifies retained typed operands for four
+shared addresses; the original node metadata regression also passes.
+The dynamic-grid creation check now requires acceptance rather than rejection;
+actual record-driven group counts are asserted by the separate chain readback.
+The runner registers Unix aliases in the selected Wine executable's installation,
+not the unrelated sibling directory of an external DXMT staging route.
+
+Zero-grid follow-up: the grid builder no longer substitutes one for a zero
+record grid. The regression failed before the change (the zero records still
+produced `[5,2]` contribution pairs) and passes afterward. Official results in
+`/private/tmp/wg-chain-zero-final2/` show mixed-grid output
+`[18,0,18,0,4,0,4,0]`, all-zero output of sixteen zero words, exact allocation
+counts, and continued success for the original chain, execution, and opcode
+probes. The runner now captures JSON on stdout consistently for all chain modes.
+
+Grid-layout follow-up: the GPU builder now uses DXIL record-type tag 1's
+byte offset and component count, not record stride. Metadata validates U32
+components (1–3), aligned offsets, and record bounds; other component types
+fail closed. The source-owned offset variant places a scalar grid at byte 4
+in a 16-byte record with zero padding, and produces the same exact chain
+readback. All six official results pass in `/private/tmp/wg-chain-offset-final/`.
+Host regressions also reject misaligned offsets, invalid component types, and
+zero component counts. Multi-axis runtime grids and U16 support remain open.
+
+Three-axis follow-up: the vector variant uses `{2,2,1}`, `{1,1,2}`,
+`{2,1,1}`, and `{1,1,1}` record grids at byte offset 4. The exact chain result
+is `[36,10,18,5,8,4,4,2]` with untouched zero tail, 36 allocated records and
+27 allocations. All seven official Work Graph results pass in
+`/private/tmp/wg-chain-vector-final/`. This closes the bounded non-unit Y/Z
+witness, not U16 grids or general downstream broadcasting.
+
+GPU-input follow-up: `gpu-vector-grid` supplies the header and records through
+a separate 128-byte upload resource, with records at byte offset 64. They are
+zero at `DispatchGraph` recording time and replaced with the three-axis payload
+after recording, before submission. The full chain still returns
+`[36,10,18,5,8,4,4,2]` and exact allocation counts; JSON independently records
+GPU-input mode and successful post-recording mutation. All eight official
+results, Work Graph contract checks, and strict ABI audit pass under
+`/private/tmp/wg-chain-gpu-final2/`. This proves queued payload visibility, not
+GPU-produced header handling or cross-queue chain dependencies. Source remains
+dirty and Phase 7 remains open.
+
+Fan-out follow-up: the entry node now has a fixture variant publishing two
+distinct output IDs: one through the middle node and one directly to the final
+coalescing node. Both paths contribute exactly once: `[18,5,18,5,6,3,6,3]`,
+30 records and 24 allocations. A second variant uses four grids of 16 groups,
+filling all 256 allocation-table entries with 320 records, and exercising
+multiple `[MaxRecords(32)]` coalescing batches. It yields
+`[1040,1040,1040,1040,48,48,48,48]` with unchanged zero tail. All ten official
+Work Graph results pass in `/private/tmp/wg-chain-capacity-final/`.
+This certifies the bounded full-table witness, not overflow handling or general
+graph topology. No intermediate CPU scheduling/readback was introduced.
+
+Topology-preflight follow-up: a new unsupported downstream broadcasting fixture
+exposed partial execution: before the fix, its entry shader wrote `0xdeadbeef`
+to UAV word 15 and allocated records even though the downstream edge could not
+execute. The full reachable topology is now checked before backing reset or
+shader encoding. It checks bounded output/input sizes, supported target launch
+shapes, depth, cycles, and a 1024-node-visit encoding limit. This static
+validation is not CPU scheduling. The negative fixture now leaves all sixteen
+UAV words and allocation counters zero; all eleven official Work Graph results
+pass in `/private/tmp/wg-chain-preflight-final/`. Runtime cycle and path-limit
+probes are still pending; recursion and downstream broadcasting remain unsupported.
+This does not promise rollback for unrelated allocation or pipeline failures.
+
+Cycle-rejection follow-up: a `NodeMaxRecursionDepth(2)` fixture routes its
+middle node's `Work` output back to that same node using explicit `NodeID`.
+The entry shader deliberately writes a sentinel if executed. Dispatch leaves
+all UAV words and allocation counters zero, verifying rejection before entry
+side effects. All twelve official Work Graph results pass in
+`/private/tmp/wg-chain-cycle-final/`. This is fail-closed evidence, not recursive
+execution support; actual recursion-level semantics and path-budget boundary
+probes remain open.
+
+U16-grid follow-up: metadata now preserves component byte width (U16 or U32)
+and validates offsets/bounds at that width. The GPU builder uses little-endian
+byte loads, including grids beginning at byte offset 2. The packed U16 fixture
+uses an 8-byte record and returns `[36,10,18,5,8,4,4,2]` with exact allocations.
+`test_grid_metadata.cpp` checks offsets/widths/counts and copied-module ownership
+for scalar U32, offset U32, vector U32 and vector U16 fixtures. All thirteen
+official Work Graph results pass in `/private/tmp/wg-chain-u16-final/`.
+GPU-produced U16 payloads and general downstream broadcasting remain open.
+
+Queued-copy/cross-queue follow-up: two new modes copy the post-recording
+mutated upload payload into a DEFAULT-heap record buffer and transition it for
+shader reads. One runs the copy on the graph's direct queue. The other runs it
+on a compute queue held behind a fence and adds a producer-fence wait to the
+graph queue. The consumer completion remains pending for a bounded fence-only
+check before releasing the producer; no intermediate records are read back.
+Both chains return `[36,10,18,5,8,4,4,2]` and exact allocation counts. All fifteen
+official Work Graph results pass in
+`/private/tmp/wg-chain-cross-queue-gated-final/`. These witnesses do not prove
+GPU-generated input headers or general multi-queue graph synchronization.
+
+Self-review closeout: terminal/unconnected outputs now receive the same
+256-byte slot-size check as connected edges. An unconnected 264-byte output
+fixture leaves its deliberate entry-shader sentinel and allocation counters
+untouched. All sixteen official Work Graph results pass in
+`/private/tmp/wg-chain-review-final/`. The checkpoint remains bounded and
+non-promoted: larger records, recursive execution, downstream broadcasting,
+GPU-generated headers and general argument/resource tables are not certified.
+
+Historical first witness (before these follow-ups):
+
+A scratch three-node chain now produces exact GPU readback
+`[18,5,18,5,4,2,4,2,0,0,0,0,0,0,0,0]` from four CPU input records
+`{grid,index} = {2,0},{1,1},{2,2},{1,3}`. Broadcasting output feeds a thread
+node, then a coalescing node; output routing and indirect counts are built on
+the GPU without CPU scheduling or intermediate readback. This is dirty-source,
+scratch-only development evidence, not a required-matrix or phase exit.
+
+The experiment exposed and corrected three implementation defects:
+
+- `SV_DispatchGrid` already contains threadgroup counts; dividing it by
+  `NumThreads` dropped groups.
+- Version-3 scheduled-input contexts must retain version-2 output allocation,
+  record-pointer, and publication behavior.
+- Group output allocation must reserve once per group and broadcast its handle,
+  rather than reserve independently for every thread.
+
+The passing fixture adapts Microsoft's HelloWorkGraphs chain by replacing the
+final groupshared reduction with a per-record atomic increment. At that intermediate checkpoint the original
+sample was unverified: its generated MSL contains null threadgroup load
+addresses, and the original reduction produced incorrect values before the
+last allocation fix. Do not conflate the adapted witness with sample support.
+
+Evidence: `/private/tmp/wg-chain-direct/` contains `run.py`, the adapted HLSL,
+`stdout` (`exact=true`), compiler/build logs, and runtime traces. Probe source
+is `/private/tmp/probe-wg-chain.cpp`. Staging and strict ABI evidence are under
+`/private/tmp/wg-chain-results/`; `abi/winemetal-abi-chain-group-fix.json`
+reports `ok=true`, `failure_count=0`. The metadata regression, contract validator,
+and whitespace gate also pass. These temporary paths are not release artifacts.
+The official `--work-graph-only` runner still timed out before its D3D12 result;
+the witness used explicit PE aliases and a temporary Unix alias in the actual
+Wine installation, not the incomplete sibling staging Wine directory.
+
+Remaining: expand reproducible negative chain probes, certify dynamic-grid field
+layouts and overflow, fan-out/recursion/multigraph semantics, run broader shader
+regressions for constant GEP fail-closed behavior, and rerun the full required
+matrix and clean-source release gates.
+
 ## Clean-source queue and raw-UAV follow-up (`cce1ca8d`)
 
 All nine runtime targets were rebuilt incrementally in the external Meson build

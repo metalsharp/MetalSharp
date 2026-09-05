@@ -194,21 +194,40 @@ public:
   MTLD3D12Resource *LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr);
   void RegisterCommandQueue(MTLD3D12CommandQueue *queue);
   void UnregisterCommandQueue(MTLD3D12CommandQueue *queue);
+  struct WorkGraphNodeOutput {
+    std::string node_name;
+    uint32_t array_index = 0;
+    uint32_t metadata_index = 0;
+    uint32_t size = 0;
+    uint32_t alignment = 0;
+    uint32_t max_records = 0;
+    uint32_t flags = 0;
+    uint32_t target_node_index = UINT32_MAX;
+  };
   struct WorkGraphNodeShader {
     std::string msl;
+    uint32_t source_node_index = UINT32_MAX;
+    bool is_entrypoint = false;
     uint32_t input_record_size = 0;
     uint32_t input_record_alignment = 0;
     uint32_t input_max_records = 0;
     uint32_t launch_type = 0;
     uint32_t threads[3] = {1, 1, 1};
     uint32_t grid[3] = {1, 1, 1};
+    uint32_t max_grid[3] = {1, 1, 1};
+    bool grid_from_record = false;
+    uint32_t grid_byte_offset = 0;
+    uint32_t grid_components = 0;
+    uint32_t grid_component_bytes = 0;
+    std::vector<WorkGraphNodeOutput> outputs;
   };
   void RegisterWorkGraphProgram(const uint8_t *identifier,
                                 size_t identifier_size,
                                 const std::vector<WorkGraphNodeShader> &nodes);
   bool LookupWorkGraphNodeShader(const uint8_t *identifier,
                                  size_t identifier_size,
-                                 UINT node_index, WorkGraphNodeShader &shader) const;
+                                 UINT node_index, WorkGraphNodeShader &shader,
+                                 bool by_source_node = false) const;
   bool HasWorkGraphProgram(const uint8_t *identifier,
                            size_t identifier_size) const;
   HRESULT EnqueueSetEvent(HANDLE event);

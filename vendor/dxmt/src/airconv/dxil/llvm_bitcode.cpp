@@ -914,12 +914,35 @@ static bool parseConstantsBlock(ParseContext &ctx, std::vector<LLVMValue> &targe
       target.push_back(v);
       break;
     }
+    case kConstantsCode_GEP:
+    case kConstantsCode_InBoundsGEP: {
+      LLVMValue v;
+      v.kind = LLVMValue::Constant;
+      v.type_id = cur_type;
+      v.id = next_value_id++;
+      v.is_gep = true;
+      size_t operand = 1;
+      // Record payload is either pairs of type/value IDs, or an explicit
+      // source element type followed by those pairs (LLVM's newer encoding).
+      if ((ops.size() - 1) % 2)
+        v.gep_source_type = static_cast<uint32_t>(ops[operand++]);
+      if (operand < ops.size() && v.gep_source_type == UINT32_MAX) {
+        const auto pointer_type = ops[operand];
+        if (pointer_type < ctx.module.types.size() &&
+            ctx.module.types[pointer_type].kind == LLVMType::Pointer &&
+            ctx.module.types[pointer_type].type_refs.size() == 1)
+          v.gep_source_type = ctx.module.types[pointer_type].type_refs[0];
+      }
+      for (; operand + 1 < ops.size(); operand += 2)
+        v.gep_operands.push_back(static_cast<uint32_t>(ops[operand + 1]));
+      target.push_back(std::move(v));
+      break;
+    }
     case kConstantsCode_WideInteger:
     case kConstantsCode_String:
     case kConstantsCode_CString:
     case kConstantsCode_CE_Binop:
     case kConstantsCode_Cast:
-    case kConstantsCode_GEP:
     case kConstantsCode_CE_Select:
     case kConstantsCode_CE_ExtractElement:
     case kConstantsCode_CE_InsertElement:
@@ -927,7 +950,6 @@ static bool parseConstantsBlock(ParseContext &ctx, std::vector<LLVMValue> &targe
     case kConstantsCode_CE_Cmp:
     case kConstantsCode_InlineAsmOld:
     case kConstantsCode_CE_ShuffleVectorEx:
-    case kConstantsCode_InBoundsGEP:
     case kConstantsCode_BlockAddress:
     case kConstantsCode_InlineAsm: {
       LLVMValue v;

@@ -1,5 +1,34 @@
 # Node metadata ownership regression
 
+## Constant-expression GEP regression
+
+For `test_constant_gep.cpp`, use the commands below with
+`node_chain.hlsl` instead of `node_input_records.hlsl`, omit
+`-enable-16bit-types`, and compile/run `test_constant_gep.cpp` instead of
+`test_node_metadata.cpp`. Keep the same DXIL-container extraction step.
+The test requires typed constant GEP operands to retain the groupshared global
+base and four distinct indices (byte offsets 0, 4, 8, 12); fabricated null
+constants fail. Runtime reduction coverage is the SDK's
+`probe_workgraph_chain.exe`, included in `run-probes.sh --work-graph-only`.
+
+## Grid semantic regression
+
+Compile `node_chain.hlsl` to DXIL and extract raw bitcode as below. Build
+`test_grid_metadata.cpp` with `llvm_bitcode.cpp` and the same host flags.
+Pass the raw bitcode path followed by expected offset, component byte width,
+and component count:
+
+| DXC defines/options | Expected arguments |
+| --- | --- |
+| none | `0 4 1` |
+| `-DGRID_OFFSET=1` | `4 4 1` |
+| `-DGRID_VECTOR=1` | `4 4 3` |
+| `-DGRID_U16=1 -enable-16bit-types` | `2 2 3` |
+
+The runtime chain probe verifies the resulting GPU dispatch grids separately.
+
+## Input metadata regression
+
 This is a host parser test, not a Work Graph execution or scheduling gate.
 Run from the repository root with an initialized disposable `WINEPREFIX`, a
 matching Wine executable in `$WINE`, and the pinned DXC already downloaded.

@@ -40,6 +40,10 @@ struct LLVMValue {
   uint32_t id = 0;
   std::string name;
   std::string constant_data;
+  // Constant-expression GEP: retain typed operands instead of fabricating null.
+  bool is_gep = false;
+  uint32_t gep_source_type = UINT32_MAX;
+  std::vector<uint32_t> gep_operands;
 };
 
 struct LLVMInstruction {
