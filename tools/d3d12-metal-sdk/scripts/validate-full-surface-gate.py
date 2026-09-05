@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -141,6 +142,9 @@ def check_result(
     results_dir: Path, profile: str, row: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
     specs = result_specs(row, profile)
+    if not specs or any(not result_profile for _, result_profile in specs):
+        return ({"id": row.get("id"), "pass": False,
+                 "detail": "missing result specification or profile"}, [str(row.get("id"))])
     paths = [result_file(results_dir, stem, result_profile)
              for stem, result_profile in specs]
     blockers: list[str] = []
@@ -162,6 +166,9 @@ def check_result(
         identity_path = result_file(results_dir, "host-runtime", result_profile)
         try:
             identity = load_json(identity_path)
+            if not isinstance(identity, dict):
+                identity_errors.append(f"{identity_path}: run identity must be an object")
+                continue
             run_started_at = identity.get("run_started_at")
             loader_audit = identity.get("loader_pe_copy_audit")
             loader_ok = isinstance(loader_audit, dict) and bool(loader_audit) and all(
@@ -169,13 +176,14 @@ def check_result(
                 for record in loader_audit.values()
             )
             if (identity.get("profile") != result_profile or
-                    not isinstance(run_started_at, (int, float)) or not loader_ok):
+                    type(run_started_at) not in (int, float) or
+                    not math.isfinite(run_started_at) or run_started_at <= 0 or not loader_ok):
                 identity_errors.append(
                     f"{identity_path}: missing matching profile/run_started_at/loader_pe_copy_audit"
                 )
             elif path.stat().st_mtime + 1e-6 < float(run_started_at):
                 stale.append(f"{path} (before run_started_at={run_started_at})")
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, json.JSONDecodeError, OverflowError) as exc:
             identity_errors.append(f"{identity_path}: {exc}")
     if identity_errors or stale:
         detail_parts = []
