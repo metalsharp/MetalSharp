@@ -155,6 +155,15 @@ child descriptors, in addition to its existing stride checks. A GPU-produced
 address offset by one byte rejects with all 2 MiB of backing and user output
 unchanged. This stage remains development evidence, not clean reproducibility.
 
+### Empty child compaction
+
+`/Volumes/AverySSD/phase7-empty-child-atomic/results/` passes all fifteen
+GPU-header variants. The new mixed input skips a zero-count first child whose
+unused payload address is UINT64_MAX, then executes the nonempty sparse child.
+Exact output is `[0,0,0,0,505,0,0,0,0,0,0,0,0,0,0,0]`. The sparse consumer now
+uses an atomic sum, so duplicate scheduling cannot hide behind equal stores.
+Other empty-child orderings, larger tables, and queue-dependency breadth remain.
+
 ## Remaining
 
 - Multi-node broadcasting, duplicate/zero-stride descriptors, larger descriptor
