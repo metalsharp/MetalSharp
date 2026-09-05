@@ -258,6 +258,7 @@ int main() {
     bool node_table_short_view_unchanged = false;
     bool node_table_null_view_unchanged = false;
     bool dxil_node_shader_gpu_readback_exact = false;
+    bool dxil_node_output_records_exact = false;
     bool dxil_multi_node_readback_exact = false;
     bool node_multi_cpu_input_exact = false;
     bool node_multi_gpu_input_exact = false;
@@ -288,6 +289,7 @@ int main() {
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
     uint32_t node_shader_values[2] = {};
+    uint32_t node_output_record_values[2] = {};
     uint32_t dxil_multi_node_values[2] = {};
     uint32_t node_multi_cpu_values[2] = {};
     uint32_t node_multi_gpu_values[2] = {};
@@ -330,7 +332,7 @@ int main() {
             dxmt::kID3D12GraphicsCommandList10,
             reinterpret_cast<void**>(&compute_list));
     auto heap = upload_heap();
-    auto resource_desc = buffer_desc(256);
+    auto resource_desc = buffer_desc(2u << 20);
     if (SUCCEEDED(hr))
         hr = device->CreateCommittedResource(
             &heap, D3D12_HEAP_FLAG_NONE, &resource_desc,
@@ -787,7 +789,7 @@ int main() {
     std::memcpy(set_program.WorkGraph.ProgramIdentifier, identifier,
                 sizeof(identifier));
     set_program.WorkGraph.BackingMemory.StartAddress = backing->GetGPUVirtualAddress();
-    set_program.WorkGraph.BackingMemory.SizeInBytes = 256;
+    set_program.WorkGraph.BackingMemory.SizeInBytes = 2u << 20;
     set_program.WorkGraph.NodeLocalRootArgumentsTable.StartAddress =
         node_local_table ? node_local_table->GetGPUVirtualAddress() : 0;
     set_program.WorkGraph.NodeLocalRootArgumentsTable.SizeInBytes =
@@ -1133,6 +1135,14 @@ int main() {
         hr = allocator->Reset();
         if (SUCCEEDED(hr))
             hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(hr) && backing) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                std::memset(mapped, 0, 2u << 20);
+                backing->Unmap(0, nullptr);
+            }
+        }
         if (SUCCEEDED(hr)) {
             DispatchGraphDesc node_dispatch = {};
             node_dispatch.Mode = 0;
@@ -1154,6 +1164,34 @@ int main() {
                     node_shader_values[1] == 0x12345678u;
                 dxil_node_shader_uav_binding_exact =
                     dxil_node_shader_readback_exact;
+            }
+        }
+        if (SUCCEEDED(hr) && backing) {
+            void* mapped = nullptr;
+            hr = backing->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(hr) && mapped) {
+                const auto* words = static_cast<const uint32_t*>(mapped);
+                for (uint32_t allocation = 0; allocation < 256u;
+                     ++allocation) {
+                    const uint32_t entry = 8u + allocation * 4u;
+                    if (words[entry + 3u] != 1u)
+                        continue;
+                    const uint64_t record_word =
+                        uint64_t(8192u) / sizeof(uint32_t) +
+                        uint64_t(words[entry]) * 256u / sizeof(uint32_t);
+                    if (record_word >= (2u << 20) / sizeof(uint32_t))
+                        continue;
+                    node_output_record_values[0] = words[record_word];
+                    node_output_record_values[1] = words[entry + 3u];
+                    dxil_node_output_records_exact =
+                        allocation == 0u && words[0] == 1u &&
+                        words[1] == 1u && words[entry] == 0u &&
+                        words[record_word] == 0xabcdef01u &&
+                        words[entry + 1u] == 1u &&
+                        words[entry + 2u] == 1u;
+                    break;
+                }
+                backing->Unmap(0, nullptr);
             }
         }
     }
@@ -1860,7 +1898,7 @@ int main() {
         cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
         cross_queue_repeated_gpu_dependency_exact && cross_queue_multi_gpu_dependency_exact &&
         node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
-        dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
+        dxil_node_output_records_exact && dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
@@ -1921,6 +1959,10 @@ int main() {
                 node_table_null_view_unchanged ? "true" : "false");
     std::printf("  \"dxil_node_shader_gpu_readback_exact\": %s,\n",
                 dxil_node_shader_gpu_readback_exact ? "true" : "false");
+    std::printf("  \"dxil_node_output_records_exact\": %s,\n",
+                dxil_node_output_records_exact ? "true" : "false");
+    std::printf("  \"node_output_record_values\": [%u,%u],\n",
+                node_output_record_values[0], node_output_record_values[1]);
     std::printf("  \"node_multi_bytecode_loaded\": %s,\n",
                 node_multi_bytecode_loaded ? "true" : "false");
     std::printf("  \"dxil_multi_node_readback_exact\": %s,\n",
@@ -2029,7 +2071,7 @@ int main() {
                    cross_queue_dispatch_exact && cross_queue_gpu_dependency_exact &&
                    cross_queue_repeated_gpu_dependency_exact && cross_queue_multi_gpu_dependency_exact &&
                    node_shader_bytecode_loaded && dxil_node_shader_readback_exact &&
-                   dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
+                   dxil_node_output_records_exact && dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
                    node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && node_record_offsets_exact &&

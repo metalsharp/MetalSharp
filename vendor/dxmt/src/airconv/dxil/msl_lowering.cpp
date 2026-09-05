@@ -2086,19 +2086,62 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "}\n\n";
     }
     if (ctx.shader.kind == DxilShaderKind::Node) {
+        // The bounded output ABI mirrors d3d12_node_dispatch_abi.hpp.  A
+        // scheduler allocation is identified separately from an input handle
+        // so output records never alias the input payload.  The fixed table
+        // and slot geometry is intentionally conservative until the complete
+        // graph allocator is available.
+        os << "struct m12_node_input_context { uint version; uint count; ulong stride; ulong size; ulong length; };\n";
+        os << "struct m12_node_output_allocation { uint base_slot; uint count; uint output; uint published; };\n";
+        os << "static inline uint m12_node_reserve(device atomic_uint *counter, uint amount, uint limit) {\n";
+        os << "  uint old = atomic_load_explicit(counter, memory_order_relaxed);\n";
+        os << "  for (;;) {\n";
+        os << "    if (old > limit || amount > limit - old) return 0xffffffffu;\n";
+        os << "    uint expected = old;\n";
+        os << "    if (atomic_compare_exchange_weak_explicit(counter, &expected, old + amount, memory_order_relaxed, memory_order_relaxed)) return old;\n";
+        os << "    old = expected;\n";
+        os << "  }\n";
+        os << "}\n";
         os << "static inline uint m12_node_create_output_handle(uint metadata, uint array_index) {\n";
         os << "  return metadata == 0xffffffffu || array_index == 0xffffffffu ? 0u : (metadata + 1u);\n";
         os << "}\n";
-        os << "static inline uint m12_node_allocate_record_handle(uint output, uint count, uint per_thread) {\n";
+        os << "static inline uint m12_node_allocate_record_handle(device char *backing, device char *context, uint output, uint count, uint per_thread) {\n";
         os << "  if (output == 0u || count == 0u) return 0u;\n";
-        os << "  return (output & 0xffffu) | ((count & 0xffu) << 16) | ((per_thread & 1u) << 24);\n";
+        os << "  device const m12_node_input_context *c = context != nullptr ? reinterpret_cast<device const m12_node_input_context *>(context) : nullptr;\n";
+        os << "  if (backing == nullptr || c == nullptr || c->version != 2u) return (output & 0xffffu) | ((count & 0xffu) << 16) | ((per_thread & 1u) << 24);\n";
+        os << "  device atomic_uint *record_counter = reinterpret_cast<device atomic_uint *>(backing);\n";
+        os << "  device atomic_uint *allocation_counter = reinterpret_cast<device atomic_uint *>(backing + 4);\n";
+        os << "  uint allocation = m12_node_reserve(allocation_counter, 1u, 256u);\n";
+        os << "  uint base = m12_node_reserve(record_counter, count, 4096u);\n";
+        os << "  if (allocation == 0xffffffffu || base == 0xffffffffu) return 0u;\n";
+        os << "  device m12_node_output_allocation *entry = reinterpret_cast<device m12_node_output_allocation *>(backing + 32ul) + allocation;\n";
+        os << "  entry->base_slot = base; entry->count = count; entry->output = output; entry->published = 0u;\n";
+        os << "  return 0x40000000u | (allocation + 1u);\n";
         os << "}\n";
-        os << "struct m12_node_input_context { uint version; uint count; ulong stride; ulong size; ulong length; };\n";
+        os << "static inline uint m12_node_complete_output(device char *backing, device char *context, uint record) {\n";
+        os << "  device const m12_node_input_context *c = context != nullptr ? reinterpret_cast<device const m12_node_input_context *>(context) : nullptr;\n";
+        os << "  if (backing != nullptr && c != nullptr && c->version == 2u && (record & 0xc0000000u) == 0x40000000u) {\n";
+        os << "    uint allocation = (record & 0x3fffffffu) - 1u;\n";
+        os << "    if (allocation < 256u) {\n";
+        os << "      device atomic_uint *published = reinterpret_cast<device atomic_uint *>(backing + 32ul + ulong(allocation) * 16ul + 12ul);\n";
+        os << "      atomic_store_explicit(published, 1u, memory_order_relaxed);\n";
+        os << "    }\n";
+        os << "  }\n";
+        os << "  return 1u;\n";
+        os << "}\n";
         os << "static inline device char *m12_node_record_ptr(device char *backing, device char *input, device char *context, uint record, uint index) {\n";
+        os << "  device const m12_node_input_context *c = context != nullptr ? reinterpret_cast<device const m12_node_input_context *>(context) : nullptr;\n";
+        os << "  if ((record & 0xc0000000u) == 0x40000000u && c != nullptr && c->version == 2u) {\n";
+        os << "    if (backing == nullptr) return nullptr;\n";
+        os << "    uint allocation = (record & 0x3fffffffu) - 1u;\n";
+        os << "    if (allocation >= 256u) return nullptr;\n";
+        os << "    device const m12_node_output_allocation *entry = reinterpret_cast<device const m12_node_output_allocation *>(backing + 32ul) + allocation;\n";
+        os << "    if (index >= entry->count || entry->base_slot > 4096u || index > 4096u - entry->base_slot) return nullptr;\n";
+        os << "    return backing + 8192ul + (ulong(entry->base_slot) + index) * 256ul;\n";
+        os << "  }\n";
         os << "  if ((record & 0x80000000u) != 0u) {\n";
-        os << "    if (input == nullptr || context == nullptr) return nullptr;\n";
-        os << "    device const m12_node_input_context *c = reinterpret_cast<device const m12_node_input_context *>(context);\n";
-        os << "    if (c->version != 1u || index >= c->count || c->size > c->length || (index != 0u && c->stride > (c->length - c->size) / index)) return nullptr;\n";
+        os << "    if (input == nullptr || c == nullptr) return nullptr;\n";
+        os << "    if ((c->version != 1u && c->version != 2u) || index >= c->count || c->size > c->length || (index != 0u && c->stride > (c->length - c->size) / index)) return nullptr;\n";
         os << "    return input + ulong(index) * c->stride;\n";
         os << "  }\n";
         os << "  if (backing == nullptr || record == 0u || index >= 256u) return nullptr;\n";
@@ -2506,7 +2549,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  thread uint m12_node_next_handle = 1u;\n";
             os << "  thread uint m12_node_output_count = 0u;\n";
             os << "  thread uint m12_node_output_complete = 0u;\n";
-            os << "  thread uint m12_node_input_record_count = buf28 != nullptr ? reinterpret_cast<device const m12_node_input_context *>(buf28)->count : 0u;\n";
+            os << "  thread uint m12_node_input_record_count = (buf28 != nullptr && (reinterpret_cast<device const m12_node_input_context *>(buf28)->version == 1u || reinterpret_cast<device const m12_node_input_context *>(buf28)->version == 2u)) ? reinterpret_cast<device const m12_node_input_context *>(buf28)->count : 1u;\n";
             os << "  thread uint m12_node_remaining_recursion_levels = 32u;\n";
             os << "  thread uchar m12_node_record_storage[256] = {};\n";
         }
@@ -3685,6 +3728,7 @@ static std::string coerceResolvedValue(const std::string &value, const MSLType &
         (exprContainsRawResourceHandle(resolved) || exprContainsPointerSyntax(resolved)) &&
         resolved.find("m12_load_vertex_attr(") == std::string::npos &&
         resolved.find("m12_dynamic_buffer_load_") == std::string::npos &&
+        resolved.find("m12_node_") == std::string::npos &&
         resolved.find("reinterpret_cast<device ") == std::string::npos &&
         resolved.find("reinterpret_cast<thread ") == std::string::npos &&
         resolved.find("reinterpret_cast<threadgroup ") == std::string::npos)
@@ -7627,7 +7671,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
                 per_thread = 1u;
             if (count == UINT32_MAX || per_thread > 1u)
                 return reject_node("node output record operands must be literal");
-            return "m12_node_allocate_record_handle((uint)(" +
+            return "m12_node_allocate_record_handle(buf30 != nullptr ? buf30 : buf0, buf28, (uint)(" +
                    valueArg(0, "0u") + "), " + std::to_string(count) +
                    "u, " + std::to_string(per_thread) + "u)";
         }
@@ -7660,7 +7704,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         case DXOP_OutputComplete:
             if (args.empty())
                 return reject_node("malformed OutputComplete operands");
-            return "m12_node_output_complete = 1u";
+            return "m12_node_output_complete = m12_node_complete_output(buf30 != nullptr ? buf30 : buf0, buf28, (uint)(" +
+                   valueArg(0, "0u") + "))";
         case DXOP_GetInputRecordCount:
             return "m12_node_input_record_count";
         case DXOP_FinishedCrossGroupSharing:

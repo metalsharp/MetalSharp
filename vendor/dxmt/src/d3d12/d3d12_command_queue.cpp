@@ -3169,6 +3169,12 @@ struct ReplayState {
     WMT::Reference<WMT::Buffer> input_buffer;
     uint64_t input_offset = 0;
     D3D12NodeInputContext input_context;
+    // A sufficiently sized D3D12 backing allocation also exposes the bounded
+    // native output-record table. Small legacy fixtures retain the original
+    // single-slot ABI rather than writing an allocator header out of bounds.
+    const bool native_output_records =
+        work_graph_backing_size >= kNodeOutputBackingBytes;
+    input_context.version = native_output_records ? 2u : 1u;
     if (shader.input_record_size) {
       if (!shader.input_record_alignment || !record_stride ||
           record_stride < shader.input_record_size ||
