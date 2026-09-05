@@ -8,19 +8,20 @@
 using namespace dxmt::dxil;
 int main(int argc, char **argv) {
   try {
-    if (argc != 5) throw std::runtime_error("usage: test-grid-metadata bitcode offset width count");
+    if (argc != 5 && argc != 6) throw std::runtime_error("usage: test-grid-metadata bitcode offset width count [entrypoint]");
+    const char *entrypoint = argc == 6 ? argv[5] : "firstNode";
     std::ifstream input(argv[1], std::ios::binary);
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(input)), {});
     auto module = BitcodeReader::parse(bytes.data(), static_cast<uint32_t>(bytes.size()));
     if (!module) throw std::runtime_error("bitcode parse failed");
-    const auto metadata = nodeShaderMetadata(*module, "firstNode");
+    const auto metadata = nodeShaderMetadata(*module, entrypoint);
     if (!metadata || !metadata->grid_from_record ||
         metadata->grid_byte_offset != std::stoul(argv[2]) ||
         metadata->grid_component_bytes != std::stoul(argv[3]) ||
         metadata->grid_components != std::stoul(argv[4]))
       throw std::runtime_error("grid semantic offset/width/count mismatch");
     const auto copied = *module;
-    const auto owned = nodeShaderMetadata(copied, "firstNode");
+    const auto owned = nodeShaderMetadata(copied, entrypoint);
     if (!owned || owned->grid_byte_offset != metadata->grid_byte_offset ||
         owned->grid_component_bytes != metadata->grid_component_bytes ||
         owned->grid_components != metadata->grid_components)

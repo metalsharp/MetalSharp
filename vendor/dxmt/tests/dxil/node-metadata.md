@@ -25,6 +25,9 @@ and component count:
 | `-DGRID_VECTOR=1` | `4 4 3` |
 | `-DGRID_U16=1 -enable-16bit-types` | `2 2 3` |
 
+For downstream variants, append `secondNode` as the optional entrypoint argument:
+`-DDYNAMIC_CONSUMER=1` expects `8 4 3 secondNode`; additionally defining
+`DYNAMIC_CONSUMER_U16=1` with `-enable-16bit-types` expects `8 2 3 secondNode`.
 The runtime chain probe verifies the resulting GPU dispatch grids separately.
 
 ## Input metadata regression

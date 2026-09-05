@@ -36,8 +36,9 @@ struct D3D12NodeDynamicInputContext {
   uint64_t record_size = 0;
   uint64_t byte_length = 0;
   uint32_t batch_size = 1;
-  // Nonzero for scheduled fixed-grid broadcasting: groups per record on X.
-  // Zero retains the thread/coalescing descriptor-stream mapping.
+  // Broadcasting groups per record on X. Flattened fixed grids use this to
+  // select a record; per-record ICB dispatches resolve to descriptor zero.
+  // Zero retains the thread/coalescing mapping (or an empty broadcast grid).
   uint32_t reserved = 0;
 };
 static_assert(sizeof(D3D12NodeDynamicInputContext) == 40);

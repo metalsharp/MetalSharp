@@ -1397,6 +1397,7 @@ static std::string DescriptorSummary(const D3D12Descriptor *desc,
 
 static constexpr const char *kWorkGraphSchedulerKernel = R"MSL(
 #include <metal_stdlib>
+#include <metal_command_buffer>
 using namespace metal;
 
 struct m12_node_input_context {
@@ -1509,6 +1510,47 @@ kernel void m12_work_graph_build_grids(
   dispatch_args[tid * 3u + 1u] = y;
   dispatch_args[tid * 3u + 2u] = z;
 }
+
+struct m12_node_icb_handles {
+  command_buffer commands [[id(0)]];
+  compute_pipeline_state pipeline [[id(1)]];
+};
+struct m12_node_icb_parameters {
+  uint record_size;
+  uint grid_offset;
+  uint grid_components;
+  uint grid_width;
+  uint max_x, max_y, max_z;
+  uint threads_x, threads_y, threads_z;
+};
+kernel void m12_work_graph_build_icb(
+    constant m12_node_icb_handles &handles [[buffer(0)]],
+    device uchar *backing [[buffer(1)]],
+    device const uint *descriptors [[buffer(2)]],
+    device const m12_node_input_context *input [[buffer(3)]],
+    device m12_node_input_context *contexts [[buffer(4)]],
+    device uchar *user_output [[buffer(5)]],
+    device uint *range [[buffer(6)]],
+    constant m12_node_icb_parameters &parameters [[buffer(7)]],
+    uint tid [[thread_position_in_grid]]) {
+  const uint count = min(input->count, 4096u);
+  if (tid == 0u) { range[0] = 0u; range[1] = count; }
+  if (tid >= count) return;
+  const uint slot = descriptors[tid * 2u];
+  if (slot >= 4096u) return;
+  device const uchar *grid_record = backing + 8192ul + ulong(slot) * 256ul + parameters.grid_offset;
+  const uint x = m12_node_clamp_grid(m12_node_grid_component(grid_record, 0u, parameters.grid_width), parameters.max_x);
+  const uint y = parameters.grid_components > 1u ? m12_node_clamp_grid(m12_node_grid_component(grid_record, 1u, parameters.grid_width), parameters.max_y) : 1u;
+  const uint z = parameters.grid_components > 2u ? m12_node_clamp_grid(m12_node_grid_component(grid_record, 2u, parameters.grid_width), parameters.max_z) : 1u;
+  contexts[tid] = {3u, 1u, 8ul, ulong(parameters.record_size), 1ul, 1u, x};
+  compute_command command(handles.commands, tid);
+  command.set_compute_pipeline_state(handles.pipeline);
+  command.set_kernel_buffer(user_output, 0);
+  command.set_kernel_buffer(contexts + tid, 28);
+  command.set_kernel_buffer(descriptors + tid * 2u, 29);
+  command.set_kernel_buffer(backing, 30);
+  command.concurrent_dispatch_threadgroups(uint3(x,y,z), uint3(parameters.threads_x,parameters.threads_y,parameters.threads_z));
+}
 )MSL";
 
 static constexpr const char *kWorkGraphReferenceKernel = R"MSL(
@@ -1612,6 +1654,10 @@ struct ReplayState {
   WMT::Reference<WMT::ComputePipelineState> work_graph_grid_pipeline;
   WMT::Reference<WMT::Library> work_graph_node_library;
   WMT::Reference<WMT::ComputePipelineState> work_graph_node_pipeline;
+  WMT::Reference<WMT::Library> work_graph_icb_library;
+  WMT::Reference<WMT::ComputePipelineState> work_graph_icb_builder;
+  bool work_graph_node_indirect = false;
+  std::vector<WMT::Reference<WMT::Object>> work_graph_icb_objects;
   std::string work_graph_node_source;
   uint32_t work_graph_node_index = UINT32_MAX;
   uint8_t work_graph_program_identifier[32] = {};
@@ -3512,6 +3558,126 @@ struct ReplayState {
     return true;
   }
 
+  bool EncodeWorkGraphDynamicICB(
+      MTLD3D12Device *device, const MTLD3D12Device::WorkGraphNodeShader &shader,
+      const WorkGraphScheduledInput &input, WMT::Buffer backing, uint64_t backing_offset,
+      WMT::Buffer output, uint64_t output_offset, WMT::CommandBuffer command_buffer) {
+    if (!shader.grid_from_record || shader.launch_type != 1u ||
+        !input.context.handle || !input.descriptors.handle ||
+        !shader.grid_components || shader.grid_components > 3u ||
+        (shader.grid_component_bytes != 2u && shader.grid_component_bytes != 4u) ||
+        shader.grid_byte_offset > shader.input_record_size ||
+        shader.grid_components * shader.grid_component_bytes > shader.input_record_size - shader.grid_byte_offset)
+      return false;
+    auto icb = device->GetMTLDevice().newComputeIndirectCommandBuffer(kNodeOutputRecordSlots, 31);
+    if (!icb.handle) return false;
+    const uint64_t handles[2] = {icb.gpuResourceID(), work_graph_node_pipeline.gpuResourceID()};
+    if (!handles[0] || !handles[1]) return false;
+    auto arguments = MakeTransientBuffer(device, sizeof(handles));
+    auto contexts = MakeTransientBuffer(device, uint64_t(kNodeOutputRecordSlots) * sizeof(D3D12NodeDynamicInputContext));
+    auto range = MakeTransientBuffer(device, sizeof(uint32_t) * 2u);
+    struct Parameters {
+      uint32_t record_size, grid_offset, grid_components, grid_width;
+      uint32_t max_x, max_y, max_z;
+      uint32_t threads_x, threads_y, threads_z;
+    } data = {shader.input_record_size, shader.grid_byte_offset, shader.grid_components,
+              shader.grid_component_bytes, shader.max_grid[0], shader.max_grid[1], shader.max_grid[2],
+              shader.threads[0], shader.threads[1], shader.threads[2]};
+    static_assert(sizeof(Parameters) == 40);
+    auto parameters = MakeTransientBuffer(device, sizeof(data));
+    if (!arguments.handle || !contexts.handle || !range.handle || !parameters.handle) return false;
+    arguments.updateContents(0, handles, sizeof(handles));
+    parameters.updateContents(0, &data, sizeof(data));
+    if (!work_graph_icb_builder.handle) {
+      WMT::Reference<WMT::Error> error;
+      auto library = device->GetMTLDevice().newLibraryWithSource(
+          kWorkGraphSchedulerKernel, std::strlen(kWorkGraphSchedulerKernel), error);
+      if (!library.handle || error.handle) return false;
+      auto function = library.newFunction("m12_work_graph_build_icb");
+      if (!function.handle) return false;
+      auto pipeline = device->GetMTLDevice().newComputePipelineState(function, error);
+      if (!pipeline.handle || error.handle) return false;
+      work_graph_icb_library = library;
+      work_graph_icb_builder = pipeline;
+    }
+    // GPU-generated commands contain raw pipeline/resource IDs. Keep strong
+    // owners until submission has installed completion retains; encoding the
+    // generator itself does not retain its indirect consumer pipeline.
+    work_graph_icb_objects.emplace_back(static_cast<WMT::Object>(icb));
+    work_graph_icb_objects.emplace_back(static_cast<WMT::Object>(work_graph_node_pipeline));
+    RetainMTLObjectForCompletion(icb);
+    RetainMTLObjectForCompletion(work_graph_icb_builder);
+    RetainMTLObjectForCompletion(work_graph_node_pipeline);
+    RetainMTLObjectForCompletion(backing);
+    RetainMTLObjectForCompletion(output);
+
+    alignas(8) std::array<uint8_t, 4096> storage = {};
+    size_t used = 0;
+    wmtcmd_base *tail = nullptr;
+    auto append = [&](const auto &command) -> bool {
+      if (sizeof(command) > storage.size() - used) return false;
+      auto *copy = reinterpret_cast<wmtcmd_base *>(storage.data() + used);
+      std::memcpy(copy, &command, sizeof(command));
+      copy->next.set(nullptr);
+      if (tail) tail->next.set(copy);
+      tail = copy;
+      used += sizeof(command);
+      return true;
+    };
+    wmtcmd_compute_setpso set_pso = {};
+    set_pso.type = WMTComputeCommandSetPSO;
+    set_pso.pso = work_graph_icb_builder.handle;
+    set_pso.threadgroup_size = {64,1,1};
+    if (!append(set_pso)) return false;
+    const obj_handle_t buffers[8] = {arguments.handle, backing.handle, input.descriptors.handle,
+        input.context.handle, contexts.handle, output.handle, range.handle, parameters.handle};
+    for (uint32_t index = 0; index < 8; ++index) {
+      wmtcmd_compute_setbuffer bind = {};
+      bind.type = WMTComputeCommandSetBuffer;
+      bind.buffer = buffers[index];
+      bind.index = index;
+      bind.offset = index == 1u ? backing_offset : index == 5u ? output_offset : 0u;
+      if (!append(bind)) return false;
+    }
+    wmtcmd_compute_useresource use = {};
+    use.type = WMTComputeCommandUseResource;
+    use.resource = icb.handle;
+    use.usage = WMTResourceUsageWrite;
+    if (!append(use)) return false;
+    wmtcmd_compute_dispatch dispatch = {};
+    dispatch.type = WMTComputeCommandDispatch;
+    dispatch.size = {(kNodeOutputRecordSlots + 63u) / 64u,1,1};
+    if (!append(dispatch)) return false;
+    QTRACE("WorkGraph native ICB node=%u capacity=%u grid_offset=%u components=%u width=%u",
+           shader.source_node_index, kNodeOutputRecordSlots, shader.grid_byte_offset,
+           shader.grid_components, shader.grid_component_bytes);
+    auto builder_encoder = command_buffer.computeCommandEncoder(false);
+    ENC_CREATE("workgraph_build_icb", builder_encoder.handle);
+    ScopedMetalEncoderEnd builder_end{builder_encoder, "workgraph_build_icb"};
+    if (!builder_encoder.handle || !builder_encoder.encodeCommands(
+            reinterpret_cast<const wmtcmd_compute_nop *>(storage.data()))) return false;
+    EndMetalEncoder(builder_encoder, "workgraph_build_icb");
+
+    used = 0; tail = nullptr;
+    const obj_handle_t indirect_resources[] = {icb.handle, backing.handle, input.descriptors.handle,
+        contexts.handle, output.handle, range.handle};
+    for (auto resource : indirect_resources) {
+      use.resource = resource;
+      use.usage = static_cast<WMTResourceUsage>(WMTResourceUsageRead | WMTResourceUsageWrite);
+      if (!append(use)) return false;
+    }
+    wmtcmd_compute_execute_indirect_commands execute = {};
+    execute.type = WMTComputeCommandExecuteIndirectCommands;
+    execute.indirect_commands = icb.handle;
+    execute.execution_range_buffer = range.handle;
+    if (!append(execute)) return false;
+    auto execute_encoder = command_buffer.computeCommandEncoder(false);
+    ENC_CREATE("workgraph_execute_icb", execute_encoder.handle);
+    ScopedMetalEncoderEnd execute_end{execute_encoder, "workgraph_execute_icb"};
+    return execute_encoder.handle && execute_encoder.encodeCommands(
+        reinterpret_cast<const wmtcmd_compute_nop *>(storage.data()));
+  }
+
   bool EncodeWorkGraphNodeShader(
       MTLD3D12Device *device,
       const MTLD3D12Device::WorkGraphNodeShader &shader, uint32_t node_index,
@@ -3569,7 +3735,6 @@ struct ReplayState {
       if (!native_output_records || !scheduled_input->descriptors.handle ||
           !scheduled_input->dispatch_args.handle ||
           !scheduled_input->context.handle || !shader.input_record_size ||
-          (shader.launch_type == 1u && shader.grid_from_record) ||
           shader.launch_type < 1u || shader.launch_type > 3u)
         return false;
       input_buffer = scheduled_input->descriptors;
@@ -3618,6 +3783,16 @@ struct ReplayState {
       input_context.record_size = shader.input_record_size;
     } else if (record_count != 1u) {
       return false;
+    }
+    if (!input_buffer.handle) {
+      // Even output-only nodes can retain the generic record helper's input
+      // argument in MSL reflection. Bind inert internal storage, never a user
+      // UAV; the context still declares zero input bytes/records.
+      input_buffer = MakeTransientBuffer(device, sizeof(uint32_t));
+      if (!input_buffer.handle)
+        return false;
+      const uint32_t zero = 0;
+      input_buffer.updateContents(0, &zero, sizeof(zero));
     }
     const bool coalescing = shader.input_record_size &&
                             shader.launch_type == 2u;
@@ -3754,8 +3929,10 @@ struct ReplayState {
       RetainResourceMetalObjectsForCompletion(node_output_resource);
     }
 
+    const bool indirect_consumer = scheduled_records && shader.grid_from_record;
     if (work_graph_node_source != source ||
         work_graph_node_index != node_index ||
+        work_graph_node_indirect != indirect_consumer ||
         !work_graph_node_pipeline.handle) {
       WMT::Reference<WMT::Error> error;
       auto library = device->GetMTLDevice().newLibraryWithSource(
@@ -3765,14 +3942,22 @@ struct ReplayState {
       auto function = library.newFunction("node_main");
       if (!function.handle)
         return false;
-      auto pipeline = device->GetMTLDevice().newComputePipelineState(function,
-                                                                       error);
+      auto pipeline = indirect_consumer
+          ? device->GetMTLDevice().newIndirectComputePipelineState(function, error)
+          : device->GetMTLDevice().newComputePipelineState(function, error);
       if (!pipeline.handle || error.handle)
         return false;
+      work_graph_node_indirect = indirect_consumer;
       work_graph_node_library = library;
       work_graph_node_pipeline = pipeline;
       work_graph_node_source = source;
       work_graph_node_index = node_index;
+    }
+
+    if (indirect_consumer) {
+      return EncodeWorkGraphDynamicICB(device, shader, *scheduled_input,
+          backing_resource->GetMTLBuffer(), backing_offset,
+          node_output_resource->GetMTLBuffer(), node_output_offset, command_buffer);
     }
 
     for (uint32_t record = 0; record < invocation_count; ++record) {
@@ -3911,7 +4096,7 @@ struct ReplayState {
             !target.input_record_size || target.input_record_size > kNodeOutputRecordStride ||
             output.size != target.input_record_size ||
             target.launch_type < 1u || target.launch_type > 3u ||
-            (target.launch_type == 1u && (target.grid_from_record ||
+            (target.launch_type == 1u && !target.grid_from_record && (
                 !target.grid[0] || !target.grid[1] || !target.grid[2] ||
                 uint64_t(kNodeOutputRecordSlots) * target.grid[0] * target.threads[0] > UINT32_MAX)) ||
             (target.launch_type == 2u && !target.input_max_records) ||
@@ -3956,8 +4141,7 @@ struct ReplayState {
                 output.target_node_index, target_shader, true) ||
             target_shader.source_node_index != output.target_node_index ||
             target_shader.input_record_size == 0 ||
-            target_shader.launch_type < 1u || target_shader.launch_type > 3u ||
-            (target_shader.launch_type == 1u && target_shader.grid_from_record))
+            target_shader.launch_type < 1u || target_shader.launch_type > 3u)
           return false;
         const uint32_t batch_size = target_shader.launch_type == 2u
                                          ? target_shader.input_max_records
@@ -4170,7 +4354,8 @@ struct ReplayState {
     }
     // A real program with an unimplemented input shape must not execute the
     // synthetic reference kernel in place of its shader.
-    if (device->HasWorkGraphProgram(
+    // Unknown or retired identifiers must not become synthetic programs.
+    if (!device->IsReferenceWorkGraphProgram(
             work_graph_program_identifier,
             sizeof(work_graph_program_identifier)))
       return false;

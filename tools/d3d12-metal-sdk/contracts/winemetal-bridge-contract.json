@@ -89,6 +89,10 @@
     "MTLDevice_supportsPullModelInterpolation",
     "MTLDevice_supportsShaderBarycentricCoordinates",
     "MTLDevice_programmableSamplePositionsSupported",
+    "MTLDevice_newComputeIndirectCommandBuffer",
+    "MTLIndirectCommandBuffer_gpuResourceID",
+    "MTLComputePipelineState_gpuResourceID",
+    "MTLDevice_newIndirectComputePipelineState",
     "MTLCommandEncoder_pushDebugGroup",
     "MTLCommandEncoder_popDebugGroup",
     "MTLCommandEncoder_insertDebugSignpost"
@@ -167,6 +171,10 @@
     "_MTLDevice_supportsPullModelInterpolation",
     "_MTLDevice_supportsShaderBarycentricCoordinates",
     "_MTLDevice_programmableSamplePositionsSupported",
+    "_MTLDevice_newComputeIndirectCommandBuffer",
+    "_MTLIndirectCommandBuffer_gpuResourceID",
+    "_MTLComputePipelineState_gpuResourceID",
+    "_MTLDevice_newIndirectComputePipelineState",
     "_MTLCommandEncoder_pushDebugGroup",
     "_MTLCommandEncoder_popDebugGroup",
     "_MTLCommandEncoder_insertDebugSignpost"

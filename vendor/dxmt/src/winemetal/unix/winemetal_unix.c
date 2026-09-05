@@ -25,6 +25,7 @@
 typedef int NTSTATUS;
 #define STATUS_SUCCESS 0
 #define STATUS_UNSUCCESSFUL 0xC0000001
+#define STATUS_INVALID_PARAMETER ((NTSTATUS)0xC000000D)
 
 static int
 winemetal_debug_enabled(void) {
@@ -1323,11 +1324,16 @@ _NSObject_description(void *obj) {
 }
 
 static NTSTATUS
-_MTLDevice_newComputePipelineState(void *obj) {
+_MTLDevice_newComputePipelineState_impl(void *obj, bool indirect) {
   struct unixcall_mtldevice_newcomputepso *params = obj;
   id<MTLDevice> device = (id<MTLDevice>)params->device;
   const struct WMTComputePipelineInfo *info = params->info.ptr;
+  params->ret_pso = 0;
+  params->ret_error = 0;
+  if (!device || !info || !info->compute_function)
+    return STATUS_INVALID_PARAMETER;
   MTLComputePipelineDescriptor *descriptor = [[MTLComputePipelineDescriptor alloc] init];
+  descriptor.supportIndirectCommandBuffers = indirect;
   NSError *err = NULL;
   descriptor.computeFunction = (id<MTLFunction>)info->compute_function;
   descriptor.threadGroupSizeIsMultipleOfThreadExecutionWidth = info->tgsize_is_multiple_of_sgwidth;
@@ -1360,6 +1366,56 @@ _MTLDevice_newComputePipelineState(void *obj) {
                                                                                                       error:&err];
   }
   [descriptor release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLDevice_newComputePipelineState(void *obj) {
+  return _MTLDevice_newComputePipelineState_impl(obj, false);
+}
+
+static NTSTATUS
+_MTLDevice_newIndirectComputePipelineState(void *obj) {
+  return _MTLDevice_newComputePipelineState_impl(obj, true);
+}
+
+static NTSTATUS
+_MTLDevice_newComputeIndirectCommandBuffer(void *obj) {
+  struct unixcall_mtldevice_new_compute_icb *params = obj;
+  params->ret = 0;
+  if (!params->device || !params->max_command_count ||
+      params->max_kernel_buffer_bind_count > 31)
+    return STATUS_INVALID_PARAMETER;
+  MTLIndirectCommandBufferDescriptor *desc = [[MTLIndirectCommandBufferDescriptor alloc] init];
+  desc.commandTypes = MTLIndirectCommandTypeConcurrentDispatch | MTLIndirectCommandTypeConcurrentDispatchThreads;
+  desc.inheritBuffers = NO;
+  desc.inheritPipelineState = NO;
+  desc.maxKernelBufferBindCount = params->max_kernel_buffer_bind_count;
+  id<MTLIndirectCommandBuffer> buffer = nil;
+  @try {
+    buffer = [(id<MTLDevice>)params->device newIndirectCommandBufferWithDescriptor:desc
+           maxCommandCount:params->max_command_count options:MTLResourceStorageModePrivate];
+    if (buffer) [buffer resetWithRange:NSMakeRange(0, params->max_command_count)];
+    params->ret = (obj_handle_t)buffer;
+  } @catch (NSException *exception) {
+    [buffer release];
+    params->ret = 0;
+  }
+  [desc release];
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLIndirectCommandBuffer_gpuResourceID(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  params->ret = params->handle ? [(id<MTLIndirectCommandBuffer>)params->handle gpuResourceID]._impl : 0;
+  return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+_MTLComputePipelineState_gpuResourceID(void *obj) {
+  struct unixcall_generic_obj_uint64_ret *params = obj;
+  params->ret = params->handle ? [(id<MTLComputePipelineState>)params->handle gpuResourceID]._impl : 0;
   return STATUS_SUCCESS;
 }
 
@@ -2138,6 +2194,25 @@ _MTLComputeCommandEncoder_encodeCommands(void *obj) {
                                 threadsPerThreadgroup:threadgroup_size];
       break;
     }
+    case WMTComputeCommandExecuteIndirectCommands: {
+      const struct wmtcmd_compute_execute_indirect_commands *body =
+          (const struct wmtcmd_compute_execute_indirect_commands *)next;
+      id<MTLBuffer> range = (id<MTLBuffer>)body->execution_range_buffer;
+      const uint64_t offset = body->execution_range_offset;
+      if (!encoder || !body->indirect_commands || !range || (offset & 3u) ||
+          offset > range.length || sizeof(MTLIndirectCommandBufferExecutionRange) > range.length - offset) {
+        if (debug) fclose(debug);
+        return STATUS_INVALID_PARAMETER;
+      }
+      @try {
+        [encoder executeCommandsInBuffer:(id<MTLIndirectCommandBuffer>)body->indirect_commands
+                          indirectBuffer:range indirectBufferOffset:offset];
+      } @catch (NSException *exception) {
+        if (debug) fclose(debug);
+        return STATUS_INVALID_PARAMETER;
+      }
+      break;
+    }
     case WMTComputeCommandSetPSO: {
       struct wmtcmd_compute_setpso *body = (struct wmtcmd_compute_setpso *)next;
       if (debug) {
@@ -2716,7 +2791,13 @@ _MTLTexture_replaceRegion(void *obj) {
 static NTSTATUS
 _MTLBuffer_didModifyRange(void *obj) {
   struct unixcall_generic_obj_uint64_uint64_ret *params = obj;
-  [(id<MTLBuffer>)params->handle didModifyRange:NSMakeRange(params->arg, params->ret)];
+  id<MTLBuffer> buffer = (id<MTLBuffer>)params->handle;
+  if (!buffer || params->arg > buffer.length || params->ret > buffer.length - params->arg)
+    return STATUS_INVALID_PARAMETER;
+  // Shared buffers are coherent and must not receive the managed-storage
+  // notification (Metal API Validation rejects that call on Apple silicon).
+  if (buffer.storageMode == MTLStorageModeManaged)
+    [buffer didModifyRange:NSMakeRange(params->arg, params->ret)];
   return STATUS_SUCCESS;
 }
 
@@ -5724,6 +5805,10 @@ const void *__wine_unix_call_funcs[] = {
     &_MTLDevice_supportsPullModelInterpolation,
     &_MTLDevice_supportsShaderBarycentricCoordinates,
     &_MTLDevice_programmableSamplePositionsSupported,
+    &_MTLDevice_newComputeIndirectCommandBuffer,
+    &_MTLIndirectCommandBuffer_gpuResourceID,
+    &_MTLComputePipelineState_gpuResourceID,
+    &_MTLDevice_newIndirectComputePipelineState,
 };
 
 #ifndef DXMT_NATIVE
@@ -5910,5 +5995,9 @@ const void *__wine_unix_call_wow64_funcs[] = {
     &_MTLDevice_supportsPullModelInterpolation,
     &_MTLDevice_supportsShaderBarycentricCoordinates,
     &_MTLDevice_programmableSamplePositionsSupported,
+    &_MTLDevice_newComputeIndirectCommandBuffer,
+    &_MTLIndirectCommandBuffer_gpuResourceID,
+    &_MTLComputePipelineState_gpuResourceID,
+    &_MTLDevice_newIndirectComputePipelineState,
 };
 #endif

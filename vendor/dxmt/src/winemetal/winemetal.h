@@ -849,6 +849,14 @@ WINEMETAL_API obj_handle_t MTLDevice_newComputePipelineState(
     obj_handle_t device, const struct WMTComputePipelineInfo *info, obj_handle_t *err_out
 );
 
+// Native compute ICBs own their pipeline and buffer bindings per command.
+WINEMETAL_API obj_handle_t MTLDevice_newComputeIndirectCommandBuffer(
+    obj_handle_t device, uint32_t max_command_count, uint32_t max_kernel_buffer_bind_count);
+WINEMETAL_API uint64_t MTLIndirectCommandBuffer_gpuResourceID(obj_handle_t buffer);
+WINEMETAL_API uint64_t MTLComputePipelineState_gpuResourceID(obj_handle_t pipeline);
+WINEMETAL_API obj_handle_t MTLDevice_newIndirectComputePipelineState(
+    obj_handle_t device, const struct WMTComputePipelineInfo *info, obj_handle_t *err_out);
+
 struct WMTRaytracingComputePipelineInfo {
   obj_handle_t dispatch_function;
   obj_handle_t raygen_function;
@@ -1427,6 +1435,7 @@ enum WMTComputeCommandType : uint16_t {
   WMTComputeCommandUpdateFence,
   WMTComputeCommandMemoryBarrier,
   WMTComputeCommandSetAccelerationStructure,
+  WMTComputeCommandExecuteIndirectCommands,
 };
 
 struct wmtcmd_compute_nop {
@@ -1449,6 +1458,17 @@ struct wmtcmd_compute_dispatch_indirect {
   obj_handle_t indirect_args_buffer;
   uint64_t indirect_args_offset;
 };
+
+struct wmtcmd_compute_execute_indirect_commands {
+  enum WMTComputeCommandType type;
+  uint16_t reserved[3];
+  struct WMTMemoryPointer next;
+  obj_handle_t indirect_commands;
+  obj_handle_t execution_range_buffer;
+  uint64_t execution_range_offset;
+};
+
+STATIC_ASSERT(sizeof(struct wmtcmd_compute_execute_indirect_commands) == 40);
 
 struct wmtcmd_compute_setpso {
   enum WMTComputeCommandType type;

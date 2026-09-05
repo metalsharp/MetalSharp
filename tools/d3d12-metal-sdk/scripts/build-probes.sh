@@ -305,6 +305,11 @@ build_probe \
   -o "$OUT_DIR/probe_workgraph_chain.exe"
 
 build_probe \
+  -I"$ROOT_DIR/vendor/dxmt/src/winemetal" \
+  "$SDK_DIR/probes/probe_workgraph_icb_bridge.cpp" \
+  -o "$OUT_DIR/probe_workgraph_icb_bridge.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_barriers_render_pass/probe_barriers_render_pass.cpp" \
   -o "$OUT_DIR/probe_barriers_render_pass.exe"
 

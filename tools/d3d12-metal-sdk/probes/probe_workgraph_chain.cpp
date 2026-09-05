@@ -155,9 +155,11 @@ int main(int argc, char** argv) {
     const char* mode = argc > 1 ? argv[1] : "chain";
     const bool zero_grid = std::strcmp(mode, "zero-grid") == 0;
     const bool fixed_consumer_empty = std::strcmp(mode, "fixed-consumer-empty") == 0;
-    const bool empty_grid = fixed_consumer_empty || std::strcmp(mode, "empty-grid") == 0;
+    const bool dynamic_consumer_empty = std::strcmp(mode, "dynamic-consumer-empty") == 0;
+    const bool empty_grid = dynamic_consumer_empty || fixed_consumer_empty || std::strcmp(mode, "empty-grid") == 0;
     const bool offset_grid = std::strcmp(mode, "offset-grid") == 0;
-    const bool cross_queue = std::strcmp(mode, "cross-queue-grid") == 0;
+    const bool cross_queue_dynamic = std::strcmp(mode, "cross-queue-dynamic") == 0;
+    const bool cross_queue = cross_queue_dynamic || std::strcmp(mode, "cross-queue-grid") == 0;
     const bool gpu_copy = cross_queue || std::strcmp(mode, "gpu-copy-grid") == 0;
     const bool gpu_grid = gpu_copy || std::strcmp(mode, "gpu-vector-grid") == 0;
     const bool u16_grid = std::strcmp(mode, "u16-grid") == 0;
@@ -171,9 +173,18 @@ int main(int argc, char** argv) {
     const bool fixed_consumer = varying_lanes || fixed_consumer_empty || std::strcmp(mode, "fixed-consumer") == 0;
     const bool dynamic_output = std::strcmp(mode, "dynamic-output") == 0;
     const bool dynamic_thread_output = std::strcmp(mode, "dynamic-thread-output") == 0;
-    const bool repeated = std::strcmp(mode, "repeated") == 0;
-    if (!repeated && !dynamic_thread_output && !dynamic_output && !zero_grid && !empty_grid && !offset_grid &&
-        !vector_grid && !fanout && !unsupported_target && !fixed_consumer && std::strcmp(mode, "chain"))
+    const bool program_isolation = std::strcmp(mode, "program-isolation") == 0;
+    const bool dynamic_consumer_repeated = std::strcmp(mode, "dynamic-consumer-repeated") == 0;
+    const bool repeated = dynamic_consumer_repeated || program_isolation || std::strcmp(mode, "repeated") == 0;
+    const bool dynamic_zero_grids = std::strcmp(mode, "dynamic-consumer-zero-grids") == 0;
+    const bool dynamic_consumer_u16 = std::strcmp(mode, "dynamic-consumer-u16") == 0;
+    const bool fanout_icb = std::strcmp(mode, "fanout-icb") == 0;
+    const bool conditional_icb = std::strcmp(mode, "conditional-icb") == 0;
+    const bool dynamic_consumer = fanout_icb || conditional_icb || cross_queue_dynamic || dynamic_consumer_repeated ||
+                                  dynamic_consumer_u16 || dynamic_zero_grids || dynamic_consumer_empty ||
+                                  std::strcmp(mode, "dynamic-consumer") == 0;
+    if (!dynamic_consumer && !repeated && !dynamic_thread_output && !dynamic_output && !zero_grid && !empty_grid &&
+        !offset_grid && !vector_grid && !fanout && !unsupported_target && !fixed_consumer && std::strcmp(mode, "chain"))
         return 2;
     HMODULE m = LoadLibraryA("d3d12.dll");
     auto cd = proc<CreateDevice>(m, "D3D12CreateDevice");
@@ -194,6 +205,8 @@ int main(int argc, char** argv) {
     ID3D12RootSignature* rs = nullptr;
     ID3D12DescriptorHeap* dh = nullptr;
     ID3D12StateObject* state = nullptr;
+    ID3D12StateObject* alternate_state = nullptr;
+    ID3D12StateObjectProperties* alternate_props = nullptr;
     ID3D12StateObjectProperties* props = nullptr;
     if (SUCCEEDED(h))
         h = d->QueryInterface(IID_PPV_ARGS(&d5));
@@ -246,7 +259,13 @@ int main(int argc, char** argv) {
         }
     }
     std::vector<uint8_t> cso;
-    if (!read(varying_lanes           ? "probe_workgraph_chain_varying_lanes.cso"
+    if (!read(fanout_icb              ? "probe_workgraph_chain_fanout_icb.cso"
+              : conditional_icb       ? "probe_workgraph_chain_conditional_icb.cso"
+              : cross_queue_dynamic   ? "probe_workgraph_chain_cross_queue_dynamic.cso"
+              : dynamic_consumer_u16  ? "probe_workgraph_chain_dynamic_consumer_u16.cso"
+              : dynamic_zero_grids    ? "probe_workgraph_chain_dynamic_zero_grids.cso"
+              : dynamic_consumer      ? "probe_workgraph_chain_dynamic_consumer.cso"
+              : varying_lanes         ? "probe_workgraph_chain_varying_lanes.cso"
               : dynamic_thread_output ? "probe_workgraph_chain_dynamic_thread_output.cso"
               : dynamic_output        ? "probe_workgraph_chain_dynamic_output.cso"
               : fixed_consumer        ? "probe_workgraph_chain_fixed_consumer.cso"
@@ -290,6 +309,34 @@ int main(int argc, char** argv) {
         using G = void*(STDMETHODCALLTYPE*)(ID3D12StateObjectProperties*, void*, LPCWSTR);
         auto vt = *reinterpret_cast<void***>(props);
         reinterpret_cast<G>(vt[7])(props, id, L"chain_graph");
+    }
+    uint8_t alternate_id[32] = {};
+    bool identifiers_distinct = false, identifiers_stable = false;
+    if (SUCCEEDED(h) && program_isolation) {
+        std::vector<uint8_t> alternate_cso;
+        if (!read("probe_workgraph_chain_second_program.cso", alternate_cso))
+            h = E_FAIL;
+        if (SUCCEEDED(h)) {
+            lib.DXILLibrary = {alternate_cso.data(), alternate_cso.size()};
+            h = d5->CreateStateObject(&sd, IID_PPV_ARGS(&alternate_state));
+        }
+        if (SUCCEEDED(h))
+            h = alternate_state->QueryInterface(
+                {0x460caac7, 0x1d24, 0x446a, {0xa1, 0x84, 0xca, 0x67, 0xdb, 0x49, 0x41, 0x38}},
+                reinterpret_cast<void**>(&alternate_props));
+        if (SUCCEEDED(h)) {
+            using G = void*(STDMETHODCALLTYPE*)(ID3D12StateObjectProperties*, void*, LPCWSTR);
+            auto get_id = [](ID3D12StateObjectProperties* p, uint8_t* dst) {
+                auto vt = *reinterpret_cast<void***>(p);
+                reinterpret_cast<G>(vt[7])(p, dst, L"chain_graph");
+            };
+            uint8_t first_again[32] = {}, second_again[32] = {};
+            get_id(alternate_props, alternate_id);
+            get_id(props, first_again);
+            get_id(alternate_props, second_again);
+            identifiers_distinct = std::memcmp(id, alternate_id, 32) != 0;
+            identifiers_stable = !std::memcmp(id, first_again, 32) && !std::memcmp(alternate_id, second_again, 32);
+        }
     }
     SetProgram sp = {};
     sp.Type = 5;
@@ -406,6 +453,11 @@ int main(int argc, char** argv) {
         if (repeated) {
             uint32_t later_records[8] = {1, 0, 1, 1, 1, 2, 1, 3};
             Dispatch later = {0, 0, {0, 4, later_records, 8}};
+            if (program_isolation) {
+                SetProgram alternate = sp;
+                std::memcpy(alternate.work.ProgramIdentifier, alternate_id, 32);
+                x->SetProgram(&alternate);
+            }
             x->DispatchGraph(&later);
             // CPU-mode records must already be owned by the recorded list.
             volatile uint32_t* mutation = later_records;
@@ -437,6 +489,38 @@ int main(int argc, char** argv) {
         }
         if (SUCCEEDED(h))
             h = wait(d, q, l, producer_gate, &consumer_blocked_until_release);
+    }
+    if (SUCCEEDED(h) && program_isolation) {
+        // Both first submissions have completed. Destroy only the second
+        // state, then reuse the first identifier without registering it again.
+        rel(alternate_props);
+        rel(alternate_state);
+        h = a->Reset();
+        if (SUCCEEDED(h))
+            h = l->Reset(a, nullptr);
+        if (SUCCEEDED(h)) {
+            x->SetComputeRootSignature(rs);
+            x->SetComputeRootUnorderedAccessView(0, out->GetGPUVirtualAddress());
+            x->SetProgram(&sp);
+            x->DispatchGraph(&dg);
+            h = wait(d, q, l);
+        }
+    }
+    if (SUCCEEDED(h) && program_isolation) {
+        // A retired identifier must not execute its old shader or the
+        // library-free reference fallback. Preserve the prior exact result.
+        h = a->Reset();
+        if (SUCCEEDED(h))
+            h = l->Reset(a, nullptr);
+        if (SUCCEEDED(h)) {
+            SetProgram retired = sp;
+            std::memcpy(retired.work.ProgramIdentifier, alternate_id, 32);
+            x->SetComputeRootSignature(rs);
+            x->SetComputeRootUnorderedAccessView(0, out->GetGPUVirtualAddress());
+            x->SetProgram(&retired);
+            x->DispatchGraph(&dg);
+            h = wait(d, q, l);
+        }
     }
     uint32_t values[16] = {};
     if (SUCCEEDED(h))
@@ -495,11 +579,45 @@ int main(int argc, char** argv) {
         const uint32_t repeated_expected[8] = {23, 10, 23, 10, 6, 4, 6, 4};
         std::memcpy(expected, repeated_expected, sizeof(repeated_expected));
     }
+    if (program_isolation) {
+        const uint32_t isolated_expected[8] = {241, 215, 241, 215, 10, 6, 10, 6};
+        std::memcpy(expected, isolated_expected, sizeof(isolated_expected));
+    }
+    if (dynamic_consumer && !empty_grid) {
+        const uint32_t dynamic_expected[8] = {474, 510, 12948, 13020, 12, 12, 24, 24};
+        std::memcpy(expected, dynamic_expected, sizeof(dynamic_expected));
+    }
+    if (dynamic_zero_grids)
+        for (unsigned i = 0; i < 3; ++i)
+            expected[i] = expected[4 + i] = 0;
+    if (dynamic_consumer_repeated) {
+        const uint32_t repeated_dynamic[8] = {699, 1020, 19398, 26040, 18, 24, 36, 48};
+        std::memcpy(expected, repeated_dynamic, sizeof(repeated_dynamic));
+    }
+    if (cross_queue_dynamic) {
+        const uint32_t cross_expected[8] = {948, 1020, 12948, 13020, 24, 24, 24, 24};
+        std::memcpy(expected, cross_expected, sizeof(cross_expected));
+    }
+    if (conditional_icb)
+        expected[0] = expected[2] = expected[4] = expected[6] = 0;
+    if (fanout_icb) {
+        expected[4] += 2;
+        expected[5] += 1;
+        expected[6] += 2;
+        expected[7] += 1;
+    }
     const bool readback_exact = SUCCEEDED(h) && !std::memcmp(values, expected, sizeof(values));
     // Default: six groups allocate two records each, then twelve thread
     // allocations. Vector grids launch nine groups; zero modes launch fewer.
     const bool allocations_exact = SUCCEEDED(h) &&
-                                   words[0] == (repeated                             ? 16u
+                                   words[0] == (fanout_icb                           ? 90u
+                                                : conditional_icb                    ? 40u
+                                                : cross_queue_dynamic                ? 114u
+                                                : dynamic_consumer_repeated          ? 62u
+                                                : dynamic_zero_grids                 ? 36u
+                                                : (dynamic_consumer && !empty_grid)  ? 84u
+                                                : program_isolation                  ? 24u
+                                                : repeated                           ? 16u
                                                 : varying_lanes                      ? 108u
                                                 : dynamic_thread_output              ? 18u
                                                 : dynamic_output                     ? 8u
@@ -510,7 +628,14 @@ int main(int argc, char** argv) {
                                                 : vector_grid                        ? 36u
                                                 : zero_grid                          ? 16u
                                                                                      : 24u) &&
-                                   words[1] == (repeated                             ? 12u
+                                   words[1] == (fanout_icb                           ? 84u
+                                                : conditional_icb                    ? 38u
+                                                : cross_queue_dynamic                ? 105u
+                                                : dynamic_consumer_repeated          ? 58u
+                                                : dynamic_zero_grids                 ? 30u
+                                                : (dynamic_consumer && !empty_grid)  ? 78u
+                                                : program_isolation                  ? 18u
+                                                : repeated                           ? 12u
                                                 : varying_lanes                      ? 102u
                                                 : dynamic_thread_output              ? 12u
                                                 : dynamic_output                     ? 6u
@@ -522,18 +647,21 @@ int main(int argc, char** argv) {
                                                 : zero_grid                          ? 12u
                                                                                      : 18u);
     bool exact = readback_exact && allocations_exact && (!gpu_grid || payload_mutated_after_recording) &&
-                 (!cross_queue || consumer_blocked_until_release);
+                 (!cross_queue || consumer_blocked_until_release) &&
+                 (!program_isolation || (identifiers_distinct && identifiers_stable));
     FILE* result = stdout;
     if (result) {
         std::fprintf(result,
                      "{\"schema\":\"metalsharp.workgraph-chain.v1\",\"pass\":%s,"
                      "\"hr\":\"0x%08x\",\"cpu_scheduler\":false,\"readback_exact\":%s,"
                      "\"allocations_exact\":%s,\"gpu_input\":%s,\"post_recording_mutation\":%s,\"queued_gpu_copy\":%s,"
-                     "\"cross_queue_dependency\":%s,\"consumer_blocked_until_release\":%s,\"values\":[",
+                     "\"cross_queue_dependency\":%s,\"consumer_blocked_until_release\":%s,"
+                     "\"identifiers_distinct\":%s,\"identifiers_stable\":%s,\"values\":[",
                      exact ? "true" : "false", (unsigned)h, readback_exact ? "true" : "false",
                      allocations_exact ? "true" : "false", gpu_grid ? "true" : "false",
                      payload_mutated_after_recording ? "true" : "false", gpu_copy ? "true" : "false",
-                     cross_queue ? "true" : "false", consumer_blocked_until_release ? "true" : "false");
+                     cross_queue ? "true" : "false", consumer_blocked_until_release ? "true" : "false",
+                     identifiers_distinct ? "true" : "false", identifiers_stable ? "true" : "false");
         for (unsigned i = 0; i < 16; ++i)
             std::fprintf(result, "%s%u", i ? "," : "", values[i]);
         std::fprintf(result, "]}\n");
@@ -550,6 +678,8 @@ int main(int argc, char** argv) {
     rel(producer_allocator);
     rel(producer_queue);
     rel(props);
+    rel(alternate_props);
+    rel(alternate_state);
     rel(state);
     rel(dh);
     rel(rs);

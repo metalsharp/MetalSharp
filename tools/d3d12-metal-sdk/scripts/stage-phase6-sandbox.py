@@ -218,7 +218,9 @@ def main() -> int:
         destination = runtime_unix / name
         if not source.is_file():
             failures.append(f"missing pinned LLVM sidecar: {name}")
-        else:
+        elif source.resolve() != destination.resolve():
+            # Re-staging an existing sandbox already has its pinned sidecars
+            # at the destination; copying a file onto itself raises SameFileError.
             shutil.copy2(source, destination)
 
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
