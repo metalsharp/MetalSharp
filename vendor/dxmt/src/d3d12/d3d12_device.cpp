@@ -3861,7 +3861,8 @@ static bool DXILUsesHitObjectInvoke(const D3D12_SHADER_BYTECODE &bytecode) {
 
 static bool LowerWorkGraphNodeShader(
     const D3D12_SHADER_BYTECODE &bytecode, LPCWSTR entry_point,
-    std::string &source, dxmt::dxil::NodeShaderMetadata &metadata) {
+    uint32_t node_output_tag, std::string &source,
+    dxmt::dxil::NodeShaderMetadata &metadata) {
   source.clear();
   metadata = {};
   if (!entry_point || !entry_point[0])
@@ -3886,6 +3887,7 @@ static bool LowerWorkGraphNodeShader(
     return false;
   dxmt::dxil::MSLLoweringOptions options = {};
   options.entry_point = shader.entry_point;
+  options.node_output_tag = node_output_tag;
   auto lowered = dxmt::dxil::MSLLowering::lower(*module, shader, options);
   if (!lowered || lowered->unsupported_intrinsics ||
       lowered->unsupported_opcodes)
@@ -4172,9 +4174,13 @@ public:
           // The library-free reference fixture has a synthetic 16-byte ABI.
           dxmt::dxil::NodeShaderMetadata input_layout;
           input_layout.input = {16, 16};
-          if (node_library.pShaderBytecode &&
-              !LowerWorkGraphNodeShader(node_library, source.Shader.Shader,
-                                         node_msl, input_layout))
+          const uint64_t node_output_tag = uint64_t(node) * 256u;
+          if (node_output_tag > UINT32_MAX ||
+              (node_library.pShaderBytecode &&
+               !LowerWorkGraphNodeShader(
+                   node_library, source.Shader.Shader,
+                   static_cast<uint32_t>(node_output_tag), node_msl,
+                   input_layout)))
             return false;
           m_work_graph_node_msl.push_back(std::move(node_msl));
           m_work_graph_node_layouts.push_back(input_layout);
@@ -4217,9 +4223,14 @@ public:
             std::string node_msl;
             dxmt::dxil::NodeShaderMetadata input_layout;
             input_layout.input = {16, 16};
-            if (node_library.pShaderBytecode &&
-                !LowerWorkGraphNodeShader(node_library, entrypoint.Name,
-                                           node_msl, input_layout))
+            const uint64_t node_output_tag =
+                uint64_t(m_work_graph_nodes.size() - 1u) * 256u;
+            if (node_output_tag > UINT32_MAX ||
+                (node_library.pShaderBytecode &&
+                 !LowerWorkGraphNodeShader(
+                     node_library, entrypoint.Name,
+                     static_cast<uint32_t>(node_output_tag), node_msl,
+                     input_layout)))
               return false;
             m_work_graph_node_msl.push_back(std::move(node_msl));
             m_work_graph_node_layouts.push_back(input_layout);
@@ -5051,23 +5062,74 @@ public:
         m_work_graph_name == program_name) {
       // DispatchGraph selects an entrypoint, not an index in the node array.
       // Preserve empty slots for unresolved nodes rather than shifting indices.
+      // Keep canonical node slots separate from entrypoint routing. An
+      // entrypoint permutation must not overwrite downstream node identities.
+      const size_t program_node_count =
+          m_work_graph_entrypoints.size() + m_work_graph_node_msl.size();
       std::vector<MTLD3D12Device::WorkGraphNodeShader> entrypoint_shaders(
-          m_work_graph_entrypoints.size());
+          program_node_count);
+      auto copy_node_shader = [&](size_t destination, UINT node) -> bool {
+        if (destination >= entrypoint_shaders.size() ||
+            node >= m_work_graph_node_msl.size() ||
+            node >= m_work_graph_node_layouts.size())
+          return false;
+        auto &shader = entrypoint_shaders[destination];
+        shader.msl = m_work_graph_node_msl[node];
+        shader.source_node_index = node;
+        shader.is_entrypoint = destination < m_work_graph_entrypoints.size();
+        const auto &metadata = m_work_graph_node_layouts[node];
+        shader.input_record_size = metadata.input.size;
+        shader.input_record_alignment = metadata.input.alignment;
+        shader.input_max_records = metadata.max_input_records;
+        shader.launch_type = metadata.launch_type;
+        for (unsigned axis = 0; axis < 3; ++axis) {
+          shader.threads[axis] = metadata.threads[axis];
+          shader.grid[axis] = metadata.grid[axis];
+          shader.max_grid[axis] = metadata.max_grid[axis];
+        }
+        shader.grid_from_record = metadata.grid_from_record;
+        shader.grid_byte_offset = metadata.grid_byte_offset;
+        shader.grid_components = metadata.grid_components;
+        shader.grid_component_bytes = metadata.grid_component_bytes;
+        try {
+          shader.outputs.reserve(metadata.outputs.size());
+          for (const auto &output : metadata.outputs) {
+            MTLD3D12Device::WorkGraphNodeOutput destination_output;
+            destination_output.node_name = output.node_name;
+            destination_output.array_index = output.array_index;
+            destination_output.metadata_index = output.metadata_index;
+            destination_output.size = output.size;
+            destination_output.alignment = output.alignment;
+            destination_output.max_records = output.max_records;
+            destination_output.flags = output.flags;
+            for (UINT candidate = 0; candidate < m_work_graph_nodes.size();
+                 ++candidate) {
+              if (m_work_graph_nodes[candidate].ArrayIndex !=
+                      destination_output.array_index ||
+                  !m_work_graph_nodes[candidate].Name ||
+                  std::wcscmp(m_work_graph_nodes[candidate].Name,
+                              std::wstring(destination_output.node_name.begin(),
+                                          destination_output.node_name.end())
+                                  .c_str()))
+                continue;
+              destination_output.target_node_index = candidate;
+              break;
+            }
+            shader.outputs.push_back(std::move(destination_output));
+          }
+        } catch (...) {
+          return false;
+        }
+        return true;
+      };
+      for (size_t node = 0; node < m_work_graph_node_msl.size(); ++node)
+        if (!copy_node_shader(m_work_graph_entrypoints.size() + node, static_cast<UINT>(node)))
+          return nullptr;
       for (size_t entry = 0; entry < m_work_graph_entrypoints.size(); ++entry) {
         const UINT node = GetNodeIndex(0, m_work_graph_entrypoints[entry]);
         if (node < m_work_graph_node_msl.size() &&
-            node < m_work_graph_node_layouts.size()) {
-          entrypoint_shaders[entry].msl = m_work_graph_node_msl[node];
-          const auto &metadata = m_work_graph_node_layouts[node];
-          entrypoint_shaders[entry].input_record_size = metadata.input.size;
-          entrypoint_shaders[entry].input_record_alignment = metadata.input.alignment;
-          entrypoint_shaders[entry].input_max_records = metadata.max_input_records;
-          entrypoint_shaders[entry].launch_type = metadata.launch_type;
-          for (unsigned axis = 0; axis < 3; ++axis) {
-            entrypoint_shaders[entry].threads[axis] = metadata.threads[axis];
-            entrypoint_shaders[entry].grid[axis] = metadata.grid[axis];
-          }
-        }
+            !copy_node_shader(entry, node))
+          return nullptr;
       }
       m_device->RegisterWorkGraphProgram(
           reinterpret_cast<const uint8_t *>(ret), sizeof(*ret), entrypoint_shaders);
@@ -9149,7 +9211,7 @@ void MTLD3D12Device::RegisterWorkGraphProgram(
 
 bool MTLD3D12Device::LookupWorkGraphNodeShader(
     const uint8_t *identifier, size_t identifier_size, UINT node_index,
-    WorkGraphNodeShader &shader) const {
+    WorkGraphNodeShader &shader, bool by_source_node) const {
   shader = {};
   if (!identifier || identifier_size != 32)
     return false;
@@ -9159,8 +9221,15 @@ bool MTLD3D12Device::LookupWorkGraphNodeShader(
   uint64_t first = 0;
   memcpy(&first, identifier, sizeof(first));
   auto it = m_work_graph_programs.find(key);
+  if (by_source_node && it != m_work_graph_programs.end()) {
+    const auto found = std::find_if(it->second.begin(), it->second.end(),
+        [&](const auto &candidate) { return candidate.source_node_index == node_index; });
+    if (found == it->second.end()) return false;
+    node_index = static_cast<UINT>(found - it->second.begin());
+  }
   if (it == m_work_graph_programs.end() || node_index >= it->second.size() ||
-      it->second[node_index].msl.empty()) {
+      it->second[node_index].msl.empty() ||
+      (!by_source_node && !it->second[node_index].is_entrypoint)) {
     TRACE("LookupWorkGraphNodeShader miss key_size=%zu node=%u first=0x%llx programs=%zu",
           key.size(), node_index, (unsigned long long)first,
           m_work_graph_programs.size());

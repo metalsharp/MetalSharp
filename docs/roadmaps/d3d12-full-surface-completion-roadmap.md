@@ -960,9 +960,20 @@ classes and general binding remain open. Evidence:
 Fixed-grid broadcasting and thread nodes now execute bounded multi-record CPU
 and GPU input arrays through the lowered node shader. Coalescing nodes retain
 `[MaxRecords]`, support dynamic input indexing and GPU batch dispatch, and pass
-six-record CPU/GPU readback. Resource/record fan-out, recursion, output
-publication, GPU-generated metadata, broader cross-queue synchronization, and
-general node shader conversion remain open.
+six-record CPU/GPU readback. A sufficiently sized initialized backing allocation
+also proves bounded GPU-atomic output-record allocation and `OutputComplete`
+publication with exact table/slot readback. Bounded downstream scheduling now
+consumes source-tagged outputs on the GPU, builds indirect thread/coalescing
+launches, and passes three-node/two-path fan-out and full-table (256 allocations,
+320 records) witnesses. Entry grids use DXIL offsets and U16/U32 component
+width/count metadata; scalar/vector/zero grids, post-recording mutation,
+DEFAULT-heap queued copies and gated cross-queue dependencies pass. All sixteen
+official Work Graph result files and their required contract rows pass in the
+development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
+Recursive execution, downstream broadcasting, GPU-generated input headers,
+general resource/argument tables, overflow and broader synchronization remain
+open. Cycles and unsupported downstream shapes reject before upstream writes.
+Clean-source staging and release reproducibility are still required.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**
@@ -2279,6 +2290,18 @@ whether the scoped FL12_2 gate is green.
   backing-memory overflow rejection with unchanged output readback. The
   bounded provider remains non-promoted because recursive/fan-out graphs,
   barriers, and general node conversion remain open.
+
+### 2026-09-05 — Work Graph bounded output-record publication
+
+- Added a bounded GPU-atomic output allocator to the lowered node ABI. A large
+  initialized backing buffer owns separate allocation metadata and 256-byte
+  record slots after the table; `OutputComplete` publishes a GPU-visible marker
+  while user `u0` remains separate. The source-owned probe now checks exact
+  counters, table fields, slot contents, and publication after a real Metal
+  dispatch, with matching PE/Unix staging and strict ABI evidence.
+- The allocator is intentionally not promoted as a complete Work Graph
+  scheduler: downstream output-ID consumption, fan-out/recursion, dynamic
+  grids, and general node resource/argument tables remain open.
 
 ### 2026-09-05 — Video planar reference matrix
 

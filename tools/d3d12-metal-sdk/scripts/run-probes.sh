@@ -1929,7 +1929,9 @@ PROBE_WINEDLLPATH="${DXMT_PROBE_WINEDLLPATH:-$DXMT_RUNTIME}"
 RUNTIME_LIB_DIR="$(dirname "$DXMT_RUNTIME")"
 WINE_RUNTIME_ROOT="$(dirname "$RUNTIME_LIB_DIR")"
 WINE_INSTALL_ROOT="$(cd "$(dirname "$WINE_BIN")/.." && pwd)"
-WINE_UNIX_DIR="$RUNTIME_LIB_DIR/wine/x86_64-unix"
+# Unix aliases must be registered with the executable's Wine installation,
+# not an unrelated sibling directory of an externally staged DXMT route.
+WINE_UNIX_DIR="$WINE_INSTALL_ROOT/lib/wine/x86_64-unix"
 if [[ -n "$GAME_DIR" ]]; then
   if [[ ! -d "$GAME_DIR" ]]; then
     echo "Game DLL directory does not exist: $GAME_DIR" >&2
@@ -2098,6 +2100,7 @@ if [[ ! -f "$PROBE_EXE" || ! -f "$AGILITY_PROBE_EXE" || ! -f "$CAPS_PROBE_EXE" |
 fi
 if [[ ! -f "$SDK_DIR/out/bin/compile-geometry-corpus.exe" ||
       ! -f "$WORK_GRAPH_EXECUTION_PROBE_EXE" ||
+      ! -f "$SDK_DIR/out/bin/probe_workgraph_chain.exe" ||
       ! -f "$META_COMMAND_PROBE_EXE" ||
       ! -f "$VIDEO_PROBE_EXE" ||
       ! -f "$VIDEO_PROCESS_PROBE_EXE" ||
@@ -4169,6 +4172,102 @@ prepare_work_graph_probe() {
     return 1
   }
 
+  local chain_cso="$SDK_DIR/out/bin/probe_workgraph_chain.cso"
+  rm -f "$chain_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -Fo "$chain_cso" \
+      "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$chain_cso" ]]; then
+    echo "D3D12 node chain compilation failed" >&2
+    return 1
+  fi
+
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_chain_offset.cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DGRID_OFFSET=1 \
+      -Fo "$SDK_DIR/out/bin/probe_workgraph_chain_offset.cso" \
+      "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$SDK_DIR/out/bin/probe_workgraph_chain_offset.cso" ]]; then
+    echo "D3D12 offset-grid compilation failed" >&2
+    return 1
+  fi
+
+  local vector_cso="$SDK_DIR/out/bin/probe_workgraph_chain_vector.cso"
+  rm -f "$vector_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DGRID_VECTOR=1 \
+      -Fo "$vector_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$vector_cso" ]]; then
+    echo "D3D12 vector-grid compilation failed" >&2
+    return 1
+  fi
+
+  local fanout_cso="$SDK_DIR/out/bin/probe_workgraph_chain_fanout.cso"
+  rm -f "$fanout_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DFANOUT=1 \
+      -Fo "$fanout_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$fanout_cso" ]]; then
+    echo "D3D12 fan-out compilation failed" >&2
+    return 1
+  fi
+
+  local bad_target_cso="$SDK_DIR/out/bin/probe_workgraph_chain_bad_target.cso"
+  rm -f "$bad_target_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DBAD_TARGET=1 \
+      -Fo "$bad_target_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$bad_target_cso" ]]; then
+    echo "D3D12 unsupported-target fixture compilation failed" >&2
+    return 1
+  fi
+
+  local cycle_cso="$SDK_DIR/out/bin/probe_workgraph_chain_cycle.cso"
+  rm -f "$cycle_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DCYCLE=1 \
+      -Fo "$cycle_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$cycle_cso" ]]; then
+    echo "D3D12 cycle fixture compilation failed" >&2
+    return 1
+  fi
+
+  local u16_cso="$SDK_DIR/out/bin/probe_workgraph_chain_u16.cso"
+  rm -f "$u16_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -enable-16bit-types -DGRID_U16=1 \
+      -Fo "$u16_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$u16_cso" ]]; then
+    echo "D3D12 U16-grid fixture compilation failed" >&2
+    return 1
+  fi
+
+  local oversized_cso="$SDK_DIR/out/bin/probe_workgraph_chain_oversized.cso"
+  rm -f "$oversized_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DOVERSIZED_OUTPUT=1 \
+      -Fo "$oversized_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$oversized_cso" ]]; then
+    echo "D3D12 oversized-output fixture compilation failed" >&2
+    return 1
+  fi
+
   rm -f "$d3d12_node_layout_cso"
   if ! (
     cd "$SDK_DIR/out/bin"
@@ -6229,6 +6328,34 @@ fi
 
 if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
   prepare_work_graph_probe
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-chain-${PROFILE}.json"
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-zero-grid-${PROFILE}.json" zero-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-empty-grid-${PROFILE}.json" empty-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-offset-grid-${PROFILE}.json" offset-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-vector-grid-${PROFILE}.json" vector-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-vector-grid-${PROFILE}.json" gpu-vector-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-fanout-${PROFILE}.json" fanout
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-fanout-capacity-${PROFILE}.json" fanout-capacity
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-unsupported-target-${PROFILE}.json" unsupported-target
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-cycle-rejection-${PROFILE}.json" cycle
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-u16-grid-${PROFILE}.json" u16-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-copy-grid-${PROFILE}.json" gpu-copy-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-cross-queue-grid-${PROFILE}.json" cross-queue-grid
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-oversized-output-${PROFILE}.json" oversized-output
   run_probe_exe "$WORK_GRAPH_EXECUTION_PROBE_EXE" \
     "$WORK_GRAPH_EXECUTION_RESULT_FILE"
 fi

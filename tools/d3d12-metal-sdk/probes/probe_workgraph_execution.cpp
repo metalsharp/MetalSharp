@@ -282,7 +282,7 @@ int main() {
     bool node_coalescing_gpu_exact = false;
     uint32_t node_coalescing_gpu_values[8] = {};
     bool node_launch_geometry_exact = false;
-    bool node_dynamic_grid_rejected = false;
+    bool node_dynamic_grid_accepted = false;
     uint32_t node_launch_values[8] = {};
     bool node_input_gpu_dependency_exact = false;
     uint32_t node_input_gpu_dependency_values[2] = {};
@@ -637,7 +637,8 @@ int main() {
         graph.Nodes = &dynamic_node;
         ID3D12StateObject* rejected = reinterpret_cast<ID3D12StateObject*>(uintptr_t(1));
         const HRESULT rejected_hr = device5->CreateStateObject(&desc, IID_PPV_ARGS(&rejected));
-        node_dynamic_grid_rejected = rejected_hr == E_FAIL && rejected == nullptr;
+        node_dynamic_grid_accepted = rejected_hr == S_OK && rejected &&
+            rejected != reinterpret_cast<ID3D12StateObject*>(uintptr_t(1));
         if (rejected && rejected != reinterpret_cast<ID3D12StateObject*>(uintptr_t(1))) release(rejected);
     }
     uint8_t node_shader_identifier[32] = {};
@@ -1902,7 +1903,7 @@ int main() {
         node_table_short_view_unchanged && node_table_null_view_unchanged &&
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
-        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && node_record_offsets_exact && node_broadcast_multi_exact && node_broadcast_multi_gpu_exact && node_thread_multi_exact && node_coalescing_multi_exact && node_coalescing_gpu_exact && dxil_multi_node_readback_exact &&
+        node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_accepted && node_record_offsets_exact && node_broadcast_multi_exact && node_broadcast_multi_gpu_exact && node_thread_multi_exact && node_coalescing_multi_exact && node_coalescing_gpu_exact && dxil_multi_node_readback_exact &&
         node_multi_cpu_input_exact && node_multi_gpu_input_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
@@ -2001,7 +2002,7 @@ int main() {
     std::printf("  \"node_record_offset_values\": [");
     for (UINT i = 0; i < 12; ++i) std::printf("%s%u", i ? "," : "", node_record_offset_values[i]);
     std::printf("],\n");
-    std::printf("  \"node_dynamic_grid_rejected\": %s,\n", node_dynamic_grid_rejected ? "true" : "false");
+    std::printf("  \"node_dynamic_grid_accepted\": %s,\n", node_dynamic_grid_accepted ? "true" : "false");
     std::printf("  \"node_launch_geometry_exact\": %s,\n", node_launch_geometry_exact ? "true" : "false");
     std::printf("  \"node_launch_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n", node_launch_values[0], node_launch_values[1], node_launch_values[2], node_launch_values[3], node_launch_values[4], node_launch_values[5], node_launch_values[6], node_launch_values[7]);
     std::printf("  \"node_input_gpu_dependency_exact\": %s,\n", node_input_gpu_dependency_exact ? "true" : "false");
@@ -2074,7 +2075,7 @@ int main() {
                    dxil_node_output_records_exact && dxil_node_shader_uav_binding_exact && node_table_uav_exact &&
                    node_table_short_view_unchanged && node_table_null_view_unchanged &&
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
-                   node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_rejected && node_record_offsets_exact &&
+                   node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_accepted && node_record_offsets_exact &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
                    node_multi_gpu_input_exact
                ? 0

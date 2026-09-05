@@ -152,7 +152,30 @@ int main(int argc, char **argv) {
     require(!nodeInputLayout(module, "absent_entry"), "missing entrypoint accepted");
     require(!nodeShaderMetadata(module, "absent_entry"), "missing launch entrypoint accepted");
     require(bool(nodeInputLayout(module, "node_dynamic")), "dynamic-grid input layout missing");
-    require(!nodeShaderMetadata(module, "node_dynamic"), "max grid substituted for record-driven grid");
+    const auto dynamic_metadata = nodeShaderMetadata(module, "node_dynamic");
+    require(dynamic_metadata && dynamic_metadata->grid_from_record &&
+                dynamic_metadata->max_grid[0] == 2 &&
+                dynamic_metadata->grid_byte_offset == 0 && dynamic_metadata->grid_components == 3,
+            "bounded record-driven grid metadata missing");
+    for (auto id : module.named_metadata.at("dx.entryPoints")) {
+      const auto &entry = module.metadata_records[id];
+      const auto *name = operand(module, entry, 1);
+      if (!name || name->string_value != "node_dynamic") continue;
+      const auto *properties = operand(module, entry, 4);
+      const auto *inputs = tag(module, *properties, 20);
+      const auto *type = tag(module, *operand(module, *inputs, 0), 2);
+      const auto *semantic = tag(module, *type, 1);
+      require(semantic, "dispatch-grid semantic missing");
+      const size_t semantic_id = semantic - module.metadata_records.data();
+      for (unsigned bad_field = 0; bad_field < 3; ++bad_field) {
+        auto malformed = module;
+        auto &ops = malformed.metadata_records[semantic_id].operands;
+        // Misaligned offset (3), invalid component type (0), or zero count.
+        ops[bad_field] = semantic->operands[bad_field == 0 ? 2 : 0];
+        require(!nodeShaderMetadata(malformed, "node_dynamic"),
+                "malformed dispatch-grid semantic accepted");
+      }
+    }
     auto duplicate = module;
     auto &entries = duplicate.named_metadata["dx.entryPoints"];
     const auto originals = entries;

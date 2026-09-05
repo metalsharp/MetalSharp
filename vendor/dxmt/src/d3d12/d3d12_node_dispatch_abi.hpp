@@ -24,3 +24,19 @@ struct D3D12NodeInputContext {
 static_assert(sizeof(D3D12NodeInputContext) == 32);
 static_assert(offsetof(D3D12NodeInputContext, record_stride) == 8);
 static_assert(offsetof(D3D12NodeInputContext, byte_length) == 24);
+
+// Version 3 describes a GPU-produced descriptor stream. The scheduler fills
+// record_count/byte_length after compacting published output allocations; the
+// consumer shader reads the stream using its group index, so no CPU readback
+// or record-by-record host scheduling is involved.
+struct D3D12NodeDynamicInputContext {
+  uint32_t version = 3;
+  uint32_t record_count = 0;
+  uint64_t record_stride = sizeof(uint32_t) * 2;
+  uint64_t record_size = 0;
+  uint64_t byte_length = 0;
+  uint32_t batch_size = 1;
+  uint32_t reserved = 0;
+};
+static_assert(sizeof(D3D12NodeDynamicInputContext) == 40);
+static_assert(offsetof(D3D12NodeDynamicInputContext, batch_size) == 32);

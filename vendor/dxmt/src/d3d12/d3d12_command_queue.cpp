@@ -19,6 +19,7 @@
 #include "util_string.hpp"
 #include "Metal.hpp"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -1394,6 +1395,118 @@ static std::string DescriptorSummary(const D3D12Descriptor *desc,
       " array_len=", SRVTextureArrayLength(desc, res));
 }
 
+static constexpr const char *kWorkGraphSchedulerKernel = R"MSL(
+#include <metal_stdlib>
+using namespace metal;
+
+struct m12_node_input_context {
+  uint version;
+  uint count;
+  ulong stride;
+  ulong size;
+  ulong length;
+  uint batch_size;
+  uint reserved;
+};
+struct m12_node_schedule_parameters {
+  uint target_output;
+  uint consume_bit;
+  uint batch_size;
+  uint record_size;
+};
+
+// Compact published output allocations into a descriptor stream and produce
+// an indirect dispatch. One lane performs the bounded scan; all record bytes
+// remain in the GPU backing allocation and are never read by the CPU.
+kernel void m12_work_graph_schedule(
+    device uint *backing [[buffer(0)]],
+    device uint *descriptors [[buffer(1)]],
+    device uint *dispatch_args [[buffer(2)]],
+    device m12_node_input_context *context [[buffer(3)]],
+    constant m12_node_schedule_parameters &parameters [[buffer(4)]],
+    uint tid [[thread_position_in_grid]]) {
+  if (tid != 0u)
+    return;
+  uint count = 0u;
+  const uint batch = parameters.batch_size != 0u ? parameters.batch_size : 1u;
+  for (uint allocation = 0u; allocation < 256u; ++allocation) {
+    device uint *entry = backing + 8u + allocation * 4u;
+    const uint base_slot = entry[0];
+    const uint record_count = entry[1];
+    const uint output = entry[2];
+    const uint published = entry[3];
+    if ((published & 1u) == 0u || output != parameters.target_output ||
+        (published & parameters.consume_bit) != 0u)
+      continue;
+    for (uint record = 0u; record < record_count; ++record) {
+      if (count >= 4096u)
+        break;
+      descriptors[count * 2u] = base_slot + record;
+      descriptors[count * 2u + 1u] = 0u;
+      ++count;
+    }
+    entry[3] = published | parameters.consume_bit;
+  }
+  context->version = 3u;
+  context->count = count;
+  context->stride = 8ul;
+  context->size = ulong(parameters.record_size);
+  context->length = ulong(count);
+  context->batch_size = batch;
+  context->reserved = 0u;
+  dispatch_args[0] = (count + batch - 1u) / batch;
+  dispatch_args[1] = 1u;
+  dispatch_args[2] = 1u;
+}
+
+// Build one indirect dispatch triplet per record for a broadcasting node whose
+// SV_DispatchGrid is located by its validated DXIL semantic metadata.
+struct m12_node_grid_parameters {
+  uint record_count;
+  uint record_stride;
+  uint max_x;
+  uint max_y;
+  uint max_z;
+  uint grid_byte_offset;
+  uint grid_components;
+  uint grid_component_bytes;
+};
+static inline uint m12_node_clamp_grid(uint value, uint maximum) {
+  // A zero grid has no threadgroups; do not manufacture a launch.
+  return min(value, maximum);
+}
+static inline uint m12_node_grid_component(device const uchar *record, uint index, uint width) {
+  // Byte loads keep valid non-DWORD-aligned U16 fields safe.
+  device const uchar *p = record + index * width;
+  uint value = uint(p[0]) | (uint(p[1]) << 8u);
+  if (width == 4u) value |= (uint(p[2]) << 16u) | (uint(p[3]) << 24u);
+  return value;
+}
+kernel void m12_work_graph_build_grids(
+    device const uchar *records [[buffer(0)]],
+    device uint *dispatch_args [[buffer(1)]],
+    constant m12_node_grid_parameters &parameters [[buffer(2)]],
+    uint tid [[thread_position_in_grid]]) {
+  if (tid >= parameters.record_count)
+    return;
+  device const uchar *record = records + ulong(tid) * ulong(parameters.record_stride) + parameters.grid_byte_offset;
+  const uint width = parameters.grid_component_bytes;
+  const uint x = m12_node_clamp_grid(m12_node_grid_component(record, 0u, width), parameters.max_x);
+  const uint y = parameters.grid_components >= 2u
+                     ? m12_node_clamp_grid(m12_node_grid_component(record, 1u, width), parameters.max_y)
+                     : 1u;
+  const uint z = parameters.grid_components >= 3u
+                     ? m12_node_clamp_grid(m12_node_grid_component(record, 2u, width), parameters.max_z)
+                     : 1u;
+  // SV_DispatchGrid specifies threadgroup counts, not thread counts.
+  // Metal's indirect dispatch consumes those counts directly; dividing by
+  // NumThreads drops groups whenever a node has more than one thread.
+  dispatch_args[tid * 3u] = x;
+  dispatch_args[tid * 3u + 1u] = y;
+  dispatch_args[tid * 3u + 2u] = z;
+}
+)MSL";
+
 static constexpr const char *kWorkGraphReferenceKernel = R"MSL(
 #include <metal_stdlib>
 using namespace metal;
@@ -1489,6 +1602,10 @@ struct ReplayState {
   uint64_t work_graph_node_table_stride = 0;
   WMT::Reference<WMT::Library> work_graph_reference_library;
   WMT::Reference<WMT::ComputePipelineState> work_graph_reference_pipeline;
+  WMT::Reference<WMT::Library> work_graph_scheduler_library;
+  WMT::Reference<WMT::ComputePipelineState> work_graph_scheduler_pipeline;
+  WMT::Reference<WMT::Library> work_graph_grid_library;
+  WMT::Reference<WMT::ComputePipelineState> work_graph_grid_pipeline;
   WMT::Reference<WMT::Library> work_graph_node_library;
   WMT::Reference<WMT::ComputePipelineState> work_graph_node_pipeline;
   std::string work_graph_node_source;
@@ -3124,17 +3241,280 @@ struct ReplayState {
     return buffer;
   }
 
-  bool EncodeWorkGraphNodeShader(MTLD3D12Device *device,
-                                 const MTLD3D12Device::WorkGraphNodeShader &shader,
-                                 uint32_t node_index,
-                                 uint32_t record_count,
-                                 const void *cpu_records,
-                                 uint64_t gpu_records, uint64_t record_stride,
+  struct WorkGraphScheduledInput {
+    WMT::Reference<WMT::Buffer> descriptors;
+    WMT::Reference<WMT::Buffer> dispatch_args;
+    WMT::Reference<WMT::Buffer> context;
+    uint32_t batch_size = 1;
+  };
+
+  bool ResetWorkGraphOutputTable(MTLD3D12Device *device,
                                  WMT::CommandBuffer command_buffer) {
+    if (!device || !command_buffer.handle || !work_graph_backing_address ||
+        work_graph_backing_size < kNodeOutputBackingBytes)
+      return false;
+    auto *backing_resource = device->LookupResourceByGPUAddress(
+        work_graph_backing_address);
+    if (!backing_resource || !backing_resource->GetMTLBuffer().handle)
+      return false;
+    const uint64_t backing_offset =
+        work_graph_backing_address - backing_resource->GetGPUVirtualAddress();
+    constexpr uint64_t table_bytes =
+        kNodeOutputAllocationBase +
+        uint64_t(kNodeOutputAllocationStride) * kNodeOutputMaxAllocations;
+    if (backing_offset > backing_resource->GetBufferByteLength() ||
+        table_bytes > backing_resource->GetBufferByteLength() - backing_offset ||
+        table_bytes > work_graph_backing_size)
+      return false;
+    CloseRenderEncoder();
+    auto blit = command_buffer.blitCommandEncoder();
+    ENC_CREATE("workgraph_reset_allocator", blit.handle);
+    if (!blit.handle)
+      return false;
+    wmtcmd_blit_fillbuffer fill = {};
+    fill.type = WMTBlitCommandFillBuffer;
+    fill.next.set(nullptr);
+    fill.buffer = backing_resource->GetMTLBuffer().handle;
+    fill.offset = backing_offset;
+    fill.length = table_bytes;
+    fill.value = 0;
+    const bool encoded = blit.encodeCommands(
+        reinterpret_cast<const wmtcmd_blit_nop *>(&fill));
+    EndMetalEncoder(blit, "workgraph_reset_allocator");
+    if (encoded)
+      RetainResourceMetalObjectsForCompletion(backing_resource);
+    return encoded;
+  }
+
+  bool EncodeWorkGraphOutputSchedule(
+      MTLD3D12Device *device, uint32_t target_output, uint32_t consume_bit,
+      uint32_t record_size, uint32_t batch_size,
+      WorkGraphScheduledInput &scheduled, WMT::CommandBuffer command_buffer) {
+    if (!device || !command_buffer.handle || !target_output || !consume_bit ||
+        !record_size || record_size > kNodeOutputRecordStride || !batch_size ||
+        !work_graph_backing_address ||
+        work_graph_backing_size < kNodeOutputBackingBytes)
+      return false;
+    auto *backing_resource = device->LookupResourceByGPUAddress(
+        work_graph_backing_address);
+    if (!backing_resource || !backing_resource->GetMTLBuffer().handle)
+      return false;
+    const uint64_t backing_offset =
+        work_graph_backing_address - backing_resource->GetGPUVirtualAddress();
+    if (backing_offset > backing_resource->GetBufferByteLength() ||
+        work_graph_backing_size >
+            backing_resource->GetBufferByteLength() - backing_offset)
+      return false;
+    scheduled = {};
+    scheduled.batch_size = batch_size;
+    scheduled.descriptors = MakeTransientBuffer(
+        device, uint64_t(kNodeOutputRecordSlots) * sizeof(uint32_t) * 2u);
+    scheduled.dispatch_args = MakeTransientBuffer(device, sizeof(uint32_t) * 3u);
+    scheduled.context = MakeTransientBuffer(
+        device, sizeof(D3D12NodeDynamicInputContext));
+    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 4u);
+    if (!scheduled.descriptors.handle || !scheduled.dispatch_args.handle ||
+        !scheduled.context.handle || !parameters.handle)
+      return false;
+    D3D12NodeDynamicInputContext context = {};
+    context.batch_size = batch_size;
+    context.record_size = record_size;
+    scheduled.context.updateContents(0, &context, sizeof(context));
+    struct Parameters {
+      uint32_t target_output;
+      uint32_t consume_bit;
+      uint32_t batch_size;
+      uint32_t record_size;
+    } parameter_data = {target_output, consume_bit, batch_size, record_size};
+    parameters.updateContents(0, &parameter_data, sizeof(parameter_data));
+
+    if (!work_graph_scheduler_pipeline.handle) {
+      WMT::Reference<WMT::Error> error;
+      auto library = device->GetMTLDevice().newLibraryWithSource(
+          kWorkGraphSchedulerKernel,
+          std::strlen(kWorkGraphSchedulerKernel), error);
+      if (!library.handle || error.handle)
+        return false;
+      auto function = library.newFunction("m12_work_graph_schedule");
+      if (!function.handle)
+        return false;
+      auto pipeline = device->GetMTLDevice().newComputePipelineState(function,
+                                                                       error);
+      if (!pipeline.handle || error.handle)
+        return false;
+      work_graph_scheduler_library = library;
+      work_graph_scheduler_pipeline = pipeline;
+    }
+
+    std::array<uint8_t, 2048> command_storage = {};
+    size_t command_offset = 0;
+    wmtcmd_compute_nop *chain_head = nullptr;
+    wmtcmd_base *chain_tail = nullptr;
+    auto append = [&](const auto &source) -> bool {
+      if (command_offset + sizeof(source) > command_storage.size())
+        return false;
+      auto *command = reinterpret_cast<wmtcmd_base *>(
+          command_storage.data() + command_offset);
+      std::memcpy(command, &source, sizeof(source));
+      command->next.set(nullptr);
+      if (chain_tail)
+        chain_tail->next.set(command);
+      else
+        chain_head = reinterpret_cast<wmtcmd_compute_nop *>(command);
+      chain_tail = command;
+      command_offset += sizeof(source);
+      return true;
+    };
+    wmtcmd_compute_setpso set_pso = {};
+    set_pso.type = WMTComputeCommandSetPSO;
+    set_pso.pso = work_graph_scheduler_pipeline.handle;
+    set_pso.threadgroup_size = {1, 1, 1};
+    wmtcmd_compute_setbuffer set_backing = {};
+    set_backing.type = WMTComputeCommandSetBuffer;
+    set_backing.buffer = backing_resource->GetMTLBuffer().handle;
+    set_backing.offset = backing_offset;
+    set_backing.index = 0;
+    wmtcmd_compute_setbuffer set_descriptors = {};
+    set_descriptors.type = WMTComputeCommandSetBuffer;
+    set_descriptors.buffer = scheduled.descriptors.handle;
+    set_descriptors.index = 1;
+    wmtcmd_compute_setbuffer set_args = {};
+    set_args.type = WMTComputeCommandSetBuffer;
+    set_args.buffer = scheduled.dispatch_args.handle;
+    set_args.index = 2;
+    wmtcmd_compute_setbuffer set_context = {};
+    set_context.type = WMTComputeCommandSetBuffer;
+    set_context.buffer = scheduled.context.handle;
+    set_context.index = 3;
+    wmtcmd_compute_setbuffer set_parameters = {};
+    set_parameters.type = WMTComputeCommandSetBuffer;
+    set_parameters.buffer = parameters.handle;
+    set_parameters.index = 4;
+    wmtcmd_compute_dispatch dispatch = {};
+    dispatch.type = WMTComputeCommandDispatch;
+    dispatch.size = {1, 1, 1};
+    if (!append(set_pso) || !append(set_backing) || !append(set_descriptors) ||
+        !append(set_args) || !append(set_context) ||
+        !append(set_parameters) || !append(dispatch))
+      return false;
+    auto encoder = command_buffer.computeCommandEncoder(false);
+    ENC_CREATE("workgraph_schedule", encoder.handle);
+    if (!encoder.handle || !chain_head || !encoder.encodeCommands(chain_head))
+      return false;
+    EndMetalEncoder(encoder, "workgraph_schedule");
+    RetainResourceMetalObjectsForCompletion(backing_resource);
+    return true;
+  }
+
+  bool EncodeWorkGraphGridBuilder(
+      MTLD3D12Device *device, const MTLD3D12Device::WorkGraphNodeShader &shader,
+      const WMT::Reference<WMT::Buffer> &input_buffer, uint64_t input_offset,
+      uint32_t record_count, uint64_t record_stride,
+      WMT::Reference<WMT::Buffer> &grid_args, WMT::CommandBuffer command_buffer) {
+    if (!device || !command_buffer.handle || !input_buffer.handle ||
+        !record_count || record_count > kNodeOutputRecordSlots ||
+        !record_stride || record_stride > UINT32_MAX ||
+        !shader.grid_from_record || !shader.max_grid[0] || !shader.max_grid[1] ||
+        !shader.max_grid[2] || !shader.threads[0] || !shader.threads[1] ||
+        !shader.threads[2] || shader.grid_components < 1u || shader.grid_components > 3u ||
+        (shader.grid_component_bytes != 2u && shader.grid_component_bytes != 4u) ||
+        shader.grid_byte_offset % shader.grid_component_bytes || shader.grid_byte_offset > record_stride ||
+        shader.grid_components * shader.grid_component_bytes > record_stride - shader.grid_byte_offset)
+      return false;
+    grid_args = MakeTransientBuffer(device, uint64_t(record_count) * 3u *
+                                                     sizeof(uint32_t));
+    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 8u);
+    if (!grid_args.handle || !parameters.handle)
+      return false;
+    struct Parameters {
+      uint32_t record_count;
+      uint32_t record_stride;
+      uint32_t max_x, max_y, max_z;
+      uint32_t grid_byte_offset, grid_components, grid_component_bytes;
+    } parameter_data = {
+        record_count, static_cast<uint32_t>(record_stride), shader.max_grid[0],
+        shader.max_grid[1], shader.max_grid[2], shader.grid_byte_offset,
+        shader.grid_components, shader.grid_component_bytes};
+    parameters.updateContents(0, &parameter_data, sizeof(parameter_data));
+    if (!work_graph_grid_pipeline.handle) {
+      WMT::Reference<WMT::Error> error;
+      auto library = device->GetMTLDevice().newLibraryWithSource(
+          kWorkGraphSchedulerKernel,
+          std::strlen(kWorkGraphSchedulerKernel), error);
+      if (!library.handle || error.handle)
+        return false;
+      auto function = library.newFunction("m12_work_graph_build_grids");
+      if (!function.handle)
+        return false;
+      auto pipeline = device->GetMTLDevice().newComputePipelineState(function,
+                                                                       error);
+      if (!pipeline.handle || error.handle)
+        return false;
+      work_graph_grid_library = library;
+      work_graph_grid_pipeline = pipeline;
+    }
+    std::array<uint8_t, 2048> command_storage = {};
+    size_t command_offset = 0;
+    wmtcmd_compute_nop *chain_head = nullptr;
+    wmtcmd_base *chain_tail = nullptr;
+    auto append = [&](const auto &source) -> bool {
+      if (command_offset + sizeof(source) > command_storage.size())
+        return false;
+      auto *command = reinterpret_cast<wmtcmd_base *>(
+          command_storage.data() + command_offset);
+      std::memcpy(command, &source, sizeof(source));
+      command->next.set(nullptr);
+      if (chain_tail)
+        chain_tail->next.set(command);
+      else
+        chain_head = reinterpret_cast<wmtcmd_compute_nop *>(command);
+      chain_tail = command;
+      command_offset += sizeof(source);
+      return true;
+    };
+    wmtcmd_compute_setpso set_pso = {};
+    set_pso.type = WMTComputeCommandSetPSO;
+    set_pso.pso = work_graph_grid_pipeline.handle;
+    set_pso.threadgroup_size = {1, 1, 1};
+    wmtcmd_compute_setbuffer set_records = {};
+    set_records.type = WMTComputeCommandSetBuffer;
+    set_records.buffer = input_buffer.handle;
+    set_records.offset = input_offset;
+    set_records.index = 0;
+    wmtcmd_compute_setbuffer set_args = {};
+    set_args.type = WMTComputeCommandSetBuffer;
+    set_args.buffer = grid_args.handle;
+    set_args.index = 1;
+    wmtcmd_compute_setbuffer set_parameters = {};
+    set_parameters.type = WMTComputeCommandSetBuffer;
+    set_parameters.buffer = parameters.handle;
+    set_parameters.index = 2;
+    wmtcmd_compute_dispatch dispatch = {};
+    dispatch.type = WMTComputeCommandDispatch;
+    dispatch.size = {record_count, 1, 1};
+    if (!append(set_pso) || !append(set_records) || !append(set_args) ||
+        !append(set_parameters) || !append(dispatch))
+      return false;
+    auto encoder = command_buffer.computeCommandEncoder(false);
+    ENC_CREATE("workgraph_build_grids", encoder.handle);
+    if (!encoder.handle || !chain_head || !encoder.encodeCommands(chain_head))
+      return false;
+    EndMetalEncoder(encoder, "workgraph_build_grids");
+    return true;
+  }
+
+  bool EncodeWorkGraphNodeShader(
+      MTLD3D12Device *device,
+      const MTLD3D12Device::WorkGraphNodeShader &shader, uint32_t node_index,
+      uint32_t record_count, const void *cpu_records, uint64_t gpu_records,
+      uint64_t record_stride, WMT::CommandBuffer command_buffer,
+      const WorkGraphScheduledInput *scheduled_input = nullptr,
+      WMT::Reference<WMT::Buffer> grid_args = {}) {
     const auto &source = shader.msl;
+    const bool scheduled_records = scheduled_input != nullptr;
     if (!device || !command_buffer.handle || source.empty() ||
         !work_graph_backing_address || !work_graph_backing_size ||
-        !record_count)
+        (!record_count && !scheduled_records))
       return false;
     auto *backing_resource = device->LookupResourceByGPUAddress(
         work_graph_backing_address);
@@ -3145,7 +3525,8 @@ struct ReplayState {
     if (backing_offset > backing_resource->GetBufferByteLength() ||
         work_graph_backing_size >
             backing_resource->GetBufferByteLength() - backing_offset ||
-        uint64_t(record_count) * 8u > work_graph_backing_size)
+        (!scheduled_records &&
+         uint64_t(record_count) * 8u > work_graph_backing_size))
       return false;
     if (work_graph_node_table_address || work_graph_node_table_size ||
         work_graph_node_table_stride) {
@@ -3175,7 +3556,16 @@ struct ReplayState {
     const bool native_output_records =
         work_graph_backing_size >= kNodeOutputBackingBytes;
     input_context.version = native_output_records ? 2u : 1u;
-    if (shader.input_record_size) {
+    if (scheduled_records) {
+      if (!native_output_records || !scheduled_input->descriptors.handle ||
+          !scheduled_input->dispatch_args.handle ||
+          !scheduled_input->context.handle || !shader.input_record_size ||
+          shader.launch_type == 1u ||
+          (shader.launch_type != 2u && shader.launch_type != 3u))
+        return false;
+      input_buffer = scheduled_input->descriptors;
+      input_offset = 0;
+    } else if (shader.input_record_size) {
       if (!shader.input_record_alignment || !record_stride ||
           record_stride < shader.input_record_size ||
           (record_stride % shader.input_record_alignment) != 0 ||
@@ -3232,39 +3622,60 @@ struct ReplayState {
     // control flow decide which records to consume.
     const uint32_t records_per_invocation =
         coalescing ? shader.input_max_records : 1u;
+    if (scheduled_records &&
+        ((shader.launch_type == 3u && threads_per_group != 1u) ||
+         scheduled_input->batch_size != records_per_invocation))
+      return false;
     const uint32_t invocation_count =
-        coalescing
-            ? static_cast<uint32_t>((uint64_t(record_count) +
-                                     records_per_invocation - 1u) /
-                                    records_per_invocation)
-            : (shader.input_record_size ? record_count : 1u);
+        scheduled_records
+            ? 1u
+            : (coalescing
+                   ? static_cast<uint32_t>((uint64_t(record_count) +
+                                            records_per_invocation - 1u) /
+                                           records_per_invocation)
+                   : (shader.input_record_size ? record_count : 1u));
     if (!invocation_count ||
-        uint64_t(invocation_count) * sizeof(input_context) > UINT64_MAX)
+        (!scheduled_records &&
+         uint64_t(invocation_count) * sizeof(input_context) > UINT64_MAX))
       return false;
     const uint32_t context_count = coalescing ? invocation_count : 1u;
-    auto context_buffer = MakeTransientBuffer(
-        device, uint64_t(context_count) * sizeof(input_context));
-    if (!context_buffer.handle)
-      return false;
-    for (uint32_t invocation = 0; invocation < context_count;
-         ++invocation) {
-      D3D12NodeInputContext context = input_context;
-      if (shader.input_record_size) {
-        const uint32_t first_record = coalescing
-                                          ? invocation * records_per_invocation
-                                          : invocation;
-        const uint32_t batch_count = coalescing
-                                          ? std::min<uint32_t>(
-                                                records_per_invocation,
-                                                record_count - first_record)
-                                          : 1u;
-        if (batch_count > UINT64_MAX / record_stride)
-          return false;
-        context.record_count = batch_count;
-        context.byte_length = uint64_t(batch_count) * record_stride;
+    WMT::Reference<WMT::Buffer> context_buffer;
+    if (scheduled_records) {
+      context_buffer = scheduled_input->context;
+    } else {
+      context_buffer = MakeTransientBuffer(
+          device, uint64_t(context_count) * sizeof(input_context));
+      if (!context_buffer.handle)
+        return false;
+      for (uint32_t invocation = 0; invocation < context_count;
+           ++invocation) {
+        D3D12NodeInputContext context = input_context;
+        if (shader.input_record_size) {
+          const uint32_t first_record = coalescing
+                                            ? invocation * records_per_invocation
+                                            : invocation;
+          const uint32_t batch_count = coalescing
+                                            ? std::min<uint32_t>(
+                                                  records_per_invocation,
+                                                  record_count - first_record)
+                                            : 1u;
+          if (batch_count > UINT64_MAX / record_stride)
+            return false;
+          context.record_count = batch_count;
+          context.byte_length = uint64_t(batch_count) * record_stride;
+        }
+        context_buffer.updateContents(
+            uint64_t(invocation) * sizeof(context), &context, sizeof(context));
       }
-      context_buffer.updateContents(
-          uint64_t(invocation) * sizeof(context), &context, sizeof(context));
+    }
+
+    if (!scheduled_records && shader.grid_from_record) {
+      if (!input_buffer.handle || !shader.input_record_size ||
+          !record_stride ||
+          !EncodeWorkGraphGridBuilder(device, shader, input_buffer, input_offset,
+                                      record_count, record_stride, grid_args,
+                                      command_buffer))
+        return false;
     }
 
     // Bounded node u0/space0 binding. Root parameter indices are not shader
@@ -3419,8 +3830,21 @@ struct ReplayState {
       dispatch.size = coalescing
                           ? WMTSize{1, 1, 1}
                           : WMTSize{shader.grid[0], shader.grid[1], shader.grid[2]};
-      if (!append(dispatch))
+      wmtcmd_compute_dispatch_indirect dispatch_indirect = {};
+      dispatch_indirect.type = WMTComputeCommandDispatchIndirect;
+      dispatch_indirect.indirect_args_buffer = grid_args.handle;
+      dispatch_indirect.indirect_args_offset = uint64_t(record) *
+                                               sizeof(uint32_t) * 3u;
+      if (scheduled_records) {
+        dispatch_indirect.indirect_args_buffer = scheduled_input->dispatch_args.handle;
+        dispatch_indirect.indirect_args_offset = 0;
+      }
+      if ((grid_args.handle && shader.grid_from_record) || scheduled_records) {
+        if (!append(dispatch_indirect))
+          return false;
+      } else if (!append(dispatch)) {
         return false;
+      }
       WMT::ComputeCommandEncoder encoder =
           command_buffer.computeCommandEncoder(false);
       if (!encoder.handle || !chain_head || !encoder.encodeCommands(chain_head))
@@ -3430,6 +3854,123 @@ struct ReplayState {
     RetainResourceMetalObjectsForCompletion(backing_resource);
     RetainResourceMetalObjectsForCompletion(node_output_resource);
     return true;
+  }
+
+  bool EncodeWorkGraphNodeGraph(
+      MTLD3D12Device *device,
+      const MTLD3D12Device::WorkGraphNodeShader &initial_shader,
+      uint32_t initial_node_index, uint32_t record_count,
+      const void *cpu_records, uint64_t gpu_records, uint64_t record_stride,
+      WMT::CommandBuffer command_buffer) {
+    if (!device || !command_buffer.handle || initial_node_index == UINT32_MAX ||
+        !record_count || !record_stride ||
+        initial_shader.source_node_index != initial_node_index)
+      return false;
+
+    // Validate the entire reachable topology before resetting backing storage
+    // or encoding any shader. A later unsupported edge must not leave a
+    // partially executed graph. This is static validation, not CPU scheduling.
+    // Recursion is not implemented: reject cycles rather than truncating them
+    // after side effects. Also bound path expansion in converging/fan-out DAGs.
+    constexpr uint32_t kMaxGraphDepth = 32;
+    constexpr uint32_t kMaxEncodedNodeVisits = 1024;
+    std::array<uint32_t, kMaxGraphDepth> active_nodes = {};
+    uint32_t visits = 0;
+    auto validate = [&](auto &&self, const MTLD3D12Device::WorkGraphNodeShader &shader,
+                        uint32_t depth) -> bool {
+      if (depth >= kMaxGraphDepth || ++visits > kMaxEncodedNodeVisits ||
+          shader.msl.empty() || shader.source_node_index == UINT32_MAX)
+        return false;
+      for (uint32_t i = 0; i < depth; ++i)
+        if (active_nodes[i] == shader.source_node_index)
+          return false;
+      active_nodes[depth] = shader.source_node_index;
+      for (const auto &output : shader.outputs) {
+        // Terminal/unconnected publications use the same fixed-size slots as
+        // connected edges and must not write across allocation boundaries.
+        if (output.size > kNodeOutputRecordStride ||
+            output.alignment > kNodeOutputRecordStride)
+          return false;
+        if (output.target_node_index == UINT32_MAX)
+          continue;
+        if (output.metadata_index >= 31u ||
+            uint64_t(shader.source_node_index) * 256u + output.metadata_index + 1u > UINT32_MAX)
+          return false;
+        MTLD3D12Device::WorkGraphNodeShader target;
+        if (!device->LookupWorkGraphNodeShader(work_graph_program_identifier,
+                sizeof(work_graph_program_identifier), output.target_node_index, target, true) ||
+            !target.input_record_size || target.input_record_size > kNodeOutputRecordStride ||
+            output.size != target.input_record_size ||
+            (target.launch_type != 2u && target.launch_type != 3u) ||
+            (target.launch_type == 2u && !target.input_max_records) ||
+            !self(self, target, depth + 1u))
+          return false;
+      }
+      return true;
+    };
+    if (!validate(validate, initial_shader, 0u) ||
+        !ResetWorkGraphOutputTable(device, command_buffer))
+      return false;
+    auto encode_node = [&](auto &&self, uint32_t node_index, uint32_t depth,
+                           bool initial) -> bool {
+      if (depth >= kMaxGraphDepth)
+        return false;
+      MTLD3D12Device::WorkGraphNodeShader shader;
+      if (!device->LookupWorkGraphNodeShader(
+              work_graph_program_identifier,
+              sizeof(work_graph_program_identifier), node_index, shader, true) ||
+          shader.source_node_index != node_index || shader.msl.empty())
+        return false;
+      if (initial) {
+        if (!EncodeWorkGraphNodeShader(
+                device, shader, node_index, record_count, cpu_records,
+                gpu_records, record_stride, command_buffer))
+          return false;
+      }
+      for (const auto &output : shader.outputs) {
+        // An unconnected NodeOutput is still a valid terminal publication
+        // (used by the ABI probe); it has no downstream node to schedule.
+        if (output.target_node_index == UINT32_MAX)
+          continue;
+        if (output.metadata_index >= 31u ||
+            uint64_t(node_index) * 256u + output.metadata_index + 1u >
+                UINT32_MAX ||
+            output.metadata_index + 1u >= 32u)
+          return false;
+        MTLD3D12Device::WorkGraphNodeShader target_shader;
+        if (!device->LookupWorkGraphNodeShader(
+                work_graph_program_identifier,
+                sizeof(work_graph_program_identifier),
+                output.target_node_index, target_shader, true) ||
+            target_shader.source_node_index != output.target_node_index ||
+            target_shader.input_record_size == 0 ||
+            (target_shader.launch_type != 2u &&
+             target_shader.launch_type != 3u))
+          return false;
+        const uint32_t batch_size = target_shader.launch_type == 2u
+                                         ? target_shader.input_max_records
+                                         : 1u;
+        if (!batch_size)
+          return false;
+        WorkGraphScheduledInput scheduled;
+        const uint32_t target_output =
+            static_cast<uint32_t>(uint64_t(node_index) * 256u +
+                                  output.metadata_index + 1u);
+        const uint32_t consume_bit = 1u << (output.metadata_index + 1u);
+        if (!EncodeWorkGraphOutputSchedule(
+                device, target_output, consume_bit,
+                target_shader.input_record_size, batch_size, scheduled,
+                command_buffer) ||
+            !EncodeWorkGraphNodeShader(
+                device, target_shader, output.target_node_index, 1u, nullptr,
+                0, sizeof(uint32_t) * 2u, command_buffer, &scheduled))
+          return false;
+        if (!self(self, output.target_node_index, depth + 1u, false))
+          return false;
+      }
+      return true;
+    };
+    return encode_node(encode_node, initial_node_index, 0u, true);
   }
 
   bool EncodeWorkGraphReference(MTLD3D12Device *device,
@@ -3599,11 +4140,21 @@ struct ReplayState {
       if (device->LookupWorkGraphNodeShader(
               work_graph_program_identifier,
               sizeof(work_graph_program_identifier), generic_entrypoint,
-              node_shader))
+              node_shader)) {
+        if (!node_shader.outputs.empty() &&
+            node_shader.source_node_index != UINT32_MAX &&
+            work_graph_backing_size >= kNodeOutputBackingBytes)
+          return EncodeWorkGraphNodeGraph(
+              device, node_shader, node_shader.source_node_index,
+              generic_record_count, generic_cpu_records, generic_gpu_records,
+              generic_record_stride, command_buffer);
+        if (!node_shader.outputs.empty())
+          return false;
         return EncodeWorkGraphNodeShader(
             device, node_shader, generic_entrypoint, generic_record_count,
             generic_cpu_records, generic_gpu_records, generic_record_stride,
             command_buffer);
+      }
     }
     // A real program with an unimplemented input shape must not execute the
     // synthetic reference kernel in place of its shader.

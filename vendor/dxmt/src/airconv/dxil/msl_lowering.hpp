@@ -49,6 +49,10 @@ struct MSLLoweringOptions {
   // When a caller selects one export, use this source-level name to locate
   // that function instead of relying on module order.
   std::string entry_point;
+  // Each node's output handles carry a source-node tag.  The tag keeps
+  // identically numbered output metadata from different nodes distinct in
+  // the GPU work-graph routing table.
+  uint32_t node_output_tag = 0;
   // Inject the bounded GPU capture ABI needed to emulate pixel
   // AttributeAtVertex on devices without Metal's vertex_value<T> support.
   // The pipeline binds a transient three-record buffer at slot 28 and only

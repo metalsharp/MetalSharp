@@ -300,6 +300,11 @@ build_probe \
   -o "$OUT_DIR/probe_workgraph_execution.exe"
 
 build_probe \
+  -I"$ROOT_DIR/vendor/dxmt/src/d3d12" \
+  "$SDK_DIR/probes/probe_workgraph_chain.cpp" \
+  -o "$OUT_DIR/probe_workgraph_chain.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_barriers_render_pass/probe_barriers_render_pass.cpp" \
   -o "$OUT_DIR/probe_barriers_render_pass.exe"
 
