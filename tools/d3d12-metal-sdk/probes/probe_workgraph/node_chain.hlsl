@@ -22,6 +22,15 @@ struct Work { uint index; uint increment; };
 struct Done { uint index; };
 struct WideWork { uint index; uint increment; uint extra; };
 
+#ifdef EMPTY_ENTRY
+[Shader("node")]
+[NodeLaunch("coalescing")]
+[NumThreads(1,1,1)]
+void firstNode(EmptyNodeInput input) {
+    UAV[0] = input.Count();
+    UAV[1] = 0x454d5054;
+}
+#else
 [Shader("node")]
 [NodeLaunch("broadcasting")]
 #if defined(GRID_VECTOR) || defined(GRID_U16)
@@ -71,6 +80,8 @@ void firstNode(DispatchNodeInputRecord<Entry> input,
     direct.OutputComplete();
 #endif
 }
+
+#endif
 
 [Shader("node")]
 #ifdef CYCLE

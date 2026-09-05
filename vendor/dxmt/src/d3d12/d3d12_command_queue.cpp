@@ -3731,6 +3731,7 @@ struct ReplayState {
     const bool native_output_records =
         work_graph_backing_size >= kNodeOutputBackingBytes;
     input_context.version = native_output_records ? 2u : 1u;
+    input_context.record_count = shader.empty_input ? record_count : 0u;
     if (scheduled_records) {
       if (!native_output_records || !scheduled_input->descriptors.handle ||
           !scheduled_input->dispatch_args.handle ||
@@ -3787,7 +3788,8 @@ struct ReplayState {
     if (!input_buffer.handle) {
       // Even output-only nodes can retain the generic record helper's input
       // argument in MSL reflection. Bind inert internal storage, never a user
-      // UAV; the context still declares zero input bytes/records.
+      // UAV; the context still declares zero input bytes. EmptyNodeInput
+      // retains its logical count independently of this inert storage.
       input_buffer = MakeTransientBuffer(device, sizeof(uint32_t));
       if (!input_buffer.handle)
         return false;
@@ -4057,7 +4059,7 @@ struct ReplayState {
       const void *cpu_records, uint64_t gpu_records, uint64_t record_stride,
       WMT::CommandBuffer command_buffer) {
     if (!device || !command_buffer.handle || initial_node_index == UINT32_MAX ||
-        !record_count || !record_stride ||
+        !record_count || (!record_stride && initial_shader.input_record_size) ||
         initial_shader.source_node_index != initial_node_index)
       return false;
 
@@ -4212,7 +4214,12 @@ struct ReplayState {
     uint64_t generic_record_stride = resolved.record_stride;
     uint32_t generic_record_count = resolved.num_records;
     bool generic_node_candidate = false;
-    if ((cmd.dispatch_mode == 0u || cmd.dispatch_mode == 1u) &&
+    if (resolved.num_records && !resolved.record_stride &&
+        ((cmd.dispatch_mode == 0u && !resolved.record_data_size) ||
+         (cmd.dispatch_mode == 1u && !resolved.record_gpu_address))) {
+      generic_cpu_records = nullptr;
+      generic_node_candidate = true;
+    } else if ((cmd.dispatch_mode == 0u || cmd.dispatch_mode == 1u) &&
         resolved.num_records && resolved.record_stride &&
         (resolved.record_stride & 3u) == 0 &&
         resolved.num_records <= UINT64_MAX / resolved.record_stride &&
@@ -4337,6 +4344,8 @@ struct ReplayState {
               work_graph_program_identifier,
               sizeof(work_graph_program_identifier), generic_entrypoint,
               node_shader)) {
+        if (!generic_record_stride && node_shader.input_record_size)
+          return false;
         if (!node_shader.outputs.empty() &&
             node_shader.source_node_index != UINT32_MAX &&
             work_graph_backing_size >= kNodeOutputBackingBytes)

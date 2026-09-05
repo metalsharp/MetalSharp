@@ -978,7 +978,11 @@ individual zero axes and repeated native-ICB chains have exact D3D12 readback.
 A gated cross-queue producer also feeds the native-ICB consumer chain with exact readback.
 Conditional zero/nonzero publication also feeds compacted native-ICB consumers correctly.
 Direct and native-ICB fan-out paths also converge with exact once-only contributions.
-All thirty-three official Work Graph/bridge result files and their required contract rows pass in the
+A single explicit EmptyNodeInput also accepts a null CPU payload with zero stride;
+record-data-requiring shaders reject that form before writes.
+CPU-authored GPU headers also support a single empty record, with missing-payload rejection
+for nonempty layouts.
+All thirty-seven official Work Graph/bridge result files and their required contract rows pass in the
 development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
 Recursive execution, output arrays, empty-record routing, GPU-generated input headers,
 general resource/argument tables, overflow and broader synchronization remain

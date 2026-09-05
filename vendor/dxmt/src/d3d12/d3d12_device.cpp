@@ -5091,6 +5091,7 @@ public:
         shader.input_record_size = metadata.input.size;
         shader.input_record_alignment = metadata.input.alignment;
         shader.input_max_records = metadata.max_input_records;
+        shader.empty_input = metadata.input.empty_input;
         shader.launch_type = metadata.launch_type;
         for (unsigned axis = 0; axis < 3; ++axis) {
           shader.threads[axis] = metadata.threads[axis];

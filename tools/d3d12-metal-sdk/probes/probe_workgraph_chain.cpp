@@ -161,7 +161,10 @@ int main(int argc, char** argv) {
     const bool cross_queue_dynamic = std::strcmp(mode, "cross-queue-dynamic") == 0;
     const bool cross_queue = cross_queue_dynamic || std::strcmp(mode, "cross-queue-grid") == 0;
     const bool gpu_copy = cross_queue || std::strcmp(mode, "gpu-copy-grid") == 0;
-    const bool gpu_grid = gpu_copy || std::strcmp(mode, "gpu-vector-grid") == 0;
+    const bool gpu_empty_entry = std::strcmp(mode, "gpu-empty-entry") == 0;
+    const bool gpu_missing_payload = std::strcmp(mode, "gpu-missing-payload") == 0;
+    const bool gpu_grid =
+        gpu_empty_entry || gpu_missing_payload || gpu_copy || std::strcmp(mode, "gpu-vector-grid") == 0;
     const bool u16_grid = std::strcmp(mode, "u16-grid") == 0;
     const bool vector_grid = u16_grid || gpu_grid || std::strcmp(mode, "vector-grid") == 0;
     const bool capacity = std::strcmp(mode, "fanout-capacity") == 0;
@@ -183,8 +186,11 @@ int main(int argc, char** argv) {
     const bool dynamic_consumer = fanout_icb || conditional_icb || cross_queue_dynamic || dynamic_consumer_repeated ||
                                   dynamic_consumer_u16 || dynamic_zero_grids || dynamic_consumer_empty ||
                                   std::strcmp(mode, "dynamic-consumer") == 0;
-    if (!dynamic_consumer && !repeated && !dynamic_thread_output && !dynamic_output && !zero_grid && !empty_grid &&
-        !offset_grid && !vector_grid && !fanout && !unsupported_target && !fixed_consumer && std::strcmp(mode, "chain"))
+    const bool empty_entry = gpu_empty_entry || std::strcmp(mode, "empty-entry") == 0;
+    const bool missing_payload = gpu_missing_payload || std::strcmp(mode, "missing-payload") == 0;
+    if (!empty_entry && !missing_payload && !dynamic_consumer && !repeated && !dynamic_thread_output &&
+        !dynamic_output && !zero_grid && !empty_grid && !offset_grid && !vector_grid && !fanout &&
+        !unsupported_target && !fixed_consumer && std::strcmp(mode, "chain"))
         return 2;
     HMODULE m = LoadLibraryA("d3d12.dll");
     auto cd = proc<CreateDevice>(m, "D3D12CreateDevice");
@@ -259,7 +265,8 @@ int main(int argc, char** argv) {
         }
     }
     std::vector<uint8_t> cso;
-    if (!read(fanout_icb              ? "probe_workgraph_chain_fanout_icb.cso"
+    if (!read(empty_entry             ? "probe_workgraph_chain_empty_entry.cso"
+              : fanout_icb            ? "probe_workgraph_chain_fanout_icb.cso"
               : conditional_icb       ? "probe_workgraph_chain_conditional_icb.cso"
               : cross_queue_dynamic   ? "probe_workgraph_chain_cross_queue_dynamic.cso"
               : dynamic_consumer_u16  ? "probe_workgraph_chain_dynamic_consumer_u16.cso"
@@ -369,6 +376,11 @@ int main(int argc, char** argv) {
     }
     bool payload_mutated_after_recording = false;
     bool consumer_blocked_until_release = false;
+    if (empty_entry || missing_payload) {
+        ci.NumRecords = 1;
+        ci.Records = nullptr;
+        ci.RecordStrideInBytes = 0;
+    }
     Dispatch dg = {0, 0, ci};
     if (SUCCEEDED(h) && cross_queue) {
         D3D12_COMMAND_QUEUE_DESC desc = {};
@@ -400,8 +412,10 @@ int main(int argc, char** argv) {
                 UINT64 stride;
             };
             static_assert(sizeof(GPUInput) == 24, "GPU input ABI");
-            const GPUInput input = {
+            GPUInput input = {
                 0, 4, gpu_copy ? gpu_payload->GetGPUVirtualAddress() : gpu_input->GetGPUVirtualAddress() + 64, 16};
+            if (gpu_empty_entry || gpu_missing_payload)
+                input = {0, 1, 0, 0};
             void* mapped = nullptr;
             h = gpu_input->Map(0, nullptr, &mapped);
             if (SUCCEEDED(h) && mapped) {
@@ -465,7 +479,7 @@ int main(int argc, char** argv) {
                 mutation[2 * i] = 16;
             payload_mutated_after_recording = true;
         }
-        if (gpu_grid) {
+        if (gpu_grid && !gpu_empty_entry && !gpu_missing_payload) {
             void* mapped = nullptr;
             h = gpu_input->Map(0, nullptr, &mapped);
             if (SUCCEEDED(h) && mapped) {
@@ -606,11 +620,19 @@ int main(int argc, char** argv) {
         expected[6] += 2;
         expected[7] += 1;
     }
+    if (empty_entry || missing_payload) {
+        std::memset(expected, 0, sizeof(expected));
+        if (empty_entry) {
+            expected[0] = 1;
+            expected[1] = 0x454d5054u;
+        }
+    }
     const bool readback_exact = SUCCEEDED(h) && !std::memcmp(values, expected, sizeof(values));
     // Default: six groups allocate two records each, then twelve thread
     // allocations. Vector grids launch nine groups; zero modes launch fewer.
     const bool allocations_exact = SUCCEEDED(h) &&
-                                   words[0] == (fanout_icb                           ? 90u
+                                   words[0] == ((empty_entry || missing_payload)     ? 0u
+                                                : fanout_icb                         ? 90u
                                                 : conditional_icb                    ? 40u
                                                 : cross_queue_dynamic                ? 114u
                                                 : dynamic_consumer_repeated          ? 62u
@@ -628,7 +650,8 @@ int main(int argc, char** argv) {
                                                 : vector_grid                        ? 36u
                                                 : zero_grid                          ? 16u
                                                                                      : 24u) &&
-                                   words[1] == (fanout_icb                           ? 84u
+                                   words[1] == ((empty_entry || missing_payload)     ? 0u
+                                                : fanout_icb                         ? 84u
                                                 : conditional_icb                    ? 38u
                                                 : cross_queue_dynamic                ? 105u
                                                 : dynamic_consumer_repeated          ? 58u
@@ -646,7 +669,8 @@ int main(int argc, char** argv) {
                                                 : vector_grid                        ? 27u
                                                 : zero_grid                          ? 12u
                                                                                      : 18u);
-    bool exact = readback_exact && allocations_exact && (!gpu_grid || payload_mutated_after_recording) &&
+    bool exact = readback_exact && allocations_exact &&
+                 (!gpu_grid || gpu_empty_entry || gpu_missing_payload || payload_mutated_after_recording) &&
                  (!cross_queue || consumer_blocked_until_release) &&
                  (!program_isolation || (identifiers_distinct && identifiers_stable));
     FILE* result = stdout;

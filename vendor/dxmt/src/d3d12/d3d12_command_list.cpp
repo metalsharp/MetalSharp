@@ -2425,8 +2425,14 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::DispatchGraph(
     cmd.entrypoint_index = source->input.cpu.entrypoint_index;
     cmd.num_records = source->input.cpu.num_records;
     cmd.record_stride = source->input.cpu.record_stride;
+    // Zero-stride input carries no payload. Replay must validate the selected
+    // shader's empty record layout before accepting this dispatch.
+    if (!cmd.record_stride) {
+      if (source->input.cpu.records) return;
+      break;
+    }
     const uint64_t bytes = uint64_t(cmd.num_records) * cmd.record_stride;
-    if (!source->input.cpu.records || !cmd.record_stride || bytes > sizeof(cmd.record_data))
+    if (!source->input.cpu.records || bytes > sizeof(cmd.record_data))
       return;
     cmd.record_data_size = static_cast<uint32_t>(bytes);
     std::memcpy(cmd.record_data, source->input.cpu.records,

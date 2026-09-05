@@ -269,6 +269,23 @@ outputs both reach the coalescing sink exactly once. The combined witness yields
 All thirty-three official results pass with Metal API Validation enabled in
 `/private/tmp/wg-icb-fanout/`; general topology and overflow remain open.
 
+Empty-entry follow-up: metadata now distinguishes an explicit `EmptyNodeInput`
+from an argument-free node. A single CPU input with null records and zero
+stride is recorded without copying a payload and validated against the selected
+shader's layout during replay. Its logical count is 1 while its byte length
+remains zero. The exact marker readback is `[1,1162694740]` with a zero tail and
+no output allocations. A data-requiring entrypoint given the same missing
+payload leaves output/backing untouched. All thirty-five results pass with
+Metal API Validation in `/private/tmp/wg-empty-entry/results/`.
+Multiple empty records, GPU empty headers and empty-output routing remain open.
+
+GPU empty-entry follow-up: a CPU-authored GPU input header with count 1,
+zero record address and zero stride now reaches an explicit empty-input node
+and returns `[1,1162694740]` with no allocations. The same form targeting a
+nonempty record layout rejects before writes. All thirty-seven results pass
+with Metal API Validation in `/private/tmp/wg-gpu-empty-entry/results/`.
+This does not prove GPU-generated headers or multi-empty-record dispatch.
+
 Historical first witness (before these follow-ups):
 
 A scratch three-node chain now produces exact GPU readback

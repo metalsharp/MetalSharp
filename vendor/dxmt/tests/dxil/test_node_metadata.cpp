@@ -148,7 +148,8 @@ int main(int argc, char **argv) {
     oversized.types.push_back(array);
     require(!nodeRecordTypeLayout(oversized, 2), "record layout multiplication overflow accepted");
     const auto empty = nodeInputLayout(module, "node_empty");
-    require(empty && empty->size == 0 && empty->alignment == 0, "empty input layout incorrect");
+    require(empty && empty->size == 0 && empty->alignment == 0 && !empty->empty_input,
+            "argument-free node must not become EmptyNodeInput");
     require(!nodeInputLayout(module, "absent_entry"), "missing entrypoint accepted");
     require(!nodeShaderMetadata(module, "absent_entry"), "missing launch entrypoint accepted");
     require(bool(nodeInputLayout(module, "node_dynamic")), "dynamic-grid input layout missing");
