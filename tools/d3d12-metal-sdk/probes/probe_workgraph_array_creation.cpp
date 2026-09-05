@@ -29,7 +29,7 @@ struct Program {
 };
 struct GraphInput { UINT entry, count; const void *records; UINT64 stride; };
 struct GraphDispatch { UINT mode = 0, padding = 0; GraphInput input = {}; };
-static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMODULE module, uint32_t (&values)[16]) {
+static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMODULE module, uint32_t (&values)[16], bool &backing_unchanged, bool recursion = false, bool fanout = false, bool early = false, bool icb = false, bool overdepth = false, bool boundary = false, bool coalescing = false) {
     Owned<ID3D12CommandQueue> queue;
     Owned<ID3D12CommandAllocator> allocator;
     Owned<ID3D12GraphicsCommandList> list;
@@ -57,6 +57,16 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     };
     if (SUCCEEDED(hr)) hr = make_buffer(2u << 20, false, &backing.p);
     if (SUCCEEDED(hr)) hr = make_buffer(64, true, &output.p);
+    uint32_t sentinel[20];
+    for (auto &word : sentinel) word = 0x31415926u;
+    if (SUCCEEDED(hr) && overdepth) {
+        void *data = nullptr;
+        hr = backing->Map(0, nullptr, &data);
+        if (SUCCEEDED(hr)) {
+            if (data) std::memcpy(data, sentinel, sizeof(sentinel)); else hr = E_FAIL;
+            backing->Unmap(0, nullptr);
+        }
+    }
     uint32_t zero[16] = {};
     if (SUCCEEDED(hr)) hr = output->WriteToSubresource(0, nullptr, zero, 64, 64);
     using Serialize = HRESULT (WINAPI *)(const D3D12_ROOT_SIGNATURE_DESC *, D3D_ROOT_SIGNATURE_VERSION, ID3DBlob **, ID3DBlob **);
@@ -74,15 +84,25 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     }
     if (SUCCEEDED(hr)) {
         program.backing = {backing->GetGPUVirtualAddress(), 2u << 20};
+        // Do not request an independent SetProgram initialization when checking
+        // that rejected DispatchGraph leaves backing storage untouched.
+        if (overdepth) program.flags = 0;
         extension->SetComputeRootSignature(root.p);
         extension->SetComputeRootUnorderedAccessView(0, output->GetGPUVirtualAddress());
         extension->SetProgram(&program);
         uint32_t dense[4][2] = {{0,101},{1,202},{2,303},{3,404}};
         uint32_t sparse[4][2] = {{65536,505},{1,999},{0,888},{UINT32_MAX,777}};
-        GraphDispatch dispatch; dispatch.input = {0,4,dense,8};
+        uint32_t recursive_value = 1, nonrecursive_value = 99;
+        uint32_t recursive_grid[4] = {1,1,1,1}, nonrecursive_grid[4] = {99,1,1,1};
+        uint32_t coalesced_values[4] = {1,2,3,4};
+        GraphDispatch dispatch; dispatch.input = coalescing ? GraphInput{0,4,coalesced_values,4} : recursion ? GraphInput{0,1,icb ? recursive_grid : &recursive_value,icb ? 16u : 4u} : GraphInput{0,4,dense,8};
         extension->DispatchGraph(&dispatch);
-        dispatch.input = {1,4,sparse,8};
+        dispatch.input = recursion ? GraphInput{1,1,icb ? nonrecursive_grid : &nonrecursive_value,icb ? 16u : 4u} : GraphInput{1,4,sparse,8};
         extension->DispatchGraph(&dispatch);
+        recursive_value = nonrecursive_value = 0;
+        std::memset(coalesced_values, 0, sizeof(coalesced_values));
+        std::memset(recursive_grid, 0, sizeof(recursive_grid));
+        std::memset(nonrecursive_grid, 0, sizeof(nonrecursive_grid));
         std::memset(dense, 0, sizeof(dense)); std::memset(sparse, 0, sizeof(sparse));
         hr = list->Close();
     }
@@ -100,12 +120,34 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     }
     if (event) CloseHandle(event);
     if (SUCCEEDED(hr)) hr = output->ReadFromSubresource(values, 64, 64, 0, nullptr);
-    const uint32_t expected[16] = {101,202,303,404,505};
+    if (SUCCEEDED(hr) && overdepth) {
+        void *data = nullptr;
+        hr = backing->Map(0, nullptr, &data);
+        if (SUCCEEDED(hr)) {
+            backing_unchanged = data && !std::memcmp(data, sentinel, sizeof(sentinel));
+            backing->Unmap(0, nullptr);
+        }
+    }
+    const uint32_t array_expected[16] = {101,202,303,404,505};
+    const uint32_t recursion_expected[16] = {4,3,2,1,0,99,14};
+    const uint32_t fanout_expected[16] = {32,12,4,1,0,99,14};
+    const uint32_t early_expected[16] = {0,0,2,1,0,99,12};
+    const uint32_t overdepth_expected[16] = {0,0,0,0,0,99};
+    const uint32_t boundary_expected[16] = {528,496,32,UINT32_MAX,0,99,0xfffffffeu};
+    const uint32_t coalescing_expected[16] = {22,18,14,10,0,99,14,0,8,4};
+    const auto *expected = coalescing ? coalescing_expected : boundary ? boundary_expected : (overdepth ? overdepth_expected : (early ? early_expected : (fanout ? fanout_expected : (recursion ? recursion_expected : array_expected))));
     std::fprintf(stderr, "array dispatch hr=%08x values=%u,%u,%u,%u,%u\n", unsigned(hr),values[0],values[1],values[2],values[3],values[4]);
-    return SUCCEEDED(hr) && std::memcmp(values, expected, sizeof(values)) == 0;
+    return SUCCEEDED(hr) && (!overdepth || backing_unchanged) && std::memcmp(values, expected, sizeof(values)) == 0;
 }
 int main(int argc, char **argv) {
-    if (argc != 2 && !(argc == 3 && !std::strcmp(argv[2], "--dispatch"))) return 2;
+    if (argc != 2 && !(argc == 3 && (!std::strcmp(argv[2], "--dispatch") || !std::strcmp(argv[2], "--recursion") || !std::strcmp(argv[2], "--recursion-fanout") || !std::strcmp(argv[2], "--recursion-early") || !std::strcmp(argv[2], "--recursion-icb") || !std::strcmp(argv[2], "--recursion-overdepth") || !std::strcmp(argv[2], "--recursion-boundary") || !std::strcmp(argv[2], "--recursion-coalescing")))) return 2;
+    const bool fanout = argc == 3 && !std::strcmp(argv[2], "--recursion-fanout");
+    const bool early = argc == 3 && !std::strcmp(argv[2], "--recursion-early");
+    const bool icb = argc == 3 && !std::strcmp(argv[2], "--recursion-icb");
+    const bool overdepth = argc == 3 && !std::strcmp(argv[2], "--recursion-overdepth");
+    const bool boundary = argc == 3 && !std::strcmp(argv[2], "--recursion-boundary");
+    const bool coalescing = argc == 3 && !std::strcmp(argv[2], "--recursion-coalescing");
+    const bool recursion = coalescing || fanout || early || icb || overdepth || boundary || (argc == 3 && !std::strcmp(argv[2], "--recursion"));
     std::ifstream input(argv[1], std::ios::binary);
     std::vector<char> bytes((std::istreambuf_iterator<char>(input)), {});
     HMODULE module = LoadLibraryW(L"d3d12.dll");
@@ -114,13 +156,15 @@ int main(int argc, char **argv) {
     ID3D12Device5 *device = nullptr;
     HRESULT setup = create && !bytes.empty() ? create(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)) : E_FAIL;
     const wchar_t *names[] = {L"array_entry", L"sparse_entry", L"target_zero", L"target_one", L"target_two", L"target_sparse", L"target_three"};
+    if (recursion) { names[0] = L"recursive"; names[1] = L"nonrecursive"; }
+    const unsigned node_count = recursion ? 2u : 7u;
     D3D12_EXPORT_DESC exports[7] = {};
     Node nodes[7] = {};
-    for (unsigned i = 0; i < 7; ++i) { exports[i].Name = names[i]; nodes[i].shader.shader = names[i]; }
+    for (unsigned i = 0; i < node_count; ++i) { exports[i].Name = names[i]; nodes[i].shader.shader = names[i]; }
     D3D12_DXIL_LIBRARY_DESC library = {};
-    library.DXILLibrary = {bytes.data(), bytes.size()}; library.NumExports = 7; library.pExports = exports;
-    const NodeID entries[] = {{L"array_entry", 0}, {L"sparse_entry", 0}};
-    WorkGraph graph = {L"arrays", 0, 2, entries, 7, nodes};
+    library.DXILLibrary = {bytes.data(), bytes.size()}; library.NumExports = node_count; library.pExports = exports;
+    const NodeID entries[] = {{names[0], 0}, {names[1], 0}};
+    WorkGraph graph = {L"arrays", 0, 2, entries, node_count, nodes};
     D3D12_STATE_SUBOBJECT graph_object = {static_cast<D3D12_STATE_SUBOBJECT_TYPE>(13), &graph};
     const D3D12_STATE_SUBOBJECT *graph_objects[] = {&graph_object};
     Generic generic = {L"arrays", 0, nullptr, 1, graph_objects};
@@ -130,14 +174,15 @@ int main(int argc, char **argv) {
     ID3D12StateObject *valid = nullptr, *invalid = nullptr;
     HRESULT positive = SUCCEEDED(setup) ? device->CreateStateObject(&description, IID_PPV_ARGS(&valid)) : setup;
     graph.node_count = 6; // Remove required dense element 3; sparse element 65536 stays.
-    HRESULT negative = SUCCEEDED(setup) ? device->CreateStateObject(&description, IID_PPV_ARGS(&invalid)) : setup;
-    const bool creation_pass = positive == S_OK && valid && negative == E_FAIL && !invalid;
+    HRESULT negative = !recursion && SUCCEEDED(setup) ? device->CreateStateObject(&description, IID_PPV_ARGS(&invalid)) : S_FALSE;
+    const bool creation_pass = positive == S_OK && valid && (recursion || (negative == E_FAIL && !invalid));
     const bool tested = argc == 3;
     uint32_t values[16] = {};
-    const bool exact = creation_pass && tested && dispatch_arrays(device, valid, module, values);
+    bool backing_unchanged = false;
+    const bool exact = creation_pass && tested && dispatch_arrays(device, valid, module, values, backing_unchanged, recursion, fanout, early, icb, overdepth, boundary, coalescing);
     const bool pass = creation_pass && (!tested || exact);
-    std::printf("{\"pass\":%s,\"creation_hr\":%u,\"missing_dense_hr\":%u,\"missing_dense_null\":%s,\"dispatch_tested\":%s,\"readback_exact\":%s,\"values\":[",
-        pass ? "true" : "false", unsigned(positive), unsigned(negative), invalid ? "false" : "true", tested ? "true" : "false", exact ? "true" : "false");
+    std::printf("{\"pass\":%s,\"creation_hr\":%u,\"missing_dense_hr\":%u,\"missing_dense_null\":%s,\"dispatch_tested\":%s,\"readback_exact\":%s,\"recursion\":%s,\"overdepth\":%s,\"backing_unchanged\":%s,\"values\":[",
+        pass ? "true" : "false", unsigned(positive), unsigned(negative), invalid ? "false" : "true", tested ? "true" : "false", exact ? "true" : "false", recursion ? "true" : "false", overdepth ? "true" : "false", backing_unchanged ? "true" : "false");
     for (unsigned i = 0; i < 16; ++i) std::printf("%s%u", i ? "," : "", values[i]);
     std::printf("]}\n");
     if (invalid) invalid->Release();

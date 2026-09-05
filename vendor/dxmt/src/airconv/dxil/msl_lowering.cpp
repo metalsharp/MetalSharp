@@ -2124,14 +2124,15 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "static inline uint m12_node_allocate_record_handle(device char *backing, device char *context, uint output, uint count, uint per_thread) {\n";
         os << "  if (output == 0u || count == 0u) return 0u;\n";
         os << "  device const m12_node_input_context *c = context != nullptr ? reinterpret_cast<device const m12_node_input_context *>(context) : nullptr;\n";
-        os << "  if (backing == nullptr || c == nullptr || (c->version != 2u && c->version != 3u && c->version != 4u && c->version != 5u)) return (output & 0xffffu) | ((count & 0xffu) << 16) | ((per_thread & 1u) << 24);\n";
+        os << "  if (backing == nullptr || c == nullptr || (c->version != 2u && c->version != 3u && c->version != 4u && c->version != 5u && c->version != 6u && c->version != 7u)) return (output & 0xffffu) | ((count & 0xffu) << 16) | ((per_thread & 1u) << 24);\n";
         os << "  device atomic_uint *record_counter = reinterpret_cast<device atomic_uint *>(backing);\n";
         os << "  device atomic_uint *allocation_counter = reinterpret_cast<device atomic_uint *>(backing + 4);\n";
         os << "  uint allocation = m12_node_reserve(allocation_counter, 1u, 256u);\n";
         os << "  uint base = m12_node_reserve(record_counter, count, 4096u);\n";
         os << "  if (allocation == 0xffffffffu || base == 0xffffffffu) return 0u;\n";
         os << "  device m12_node_output_allocation *entry = reinterpret_cast<device m12_node_output_allocation *>(backing + 32ul) + allocation;\n";
-        os << "  entry->base_slot = base; entry->count = count; entry->output = output; entry->published = 0u;\n";
+        os << "  uint generation = (c->version == 6u || c->version == 7u) ? (*reinterpret_cast<device const uint *>(context + 56ul) << 8u) : 0u;\n";
+        os << "  entry->base_slot = base; entry->count = count; entry->output = output; entry->published = generation;\n";
         os << "  return 0x40000000u | (allocation + 1u);\n";
         os << "}\n";
         os << "static inline uint m12_node_allocate_group_record_handle(device char *backing, device char *context, uint output, uint count, threadgroup uint &shared_handle, uint lane) {\n";
@@ -2144,11 +2145,11 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "}\n";
         os << "static inline uint m12_node_complete_output(device char *backing, device char *context, uint record) {\n";
         os << "  device const m12_node_input_context *c = context != nullptr ? reinterpret_cast<device const m12_node_input_context *>(context) : nullptr;\n";
-        os << "  if (backing != nullptr && c != nullptr && (c->version == 2u || c->version == 3u || c->version == 4u || c->version == 5u) && (record & 0xc0000000u) == 0x40000000u) {\n";
+        os << "  if (backing != nullptr && c != nullptr && (c->version == 2u || c->version == 3u || c->version == 4u || c->version == 5u || c->version == 6u || c->version == 7u) && (record & 0xc0000000u) == 0x40000000u) {\n";
         os << "    uint allocation = (record & 0x3fffffffu) - 1u;\n";
         os << "    if (allocation < 256u) {\n";
         os << "      device atomic_uint *published = reinterpret_cast<device atomic_uint *>(backing + 32ul + ulong(allocation) * 16ul + 12ul);\n";
-        os << "      atomic_store_explicit(published, 1u, memory_order_relaxed);\n";
+        os << "      atomic_fetch_or_explicit(published, 1u, memory_order_relaxed);\n";
         os << "    }\n";
         os << "  }\n";
         os << "  return 1u;\n";
@@ -2156,7 +2157,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "static inline uint m12_node_input_record_count_for_group(device char *context, uint group) {\n";
         os << "  device const m12_node_input_context *c = context != nullptr ? reinterpret_cast<device const m12_node_input_context *>(context) : nullptr;\n";
         os << "  if (c == nullptr) return 1u;\n";
-        os << "  if (c->version != 3u && c->version != 5u) return (c->version == 1u || c->version == 2u || c->version == 4u) ? c->count : 1u;\n";
+        os << "  if (c->version != 3u && c->version != 5u && c->version != 7u) return (c->version == 1u || c->version == 2u || c->version == 4u || c->version == 6u) ? c->count : 1u;\n";
         os << "  ulong batch = c->batch_size != 0u ? ulong(c->batch_size) : 1ul;\n";
         os << "  ulong first = ulong(group) * batch;\n";
         os << "  if (first >= c->length) return 0u;\n";
@@ -2164,7 +2165,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "}\n";
         os << "static inline device char *m12_node_record_ptr(device char *backing, device char *input, device char *context, uint record, uint index, uint group) {\n";
         os << "  device const m12_node_input_context *c = context != nullptr ? reinterpret_cast<device const m12_node_input_context *>(context) : nullptr;\n";
-        os << "  if ((record & 0xc0000000u) == 0x40000000u && c != nullptr && (c->version == 2u || c->version == 3u || c->version == 4u || c->version == 5u)) {\n";
+        os << "  if ((record & 0xc0000000u) == 0x40000000u && c != nullptr && (c->version == 2u || c->version == 3u || c->version == 4u || c->version == 5u || c->version == 6u || c->version == 7u)) {\n";
         os << "    if (backing == nullptr) return nullptr;\n";
         os << "    uint allocation = (record & 0x3fffffffu) - 1u;\n";
         os << "    if (allocation >= 256u) return nullptr;\n";
@@ -2174,7 +2175,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "  }\n";
         os << "  if ((record & 0x80000000u) != 0u) {\n";
         os << "    if (input == nullptr || c == nullptr) return nullptr;\n";
-        os << "    if (c->version == 3u || c->version == 5u) {\n";
+        os << "    if (c->version == 3u || c->version == 5u || c->version == 7u) {\n";
         os << "      ulong batch = c->batch_size != 0u ? ulong(c->batch_size) : 1ul;\n";
         os << "      ulong logical = batch == 1ul ? ulong(group) : ulong(group) * batch + ulong(index);\n";
         os << "      if (logical >= c->length || c->stride < 4ul || c->size > 256ul || backing == nullptr) return nullptr;\n";
@@ -2183,7 +2184,7 @@ static void emitFunctionPrologue(LowerContext &ctx) {
         os << "      if (slot >= 4096u) return nullptr;\n";
         os << "      return backing + 8192ul + ulong(slot) * 256ul;\n";
         os << "    }\n";
-        os << "    if ((c->version != 1u && c->version != 2u && c->version != 4u) || index >= c->count || c->size > c->length || (index != 0u && c->stride > (c->length - c->size) / index)) return nullptr;\n";
+        os << "    if ((c->version != 1u && c->version != 2u && c->version != 4u && c->version != 6u) || index >= c->count || c->size > c->length || (index != 0u && c->stride > (c->length - c->size) / index)) return nullptr;\n";
         os << "    return input + ulong(index) * c->stride;\n";
         os << "  }\n";
         os << "  if (backing == nullptr || record == 0u || index >= 256u) return nullptr;\n";
@@ -2594,13 +2595,14 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  threadgroup uint m12_node_group_output_handle;\n";
             os << "  uint m12_node_record_group = ggid.x;\n";
             os << "  device const m12_node_input_context *m12_node_context = buf28 != nullptr ? reinterpret_cast<device const m12_node_input_context *>(buf28) : nullptr;\n";
-            os << "  if (m12_node_context != nullptr && (m12_node_context->version == 3u || m12_node_context->version == 5u) && m12_node_context->reserved != 0u) {\n";
+            os << "  if (m12_node_context != nullptr && (m12_node_context->version == 3u || m12_node_context->version == 5u || m12_node_context->version == 7u) && m12_node_context->reserved != 0u) {\n";
             os << "    m12_node_record_group = ggid.x / m12_node_context->reserved;\n";
             os << "    ggid.x %= m12_node_context->reserved;\n";
             os << "    dtid.x = ggid.x * gsz.x + gtid.x;\n";
             os << "  }\n";
             os << "  thread uint m12_node_input_record_count = m12_node_input_record_count_for_group(buf28, m12_node_record_group);\n";
-            os << "  thread uint m12_node_remaining_recursion_levels = 32u;\n";
+            os << "  thread uint m12_node_remaining_recursion_levels = "
+               << (ctx.options.node_routing ? "m12_node_remaining_levels(buf28)" : "32u") << ";\n";
             os << "  thread uchar m12_node_record_storage[256] = {};\n";
         }
         if (ctx.uses_group_atomic64_emulation) {

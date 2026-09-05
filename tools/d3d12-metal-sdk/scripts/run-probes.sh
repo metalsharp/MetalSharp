@@ -4213,17 +4213,28 @@ prepare_work_graph_probe() {
   compile_work_graph_chain_variant "_fanout_icb" -DFANOUT=1 -DDYNAMIC_CONSUMER=1 || return 1
   compile_work_graph_chain_variant "_empty_entry" -DEMPTY_ENTRY=1 || return 1
   compile_work_graph_chain_variant "_empty_multi" -DEMPTY_MULTI=1 || return 1
-  rm -f "$SDK_DIR/out/bin/probe_workgraph_arrays.cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 \
-      -Fo probe_workgraph_arrays.cso "$node_source_dir/node_output_arrays.hlsl" >/dev/null
-  ) || [[ ! -s "$SDK_DIR/out/bin/probe_workgraph_arrays.cso" ]]; then
-    rm -f "$SDK_DIR/out/bin/probe_workgraph_arrays.cso"
-    return 1
-  fi
-
+  compile_named_node_fixture() {
+    local output_name="$1" source_name="$2"
+    shift 2
+    rm -f "$SDK_DIR/out/bin/$output_name"
+    if ! (
+      cd "$SDK_DIR/out/bin"
+      WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+        "$WINE_BIN" dxc.exe -nologo -T lib_6_8 "$@" \
+        -Fo "$output_name" "$node_source_dir/$source_name" >/dev/null
+    ) || [[ ! -s "$SDK_DIR/out/bin/$output_name" ]]; then
+      rm -f "$SDK_DIR/out/bin/$output_name"
+      return 1
+    fi
+  }
+  compile_named_node_fixture probe_workgraph_arrays.cso node_output_arrays.hlsl || return 1
+  compile_named_node_fixture probe_workgraph_recursion.cso node_recursion.hlsl || return 1
+  compile_named_node_fixture probe_workgraph_recursion_fanout.cso node_recursion.hlsl -DSELF_FANOUT=1 || return 1
+  compile_named_node_fixture probe_workgraph_recursion_early.cso node_recursion.hlsl -DEARLY_STOP=1 || return 1
+  compile_named_node_fixture probe_workgraph_recursion_icb.cso node_recursion.hlsl -DRECURSION_ICB=1 || return 1
+  compile_named_node_fixture probe_workgraph_recursion_overdepth.cso node_recursion.hlsl -DRECURSION_DEPTH=32 || return 1
+  compile_named_node_fixture probe_workgraph_recursion_boundary.cso node_recursion.hlsl -DRECURSION_DEPTH=31 -DDEPTH_BOUNDARY=1 || return 1
+  compile_named_node_fixture probe_workgraph_recursion_coalescing.cso node_recursion.hlsl -DRECURSION_COALESCING=1 || return 1
   rm -f "$d3d12_node_layout_cso"
   if ! (
     cd "$SDK_DIR/out/bin"
@@ -6362,6 +6373,26 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-array-creation-${PROFILE}.json" probe_workgraph_arrays.cso
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-array-dispatch-${PROFILE}.json" probe_workgraph_arrays.cso --dispatch
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-self-recursion-${PROFILE}.json" probe_workgraph_recursion.cso --recursion
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-recursion-fanout-${PROFILE}.json" probe_workgraph_recursion_fanout.cso --recursion-fanout
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-recursion-early-${PROFILE}.json" probe_workgraph_recursion_early.cso --recursion-early
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-recursion-overdepth-${PROFILE}.json" probe_workgraph_recursion_overdepth.cso --recursion-overdepth
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-recursion-boundary-${PROFILE}.json" probe_workgraph_recursion_boundary.cso --recursion-boundary
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-recursion-coalescing-${PROFILE}.json" probe_workgraph_recursion_coalescing.cso --recursion-coalescing
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
+  DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
+    run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-recursion-icb-${PROFILE}.json" probe_workgraph_recursion_icb.cso --recursion-icb
+  if [[ -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" ]]; then
+    cp "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" \
+      "$RESULTS_DIR/workgraph-recursion-icb-${PROFILE}.trace.log"
+  fi
   run_probe_exe "$WORK_GRAPH_EXECUTION_PROBE_EXE" \
     "$WORK_GRAPH_EXECUTION_RESULT_FILE"
 fi

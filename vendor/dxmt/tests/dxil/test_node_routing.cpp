@@ -44,6 +44,20 @@ int main() {
             "same-name array span charged twice");
     require(bool(buildNodeOutputRoutes({{"entry",0},{"far",0},{"far",0xfffffdu}}, far_output)),
             "node budget depends on declaration order");
+    require(bool(buildNodeOutputRoutes({{"entry",0,1},{"far",0xfffffcu,0}}, far_output)),
+            "exact recursion-charged budget rejected");
+    require(!buildNodeOutputRoutes({{"entry",0,2},{"far",0xfffffcu,0}}, far_output),
+            "recursion slots omitted from budget");
+    require(!buildNodeOutputRoutes({{"entry",0,0},{"far",0xfffffbu,1},{"far",0,2}}, far_output),
+            "same-name recursion declarations not charged individually");
+    const std::vector<NodeRoutingOutput> self_output = {{0,0,"self",0,1,false,false}};
+    require(!buildNodeOutputRoutes({{"self",0,0}}, self_output),
+            "self-edge without recursion declaration accepted");
+    const auto self_routes = buildNodeOutputRoutes({{"self",0,3}}, self_output);
+    require(self_routes && (*self_routes)[0].target_node == 0,
+            "declared self-edge missing");
+    const auto declared_only = buildNodeOutputRoutes({{"entry",0,3}}, {});
+    require(declared_only && declared_only->empty(), "declaration invented a self-edge");
     std::cout << "PASS: dense/sparse routing construction and rejection rules\n";
     return 0;
   } catch (const std::exception &error) {

@@ -5,6 +5,69 @@
   "status": "partial",
   "rows": [
     {
+      "id": "workgraph-recursion-depth-boundary",
+      "status": "closed",
+      "result": "probe-workgraph-recursion-boundary",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["recursion"], ["readback_exact"],
+        ["values", [528, 496, 32, 4294967295, 0, 99, 4294967294, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "31 self-steps plus entry execute all 32 levels exactly once. Broader mixed-node depth accounting remains open."
+    },
+    {
+      "id": "workgraph-recursion-overdepth-no-writes",
+      "status": "closed",
+      "result": "probe-workgraph-recursion-overdepth",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["overdepth"], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 99, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A 33-level expansion rejects before writes/reset while an independent dispatch completes. No SetProgram initialization is requested. Creation-time graph-depth validation remains open."
+    },
+    {
+      "id": "workgraph-recursion-coalescing-batches",
+      "status": "closed",
+      "result": "probe-workgraph-recursion-coalescing",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["recursion"], ["readback_exact"],
+        ["values", [22, 18, 14, 10, 0, 99, 14, 0, 8, 4, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Four input records recurse in two-record coalescing batches; exact group count and batch-size bitmap pass. Partial batches and broader launch/resource combinations remain open."
+    },
+    {
+      "id": "workgraph-recursion-early-termination",
+      "status": "closed",
+      "result": "probe-workgraph-recursion-early",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["recursion"], ["readback_exact"],
+        ["values", [0, 0, 2, 1, 0, 99, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "GPU publication stops before the declared leaf; later encoded levels do no work. Broader termination and boundary combinations remain open."
+    },
+    {
+      "id": "workgraph-recursion-native-icb",
+      "status": "closed",
+      "result": "probe-workgraph-recursion-icb",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["recursion"], ["readback_exact"],
+        ["values", [4, 3, 2, 1, 0, 99, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Record-driven broadcasting recurses through native ICB contexts with exact levels/leaf validity; queue trace records three ICB encodes. Coalescing, GPU entry headers, variable grids and broader recursive ICB combinations remain open."
+    },
+    {
+      "id": "workgraph-thread-self-recursion",
+      "status": "closed",
+      "result": "probe-workgraph-self-recursion",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["dispatch_tested"], ["readback_exact"], ["recursion"],
+        ["values", [4, 3, 2, 1, 0, 99, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Four thread-node levels and leaf IsValid pass; declaration-only nonrecursive query returns zero. Other launch modes, GPU inputs and boundary breadth remain open."
+    },
+    {
+      "id": "workgraph-recursion-publication-generations",
+      "status": "closed",
+      "result": "probe-workgraph-recursion-fanout",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["dispatch_tested"], ["readback_exact"], ["recursion"],
+        ["values", [32, 12, 4, 1, 0, 99, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Two self-output ports preserve per-level generations and leaf validity. Broader recursive topology/resource/output-limit combinations remain open."
+    },
+    {
       "id": "workgraph-dense-sparse-array-dispatch",
       "status": "closed",
       "result": "probe-workgraph-array-dispatch",

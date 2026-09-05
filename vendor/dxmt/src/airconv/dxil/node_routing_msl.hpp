@@ -11,12 +11,17 @@ struct m12_node_routing_context {
   device const m12_node_route *routes;
   uint route_count, source_node;
 };
+struct m12_node_recursion_context {
+  m12_node_routing_context routing;
+  uint remaining_levels, reserved;
+};
+static_assert(sizeof(m12_node_recursion_context) == 64, "recursion context ABI");
 static_assert(sizeof(m12_node_route) == 24, "route ABI");
 static_assert(sizeof(m12_node_routing_context) == 56, "routing context ABI");
 static inline device const m12_node_routing_context *m12_node_route_context(device const char *raw) {
   if (raw == nullptr) return nullptr;
   uint version = *reinterpret_cast<device const uint *>(raw);
-  if (version != 4u && version != 5u) return nullptr;
+  if (version != 4u && version != 5u && version != 6u && version != 7u) return nullptr;
   auto c = reinterpret_cast<device const m12_node_routing_context *>(raw);
   return c->routes != nullptr && c->route_count != 0u ? c : nullptr;
 }
@@ -47,7 +52,15 @@ static inline uint m12_node_route_index(device const m12_node_routing_context *c
 static inline bool m12_node_route_valid(device const m12_node_routing_context *c, uint handle) {
   if (c == nullptr || handle == 0u || handle > c->route_count) return false;
   auto row = c->routes[handle - 1u];
-  return row.source_node == c->source_node && row.target_node != 0xffffffffu;
+  if (row.source_node != c->source_node || row.target_node == 0xffffffffu) return false;
+  if (row.target_node == c->source_node && (c->version == 6u || c->version == 7u))
+    return reinterpret_cast<device const m12_node_recursion_context *>(c)->remaining_levels != 0u;
+  return true;
+}
+static inline uint m12_node_remaining_levels(device const char *raw) {
+  auto c = m12_node_route_context(raw);
+  if (c == nullptr || (c->version != 6u && c->version != 7u)) return 0u;
+  return reinterpret_cast<device const m12_node_recursion_context *>(c)->remaining_levels;
 }
 )MSL";
 } // namespace dxmt::dxil

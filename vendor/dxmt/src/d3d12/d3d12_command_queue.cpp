@@ -1415,6 +1415,11 @@ struct m12_node_routed_input_context {
   uint routing_table_count, source_node;
 };
 static_assert(sizeof(m12_node_routed_input_context) == 56, "routed context ABI");
+struct m12_node_recursive_input_context {
+  m12_node_routed_input_context routing;
+  uint remaining_levels, reserved;
+};
+static_assert(sizeof(m12_node_recursive_input_context) == 64, "recursive context ABI");
 struct m12_node_schedule_parameters {
   uint target_output;
   uint consume_bit;
@@ -1424,6 +1429,7 @@ struct m12_node_schedule_parameters {
   uint grid_y;
   uint grid_z;
   uint broadcasting;
+  uint source_remaining, recursive_source;
 };
 
 // Compact published output allocations into a descriptor stream and produce
@@ -1447,7 +1453,8 @@ kernel void m12_work_graph_schedule(
     const uint output = entry[2];
     const uint published = entry[3];
     if ((published & 1u) == 0u || output != parameters.target_output ||
-        (published & parameters.consume_bit) != 0u)
+        (published & parameters.consume_bit) != 0u ||
+        (parameters.recursive_source != 0u && (published >> 8u) != parameters.source_remaining))
       continue;
     for (uint record = 0u; record < record_count; ++record) {
       if (count >= 4096u)
@@ -1458,7 +1465,7 @@ kernel void m12_work_graph_schedule(
     }
     entry[3] = published | parameters.consume_bit;
   }
-  if (context->version != 5u) context->version = 3u;
+  if (context->version != 5u && context->version != 7u) context->version = 3u;
   context->count = count;
   context->stride = 8ul;
   context->size = ulong(parameters.record_size);
@@ -1548,16 +1555,23 @@ kernel void m12_work_graph_build_icb(
   const uint x = m12_node_clamp_grid(m12_node_grid_component(grid_record, 0u, parameters.grid_width), parameters.max_x);
   const uint y = parameters.grid_components > 1u ? m12_node_clamp_grid(m12_node_grid_component(grid_record, 1u, parameters.grid_width), parameters.max_y) : 1u;
   const uint z = parameters.grid_components > 2u ? m12_node_clamp_grid(m12_node_grid_component(grid_record, 2u, parameters.grid_width), parameters.max_z) : 1u;
-  const bool routed = input->version == 5u;
+  const bool recursive = input->version == 7u;
+  const bool routed = input->version == 5u || recursive;
   device m12_node_input_context *child = reinterpret_cast<device m12_node_input_context *>(
-      contexts + ulong(tid) * (routed ? 56ul : 40ul));
-  *child = {routed ? 5u : 3u, 1u, 8ul, ulong(parameters.record_size), 1ul, 1u, x};
+      contexts + ulong(tid) * (recursive ? 64ul : (routed ? 56ul : 40ul)));
+  *child = {recursive ? 7u : (routed ? 5u : 3u), 1u, 8ul, ulong(parameters.record_size), 1ul, 1u, x};
   if (routed) {
     auto parent = reinterpret_cast<device const m12_node_routed_input_context *>(input);
     auto destination = reinterpret_cast<device m12_node_routed_input_context *>(child);
     destination->routing_table_address = parent->routing_table_address;
     destination->routing_table_count = parent->routing_table_count;
     destination->source_node = parent->source_node;
+    if (recursive) {
+      auto recursive_parent = reinterpret_cast<device const m12_node_recursive_input_context *>(input);
+      auto recursive_child = reinterpret_cast<device m12_node_recursive_input_context *>(child);
+      recursive_child->remaining_levels = recursive_parent->remaining_levels;
+      recursive_child->reserved = 0u;
+    }
   }
   compute_command command(handles.commands, tid);
   command.set_compute_pipeline_state(handles.pipeline);
@@ -3391,7 +3405,9 @@ struct ReplayState {
       MTLD3D12Device *device, uint32_t target_output, uint32_t consume_bit,
       uint32_t record_size, uint32_t batch_size,
       const MTLD3D12Device::WorkGraphNodeShader &target_shader,
-      WorkGraphScheduledInput &scheduled, WMT::CommandBuffer command_buffer) {
+      WorkGraphScheduledInput &scheduled, WMT::CommandBuffer command_buffer,
+      uint32_t remaining_levels = 0, uint32_t source_remaining = 0,
+      bool recursive_source = false) {
     if (!device || !command_buffer.handle || !target_output || !consume_bit ||
         !record_size || record_size > kNodeOutputRecordStride || !batch_size ||
         !work_graph_backing_address ||
@@ -3415,8 +3431,9 @@ struct ReplayState {
     WorkGraphRoutingBinding routing;
     if (!PrepareWorkGraphRouting(device, target_shader, routing)) return false;
     scheduled.context = MakeTransientBuffer(device, routing.buffer.handle
-        ? sizeof(D3D12NodeRoutingContext) : sizeof(D3D12NodeDynamicInputContext));
-    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 8u);
+        ? (target_shader.is_recursive ? sizeof(D3D12NodeRecursionContext) : sizeof(D3D12NodeRoutingContext))
+        : sizeof(D3D12NodeDynamicInputContext));
+    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 10u);
     if (!scheduled.descriptors.handle || !scheduled.dispatch_args.handle ||
         !scheduled.context.handle || !parameters.handle)
       return false;
@@ -3432,7 +3449,15 @@ struct ReplayState {
       routed.routing_table_address = routing.gpu_address;
       routed.routing_table_count = routing.count;
       routed.source_node = target_shader.source_node_index;
-      scheduled.context.updateContents(0, &routed, sizeof(routed));
+      if (target_shader.is_recursive) {
+        D3D12NodeRecursionContext recursive;
+        recursive.routing = routed;
+        recursive.routing.version = 7;
+        recursive.remaining_levels = remaining_levels;
+        scheduled.context.updateContents(0, &recursive, sizeof(recursive));
+      } else {
+        scheduled.context.updateContents(0, &routed, sizeof(routed));
+      }
     } else {
       scheduled.context.updateContents(0, &context, sizeof(context));
     }
@@ -3442,10 +3467,11 @@ struct ReplayState {
       uint32_t batch_size;
       uint32_t record_size;
       uint32_t grid_x, grid_y, grid_z, broadcasting;
+      uint32_t source_remaining, recursive_source;
     } parameter_data = {target_output, consume_bit, batch_size, record_size,
         target_shader.grid[0], target_shader.grid[1], target_shader.grid[2],
-        target_shader.launch_type == 1u ? 1u : 0u};
-    static_assert(sizeof(Parameters) == sizeof(uint32_t) * 8u);
+        target_shader.launch_type == 1u ? 1u : 0u, source_remaining, recursive_source ? 1u : 0u};
+    static_assert(sizeof(Parameters) == sizeof(uint32_t) * 10u);
     parameters.updateContents(0, &parameter_data, sizeof(parameter_data));
 
     if (!work_graph_scheduler_pipeline.handle) {
@@ -3642,7 +3668,8 @@ struct ReplayState {
     if (!handles[0] || !handles[1]) return false;
     auto arguments = MakeTransientBuffer(device, sizeof(handles));
     auto contexts = MakeTransientBuffer(device, uint64_t(kNodeOutputRecordSlots) *
-        (routing.buffer.handle ? sizeof(D3D12NodeRoutingContext) : sizeof(D3D12NodeDynamicInputContext)));
+        (routing.buffer.handle ? (shader.is_recursive ? sizeof(D3D12NodeRecursionContext) : sizeof(D3D12NodeRoutingContext))
+                               : sizeof(D3D12NodeDynamicInputContext)));
     auto range = MakeTransientBuffer(device, sizeof(uint32_t) * 2u);
     struct Parameters {
       uint32_t record_size, grid_offset, grid_components, grid_width;
@@ -3757,7 +3784,7 @@ struct ReplayState {
       uint32_t record_count, const void *cpu_records, uint64_t gpu_records,
       uint64_t record_stride, WMT::CommandBuffer command_buffer,
       const WorkGraphScheduledInput *scheduled_input = nullptr,
-      WMT::Reference<WMT::Buffer> grid_args = {}) {
+      WMT::Reference<WMT::Buffer> grid_args = {}, uint32_t remaining_levels = 0) {
     const auto &source = shader.msl;
     const bool scheduled_records = scheduled_input != nullptr;
     if (!device || !command_buffer.handle || source.empty() ||
@@ -3903,7 +3930,8 @@ struct ReplayState {
     WorkGraphRoutingBinding routing;
     if (!PrepareWorkGraphRouting(device, shader, routing)) return false;
     const uint64_t context_stride = routing.buffer.handle
-        ? sizeof(D3D12NodeRoutingContext) : sizeof(input_context);
+        ? (shader.is_recursive ? sizeof(D3D12NodeRecursionContext) : sizeof(D3D12NodeRoutingContext))
+        : sizeof(input_context);
     WMT::Reference<WMT::Buffer> context_buffer;
     if (scheduled_records) {
       context_buffer = scheduled_input->context;
@@ -3938,7 +3966,15 @@ struct ReplayState {
           routed.routing_table_address = routing.gpu_address;
           routed.routing_table_count = routing.count;
           routed.source_node = shader.source_node_index;
-          context_buffer.updateContents(uint64_t(invocation) * context_stride, &routed, sizeof(routed));
+          if (shader.is_recursive) {
+            D3D12NodeRecursionContext recursive;
+            recursive.routing = routed;
+            recursive.routing.version = 6;
+            recursive.remaining_levels = remaining_levels;
+            context_buffer.updateContents(uint64_t(invocation) * context_stride, &recursive, sizeof(recursive));
+          } else {
+            context_buffer.updateContents(uint64_t(invocation) * context_stride, &routed, sizeof(routed));
+          }
         } else {
           context_buffer.updateContents(uint64_t(invocation) * context_stride, &context, sizeof(context));
         }
@@ -4163,20 +4199,22 @@ struct ReplayState {
     // Validate the entire reachable topology before resetting backing storage
     // or encoding any shader. A later unsupported edge must not leave a
     // partially executed graph. This is static validation, not CPU scheduling.
-    // Recursion is not implemented: reject cycles rather than truncating them
-    // after side effects. Also bound path expansion in converging/fan-out DAGs.
+    // Expand declared self-recursion only. Other cycles remain invalid, and
+    // every expanded level counts against the depth/path budget.
     constexpr uint32_t kMaxGraphDepth = 32;
     constexpr uint32_t kMaxEncodedNodeVisits = 1024;
     std::array<uint32_t, kMaxGraphDepth> active_nodes = {};
     uint32_t visits = 0;
     auto validate = [&](auto &&self, const MTLD3D12Device::WorkGraphNodeShader &shader,
-                        uint32_t depth) -> bool {
+                        uint32_t depth, uint32_t remaining) -> bool {
       if (depth >= kMaxGraphDepth || ++visits > kMaxEncodedNodeVisits ||
           shader.msl.empty() || shader.source_node_index == UINT32_MAX)
         return false;
       for (uint32_t i = 0; i < depth; ++i)
-        if (active_nodes[i] == shader.source_node_index)
+        if (active_nodes[i] == shader.source_node_index &&
+            active_nodes[depth - 1u] != shader.source_node_index)
           return false;
+      if (shader.is_recursive && (!shader.max_recursion_depth || !shader.routing_table)) return false;
       active_nodes[depth] = shader.source_node_index;
       for (const auto &output : shader.outputs) {
         // Array elements require the program's immutable routing snapshot.
@@ -4200,6 +4238,8 @@ struct ReplayState {
             uint64_t(shader.source_node_index) * 256u + output.metadata_index + 1u > UINT32_MAX) {
           return false;
         }
+        const bool self_edge = output.target_node_index == shader.source_node_index;
+        if (self_edge && !remaining) continue;
         MTLD3D12Device::WorkGraphNodeShader target;
         if (!device->LookupWorkGraphNodeShader(work_graph_program_identifier,
                 sizeof(work_graph_program_identifier), output.target_node_index, target, true) ||
@@ -4210,16 +4250,18 @@ struct ReplayState {
                 !target.grid[0] || !target.grid[1] || !target.grid[2] ||
                 uint64_t(kNodeOutputRecordSlots) * target.grid[0] * target.threads[0] > UINT32_MAX)) ||
             (target.launch_type == 2u && !target.input_max_records) ||
-            !self(self, target, depth + 1u))
+            !self(self, target, depth + 1u, self_edge ? remaining - 1u :
+                  (target.is_recursive ? target.max_recursion_depth : 0u)))
           return false;
       }
       return true;
     };
-    if (!validate(validate, initial_shader, 0u) ||
+    const uint32_t initial_remaining = initial_shader.is_recursive ? initial_shader.max_recursion_depth : 0u;
+    if (!validate(validate, initial_shader, 0u, initial_remaining) ||
         !ResetWorkGraphOutputTable(device, command_buffer))
       return false;
     auto encode_node = [&](auto &&self, uint32_t node_index, uint32_t depth,
-                           bool initial) -> bool {
+                           bool initial, uint32_t remaining) -> bool {
       if (depth >= kMaxGraphDepth)
         return false;
       MTLD3D12Device::WorkGraphNodeShader shader;
@@ -4231,7 +4273,7 @@ struct ReplayState {
       if (initial) {
         if (!EncodeWorkGraphNodeShader(
                 device, shader, node_index, record_count, cpu_records,
-                gpu_records, record_stride, command_buffer))
+                gpu_records, record_stride, command_buffer, nullptr, {}, remaining))
           return false;
       }
       for (const auto &output : shader.outputs) {
@@ -4257,6 +4299,10 @@ struct ReplayState {
                                          : 1u;
         if (!batch_size)
           return false;
+        const bool self_edge = output.target_node_index == node_index;
+        if (self_edge && !remaining) continue;
+        const uint32_t target_remaining = self_edge ? remaining - 1u :
+            (target_shader.is_recursive ? target_shader.max_recursion_depth : 0u);
         WorkGraphScheduledInput scheduled;
         const uint32_t target_output = shader.routing_table ? output.route_token :
             static_cast<uint32_t>(uint64_t(node_index) * 256u + output.metadata_index + 1u);
@@ -4266,17 +4312,17 @@ struct ReplayState {
         if (!EncodeWorkGraphOutputSchedule(
                 device, target_output, consume_bit,
                 target_shader.input_record_size, batch_size, target_shader, scheduled,
-                command_buffer) ||
+                command_buffer, target_remaining, remaining, shader.is_recursive) ||
             !EncodeWorkGraphNodeShader(
                 device, target_shader, output.target_node_index, 1u, nullptr,
-                0, sizeof(uint32_t) * 2u, command_buffer, &scheduled))
+                0, sizeof(uint32_t) * 2u, command_buffer, &scheduled, {}, target_remaining))
           return false;
-        if (!self(self, output.target_node_index, depth + 1u, false))
+        if (!self(self, output.target_node_index, depth + 1u, false, target_remaining))
           return false;
       }
       return true;
     };
-    return encode_node(encode_node, initial_node_index, 0u, true);
+    return encode_node(encode_node, initial_node_index, 0u, true, initial_remaining);
   }
 
   bool EncodeWorkGraphReference(MTLD3D12Device *device,
