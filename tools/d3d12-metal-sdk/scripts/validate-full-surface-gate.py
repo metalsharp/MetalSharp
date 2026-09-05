@@ -138,6 +138,34 @@ def run_validators() -> list[dict[str, Any]]:
     return rows
 
 
+def valid_loader_audit(audit: Any) -> bool:
+    """Check retained copy evidence, not just its self-reported match flag.
+
+    Temporary aliases are removed after a run, so validate the captured
+    metadata without requiring historical paths to remain live.
+    """
+    required = {"d3d12.dll", "d3d11.dll", "d3d10core.dll", "dxgi.dll",
+                "dxgi_dxmt.dll", "winemetal.dll"}
+    if not isinstance(audit, dict) or not required.issubset(audit):
+        return False
+    for record in audit.values():
+        if not isinstance(record, dict) or record.get("match") is not True:
+            return False
+        selected, copied = record.get("selected"), record.get("probe_copy")
+        for artifact in (selected, copied):
+            if not isinstance(artifact, dict):
+                return False
+            digest = artifact.get("sha256")
+            if (not isinstance(artifact.get("path"), str) or not artifact["path"] or
+                    type(artifact.get("size")) is not int or artifact["size"] <= 0 or
+                    not isinstance(digest, str) or len(digest) != 64 or
+                    any(character not in "0123456789abcdef" for character in digest)):
+                return False
+        if selected["size"] != copied["size"] or selected["sha256"] != copied["sha256"]:
+            return False
+    return True
+
+
 def check_result(
     results_dir: Path, profile: str, row: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
@@ -171,10 +199,7 @@ def check_result(
                 continue
             run_started_at = identity.get("run_started_at")
             loader_audit = identity.get("loader_pe_copy_audit")
-            loader_ok = isinstance(loader_audit, dict) and bool(loader_audit) and all(
-                isinstance(record, dict) and record.get("match") is True
-                for record in loader_audit.values()
-            )
+            loader_ok = valid_loader_audit(loader_audit)
             if (identity.get("profile") != result_profile or
                     type(run_started_at) not in (int, float) or
                     not math.isfinite(run_started_at) or run_started_at <= 0 or not loader_ok):
