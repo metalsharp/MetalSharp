@@ -146,6 +146,15 @@ GPU-header fixture to 2x2x2 groups. Exact atomic contributions are
 entry remains unchanged. This verifies eight contributions per dense input
 record across all three grid axes, not general system-value or thread shapes.
 
+### GPU table-address alignment
+
+`/Volumes/AverySSD/phase7-alignment/results/` passes all fourteen GPU-header
+variants against `/Volumes/AverySSD/phase7-alignment-stage/runtime`. Multi-input
+validation now checks the table address's 8-byte alignment before dereferencing
+child descriptors, in addition to its existing stride checks. A GPU-produced
+address offset by one byte rejects with all 2 MiB of backing and user output
+unchanged. This stage remains development evidence, not clean reproducibility.
+
 ## Remaining
 
 - Multi-node broadcasting, duplicate/zero-stride descriptors, larger descriptor

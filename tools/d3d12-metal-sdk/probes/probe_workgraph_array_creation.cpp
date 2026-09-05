@@ -41,7 +41,7 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     // treating the command-line variants as aliases.
     const bool gpu_header_single_launch =
         gpu_headers_coalescing || gpu_headers_broadcasting;
-    const bool gpu_multi_no_work = gpu_multi_mode >= 1u && gpu_multi_mode <= 6u;
+    const bool gpu_multi_no_work = (gpu_multi_mode >= 1u && gpu_multi_mode <= 6u) || gpu_multi_mode == 9u;
     Owned<ID3D12CommandQueue> queue;
     Owned<ID3D12CommandAllocator> allocator;
     Owned<ID3D12GraphicsCommandList> list;
@@ -224,7 +224,7 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     return SUCCEEDED(hr) && (!(overdepth || gpu_multi_no_work) || backing_unchanged) && (!empty_output || empty_allocation_exact) && std::memcmp(values, expected, sizeof(values)) == 0;
 }
 int main(int argc, char **argv) {
-    if (argc != 2 && !(argc == 3 && (!std::strcmp(argv[2], "--dispatch") || !std::strcmp(argv[2], "--recursion") || !std::strcmp(argv[2], "--recursion-fanout") || !std::strcmp(argv[2], "--recursion-early") || !std::strcmp(argv[2], "--recursion-icb") || !std::strcmp(argv[2], "--recursion-overdepth") || !std::strcmp(argv[2], "--recursion-boundary") || !std::strcmp(argv[2], "--recursion-coalescing") || !std::strcmp(argv[2], "--empty-output") || !std::strcmp(argv[2], "--empty-output-zero") || !std::strcmp(argv[2], "--empty-output-mismatch") || !std::strcmp(argv[2], "--gpu-headers") || !std::strcmp(argv[2], "--gpu-headers-coalescing") || !std::strcmp(argv[2], "--gpu-headers-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-entry") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-capacity") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-stride") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-records") || !std::strcmp(argv[2], "--gpu-multi-headers-empty") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-second") || !std::strcmp(argv[2], "--gpu-multi-headers-replication") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing")))) return 2;
+    if (argc != 2 && !(argc == 3 && (!std::strcmp(argv[2], "--dispatch") || !std::strcmp(argv[2], "--recursion") || !std::strcmp(argv[2], "--recursion-fanout") || !std::strcmp(argv[2], "--recursion-early") || !std::strcmp(argv[2], "--recursion-icb") || !std::strcmp(argv[2], "--recursion-overdepth") || !std::strcmp(argv[2], "--recursion-boundary") || !std::strcmp(argv[2], "--recursion-coalescing") || !std::strcmp(argv[2], "--empty-output") || !std::strcmp(argv[2], "--empty-output-zero") || !std::strcmp(argv[2], "--empty-output-mismatch") || !std::strcmp(argv[2], "--gpu-headers") || !std::strcmp(argv[2], "--gpu-headers-coalescing") || !std::strcmp(argv[2], "--gpu-headers-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-entry") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-capacity") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-stride") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-records") || !std::strcmp(argv[2], "--gpu-multi-headers-empty") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-second") || !std::strcmp(argv[2], "--gpu-multi-headers-replication") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-misaligned-table")))) return 2;
     const bool fanout = argc == 3 && !std::strcmp(argv[2], "--recursion-fanout");
     const bool early = argc == 3 && !std::strcmp(argv[2], "--recursion-early");
     const bool icb = argc == 3 && !std::strcmp(argv[2], "--recursion-icb");
@@ -248,6 +248,7 @@ int main(int argc, char **argv) {
     if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-invalid-second")) gpu_multi_mode = 6;
     if (argc == 3 && (!std::strcmp(argv[2], "--gpu-multi-headers-replication") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing"))) gpu_multi_mode = 7;
     if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing")) gpu_multi_mode = 8;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-misaligned-table")) gpu_multi_mode = 9;
     const FixtureOptions options = {recursion,fanout,early,icb,overdepth,boundary,coalescing,empty_output,zero,mismatch,gpu_headers,gpu_headers_coalescing,gpu_multi_headers,gpu_headers_broadcasting,gpu_multi_mode};
     std::ifstream input(argv[1], std::ios::binary);
     std::vector<char> bytes((std::istreambuf_iterator<char>(input)), {});

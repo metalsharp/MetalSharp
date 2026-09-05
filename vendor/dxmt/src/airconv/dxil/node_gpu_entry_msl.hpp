@@ -140,7 +140,8 @@ static inline uint m12_gpu_multi_entry_error(
     device const m12_node_gpu_address_bound *bounds,
     constant m12_gpu_entry_build_parameters &parameters) {
   if (header.num_node_inputs == 0u) return 0u;
-  if (!header.node_inputs || header.node_input_stride < 24ul ||
+  if (!header.node_inputs || (header.node_inputs & 7ul) != 0ul ||
+      header.node_input_stride < 24ul ||
       (header.node_input_stride & 7ul) != 0ul ||
       header.num_node_inputs > parameters.command_capacity) return 2u;
   ulong last = ulong(header.num_node_inputs) - 1ul;
