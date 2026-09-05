@@ -2576,7 +2576,14 @@ static void emitFunctionPrologue(LowerContext &ctx) {
             os << "  thread uint m12_node_output_count = 0u;\n";
             os << "  thread uint m12_node_output_complete = 0u;\n";
             os << "  threadgroup uint m12_node_group_output_handle;\n";
-            os << "  thread uint m12_node_input_record_count = m12_node_input_record_count_for_group(buf28, ggid.x);\n";
+            os << "  uint m12_node_record_group = ggid.x;\n";
+            os << "  device const m12_node_input_context *m12_node_context = buf28 != nullptr ? reinterpret_cast<device const m12_node_input_context *>(buf28) : nullptr;\n";
+            os << "  if (m12_node_context != nullptr && m12_node_context->version == 3u && m12_node_context->reserved != 0u) {\n";
+            os << "    m12_node_record_group = ggid.x / m12_node_context->reserved;\n";
+            os << "    ggid.x %= m12_node_context->reserved;\n";
+            os << "    dtid.x = ggid.x * gsz.x + gtid.x;\n";
+            os << "  }\n";
+            os << "  thread uint m12_node_input_record_count = m12_node_input_record_count_for_group(buf28, m12_node_record_group);\n";
             os << "  thread uint m12_node_remaining_recursion_levels = 32u;\n";
             os << "  thread uchar m12_node_record_storage[256] = {};\n";
         }
@@ -7690,21 +7697,20 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         case DXOP_AllocateNodeOutputRecords: {
             if (args.size() < 3)
                 return reject_node("malformed AllocateNodeOutputRecords operands");
-            const uint32_t count =
-                literalArg(1, UINT32_MAX, "node output record count");
+            const std::string count = numericArg(1, "");
             uint32_t per_thread =
                 literalArg(2, UINT32_MAX, "node output per-thread flag");
             if (per_thread == UINT32_MAX && valueArg(2, "") == "-1")
                 per_thread = 1u;
-            if (count == UINT32_MAX || per_thread > 1u)
-                return reject_node("node output record operands must be literal");
+            if (count.empty() || per_thread > 1u)
+                return reject_node("node output count must be scalar and per-thread flag literal");
             if (!per_thread)
                 return "m12_node_allocate_group_record_handle(buf30 != nullptr ? buf30 : buf0, buf28, (uint)(" +
-                       valueArg(0, "0u") + "), " + std::to_string(count) +
-                       "u, m12_node_group_output_handle, gtid.x + gsz.x * (gtid.y + gsz.y * gtid.z))";
+                       valueArg(0, "0u") + "), (uint)(" + count +
+                       "), m12_node_group_output_handle, gtid.x + gsz.x * (gtid.y + gsz.y * gtid.z))";
             return "m12_node_allocate_record_handle(buf30 != nullptr ? buf30 : buf0, buf28, (uint)(" +
-                   valueArg(0, "0u") + "), " + std::to_string(count) +
-                   "u, " + std::to_string(per_thread) + "u)";
+                   valueArg(0, "0u") + "), (uint)(" + count +
+                   "), " + std::to_string(per_thread) + "u)";
         }
         case DXOP_GetNodeRecordPtr: {
             if (args.size() < 2)
@@ -7717,7 +7723,7 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             if (index_value.empty())
                 return reject_node("node record index has no scalar value");
             return "m12_node_record_ptr(buf30 != nullptr ? buf30 : buf0, buf29, buf28, (uint)(" +
-                   valueArg(0, "0u") + "), (uint)(" + index_value + "), ggid.x)";
+                   valueArg(0, "0u") + "), (uint)(" + index_value + "), m12_node_record_group)";
         }
         case DXOP_IncrementOutputCount: {
             if (args.size() < 3)

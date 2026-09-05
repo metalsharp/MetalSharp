@@ -5,6 +5,73 @@
   "status": "partial",
   "rows": [
     {
+      "id": "workgraph-repeated-chain-isolation",
+      "status": "closed",
+      "result": "probe-workgraph-repeated-chain",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["post_recording_mutation"],
+        ["values", [23, 10, 23, 10, 6, 4, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Two chains in one command list preserve distinct records and per-dispatch allocator state despite CPU-record mutation. General concurrent graph/backing reuse remains open."
+    },
+    {
+      "id": "workgraph-thread-varying-output-count",
+      "status": "closed",
+      "result": "probe-workgraph-varying-lanes",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [35904, 17888, 35904, 17888, 32, 16, 32, 16, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Adjacent lanes in each two-thread broadcasting group request zero/one output records independently. General output limits, wave-width combinations and overflow remain open."
+    },
+    {
+      "id": "workgraph-runtime-group-output-count",
+      "status": "closed",
+      "result": "probe-workgraph-dynamic-output",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 5, 0, 5, 0, 2, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Input-driven group allocation of zero or two output records is verified. General output-count limits and overflow semantics remain open."
+    },
+    {
+      "id": "workgraph-runtime-thread-output-count",
+      "status": "closed",
+      "result": "probe-workgraph-dynamic-thread-output",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [18, 5, 18, 5, 2, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Input-driven thread allocation of zero or one output record is verified; unrestricted publication and sharing semantics remain open."
+    },
+    {
+      "id": "workgraph-empty-fixed-grid-downstream-broadcasting",
+      "status": "closed",
+      "result": "probe-workgraph-fixed-consumer-empty",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Zero upstream records skip fixed-grid downstream groups despite non-unit Y/Z. Broader empty and conditional-output graph patterns remain open."
+    },
+    {
+      "id": "workgraph-fixed-grid-downstream-broadcasting",
+      "status": "closed",
+      "result": "probe-workgraph-fixed-consumer",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [35904, 17888, 35904, 17888, 64, 32, 64, 32, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Fixed 2x2x2 downstream broadcasting with two threads per group and record-local group/thread IDs is verified. Record-driven downstream grids, recursion and general resource tables remain open."
+    },
+    {
       "id": "workgraph-oversized-terminal-output-rejection",
       "status": "closed",
       "result": "probe-workgraph-oversized-output",
@@ -71,7 +138,7 @@
         ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
       ],
-      "remaining": "Unsupported downstream broadcasting rejects without upstream shader writes or allocations. This is fail-closed coverage, not downstream broadcasting support; runtime expansion-bound probes remain open."
+      "remaining": "Record-driven downstream broadcasting rejects without upstream shader writes or allocations. Fixed-grid downstream broadcasting has a separate positive witness; runtime expansion-bound probes remain open."
     },
     {
       "id": "workgraph-two-path-fanout",

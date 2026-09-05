@@ -36,7 +36,10 @@ struct D3D12NodeDynamicInputContext {
   uint64_t record_size = 0;
   uint64_t byte_length = 0;
   uint32_t batch_size = 1;
+  // Nonzero for scheduled fixed-grid broadcasting: groups per record on X.
+  // Zero retains the thread/coalescing descriptor-stream mapping.
   uint32_t reserved = 0;
 };
 static_assert(sizeof(D3D12NodeDynamicInputContext) == 40);
 static_assert(offsetof(D3D12NodeDynamicInputContext, batch_size) == 32);
+static_assert(offsetof(D3D12NodeDynamicInputContext, reserved) == 36);

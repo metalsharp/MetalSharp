@@ -154,7 +154,8 @@ static HRESULT wait(ID3D12Device* d, ID3D12CommandQueue* q, ID3D12GraphicsComman
 int main(int argc, char** argv) {
     const char* mode = argc > 1 ? argv[1] : "chain";
     const bool zero_grid = std::strcmp(mode, "zero-grid") == 0;
-    const bool empty_grid = std::strcmp(mode, "empty-grid") == 0;
+    const bool fixed_consumer_empty = std::strcmp(mode, "fixed-consumer-empty") == 0;
+    const bool empty_grid = fixed_consumer_empty || std::strcmp(mode, "empty-grid") == 0;
     const bool offset_grid = std::strcmp(mode, "offset-grid") == 0;
     const bool cross_queue = std::strcmp(mode, "cross-queue-grid") == 0;
     const bool gpu_copy = cross_queue || std::strcmp(mode, "gpu-copy-grid") == 0;
@@ -166,8 +167,13 @@ int main(int argc, char** argv) {
     const bool cycle = std::strcmp(mode, "cycle") == 0;
     const bool oversized_output = std::strcmp(mode, "oversized-output") == 0;
     const bool unsupported_target = oversized_output || cycle || std::strcmp(mode, "unsupported-target") == 0;
-    if (!zero_grid && !empty_grid && !offset_grid && !vector_grid && !fanout && !unsupported_target &&
-        std::strcmp(mode, "chain"))
+    const bool varying_lanes = std::strcmp(mode, "varying-lanes") == 0;
+    const bool fixed_consumer = varying_lanes || fixed_consumer_empty || std::strcmp(mode, "fixed-consumer") == 0;
+    const bool dynamic_output = std::strcmp(mode, "dynamic-output") == 0;
+    const bool dynamic_thread_output = std::strcmp(mode, "dynamic-thread-output") == 0;
+    const bool repeated = std::strcmp(mode, "repeated") == 0;
+    if (!repeated && !dynamic_thread_output && !dynamic_output && !zero_grid && !empty_grid && !offset_grid &&
+        !vector_grid && !fanout && !unsupported_target && !fixed_consumer && std::strcmp(mode, "chain"))
         return 2;
     HMODULE m = LoadLibraryA("d3d12.dll");
     auto cd = proc<CreateDevice>(m, "D3D12CreateDevice");
@@ -240,14 +246,18 @@ int main(int argc, char** argv) {
         }
     }
     std::vector<uint8_t> cso;
-    if (!read(oversized_output     ? "probe_workgraph_chain_oversized.cso"
-              : u16_grid           ? "probe_workgraph_chain_u16.cso"
-              : cycle              ? "probe_workgraph_chain_cycle.cso"
-              : unsupported_target ? "probe_workgraph_chain_bad_target.cso"
-              : fanout             ? "probe_workgraph_chain_fanout.cso"
-              : vector_grid        ? "probe_workgraph_chain_vector.cso"
-              : offset_grid        ? "probe_workgraph_chain_offset.cso"
-                                   : "probe_workgraph_chain.cso",
+    if (!read(varying_lanes           ? "probe_workgraph_chain_varying_lanes.cso"
+              : dynamic_thread_output ? "probe_workgraph_chain_dynamic_thread_output.cso"
+              : dynamic_output        ? "probe_workgraph_chain_dynamic_output.cso"
+              : fixed_consumer        ? "probe_workgraph_chain_fixed_consumer.cso"
+              : oversized_output      ? "probe_workgraph_chain_oversized.cso"
+              : u16_grid              ? "probe_workgraph_chain_u16.cso"
+              : cycle                 ? "probe_workgraph_chain_cycle.cso"
+              : unsupported_target    ? "probe_workgraph_chain_bad_target.cso"
+              : fanout                ? "probe_workgraph_chain_fanout.cso"
+              : vector_grid           ? "probe_workgraph_chain_vector.cso"
+              : offset_grid           ? "probe_workgraph_chain_offset.cso"
+                                      : "probe_workgraph_chain.cso",
               cso))
         h = E_FAIL;
     const wchar_t* exports[3] = {L"firstNode", L"secondNode", L"thirdNode"};
@@ -393,6 +403,16 @@ int main(int argc, char** argv) {
             copy_list->ResourceBarrier(1, &ready);
         }
         x->DispatchGraph(&dg);
+        if (repeated) {
+            uint32_t later_records[8] = {1, 0, 1, 1, 1, 2, 1, 3};
+            Dispatch later = {0, 0, {0, 4, later_records, 8}};
+            x->DispatchGraph(&later);
+            // CPU-mode records must already be owned by the recorded list.
+            volatile uint32_t* mutation = later_records;
+            for (unsigned i = 0; i < 4; ++i)
+                mutation[2 * i] = 16;
+            payload_mutated_after_recording = true;
+        }
         if (gpu_grid) {
             void* mapped = nullptr;
             h = gpu_input->Map(0, nullptr, &mapped);
@@ -453,22 +473,54 @@ int main(int argc, char** argv) {
             expected[i] = 1040;
             expected[4 + i] = 48;
         }
+    if (fixed_consumer && !empty_grid) {
+        const uint32_t broadcast_expected[8] = {35904, 17888, 35904, 17888, 64, 32, 64, 32};
+        std::memcpy(expected, broadcast_expected, sizeof(broadcast_expected));
+    }
+    if (dynamic_output)
+        expected[0] = expected[2] = expected[4] = expected[6] = 0;
+    if (dynamic_thread_output) {
+        expected[4] = 2;
+        expected[5] = 1;
+        expected[6] = 2;
+        expected[7] = 1;
+    }
+    if (varying_lanes) {
+        expected[4] = 32;
+        expected[5] = 16;
+        expected[6] = 32;
+        expected[7] = 16;
+    }
+    if (repeated) {
+        const uint32_t repeated_expected[8] = {23, 10, 23, 10, 6, 4, 6, 4};
+        std::memcpy(expected, repeated_expected, sizeof(repeated_expected));
+    }
     const bool readback_exact = SUCCEEDED(h) && !std::memcmp(values, expected, sizeof(values));
     // Default: six groups allocate two records each, then twelve thread
     // allocations. Vector grids launch nine groups; zero modes launch fewer.
     const bool allocations_exact = SUCCEEDED(h) &&
-                                   words[0] == ((empty_grid || unsupported_target) ? 0u
-                                                : capacity                         ? 320u
-                                                : fanout                           ? 30u
-                                                : vector_grid                      ? 36u
-                                                : zero_grid                        ? 16u
-                                                                                   : 24u) &&
-                                   words[1] == ((empty_grid || unsupported_target) ? 0u
-                                                : capacity                         ? 256u
-                                                : fanout                           ? 24u
-                                                : vector_grid                      ? 27u
-                                                : zero_grid                        ? 12u
-                                                                                   : 18u);
+                                   words[0] == (repeated                             ? 16u
+                                                : varying_lanes                      ? 108u
+                                                : dynamic_thread_output              ? 18u
+                                                : dynamic_output                     ? 8u
+                                                : (fixed_consumer && !empty_grid)    ? 204u
+                                                : (empty_grid || unsupported_target) ? 0u
+                                                : capacity                           ? 320u
+                                                : fanout                             ? 30u
+                                                : vector_grid                        ? 36u
+                                                : zero_grid                          ? 16u
+                                                                                     : 24u) &&
+                                   words[1] == (repeated                             ? 12u
+                                                : varying_lanes                      ? 102u
+                                                : dynamic_thread_output              ? 12u
+                                                : dynamic_output                     ? 6u
+                                                : (fixed_consumer && !empty_grid)    ? 198u
+                                                : (empty_grid || unsupported_target) ? 0u
+                                                : capacity                           ? 256u
+                                                : fanout                             ? 24u
+                                                : vector_grid                        ? 27u
+                                                : zero_grid                          ? 12u
+                                                                                     : 18u);
     bool exact = readback_exact && allocations_exact && (!gpu_grid || payload_mutated_after_recording) &&
                  (!cross_queue || consumer_blocked_until_release);
     FILE* result = stdout;

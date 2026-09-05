@@ -124,6 +124,49 @@ untouched. All sixteen official Work Graph results pass in
 non-promoted: larger records, recursive execution, downstream broadcasting,
 GPU-generated headers and general argument/resource tables are not certified.
 
+Fixed-grid downstream broadcasting follow-up: the GPU scheduler expands the
+published-record count across the consumer's fixed X/Y/Z grid. The version-3
+context uses its previously reserved word for per-record X group count; lowering
+keeps descriptor selection separate from record-local `SV_GroupID` and
+`SV_DispatchThreadID`. The 2x2x2, two-thread consumer yields
+`[35904,17888,35904,17888,64,32,64,32]`, 204 records and 198 allocations, then
+feeds multiple coalescing batches. Empty input produces no downstream writes
+or allocations despite non-unit Y/Z. All eighteen official Work Graph results
+and contract checks, plus strict ABI, pass in `/private/tmp/wg-fixed-consumer-final/`.
+The unsupported-target fixture now specifically exercises record-driven
+downstream broadcasting, which remains rejected before upstream writes.
+Recursion, GPU-generated headers and general resource tables remain open.
+
+Runtime allocation-count follow-up: `AllocateNodeOutputRecords` now accepts a
+resolved scalar count rather than requiring a compile-time literal, while the
+allocation-scope flag remains literal. Group allocation chooses zero or two
+records from each input index, yielding `[0,5,0,5,0,2,0,2]` with eight records
+and six allocations. Thread allocation chooses zero or one from each input
+increment, yielding `[18,5,18,5,2,1,2,1]` with eighteen records and twelve
+allocations. Zero requests publish nothing and do not consume allocator slots.
+All twenty official Work Graph results pass in `/private/tmp/wg-dynamic-output-final/`.
+General output limits, overflow and unrestricted publication/sharing semantics
+remain open; no capability-tier promotion follows from these bounded cases.
+
+Thread-varying allocation follow-up: the fixed-grid broadcasting consumer now
+has a fixture where adjacent lanes uniformly call thread allocation with
+independent zero/one counts derived from record-local dispatch-thread X. The
+zero lane publishes nothing while the other contributes one record per group.
+Exact readback is `[35904,17888,35904,17888,32,16,32,16]` with 108 records and
+102 allocations. All twenty-one official Work Graph results pass in
+`/private/tmp/wg-varying-lanes-final/`; general output limits and overflow
+remain open.
+
+Repeated-chain follow-up: two complete chains are recorded in one command
+list with different entry grids and no intermediate fence/readback. The second
+CPU record array is overwritten after `DispatchGraph` returns. Exact accumulated
+output is `[23,10,23,10,6,4,6,4]`; final allocator counters describe only the
+second dispatch (16 records, 12 allocations). This checks recorded CPU payload
+ownership, transient indirect/context lifetime and allocator reset isolation.
+All twenty-two official results and contract checks, plus strict ABI, pass in
+`/private/tmp/wg-repeated-chain-verified/`. This does not certify concurrent
+dispatches sharing one backing allocation.
+
 Historical first witness (before these follow-ups):
 
 A scratch three-node chain now produces exact GPU readback

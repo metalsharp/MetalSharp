@@ -1413,6 +1413,10 @@ struct m12_node_schedule_parameters {
   uint consume_bit;
   uint batch_size;
   uint record_size;
+  uint grid_x;
+  uint grid_y;
+  uint grid_z;
+  uint broadcasting;
 };
 
 // Compact published output allocations into a descriptor stream and produce
@@ -1453,10 +1457,10 @@ kernel void m12_work_graph_schedule(
   context->size = ulong(parameters.record_size);
   context->length = ulong(count);
   context->batch_size = batch;
-  context->reserved = 0u;
-  dispatch_args[0] = (count + batch - 1u) / batch;
-  dispatch_args[1] = 1u;
-  dispatch_args[2] = 1u;
+  context->reserved = parameters.broadcasting != 0u ? parameters.grid_x : 0u;
+  dispatch_args[0] = parameters.broadcasting != 0u ? count * parameters.grid_x : (count + batch - 1u) / batch;
+  dispatch_args[1] = parameters.broadcasting != 0u ? parameters.grid_y : 1u;
+  dispatch_args[2] = parameters.broadcasting != 0u ? parameters.grid_z : 1u;
 }
 
 // Build one indirect dispatch triplet per record for a broadcasting node whose
@@ -3289,6 +3293,7 @@ struct ReplayState {
   bool EncodeWorkGraphOutputSchedule(
       MTLD3D12Device *device, uint32_t target_output, uint32_t consume_bit,
       uint32_t record_size, uint32_t batch_size,
+      const MTLD3D12Device::WorkGraphNodeShader &target_shader,
       WorkGraphScheduledInput &scheduled, WMT::CommandBuffer command_buffer) {
     if (!device || !command_buffer.handle || !target_output || !consume_bit ||
         !record_size || record_size > kNodeOutputRecordStride || !batch_size ||
@@ -3312,7 +3317,7 @@ struct ReplayState {
     scheduled.dispatch_args = MakeTransientBuffer(device, sizeof(uint32_t) * 3u);
     scheduled.context = MakeTransientBuffer(
         device, sizeof(D3D12NodeDynamicInputContext));
-    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 4u);
+    auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 8u);
     if (!scheduled.descriptors.handle || !scheduled.dispatch_args.handle ||
         !scheduled.context.handle || !parameters.handle)
       return false;
@@ -3325,7 +3330,11 @@ struct ReplayState {
       uint32_t consume_bit;
       uint32_t batch_size;
       uint32_t record_size;
-    } parameter_data = {target_output, consume_bit, batch_size, record_size};
+      uint32_t grid_x, grid_y, grid_z, broadcasting;
+    } parameter_data = {target_output, consume_bit, batch_size, record_size,
+        target_shader.grid[0], target_shader.grid[1], target_shader.grid[2],
+        target_shader.launch_type == 1u ? 1u : 0u};
+    static_assert(sizeof(Parameters) == sizeof(uint32_t) * 8u);
     parameters.updateContents(0, &parameter_data, sizeof(parameter_data));
 
     if (!work_graph_scheduler_pipeline.handle) {
@@ -3560,8 +3569,8 @@ struct ReplayState {
       if (!native_output_records || !scheduled_input->descriptors.handle ||
           !scheduled_input->dispatch_args.handle ||
           !scheduled_input->context.handle || !shader.input_record_size ||
-          shader.launch_type == 1u ||
-          (shader.launch_type != 2u && shader.launch_type != 3u))
+          (shader.launch_type == 1u && shader.grid_from_record) ||
+          shader.launch_type < 1u || shader.launch_type > 3u)
         return false;
       input_buffer = scheduled_input->descriptors;
       input_offset = 0;
@@ -3901,7 +3910,10 @@ struct ReplayState {
                 sizeof(work_graph_program_identifier), output.target_node_index, target, true) ||
             !target.input_record_size || target.input_record_size > kNodeOutputRecordStride ||
             output.size != target.input_record_size ||
-            (target.launch_type != 2u && target.launch_type != 3u) ||
+            target.launch_type < 1u || target.launch_type > 3u ||
+            (target.launch_type == 1u && (target.grid_from_record ||
+                !target.grid[0] || !target.grid[1] || !target.grid[2] ||
+                uint64_t(kNodeOutputRecordSlots) * target.grid[0] * target.threads[0] > UINT32_MAX)) ||
             (target.launch_type == 2u && !target.input_max_records) ||
             !self(self, target, depth + 1u))
           return false;
@@ -3944,8 +3956,8 @@ struct ReplayState {
                 output.target_node_index, target_shader, true) ||
             target_shader.source_node_index != output.target_node_index ||
             target_shader.input_record_size == 0 ||
-            (target_shader.launch_type != 2u &&
-             target_shader.launch_type != 3u))
+            target_shader.launch_type < 1u || target_shader.launch_type > 3u ||
+            (target_shader.launch_type == 1u && target_shader.grid_from_record))
           return false;
         const uint32_t batch_size = target_shader.launch_type == 2u
                                          ? target_shader.input_max_records
@@ -3959,7 +3971,7 @@ struct ReplayState {
         const uint32_t consume_bit = 1u << (output.metadata_index + 1u);
         if (!EncodeWorkGraphOutputSchedule(
                 device, target_output, consume_bit,
-                target_shader.input_record_size, batch_size, scheduled,
+                target_shader.input_record_size, batch_size, target_shader, scheduled,
                 command_buffer) ||
             !EncodeWorkGraphNodeShader(
                 device, target_shader, output.target_node_index, 1u, nullptr,

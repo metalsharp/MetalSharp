@@ -4268,6 +4268,54 @@ prepare_work_graph_probe() {
     return 1
   fi
 
+  local fixed_consumer_cso="$SDK_DIR/out/bin/probe_workgraph_chain_fixed_consumer.cso"
+  rm -f "$fixed_consumer_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DFIXED_CONSUMER=1 \
+      -Fo "$fixed_consumer_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$fixed_consumer_cso" ]]; then
+    echo "D3D12 fixed-consumer fixture compilation failed" >&2
+    return 1
+  fi
+
+  local dynamic_output_cso="$SDK_DIR/out/bin/probe_workgraph_chain_dynamic_output.cso"
+  rm -f "$dynamic_output_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DDYNAMIC_OUTPUT=1 \
+      -Fo "$dynamic_output_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$dynamic_output_cso" ]]; then
+    echo "D3D12 dynamic-output fixture compilation failed" >&2
+    return 1
+  fi
+
+  local dynamic_thread_cso="$SDK_DIR/out/bin/probe_workgraph_chain_dynamic_thread_output.cso"
+  rm -f "$dynamic_thread_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DDYNAMIC_THREAD_OUTPUT=1 \
+      -Fo "$dynamic_thread_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$dynamic_thread_cso" ]]; then
+    echo "D3D12 dynamic-thread-output fixture compilation failed" >&2
+    return 1
+  fi
+
+  local varying_lanes_cso="$SDK_DIR/out/bin/probe_workgraph_chain_varying_lanes.cso"
+  rm -f "$varying_lanes_cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DFIXED_CONSUMER=1 -DDYNAMIC_THREAD_OUTPUT=1 \
+      -Fo "$varying_lanes_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$varying_lanes_cso" ]]; then
+    echo "D3D12 varying-lane fixture compilation failed" >&2
+    return 1
+  fi
+
   rm -f "$d3d12_node_layout_cso"
   if ! (
     cd "$SDK_DIR/out/bin"
@@ -6356,6 +6404,18 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-cross-queue-grid-${PROFILE}.json" cross-queue-grid
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
     "$RESULTS_DIR/probe-workgraph-oversized-output-${PROFILE}.json" oversized-output
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-fixed-consumer-${PROFILE}.json" fixed-consumer
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-fixed-consumer-empty-${PROFILE}.json" fixed-consumer-empty
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-dynamic-output-${PROFILE}.json" dynamic-output
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-dynamic-thread-output-${PROFILE}.json" dynamic-thread-output
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-varying-lanes-${PROFILE}.json" varying-lanes
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-repeated-chain-${PROFILE}.json" repeated
   run_probe_exe "$WORK_GRAPH_EXECUTION_PROBE_EXE" \
     "$WORK_GRAPH_EXECUTION_RESULT_FILE"
 fi

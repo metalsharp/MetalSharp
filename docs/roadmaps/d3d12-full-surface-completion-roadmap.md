@@ -963,14 +963,16 @@ and GPU input arrays through the lowered node shader. Coalescing nodes retain
 six-record CPU/GPU readback. A sufficiently sized initialized backing allocation
 also proves bounded GPU-atomic output-record allocation and `OutputComplete`
 publication with exact table/slot readback. Bounded downstream scheduling now
-consumes source-tagged outputs on the GPU, builds indirect thread/coalescing
+consumes source-tagged outputs on the GPU, builds indirect thread/coalescing and fixed-grid broadcasting
 launches, and passes three-node/two-path fan-out and full-table (256 allocations,
 320 records) witnesses. Entry grids use DXIL offsets and U16/U32 component
 width/count metadata; scalar/vector/zero grids, post-recording mutation,
-DEFAULT-heap queued copies and gated cross-queue dependencies pass. All sixteen
-official Work Graph result files and their required contract rows pass in the
+DEFAULT-heap queued copies and gated cross-queue dependencies pass. Runtime zero/nonzero group and thread output allocation counts also pass.
+Thread-varying zero/one output allocation within broadcasting groups also passes.
+Repeated chains in one command list retain distinct recorded payloads and allocator state.
+All twenty-two official Work Graph result files and their required contract rows pass in the
 development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
-Recursive execution, downstream broadcasting, GPU-generated input headers,
+Recursive execution, record-driven downstream broadcasting, GPU-generated input headers,
 general resource/argument tables, overflow and broader synchronization remain
 open. Cycles and unsupported downstream shapes reject before upstream writes.
 Clean-source staging and release reproducibility are still required.
