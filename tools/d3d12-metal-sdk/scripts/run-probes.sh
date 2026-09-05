@@ -4211,6 +4211,7 @@ prepare_work_graph_probe() {
   compile_work_graph_chain_variant "_cross_queue_dynamic" -DGRID_VECTOR=1 -DDYNAMIC_CONSUMER=1 || return 1
   compile_work_graph_chain_variant "_conditional_icb" -DDYNAMIC_OUTPUT=1 -DDYNAMIC_CONSUMER=1 || return 1
   compile_work_graph_chain_variant "_fanout_icb" -DFANOUT=1 -DDYNAMIC_CONSUMER=1 || return 1
+  compile_work_graph_chain_variant "_empty_entry" -DEMPTY_ENTRY=1 || return 1
 
   rm -f "$d3d12_node_layout_cso"
   if ! (
@@ -6334,6 +6335,14 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-conditional-icb-${PROFILE}.json" conditional-icb
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
     "$RESULTS_DIR/probe-workgraph-fanout-icb-${PROFILE}.json" fanout-icb
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-empty-entry-${PROFILE}.json" empty-entry
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-missing-payload-${PROFILE}.json" missing-payload
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-empty-entry-${PROFILE}.json" gpu-empty-entry
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-missing-payload-${PROFILE}.json" gpu-missing-payload
   run_probe_exe "$WORK_GRAPH_EXECUTION_PROBE_EXE" \
     "$WORK_GRAPH_EXECUTION_RESULT_FILE"
 fi

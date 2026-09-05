@@ -11,6 +11,7 @@ struct NodeInputLayout {
   uint32_t size = 0;
   uint32_t alignment = 0;
   uint32_t max_records = 0;
+  bool empty_input = false;
 };
 
 // A node output is identified by its metadata ordinal within the entrypoint.
@@ -98,7 +99,7 @@ inline std::optional<NodeInputLayout> nodeInputLayout(
   if (!input || !tag(module, *input, 1, flags_record) ||
       !integer(module, flags_record, flags) || !(flags & 1u) ||
       !tag(module, *input, 2, type)) return std::nullopt;
-  if (flags & 8u) return NodeInputLayout{};
+  if (flags & 8u) return NodeInputLayout{0, 0, 0, true};
   const LLVMMetadataRecord *size_record = nullptr, *alignment_record = nullptr;
   const LLVMMetadataRecord *max_records_record = nullptr;
   NodeInputLayout layout;
