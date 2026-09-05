@@ -4212,6 +4212,17 @@ prepare_work_graph_probe() {
   compile_work_graph_chain_variant "_conditional_icb" -DDYNAMIC_OUTPUT=1 -DDYNAMIC_CONSUMER=1 || return 1
   compile_work_graph_chain_variant "_fanout_icb" -DFANOUT=1 -DDYNAMIC_CONSUMER=1 || return 1
   compile_work_graph_chain_variant "_empty_entry" -DEMPTY_ENTRY=1 || return 1
+  compile_work_graph_chain_variant "_empty_multi" -DEMPTY_MULTI=1 || return 1
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_arrays.cso"
+  if ! (
+    cd "$SDK_DIR/out/bin"
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 \
+      -Fo probe_workgraph_arrays.cso "$node_source_dir/node_output_arrays.hlsl" >/dev/null
+  ) || [[ ! -s "$SDK_DIR/out/bin/probe_workgraph_arrays.cso" ]]; then
+    rm -f "$SDK_DIR/out/bin/probe_workgraph_arrays.cso"
+    return 1
+  fi
 
   rm -f "$d3d12_node_layout_cso"
   if ! (
@@ -6343,6 +6354,14 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-gpu-empty-entry-${PROFILE}.json" gpu-empty-entry
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
     "$RESULTS_DIR/probe-workgraph-gpu-missing-payload-${PROFILE}.json" gpu-missing-payload
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-empty-multi-${PROFILE}.json" empty-multi
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-empty-multi-${PROFILE}.json" gpu-empty-multi
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-array-creation-${PROFILE}.json" probe_workgraph_arrays.cso
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-array-dispatch-${PROFILE}.json" probe_workgraph_arrays.cso --dispatch
   run_probe_exe "$WORK_GRAPH_EXECUTION_PROBE_EXE" \
     "$WORK_GRAPH_EXECUTION_RESULT_FILE"
 fi

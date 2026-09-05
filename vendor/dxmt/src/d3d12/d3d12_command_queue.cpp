@@ -1409,6 +1409,12 @@ struct m12_node_input_context {
   uint batch_size;
   uint reserved;
 };
+struct m12_node_routed_input_context {
+  m12_node_input_context base;
+  ulong routing_table_address;
+  uint routing_table_count, source_node;
+};
+static_assert(sizeof(m12_node_routed_input_context) == 56, "routed context ABI");
 struct m12_node_schedule_parameters {
   uint target_output;
   uint consume_bit;
@@ -1452,7 +1458,7 @@ kernel void m12_work_graph_schedule(
     }
     entry[3] = published | parameters.consume_bit;
   }
-  context->version = 3u;
+  if (context->version != 5u) context->version = 3u;
   context->count = count;
   context->stride = 8ul;
   context->size = ulong(parameters.record_size);
@@ -1528,7 +1534,7 @@ kernel void m12_work_graph_build_icb(
     device uchar *backing [[buffer(1)]],
     device const uint *descriptors [[buffer(2)]],
     device const m12_node_input_context *input [[buffer(3)]],
-    device m12_node_input_context *contexts [[buffer(4)]],
+    device uchar *contexts [[buffer(4)]],
     device uchar *user_output [[buffer(5)]],
     device uint *range [[buffer(6)]],
     constant m12_node_icb_parameters &parameters [[buffer(7)]],
@@ -1542,11 +1548,21 @@ kernel void m12_work_graph_build_icb(
   const uint x = m12_node_clamp_grid(m12_node_grid_component(grid_record, 0u, parameters.grid_width), parameters.max_x);
   const uint y = parameters.grid_components > 1u ? m12_node_clamp_grid(m12_node_grid_component(grid_record, 1u, parameters.grid_width), parameters.max_y) : 1u;
   const uint z = parameters.grid_components > 2u ? m12_node_clamp_grid(m12_node_grid_component(grid_record, 2u, parameters.grid_width), parameters.max_z) : 1u;
-  contexts[tid] = {3u, 1u, 8ul, ulong(parameters.record_size), 1ul, 1u, x};
+  const bool routed = input->version == 5u;
+  device m12_node_input_context *child = reinterpret_cast<device m12_node_input_context *>(
+      contexts + ulong(tid) * (routed ? 56ul : 40ul));
+  *child = {routed ? 5u : 3u, 1u, 8ul, ulong(parameters.record_size), 1ul, 1u, x};
+  if (routed) {
+    auto parent = reinterpret_cast<device const m12_node_routed_input_context *>(input);
+    auto destination = reinterpret_cast<device m12_node_routed_input_context *>(child);
+    destination->routing_table_address = parent->routing_table_address;
+    destination->routing_table_count = parent->routing_table_count;
+    destination->source_node = parent->source_node;
+  }
   compute_command command(handles.commands, tid);
   command.set_compute_pipeline_state(handles.pipeline);
   command.set_kernel_buffer(user_output, 0);
-  command.set_kernel_buffer(contexts + tid, 28);
+  command.set_kernel_buffer(child, 28);
   command.set_kernel_buffer(descriptors + tid * 2u, 29);
   command.set_kernel_buffer(backing, 30);
   command.concurrent_dispatch_threadgroups(uint3(x,y,z), uint3(parameters.threads_x,parameters.threads_y,parameters.threads_z));
@@ -3291,6 +3307,41 @@ struct ReplayState {
     return buffer;
   }
 
+  struct WorkGraphRoutingBinding {
+    std::shared_ptr<const std::vector<D3D12NodeOutputRoute>> snapshot;
+    WMT::Reference<WMT::Buffer> buffer;
+    uint64_t gpu_address = 0;
+    uint32_t count = 0;
+  } work_graph_routing_binding;
+
+  bool PrepareWorkGraphRouting(
+      MTLD3D12Device *device,
+      const MTLD3D12Device::WorkGraphNodeShader &shader,
+      WorkGraphRoutingBinding &binding) {
+    binding = {};
+    if (!shader.routing_table) return true;
+    if (!device || shader.routing_table->empty() ||
+        shader.routing_table->size() > UINT32_MAX) return false;
+    if (work_graph_routing_binding.snapshot == shader.routing_table) {
+      binding = work_graph_routing_binding;
+      if (!binding.buffer.handle || !binding.gpu_address) return false;
+      RetainMTLObjectForCompletion(binding.buffer);
+      return true;
+    }
+    WorkGraphRoutingBinding uploaded;
+    uploaded.snapshot = shader.routing_table;
+    uploaded.count = static_cast<uint32_t>(shader.routing_table->size());
+    const uint64_t bytes = uint64_t(uploaded.count) * sizeof(D3D12NodeOutputRoute);
+    uploaded.buffer = MakeTransientBuffer(device, bytes, &uploaded.gpu_address);
+    if (!uploaded.buffer.handle || !uploaded.gpu_address) return false;
+    uploaded.buffer.updateContents(0, uploaded.snapshot->data(), bytes);
+    // MakeTransientBuffer also retains the allocation through completion;
+    // replacing this cache cannot retire an earlier dispatch's GPU table.
+    work_graph_routing_binding = uploaded;
+    binding = std::move(uploaded);
+    return true;
+  }
+
   struct WorkGraphScheduledInput {
     WMT::Reference<WMT::Buffer> descriptors;
     WMT::Reference<WMT::Buffer> dispatch_args;
@@ -3361,8 +3412,10 @@ struct ReplayState {
     scheduled.descriptors = MakeTransientBuffer(
         device, uint64_t(kNodeOutputRecordSlots) * sizeof(uint32_t) * 2u);
     scheduled.dispatch_args = MakeTransientBuffer(device, sizeof(uint32_t) * 3u);
-    scheduled.context = MakeTransientBuffer(
-        device, sizeof(D3D12NodeDynamicInputContext));
+    WorkGraphRoutingBinding routing;
+    if (!PrepareWorkGraphRouting(device, target_shader, routing)) return false;
+    scheduled.context = MakeTransientBuffer(device, routing.buffer.handle
+        ? sizeof(D3D12NodeRoutingContext) : sizeof(D3D12NodeDynamicInputContext));
     auto parameters = MakeTransientBuffer(device, sizeof(uint32_t) * 8u);
     if (!scheduled.descriptors.handle || !scheduled.dispatch_args.handle ||
         !scheduled.context.handle || !parameters.handle)
@@ -3370,7 +3423,19 @@ struct ReplayState {
     D3D12NodeDynamicInputContext context = {};
     context.batch_size = batch_size;
     context.record_size = record_size;
-    scheduled.context.updateContents(0, &context, sizeof(context));
+    if (routing.buffer.handle) {
+      D3D12NodeRoutingContext routed;
+      routed.version = 5;
+      routed.record_stride = context.record_stride;
+      routed.record_size = record_size;
+      routed.batch_size = batch_size;
+      routed.routing_table_address = routing.gpu_address;
+      routed.routing_table_count = routing.count;
+      routed.source_node = target_shader.source_node_index;
+      scheduled.context.updateContents(0, &routed, sizeof(routed));
+    } else {
+      scheduled.context.updateContents(0, &context, sizeof(context));
+    }
     struct Parameters {
       uint32_t target_output;
       uint32_t consume_bit;
@@ -3569,12 +3634,15 @@ struct ReplayState {
         shader.grid_byte_offset > shader.input_record_size ||
         shader.grid_components * shader.grid_component_bytes > shader.input_record_size - shader.grid_byte_offset)
       return false;
+    WorkGraphRoutingBinding routing;
+    if (!PrepareWorkGraphRouting(device, shader, routing)) return false;
     auto icb = device->GetMTLDevice().newComputeIndirectCommandBuffer(kNodeOutputRecordSlots, 31);
     if (!icb.handle) return false;
     const uint64_t handles[2] = {icb.gpuResourceID(), work_graph_node_pipeline.gpuResourceID()};
     if (!handles[0] || !handles[1]) return false;
     auto arguments = MakeTransientBuffer(device, sizeof(handles));
-    auto contexts = MakeTransientBuffer(device, uint64_t(kNodeOutputRecordSlots) * sizeof(D3D12NodeDynamicInputContext));
+    auto contexts = MakeTransientBuffer(device, uint64_t(kNodeOutputRecordSlots) *
+        (routing.buffer.handle ? sizeof(D3D12NodeRoutingContext) : sizeof(D3D12NodeDynamicInputContext)));
     auto range = MakeTransientBuffer(device, sizeof(uint32_t) * 2u);
     struct Parameters {
       uint32_t record_size, grid_offset, grid_components, grid_width;
@@ -3664,6 +3732,11 @@ struct ReplayState {
     for (auto resource : indirect_resources) {
       use.resource = resource;
       use.usage = static_cast<WMTResourceUsage>(WMTResourceUsageRead | WMTResourceUsageWrite);
+      if (!append(use)) return false;
+    }
+    if (routing.buffer.handle) {
+      use.resource = routing.buffer.handle;
+      use.usage = WMTResourceUsageRead;
       if (!append(use)) return false;
     }
     wmtcmd_compute_execute_indirect_commands execute = {};
@@ -3782,7 +3855,9 @@ struct ReplayState {
       }
       input_context.record_stride = record_stride;
       input_context.record_size = shader.input_record_size;
-    } else if (record_count != 1u) {
+    } else if (record_count != 1u &&
+               (!shader.empty_input || shader.launch_type != 2u ||
+                record_count > kNodeOutputRecordSlots)) {
       return false;
     }
     if (!input_buffer.handle) {
@@ -3796,7 +3871,7 @@ struct ReplayState {
       const uint32_t zero = 0;
       input_buffer.updateContents(0, &zero, sizeof(zero));
     }
-    const bool coalescing = shader.input_record_size &&
+    const bool coalescing = (shader.input_record_size || shader.empty_input) &&
                             shader.launch_type == 2u;
     uint64_t threads_per_group = uint64_t(shader.threads[0]) *
                                  shader.threads[1] * shader.threads[2];
@@ -3825,18 +3900,22 @@ struct ReplayState {
          uint64_t(invocation_count) * sizeof(input_context) > UINT64_MAX))
       return false;
     const uint32_t context_count = coalescing ? invocation_count : 1u;
+    WorkGraphRoutingBinding routing;
+    if (!PrepareWorkGraphRouting(device, shader, routing)) return false;
+    const uint64_t context_stride = routing.buffer.handle
+        ? sizeof(D3D12NodeRoutingContext) : sizeof(input_context);
     WMT::Reference<WMT::Buffer> context_buffer;
     if (scheduled_records) {
       context_buffer = scheduled_input->context;
     } else {
       context_buffer = MakeTransientBuffer(
-          device, uint64_t(context_count) * sizeof(input_context));
+          device, uint64_t(context_count) * context_stride);
       if (!context_buffer.handle)
         return false;
       for (uint32_t invocation = 0; invocation < context_count;
            ++invocation) {
         D3D12NodeInputContext context = input_context;
-        if (shader.input_record_size) {
+        if (shader.input_record_size || shader.empty_input) {
           const uint32_t first_record = coalescing
                                             ? invocation * records_per_invocation
                                             : invocation;
@@ -3845,13 +3924,24 @@ struct ReplayState {
                                                   records_per_invocation,
                                                   record_count - first_record)
                                             : 1u;
-          if (batch_count > UINT64_MAX / record_stride)
+          if (shader.input_record_size && batch_count > UINT64_MAX / record_stride)
             return false;
           context.record_count = batch_count;
-          context.byte_length = uint64_t(batch_count) * record_stride;
+          context.byte_length = shader.input_record_size ? uint64_t(batch_count) * record_stride : 0u;
         }
-        context_buffer.updateContents(
-            uint64_t(invocation) * sizeof(context), &context, sizeof(context));
+        if (routing.buffer.handle) {
+          D3D12NodeRoutingContext routed;
+          routed.record_count = context.record_count;
+          routed.record_stride = context.record_stride;
+          routed.record_size = context.record_size;
+          routed.byte_length = context.byte_length;
+          routed.routing_table_address = routing.gpu_address;
+          routed.routing_table_count = routing.count;
+          routed.source_node = shader.source_node_index;
+          context_buffer.updateContents(uint64_t(invocation) * context_stride, &routed, sizeof(routed));
+        } else {
+          context_buffer.updateContents(uint64_t(invocation) * context_stride, &context, sizeof(context));
+        }
       }
     }
 
@@ -3988,6 +4078,13 @@ struct ReplayState {
       set_pso.threadgroup_size = {shader.threads[0], shader.threads[1], shader.threads[2]};
       if (!append(set_pso))
         return false;
+      if (routing.buffer.handle) {
+        wmtcmd_compute_useresource use_routing = {};
+        use_routing.type = WMTComputeCommandUseResource;
+        use_routing.resource = routing.buffer.handle;
+        use_routing.usage = WMTResourceUsageRead;
+        if (!append(use_routing)) return false;
+      }
       uint64_t record_offset = input_offset;
       if (shader.input_record_size) {
         const uint32_t first_record = coalescing
@@ -4011,7 +4108,7 @@ struct ReplayState {
         if (index == 28u) {
           set_buffer.buffer = context_buffer.handle;
           set_buffer.offset = coalescing
-                                  ? uint64_t(record) * sizeof(input_context)
+                                  ? uint64_t(record) * context_stride
                                   : 0;
         } else if (index == 29u) {
           set_buffer.buffer = input_buffer.handle;
@@ -4082,6 +4179,9 @@ struct ReplayState {
           return false;
       active_nodes[depth] = shader.source_node_index;
       for (const auto &output : shader.outputs) {
+        // Array elements require the program's immutable routing snapshot.
+        if (output.is_array && !shader.routing_table)
+          return false;
         // Terminal/unconnected publications use the same fixed-size slots as
         // connected edges and must not write across allocation boundaries.
         if (output.size > kNodeOutputRecordStride ||
@@ -4089,9 +4189,17 @@ struct ReplayState {
           return false;
         if (output.target_node_index == UINT32_MAX)
           continue;
-        if (output.metadata_index >= 31u ||
-            uint64_t(shader.source_node_index) * 256u + output.metadata_index + 1u > UINT32_MAX)
+        if (shader.routing_table) {
+          if (!output.route_token || output.route_token > shader.routing_table->size()) return false;
+          const auto &route = (*shader.routing_table)[output.route_token - 1u];
+          if (route.source_node != shader.source_node_index ||
+              route.metadata_index != output.metadata_index ||
+              route.target_node != output.target_node_index || route.array_index == UINT32_MAX)
+            return false;
+        } else if (output.metadata_index >= 31u ||
+            uint64_t(shader.source_node_index) * 256u + output.metadata_index + 1u > UINT32_MAX) {
           return false;
+        }
         MTLD3D12Device::WorkGraphNodeShader target;
         if (!device->LookupWorkGraphNodeShader(work_graph_program_identifier,
                 sizeof(work_graph_program_identifier), output.target_node_index, target, true) ||
@@ -4131,10 +4239,9 @@ struct ReplayState {
         // (used by the ABI probe); it has no downstream node to schedule.
         if (output.target_node_index == UINT32_MAX)
           continue;
-        if (output.metadata_index >= 31u ||
-            uint64_t(node_index) * 256u + output.metadata_index + 1u >
-                UINT32_MAX ||
-            output.metadata_index + 1u >= 32u)
+        if ((!shader.routing_table && (output.metadata_index >= 31u ||
+            uint64_t(node_index) * 256u + output.metadata_index + 1u > UINT32_MAX)) ||
+            (shader.routing_table && (!output.route_token || output.route_token > shader.routing_table->size())))
           return false;
         MTLD3D12Device::WorkGraphNodeShader target_shader;
         if (!device->LookupWorkGraphNodeShader(
@@ -4151,10 +4258,11 @@ struct ReplayState {
         if (!batch_size)
           return false;
         WorkGraphScheduledInput scheduled;
-        const uint32_t target_output =
-            static_cast<uint32_t>(uint64_t(node_index) * 256u +
-                                  output.metadata_index + 1u);
-        const uint32_t consume_bit = 1u << (output.metadata_index + 1u);
+        const uint32_t target_output = shader.routing_table ? output.route_token :
+            static_cast<uint32_t>(uint64_t(node_index) * 256u + output.metadata_index + 1u);
+        // Each routed allocation selects exactly one destination. Publication
+        // remains bit zero; consumption needs no metadata-index bit packing.
+        const uint32_t consume_bit = shader.routing_table ? 2u : (1u << (output.metadata_index + 1u));
         if (!EncodeWorkGraphOutputSchedule(
                 device, target_output, consume_bit,
                 target_shader.input_record_size, batch_size, target_shader, scheduled,

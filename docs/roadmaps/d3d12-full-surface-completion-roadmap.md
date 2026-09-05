@@ -982,9 +982,12 @@ A single explicit EmptyNodeInput also accepts a null CPU payload with zero strid
 record-data-requiring shaders reject that form before writes.
 CPU-authored GPU headers also support a single empty record, with missing-payload rejection
 for nonempty layouts.
-All thirty-seven official Work Graph/bridge result files and their required contract rows pass in the
+Empty coalescing entries also batch six records as four and two using retained MaxRecords metadata.
+Dense output arrays and sparse index 65536 now route through per-program GPU tables,
+with exact readback and creation-time missing-target rejection.
+All forty-one official Work Graph/bridge result files and their required contract rows pass in the
 development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
-Recursive execution, output arrays, empty-record routing, GPU-generated input headers,
+Recursive execution, broader output-array shapes, empty-record routing, GPU-generated input headers,
 general resource/argument tables, overflow and broader synchronization remain
 open. Cycles and unsupported downstream shapes reject before upstream writes.
 Clean-source staging and release reproducibility are still required.

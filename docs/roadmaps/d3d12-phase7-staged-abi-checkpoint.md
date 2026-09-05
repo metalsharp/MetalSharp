@@ -286,6 +286,25 @@ nonempty record layout rejects before writes. All thirty-seven results pass
 with Metal API Validation in `/private/tmp/wg-gpu-empty-entry/results/`.
 This does not prove GPU-generated headers or multi-empty-record dispatch.
 
+Empty coalescing batches: retained MaxRecords metadata now bounds empty-input
+batches independently of payload bytes. Six CPU or CPU-authored GPU-header
+records produce counts four and two, verified as total 6, invocation count 2,
+and batch-size mask 20. Evidence is `/private/tmp/wg-empty-multi/`; default-one
+and explicit-four metadata ownership and explicit-zero rejection have host tests.
+
+Output-array work has moved to the selected per-program GPU routing-table design.
+Finite/unbounded sparse metadata and index 65536 are retained, and static route
+construction handles dense ranges, sparse misses, duplicates and required-target
+rejection without allocating the declared unbounded size. GPU lookup now passes
+an independent eight-case Metal validation probe using GPU-produced indices;
+opt-in DXIL lowering preserves the routing calls. Replay now prepares uploaded
+tables and version-4/5 contexts, including ICB propagation. Route-token scheduling
+now passes a D3D12 dense/sparse dispatch with exact values
+`[101,202,303,404,505]` and a zero tail. All 41 Work Graph/bridge results and
+required contract assertions pass at `/private/tmp/wg-output-arrays/dispatch-final/`.
+This is dirty development staging, not independent clean-build evidence. See [array-routing implementation plan](d3d12-phase7-array-routing.md).
+Host and native-helper tests remain distinct from the D3D12 dispatch evidence.
+
 Historical first witness (before these follow-ups):
 
 A scratch three-node chain now produces exact GPU readback

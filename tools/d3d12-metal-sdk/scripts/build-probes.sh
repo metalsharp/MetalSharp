@@ -305,6 +305,11 @@ build_probe \
   -o "$OUT_DIR/probe_workgraph_chain.exe"
 
 build_probe \
+  -I"$ROOT_DIR/vendor/dxmt/src/d3d12" \
+  "$SDK_DIR/probes/probe_workgraph_array_creation.cpp" \
+  -o "$OUT_DIR/probe_workgraph_array_creation.exe"
+
+build_probe \
   -I"$ROOT_DIR/vendor/dxmt/src/winemetal" \
   "$SDK_DIR/probes/probe_workgraph_icb_bridge.cpp" \
   -o "$OUT_DIR/probe_workgraph_icb_bridge.exe"

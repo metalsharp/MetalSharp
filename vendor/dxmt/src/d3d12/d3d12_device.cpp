@@ -15,6 +15,7 @@
 #include "dxil/dxil_ir.hpp"
 #include "dxil/msl_lowering.hpp"
 #include "dxil/node_metadata.hpp"
+#include "d3d12_node_routing.hpp"
 
 #define TRACE(fmt, ...) DXMTD3D12Trace("Device", fmt, ##__VA_ARGS__)
 #define PLTRACE(fmt, ...) TRACE(fmt, ##__VA_ARGS__)
@@ -3888,6 +3889,7 @@ static bool LowerWorkGraphNodeShader(
   dxmt::dxil::MSLLoweringOptions options = {};
   options.entry_point = shader.entry_point;
   options.node_output_tag = node_output_tag;
+  options.node_routing = true;
   auto lowered = dxmt::dxil::MSLLowering::lower(*module, shader, options);
   if (!lowered || lowered->unsupported_intrinsics ||
       lowered->unsupported_opcodes)
@@ -4106,6 +4108,39 @@ public:
     m_device->Release();
   }
 
+  bool InitializeWorkGraphRouting() {
+    m_work_graph_routing_table.reset();
+      const bool has_arrays = std::any_of(m_work_graph_node_layouts.begin(),
+          m_work_graph_node_layouts.end(), [](const auto &layout) {
+            return std::any_of(layout.outputs.begin(), layout.outputs.end(),
+                [](const auto &output) { return output.is_array; });
+          });
+      if (has_arrays) {
+        try {
+          std::vector<NodeRoutingTarget> targets;
+          std::vector<NodeRoutingOutput> outputs;
+          targets.reserve(m_work_graph_nodes.size());
+          for (const auto &node : m_work_graph_nodes) {
+            if (!node.Name) return false;
+            targets.push_back({str::fromws(node.Name), node.ArrayIndex});
+          }
+          for (size_t node = 0; node < m_work_graph_node_layouts.size(); ++node) {
+            if (node > UINT32_MAX) return false;
+            for (const auto &output : m_work_graph_node_layouts[node].outputs)
+              outputs.push_back({static_cast<uint32_t>(node), output.metadata_index,
+                  output.node_name, output.array_index, output.array_size,
+                  output.is_array, output.allow_sparse});
+          }
+          auto routes = buildNodeOutputRoutes(targets, outputs);
+          if (!routes) return false;
+          m_work_graph_routing_table = std::make_shared<const std::vector<D3D12NodeOutputRoute>>(std::move(*routes));
+        } catch (...) {
+          return false;
+        }
+      }
+    return true;
+  }
+
   bool InitializeWorkGraph(const D3D12_STATE_OBJECT_DESC *desc) {
     TRACE("StateObject work graph initialize desc=%p type=%u count=%u subs=%p",
           (const void *)desc, desc ? static_cast<unsigned>(desc->Type) : 0u,
@@ -4186,6 +4221,11 @@ public:
                    static_cast<uint32_t>(node_output_tag), node_msl,
                    input_layout)))
             return false;
+          if (!input_layout.node_name.empty()) {
+            m_work_graph_node_names.back() = str::tows(input_layout.node_name.c_str());
+            m_work_graph_nodes.back().Name = m_work_graph_node_names.back().c_str();
+            m_work_graph_nodes.back().ArrayIndex = input_layout.node_array_index;
+          }
           m_work_graph_node_msl.push_back(std::move(node_msl));
           m_work_graph_node_layouts.push_back(input_layout);
           UINT local_root_index = UINT_MAX;
@@ -4214,6 +4254,8 @@ public:
           // scheduler, so it materializes the declared entrypoints as the
           // available node set and still lowers each named node when a DXIL
           // library is present.
+          // Node IDs retain c_str pointers, including SSO-backed names.
+          m_work_graph_node_names.reserve(m_work_graph_entrypoints.size());
           m_work_graph_nodes.reserve(m_work_graph_entrypoints.size());
           m_work_graph_local_root_indices.reserve(
               m_work_graph_entrypoints.size());
@@ -4236,12 +4278,17 @@ public:
                      static_cast<uint32_t>(node_output_tag), node_msl,
                      input_layout)))
               return false;
+            if (!input_layout.node_name.empty()) {
+              m_work_graph_node_names.back() = str::tows(input_layout.node_name.c_str());
+              m_work_graph_nodes.back().Name = m_work_graph_node_names.back().c_str();
+              m_work_graph_nodes.back().ArrayIndex = input_layout.node_array_index;
+            }
             m_work_graph_node_msl.push_back(std::move(node_msl));
             m_work_graph_node_layouts.push_back(input_layout);
             m_work_graph_local_root_indices.push_back(UINT_MAX);
           }
         }
-        if (m_work_graph_nodes.empty())
+        if (m_work_graph_nodes.empty() || !InitializeWorkGraphRouting())
           return false;
         m_has_work_graph = true;
         m_type = desc->Type;
@@ -5078,6 +5125,7 @@ public:
           m_work_graph_entrypoints.size() + m_work_graph_node_msl.size();
       std::vector<MTLD3D12Device::WorkGraphNodeShader> entrypoint_shaders(
           program_node_count);
+      const auto &routing_table = m_work_graph_routing_table;
       auto copy_node_shader = [&](size_t destination, UINT node) -> bool {
         if (destination >= entrypoint_shaders.size() ||
             node >= m_work_graph_node_msl.size() ||
@@ -5086,6 +5134,7 @@ public:
         auto &shader = entrypoint_shaders[destination];
         shader.msl = m_work_graph_node_msl[node];
         shader.source_node_index = node;
+        shader.routing_table = routing_table;
         shader.is_entrypoint = destination < m_work_graph_entrypoints.size();
         const auto &metadata = m_work_graph_node_layouts[node];
         shader.input_record_size = metadata.input.size;
@@ -5113,20 +5162,36 @@ public:
             destination_output.alignment = output.alignment;
             destination_output.max_records = output.max_records;
             destination_output.flags = output.flags;
+            destination_output.array_size = output.array_size;
+            destination_output.is_array = output.is_array;
+            destination_output.allow_sparse = output.allow_sparse;
             for (UINT candidate = 0; candidate < m_work_graph_nodes.size();
                  ++candidate) {
               if (m_work_graph_nodes[candidate].ArrayIndex !=
                       destination_output.array_index ||
                   !m_work_graph_nodes[candidate].Name ||
                   std::wcscmp(m_work_graph_nodes[candidate].Name,
-                              std::wstring(destination_output.node_name.begin(),
-                                          destination_output.node_name.end())
-                                  .c_str()))
+                              str::tows(destination_output.node_name.c_str()).c_str()))
                 continue;
               destination_output.target_node_index = candidate;
               break;
             }
-            shader.outputs.push_back(std::move(destination_output));
+            if (routing_table) {
+              // Sparse tables contain only actual elements plus descriptor and
+              // invalid rows. Never enumerate the declared unbounded size.
+              for (size_t route_index = 0; route_index < routing_table->size(); ++route_index) {
+                const auto &route = (*routing_table)[route_index];
+                if (route.source_node != node || route.metadata_index != output.metadata_index ||
+                    route.array_index == UINT32_MAX)
+                  continue;
+                auto routed_output = destination_output;
+                routed_output.route_token = static_cast<uint32_t>(route_index + 1u);
+                routed_output.target_node_index = route.target_node;
+                shader.outputs.push_back(std::move(routed_output));
+              }
+            } else {
+              shader.outputs.push_back(std::move(destination_output));
+            }
           }
         } catch (...) {
           return false;
@@ -5323,6 +5388,7 @@ private:
   std::vector<UINT> m_work_graph_local_root_indices;
   std::vector<std::string> m_work_graph_node_msl;
   std::vector<dxmt::dxil::NodeShaderMetadata> m_work_graph_node_layouts;
+  std::shared_ptr<const std::vector<D3D12NodeOutputRoute>> m_work_graph_routing_table;
 };
 
 WMT::Reference<WMT::ComputePipelineState>

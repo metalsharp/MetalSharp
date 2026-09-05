@@ -53,6 +53,8 @@ struct MSLLoweringOptions {
   // identically numbered output metadata from different nodes distinct in
   // the GPU work-graph routing table.
   uint32_t node_output_tag = 0;
+  // Requires the version-4/5 routing context; replay must opt in atomically.
+  bool node_routing = false;
   // Inject the bounded GPU capture ABI needed to emulate pixel
   // AttributeAtVertex on devices without Metal's vertex_value<T> support.
   // The pipeline binds a transient three-record buffer at slot 28 and only
