@@ -989,9 +989,12 @@ Bounded thread, coalescing and native-ICB broadcasting self-recursion now preser
 remaining levels and leaf validity. Probes cover per-level publication isolation,
 early termination, exact coalescing batches, the legal depth boundary and no-write
 over-depth rejection; non-self cycles still reject.
-All forty-eight official Work Graph/bridge result files and their required contract rows pass in the
+Empty thread/group output requests now publish logical records to coalescing
+consumers, with exact batching, zero-request allocation suppression and payload-input
+mismatch rejection before producer writes or allocations.
+All fifty-one official Work Graph/bridge result files and their required contract rows pass in the
 development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
-Broader recursive execution, output-array shapes, empty-record routing, GPU-generated input headers,
+Broader recursive execution, output-array/empty-record shapes, GPU-generated input headers,
 general resource/argument tables, overflow and broader synchronization remain
 open. Cycles and unsupported downstream shapes reject before upstream writes.
 Clean-source staging and release reproducibility are still required.

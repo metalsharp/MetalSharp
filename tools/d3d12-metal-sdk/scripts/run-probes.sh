@@ -4228,6 +4228,8 @@ prepare_work_graph_probe() {
     fi
   }
   compile_named_node_fixture probe_workgraph_arrays.cso node_output_arrays.hlsl || return 1
+  compile_named_node_fixture probe_workgraph_empty_outputs.cso node_empty_outputs.hlsl || return 1
+  compile_named_node_fixture probe_workgraph_empty_mismatch.cso node_empty_outputs.hlsl -DDATA_CONSUMER=1 || return 1
   compile_named_node_fixture probe_workgraph_recursion.cso node_recursion.hlsl || return 1
   compile_named_node_fixture probe_workgraph_recursion_fanout.cso node_recursion.hlsl -DSELF_FANOUT=1 || return 1
   compile_named_node_fixture probe_workgraph_recursion_early.cso node_recursion.hlsl -DEARLY_STOP=1 || return 1
@@ -6385,6 +6387,12 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-recursion-boundary-${PROFILE}.json" probe_workgraph_recursion_boundary.cso --recursion-boundary
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-recursion-coalescing-${PROFILE}.json" probe_workgraph_recursion_coalescing.cso --recursion-coalescing
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-empty-output-${PROFILE}.json" probe_workgraph_empty_outputs.cso --empty-output
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-empty-output-zero-${PROFILE}.json" probe_workgraph_empty_outputs.cso --empty-output-zero
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-empty-output-mismatch-${PROFILE}.json" probe_workgraph_empty_mismatch.cso --empty-output-mismatch
   rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
   DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
     run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \

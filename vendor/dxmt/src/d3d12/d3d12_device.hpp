@@ -209,6 +209,7 @@ public:
     uint32_t array_size = 1;
     bool is_array = false;
     bool allow_sparse = false;
+    bool empty_output = false;
   };
   struct WorkGraphNodeShader {
     std::string msl;
