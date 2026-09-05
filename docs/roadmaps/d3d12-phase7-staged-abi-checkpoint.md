@@ -84,36 +84,28 @@ The independent sandbox is
 `/Volumes/AverySSD/metalsharp-phase7-source.tjzA3h/independent-sandbox`.
 No generated build or probe artifacts are tracked.
 
-## Unresolved real node input-record consumption
+## Resolved real node input-record consumption
 
-A separate scratch HLSL shader reads `DispatchNodeInputRecord<RECORD>` and
-writes `0xabcdef00 + input.Get().value` plus marker `0x12345678` to u0.
-Pinned DXC compilation succeeds and the runtime returns `hr=0x00000000`, but:
+The source-owned `node_input_records.hlsl` fixture now reads submitted
+`DispatchNodeInputRecord`, `ThreadNodeInputRecord`, and
+`GroupNodeInputRecords` payloads through a distinct input buffer/context ABI.
+Broadcasting and thread launches dispatch once per record; coalescing launches
+GPU batches at the declared `[MaxRecords(4)]` boundary and preserves dynamic
+`input[index]` access. CPU records are mutated after command recording and GPU
+records are supplied through descriptor addresses, so neither case can pass by
+reading a host snapshot or graph backing bytes.
 
-| CPU input record | Expected first output | Actual first output |
-| --- | --- | --- |
-| 1 | `0xabcdef01` | `0xabcdef67` |
-| 9 | `0xabcdef09` | `0xabcdef67` |
+The same lowering now has a bounded GPU-atomic output allocation table for
+sufficiently sized initialized graph backing memory. Allocated records use
+256-byte slots after the table, and `OutputComplete` publishes the allocation
+marker without aliasing user `u0`. The `node_records` fixture reads back the
+record value and publication marker exactly.
 
-The same backing-derived value 103 is read in both cases. This is a correctness
-failure, not successful support or a fail-closed rejection. Existing constant
-output node fixtures do not exercise submitted input-record consumption.
-
-Source inspection identifies the missing connection:
-`EncodeWorkGraphNodeShader` receives node index and record count but not the
-submitted input buffer/offset or owned CPU payload. The lowering's
-`GetNodeRecordPtr` uses buffer 30 (graph backing), with an output-buffer fallback;
-input and output handles share the same bounded pointer helper. A future fix
-must distinguish input-record storage from output-record allocation and preserve
-GPU dependency ordering, resource lifetime, input bounds, and existing output
-record semantics. General record scheduling remains open.
-
-Scratch evidence under `/private/tmp/metalsharp-phase7-abi/`:
-`node-input-read.hlsl`, `node-input-compile.log`, `probe-node-input.cpp`,
-`probe-node-input-nine.cpp`, `node-input-before/`, and `node-input-nine/`.
-The runtime is the independently staged `cce1ca8d` build. The generated probe
-executable was restored from committed source after these diagnostic tests.
-No runtime fix is claimed in this checkpoint.
+Remaining work is intentionally separate: output IDs are not yet consumed by a
+GPU downstream scheduler, recursion/fan-out and cross-group sharing are not
+implemented, and record-driven grids/general node resource tables remain
+fail-closed. Final evidence is under `/private/tmp/metalsharp-phase7-abi/` in
+`node-final/`, `node-final-stage/`, and `node-final-abi.log`.
 
 ### Source audit: full record-model dependencies
 
@@ -127,15 +119,17 @@ record type metadata carries size, SV_DispatchGrid layout, and alignment.
 
 Current source does not provide the full corresponding behavior:
 
-- `GetEntrypointRecordSizeInBytes` and `GetEntrypointRecordAlignmentInBytes`
-  return fixed 16 rather than the selected entrypoint's record metadata.
-- `LowerWorkGraphNodeShader` returns MSL text; the program registry retains
-  strings rather than the node's record/scheduling metadata.
-- `EncodeWorkGraphNodeShader` fixes the Metal threadgroup shape to `{1,1,1}`.
-- The lowering initializes input-record count to 1 and recursion budget to 32,
-  regardless of dispatched record count or graph recursion configuration.
-- `OutputComplete` sets a thread-local variable; output-count bookkeeping is
-  also thread-local, with no downstream scheduler consumption at those sites.
+- `LowerWorkGraphNodeShader` returns MSL text; the program registry now retains
+  input layout, launch geometry, `[MaxRecords]`, and bounded output metadata
+  needed by the native node path, but not the complete graph scheduler.
+- `EncodeWorkGraphNodeShader` derives threadgroup/grid dispatches from retained
+  per-entrypoint metadata and uses one input context per record or coalescing
+  batch.
+- The lowering initializes the recursion budget to 32; configured recursion
+  depth and remaining-level propagation are still open.
+- `OutputComplete` publishes a GPU-visible allocation marker for the bounded
+  initialized backing ABI; output-count bookkeeping and downstream consumption
+  remain open.
 - `FinishedCrossGroupSharing` returns literal true; node barrier variants lower
   to a threadgroup-memory barrier, not a general device-record sharing protocol.
 
@@ -144,8 +138,10 @@ semantics. A complete design must retain per-entrypoint metadata through
 parsing/lowering, graph construction and registry lookup; derive properties and
 backing layout from it; distinguish input and allocated output records; and
 publish/consume GPU work with proper record lifetime, routing, recursion,
-overflow and visibility. Tests must exercise dependent consumer shaders and
-actual input data across launch modes, not just constant-output witnesses.
+overflow and visibility. The current tests cover actual input data across
+launch modes, bounded output publication, post-recording mutation, and exact
+fail-closed shapes; dependent consumer shaders, output-ID routing, and GPU
+scheduler execution remain required.
 The existing Phase 7 exit stays open pending these behaviors.
 
 ## Metadata retention implementation checkpoint
@@ -171,9 +167,10 @@ sandbox. Evidence is under `/private/tmp/metalsharp-phase7-abi/` in
 The host test needed an exception for the pre-existing unused parser constant
 warning; other enabled warnings remained errors.
 
-**This does not yet change runtime record size/alignment queries, input-record
-binding, output allocation, or GPU scheduling.** Those blockers remain open;
-metadata retention is an implementation prerequisite, not Phase 7 completion.
+**This checkpoint now changes runtime record size/alignment queries, bounded
+input-record binding, and bounded output allocation/publication.** GPU
+scheduler routing, recursion/fan-out, and the remaining general graph ABI
+blockers remain open; metadata retention alone is not Phase 7 completion.
 
 ## Invalid entrypoint-layout query contract
 
@@ -209,8 +206,8 @@ The new queries fail against the previous runtime (`layout-before/`) and pass
 after the change (`layout-final/`), along with the complete Work Graph
 regression. Strict ABI evidence is in `node-layout-stage/`, all beneath
 `/private/tmp/metalsharp-phase7-abi/`. The sandbox records dirty-source development
-provenance. This does not fix actual input-record binding or GPU scheduling;
-node-ID overrides, full library discovery and other graph semantics remain open.
+provenance. It does not implement GPU scheduler routing; node-ID overrides,
+full library discovery and other graph semantics remain open.
 
 ## Entrypoint-to-shader execution routing
 
@@ -243,9 +240,9 @@ state-object vectors or temporary LLVM modules.
 All nine runtime targets build; strict ABI and the complete Work Graph
 regression pass against the matching `node-registry` sandbox. Evidence:
 `/private/tmp/metalsharp-phase7-abi/registry-build.log`, `node-registry-stage/`,
-and `registry-after/`. This is metadata transport and a regression checkpoint,
-not proof of shader input binding: the encoder does not yet use these sizes to
-bind records or implement scheduling. Those execution blockers remain open.
+and `registry-after/`. This is metadata transport and a regression checkpoint;
+the encoder now uses these sizes for bounded input binding and launch geometry,
+while graph output routing and scheduling remain open.
 
 ## Actual single-record input execution
 
@@ -256,8 +253,9 @@ backing/output records. CPU input is copied from the command's owned record
 bytes to retained transient storage. GPU input binds the retained resource
 and offset directly, so queued waits protect the shader read rather than a
 premature host snapshot. Input pointer arithmetic checks the context version,
-index and byte bounds. Output-record allocation still uses the previous bounded
-provider and is **not** a general allocator or scheduler.
+index and byte bounds. Output-record allocation now has a distinct bounded
+GPU-atomic table and publication marker for sufficiently sized initialized
+backing memory; it is **not** a general graph allocator or downstream scheduler.
 
 The source-owned test now proves:
 
@@ -282,18 +280,20 @@ Evidence under `/private/tmp/metalsharp-phase7-abi/`: `input-binding-before/`,
 `input-final-work-graph/`, `input-final-queues/`, `input-binding-final-stage/`,
 and `input-binding-final-build.log`. This stage records dirty source provenance.
 
-The execution candidate is still one record; this checkpoint does not establish
-multiple records, all launch shapes, custom node IDs, downstream publication,
-recursion, device-wide sharing/barriers, or GPU-generated dispatch metadata.
-Phase 7 remains open pending those behaviors.
+The execution candidate now covers bounded multiple records for broadcasting,
+thread, and coalescing launches, including declared-MaxRecords batching and
+GPU/CPU input ownership. This checkpoint does not establish all launch shapes,
+custom node IDs, downstream output-ID routing, recursion, device-wide
+sharing/barriers, or GPU-generated dispatch metadata. Phase 7 remains open
+pending those behaviors.
 
-Manual review also found that real programs outside the single-record candidate
-could fall through to the synthetic reference kernel. The registry guard now
-covers those shapes before reference execution. A two-record real-node dispatch
-checks both output and backing memory for unchanged data; it fails before the
-guard and passes afterward. Evidence: `input-shape-before/`,
-`input-guarded-after/`, and `input-guarded-stage/` under the same scratch root.
-This explicitly rejects an unimplemented shape; it does not implement it.
+Manual review also found that real programs outside the earlier single-record
+candidate could fall through to the synthetic reference kernel. The registry
+guard covers unsupported shapes before reference execution. The current
+multi-record positive cases now execute through the real lowered node shader;
+unsupported record-driven grids and resource bindings still check unchanged
+output and fail closed. Evidence: `input-shape-before/`, `input-guarded-after/`,
+`input-guarded-stage/`, and `node-final/` under the same scratch root.
 
 ## Fixed launch geometry and complete GEP index parsing
 
@@ -316,8 +316,9 @@ remain to be verified and implemented.
 Record-driven `SV_DispatchGrid` requires separate runtime decoding. A node with
 only `NodeMaxDispatchGrid` is rejected with `E_FAIL` and null state output, not
 launched with an invented one-group grid or with the maximum as its actual grid.
-The host decoder tests the same boundary. Other launch modes and multi-record
-scheduling are not certified by this fixed broadcasting witness.
+The host decoder tests the same boundary. The later Work Graph regression
+certifies bounded thread/coalescing input execution; output-ID routing,
+recursive/fan-out scheduling, and record-driven broadcasting grids remain open.
 
 Evidence beneath `/private/tmp/metalsharp-phase7-abi/`:
 
@@ -386,8 +387,10 @@ invocation. Coalescing nodes instead use the declared input `[MaxRecords]` as
 the batch boundary, set the context count/byte bounds for each batch, and allow
 dynamic `input[threadIndex]` GEP indices to resolve through the GPU input ABI.
 This preserves input-record access without a host readback or CPU shader
-execution. Dynamic record grids, output publication, and downstream scheduling
-are still rejected rather than approximated.
+execution. A sufficiently sized initialized backing allocation now also
+supports bounded GPU-atomic output allocation and `OutputComplete` publication.
+Dynamic record grids and downstream scheduling are still rejected rather than
+approximated.
 
 `node_broadcast_multi` writes two distinct slots from two records. The CPU input
 case mutates both source records after command recording and reads back slots 1
@@ -397,11 +400,54 @@ CPU multi-record path for thread launch. `node_coalescing_multi` processes six
 records with a declared `[MaxRecords(4)]`, forcing two GPU batches; both CPU
 (post-recording mutation) and GPU-addressed input arrays have exact slot
 readback. All cases use lowered DXIL node shaders and root `u0` binding.
-Evidence is in `/private/tmp/metalsharp-phase7-abi/node-max-record/`; the final
-aggregate reports `pass=true`, `node_broadcast_multi_exact=true`,
-`node_broadcast_multi_gpu_exact=true`, `node_thread_multi_exact=true`,
-`node_coalescing_multi_exact=true`, and `node_coalescing_gpu_exact=true` (with
-the intentionally false `cpu_scheduler` witness).
+The bounded input aggregate is in `/private/tmp/metalsharp-phase7-abi/node-final/`.
+The separate output-allocator rerun is in
+`/private/tmp/metalsharp-phase7-abi/output-allocator7/`; its final result reports
+`pass=true`, `dxil_node_output_records_exact=true`, and
+`node_output_record_values=[2882400001,1]` (with the intentionally false
+`cpu_scheduler` witness).
+
+## Bounded GPU output allocator/publication follow-up
+
+The first output-allocator6 execution did not produce a result because the
+shared backing buffer still contained data written by earlier probe cases; the
+GPU allocator correctly rejected its stale counter values. The probe now
+explicitly reinitializes the 2 MiB upload backing before the independent node
+output dispatch, matching the required initialized-backing precondition rather
+than adding a CPU scheduler or host-side record publication.
+
+The current lowered `node_records` shader performs GPU atomic reservations for
+one allocation and one 256-byte record slot, writes the record at byte 8192,
+and publishes the table entry with `OutputComplete`. The staged result checks
+record counter `1`, allocation counter `1`, table base `0`, count `1`, output
+handle `1`, publication marker `1`, and record value `0xabcdef01`; user UAV
+`u0` remains a separate 64-byte resource and still reads its independent
+`[0xabcdef01,0x12345678]` witness.
+
+The external source build was incrementally rebuilt and restaged as
+`output-allocator7` with `source_dirty=true`; the strict PE/Unix ABI audit
+passed with `ok=true` and `failure_count=0`. The generated MSL contains the
+non-zero `m12_node_allocate_record_handle` call and compiles with the pinned
+Metal toolchain (warnings are limited to existing unused generated variables).
+The exact runtime result was captured through the explicit D3D12/Winemetal
+aliases in a disposable Wine prefix.
+
+Evidence beneath `/private/tmp/metalsharp-phase7-abi/output-allocator7/`:
+
+- `stage-phase6-sandbox-output-allocator7.json`: synchronized staged artifacts,
+  `ok=true`, with dirty-source development provenance.
+- `abi-staged/winemetal-abi-output-allocator7-staged.json`: `ok=true`,
+  `failure_count=0`.
+- `direct-staged-final/probe-workgraph-execution-output-allocator7-direct-staged-final.json`:
+  `pass=true`, `hr=0x00000000`, exact output allocation/publication.
+- `current-generated/node_records.metal` and `current-generated/metal-compile.log`:
+  source lowering and Metal compilation evidence.
+- `build-incremental.log` and `node-metadata/test.log`: runtime rebuild and
+  owned metadata regression evidence.
+
+This closes only bounded output allocation/publication. GPU downstream
+scheduling, output-ID consumption, recursion/fan-out, cross-group sharing,
+record-driven grids, and general resource/argument tables remain open.
 
 ## Original observations
 

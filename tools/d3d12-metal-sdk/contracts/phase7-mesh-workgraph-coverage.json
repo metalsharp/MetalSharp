@@ -67,6 +67,7 @@
         ["backing_overflow_unchanged"],
         ["node_shader_bytecode_loaded"],
         ["dxil_node_shader_readback_exact"],
+        ["dxil_node_output_records_exact"],
         ["dxil_node_shader_uav_binding_exact"],
         ["dxil_node_shader_gpu_readback_exact"],
         ["node_multi_bytecode_loaded"],
@@ -87,6 +88,7 @@
         ["node_multi_gpu_input_exact"],
         ["dxil_multi_node_readback_exact"],
         ["dxil_node_shader_values", [2882400001, 305419896]],
+        ["node_output_record_values", [2882400001, 1]],
         ["dxil_multi_node_values", [858993459, 3435921411]],
         ["node_multi_cpu_values", [858993459, 3435921411]],
         ["node_multi_gpu_values", [286331153, 2863267841]],
@@ -94,7 +96,7 @@
         ["node_local_root_indices", [3, 4]],
         ["values", [42, 1464291961]]
       ],
-      "remaining": "The proof implements one GPU-native reference node kernel, one source-owned DXIL node-library lowering path, graph properties, backing memory, three-record CPU-input dispatch, GPU-input descriptor dispatch, two-node CPU/GPU input flattening with entrypoint routing, local-root-index reporting, INCLUDE_ALL_AVAILABLE_NODES metadata materialization, explicit backing-memory initialization, and exact readback without a CPU scheduler. Fixed-grid broadcasting/thread nodes prove two-record CPU/GPU input routing with GPU execution and post-recording CPU mutation. Coalescing nodes now prove declared-MaxRecords batching, dynamic input indexing, six-record CPU/GPU input routing, and exact readback. Recursive/fan-out graphs, multi-entrypoint resource/record routing, barriers, and general DXIL node shader conversion remain open."
+      "remaining": "The proof implements one GPU-native reference node kernel, one source-owned DXIL node-library lowering path, graph properties, backing memory, three-record CPU-input dispatch, GPU-input descriptor dispatch, two-node CPU/GPU input flattening with entrypoint routing, local-root-index reporting, INCLUDE_ALL_AVAILABLE_NODES metadata materialization, explicit backing-memory initialization, bounded output-record allocation/publication, and exact readback without a CPU scheduler. Fixed-grid broadcasting/thread nodes prove two-record CPU/GPU input routing with GPU execution and post-recording CPU mutation. Coalescing nodes now prove declared-MaxRecords batching, dynamic input indexing, six-record CPU/GPU input routing, and exact readback. Recursive/fan-out graphs, downstream scheduling, multi-entrypoint resource/record routing, barriers, and general DXIL node shader conversion remain open."
     }
   ]
 }
