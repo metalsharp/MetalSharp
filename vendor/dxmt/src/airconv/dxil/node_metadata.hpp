@@ -25,6 +25,9 @@ struct NodeOutputLayout {
   uint32_t alignment = 0;
   uint32_t max_records = 0;
   uint32_t flags = 0;
+  uint32_t array_size = 1;
+  bool is_array = false;
+  bool allow_sparse = false;
 };
 
 namespace node_metadata_detail {
@@ -37,6 +40,43 @@ inline bool integer(const LLVMModule &module, const LLVMMetadataRecord *record,
     if (text.empty()) return false;
     const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
     return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
+  }
+  return false;
+}
+
+// Array metadata uses the full i32 bit pattern, including -1 for unbounded
+// arrays. Keep this separate from positive size/limit decoding.
+inline bool integerBits(const LLVMModule &module, const LLVMMetadataRecord *record,
+                        uint32_t &value) {
+  if (!record || record->kind != LLVMMetadataRecord::Kind::Value) return false;
+  for (const auto &constant : module.constants) {
+    if (constant.id != record->value_id) continue;
+    if (constant.type_id >= module.types.size() ||
+        module.types[constant.type_id].kind != LLVMType::Integer ||
+        module.types[constant.type_id].bit_width != 32) return false;
+    int64_t number = 0;
+    const auto &text = constant.constant_data;
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() ||
+        number < INT32_MIN || number > UINT32_MAX) return false;
+    value = static_cast<uint32_t>(number);
+    return true;
+  }
+  return false;
+}
+
+inline bool boolean(const LLVMModule &module, const LLVMMetadataRecord *record, bool &value) {
+  if (!record || record->kind != LLVMMetadataRecord::Kind::Value) return false;
+  for (const auto &constant : module.constants) {
+    if (constant.id != record->value_id) continue;
+    if (constant.type_id >= module.types.size() || module.types[constant.type_id].kind != LLVMType::Integer ||
+        (module.types[constant.type_id].bit_width != 1 && module.types[constant.type_id].bit_width != 32)) return false;
+    if (constant.constant_data == "0") { value = false; return true; }
+    if (constant.constant_data == "1") { value = true; return true; }
+    if (constant.constant_data == "-1" && constant.type_id < module.types.size() &&
+        module.types[constant.type_id].kind == LLVMType::Integer &&
+        module.types[constant.type_id].bit_width == 1) { value = true; return true; }
+    return false;
   }
   return false;
 }
@@ -99,7 +139,15 @@ inline std::optional<NodeInputLayout> nodeInputLayout(
   if (!input || !tag(module, *input, 1, flags_record) ||
       !integer(module, flags_record, flags) || !(flags & 1u) ||
       !tag(module, *input, 2, type)) return std::nullopt;
-  if (flags & 8u) return NodeInputLayout{0, 0, 0, true};
+  if (flags & 8u) {
+    const LLVMMetadataRecord *max_records = nullptr;
+    NodeInputLayout empty{0, 0, 1, true};
+    if (!tag(module, *input, 3, max_records) ||
+        (max_records && !integer(module, max_records, empty.max_records)) ||
+        !empty.max_records)
+      return std::nullopt;
+    return empty;
+  }
   const LLVMMetadataRecord *size_record = nullptr, *alignment_record = nullptr;
   const LLVMMetadataRecord *max_records_record = nullptr;
   NodeInputLayout layout;
@@ -120,6 +168,8 @@ inline std::optional<NodeInputLayout> nodeInputLayout(
 }
 
 struct NodeShaderMetadata {
+  std::string node_name;
+  uint32_t node_array_index = 0;
   NodeInputLayout input;
   uint32_t max_input_records = 0;
   uint32_t launch_type = 0;
@@ -151,6 +201,17 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
       properties = module.metadataOperand(entry, 4);
   }
   if (!properties) return std::nullopt;
+  result.node_name = entrypoint;
+  const LLVMMetadataRecord *node_id = nullptr;
+  if (!tag(module, *properties, 15, node_id)) return std::nullopt;
+  if (node_id) {
+    const auto *name = module.metadataOperand(*node_id, 0);
+    if (node_id->kind != LLVMMetadataRecord::Kind::Node || node_id->operands.size() != 2 ||
+        !name || name->kind != LLVMMetadataRecord::Kind::String || name->string_value.empty() ||
+        !integerBits(module, module.metadataOperand(*node_id, 1), result.node_array_index))
+      return std::nullopt;
+    result.node_name = name->string_value;
+  }
   const LLVMMetadataRecord *launch = nullptr, *threads = nullptr, *grid = nullptr;
   const LLVMMetadataRecord *max_grid = nullptr;
   if (!tag(module, *properties, 13, launch) || !integer(module, launch, result.launch_type) ||
@@ -245,10 +306,18 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
       const auto *name = module.metadataOperand(*node_id, 0);
       const auto *array_index = module.metadataOperand(*node_id, 1);
       if (!name || name->kind != LLVMMetadataRecord::Kind::String ||
-          name->string_value.empty() || !integer(module, array_index,
+          name->string_value.empty() || !integerBits(module, array_index,
                                                   layout.array_index) ||
           !layout.alignment || (layout.alignment & (layout.alignment - 1)) ||
           layout.size > std::numeric_limits<uint32_t>::max() - 3u)
+        return std::nullopt;
+      const LLVMMetadataRecord *array_size = nullptr, *sparse = nullptr;
+      layout.is_array = (layout.flags & 0x10u) != 0;
+      if (!tag(module, *output, 5, array_size) || !tag(module, *output, 6, sparse) ||
+          (array_size && !integerBits(module, array_size, layout.array_size)) ||
+          !layout.array_size || (!layout.is_array && layout.array_size != 1u) ||
+          (sparse && !boolean(module, sparse, layout.allow_sparse)) ||
+          (layout.is_array && layout.array_size == UINT32_MAX && !layout.allow_sparse))
         return std::nullopt;
       layout.node_name = name->string_value;
       layout.size = (layout.size + 3u) & ~3u;

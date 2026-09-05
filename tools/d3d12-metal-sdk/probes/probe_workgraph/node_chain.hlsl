@@ -22,13 +22,23 @@ struct Work { uint index; uint increment; };
 struct Done { uint index; };
 struct WideWork { uint index; uint increment; uint extra; };
 
-#ifdef EMPTY_ENTRY
+#if defined(EMPTY_ENTRY) || defined(EMPTY_MULTI)
 [Shader("node")]
 [NodeLaunch("coalescing")]
 [NumThreads(1,1,1)]
-void firstNode(EmptyNodeInput input) {
+void firstNode(
+#ifdef EMPTY_MULTI
+    [MaxRecords(4)]
+#endif
+    EmptyNodeInput input) {
+#ifdef EMPTY_MULTI
+    InterlockedAdd(UAV[0], input.Count());
+    InterlockedAdd(UAV[1], 1);
+    InterlockedOr(UAV[2], 1u << input.Count());
+#else
     UAV[0] = input.Count();
     UAV[1] = 0x454d5054;
+#endif
 }
 #else
 [Shader("node")]

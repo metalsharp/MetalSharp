@@ -44,3 +44,38 @@ struct D3D12NodeDynamicInputContext {
 static_assert(sizeof(D3D12NodeDynamicInputContext) == 40);
 static_assert(offsetof(D3D12NodeDynamicInputContext, batch_size) == 32);
 static_assert(offsetof(D3D12NodeDynamicInputContext, reserved) == 36);
+
+// Routing-table ABI under construction. Versions 4/5 distinguish raw input
+// from a GPU descriptor stream while preserving the existing 40-byte prefix.
+// These types alone do not enable array execution.
+struct D3D12NodeOutputRoute {
+  uint32_t source_node;
+  uint32_t metadata_index;
+  uint32_t array_index;
+  uint32_t array_size;
+  uint32_t target_node;
+  uint32_t flags;
+};
+static_assert(sizeof(D3D12NodeOutputRoute) == 24);
+static_assert(offsetof(D3D12NodeOutputRoute, target_node) == 16);
+
+struct D3D12NodeRoutingContext {
+  uint32_t version = 4;
+  uint32_t record_count = 0;
+  uint64_t record_stride = 0;
+  uint64_t record_size = 0;
+  uint64_t byte_length = 0;
+  uint32_t batch_size = 1;
+  uint32_t broadcast_groups_x = 0;
+  uint64_t routing_table_address = 0;
+  uint32_t routing_table_count = 0;
+  uint32_t source_node = 0;
+};
+static_assert(sizeof(D3D12NodeRoutingContext) == 56);
+static_assert(offsetof(D3D12NodeRoutingContext, record_stride) == 8);
+static_assert(offsetof(D3D12NodeRoutingContext, byte_length) == 24);
+static_assert(offsetof(D3D12NodeRoutingContext, batch_size) == 32);
+static_assert(offsetof(D3D12NodeRoutingContext, broadcast_groups_x) == 36);
+static_assert(offsetof(D3D12NodeRoutingContext, routing_table_address) == 40);
+static_assert(offsetof(D3D12NodeRoutingContext, routing_table_count) == 48);
+static_assert(offsetof(D3D12NodeRoutingContext, source_node) == 52);

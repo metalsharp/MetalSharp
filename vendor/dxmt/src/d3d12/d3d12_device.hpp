@@ -3,6 +3,8 @@
 #include "com/com_pointer.hpp"
 #include "com/com_private_data.hpp"
 #include "d3d12.h"
+#include "d3d12_node_dispatch_abi.hpp"
+#include <memory>
 #include "dxmt_format.hpp"
 #include "dxgi_interfaces.h"
 #include "dxmt_device.hpp"
@@ -203,6 +205,10 @@ public:
     uint32_t max_records = 0;
     uint32_t flags = 0;
     uint32_t target_node_index = UINT32_MAX;
+    uint32_t route_token = 0;
+    uint32_t array_size = 1;
+    bool is_array = false;
+    bool allow_sparse = false;
   };
   struct WorkGraphNodeShader {
     std::string msl;
@@ -221,6 +227,8 @@ public:
     uint32_t grid_components = 0;
     uint32_t grid_component_bytes = 0;
     std::vector<WorkGraphNodeOutput> outputs;
+    // Canonical and entrypoint copies share an immutable program snapshot.
+    std::shared_ptr<const std::vector<D3D12NodeOutputRoute>> routing_table;
   };
   void RegisterWorkGraphProgram(const uint8_t *identifier,
                                 size_t identifier_size,

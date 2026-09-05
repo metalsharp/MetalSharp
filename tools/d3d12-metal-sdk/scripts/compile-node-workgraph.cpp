@@ -56,10 +56,10 @@ static bool extract_dxil(const std::vector<uint8_t> &input,
 }
 
 int main(int argc, char **argv) {
-    if (argc != 4) {
+    if (argc != 4 && !(argc == 5 && std::string(argv[4]) == "--node-routing")) {
         std::fprintf(stderr,
                      "usage: compile-node-workgraph <dxbc-or-dxil> "
-                     "<node-entry> <output-metal>\n");
+                     "<node-entry> <output-metal> [--node-routing]\n");
         return 2;
     }
 
@@ -85,6 +85,8 @@ int main(int argc, char **argv) {
 
     MSLLoweringOptions options = {};
     options.entry_point = shader.entry_point;
+    // Explicit opt-in: generated shaders require a version-4/5 GPU context.
+    options.node_routing = argc == 5;
     auto lowered = MSLLowering::lower(*module, shader, options);
     if (!lowered) {
         std::fprintf(stderr, "node lowering failed\n");

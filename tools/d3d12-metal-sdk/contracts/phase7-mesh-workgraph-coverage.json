@@ -5,13 +5,49 @@
   "status": "partial",
   "rows": [
     {
+      "id": "workgraph-dense-sparse-array-dispatch",
+      "status": "closed",
+      "result": "probe-workgraph-array-dispatch",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["dispatch_tested"], ["readback_exact"],
+        ["values", [101, 202, 303, 404, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Four dense targets and sparse index 65536 route exactly; sparse misses and post-recording CPU mutation are covered. GPU input, routed ICB consumers, recursion, output limits and broader array shapes remain open."
+    },
+    {
+      "id": "workgraph-array-creation-target-validation",
+      "status": "closed",
+      "result": "probe-workgraph-array-creation",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["creation_hr", 0], ["missing_dense_hr", 2147500037],
+        ["missing_dense_null"], ["dispatch_tested", false]],
+      "remaining": "Valid dense/sparse array graphs create; a missing required dense target rejects at creation. A separate bounded array-dispatch row passes; broader array shapes remain open."
+    },
+    {
+      "id": "workgraph-empty-record-coalescing-batches",
+      "status": "closed",
+      "result": "probe-workgraph-empty-multi",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [6, 2, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Six empty CPU records batch as four and two under MaxRecords(4); broader empty launch forms and empty-output routing remain open."
+    },
+    {
+      "id": "workgraph-gpu-empty-record-coalescing-batches",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-empty-multi",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_input"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [6, 2, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "CPU-authored GPU headers carry six empty records with exact batch counts; GPU-generated headers and empty-output routing remain open."
+    },
+    {
       "id": "workgraph-gpu-empty-record-entry",
       "status": "closed",
       "result": "probe-workgraph-gpu-empty-entry",
       "profile": "phase7-workgraph",
       "checks": [["pass"], ["gpu_input"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [1, 1162694740, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
-      "remaining": "CPU-authored GPU header with a single empty record is verified; GPU-generated headers and multi-empty-record dispatch remain open."
+      "remaining": "CPU-authored GPU header with a single empty record is verified; GPU-generated headers and broader empty-record launch forms remain open."
     },
     {
       "id": "workgraph-gpu-required-payload-rejection",
@@ -29,7 +65,7 @@
       "profile": "phase7-workgraph",
       "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [1, 1162694740, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
-      "remaining": "A single null-payload, zero-stride CPU record reaches EmptyNodeInput with count 1. Multiple empty records, GPU-generated headers and empty-output routing remain open."
+      "remaining": "A single null-payload, zero-stride CPU record reaches EmptyNodeInput with count 1. Broader empty-record launch forms, GPU-generated headers and empty-output routing remain open."
     },
     {
       "id": "workgraph-required-payload-rejection",
