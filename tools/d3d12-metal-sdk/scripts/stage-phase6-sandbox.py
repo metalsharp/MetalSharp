@@ -99,6 +99,29 @@ def git_value(*args: str) -> str:
         return "unknown"
 
 
+def staging_source_identity(root: Path) -> dict[str, Any]:
+    """Hash source contents at staging time, not the committed Git tree ID.
+
+    This snapshot is not an attestation that existing binaries were built from
+    these files. Clean rebuild/reproducibility evidence remains separate.
+    """
+    scope = ("vendor/dxmt/src", "vendor/dxmt/include", "vendor/dxmt/libs")
+    files = sorted(path for relative in scope for path in (root / relative).rglob("*")
+                   if path.is_file())
+    if not files or any(not (root / relative).is_dir() for relative in scope):
+        raise ValueError("missing staged-source identity directory")
+    digest = hashlib.sha256()
+    for path in files:
+        digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(sha256(path)))
+        digest.update(b"\n")
+    return {"source_tree_sha256": digest.hexdigest(),
+            "source_identity_scope": list(scope),
+            "source_identity_kind": "staging_time_content_snapshot_not_build_attestation",
+            "source_identity_file_count": len(files)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
@@ -252,6 +275,11 @@ def main() -> int:
         if source.is_file() and duplicate.is_file() and sha256(source) != sha256(duplicate):
             failures.append(f"PE/Unix builtin duplicate differs from runtime: {source} -> {duplicate}")
 
+    try:
+        source_identity = staging_source_identity(ROOT_DIR)
+    except (OSError, ValueError, TypeError) as exc:
+        source_identity = {"source_tree_sha256": None}
+        failures.append(f"cannot capture staging source identity: {exc}")
     args.results_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "schema": "metalsharp.d3d12-metal.phase6-sandbox-stage.v1",
@@ -264,7 +292,8 @@ def main() -> int:
         "runtime_dir": str(runtime),
         "wine_root": str(sandbox_wine),
         "source_commit": git_value("rev-parse", "HEAD"),
-        "source_tree_sha256": git_value("rev-parse", "HEAD^{tree}"),
+        "source_git_tree": git_value("rev-parse", "HEAD^{tree}"),
+        **source_identity,
         "source_dirty": bool(git_value("status", "--porcelain")),
         "artifacts": staged,
         "winemetal_pe_exports": sorted(actual_pe),
