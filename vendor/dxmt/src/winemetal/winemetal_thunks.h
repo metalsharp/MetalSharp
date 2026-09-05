@@ -692,6 +692,15 @@ struct unixcall_mtlcommandbuffer_refit_triangle_acceleration_structure {
   uint64_t ret_success;
 };
 
+struct unixcall_mtldevice_new_compute_icb {
+  obj_handle_t device;
+  uint32_t max_command_count;
+  uint32_t max_kernel_buffer_bind_count;
+  obj_handle_t ret;
+};
+
+STATIC_ASSERT(sizeof(struct unixcall_mtldevice_new_compute_icb) == 24);
+
 #pragma pack(pop)
 
 #endif

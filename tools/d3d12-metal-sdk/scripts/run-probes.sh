@@ -2101,6 +2101,7 @@ fi
 if [[ ! -f "$SDK_DIR/out/bin/compile-geometry-corpus.exe" ||
       ! -f "$WORK_GRAPH_EXECUTION_PROBE_EXE" ||
       ! -f "$SDK_DIR/out/bin/probe_workgraph_chain.exe" ||
+      ! -f "$SDK_DIR/out/bin/probe_workgraph_icb_bridge.exe" ||
       ! -f "$META_COMMAND_PROBE_EXE" ||
       ! -f "$VIDEO_PROBE_EXE" ||
       ! -f "$VIDEO_PROCESS_PROBE_EXE" ||
@@ -2278,7 +2279,7 @@ run_probe_exe() {
     cd "$SDK_DIR/out/bin"
     export WINEPREFIX="$WINE_PREFIX"
     export WINEDLLPATH="$PROBE_WINEDLLPATH"
-    export WINEDLOVERRIDES="$DLL_OVERRIDES"
+    export WINEDLLOVERRIDES="$DLL_OVERRIDES"
     export DYLD_LIBRARY_PATH="$DXMT_DYLD_LIBRARY_PATH"
     export DXMT_WINEMETAL_UNIXLIB="$DXMT_WINEMETAL_UNIXLIB_NAME"
     export DXMT_SHADER_CACHE_PATH="$SHADER_CACHE_DIR"
@@ -4122,8 +4123,26 @@ PY
   }
 }
 
+compile_work_graph_chain_variant() {
+  local suffix="$1"
+  shift
+  local cso="$SDK_DIR/out/bin/probe_workgraph_chain${suffix}.cso"
+  rm -f "$cso" || return 1
+  if ! (
+    cd "$SDK_DIR/out/bin" || exit 1
+    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
+      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 "$@" -Fo "$cso" \
+      "$SDK_DIR/probes/probe_workgraph/node_chain.hlsl" >/dev/null
+  ) || [[ ! -s "$cso" ]]; then
+    rm -f "$cso" || return 1
+    echo "D3D12 chain variant compilation failed: ${suffix:-base}" >&2
+    return 1
+  fi
+}
+
 prepare_work_graph_probe() {
   local node_source_dir="$SDK_DIR/probes/probe_workgraph"
+  cp "$SDK_DIR/scripts/probe-metal-workgraph-icb.metal" "$SDK_DIR/out/bin/probe_workgraph_icb.metal"
   local work_dir="$RESULTS_DIR/workgraph-generated"
   local d3d12_node_cso="$SDK_DIR/out/bin/probe_workgraph_node.cso"
   local d3d12_node_multi_cso="$SDK_DIR/out/bin/probe_workgraph_node_multi.cso"
@@ -4172,149 +4191,26 @@ prepare_work_graph_probe() {
     return 1
   }
 
-  local chain_cso="$SDK_DIR/out/bin/probe_workgraph_chain.cso"
-  rm -f "$chain_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -Fo "$chain_cso" \
-      "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$chain_cso" ]]; then
-    echo "D3D12 node chain compilation failed" >&2
-    return 1
-  fi
-
-  rm -f "$SDK_DIR/out/bin/probe_workgraph_chain_offset.cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DGRID_OFFSET=1 \
-      -Fo "$SDK_DIR/out/bin/probe_workgraph_chain_offset.cso" \
-      "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$SDK_DIR/out/bin/probe_workgraph_chain_offset.cso" ]]; then
-    echo "D3D12 offset-grid compilation failed" >&2
-    return 1
-  fi
-
-  local vector_cso="$SDK_DIR/out/bin/probe_workgraph_chain_vector.cso"
-  rm -f "$vector_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DGRID_VECTOR=1 \
-      -Fo "$vector_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$vector_cso" ]]; then
-    echo "D3D12 vector-grid compilation failed" >&2
-    return 1
-  fi
-
-  local fanout_cso="$SDK_DIR/out/bin/probe_workgraph_chain_fanout.cso"
-  rm -f "$fanout_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DFANOUT=1 \
-      -Fo "$fanout_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$fanout_cso" ]]; then
-    echo "D3D12 fan-out compilation failed" >&2
-    return 1
-  fi
-
-  local bad_target_cso="$SDK_DIR/out/bin/probe_workgraph_chain_bad_target.cso"
-  rm -f "$bad_target_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DBAD_TARGET=1 \
-      -Fo "$bad_target_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$bad_target_cso" ]]; then
-    echo "D3D12 unsupported-target fixture compilation failed" >&2
-    return 1
-  fi
-
-  local cycle_cso="$SDK_DIR/out/bin/probe_workgraph_chain_cycle.cso"
-  rm -f "$cycle_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DCYCLE=1 \
-      -Fo "$cycle_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$cycle_cso" ]]; then
-    echo "D3D12 cycle fixture compilation failed" >&2
-    return 1
-  fi
-
-  local u16_cso="$SDK_DIR/out/bin/probe_workgraph_chain_u16.cso"
-  rm -f "$u16_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -enable-16bit-types -DGRID_U16=1 \
-      -Fo "$u16_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$u16_cso" ]]; then
-    echo "D3D12 U16-grid fixture compilation failed" >&2
-    return 1
-  fi
-
-  local oversized_cso="$SDK_DIR/out/bin/probe_workgraph_chain_oversized.cso"
-  rm -f "$oversized_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DOVERSIZED_OUTPUT=1 \
-      -Fo "$oversized_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$oversized_cso" ]]; then
-    echo "D3D12 oversized-output fixture compilation failed" >&2
-    return 1
-  fi
-
-  local fixed_consumer_cso="$SDK_DIR/out/bin/probe_workgraph_chain_fixed_consumer.cso"
-  rm -f "$fixed_consumer_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DFIXED_CONSUMER=1 \
-      -Fo "$fixed_consumer_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$fixed_consumer_cso" ]]; then
-    echo "D3D12 fixed-consumer fixture compilation failed" >&2
-    return 1
-  fi
-
-  local dynamic_output_cso="$SDK_DIR/out/bin/probe_workgraph_chain_dynamic_output.cso"
-  rm -f "$dynamic_output_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DDYNAMIC_OUTPUT=1 \
-      -Fo "$dynamic_output_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$dynamic_output_cso" ]]; then
-    echo "D3D12 dynamic-output fixture compilation failed" >&2
-    return 1
-  fi
-
-  local dynamic_thread_cso="$SDK_DIR/out/bin/probe_workgraph_chain_dynamic_thread_output.cso"
-  rm -f "$dynamic_thread_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DDYNAMIC_THREAD_OUTPUT=1 \
-      -Fo "$dynamic_thread_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$dynamic_thread_cso" ]]; then
-    echo "D3D12 dynamic-thread-output fixture compilation failed" >&2
-    return 1
-  fi
-
-  local varying_lanes_cso="$SDK_DIR/out/bin/probe_workgraph_chain_varying_lanes.cso"
-  rm -f "$varying_lanes_cso"
-  if ! (
-    cd "$SDK_DIR/out/bin"
-    WINEPREFIX="$WINE_PREFIX" WINEDLLOVERRIDES="dxcompiler,dxil=n,b" \
-      "$WINE_BIN" dxc.exe -nologo -T lib_6_8 -DFIXED_CONSUMER=1 -DDYNAMIC_THREAD_OUTPUT=1 \
-      -Fo "$varying_lanes_cso" "$node_source_dir/node_chain.hlsl" >/dev/null
-  ) || [[ ! -s "$varying_lanes_cso" ]]; then
-    echo "D3D12 varying-lane fixture compilation failed" >&2
-    return 1
-  fi
+  # Every variant uses the same pinned compiler/profile and stale-output guard.
+  compile_work_graph_chain_variant "" || return 1
+  compile_work_graph_chain_variant "_offset" -DGRID_OFFSET=1 || return 1
+  compile_work_graph_chain_variant "_vector" -DGRID_VECTOR=1 || return 1
+  compile_work_graph_chain_variant "_fanout" -DFANOUT=1 || return 1
+  compile_work_graph_chain_variant "_bad_target" -DBAD_TARGET=1 || return 1
+  compile_work_graph_chain_variant "_cycle" -DCYCLE=1 || return 1
+  compile_work_graph_chain_variant "_u16" -enable-16bit-types -DGRID_U16=1 || return 1
+  compile_work_graph_chain_variant "_oversized" -DOVERSIZED_OUTPUT=1 || return 1
+  compile_work_graph_chain_variant "_fixed_consumer" -DFIXED_CONSUMER=1 || return 1
+  compile_work_graph_chain_variant "_dynamic_output" -DDYNAMIC_OUTPUT=1 || return 1
+  compile_work_graph_chain_variant "_dynamic_thread_output" -DDYNAMIC_THREAD_OUTPUT=1 || return 1
+  compile_work_graph_chain_variant "_varying_lanes" -DFIXED_CONSUMER=1 -DDYNAMIC_THREAD_OUTPUT=1 || return 1
+  compile_work_graph_chain_variant "_second_program" -DSECOND_PROGRAM=1 || return 1
+  compile_work_graph_chain_variant "_dynamic_consumer" -DDYNAMIC_CONSUMER=1 || return 1
+  compile_work_graph_chain_variant "_dynamic_zero_grids" -DDYNAMIC_CONSUMER=1 -DDYNAMIC_ZERO_GRIDS=1 || return 1
+  compile_work_graph_chain_variant "_dynamic_consumer_u16" -enable-16bit-types -DDYNAMIC_CONSUMER=1 -DDYNAMIC_CONSUMER_U16=1 || return 1
+  compile_work_graph_chain_variant "_cross_queue_dynamic" -DGRID_VECTOR=1 -DDYNAMIC_CONSUMER=1 || return 1
+  compile_work_graph_chain_variant "_conditional_icb" -DDYNAMIC_OUTPUT=1 -DDYNAMIC_CONSUMER=1 || return 1
+  compile_work_graph_chain_variant "_fanout_icb" -DFANOUT=1 -DDYNAMIC_CONSUMER=1 || return 1
 
   rm -f "$d3d12_node_layout_cso"
   if ! (
@@ -6416,6 +6312,28 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-varying-lanes-${PROFILE}.json" varying-lanes
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
     "$RESULTS_DIR/probe-workgraph-repeated-chain-${PROFILE}.json" repeated
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-program-isolation-${PROFILE}.json" program-isolation
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_icb_bridge.exe" \
+    "$RESULTS_DIR/probe-workgraph-icb-bridge-${PROFILE}.json" probe_workgraph_icb.metal
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_icb_bridge.exe" \
+    "$RESULTS_DIR/probe-workgraph-icb-bridge-empty-${PROFILE}.json" probe_workgraph_icb.metal empty
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-dynamic-consumer-${PROFILE}.json" dynamic-consumer
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-dynamic-consumer-empty-${PROFILE}.json" dynamic-consumer-empty
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-dynamic-consumer-zero-grids-${PROFILE}.json" dynamic-consumer-zero-grids
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-dynamic-consumer-u16-${PROFILE}.json" dynamic-consumer-u16
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-dynamic-consumer-repeated-${PROFILE}.json" dynamic-consumer-repeated
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-cross-queue-dynamic-${PROFILE}.json" cross-queue-dynamic
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-conditional-icb-${PROFILE}.json" conditional-icb
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_chain.exe" \
+    "$RESULTS_DIR/probe-workgraph-fanout-icb-${PROFILE}.json" fanout-icb
   run_probe_exe "$WORK_GRAPH_EXECUTION_PROBE_EXE" \
     "$WORK_GRAPH_EXECUTION_RESULT_FILE"
 fi

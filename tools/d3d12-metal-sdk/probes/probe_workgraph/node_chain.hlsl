@@ -12,12 +12,15 @@ struct Entry { uint grid : SV_DispatchGrid; uint index; };
 #endif
 #ifdef OVERSIZED_OUTPUT
 struct Work { uint index; uint increment; uint padding[64]; };
-#elif defined(BAD_TARGET)
-struct Work { uint index : SV_DispatchGrid; uint increment; };
+#elif defined(DYNAMIC_CONSUMER_U16)
+struct Work { uint index; uint increment; uint16_t3 grid : SV_DispatchGrid; };
+#elif defined(DYNAMIC_CONSUMER)
+struct Work { uint index; uint increment; uint3 grid : SV_DispatchGrid; };
 #else
 struct Work { uint index; uint increment; };
 #endif
 struct Done { uint index; };
+struct WideWork { uint index; uint increment; uint extra; };
 
 [Shader("node")]
 [NodeLaunch("broadcasting")]
@@ -49,6 +52,17 @@ void firstNode(DispatchNodeInputRecord<Entry> input,
     if (lane < count) {
         records[lane].index = input.Get().index;
         records[lane].increment = tid * 2 + lane + 1;
+#ifdef DYNAMIC_CONSUMER
+        records[lane].grid = uint3(lane + 1, 1 + (input.Get().index & 1), 1 + (input.Get().index >= 2));
+#ifdef DYNAMIC_ZERO_GRIDS
+        if (input.Get().index == 0) records[lane].grid.x = 0;
+        if (input.Get().index == 1) records[lane].grid.y = 0;
+        if (input.Get().index == 2) records[lane].grid.z = 0;
+#endif
+#endif
+#ifdef SECOND_PROGRAM
+        records[lane].increment += 100;
+#endif
     }
     records.OutputComplete();
 #ifdef FANOUT
@@ -62,32 +76,35 @@ void firstNode(DispatchNodeInputRecord<Entry> input,
 #ifdef CYCLE
 [NodeMaxRecursionDepth(2)]
 #endif
-#ifdef FIXED_CONSUMER
+#ifdef DYNAMIC_CONSUMER
+[NodeLaunch("broadcasting")]
+[NodeMaxDispatchGrid(2,2,2)]
+[NumThreads(2,1,1)]
+void secondNode(DispatchNodeInputRecord<Work> input,
+#elif defined(FIXED_CONSUMER)
 [NodeLaunch("broadcasting")]
 [NodeDispatchGrid(2,2,2)]
 [NumThreads(2,1,1)]
 void secondNode(DispatchNodeInputRecord<Work> input,
 #elif defined(BAD_TARGET)
-[NodeLaunch("broadcasting")]
-[NodeMaxDispatchGrid(1,1,1)]
-[NumThreads(1,1,1)]
-void secondNode(DispatchNodeInputRecord<Work> input,
+[NodeLaunch("thread")]
+void secondNode(ThreadNodeInputRecord<WideWork> input,
 #else
 [NodeLaunch("thread")]
 void secondNode(ThreadNodeInputRecord<Work> input,
 #endif
-#ifdef FIXED_CONSUMER
+#if defined(FIXED_CONSUMER) || defined(DYNAMIC_CONSUMER)
                 uint3 group : SV_GroupID, uint3 dispatchID : SV_DispatchThreadID,
 #endif
 #ifdef CYCLE
                 [MaxRecords(1)] [NodeID("secondNode")] NodeOutput<Work> again)
-#elif defined(FIXED_CONSUMER)
+#elif defined(FIXED_CONSUMER) || defined(DYNAMIC_CONSUMER)
                 [MaxRecords(2)] NodeOutput<Done> thirdNode)
 #else
                 [MaxRecords(1)] NodeOutput<Done> thirdNode)
 #endif
 {
-#ifdef FIXED_CONSUMER
+#if defined(FIXED_CONSUMER) || defined(DYNAMIC_CONSUMER)
     InterlockedAdd(UAV[input.Get().index], input.Get().increment + dispatchID.x + 100 * group.x + 10 * group.y + 1000 * group.z);
 #else
     InterlockedAdd(UAV[input.Get().index], input.Get().increment);

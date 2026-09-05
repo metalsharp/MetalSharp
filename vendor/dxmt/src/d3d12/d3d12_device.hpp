@@ -224,11 +224,12 @@ public:
   void RegisterWorkGraphProgram(const uint8_t *identifier,
                                 size_t identifier_size,
                                 const std::vector<WorkGraphNodeShader> &nodes);
+  void UnregisterWorkGraphPrograms(uint64_t state_object_identity);
   bool LookupWorkGraphNodeShader(const uint8_t *identifier,
                                  size_t identifier_size,
                                  UINT node_index, WorkGraphNodeShader &shader,
                                  bool by_source_node = false) const;
-  bool HasWorkGraphProgram(const uint8_t *identifier,
+  bool IsReferenceWorkGraphProgram(const uint8_t *identifier,
                            size_t identifier_size) const;
   HRESULT EnqueueSetEvent(HANDLE event);
   void NotifyTrimCallbacks(UINT64 bytes_to_trim = 0);

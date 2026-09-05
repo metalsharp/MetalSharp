@@ -415,6 +415,16 @@ public:
 
 class ComputePipelineState : public Object {
 public:
+  uint64_t gpuResourceID() const {
+    return MTLComputePipelineState_gpuResourceID(handle);
+  }
+};
+
+class ComputeIndirectCommandBuffer : public Resource {
+public:
+  uint64_t gpuResourceID() const {
+    return MTLIndirectCommandBuffer_gpuResourceID(handle);
+  }
 };
 
 class VisibleFunctionTable : public Resource {
@@ -1317,6 +1327,20 @@ public:
   Reference<Library>
   newLibraryWithSource(const char *source, uint64_t source_length, Error &error) {
     return Reference<Library>(MTLDevice_newLibraryWithSource(handle, source, source_length, &error.handle));
+  }
+
+  Reference<ComputeIndirectCommandBuffer>
+  newComputeIndirectCommandBuffer(uint32_t command_count, uint32_t buffer_bind_count) {
+    return Reference<ComputeIndirectCommandBuffer>(
+        MTLDevice_newComputeIndirectCommandBuffer(handle, command_count, buffer_bind_count));
+  }
+
+  Reference<ComputePipelineState>
+  newIndirectComputePipelineState(const Function &compute_function, Error &error) {
+    WMTComputePipelineInfo info = {};
+    info.compute_function = compute_function;
+    return Reference<ComputePipelineState>(
+        MTLDevice_newIndirectComputePipelineState(handle, &info, &error.handle));
   }
 
   Reference<ComputePipelineState>

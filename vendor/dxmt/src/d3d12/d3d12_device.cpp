@@ -4049,6 +4049,8 @@ public:
                       const D3D12_STATE_OBJECT_DESC *desc,
                       ID3D12StateObject *base = nullptr)
       : m_device(device) {
+    static std::atomic<uint64_t> next_work_graph_identity{1};
+    m_work_graph_identity = next_work_graph_identity.fetch_add(1, std::memory_order_relaxed);
     m_device->AddRef();
     if (base) {
       base->AddRef();
@@ -4087,6 +4089,8 @@ public:
   }
 
   virtual ~MTLD3D12StateObject() {
+    if (m_has_work_graph)
+      m_device->UnregisterWorkGraphPrograms(m_work_graph_identity);
     if (m_global_root_signature)
       m_global_root_signature->Release();
     for (const auto &entry : m_local_root_signatures) {
@@ -5058,6 +5062,12 @@ public:
           ((uint64_t)m_type << 48) ^ ((uint64_t)m_subobject_types.size() << 32);
       ret->OpaqueData[i] = word;
     }
+    // Program names and subobject counts are not identities. Two live state
+    // objects can contain different shaders under the same program name.
+    // Keep the identifier stable for this object's lifetime and unique across
+    // objects, so registering another graph cannot replace its shader table.
+    if (m_has_work_graph)
+      ret->OpaqueData[0] = m_work_graph_identity;
     if (m_has_work_graph && program_name &&
         m_work_graph_name == program_name) {
       // DispatchGraph selects an entrypoint, not an index in the node array.
@@ -5303,6 +5313,7 @@ private:
   UINT64 m_pipeline_stack_size = 0;
   UINT32 m_max_trace_recursion_depth = 1;
   bool m_has_work_graph = false;
+  uint64_t m_work_graph_identity = 0;
   std::wstring m_work_graph_name;
   std::vector<std::wstring> m_work_graph_node_names;
   std::vector<std::wstring> m_work_graph_entrypoint_names;
@@ -9191,11 +9202,6 @@ void MTLD3D12Device::RegisterWorkGraphProgram(
     const std::vector<WorkGraphNodeShader> &nodes) {
   if (!identifier || identifier_size != 32 || nodes.empty())
     return;
-  bool has_shader = false;
-  for (const auto &shader : nodes)
-    has_shader |= !shader.msl.empty();
-  if (!has_shader)
-    return;
   const std::string key(reinterpret_cast<const char *>(identifier),
                         identifier_size);
   std::lock_guard<std::mutex> lock(m_work_graph_mutex);
@@ -9207,6 +9213,19 @@ void MTLD3D12Device::RegisterWorkGraphProgram(
   TRACE("RegisterWorkGraphProgram key_size=%zu nodes=%zu first=0x%llx bytes=%zu",
         key.size(), nodes.size(), (unsigned long long)first,
         nodes.front().msl.size());
+}
+
+void MTLD3D12Device::UnregisterWorkGraphPrograms(uint64_t state_object_identity) {
+  std::lock_guard<std::mutex> lock(m_work_graph_mutex);
+  for (auto it = m_work_graph_programs.begin(); it != m_work_graph_programs.end();) {
+    uint64_t identity = 0;
+    if (it->first.size() >= sizeof(identity))
+      std::memcpy(&identity, it->first.data(), sizeof(identity));
+    if (identity == state_object_identity)
+      it = m_work_graph_programs.erase(it);
+    else
+      ++it;
+  }
 }
 
 bool MTLD3D12Device::LookupWorkGraphNodeShader(
@@ -9243,14 +9262,17 @@ bool MTLD3D12Device::LookupWorkGraphNodeShader(
   return true;
 }
 
-bool MTLD3D12Device::HasWorkGraphProgram(const uint8_t *identifier,
+bool MTLD3D12Device::IsReferenceWorkGraphProgram(const uint8_t *identifier,
                                          size_t identifier_size) const {
   if (!identifier || identifier_size != 32)
     return false;
   const std::string key(reinterpret_cast<const char *>(identifier),
                         identifier_size);
   std::lock_guard<std::mutex> lock(m_work_graph_mutex);
-  return m_work_graph_programs.find(key) != m_work_graph_programs.end();
+  const auto it = m_work_graph_programs.find(key);
+  return it != m_work_graph_programs.end() &&
+      std::all_of(it->second.begin(), it->second.end(),
+                  [](const auto &shader) { return shader.msl.empty(); });
 }
 
 MTLD3D12Resource *

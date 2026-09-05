@@ -970,9 +970,17 @@ width/count metadata; scalar/vector/zero grids, post-recording mutation,
 DEFAULT-heap queued copies and gated cross-queue dependencies pass. Runtime zero/nonzero group and thread output allocation counts also pass.
 Thread-varying zero/one output allocation within broadcasting groups also passes.
 Repeated chains in one command list retain distinct recorded payloads and allocator state.
-All twenty-two official Work Graph result files and their required contract rows pass in the
+Same-named programs in distinct state objects remain isolated; retired identifiers
+cannot execute shaders or synthetic reference work.
+Native GPU indirect commands now execute bounded record-driven downstream
+broadcasting directly from GPU-published U16/U32 XYZ grids. Empty streams,
+individual zero axes and repeated native-ICB chains have exact D3D12 readback.
+A gated cross-queue producer also feeds the native-ICB consumer chain with exact readback.
+Conditional zero/nonzero publication also feeds compacted native-ICB consumers correctly.
+Direct and native-ICB fan-out paths also converge with exact once-only contributions.
+All thirty-three official Work Graph/bridge result files and their required contract rows pass in the
 development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
-Recursive execution, record-driven downstream broadcasting, GPU-generated input headers,
+Recursive execution, output arrays, empty-record routing, GPU-generated input headers,
 general resource/argument tables, overflow and broader synchronization remain
 open. Cycles and unsupported downstream shapes reject before upstream writes.
 Clean-source staging and release reproducibility are still required.

@@ -466,6 +466,44 @@ NSObject_description(obj_handle_t nserror) {
 }
 
 WINEMETAL_API obj_handle_t
+MTLDevice_newComputeIndirectCommandBuffer(obj_handle_t device, uint32_t max_command_count,
+                                        uint32_t max_kernel_buffer_bind_count) {
+  struct unixcall_mtldevice_new_compute_icb params = {0};
+  params.device = device;
+  params.max_command_count = max_command_count;
+  params.max_kernel_buffer_bind_count = max_kernel_buffer_bind_count;
+  UNIX_CALL(182, &params);
+  return params.ret;
+}
+
+WINEMETAL_API uint64_t
+MTLIndirectCommandBuffer_gpuResourceID(obj_handle_t buffer) {
+  struct unixcall_generic_obj_uint64_ret params = {0};
+  params.handle = buffer;
+  UNIX_CALL(183, &params);
+  return params.ret;
+}
+
+WINEMETAL_API uint64_t
+MTLComputePipelineState_gpuResourceID(obj_handle_t pipeline) {
+  struct unixcall_generic_obj_uint64_ret params = {0};
+  params.handle = pipeline;
+  UNIX_CALL(184, &params);
+  return params.ret;
+}
+
+WINEMETAL_API obj_handle_t
+MTLDevice_newIndirectComputePipelineState(
+    obj_handle_t device, const struct WMTComputePipelineInfo *info, obj_handle_t *err_out) {
+  struct unixcall_mtldevice_newcomputepso params = {0};
+  params.device = device;
+  WMT_MEMPTR_SET(params.info, info);
+  UNIX_CALL(185, &params);
+  if (err_out) *err_out = params.ret_error;
+  return params.ret_pso;
+}
+
+WINEMETAL_API obj_handle_t
 MTLDevice_newComputePipelineState(
     obj_handle_t device, const struct WMTComputePipelineInfo *info, obj_handle_t *err_out
 ) {

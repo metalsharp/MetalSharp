@@ -5,6 +5,116 @@
   "status": "partial",
   "rows": [
     {
+      "id": "workgraph-native-icb-fanout-convergence",
+      "status": "closed",
+      "result": "probe-workgraph-fanout-icb",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [474, 510, 12948, 13020, 14, 13, 26, 25, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Direct and native-ICB dynamic-grid paths converge with exact once-only contributions. General topology, output arrays and overflow remain open."
+    },
+    {
+      "id": "workgraph-conditional-publication-native-icb",
+      "status": "closed",
+      "result": "probe-workgraph-conditional-icb",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 510, 0, 13020, 0, 12, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Conditional zero/two publication feeds compacted native-ICB dynamic consumers without inactive-route writes. General conditional topology and overflow remain open."
+    },
+    {
+      "id": "workgraph-native-icb-cross-queue-producer",
+      "status": "closed",
+      "result": "probe-workgraph-cross-queue-dynamic",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["gpu_input"], ["post_recording_mutation"], ["queued_gpu_copy"],
+        ["cross_queue_dependency"], ["consumer_blocked_until_release"],
+        ["values", [948, 1020, 12948, 13020, 24, 24, 24, 24, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Gated compute-queue copy feeds entry broadcasting, native-ICB dynamic consumers and coalescing. GPU-generated entry headers and broader multi-queue graph patterns remain open."
+    },
+    {
+      "id": "workgraph-native-icb-dynamic-downstream",
+      "status": "closed",
+      "result": "probe-workgraph-dynamic-consumer",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [474, 510, 12948, 13020, 12, 12, 24, 24, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "GPU-produced U32 XYZ grids drive native per-record indirect commands and a coalescing sink. General topology, output arrays, recursion and GPU-generated input headers remain open."
+    },
+    {
+      "id": "workgraph-native-icb-dynamic-downstream-u16",
+      "status": "closed",
+      "result": "probe-workgraph-dynamic-consumer-u16",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [474, 510, 12948, 13020, 12, 12, 24, 24, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "GPU-produced U16 XYZ grids at metadata-defined offsets are verified; broader record layouts and overflow semantics remain open."
+    },
+    {
+      "id": "workgraph-native-icb-empty-downstream",
+      "status": "closed",
+      "result": "probe-workgraph-dynamic-consumer-empty",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "An empty GPU descriptor stream produces an empty ICB execution range. General cancellation/reuse semantics remain open."
+    },
+    {
+      "id": "workgraph-native-icb-zero-axis-downstream",
+      "status": "closed",
+      "result": "probe-workgraph-dynamic-consumer-zero-grids",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["values", [0, 0, 0, 13020, 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Individual zero X/Y/Z grids launch no consumer work while the nonzero record route completes. General malformed-grid behavior remains open."
+    },
+    {
+      "id": "workgraph-native-icb-repeated-downstream",
+      "status": "closed",
+      "result": "probe-workgraph-dynamic-consumer-repeated",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"], ["post_recording_mutation"],
+        ["values", [699, 1020, 19398, 26040, 18, 24, 36, 48, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Two native-ICB chains in one command list preserve independent command/range/context storage and pipelines. Broader concurrent graph reuse remains open."
+    },
+    {
+      "id": "winemetal-native-compute-icb-bridge",
+      "status": "closed",
+      "result": "probe-workgraph-icb-bridge",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["bridge_icb"], ["gpu_completion_ok"], ["invalid_arguments_rejected"],
+        ["d3d12_integrated", false], ["range", [1, 4]],
+        ["values", [10, 62, 602, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "PE/Unix bridge executes GPU-generated native compute commands with a GPU-selected range. Bounded D3D12 dynamic consumers have separate integration probes; broader ICB lifetime/residency coverage remains open."
+    },
+    {
+      "id": "winemetal-empty-compute-icb-range",
+      "status": "closed",
+      "result": "probe-workgraph-icb-bridge-empty",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["bridge_icb"], ["gpu_completion_ok"], ["invalid_arguments_rejected"],
+        ["d3d12_integrated", false], ["range", [1, 0]],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "An empty GPU-generated ICB range skips all commands, including the poison command. This is bridge feasibility, not D3D12 dynamic-grid support."
+    },
+    {
+      "id": "workgraph-state-object-program-isolation",
+      "status": "closed",
+      "result": "probe-workgraph-program-isolation",
+      "profile": "phase7-workgraph",
+      "checks": [
+        ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
+        ["identifiers_distinct"], ["identifiers_stable"], ["post_recording_mutation"],
+        ["values", [241, 215, 241, 215, 10, 6, 10, 6, 0, 0, 0, 0, 0, 0, 0, 0]]
+      ],
+      "remaining": "Same-named graphs in distinct state objects retain independent shaders. Surviving identifiers remain usable after peer destruction; retired identifiers do not execute a shader or synthetic fallback. AddToStateObject inheritance and broader multigraph semantics remain open."
+    },
+    {
       "id": "workgraph-repeated-chain-isolation",
       "status": "closed",
       "result": "probe-workgraph-repeated-chain",
@@ -69,7 +179,7 @@
         ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [35904, 17888, 35904, 17888, 64, 32, 64, 32, 0, 0, 0, 0, 0, 0, 0, 0]]
       ],
-      "remaining": "Fixed 2x2x2 downstream broadcasting with two threads per group and record-local group/thread IDs is verified. Record-driven downstream grids, recursion and general resource tables remain open."
+      "remaining": "Fixed 2x2x2 downstream broadcasting with two threads per group and record-local group/thread IDs is verified. Broader record-driven consumer layouts, recursion and general resource tables remain open."
     },
     {
       "id": "workgraph-oversized-terminal-output-rejection",
@@ -116,7 +226,7 @@
         ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [36, 10, 18, 5, 8, 4, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
       ],
-      "remaining": "U16 three-axis grid at byte offset 2 in an 8-byte record is verified. GPU-produced U16 payloads, downstream broadcasting and overflow remain open."
+      "remaining": "U16 three-axis grid at byte offset 2 in an 8-byte record is verified. Additional GPU-produced U16 payload/layout combinations and overflow remain open."
     },
     {
       "id": "workgraph-cycle-no-partial-execution",
@@ -138,7 +248,7 @@
         ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
       ],
-      "remaining": "Record-driven downstream broadcasting rejects without upstream shader writes or allocations. Fixed-grid downstream broadcasting has a separate positive witness; runtime expansion-bound probes remain open."
+      "remaining": "Mismatched producer/consumer record sizes reject without upstream shader writes or allocations. Fixed and record-driven downstream broadcasting have separate positive witnesses; runtime expansion-bound probes remain open."
     },
     {
       "id": "workgraph-two-path-fanout",
@@ -183,7 +293,7 @@
         ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [36, 10, 18, 5, 8, 4, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
       ],
-      "remaining": "Bounded U32 three-axis grids with non-unit Y and Z are verified; general downstream broadcasting and overflow semantics remain open."
+      "remaining": "Bounded U32 three-axis grids with non-unit Y and Z are verified; unrestricted graph topology and overflow semantics remain open."
     },
     {
       "id": "workgraph-offset-record-grid",
@@ -194,7 +304,7 @@
         ["pass"], ["cpu_scheduler", false], ["readback_exact"], ["allocations_exact"],
         ["values", [18, 5, 18, 5, 4, 2, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0]]
       ],
-      "remaining": "Scalar U32 grid at byte offset 4 in a 16-byte record is verified; general downstream broadcasting remains open."
+      "remaining": "Scalar U32 grid at byte offset 4 in a 16-byte record is verified; unrestricted graph topology remains open."
     },
     {
       "id": "workgraph-zero-record-grids",

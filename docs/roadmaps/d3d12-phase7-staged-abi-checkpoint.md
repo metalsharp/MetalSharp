@@ -4,7 +4,7 @@ Inspected source revision: `ce695fdf` (bounded Work Graph compute-queue probe).
 This checkpoint is **not** a Phase 7 exit, clean-source build attestation, or
 full-surface promotion.
 
-## Downstream chain development witness (uncommitted scheduler)
+## Bounded downstream scheduler development witnesses
 
 Follow-up: the original HelloWorkGraphs sample and the new source-owned
 `probes/probe_workgraph/node_chain.hlsl` both now pass the same exact readback.
@@ -166,6 +166,108 @@ ownership, transient indirect/context lifetime and allocator reset isolation.
 All twenty-two official results and contract checks, plus strict ABI, pass in
 `/private/tmp/wg-repeated-chain-verified/`. This does not certify concurrent
 dispatches sharing one backing allocation.
+
+Program-isolation follow-up: same-named graphs with different shader code
+previously shared an identifier and overwrote each other's runtime table. The
+new probe reproduced `[623,410,623,410]` instead of the two-program expected
+`[223,210,223,210]`. Work Graph identifiers now contain a stable state-object
+identity, and destruction unregisters only that object's tables. Reference
+fixtures are explicitly registered: unknown/retired identifiers cannot select
+the synthetic kernel. The final probe runs both graphs, destroys the second,
+reuses the first without re-registration, and attempts the retired identifier.
+Exact final output is `[241,215,241,215,10,6,10,6]` with stable/distinct IDs and
+unchanged allocator state after the retired dispatch. All twenty-three official
+results pass in `/private/tmp/wg-program-retirement-final/`. AddToStateObject
+inheritance and broader multigraph semantics remain open.
+
+Native-ICB architecture decision: the user selected GPU-generated native
+indirect commands for downstream record-driven grids, rather than expanding
+the existing flattened-dispatch descriptor stream. The source-owned
+`probe-metal-workgraph-icb.mm`/`.metal` feasibility probe succeeds on Apple M4
+using Metal 4 command buffers, GPU-authored execution ranges, explicit residency
+(including pipelines), and device-visibility barriers. Active range `[1,4]`
+produces `[10,62,602,0,0,0,0,0]`; empty range `[1,0]` leaves output zero. A
+GPU-encoded out-of-range poison command never executes. Commit feedback has
+no GPU error and Metal API Validation reports no violation. Evidence and run
+instructions are in `tools/d3d12-metal-sdk/scripts/probe-metal-workgraph-icb.md`
+and `/private/tmp/wg-native-icb/`. Both JSON results explicitly report
+`d3d12_integrated=false`. Winemetal ICB allocation/encoding/execution and
+residency bridge support, followed by exact D3D12 probes, is the next step.
+
+Winemetal ICB bridge follow-up: four append-only Unix calls expose native
+compute ICB creation, ICB/pipeline GPU IDs and indirect-capable pipeline creation.
+An appended compute-command opcode executes a GPU-selected range through the
+existing replay encoder, with checked handles/range bounds. The PE probe passes
+active and empty cases, poison-command exclusion and invalid-argument checks;
+normal/WoW64 tables match at 186 entries, with unchanged old indices and pipeline
+info layout. These results still report `d3d12_integrated=false`.
+
+Full Metal API Validation exposed and corrected two older issues: managed-only
+`didModifyRange` notifications on shared buffers, and an unbound helper input
+slot on output-only nodes. Inert internal storage now binds slot 29 without
+inventing input records. The runner's misspelled `WINEDLLOVERRIDES` export and
+sandbox re-staging's sidecar self-copy failure are also corrected. All twenty-five
+official results pass with validation enabled and no assertion in
+`/private/tmp/wg-icb-bridge/validated/` (log: `validated.log` in its parent).
+Native feasibility and staged PE/Unix bridge are now proven; actual D3D12
+record-driven downstream integration, full residency/lifetime breadth and
+release provenance remain open.
+
+D3D12 native-ICB integration: downstream broadcasting with record-driven grids
+now builds one native compute command per GPU-published record, along with a
+GPU execution range and per-command input context/buffer bindings. There is no
+CPU record/grid readback or per-record host command loop. Metadata supplies the
+U16/U32 grid width, offset and dimensions; native commands preserve record-local
+system IDs. Strong owners bridge replay-to-submission lifetime, followed by
+completion retains for ICBs, consumer/builder pipelines and buffers.
+
+U32 and U16 producer-record variants both yield
+`[474,510,12948,13020,12,12,24,24]` (84 records, 78 allocations). Empty streams
+produce no work; zero X/Y/Z cases preserve only the nonzero route. Two dynamic
+chains in one command list yield `[699,1020,19398,26040,18,24,36,48]`, with the
+second dispatch's 62-record/58-allocation counters. The former dynamic-target
+negative fixture now uses mismatched producer/consumer record sizes, retaining
+its no-partial-write assertion. Broader layouts, output arrays, recursion,
+GPU-generated entry headers and general resource/argument tables remain open.
+All thirty official Work Graph/bridge results, their contract rows and the
+strict ABI audit pass in `/private/tmp/wg-icb-downstream/final/`. Metal API
+Validation reports no assertion; retained logs contain six native-ICB encoding
+witnesses across the active, empty, zero-axis, U16 and repeated cases. Downstream
+metadata regressions verify offset 8 with widths 4 and 2. This remains dirty-source
+development evidence, not a clean rebuild or release promotion.
+
+Cross-queue native-ICB follow-up: a gated compute-queue copy supplies the entry
+records, followed by entry broadcasting, GPU-produced dynamic downstream grids,
+native indirect commands and a coalescing sink. Consumer completion remains
+pending until producer release. Exact output is
+`[948,1020,12948,13020,24,24,24,24]` with 114 records and 105 allocations; no
+intermediate record readback is used. All thirty-one Work Graph/bridge results
+pass with Metal API Validation enabled in `/private/tmp/wg-icb-cross-queue/`.
+GPU-generated entry headers and broader multi-queue graph patterns remain open.
+
+Conditional-publication native-ICB follow-up: the entry shader emits records
+only for odd input indices, while the GPU compacts published allocations and
+builds per-record commands/ranges. Exact output is
+`[0,510,0,13020,0,12,0,24]`, with 40 records and 38 allocations; inactive routes
+remain untouched. All thirty-two official results pass with Metal API Validation
+in `/private/tmp/wg-icb-conditional/`. General conditional topology and overflow
+remain open.
+
+Runner recipe consolidation: eighteen chain variants now share one compiler
+helper with an explicit variant/flag list. Stale output is removed before
+compilation, and failed/partial output is removed on rejection. All eighteen
+DXIL files remain byte-identical to the pre-refactor versions; the thirty-two
+runtime results and contract rows still pass with validation enabled under
+`/private/tmp/wg-runner-refactor/`. Four source-owned shell-helper tests cover
+compiler failure, success without output, partial output, and successful output
+with spaced paths. These mock tests are not shader evidence, and fixture
+byte identity is not whole-runtime reproducibility proof.
+
+Native-ICB fan-out convergence: direct records and the dynamic-grid consumer's
+outputs both reach the coalescing sink exactly once. The combined witness yields
+`[474,510,12948,13020,14,13,26,25]`, with 90 records and 84 allocations.
+All thirty-three official results pass with Metal API Validation enabled in
+`/private/tmp/wg-icb-fanout/`; general topology and overflow remain open.
 
 Historical first witness (before these follow-ups):
 
