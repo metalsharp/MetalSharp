@@ -985,9 +985,13 @@ for nonempty layouts.
 Empty coalescing entries also batch six records as four and two using retained MaxRecords metadata.
 Dense output arrays and sparse index 65536 now route through per-program GPU tables,
 with exact readback and creation-time missing-target rejection.
-All forty-one official Work Graph/bridge result files and their required contract rows pass in the
+Bounded thread, coalescing and native-ICB broadcasting self-recursion now preserve
+remaining levels and leaf validity. Probes cover per-level publication isolation,
+early termination, exact coalescing batches, the legal depth boundary and no-write
+over-depth rejection; non-self cycles still reject.
+All forty-eight official Work Graph/bridge result files and their required contract rows pass in the
 development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
-Recursive execution, broader output-array shapes, empty-record routing, GPU-generated input headers,
+Broader recursive execution, output-array shapes, empty-record routing, GPU-generated input headers,
 general resource/argument tables, overflow and broader synchronization remain
 open. Cycles and unsupported downstream shapes reject before upstream writes.
 Clean-source staging and release reproducibility are still required.

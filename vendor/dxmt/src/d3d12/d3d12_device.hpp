@@ -217,6 +217,8 @@ public:
     uint32_t input_record_size = 0;
     uint32_t input_record_alignment = 0;
     uint32_t input_max_records = 0;
+    uint32_t max_recursion_depth = 0;
+    bool is_recursive = false;
     bool empty_input = false;
     uint32_t launch_type = 0;
     uint32_t threads[3] = {1, 1, 1};

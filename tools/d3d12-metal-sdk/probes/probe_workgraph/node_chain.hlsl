@@ -118,7 +118,7 @@ void secondNode(ThreadNodeInputRecord<Work> input,
                 uint3 group : SV_GroupID, uint3 dispatchID : SV_DispatchThreadID,
 #endif
 #ifdef CYCLE
-                [MaxRecords(1)] [NodeID("secondNode")] NodeOutput<Work> again)
+                [MaxRecords(1)] [NodeID("firstNode")] NodeOutput<Work> again)
 #elif defined(FIXED_CONSUMER) || defined(DYNAMIC_CONSUMER)
                 [MaxRecords(2)] NodeOutput<Done> thirdNode)
 #else

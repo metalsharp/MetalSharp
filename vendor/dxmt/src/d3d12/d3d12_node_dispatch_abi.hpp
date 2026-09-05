@@ -79,3 +79,13 @@ static_assert(offsetof(D3D12NodeRoutingContext, broadcast_groups_x) == 36);
 static_assert(offsetof(D3D12NodeRoutingContext, routing_table_address) == 40);
 static_assert(offsetof(D3D12NodeRoutingContext, routing_table_count) == 48);
 static_assert(offsetof(D3D12NodeRoutingContext, source_node) == 52);
+
+// Versions 6 (raw) and 7 (descriptor stream) add per-expansion recursion
+// state. Producers must set the version explicitly when using this layout.
+struct D3D12NodeRecursionContext {
+  D3D12NodeRoutingContext routing;
+  uint32_t remaining_levels = 0;
+  uint32_t reserved = 0;
+};
+static_assert(sizeof(D3D12NodeRecursionContext) == 64);
+static_assert(offsetof(D3D12NodeRecursionContext, remaining_levels) == 56);

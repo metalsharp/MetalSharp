@@ -170,6 +170,7 @@ inline std::optional<NodeInputLayout> nodeInputLayout(
 struct NodeShaderMetadata {
   std::string node_name;
   uint32_t node_array_index = 0;
+  uint32_t max_recursion_depth = 0;
   NodeInputLayout input;
   uint32_t max_input_records = 0;
   uint32_t launch_type = 0;
@@ -212,6 +213,10 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
       return std::nullopt;
     result.node_name = name->string_value;
   }
+  const LLVMMetadataRecord *recursion = nullptr;
+  if (!tag(module, *properties, 19, recursion) ||
+      (recursion && !integer(module, recursion, result.max_recursion_depth)))
+    return std::nullopt;
   const LLVMMetadataRecord *launch = nullptr, *threads = nullptr, *grid = nullptr;
   const LLVMMetadataRecord *max_grid = nullptr;
   if (!tag(module, *properties, 13, launch) || !integer(module, launch, result.launch_type) ||

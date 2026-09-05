@@ -12,6 +12,7 @@ namespace dxmt {
 struct NodeRoutingTarget {
   std::string name;
   uint32_t array_index;
+  uint32_t max_recursion_depth = 0;
 };
 struct NodeRoutingOutput {
   uint32_t source_node;
@@ -36,14 +37,16 @@ inline std::optional<std::vector<D3D12NodeOutputRoute>> buildNodeOutputRoutes(
   try {
     std::set<std::pair<std::string, uint32_t>> identities;
     // The specification charges gaps in each named node array against the
-    // graph budget, independently of our compact physical table. This is the
-    // nonrecursive minimum; recursion-aware accounting belongs to its validator.
+    // graph budget, independently of our compact physical table. Each node's
+    // declared recursion depth adds slots even when its name shares a span.
     std::map<std::string, uint32_t> spans;
     uint64_t node_budget = 0;
     for (const auto &node : nodes) {
       if (node.name.empty() || node.array_index >= 0xffffffu ||
           !identities.emplace(node.name, node.array_index).second)
         return std::nullopt;
+      node_budget += node.max_recursion_depth;
+      if (node_budget > 0xffffffu) return std::nullopt;
       auto &span = spans[node.name];
       const uint32_t required = node.array_index + 1u;
       if (required > span) {
@@ -67,6 +70,8 @@ inline std::optional<std::vector<D3D12NodeOutputRoute>> buildNodeOutputRoutes(
         const uint32_t index = node.array_index - output.target_base_index;
         const bool unbounded = output.is_array && output.allow_sparse && output.array_size == UINT32_MAX;
         if (!unbounded && index >= output.array_size) continue;
+        if (target == output.source_node && !nodes[target].max_recursion_depth)
+          return std::nullopt;
         targets.emplace_back(index, static_cast<uint32_t>(target));
       }
       if (!output.allow_sparse && targets.size() != output.array_size)

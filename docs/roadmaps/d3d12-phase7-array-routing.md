@@ -11,10 +11,10 @@ User-selected architecture: per-program GPU routing tables, not packed array-ind
 - Creation builds an immutable per-program table from actual graph nodes, never
   by enumerating an unbounded declared size. Dense ranges must be populated;
   missing targets require AllowSparseNodes. Duplicate identities reject.
-  The builder also checks the nonrecursive minimum node budget by summing each
-  named array's span, including holes. Host tests cover the exact limit, one-over
-  rejection, same-name entries, and declaration-order independence. Recursion's
-  additional budget charges remain part of the unfinished recursion validator.
+  The builder checks the node budget by summing each named array's span,
+  including holes, plus every declared recursion depth. Host tests cover exact
+  limits, overflow, same-name entries and declaration-order independence.
+  Recursive graph-depth validation and execution remain unfinished.
 - Canonical and entrypoint shader copies share the same snapshot through the
   registry. GPU uploads cache by snapshot identity and retain buffers through
   submission completion, including cache reuse.

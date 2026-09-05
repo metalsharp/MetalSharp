@@ -4110,19 +4110,26 @@ public:
 
   bool InitializeWorkGraphRouting() {
     m_work_graph_routing_table.reset();
-      const bool has_arrays = std::any_of(m_work_graph_node_layouts.begin(),
+      const bool needs_routing = std::any_of(m_work_graph_node_layouts.begin(),
           m_work_graph_node_layouts.end(), [](const auto &layout) {
-            return std::any_of(layout.outputs.begin(), layout.outputs.end(),
-                [](const auto &output) { return output.is_array; });
+            return layout.max_recursion_depth != 0 ||
+                std::any_of(layout.outputs.begin(), layout.outputs.end(),
+                    [&](const auto &output) {
+                      return output.is_array || (output.node_name == layout.node_name &&
+                          output.array_index == layout.node_array_index);
+                    });
           });
-      if (has_arrays) {
+      if (needs_routing) {
         try {
           std::vector<NodeRoutingTarget> targets;
           std::vector<NodeRoutingOutput> outputs;
           targets.reserve(m_work_graph_nodes.size());
-          for (const auto &node : m_work_graph_nodes) {
+          if (m_work_graph_nodes.size() != m_work_graph_node_layouts.size()) return false;
+          for (size_t index = 0; index < m_work_graph_nodes.size(); ++index) {
+            const auto &node = m_work_graph_nodes[index];
             if (!node.Name) return false;
-            targets.push_back({str::fromws(node.Name), node.ArrayIndex});
+            targets.push_back({str::fromws(node.Name), node.ArrayIndex,
+                m_work_graph_node_layouts[index].max_recursion_depth});
           }
           for (size_t node = 0; node < m_work_graph_node_layouts.size(); ++node) {
             if (node > UINT32_MAX) return false;
@@ -4133,7 +4140,8 @@ public:
           }
           auto routes = buildNodeOutputRoutes(targets, outputs);
           if (!routes) return false;
-          m_work_graph_routing_table = std::make_shared<const std::vector<D3D12NodeOutputRoute>>(std::move(*routes));
+          if (!routes->empty())
+            m_work_graph_routing_table = std::make_shared<const std::vector<D3D12NodeOutputRoute>>(std::move(*routes));
         } catch (...) {
           return false;
         }
@@ -5140,6 +5148,9 @@ public:
         shader.input_record_size = metadata.input.size;
         shader.input_record_alignment = metadata.input.alignment;
         shader.input_max_records = metadata.max_input_records;
+        shader.max_recursion_depth = metadata.max_recursion_depth;
+        shader.is_recursive = routing_table && std::any_of(routing_table->begin(), routing_table->end(),
+            [node](const auto &route) { return route.source_node == node && route.target_node == node; });
         shader.empty_input = metadata.input.empty_input;
         shader.launch_type = metadata.launch_type;
         for (unsigned axis = 0; axis < 3; ++axis) {
