@@ -5,6 +5,33 @@
   "status": "partial",
   "rows": [
     {
+      "id": "workgraph-empty-output-payload-mismatch",
+      "status": "closed",
+      "result": "probe-workgraph-empty-output-mismatch",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["readback_exact"], ["empty_allocation_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Empty-output to payload-input mismatch rejects before either producer writes or allocates. Broader malformed layouts and creation-time compatibility validation remain open."
+    },
+    {
+      "id": "workgraph-empty-output-publication",
+      "status": "closed",
+      "result": "probe-workgraph-empty-output",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["readback_exact"], ["empty_allocation_exact"],
+        ["values", [12, 4, 20, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Runtime thread/group counts publish logical empty records to a coalescing consumer; group reservation occurs once. Empty-output arrays, recursive empty routing and broader limits remain open."
+    },
+    {
+      "id": "workgraph-empty-output-zero-count",
+      "status": "closed",
+      "result": "probe-workgraph-empty-output-zero",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["readback_exact"], ["empty_allocation_exact"],
+        ["values", [0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Zero thread/group requests consume no records/allocations and launch no consumers. General overflow/recycling remains open."
+    },
+    {
       "id": "workgraph-recursion-depth-boundary",
       "status": "closed",
       "result": "probe-workgraph-recursion-boundary",

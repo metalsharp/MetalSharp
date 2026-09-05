@@ -4115,7 +4115,7 @@ public:
             return layout.max_recursion_depth != 0 ||
                 std::any_of(layout.outputs.begin(), layout.outputs.end(),
                     [&](const auto &output) {
-                      return output.is_array || (output.node_name == layout.node_name &&
+                      return output.is_array || output.empty_output || (output.node_name == layout.node_name &&
                           output.array_index == layout.node_array_index);
                     });
           });
@@ -5176,6 +5176,7 @@ public:
             destination_output.array_size = output.array_size;
             destination_output.is_array = output.is_array;
             destination_output.allow_sparse = output.allow_sparse;
+            destination_output.empty_output = output.empty_output;
             for (UINT candidate = 0; candidate < m_work_graph_nodes.size();
                  ++candidate) {
               if (m_work_graph_nodes[candidate].ArrayIndex !=

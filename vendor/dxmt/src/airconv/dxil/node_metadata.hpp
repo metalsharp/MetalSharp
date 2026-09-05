@@ -28,6 +28,7 @@ struct NodeOutputLayout {
   uint32_t array_size = 1;
   bool is_array = false;
   bool allow_sparse = false;
+  bool empty_output = false;
 };
 
 namespace node_metadata_detail {
@@ -295,12 +296,8 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
       NodeOutputLayout layout;
       layout.metadata_index = static_cast<uint32_t>(output_index);
       if (!output || !tag(module, *output, 1, flags_record) ||
-          !integer(module, flags_record, layout.flags) ||
-          !tag(module, *output, 2, type) || !type ||
-          !tag(module, *type, 0, flags_record) ||
-          !integer(module, flags_record, layout.size) ||
-          !tag(module, *type, 2, flags_record) ||
-          !integer(module, flags_record, layout.alignment) ||
+          !integer(module, flags_record, layout.flags) || !(layout.flags & 2u) ||
+          !tag(module, *output, 2, type) ||
           !tag(module, *output, 3, max_records_record) ||
           (max_records_record &&
            !integer(module, max_records_record, layout.max_records)) ||
@@ -308,12 +305,21 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
           node_id->kind != LLVMMetadataRecord::Kind::Node ||
           node_id->operands.size() != 2)
         return std::nullopt;
+      layout.empty_output = (layout.flags & 8u) != 0;
+      if (layout.empty_output) {
+        if (type) return std::nullopt;
+      } else if (!type || !tag(module, *type, 0, flags_record) ||
+          !integer(module, flags_record, layout.size) || !layout.size ||
+          !tag(module, *type, 2, flags_record) ||
+          !integer(module, flags_record, layout.alignment) || !layout.alignment ||
+          (layout.alignment & (layout.alignment - 1))) {
+        return std::nullopt;
+      }
       const auto *name = module.metadataOperand(*node_id, 0);
       const auto *array_index = module.metadataOperand(*node_id, 1);
       if (!name || name->kind != LLVMMetadataRecord::Kind::String ||
           name->string_value.empty() || !integerBits(module, array_index,
                                                   layout.array_index) ||
-          !layout.alignment || (layout.alignment & (layout.alignment - 1)) ||
           layout.size > std::numeric_limits<uint32_t>::max() - 3u)
         return std::nullopt;
       const LLVMMetadataRecord *array_size = nullptr, *sparse = nullptr;
@@ -326,7 +332,7 @@ inline std::optional<NodeShaderMetadata> nodeShaderMetadata(
         return std::nullopt;
       layout.node_name = name->string_value;
       layout.size = (layout.size + 3u) & ~3u;
-      if (layout.alignment < 4)
+      if (!layout.empty_output && layout.alignment < 4)
         layout.alignment = 4;
       result.outputs.push_back(std::move(layout));
     }

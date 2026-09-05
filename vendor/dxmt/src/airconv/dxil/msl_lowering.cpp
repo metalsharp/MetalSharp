@@ -7755,6 +7755,17 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
         case DXOP_IncrementOutputCount: {
             if (args.size() < 3)
                 return reject_node("malformed IncrementOutputCount operands");
+            if (ctx.options.node_routing) {
+                const std::string count = numericArg(1, "");
+                uint32_t per_thread = literalArg(2, UINT32_MAX, "empty output per-thread flag");
+                if (per_thread == UINT32_MAX && valueArg(2, "") == "-1") per_thread = 1u;
+                if (count.empty() || per_thread > 1u)
+                    return reject_node("empty output count must be scalar and scope literal");
+                const std::string allocation = per_thread
+                    ? "m12_node_allocate_record_handle(buf30 != nullptr ? buf30 : buf0, buf28, (uint)(" + valueArg(0, "0u") + "), (uint)(" + count + "), 1u)"
+                    : "m12_node_allocate_group_record_handle(buf30 != nullptr ? buf30 : buf0, buf28, (uint)(" + valueArg(0, "0u") + "), (uint)(" + count + "), m12_node_group_output_handle, gtid.x + gsz.x * (gtid.y + gsz.y * gtid.z))";
+                return "m12_node_complete_output(buf30 != nullptr ? buf30 : buf0, buf28, " + allocation + ")";
+            }
             const uint32_t count =
                 literalArg(1, UINT32_MAX, "node output count");
             uint32_t per_thread =

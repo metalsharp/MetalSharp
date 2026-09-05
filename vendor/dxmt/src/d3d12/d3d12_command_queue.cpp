@@ -3409,7 +3409,7 @@ struct ReplayState {
       uint32_t remaining_levels = 0, uint32_t source_remaining = 0,
       bool recursive_source = false) {
     if (!device || !command_buffer.handle || !target_output || !consume_bit ||
-        !record_size || record_size > kNodeOutputRecordStride || !batch_size ||
+        (!record_size && !target_shader.empty_input) || record_size > kNodeOutputRecordStride || !batch_size ||
         !work_graph_backing_address ||
         work_graph_backing_size < kNodeOutputBackingBytes)
       return false;
@@ -3835,7 +3835,7 @@ struct ReplayState {
     if (scheduled_records) {
       if (!native_output_records || !scheduled_input->descriptors.handle ||
           !scheduled_input->dispatch_args.handle ||
-          !scheduled_input->context.handle || !shader.input_record_size ||
+          !scheduled_input->context.handle || (!shader.input_record_size && !shader.empty_input) ||
           shader.launch_type < 1u || shader.launch_type > 3u)
         return false;
       input_buffer = scheduled_input->descriptors;
@@ -4243,8 +4243,8 @@ struct ReplayState {
         MTLD3D12Device::WorkGraphNodeShader target;
         if (!device->LookupWorkGraphNodeShader(work_graph_program_identifier,
                 sizeof(work_graph_program_identifier), output.target_node_index, target, true) ||
-            !target.input_record_size || target.input_record_size > kNodeOutputRecordStride ||
-            output.size != target.input_record_size ||
+            (!target.input_record_size && !target.empty_input) || target.input_record_size > kNodeOutputRecordStride ||
+            output.empty_output != target.empty_input || output.size != target.input_record_size ||
             target.launch_type < 1u || target.launch_type > 3u ||
             (target.launch_type == 1u && !target.grid_from_record && (
                 !target.grid[0] || !target.grid[1] || !target.grid[2] ||
@@ -4291,7 +4291,8 @@ struct ReplayState {
                 sizeof(work_graph_program_identifier),
                 output.target_node_index, target_shader, true) ||
             target_shader.source_node_index != output.target_node_index ||
-            target_shader.input_record_size == 0 ||
+            (target_shader.input_record_size == 0 && !target_shader.empty_input) ||
+            output.empty_output != target_shader.empty_input ||
             target_shader.launch_type < 1u || target_shader.launch_type > 3u)
           return false;
         const uint32_t batch_size = target_shader.launch_type == 2u
