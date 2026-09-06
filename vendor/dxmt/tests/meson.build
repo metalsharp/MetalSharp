@@ -18,6 +18,16 @@ d3d12_node_gpu_input_test = executable('test_node_gpu_input',
 
 test('node_gpu_input', d3d12_node_gpu_input_test)
 
+d3d12_dxr_compat_test = executable('test_dxr_compat',
+  [
+    'dxil/test_dxr_compat.cpp',
+  ],
+  include_directories : [ dxmt_include_path, dxmt_native_include_path ],
+  native : true,
+)
+
+test('dxr_compat', d3d12_dxr_compat_test)
+
 subdir('d3d12_game')
 if fs.is_file('tests/dx11/cube.obj') and fs.is_file('tests/dx11/test.png')
   subdir('dx11')
