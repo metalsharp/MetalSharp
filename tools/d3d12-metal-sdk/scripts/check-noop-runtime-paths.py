@@ -23,6 +23,13 @@ DEFAULT_ROOTS = (
     Path("vendor/dxmt/src/util"),
 )
 EXTENSIONS = {".c", ".cc", ".cpp", ".h", ".hpp", ".m", ".mm"}
+# These declarations carry wire-level enum/flag values for an SDK surface that
+# is absent from the older public header.  They are ABI inputs, not runtime
+# capability reports; keep them visible without misclassifying them as a
+# conservative feature query.
+ABI_DECLARATION_FILES = {
+    "vendor/dxmt/src/d3d12/d3d12_dxr_compat.hpp",
+}
 
 
 def source_files(source_root: Path) -> list[Path]:
@@ -146,14 +153,19 @@ def scan_file(path: Path, findings: list[dict[str, Any]]) -> None:
     )
     for match in capability.finditer(text):
         line = line_number(text, match.start())
+        is_abi_declaration = (
+            path.relative_to(ROOT_DIR).as_posix() in ABI_DECLARATION_FILES
+        )
         add_finding(
             findings,
             path,
             lines,
             line,
-            "capability_literal",
+            "abi_literal" if is_abi_declaration else "capability_literal",
             " ".join(match.group(0).split()),
-            "must_be_derived_from_behavior_ledger",
+            "abi_wire_value_not_a_capability_report"
+            if is_abi_declaration
+            else "must_be_derived_from_behavior_ledger",
         )
 
 
