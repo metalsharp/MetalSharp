@@ -127,6 +127,7 @@ D3D12GetOpacityMicromapTrianglesDesc(
 struct ID3D12StateObject;
 struct ID3D12ProtectedResourceSession;
 struct ID3D12MetaCommand;
+struct D3D12OpacityMicromapArrayDescCompat;
 struct D3D12OpacityMicromapLinkageDescCompat;
 
 struct D3D12_GPU_VIRTUAL_ADDRESS_AND_STRIDE {
@@ -234,6 +235,11 @@ struct D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS {
     D3D12_GPU_VIRTUAL_ADDRESS InstanceDescs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *pGeometryDescs;
     const D3D12_RAYTRACING_GEOMETRY_DESC *const *ppGeometryDescs;
+    // Agility adds this fourth union spelling for OMM-array builds.  It has
+    // the same wire slot as pGeometryDescs, but keeping the named member in
+    // the local WIDL declaration prevents callers from depending on an
+    // accidental reinterpret-cast.
+    const D3D12OpacityMicromapArrayDescCompat *pOpacityMicromapArrayDesc;
   };
 };
 
@@ -372,6 +378,32 @@ struct D3D12OpacityMicromapArrayDescCompat {
 };
 static_assert(sizeof(D3D12OpacityMicromapArrayDescCompat) == 40,
               "D3D12 OMM array ABI");
+
+struct D3D12OpacityMicromapTrianglesDescCompat {
+  const D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC *triangles;
+  const D3D12OpacityMicromapLinkageDescCompat *linkage;
+};
+static_assert(sizeof(D3D12OpacityMicromapTrianglesDescCompat) == 16,
+              "D3D12 OMM triangles ABI");
+
+// The local WIDL declaration above includes the Agility union member by name;
+// use it on that side while the older cross-build header still needs the
+// documented same-slot cast in the _WIN32 branch.
+inline const D3D12OpacityMicromapArrayDescCompat *
+D3D12GetOpacityMicromapArrayDesc(
+    const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &inputs) {
+  return inputs.pOpacityMicromapArrayDesc;
+}
+
+inline D3D12OpacityMicromapTrianglesDescCompat
+D3D12GetOpacityMicromapTrianglesDesc(
+    const D3D12_RAYTRACING_GEOMETRY_DESC &geometry) {
+  D3D12OpacityMicromapTrianglesDescCompat value = {};
+  static_assert(sizeof(value) == sizeof(geometry.Triangles.Transform3x4) * 2,
+                "OMM geometry union must remain two pointers");
+  std::memcpy(&value, &geometry.Triangles, sizeof(value));
+  return value;
+}
 
 #endif // defined(_WIN32)
 
