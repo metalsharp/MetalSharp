@@ -28,6 +28,7 @@ REQUIRED_CONTRACTS = [
     "phase6-graphics-coverage.json",
     "phase7-mesh-workgraph-coverage.json",
     "phase8-dxr-coverage.json",
+    "phase9-video-coverage.json",
 ]
 
 DECLARED_TIERS = {"required", "emulated", "stubbed-safe", "unsupported"}

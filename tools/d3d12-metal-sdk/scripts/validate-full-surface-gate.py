@@ -25,6 +25,7 @@ PHASE4_MANIFEST = CONTRACT_DIR / "phase4-command-coverage.json"
 PHASE5_MANIFEST = CONTRACT_DIR / "phase5-shader-coverage.json"
 PHASE7_MANIFEST = CONTRACT_DIR / "phase7-mesh-workgraph-coverage.json"
 PHASE8_MANIFEST = CONTRACT_DIR / "phase8-dxr-coverage.json"
+PHASE9_MANIFEST = CONTRACT_DIR / "phase9-video-coverage.json"
 VALIDATORS = (
     "validate-contracts.py",
     "validate-probe-matrix.py",
@@ -48,8 +49,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path,
                         help="Coverage manifest (defaults to the selected phase).")
     parser.add_argument(
-        "--phase", choices=("3", "4", "5", "7", "8", "all"), default="all",
-        help="Gate Phase 3, Phase 4, Phase 5, Phase 7, Phase 8, or all currently declared phases (default: all).",
+        "--phase", choices=("3", "4", "5", "7", "8", "9", "all"), default="all",
+        help="Gate Phase 3, Phase 4, Phase 5, Phase 7, Phase 8, Phase 9, or all currently declared phases (default: all).",
     )
     parser.add_argument(
         "--format", choices=("text", "json"), default="text"
@@ -306,7 +307,8 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
         PHASE4_MANIFEST if args.phase == "4" else
         PHASE5_MANIFEST if args.phase == "5" else
         PHASE7_MANIFEST if args.phase == "7" else
-        PHASE8_MANIFEST if args.phase == "8" else DEFAULT_MANIFEST
+        PHASE8_MANIFEST if args.phase == "8" else
+        PHASE9_MANIFEST if args.phase == "9" else DEFAULT_MANIFEST
     )
     blockers: list[dict[str, str]] = []
     validator_rows = run_validators()
@@ -360,13 +362,14 @@ def build_summary(args: argparse.Namespace) -> dict[str, Any]:
             "5": "metalsharp.d3d12.phase5-shader-coverage.v1",
             "7": "metalsharp.d3d12.phase7-mesh-workgraph-coverage.v1",
             "8": "metalsharp.d3d12.phase8-dxr-coverage.v1",
+            "9": "metalsharp.d3d12.phase9-video-coverage.v1",
         }.get(args.phase)
         if args.phase == "all":
             expected_schema = "metalsharp.d3d12.phase3-exhaustive-coverage.v1"
         if expected_schema and manifest.get("schema") != expected_schema:
             blockers.append({"id": f"phase{args.phase}-coverage-manifest-schema",
                              "detail": "unexpected coverage manifest schema"})
-        if args.phase in ("3", "4", "5", "7", "8", "all"):
+        if args.phase in ("3", "4", "5", "7", "8", "9", "all"):
             if manifest.get("status") != "closed":
                 blockers.append({"id": f"phase{args.phase}-coverage-status",
                                  "detail": f"manifest status is {manifest.get('status')!r}, not 'closed'"})
