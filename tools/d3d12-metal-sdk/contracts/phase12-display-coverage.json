@@ -2,44 +2,78 @@
   "schema": "metalsharp.d3d12.phase12-display-coverage.v1",
   "phase": 12,
   "profile": "phase12-display",
-  "status": "partial",
+  "status": "closed",
+  "completion_scope": "bounded_dxgi_display_duplication_and_metadata_boundary",
+  "clean_source_evidence": {
+    "path": "/Volumes/AverySSD/phase12-display/clean-current",
+    "source_commit": "42798b81442c436c5c808bf0fce89c93b06539ce",
+    "source_dirty": false,
+    "profiles": ["phase12-display"],
+    "gate_command": "python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-gate.py --phase 12 --profile phase12-display --results-dir /Volumes/AverySSD/phase12-display/clean-current/results"
+  },
+  "evidence": [
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_dxgi_factory/probe_dxgi_factory.cpp",
+      "note": "Clean-source factory/adapter/output/duplication, dirty-rectangle, desktop-map, surface, composition, event-cookie, and display-state witness."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
+      "note": "Clean-source swapchain metadata, rotation, matrix, present, and CoreWindow null-output witness."
+    },
+    {
+      "kind": "runtime",
+      "path": "/Volumes/AverySSD/phase12-display/clean-current",
+      "note": "Manifest-selected staged runtime with source identity, loader PE-copy audit, and profile-specific host records."
+    }
+  ],
   "rows": [
     {
       "id": "dxgi-output-duplication-bounded-frame",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-dxgi-factory",
       "checks": [
-        ["DuplicateOutput", "0x00000000"],
-        ["DuplicateOutput_GetDesc", "0x00000000"],
-        ["DuplicateOutput_AcquireNextFrame", "0x00000000"],
-        ["DuplicateOutput_GetFrameDirtyRects_query", "0x887a0003"],
-        ["DuplicateOutput_GetFrameDirtyRects", "0x00000000"],
-        ["DuplicateOutput_ReleaseFrame", "0x00000000"],
-        ["DuplicateOutput_AcquireNextFrame_again", "0x80070102"],
-        ["DuplicateOutput_MapDesktopSurface", "0x00000000"],
-        ["DuplicateOutput_UnMapDesktopSurface", "0x00000000"],
-        ["CreateSwapChainForComposition", "0x00000000"],
-        ["Composition_GetDesc1", "0x00000000"],
-        ["Composition_GetBuffer", "0x00000000"],
-        ["Surface_GetDC", "0x00000000"],
-        ["Surface_ReleaseDC", "0x00000000"]
+        ["pass"],
+        ["adapter_enumeration", "DuplicateOutput", "0x00000000"],
+        ["adapter_enumeration", "DuplicateOutput_GetDesc", "0x00000000"],
+        ["adapter_enumeration", "DuplicateOutput_AcquireNextFrame", "0x00000000"],
+        ["adapter_enumeration", "DuplicateOutput_GetFrameDirtyRects_query", "0x887a0003"],
+        ["adapter_enumeration", "DuplicateOutput_GetFrameDirtyRects", "0x00000000"],
+        ["adapter_enumeration", "DuplicateOutput_ReleaseFrame", "0x00000000"],
+        ["adapter_enumeration", "DuplicateOutput_AcquireNextFrame_again", "0x80070102"],
+        ["adapter_enumeration", "DuplicateOutput_MapDesktopSurface", "0x00000000"],
+        ["adapter_enumeration", "DuplicateOutput_UnMapDesktopSurface", "0x00000000"],
+        ["adapter_enumeration", "duplicate_desktop_map_pixel", "0x00000000"],
+        ["edge_cases", "CreateSwapChainForComposition", "0x00000000"],
+        ["edge_cases", "Composition_GetDesc1", "0x00000000"],
+        ["edge_cases", "Composition_GetBuffer", "0x00000000"],
+        ["edge_cases", "Surface_GetDC", "0x00000000"],
+        ["edge_cases", "Surface_ReleaseDC", "0x00000000"],
+        ["edge_cases", "display_copy_pixel", "0x44332211"],
+        ["edge_cases", "GetFrameStatistics", "0x00000000"],
+        ["edge_cases", "WaitForVBlank", "0x00000000"],
+        ["edge_cases", "CreateSubresourceSurface", "0x00000000"],
+        ["edge_cases", "protection_cookie_zero_on_rejection", true]
       ],
-      "remaining": "The bounded duplication provider returns a GPU desktop resource, frame metadata, and a full dirty rectangle. IOSurface/DisplayLink desktop capture, cursor shape, move rectangles, color-space metadata, frame-change notifications, and MapDesktopSurface CPU access remain open."
+      "remaining": "The bounded provider proves one GPU desktop frame, full dirty-rectangle sizing, CPU MapDesktopSurface readback, composition/surface ownership, display-copy state, event-cookie lifecycle, and timeout behavior. IOSurface/DisplayLink capture, cursor shape/move metadata, color-space metadata, and complete presentation statistics remain unsupported."
     },
     {
       "id": "dxgi-swapchain-metadata-state",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-mini-swapchain_present",
       "checks": [
+        ["ok"],
         ["swapchain2_qi_hr", "0x00000000"],
         ["swapchain4_qi_hr", "0x00000000"],
-        ["background_roundtrip", true],
+        ["background_roundtrip"],
         ["rotation", 2],
-        ["matrix_roundtrip", true],
+        ["matrix_roundtrip"],
         ["set_hdr_hr", "0x00000000"],
-        ["get_core_window_hr", "0x80004003"]
+        ["get_core_window_hr", "0x80004003"],
+        ["present_hr", "0x00000000"]
       ],
-      "remaining": "HWND swapchain metadata is retained and observable. CoreWindow/composition surfaces, HDR color conversion, real frame-latency/display integration, and complete presentation statistics remain open."
+      "remaining": "HWND and composition swapchain metadata, present, rotation, and matrix state are bounded and observable. DisplayLink/IOSurface ownership, HDR color conversion, real frame-latency statistics, CoreWindow surfaces, and complete color/presentation behavior remain fail-closed."
     }
   ]
 }
