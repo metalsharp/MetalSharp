@@ -181,13 +181,16 @@ under `/Volumes/AverySSD/phase7-multi-broadcast-stage/runtime`; its evidence is
 not clean-source release provenance (`source_dirty=true`). The duplicate-table
 variant repeats the same broadcasting descriptor and atomically doubles the
 readback to `[1616,3232,4848,6464,0,...]`. A zero descriptor-table stride is
-also rejected before dereference with full backing preservation.
+also rejected before dereference with full backing preservation. An eight-entry
+table with four duplicate broadcasting descriptors and four duplicate sparse
+thread descriptors compacts twenty commands and reads back
+`[3232,6464,9696,12928,2020,0,...]`, proving bounded larger-table multiplicity.
 
 ## Remaining
 
-- Larger duplicate descriptor tables and mixed invalid entries; the current
-  duplicate, zero-table-stride, broadcast expansion and aggregate-capacity
-  results are bounded evidence only.
+- Larger-than-bounded descriptor tables and mixed invalid entries; the current
+  eight-entry duplicate, zero-table-stride, broadcast expansion and aggregate-
+  capacity results are bounded evidence only.
 - Exact D3D12 GPU-header rejection, zero-work and replication breadth; existing
   host-read/CPU-input zero-stride restrictions also need closure.
 - Alias lifetime, sparse resources, protected-resource exclusion, and resources

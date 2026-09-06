@@ -89,6 +89,16 @@
       "remaining": "Two identical GPU-produced broadcasting descriptors execute independently and atomically double every dense contribution. Larger duplicate tables and cross-queue lifetime remain open."
     },
     {
+      "id": "workgraph-gpu-generated-multi-large-table",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-large-table",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_header_broadcasting"], ["gpu_multi_mode", 14], ["readback_exact"],
+        ["values", [3232, 6464, 9696, 12928, 2020, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "An eight-descriptor GPU-produced table (four duplicate broadcasting and four sparse thread descriptors) compacts twenty GPU-native commands and preserves exact atomic multiplicity. Larger-than-bounded tables and cross-queue lifetime remain open."
+    },
+    {
       "id": "workgraph-gpu-generated-multi-zero-table-stride",
       "status": "closed",
       "result": "probe-workgraph-gpu-generated-multi-zero-table-stride",
