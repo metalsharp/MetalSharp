@@ -996,15 +996,17 @@ mismatch rejection before producer writes or allocations.
 GPU-produced single-node headers for thread, coalescing, and broadcasting
 entry programs are now selected and executed on the GPU, with a real compute
 producer and dense/sparse downstream readback. A bounded
-`D3D12_MULTI_NODE_GPU_INPUT` producer also validates and compacts two GPU
-input descriptors, with separate invalid-entry/capacity/stride/record and
-zero-descriptor rejection witnesses. Larger tables, duplicate/zero-stride
-descriptors, broader recursive execution, output-array/empty-record shapes,
-general resource/argument tables, overflow and broader synchronization remain
-open. Cycles and unsupported downstream shapes reject before upstream writes.
-All fifty-two official Work Graph/bridge result files and their required contract rows pass in the
-development checkpoint; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
-Clean-source staging and release reproducibility are still required.
+`D3D12_MULTI_NODE_GPU_INPUT` producer also validates and compacts GPU input
+descriptors, with separate invalid-entry/capacity/stride/record,
+zero-descriptor, duplicate-table, zero-table-stride, broadcasting, larger-table,
+and cross-queue dependency witnesses. Broader recursive execution,
+output-array/empty-record shapes, general resource/argument tables, overflow,
+unrestricted table capacity and broader synchronization remain open. Cycles and unsupported downstream shapes reject before upstream writes.
+The earlier fifty-two-file Work Graph/bridge development checkpoint and its required
+contract rows pass; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
+The subsequent GPU-header rows include duplicate/larger-table and cross-queue
+results; the clean-tree stage records `source_dirty=false`, but independent clean
+rebuild/reproducibility and release ABI remain required.
 `D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
 
 **Exit gate:**
