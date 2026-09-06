@@ -36,6 +36,25 @@ class MTLD3D12CommandQueue;
 class MTLD3D12InfoQueue;
 struct D3D12ViewInstancingDesc;
 
+// A queue replay may resolve many raw GPU virtual addresses while encoding a
+// command buffer.  Keep every address-resolved resource alive until replay
+// finishes; the scope is thread-local so concurrent queue submissions do not
+// share reclamation state.
+class GPUAddressLookupRetentionScope final {
+public:
+  GPUAddressLookupRetentionScope();
+  ~GPUAddressLookupRetentionScope();
+  GPUAddressLookupRetentionScope(const GPUAddressLookupRetentionScope &) = delete;
+  GPUAddressLookupRetentionScope &operator=(const GPUAddressLookupRetentionScope &) = delete;
+
+  static GPUAddressLookupRetentionScope *Current();
+  bool Retain(MTLD3D12Resource *resource);
+
+private:
+  GPUAddressLookupRetentionScope *m_previous = nullptr;
+  std::vector<MTLD3D12Resource *> m_resources;
+};
+
 enum D3D12SamplerFlagsCompat : UINT {
   D3D12SamplerFlagNoneCompat = 0x0,
   D3D12SamplerFlagUintBorderColorCompat = 0x01,
@@ -194,7 +213,14 @@ public:
 
   void RegisterResource(MTLD3D12Resource *res);
   void UnregisterResource(MTLD3D12Resource *res);
+  ULONG ReleaseResourcePublicRef(MTLD3D12Resource *res);
   MTLD3D12Resource *LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr);
+  // Acquire a public COM reference while the address registry is locked.  The
+  // command-list recorder uses this variant when a raw GPU address becomes a
+  // replay dependency; returning an unretained pointer would race the final
+  // Release/unregister path.
+  MTLD3D12Resource *LookupResourceByGPUAddressAndAddRef(
+      D3D12_GPU_VIRTUAL_ADDRESS addr);
   struct WorkGraphBufferRange {
     uint64_t address = 0;
     uint64_t length = 0;

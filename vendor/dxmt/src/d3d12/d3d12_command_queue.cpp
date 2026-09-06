@@ -29,6 +29,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <new>
 #include <string>
 #include <thread>
@@ -138,6 +139,22 @@ static uint64_t g_enc_id = 0;
 namespace dxmt {
 
 namespace {
+
+struct RetainedResourceDeleter {
+  void operator()(MTLD3D12Resource *resource) const noexcept {
+    if (resource)
+      resource->Release();
+  }
+};
+
+using RetainedResource =
+    std::unique_ptr<MTLD3D12Resource, RetainedResourceDeleter>;
+
+static RetainedResource LookupRetainedResource(
+    MTLD3D12Device *device, D3D12_GPU_VIRTUAL_ADDRESS address) {
+  return RetainedResource(
+      device ? device->LookupResourceByGPUAddressAndAddRef(address) : nullptr);
+}
 
 static constexpr uint32_t kD3D12RootParameterSlotCount = 64;
 
@@ -1799,6 +1816,7 @@ struct ReplayState {
     const uint64_t buffer_length =
         resource ? resource->GetBufferByteLength() : 0;
     if (!resource || !resource->GetMTLBuffer().handle || buffer_length < 4 ||
+        (predication_offset & 3u) != 0 ||
         predication_offset > buffer_length - 4)
       return false;
     uint32_t value = 0;
@@ -2125,9 +2143,7 @@ struct ReplayState {
     if (!input_layout.NumElements || !input_layout.pInputElementDescs)
       return false;
 
-    auto *ib_res = device->LookupResourceByGPUAddress(ib.BufferLocation);
-    if (!ib_res && ib.BufferLocation)
-      ib_res = reinterpret_cast<MTLD3D12Resource *>(ib.BufferLocation);
+    auto ib_res = LookupRetainedResource(device, ib.BufferLocation);
     if (!ib_res)
       return false;
 
@@ -2289,10 +2305,7 @@ struct ReplayState {
       if (!(used_slots & (1u << slot)) && !vbs[slot].BufferLocation)
         continue;
 
-      auto *res =
-          vbs[slot].BufferLocation
-              ? device->LookupResourceByGPUAddress(vbs[slot].BufferLocation)
-              : nullptr;
+      auto res = LookupRetainedResource(device, vbs[slot].BufferLocation);
       D3D12DrawSafetyVertexBuffer view = {};
       view.input_slot = slot;
       view.buffer_location = vbs[slot].BufferLocation;
@@ -2312,9 +2325,7 @@ struct ReplayState {
               ? 4u
               : (ib.Format == DXGI_FORMAT_R16_UINT ? 2u : 0u);
 
-      auto *ib_res = ib.BufferLocation
-                         ? device->LookupResourceByGPUAddress(ib.BufferLocation)
-                         : nullptr;
+      auto ib_res = LookupRetainedResource(device, ib.BufferLocation);
       desc.index_range.index_buffer_resolved =
           ib_res && ib_res->GetMTLBuffer().handle;
       if (ib_res) {
@@ -3668,8 +3679,8 @@ struct ReplayState {
     if (!device || !command_buffer.handle || !work_graph_backing_address ||
         work_graph_backing_size < kNodeOutputBackingBytes)
       return false;
-    auto *backing_resource = device->LookupResourceByGPUAddress(
-        work_graph_backing_address);
+    auto backing_resource =
+        LookupRetainedResource(device, work_graph_backing_address);
     if (!backing_resource || !backing_resource->GetMTLBuffer().handle)
       return false;
     const uint64_t backing_offset =
@@ -3697,7 +3708,7 @@ struct ReplayState {
         reinterpret_cast<const wmtcmd_blit_nop *>(&fill));
     EndMetalEncoder(blit, "workgraph_reset_allocator");
     if (encoded)
-      RetainResourceMetalObjectsForCompletion(backing_resource);
+      RetainResourceMetalObjectsForCompletion(backing_resource.get());
     return encoded;
   }
 
@@ -3713,8 +3724,8 @@ struct ReplayState {
         !work_graph_backing_address ||
         work_graph_backing_size < kNodeOutputBackingBytes)
       return false;
-    auto *backing_resource = device->LookupResourceByGPUAddress(
-        work_graph_backing_address);
+    auto backing_resource =
+        LookupRetainedResource(device, work_graph_backing_address);
     if (!backing_resource || !backing_resource->GetMTLBuffer().handle)
       return false;
     const uint64_t backing_offset =
@@ -3853,7 +3864,7 @@ struct ReplayState {
     if (!encoder.handle || !chain_head || !encoder.encodeCommands(chain_head))
       return false;
     EndMetalEncoder(encoder, "workgraph_schedule");
-    RetainResourceMetalObjectsForCompletion(backing_resource);
+    RetainResourceMetalObjectsForCompletion(backing_resource.get());
     return true;
   }
 
@@ -4892,11 +4903,20 @@ struct ReplayState {
           return false;
         if (!node_shader.outputs.empty() &&
             node_shader.source_node_index != UINT32_MAX &&
-            work_graph_backing_size >= kNodeOutputBackingBytes)
-          return EncodeWorkGraphNodeGraph(
+            work_graph_backing_size >= kNodeOutputBackingBytes) {
+          QTRACE("WG generic graph entry=%u count=%u cpu=%p gpu=0x%llx stride=%llu outputs=%zu source=%u pred=%p",
+                 generic_entrypoint, generic_record_count, generic_cpu_records,
+                 (unsigned long long)generic_gpu_records,
+                 (unsigned long long)generic_record_stride, node_shader.outputs.size(),
+                 node_shader.source_node_index, (void *)predication_buffer);
+          const bool encoded = EncodeWorkGraphNodeGraph(
               device, node_shader, node_shader.source_node_index,
               generic_record_count, generic_cpu_records, generic_gpu_records,
               generic_record_stride, command_buffer);
+          QTRACE("WG generic graph result=%u entry=%u", encoded ? 1u : 0u,
+                 generic_entrypoint);
+          return encoded;
+        }
         if (!node_shader.outputs.empty())
           return false;
         return EncodeWorkGraphNodeShader(
@@ -13827,6 +13847,12 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
              (unsigned)m_desc.Type);
       continue;
     }
+    // Raw GPU-address lookups below are legacy replay paths.  This scope makes
+    // each such lookup acquire an AddRef while m_resource_mutex is held and
+    // releases all references only after this command buffer has been encoded.
+    // It is thread-local, so concurrent ExecuteCommandLists callers cannot
+    // reclaim one another's resources.
+    GPUAddressLookupRetentionScope gpu_address_scope;
     const uint64_t command_list_id = list->GetDebugId();
 
     QTRACE("ECL: creating cmdbuf from m_wmt_queue");
@@ -15790,6 +15816,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::DispatchRays: {
         auto *cmd = reinterpret_cast<const CmdDispatchRays *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("DispatchRays predication rejected execution");
+          break;
+        }
         if (!st.raytracing_compute_pso.handle ||
             !cmd->desc.RayGenerationShaderRecord.StartAddress ||
             cmd->desc.RayGenerationShaderRecord.SizeInBytes < 32 ||
@@ -15821,6 +15851,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::DispatchMesh: {
         auto *cmd = reinterpret_cast<const CmdDispatchMesh *>(header);
+        if (!st.PredicationAllows()) {
+          QTRACE("DispatchMesh predication rejected execution");
+          break;
+        }
         QTRACE("DispatchMesh groups=%ux%ux%u pso=%p", cmd->x, cmd->y, cmd->z,
                (void *)st.pso);
         st.EnsureRenderEncoder(m_device);
@@ -16569,6 +16603,15 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
       }
       case CmdType::DispatchGraph: {
         auto *cmd = reinterpret_cast<const CmdDispatchGraph *>(header);
+        const bool dispatch_predication_allowed = st.PredicationAllows();
+        QTRACE("DispatchGraph predication allowed=%u buffer=%p offset=%llu",
+               dispatch_predication_allowed ? 1u : 0u,
+               (void *)st.predication_buffer,
+               (unsigned long long)st.predication_offset);
+        if (!dispatch_predication_allowed) {
+          QTRACE("DispatchGraph predication rejected execution");
+          break;
+        }
         if (header->size < sizeof(*cmd) || cmd->dispatch_mode > 3u ||
             cmd->record_data_size > sizeof(cmd->record_data)) {
           QTRACE("DispatchGraph rejected malformed mode=%u size=%u records=%u",

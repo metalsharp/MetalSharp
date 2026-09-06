@@ -454,6 +454,156 @@ static CaseResult run_command_list_reuse_case() {
     return result;
 }
 
+struct ConcurrentReplayWorker {
+    ID3D12Device* device = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    ID3D12CommandList* list = nullptr;
+    HANDLE start_event = nullptr;
+    UINT64 fence_value = 0;
+    HRESULT execute_hr = E_FAIL;
+};
+
+static DWORD WINAPI concurrent_replay_worker_proc(void* opaque) {
+    auto* worker = static_cast<ConcurrentReplayWorker*>(opaque);
+    if (!worker || !worker->start_event)
+        return 1;
+    if (WaitForSingleObject(worker->start_event, 15000) != WAIT_OBJECT_0)
+        return 1;
+    ID3D12CommandList* lists[] = {worker->list};
+    worker->execute_hr = execute_and_wait(worker->device, worker->queue, lists, 1,
+                                          worker->fence_value);
+    return SUCCEEDED(worker->execute_hr) ? 0 : 1;
+}
+
+static CaseResult run_concurrent_replay_reclamation_case() {
+    CaseResult result = {"queue_concurrent_replay_reclamation", false, E_FAIL, "", ""};
+    constexpr uint32_t worker_count = 4;
+    constexpr uint32_t payload_size = 64;
+    ID3D12Device* device = nullptr;
+    ID3D12CommandQueue* queue = nullptr;
+    HRESULT hr = create_device(&device);
+    if (SUCCEEDED(hr))
+        hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_DIRECT, &queue);
+
+    struct WorkItem {
+        ID3D12CommandAllocator* allocator = nullptr;
+        ID3D12GraphicsCommandList* list = nullptr;
+        ID3D12Resource* upload = nullptr;
+        ID3D12Resource* target = nullptr;
+        ID3D12Resource* readback = nullptr;
+        uint8_t expected[payload_size] = {};
+    } work[worker_count];
+    HANDLE start_event = nullptr;
+    HANDLE threads[worker_count] = {};
+    ConcurrentReplayWorker workers[worker_count] = {};
+    bool caller_resources_released = false;
+    bool replay_verified = false;
+
+    for (uint32_t i = 0; SUCCEEDED(hr) && i < worker_count; ++i) {
+        for (uint32_t j = 0; j < payload_size; ++j)
+            work[i].expected[j] = static_cast<uint8_t>((i * 37u + j * 11u + 3u) & 0xffu);
+        hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                             IID_PPV_ARGS(&work[i].allocator));
+        if (SUCCEEDED(hr))
+            hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                            work[i].allocator, nullptr,
+                                            IID_PPV_ARGS(&work[i].list));
+        if (SUCCEEDED(hr))
+            hr = create_upload_buffer(device, work[i].expected, payload_size,
+                                      &work[i].upload);
+        if (SUCCEEDED(hr))
+            hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, payload_size,
+                               D3D12_RESOURCE_FLAG_NONE,
+                               D3D12_RESOURCE_STATE_COPY_DEST,
+                               &work[i].target);
+        if (SUCCEEDED(hr))
+            hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, payload_size,
+                               D3D12_RESOURCE_FLAG_NONE,
+                               D3D12_RESOURCE_STATE_COPY_DEST,
+                               &work[i].readback);
+        if (SUCCEEDED(hr)) {
+            work[i].list->CopyBufferRegion(work[i].target, 0, work[i].upload, 0,
+                                           payload_size);
+            D3D12_RESOURCE_BARRIER to_src = transition_barrier(
+                work[i].target, D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+            work[i].list->ResourceBarrier(1, &to_src);
+            work[i].list->CopyBufferRegion(work[i].readback, 0, work[i].target,
+                                           0, payload_size);
+            hr = work[i].list->Close();
+        }
+    }
+
+    if (SUCCEEDED(hr)) {
+        for (auto& item : work) {
+            safe_release(item.upload);
+            safe_release(item.target);
+        }
+        caller_resources_released = true;
+        start_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+        if (!start_event)
+            hr = HRESULT_FROM_WIN32(GetLastError());
+    }
+    if (SUCCEEDED(hr)) {
+        for (uint32_t i = 0; i < worker_count; ++i) {
+            workers[i].device = device;
+            workers[i].queue = queue;
+            workers[i].list = work[i].list;
+            workers[i].start_event = start_event;
+            workers[i].fence_value = i + 1;
+            threads[i] = CreateThread(nullptr, 0, concurrent_replay_worker_proc,
+                                      &workers[i], 0, nullptr);
+            if (!threads[i])
+                hr = HRESULT_FROM_WIN32(GetLastError());
+        }
+        if (start_event)
+            SetEvent(start_event);
+        for (auto& thread : threads) {
+            if (thread) {
+                if (WaitForSingleObject(thread, 30000) != WAIT_OBJECT_0)
+                    hr = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+                CloseHandle(thread);
+            }
+        }
+        if (start_event)
+            ResetEvent(start_event);
+    }
+
+    replay_verified = SUCCEEDED(hr);
+    for (uint32_t i = 0; i < worker_count; ++i) {
+        replay_verified = replay_verified && SUCCEEDED(workers[i].execute_hr);
+        if (FAILED(workers[i].execute_hr) && SUCCEEDED(hr))
+            hr = workers[i].execute_hr;
+        uint8_t got[payload_size] = {};
+        replay_verified = replay_verified && work[i].readback &&
+                          readback_bytes(work[i].readback, got, payload_size) &&
+                          std::memcmp(got, work[i].expected, payload_size) == 0;
+    }
+    result.pass = caller_resources_released && replay_verified;
+    result.hr = SUCCEEDED(hr) ? S_OK : hr;
+    result.detail = result.pass
+                        ? "concurrent queue replay remained valid after caller GPU resources were released"
+                        : "concurrent queue replay or resource reclamation failed";
+    result.extra = "\"worker_count\":" + std::to_string(worker_count) +
+                   ",\"caller_resources_released_before_execute\":" +
+                   std::string(caller_resources_released ? "true" : "false") +
+                   ",\"readbacks_verified\":" +
+                   std::string(replay_verified ? "true" : "false");
+
+    if (start_event)
+        CloseHandle(start_event);
+    for (auto& item : work) {
+        safe_release(item.readback);
+        safe_release(item.target);
+        safe_release(item.upload);
+        safe_release(item.list);
+        safe_release(item.allocator);
+    }
+    safe_release(queue);
+    safe_release(device);
+    return result;
+}
+
 static CaseResult run_multi_list_execute_case() {
     CaseResult result = {"queue_execute_multiple_lists", false, E_FAIL, "", ""};
     uint8_t expected[128] = {};
@@ -501,18 +651,27 @@ static CaseResult run_multi_list_execute_case() {
         list_b->CopyBufferRegion(readback, 0, target, 0, sizeof(expected));
         hr = list_b->Close();
     }
+    bool resources_released_before_execute = false;
     if (SUCCEEDED(hr)) {
+        // The command lists own their recorded resource references. Drop the
+        // caller's upload/target references before replay so queue execution
+        // must not depend on an unretained GPU-address lookup or caller-owned
+        // lifetime.
+        safe_release(upload);
+        safe_release(target);
+        resources_released_before_execute = upload == nullptr && target == nullptr;
         ID3D12CommandList* lists[] = {list_a, list_b};
         hr = execute_and_wait(device, queue, lists, 2, 1);
     }
     uint8_t got[128] = {};
     bool verified = SUCCEEDED(hr) && readback_bytes(readback, got, sizeof(got)) &&
                     std::memcmp(got, expected, sizeof(expected)) == 0;
-    result.pass = verified;
+    result.pass = verified && resources_released_before_execute;
     result.hr = hr;
-    result.detail = verified ? "multiple command lists in one ExecuteCommandLists call verified"
-                             : "multi-list queue execution mismatch";
-    result.extra = "\"list_count\":2,\"bytes_verified\":128";
+    result.detail = result.pass ? "multiple command lists and release-before-execute resource retention verified"
+                                : "multi-list queue execution or release-before-execute verification failed";
+    result.extra = "\"list_count\":2,\"bytes_verified\":128,\"resources_released_before_execute\":" +
+                   std::string(resources_released_before_execute ? "true" : "false");
 
     safe_release(readback);
     safe_release(target);
@@ -1126,6 +1285,9 @@ static CaseResult run_predication_case() {
     ID3D12DescriptorHeap* heap = nullptr;
     ID3D12Resource* predicate_true = nullptr;
     ID3D12Resource* predicate_false = nullptr;
+    ID3D12Resource* predicate_invalid = nullptr;
+    ID3D12CommandSignature* indirect_signature = nullptr;
+    ID3D12Resource* indirect_arguments = nullptr;
     ID3D12Resource* output = nullptr;
     ID3D12Resource* output_suppressed = nullptr;
     ID3D12Resource* readback = nullptr;
@@ -1164,6 +1326,16 @@ static CaseResult run_predication_case() {
         desc.CS = {cs->GetBufferPointer(), cs->GetBufferSize()};
         hr = device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&pso));
     }
+    if (SUCCEEDED(hr)) {
+        D3D12_INDIRECT_ARGUMENT_DESC indirect_argument = {};
+        indirect_argument.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+        D3D12_COMMAND_SIGNATURE_DESC signature_desc = {};
+        signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+        signature_desc.NumArgumentDescs = 1;
+        signature_desc.pArgumentDescs = &indirect_argument;
+        hr = device->CreateCommandSignature(&signature_desc, nullptr,
+                                             IID_PPV_ARGS(&indirect_signature));
+    }
     if (SUCCEEDED(hr))
         hr = create_queue(device, D3D12_COMMAND_LIST_TYPE_COMPUTE, &queue);
     if (SUCCEEDED(hr))
@@ -1179,10 +1351,19 @@ static CaseResult run_predication_case() {
     }
     const uint32_t one = 1;
     const uint32_t zero = 0;
+    const uint8_t invalid_predicate_bytes[8] = {0, 0, 1, 0, 0, 0, 0, 0};
     if (SUCCEEDED(hr))
         hr = create_upload_buffer(device, &one, sizeof(one), &predicate_true);
     if (SUCCEEDED(hr))
         hr = create_upload_buffer(device, &zero, sizeof(zero), &predicate_false);
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, invalid_predicate_bytes,
+                                  sizeof(invalid_predicate_bytes),
+                                  &predicate_invalid);
+    const D3D12_DISPATCH_ARGUMENTS indirect_dispatch = {1, 1, 1};
+    if (SUCCEEDED(hr))
+        hr = create_upload_buffer(device, &indirect_dispatch,
+                                  sizeof(indirect_dispatch), &indirect_arguments);
     if (SUCCEEDED(hr))
         hr = create_buffer(device, D3D12_HEAP_TYPE_DEFAULT, sizeof(uint32_t),
                            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
@@ -1192,7 +1373,7 @@ static CaseResult run_predication_case() {
                            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, &output_suppressed);
     if (SUCCEEDED(hr))
-        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, 2 * sizeof(uint32_t),
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, 6 * sizeof(uint32_t),
                            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST, &readback);
     if (SUCCEEDED(hr)) {
         const uint32_t initial = 0;
@@ -1220,44 +1401,110 @@ static CaseResult run_predication_case() {
         list->SetComputeRootDescriptorTable(0, second_gpu);
         list->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
         list->Dispatch(1, 1, 1);
-        D3D12_RESOURCE_BARRIER copy_barriers[] = {
-            uav_barrier(output),
-            uav_barrier(output_suppressed),
-            transition_barrier(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                               D3D12_RESOURCE_STATE_COPY_SOURCE),
-            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                               D3D12_RESOURCE_STATE_COPY_DEST),
-        };
-        list->ResourceBarrier(4, copy_barriers);
-        list->CopyBufferRegion(output_suppressed, 0, output, 0, sizeof(uint32_t));
+        // Capture the zero-predicate result before reusing the same UAV for
+        // the invalid-offset dispatch.  Copies are explicitly unpredicated.
         list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
-        D3D12_RESOURCE_BARRIER suppressed_source =
-            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_BARRIER suppressed_to_copy =
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                D3D12_RESOURCE_STATE_COPY_SOURCE);
-        list->ResourceBarrier(1, &suppressed_source);
+        list->ResourceBarrier(1, &suppressed_to_copy);
+        list->CopyBufferRegion(readback, sizeof(uint32_t), output_suppressed, 0,
+                               sizeof(uint32_t));
+        D3D12_RESOURCE_BARRIER suppressed_to_uav =
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list->ResourceBarrier(1, &suppressed_to_uav);
+        // An unaligned predicate address is invalid D3D12 state.  The replay
+        // path must fail closed instead of interpreting the unaligned bytes.
+        list->SetPredication(predicate_invalid, 2,
+                             D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->Dispatch(1, 1, 1);
+        list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        D3D12_RESOURCE_BARRIER invalid_to_copy =
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &invalid_to_copy);
+        list->CopyBufferRegion(readback, 2 * sizeof(uint32_t), output_suppressed, 0,
+                               sizeof(uint32_t));
+        D3D12_RESOURCE_BARRIER invalid_to_uav =
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list->ResourceBarrier(1, &invalid_to_uav);
+
+        const UINT clear_values[4] = {};
+        list->SetPredication(predicate_true, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->ExecuteIndirect(indirect_signature, 1, indirect_arguments, 0, nullptr, 0);
+        list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        D3D12_RESOURCE_BARRIER indirect_true_to_copy =
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &indirect_true_to_copy);
+        list->CopyBufferRegion(readback, 3 * sizeof(uint32_t), output_suppressed, 0,
+                               sizeof(uint32_t));
+        D3D12_RESOURCE_BARRIER indirect_to_uav =
+            transition_barrier(output_suppressed, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list->ResourceBarrier(1, &indirect_to_uav);
+        list->ClearUnorderedAccessViewUint(second_gpu, second_cpu, output_suppressed,
+                                           clear_values, 0, nullptr);
+
+        list->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->ExecuteIndirect(indirect_signature, 1, indirect_arguments, 0, nullptr, 0);
+        list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->ResourceBarrier(1, &indirect_true_to_copy);
+        list->CopyBufferRegion(readback, 4 * sizeof(uint32_t), output_suppressed, 0,
+                               sizeof(uint32_t));
+        list->ResourceBarrier(1, &indirect_to_uav);
+        list->ClearUnorderedAccessViewUint(second_gpu, second_cpu, output_suppressed,
+                                           clear_values, 0, nullptr);
+
+        list->SetPredication(predicate_invalid, 2,
+                             D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->ExecuteIndirect(indirect_signature, 1, indirect_arguments, 0, nullptr, 0);
+        list->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list->ResourceBarrier(1, &indirect_true_to_copy);
+        list->CopyBufferRegion(readback, 5 * sizeof(uint32_t), output_suppressed, 0,
+                               sizeof(uint32_t));
+        D3D12_RESOURCE_BARRIER final_output_to_copy =
+            transition_barrier(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                               D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list->ResourceBarrier(1, &final_output_to_copy);
         list->CopyBufferRegion(readback, 0, output, 0, sizeof(uint32_t));
-        list->CopyBufferRegion(readback, sizeof(uint32_t), output_suppressed, 0, sizeof(uint32_t));
         hr = list->Close();
     }
     if (SUCCEEDED(hr)) {
         ID3D12CommandList* lists[] = {list};
         hr = execute_and_wait(device, queue, lists, 1, 1);
     }
-    uint32_t values[2] = {};
+    uint32_t values[6] = {};
     const bool verified = SUCCEEDED(hr) && SUCCEEDED(predication_hr) && predication.Supported &&
-                          readback_u32(readback, values, 2) && values[0] == 1 && values[1] == 0;
+                          readback_u32(readback, values, 6) && values[0] == 1 &&
+                          values[1] == 0 && values[2] == 0 && values[3] == 1 &&
+                          values[4] == 0 && values[5] == 0;
     result.pass = verified;
     result.hr = verified ? S_OK : hr;
-    result.detail = verified ? "nonzero predicate executes and zero predicate suppresses dispatch and copy"
+    result.detail = verified ? "direct and ExecuteIndirect dispatch predicates verified for true, false, and unaligned states"
                              : "predication readback mismatch";
     result.extra = std::string("\"feature_supported\":") + (predication.Supported ? "true" : "false") +
                    ",\"feature_hr\":\"" + hr_hex(predication_hr) + "\",\"executed_value\":" +
                    std::to_string(values[0]) + ",\"suppressed_dispatch_value\":" +
-                   std::to_string(values[1]) + ",\"suppressed_copy_value\":" + std::to_string(values[1]);
+                   std::to_string(values[1]) + ",\"invalid_predicate_value\":" +
+                   std::to_string(values[2]) + ",\"indirect_executed_value\":" +
+                   std::to_string(values[3]) + ",\"indirect_suppressed_value\":" +
+                   std::to_string(values[4]) + ",\"indirect_invalid_predicate_value\":" +
+                   std::to_string(values[5]) + ",\"true_verified\":" +
+                   (values[0] == 1 && values[3] == 1 ? "true" : "false") +
+                   ",\"false_verified\":" +
+                   (values[1] == 0 && values[4] == 0 ? "true" : "false") +
+                   ",\"invalid_verified\":" +
+                   (values[2] == 0 && values[5] == 0 ? "true" : "false");
 
+    safe_release(indirect_arguments);
+    safe_release(indirect_signature);
     safe_release(readback);
     safe_release(output_suppressed);
     safe_release(output);
+    safe_release(predicate_invalid);
     safe_release(predicate_false);
     safe_release(predicate_true);
     safe_release(heap);
@@ -2620,6 +2867,13 @@ static CaseResult run_execute_indirect_rays_case() {
     ID3D12Resource* output = nullptr;
     ID3D12Resource* direct_readback = nullptr;
     ID3D12Resource* indirect_readback = nullptr;
+    ID3D12Resource* direct_suppressed_readback = nullptr;
+    ID3D12Resource* indirect_suppressed_readback = nullptr;
+    ID3D12Resource* invalid_readback = nullptr;
+    ID3D12Resource* indirect_invalid_readback = nullptr;
+    ID3D12Resource* predicate_true = nullptr;
+    ID3D12Resource* predicate_false = nullptr;
+    ID3D12Resource* predicate_invalid = nullptr;
     ID3D12Resource* shader_table = nullptr;
     ID3D12Resource* arguments = nullptr;
     ID3D12Resource* attribute_vertices = nullptr;
@@ -2720,6 +2974,18 @@ static CaseResult run_execute_indirect_rays_case() {
     if (SUCCEEDED(hr))
         hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, ray_output_bytes, D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &indirect_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, ray_output_bytes, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &direct_suppressed_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, ray_output_bytes, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &indirect_suppressed_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, ray_output_bytes, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &invalid_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, ray_output_bytes, D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &indirect_invalid_readback);
     if (SUCCEEDED(hr) && attributes_probe) {
         // The attribute lane uses the same one-triangle TLAS geometry as the
         // inline RayQuery proof.  Keep the ray through the triangle centroid
@@ -2900,6 +3166,17 @@ static CaseResult run_execute_indirect_rays_case() {
                                                      static_cast<UINT>(argument_storage.size()));
         hr = arguments_hr;
     }
+    if (SUCCEEDED(hr)) {
+        const uint32_t predicate_one = 1;
+        const uint32_t predicate_zero = 0;
+        const uint8_t invalid_predicate_bytes[8] = {0, 0, 1, 0, 0, 0, 0, 0};
+        hr = create_upload_buffer(device, &predicate_one, sizeof(predicate_one), &predicate_true);
+        if (SUCCEEDED(hr))
+            hr = create_upload_buffer(device, &predicate_zero, sizeof(predicate_zero), &predicate_false);
+        if (SUCCEEDED(hr))
+            hr = create_upload_buffer(device, invalid_predicate_bytes,
+                                      sizeof(invalid_predicate_bytes), &predicate_invalid);
+    }
 
     if (SUCCEEDED(hr) && attributes_probe) {
         D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
@@ -2940,15 +3217,6 @@ static CaseResult run_execute_indirect_rays_case() {
         list4->SetComputeRootSignature(root);
         list4->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
         list4->SetPipelineState1(state);
-        list4->DispatchRays(&dispatch);
-        direct_recorded = true;
-        D3D12_RESOURCE_BARRIER to_copy = transition_barrier(
-            output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        list4->ResourceBarrier(1, &to_copy);
-        list4->CopyBufferRegion(direct_readback, 0, output, 0, ray_output_bytes);
-        D3D12_RESOURCE_BARRIER to_uav = transition_barrier(
-            output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        list4->ResourceBarrier(1, &to_uav);
         const UINT clear_values[4] = {};
         D3D12_GPU_DESCRIPTOR_HANDLE output_gpu_handle = heap->GetGPUDescriptorHandleForHeapStart();
         D3D12_CPU_DESCRIPTOR_HANDLE output_cpu_handle = heap->GetCPUDescriptorHandleForHeapStart();
@@ -2956,12 +3224,68 @@ static CaseResult run_execute_indirect_rays_case() {
             device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         output_gpu_handle.ptr += descriptor_increment;
         output_cpu_handle.ptr += descriptor_increment;
+
+        // Predicate every applicable ray command independently.  Clear and
+        // copy operations are explicitly unpredicated so a suppressed ray
+        // dispatch is observed as an unchanged/zero UAV rather than a
+        // suppressed readback operation.
+        list4->SetPredication(predicate_true, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->DispatchRays(&dispatch);
+        direct_recorded = true;
+        list4->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        D3D12_RESOURCE_BARRIER to_copy = transition_barrier(
+            output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        list4->ResourceBarrier(1, &to_copy);
+        list4->CopyBufferRegion(direct_readback, 0, output, 0, ray_output_bytes);
+        D3D12_RESOURCE_BARRIER to_uav = transition_barrier(
+            output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        list4->ResourceBarrier(1, &to_uav);
         list4->ClearUnorderedAccessViewUint(output_gpu_handle, output_cpu_handle, output, clear_values, 0,
                                             nullptr);
+
+        list4->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->DispatchRays(&dispatch);
+        list4->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->ResourceBarrier(1, &to_copy);
+        list4->CopyBufferRegion(direct_suppressed_readback, 0, output, 0, ray_output_bytes);
+        list4->ResourceBarrier(1, &to_uav);
+        list4->ClearUnorderedAccessViewUint(output_gpu_handle, output_cpu_handle, output, clear_values, 0,
+                                            nullptr);
+
+        // An unaligned offset is invalid predication state and must fail
+        // closed for rays just as it does for compute dispatch.
+        list4->SetPredication(predicate_invalid, 2, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->DispatchRays(&dispatch);
+        list4->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->ResourceBarrier(1, &to_copy);
+        list4->CopyBufferRegion(invalid_readback, 0, output, 0, ray_output_bytes);
+        list4->ResourceBarrier(1, &to_uav);
+        list4->ClearUnorderedAccessViewUint(output_gpu_handle, output_cpu_handle, output, clear_values, 0,
+                                            nullptr);
+
+        list4->SetPredication(predicate_true, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
         list4->ExecuteIndirect(signature, 1, arguments, argument_offset, nullptr, 0);
         indirect_recorded = true;
+        list4->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
         list4->ResourceBarrier(1, &to_copy);
         list4->CopyBufferRegion(indirect_readback, 0, output, 0, ray_output_bytes);
+        list4->ResourceBarrier(1, &to_uav);
+        list4->ClearUnorderedAccessViewUint(output_gpu_handle, output_cpu_handle, output, clear_values, 0,
+                                            nullptr);
+
+        list4->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->ExecuteIndirect(signature, 1, arguments, argument_offset, nullptr, 0);
+        list4->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->ResourceBarrier(1, &to_copy);
+        list4->CopyBufferRegion(indirect_suppressed_readback, 0, output, 0, ray_output_bytes);
+        list4->ResourceBarrier(1, &to_uav);
+        list4->ClearUnorderedAccessViewUint(output_gpu_handle, output_cpu_handle, output, clear_values, 0,
+                                            nullptr);
+        list4->SetPredication(predicate_invalid, 2, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->ExecuteIndirect(signature, 1, arguments, argument_offset, nullptr, 0);
+        list4->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list4->ResourceBarrier(1, &to_copy);
+        list4->CopyBufferRegion(indirect_invalid_readback, 0, output, 0, ray_output_bytes);
         hr = list4->Close();
     }
     if (SUCCEEDED(hr)) {
@@ -2971,17 +3295,44 @@ static CaseResult run_execute_indirect_rays_case() {
 
     uint32_t direct_value = 0;
     uint32_t indirect_value = 0;
+    uint32_t direct_suppressed_value = 0;
+    uint32_t indirect_suppressed_value = 0;
+    uint32_t invalid_value = 0;
+    uint32_t indirect_invalid_value = 0;
     uint32_t direct_attribute_y = 0;
     uint32_t indirect_attribute_y = 0;
+    uint32_t direct_suppressed_attribute_y = 0;
+    uint32_t indirect_suppressed_attribute_y = 0;
+    uint32_t invalid_attribute_y = 0;
+    uint32_t indirect_invalid_attribute_y = 0;
     bool direct_readback_ok = false;
     bool indirect_readback_ok = false;
+    bool direct_suppressed_readback_ok = false;
+    bool indirect_suppressed_readback_ok = false;
+    bool invalid_readback_ok = false;
+    bool indirect_invalid_readback_ok = false;
     if (attributes_probe) {
         uint32_t direct_attributes[2] = {};
         uint32_t indirect_attributes[2] = {};
+        uint32_t direct_suppressed_attributes[2] = {};
+        uint32_t indirect_suppressed_attributes[2] = {};
+        uint32_t invalid_attributes[2] = {};
+        uint32_t indirect_invalid_attributes[2] = {};
         direct_readback_ok = SUCCEEDED(hr) &&
                              readback_u32(direct_readback, direct_attributes, 2);
         indirect_readback_ok = SUCCEEDED(hr) &&
                                readback_u32(indirect_readback, indirect_attributes, 2);
+        direct_suppressed_readback_ok = SUCCEEDED(hr) &&
+                             readback_u32(direct_suppressed_readback,
+                                          direct_suppressed_attributes, 2);
+        indirect_suppressed_readback_ok = SUCCEEDED(hr) &&
+                             readback_u32(indirect_suppressed_readback,
+                                          indirect_suppressed_attributes, 2);
+        invalid_readback_ok = SUCCEEDED(hr) &&
+                              readback_u32(invalid_readback, invalid_attributes, 2);
+        indirect_invalid_readback_ok = SUCCEEDED(hr) &&
+                                       readback_u32(indirect_invalid_readback,
+                                                    indirect_invalid_attributes, 2);
         if (direct_readback_ok) {
             direct_value = direct_attributes[0];
             direct_attribute_y = direct_attributes[1];
@@ -2990,11 +3341,36 @@ static CaseResult run_execute_indirect_rays_case() {
             indirect_value = indirect_attributes[0];
             indirect_attribute_y = indirect_attributes[1];
         }
+        if (direct_suppressed_readback_ok) {
+            direct_suppressed_value = direct_suppressed_attributes[0];
+            direct_suppressed_attribute_y = direct_suppressed_attributes[1];
+        }
+        if (indirect_suppressed_readback_ok) {
+            indirect_suppressed_value = indirect_suppressed_attributes[0];
+            indirect_suppressed_attribute_y = indirect_suppressed_attributes[1];
+        }
+        if (invalid_readback_ok) {
+            invalid_value = invalid_attributes[0];
+            invalid_attribute_y = invalid_attributes[1];
+        }
+        if (indirect_invalid_readback_ok) {
+            indirect_invalid_value = indirect_invalid_attributes[0];
+            indirect_invalid_attribute_y = indirect_invalid_attributes[1];
+        }
     } else {
         direct_readback_ok = SUCCEEDED(hr) &&
                              readback_u32(direct_readback, &direct_value, 1);
         indirect_readback_ok = SUCCEEDED(hr) &&
                                readback_u32(indirect_readback, &indirect_value, 1);
+        direct_suppressed_readback_ok = SUCCEEDED(hr) &&
+                             readback_u32(direct_suppressed_readback, &direct_suppressed_value, 1);
+        indirect_suppressed_readback_ok = SUCCEEDED(hr) &&
+                             readback_u32(indirect_suppressed_readback, &indirect_suppressed_value, 1);
+        invalid_readback_ok = SUCCEEDED(hr) &&
+                              readback_u32(invalid_readback, &invalid_value, 1);
+        indirect_invalid_readback_ok = SUCCEEDED(hr) &&
+                                       readback_u32(indirect_invalid_readback,
+                                                    &indirect_invalid_value, 1);
     }
     const bool direct_verified = direct_readback_ok &&
                                  direct_value == expected_ray_value &&
@@ -3002,8 +3378,25 @@ static CaseResult run_execute_indirect_rays_case() {
     const bool indirect_verified = indirect_readback_ok &&
                                    indirect_value == expected_ray_value &&
                                    (!attributes_probe || indirect_attribute_y == 0x3f000000u);
+    const bool direct_predication_verified =
+        direct_suppressed_readback_ok && direct_suppressed_value == 0 &&
+        (!attributes_probe || direct_suppressed_attribute_y == 0);
+    const bool indirect_predication_verified =
+        indirect_suppressed_readback_ok && indirect_suppressed_value == 0 &&
+        (!attributes_probe || indirect_suppressed_attribute_y == 0);
+    const bool invalid_predication_verified =
+        invalid_readback_ok && invalid_value == 0 &&
+        (!attributes_probe || invalid_attribute_y == 0);
+    const bool indirect_invalid_predication_verified =
+        indirect_invalid_readback_ok && indirect_invalid_value == 0 &&
+        (!attributes_probe || indirect_invalid_attribute_y == 0);
+    const bool predication_verified = direct_predication_verified &&
+                                      indirect_predication_verified &&
+                                      invalid_predication_verified &&
+                                      indirect_invalid_predication_verified;
     result.pass = SUCCEEDED(hr) && SUCCEEDED(state_hr) && SUCCEEDED(signature_hr) && SUCCEEDED(arguments_hr) &&
-                  direct_recorded && indirect_recorded && direct_verified && indirect_verified;
+                  direct_recorded && indirect_recorded && direct_verified && indirect_verified &&
+                  predication_verified;
     result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
     result.detail = result.pass
                         ? (reorder_probe
@@ -3032,8 +3425,25 @@ static CaseResult run_execute_indirect_rays_case() {
                    ",\"indirect_attribute_y\":" + std::to_string(indirect_attribute_y) +
                    ",\"direct_behavior_verified\":" + (direct_verified ? "true" : "false") +
                    ",\"indirect_behavior_verified\":" + (indirect_verified ? "true" : "false") +
+                   ",\"direct_suppressed_value\":" + std::to_string(direct_suppressed_value) +
+                   ",\"indirect_suppressed_value\":" + std::to_string(indirect_suppressed_value) +
+                   ",\"invalid_predicate_value\":" + std::to_string(invalid_value) +
+                   ",\"indirect_invalid_predicate_value\":" +
+                   std::to_string(indirect_invalid_value) +
+                   ",\"direct_predication_verified\":" + (direct_predication_verified ? "true" : "false") +
+                   ",\"indirect_predication_verified\":" + (indirect_predication_verified ? "true" : "false") +
+                   ",\"invalid_predication_verified\":" + (invalid_predication_verified ? "true" : "false") +
+                   ",\"indirect_invalid_predication_verified\":" +
+                   (indirect_invalid_predication_verified ? "true" : "false") +
                    ",\"argument_offset\":" + std::to_string(argument_offset);
 
+    safe_release(predicate_invalid);
+    safe_release(predicate_false);
+    safe_release(predicate_true);
+    safe_release(indirect_invalid_readback);
+    safe_release(invalid_readback);
+    safe_release(indirect_suppressed_readback);
+    safe_release(direct_suppressed_readback);
     safe_release(attribute_scratch);
     safe_release(attribute_tlas);
     safe_release(attribute_instances);
@@ -3090,10 +3500,17 @@ static CaseResult run_execute_indirect_mesh_case() {
     ID3D12Resource* output = nullptr;
     ID3D12Resource* output_direct_readback = nullptr;
     ID3D12Resource* output_indirect_readback = nullptr;
+    ID3D12Resource* output_direct_suppressed_readback = nullptr;
+    ID3D12Resource* output_indirect_suppressed_readback = nullptr;
+    ID3D12Resource* output_invalid_readback = nullptr;
+    ID3D12Resource* output_indirect_invalid_readback = nullptr;
     ID3D12Resource* render_target = nullptr;
     ID3D12Resource* direct_readback = nullptr;
     ID3D12Resource* indirect_readback = nullptr;
     ID3D12Resource* arguments = nullptr;
+    ID3D12Resource* predicate_true = nullptr;
+    ID3D12Resource* predicate_false = nullptr;
+    ID3D12Resource* predicate_invalid = nullptr;
     HRESULT hr = create_device(&device);
     HRESULT pso_hr = E_FAIL;
     HRESULT signature_hr = E_FAIL;
@@ -3190,6 +3607,18 @@ static CaseResult run_execute_indirect_mesh_case() {
     if (SUCCEEDED(hr))
         hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE,
                            D3D12_RESOURCE_STATE_COPY_DEST, &output_indirect_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &output_direct_suppressed_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &output_indirect_suppressed_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &output_invalid_readback);
+    if (SUCCEEDED(hr))
+        hr = create_buffer(device, D3D12_HEAP_TYPE_READBACK, sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE,
+                           D3D12_RESOURCE_STATE_COPY_DEST, &output_indirect_invalid_readback);
 
     D3D12_RESOURCE_DESC target_desc = {};
     target_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -3261,6 +3690,17 @@ static CaseResult run_execute_indirect_mesh_case() {
                                                      static_cast<UINT>(argument_storage.size()));
         hr = arguments_hr;
     }
+    if (SUCCEEDED(hr)) {
+        const uint32_t predicate_one = 1;
+        const uint32_t predicate_zero = 0;
+        const uint8_t invalid_predicate_bytes[8] = {0, 0, 1, 0, 0, 0, 0, 0};
+        hr = create_upload_buffer(device, &predicate_one, sizeof(predicate_one), &predicate_true);
+        if (SUCCEEDED(hr))
+            hr = create_upload_buffer(device, &predicate_zero, sizeof(predicate_zero), &predicate_false);
+        if (SUCCEEDED(hr))
+            hr = create_upload_buffer(device, invalid_predicate_bytes,
+                                      sizeof(invalid_predicate_bytes), &predicate_invalid);
+    }
 
     if (SUCCEEDED(hr)) {
         ID3D12DescriptorHeap* heaps[] = {uav_heap};
@@ -3270,44 +3710,87 @@ static CaseResult run_execute_indirect_mesh_case() {
         list6->SetPipelineState(pso);
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = rtv_heap->GetCPUDescriptorHandleForHeapStart();
         const float clear_color[4] = {};
+        const UINT clear_values[4] = {};
         list6->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
-        list6->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
-        list6->DispatchMesh(1, 1, 1);
-        direct_recorded = true;
+        auto clear_mesh_outputs = [&]() {
+            list6->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
+            list6->ClearUnorderedAccessViewUint(uav_heap->GetGPUDescriptorHandleForHeapStart(),
+                                                uav_heap->GetCPUDescriptorHandleForHeapStart(), output,
+                                                clear_values, 0, nullptr);
+        };
+        clear_mesh_outputs();
         D3D12_RESOURCE_BARRIER rt_to_copy = transition_barrier(
             render_target, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
         D3D12_RESOURCE_BARRIER output_to_copy = transition_barrier(
             output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-        list6->ResourceBarrier(1, &rt_to_copy);
-        list6->ResourceBarrier(1, &output_to_copy);
+        D3D12_RESOURCE_BARRIER rt_to_render = transition_barrier(
+            render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        D3D12_RESOURCE_BARRIER output_to_uav = transition_barrier(
+            output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         D3D12_TEXTURE_COPY_LOCATION dst = {};
-        dst.pResource = direct_readback;
         dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
         dst.PlacedFootprint = footprint;
         D3D12_TEXTURE_COPY_LOCATION src = {};
         src.pResource = render_target;
         src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         src.SubresourceIndex = 0;
+
+        list6->SetPredication(predicate_true, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->DispatchMesh(1, 1, 1);
+        direct_recorded = true;
+        list6->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->ResourceBarrier(1, &rt_to_copy);
+        list6->ResourceBarrier(1, &output_to_copy);
+        dst.pResource = direct_readback;
         list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
         list6->CopyBufferRegion(output_direct_readback, 0, output, 0, sizeof(uint32_t));
-        D3D12_RESOURCE_BARRIER rt_to_render = transition_barrier(
-            render_target, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        D3D12_RESOURCE_BARRIER output_to_uav = transition_barrier(
-            output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         list6->ResourceBarrier(1, &rt_to_render);
         list6->ResourceBarrier(1, &output_to_uav);
-        list6->ClearRenderTargetView(rtv, clear_color, 0, nullptr);
-        const UINT clear_values[4] = {};
-        list6->ClearUnorderedAccessViewUint(uav_heap->GetGPUDescriptorHandleForHeapStart(),
-                                            uav_heap->GetCPUDescriptorHandleForHeapStart(), output, clear_values, 0,
-                                            nullptr);
+        clear_mesh_outputs();
+
+        list6->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->DispatchMesh(1, 1, 1);
+        list6->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->ResourceBarrier(1, &output_to_copy);
+        list6->CopyBufferRegion(output_direct_suppressed_readback, 0, output, 0, sizeof(uint32_t));
+        list6->ResourceBarrier(1, &output_to_uav);
+        clear_mesh_outputs();
+
+        // Unaligned predicate offsets are invalid and must suppress mesh
+        // execution rather than being interpreted as a permissive read.
+        list6->SetPredication(predicate_invalid, 2, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->DispatchMesh(1, 1, 1);
+        list6->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->ResourceBarrier(1, &output_to_copy);
+        list6->CopyBufferRegion(output_invalid_readback, 0, output, 0, sizeof(uint32_t));
+        list6->ResourceBarrier(1, &output_to_uav);
+        clear_mesh_outputs();
+
+        list6->SetPredication(predicate_true, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
         list6->ExecuteIndirect(signature, 1, arguments, argument_offset, nullptr, 0);
         indirect_recorded = true;
+        list6->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
         list6->ResourceBarrier(1, &rt_to_copy);
         list6->ResourceBarrier(1, &output_to_copy);
         dst.pResource = indirect_readback;
         list6->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
         list6->CopyBufferRegion(output_indirect_readback, 0, output, 0, sizeof(uint32_t));
+        list6->ResourceBarrier(1, &rt_to_render);
+        list6->ResourceBarrier(1, &output_to_uav);
+        clear_mesh_outputs();
+
+        list6->SetPredication(predicate_false, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->ExecuteIndirect(signature, 1, arguments, argument_offset, nullptr, 0);
+        list6->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->ResourceBarrier(1, &output_to_copy);
+        list6->CopyBufferRegion(output_indirect_suppressed_readback, 0, output, 0, sizeof(uint32_t));
+        list6->ResourceBarrier(1, &output_to_uav);
+        clear_mesh_outputs();
+        list6->SetPredication(predicate_invalid, 2, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->ExecuteIndirect(signature, 1, arguments, argument_offset, nullptr, 0);
+        list6->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+        list6->ResourceBarrier(1, &output_to_copy);
+        list6->CopyBufferRegion(output_indirect_invalid_readback, 0, output, 0, sizeof(uint32_t));
         hr = list6->Close();
     }
     if (SUCCEEDED(hr)) {
@@ -3317,8 +3800,20 @@ static CaseResult run_execute_indirect_mesh_case() {
 
     uint32_t direct_output = 0;
     uint32_t indirect_output = 0;
+    uint32_t direct_suppressed_output = 0;
+    uint32_t indirect_suppressed_output = 0;
+    uint32_t invalid_output = 0;
+    uint32_t indirect_invalid_output = 0;
     const bool direct_output_ok = SUCCEEDED(hr) && readback_u32(output_direct_readback, &direct_output, 1);
     const bool indirect_output_ok = SUCCEEDED(hr) && readback_u32(output_indirect_readback, &indirect_output, 1);
+    const bool direct_suppressed_output_ok = SUCCEEDED(hr) &&
+        readback_u32(output_direct_suppressed_readback, &direct_suppressed_output, 1);
+    const bool indirect_suppressed_output_ok = SUCCEEDED(hr) &&
+        readback_u32(output_indirect_suppressed_readback, &indirect_suppressed_output, 1);
+    const bool invalid_output_ok = SUCCEEDED(hr) &&
+        readback_u32(output_invalid_readback, &invalid_output, 1);
+    const bool indirect_invalid_output_ok = SUCCEEDED(hr) &&
+        readback_u32(output_indirect_invalid_readback, &indirect_invalid_output, 1);
     uint64_t direct_pixels = 0;
     uint64_t indirect_pixels = 0;
     auto count_pixels = [&](ID3D12Resource* readback, uint64_t& count) {
@@ -3338,9 +3833,18 @@ static CaseResult run_execute_indirect_mesh_case() {
     const bool indirect_pixels_ok = SUCCEEDED(hr) && count_pixels(indirect_readback, indirect_pixels);
     const bool direct_verified = direct_output_ok && direct_output == 0x4d455348;
     const bool indirect_verified = indirect_output_ok && indirect_output == 0x4d455348;
+    const bool direct_predication_verified = direct_suppressed_output_ok && direct_suppressed_output == 0;
+    const bool indirect_predication_verified = indirect_suppressed_output_ok && indirect_suppressed_output == 0;
+    const bool invalid_predication_verified = invalid_output_ok && invalid_output == 0;
+    const bool indirect_invalid_predication_verified =
+        indirect_invalid_output_ok && indirect_invalid_output == 0;
+    const bool predication_verified = direct_predication_verified &&
+                                      indirect_predication_verified &&
+                                      invalid_predication_verified &&
+                                      indirect_invalid_predication_verified;
     result.pass = SUCCEEDED(hr) && SUCCEEDED(pso_hr) && SUCCEEDED(signature_hr) && SUCCEEDED(arguments_hr) &&
                   direct_recorded && indirect_recorded && direct_verified && indirect_verified && direct_pixels_ok &&
-                  indirect_pixels_ok && direct_pixels > 0 && indirect_pixels > 0;
+                  indirect_pixels_ok && direct_pixels > 0 && indirect_pixels > 0 && predication_verified;
     result.hr = result.pass ? S_OK : (FAILED(hr) ? hr : E_FAIL);
     result.detail = result.pass
                         ? "direct and ExecuteIndirect DISPATCH_MESH command replay produced exact UAV and raster readbacks"
@@ -3356,8 +3860,25 @@ static CaseResult run_execute_indirect_mesh_case() {
                    ",\"indirect_pixels\":" + std::to_string(indirect_pixels) +
                    ",\"direct_behavior_verified\":" + (direct_verified ? "true" : "false") +
                    ",\"indirect_behavior_verified\":" + (indirect_verified ? "true" : "false") +
+                   ",\"direct_suppressed_uav_value\":" + std::to_string(direct_suppressed_output) +
+                   ",\"indirect_suppressed_uav_value\":" + std::to_string(indirect_suppressed_output) +
+                   ",\"invalid_predicate_uav_value\":" + std::to_string(invalid_output) +
+                   ",\"indirect_invalid_predicate_uav_value\":" +
+                   std::to_string(indirect_invalid_output) +
+                   ",\"direct_predication_verified\":" + (direct_predication_verified ? "true" : "false") +
+                   ",\"indirect_predication_verified\":" + (indirect_predication_verified ? "true" : "false") +
+                   ",\"invalid_predication_verified\":" + (invalid_predication_verified ? "true" : "false") +
+                   ",\"indirect_invalid_predication_verified\":" +
+                   (indirect_invalid_predication_verified ? "true" : "false") +
                    ",\"argument_offset\":" + std::to_string(argument_offset);
 
+    safe_release(predicate_invalid);
+    safe_release(predicate_false);
+    safe_release(predicate_true);
+    safe_release(output_indirect_invalid_readback);
+    safe_release(output_invalid_readback);
+    safe_release(output_indirect_suppressed_readback);
+    safe_release(output_direct_suppressed_readback);
     safe_release(arguments);
     safe_release(indirect_readback);
     safe_release(direct_readback);
@@ -3535,6 +4056,7 @@ int main() {
     } else {
         cases.push_back(run_command_list_reuse_case());
         cases.push_back(run_multi_list_execute_case());
+        cases.push_back(run_concurrent_replay_reclamation_case());
         cases.push_back(run_bundle_status_case());
         cases.push_back(run_write_buffer_immediate_case());
         cases.push_back(run_execute_indirect_constants_case());
@@ -3584,6 +4106,10 @@ int main() {
         }
         return false;
     };
+    std::printf("    \"queue_resource_release_before_execute\": %s,\n",
+                case_pass("queue_execute_multiple_lists") ? "true" : "false");
+    std::printf("    \"queue_concurrent_replay_reclamation\": %s,\n",
+                case_pass("queue_concurrent_replay_reclamation") ? "true" : "false");
     std::printf("    \"stream_output_multi_stream_capture\": %s,\n",
                 case_pass("stream_output_multi_stream_capture") ? "true" : "false");
     std::printf("    \"execute_indirect_dispatch_rays_readback\": %s,\n",
@@ -3592,7 +4118,11 @@ int main() {
                 case_pass("execute_indirect_dispatch_mesh") ? "true" : "false");
     std::printf("    \"view_instancing_mask_side_effect\": true,\n");
     std::printf("    \"multi_pixel_sample_positions\": true,\n");
-    std::printf("    \"predication_execution_verified\": true\n");
+    const bool predication_execution_verified =
+        case_pass("predication") && case_pass("execute_indirect_dispatch_rays") &&
+        case_pass("execute_indirect_dispatch_mesh");
+    std::printf("    \"predication_execution_verified\": %s\n",
+                predication_execution_verified ? "true" : "false");
     std::printf("  },\n");
     std::printf("  \"cases\": [\n");
     for (size_t i = 0; i < cases.size(); ++i)

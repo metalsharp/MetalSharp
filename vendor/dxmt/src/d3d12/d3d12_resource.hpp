@@ -76,6 +76,8 @@ struct ID3D12Resource2Compat : public ID3D12Resource1Compat,
 };
 
 class MTLD3D12Resource : public ID3D12Resource2Compat {
+  friend class MTLD3D12Device;
+
 public:
   MTLD3D12Resource(MTLD3D12Device *device, const D3D12_RESOURCE_DESC &desc,
                    D3D12_RESOURCE_STATES initial_state,

@@ -28,6 +28,14 @@
     "runtime_manifest": "build/dxmt-runtime-manifest.json",
     "stage_record": "build/stage-runtime-phase8-clean-current.json"
   },
+  "phase14_clean_refresh": {
+    "path": "/Volumes/AverySSD/phase14-clean-evidence",
+    "source_commit": "bdc5c0167befdc3deae05a3197cb17a7cbb14ddb",
+    "source_dirty": false,
+    "profile": "phase14-clean-dxr",
+    "runtime_stage": "runtime/stage-phase6-sandbox-phase14-clean-current.json",
+    "result": "dxr/probe-mini-dxr_acceleration_structures-phase14-clean-dxr.json"
+  },
   "rows": [
     {
       "id": "dxr-1-1-clean-matrix",
@@ -43,6 +51,7 @@
         ["collection_pipeline_created"],
         ["collection_export_filtering_and_merge"],
         ["grown_state_identifiers"],
+        ["invalid_addition_rejected"],
         ["shader_identifier_abi_layout"],
         ["local_descriptor_tables_written"],
         ["local_sampler_table_written"],

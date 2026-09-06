@@ -15,7 +15,9 @@ entry:
   %temp_value = add i32 %temp_loaded, 1
   call void @dx.op.bufferStore.i32(i32 69, %dx.types.Handle %out, i32 0, i32 undef, i32 %temp_value, i32 undef, i32 undef, i32 undef, i8 1)
 
-  call void @dx.op.minPrecXRegStore.f32(i32 3, float* %base, i32 0, i8 1, float 5.0)
+  ; 1.2345 is not exactly representable in f16. The min-precision
+  ; round-trip must produce half(1.2345) + 1.0 = 2.234375.
+  call void @dx.op.minPrecXRegStore.f32(i32 3, float* %base, i32 0, i8 1, float 0x3FF3C08320000000)
   %min_loaded = call float @dx.op.minPrecXRegLoad.f32(i32 2, float* %base, i32 0, i8 1)
   %min_value = fadd float %min_loaded, 1.0
   %min_bits = call i32 @dx.op.bitcastF32toI32(i32 127, float %min_value)

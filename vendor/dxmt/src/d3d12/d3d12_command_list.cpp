@@ -260,9 +260,14 @@ void MTLD3D12GraphicsCommandList::RetainResource(ID3D12Resource *resource) {
 
 void MTLD3D12GraphicsCommandList::RetainGPUAddress(
     D3D12_GPU_VIRTUAL_ADDRESS address) {
-  if (!address)
+  if (!address || m_closed)
     return;
-  RetainResource(m_device->LookupResourceByGPUAddress(address));
+  // Lookup and AddRef must be one registry-locked operation.  Looking up a
+  // raw pointer and retaining it afterward leaves a final Release/unregister
+  // race for command records that carry only a GPU virtual address.
+  if (auto *resource =
+          m_device->LookupResourceByGPUAddressAndAddRef(address))
+    m_referenced_resources.push_back(resource);
 }
 
 void MTLD3D12GraphicsCommandList::RetainDescriptor(

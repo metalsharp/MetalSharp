@@ -11,6 +11,15 @@
     "profiles": ["phase12-display"],
     "gate_command": "python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-gate.py --phase 12 --profile phase12-display --results-dir /Volumes/AverySSD/phase12-display/clean-current/results"
   },
+  "phase14_clean_refresh": {
+    "path": "/Volumes/AverySSD/phase14-clean-evidence",
+    "source_commit": "bdc5c0167befdc3deae05a3197cb17a7cbb14ddb",
+    "source_dirty": false,
+    "profiles": ["phase14-clean-shared", "phase14-clean-swap"],
+    "runtime_stage": "runtime/stage-phase6-sandbox-phase14-clean-current.json",
+    "factory_result": "shared/probe-dxgi-factory-phase14-clean-shared.json",
+    "swapchain_result": "swapchain/probe-mini-swapchain_present-phase14-clean-swap.json"
+  },
   "evidence": [
     {
       "kind": "probe",
@@ -48,6 +57,18 @@
         ["edge_cases", "CreateSwapChainForComposition", "0x00000000"],
         ["edge_cases", "Composition_GetDesc1", "0x00000000"],
         ["edge_cases", "Composition_GetBuffer", "0x00000000"],
+        ["edge_cases", "CreateSharedSurfaceResource", "0x00000000"],
+        ["edge_cases", "CreateSharedSurfaceHandle", "0x00000000"],
+        ["edge_cases", "OpenSharedSurfaceHandle", "0x00000000"],
+        ["edge_cases", "CreateSurface_shared", "0x00000000"],
+        ["edge_cases", "CreateSurface_shared_mismatch", "0x887a0001"],
+        ["edge_cases", "CreateSurface_shared_null_handle", "0x887a0001"],
+        ["edge_cases", "SharedSurface_Map_write_discard", "0x00000000"],
+        ["edge_cases", "SharedSurface_Unmap_write", "0x00000000"],
+        ["edge_cases", "SharedSurface_Map_read", "0x00000000"],
+        ["edge_cases", "SharedSurface_Unmap_read", "0x00000000"],
+        ["edge_cases", "shared_surface_pixel", "0x44332211"],
+        ["edge_cases", "shared_surface_source_released_before_map", true],
         ["edge_cases", "Surface_GetDC", "0x00000000"],
         ["edge_cases", "Surface_ReleaseDC", "0x00000000"],
         ["edge_cases", "display_copy_pixel", "0x44332211"],
@@ -56,7 +77,7 @@
         ["edge_cases", "CreateSubresourceSurface", "0x00000000"],
         ["edge_cases", "protection_cookie_zero_on_rejection", true]
       ],
-      "remaining": "The bounded provider proves one GPU desktop frame, full dirty-rectangle sizing, CPU MapDesktopSurface readback, composition/surface ownership, display-copy state, event-cookie lifecycle, and timeout behavior. IOSurface/DisplayLink capture, cursor shape/move metadata, color-space metadata, and complete presentation statistics remain unsupported."
+      "remaining": "The bounded provider proves one GPU desktop frame, full dirty-rectangle sizing, CPU MapDesktopSurface readback, composition/surface ownership, display-copy state, event-cookie lifecycle, timeout behavior, and one RGBA8 shared-texture CreateSharedHandle/OpenSharedHandle/CreateSurface/map/readback path with exact invalid-handle and descriptor rejection. IOSurface/DisplayLink capture, cursor shape/move metadata, color-space metadata, broader shared-resource shapes, and complete presentation statistics remain unsupported."
     },
     {
       "id": "dxgi-swapchain-metadata-state",

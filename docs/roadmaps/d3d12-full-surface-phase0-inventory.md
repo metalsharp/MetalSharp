@@ -3,10 +3,10 @@
 **State:** Phase 0 inventory complete; implementation and behavior gates remain open.
 **Stable baseline:** Microsoft DirectX Agility SDK 1.619.5 (`D3D12SDKVersion=619`)
 **Preview lane:** Agility SDK 1.721.3-preview (`D3D12SDKVersion=721`), opt-in only
-**Generated:** 2026-09-06T07:39:21.711683+00:00
-**Git HEAD:** `54eb6d05c9ac709d6f6a71f3eccaa28fca68c73c`
+**Generated:** 2026-09-06T14:52:33.976444+00:00
+**Git HEAD:** `f090edeb06753423a6bb1e4bf35357a9b9d3d638`
 **Runtime source files scanned:** 230
-**Runtime source tree SHA-256:** `4c3f5f3fbd9e27bb28872d67746e7e862b73656393abc21cc9dffa242672a4f7`
+**Runtime source tree SHA-256:** `1a4358f214132009b2fd95b475024bc5baacfff80b4a7fd7b48a16e898be2e24`
 
 ## Interface census
 
@@ -17,13 +17,13 @@
 
 ## Static runtime findings
 
-- Total findings: **2164**
+- Total findings: **2168**
 - `abi_literal`: **40**
 - `capability_literal`: **174**
 - `empty_function_body`: **77**
-- `placeholder_return`: **1075**
-- `success_or_zero_return`: **743**
-- `unsupported_return`: **55**
+- `placeholder_return`: **1076**
+- `success_or_zero_return`: **748**
+- `unsupported_return`: **53**
 
 These findings are intentionally not suppressed. Later phases must attach a behavior probe and clear each legal-operation finding; expected invalid-input returns remain explicitly classified.
 
@@ -115,40 +115,40 @@ These findings are intentionally not suppressed. Later phases must attach a beha
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:121` — `return S_OK;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:137` — `return S_OK;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:145` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:415` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:431` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:420` — `return S_OK;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:436` — `return S_OK;`
 - `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:441` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:535` — `return S_OK;`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:597` — `// back to an ordinary draw: that would make SetViewInstanceMask(0) render`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2251` — `(kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 \|\|`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2254` — `(kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 \|\|`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2256` — `(kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 \|\|`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2262` — `(kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 \|\|`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2264` — `(kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0 \|\|`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2361` — `(kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0 \|\|`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2363` — `(kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0) {`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2426` — `CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2453` — `CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",`
-- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2480` — `CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:79` — `return S_OK;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:236` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:238` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:470` — `return 0;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:524` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:536` — `return true;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:540` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:604` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:612` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:640` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:649` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:446` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:540` — `return S_OK;`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:602` — `// back to an ordinary draw: that would make SetViewInstanceMask(0) render`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2256` — `(kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 \|\|`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2259` — `(kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 \|\|`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2261` — `(kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 \|\|`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2267` — `(kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 \|\|`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2269` — `(kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0 \|\|`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2366` — `(kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0 \|\|`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2368` — `(kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0) {`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2431` — `CLTRACE("BuildRaytracingAccelerationStructure type=%u dest=0x%llx "`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2458` — `CLTRACE("EmitRaytracingPostbuildInfo type=%u dest=0x%llx source=0x%llx",`
+- `capability_literal` `vendor/dxmt/src/d3d12/d3d12_command_list.cpp:2485` — `CLTRACE("CopyRaytracingAccelerationStructure mode=%u source=0x%llx "`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:80` — `return S_OK;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:253` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:255` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:487` — `return 0;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:541` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:553` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:557` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:621` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:629` — `return false;`
 - `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:657` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:667` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:666` — `return false;`
 - `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:674` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:682` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:689` — `return false;`
-- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:705` — `return false;`
-- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:707` — `return true;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:684` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:691` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:699` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:706` — `return false;`
+- `placeholder_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:722` — `return false;`
+- `success_or_zero_return` `vendor/dxmt/src/d3d12/d3d12_command_queue.cpp:724` — `return true;`
 
 ## Phase 0 artifacts
 

@@ -193,8 +193,6 @@ MTLD3D12DXGIDevice::CreateSurface(const DXGI_SURFACE_DESC *desc,
       desc->Width == 0 || desc->Height == 0 ||
       desc->SampleDesc.Count != 1 || desc->SampleDesc.Quality != 0)
     return DXGI_ERROR_INVALID_CALL;
-  if (shared_resource)
-    return DXGI_ERROR_UNSUPPORTED;
   constexpr DXGI_USAGE known_usage =
       static_cast<DXGI_USAGE>(DXGI_USAGE_SHADER_INPUT |
                               DXGI_USAGE_RENDER_TARGET_OUTPUT |
@@ -205,7 +203,45 @@ MTLD3D12DXGIDevice::CreateSurface(const DXGI_SURFACE_DESC *desc,
                               DXGI_USAGE_UNORDERED_ACCESS);
   if (usage & ~known_usage)
     return DXGI_ERROR_INVALID_CALL;
+  if (shared_resource) {
+    // The bounded shared-surface provider is backed by the same portable
+    // shared-texture mapping used by OpenSharedHandle.  Do not accept an
+    // arbitrary handle or manufacture a surface around a mismatched resource:
+    // open the resource, validate the exact one-surface descriptor, and keep
+    // the opened COM reference alive until the wrapper has retained it.
+    if (surface_count != 1 || !shared_resource->Handle ||
+        !(usage & DXGI_USAGE_SHARED))
+      return DXGI_ERROR_INVALID_CALL;
+    surface[0] = nullptr;
+    ID3D12Resource *opened_resource = nullptr;
+    HRESULT open_hr = m_d3d12_device->OpenSharedHandle(
+        shared_resource->Handle, IID_PPV_ARGS(&opened_resource));
+    if (FAILED(open_hr) || !opened_resource)
+      return FAILED(open_hr) ? open_hr : DXGI_ERROR_INVALID_CALL;
 
+    D3D12_RESOURCE_DESC opened_desc = {};
+    opened_resource->GetDesc(&opened_desc);
+    const bool descriptor_matches =
+        opened_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        opened_desc.Width == desc->Width &&
+        opened_desc.Height == desc->Height &&
+        opened_desc.DepthOrArraySize == 1 && opened_desc.MipLevels == 1 &&
+        opened_desc.Format == desc->Format &&
+        opened_desc.SampleDesc.Count == desc->SampleDesc.Count &&
+        opened_desc.SampleDesc.Quality == desc->SampleDesc.Quality;
+    if (!descriptor_matches) {
+      opened_resource->Release();
+      return DXGI_ERROR_INVALID_CALL;
+    }
+
+    auto *surface_impl = CreateD3D12DXGISurface(
+        this, static_cast<MTLD3D12Resource *>(opened_resource), 0, *desc);
+    opened_resource->Release();
+    if (!surface_impl)
+      return DXGI_ERROR_UNSUPPORTED;
+    surface[0] = surface_impl;
+    return S_OK;
+  }
   for (UINT i = 0; i < surface_count; ++i)
     surface[i] = nullptr;
   D3D12_RESOURCE_DESC resource_desc = {};
