@@ -32,7 +32,8 @@ GPU-gated passes for every possible entrypoint.
   exact dense/sparse output. Mixed coalescing/thread and broadcasting/thread
   graphs pass exact output and group/bitmap counters. A
   D3D12_MULTI_NODE_GPU_INPUT header with two GPU descriptors is validated and
-  compacted into two ICB commands without host descriptor reads. Other shapes
+  compacted into GPU-native commands without host descriptor reads, including
+  per-record expansion for broadcasting and duplicate descriptors. Other shapes
   retain the existing path rather than silently losing work.
 - Two ordinary-compute defects exposed by the producer were fixed: the fallback
   sampler now has valid anisotropy, and root constants use retained buffer
@@ -177,13 +178,16 @@ for the first broadcast plus a second nonempty descriptor; GPU preflight rejects
 the aggregate 260-command requirement before backing reset, preserving the full
 2 MiB sentinel. Queue traces record `host_header_read=0`. The runtime is staged
 under `/Volumes/AverySSD/phase7-multi-broadcast-stage/runtime`; its evidence is
-not clean-source release provenance (`source_dirty=true`).
+not clean-source release provenance (`source_dirty=true`). The duplicate-table
+variant repeats the same broadcasting descriptor and atomically doubles the
+readback to `[1616,3232,4848,6464,0,...]`. A zero descriptor-table stride is
+also rejected before dereference with full backing preservation.
 
 ## Remaining
 
-- Duplicate/zero-stride descriptor-table forms, larger descriptor tables and
-  mixed invalid entries; the current broadcast expansion and aggregate-capacity
-  rejection are bounded evidence only.
+- Larger duplicate descriptor tables and mixed invalid entries; the current
+  duplicate, zero-table-stride, broadcast expansion and aggregate-capacity
+  results are bounded evidence only.
 - Exact D3D12 GPU-header rejection, zero-work and replication breadth; existing
   host-read/CPU-input zero-stride restrictions also need closure.
 - Alias lifetime, sparse resources, protected-resource exclusion, and resources

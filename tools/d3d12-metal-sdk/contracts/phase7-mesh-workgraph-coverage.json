@@ -37,7 +37,7 @@
       "profile": "phase7-workgraph",
       "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"], ["readback_exact"],
         ["values", [101, 202, 303, 404, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
-      "remaining": "An ordinary compute producer writes a D3D12_MULTI_NODE_GPU_INPUT header and two GPU node-input descriptors. The GPU validates the table and records, compacts two selected entry commands and produces exact dense/sparse routing without host descriptor/header reads. Bounded malformed entry/capacity/stride/record and zero-descriptor rows also pass; larger tables, duplicate/zero-stride descriptors and cross-queue lifetime remain open."
+      "remaining": "An ordinary compute producer writes a D3D12_MULTI_NODE_GPU_INPUT header and two GPU node-input descriptors. The GPU validates the table and records, compacts selected entry commands and produces exact dense/sparse routing without host descriptor/header reads. Bounded malformed, duplicate, zero-table-stride, broadcasting and zero-descriptor rows also pass; larger tables and cross-queue lifetime remain open."
     },
     {
       "id": "workgraph-gpu-generated-coalescing-entry-headers",
@@ -77,6 +77,26 @@
         ["backing_unchanged"], ["readback_exact"],
         ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
       "remaining": "A GPU-produced table whose broadcast record expansion plus a second descriptor exceeds the bounded ICB capacity rejects before backing reset or command encoding; the full 2 MiB sentinel remains unchanged."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-duplicate-descriptor",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-duplicate-broadcasting",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_header_broadcasting"], ["gpu_multi_mode", 12], ["readback_exact"],
+        ["values", [1616, 3232, 4848, 6464, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "Two identical GPU-produced broadcasting descriptors execute independently and atomically double every dense contribution. Larger duplicate tables and cross-queue lifetime remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-zero-table-stride",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-zero-table-stride",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_multi_mode", 13], ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced multi-input header with zero descriptor-table stride rejects before table dereference and preserves the full backing sentinel."
     },
     {
       "id": "workgraph-gpu-generated-multi-invalid-entry",

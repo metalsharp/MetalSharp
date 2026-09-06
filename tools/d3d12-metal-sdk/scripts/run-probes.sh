@@ -6527,6 +6527,10 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
   rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
   run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-broadcasting-overflow-${PROFILE}.json" probe_workgraph_arrays_broadcasting.cso --gpu-multi-headers-broadcasting-overflow
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-duplicate-broadcasting-${PROFILE}.json" probe_workgraph_arrays_broadcasting.cso --gpu-multi-headers-duplicate-broadcasting
+  run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-zero-table-stride-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-zero-table-stride
   DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
     run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-gpu-generated-coalescing-headers-${PROFILE}.json" probe_workgraph_arrays_coalescing.cso --gpu-headers-coalescing
