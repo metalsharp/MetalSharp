@@ -378,6 +378,10 @@ build_mini_probe 20 view_id_instancing
 build_mini_probe 21 temp_registers
 
 build_probe \
+  "$SDK_DIR/probes/probe_dxr_omm_ser.cpp" \
+  -o "$OUT_DIR/probe_mini_dxr_omm_ser.exe"
+
+build_probe \
   "$SDK_DIR/probes/probe_dxr_inline.cpp" \
   -o "$OUT_DIR/probe_mini_dxr_inline.exe"
 
@@ -440,6 +444,7 @@ echo "$OUT_DIR/probe_mini_dxil_texture_color_output.exe"
 echo "$OUT_DIR/probe_mini_compute_first_use_dispatch.exe"
 echo "$OUT_DIR/probe_mini_dxr_acceleration_structures.exe"
 echo "$OUT_DIR/probe_mini_dxr_inline.exe"
+echo "$OUT_DIR/probe_mini_dxr_omm_ser.exe"
 echo "$OUT_DIR/probe_mini_tessellation_shader_pso.exe"
 echo "$OUT_DIR/probe_mini_tessellation_patch_constant.exe"
 echo "$OUT_DIR/probe_mini_start_draw_info.exe"

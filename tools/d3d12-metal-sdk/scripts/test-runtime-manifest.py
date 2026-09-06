@@ -84,6 +84,25 @@ class RuntimeManifestTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(name, result.stderr)
 
+    def test_loader_artifact_can_be_resolved_from_selected_wine_root(self):
+        ntdll = self.paths["ntdll.so"]
+        ntdll.unlink()
+        wine_root = self.root / "wine"
+        wine_ntdll = wine_root / "lib" / "wine" / "x86_64-unix" / "ntdll.so"
+        wine_ntdll.parent.mkdir(parents=True, exist_ok=True)
+        wine_ntdll.write_bytes(b"selected wine ntdll")
+
+        result = self.run_cli(
+            "--wine-dir", str(wine_root), "--generate", "--output", str(self.manifest)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(self.manifest.read_text())
+        self.assertEqual(data["loader"]["wine_dir"], str(wine_root))
+        self.assertEqual(
+            self.run_cli("--wine-dir", str(wine_root), "--manifest", str(self.manifest)).returncode,
+            0,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

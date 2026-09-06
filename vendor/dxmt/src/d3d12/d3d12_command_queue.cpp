@@ -2974,6 +2974,21 @@ struct ReplayState {
     auto texture = resource->GetMTLTexture();
     if (texture.handle)
       RetainMTLObjectForCompletion(texture);
+    // Acceleration structures are independent Metal objects; retaining the
+    // D3D12 resource alone is not sufficient once replay has encoded a build,
+    // refit, or TLAS instance selection.  Keep every provider-owned variant
+    // alive through command-buffer completion, including the alternate BLAS
+    // used by DISABLE_OMMS and the compound/modeled serialization paths.
+    RetainMTLObjectForCompletion(resource->GetMTLAccelerationStructure());
+    RetainMTLObjectForCompletion(
+        resource->GetOmmDisabledAccelerationStructure());
+    RetainMTLObjectForCompletion(
+        resource->GetMixedTriangleAccelerationStructure());
+    RetainMTLObjectForCompletion(resource->GetMixedAABBAccelerationStructure());
+    RetainMTLObjectForCompletion(resource->GetSerializedAccelerationStructure());
+    RetainMTLObjectForCompletion(resource->GetRaytracingHeaderBuffer());
+    RetainMTLObjectForCompletion(
+        resource->GetRaytracingInstanceContributionsBuffer());
   }
 
   void RetainSamplerPairForCompletion(WMT::SamplerState sampler,
@@ -11024,6 +11039,210 @@ static bool WriteReplayBufferRange(MTLD3D12Resource *buffer, uint64_t offset,
       static_cast<UINT>(length)));
 }
 
+static bool BuildReplayOpacityMicromapArray(
+    MTLD3D12Device *device,
+    const CmdBuildRaytracingAccelerationStructure &cmd,
+    MTLD3D12Resource *dest) {
+  if (!device || !dest || !dest->IsBuffer() ||
+      static_cast<UINT>(cmd.type) !=
+          kD3D12RaytracingAccelerationStructureTypeOmmArray ||
+      (cmd.flags & (kD3D12RaytracingBuildFlagAllowUpdate |
+                    kD3D12RaytracingBuildFlagAllowCompaction |
+                    kD3D12RaytracingBuildFlagPerformUpdate |
+                    kD3D12RaytracingBuildFlagAllowOmmUpdate |
+                    kD3D12RaytracingBuildFlagAllowDisableOmms)) ||
+      cmd.omm_histogram_count == 0 ||
+      cmd.omm_histogram_count >
+          CmdBuildRaytracingAccelerationStructure::kMaxOmmHistogramEntries)
+    return false;
+  const auto &array = cmd.opacity_micromap_array_desc;
+  auto *input = device->LookupResourceByGPUAddress(array.input_buffer);
+  auto *descs = device->LookupResourceByGPUAddress(
+      array.per_omm_descs.StartAddress);
+  if (!input || !descs || !input->IsBuffer() || !descs->IsBuffer() ||
+      (array.input_buffer &
+       (kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 ||
+      (array.per_omm_descs.StartAddress &
+       (kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 ||
+      (array.per_omm_descs.StrideInBytes &
+       (kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 ||
+      array.per_omm_descs.StrideInBytes <
+          sizeof(D3D12OpacityMicromapDescCompat))
+    return false;
+
+  uint64_t omm_count = 0;
+  for (UINT i = 0; i < cmd.omm_histogram_count; ++i) {
+    const auto &entry = cmd.omm_histogram[i];
+    if (!entry.count || entry.count > 4096 ||
+        entry.subdivision_level != 0 ||
+        !D3D12IsSupportedOmmFormat(entry.format) ||
+        omm_count > 4096 - entry.count)
+      return false;
+    omm_count += entry.count;
+  }
+  if (!omm_count || omm_count > SIZE_MAX / sizeof(uint8_t) ||
+      omm_count > SIZE_MAX / array.per_omm_descs.StrideInBytes)
+    return false;
+
+  const uint64_t input_offset =
+      array.input_buffer - input->GetGPUVirtualAddress();
+  if (input_offset > input->GetBufferByteLength())
+    return false;
+  const uint64_t desc_offset = array.per_omm_descs.StartAddress -
+                               descs->GetGPUVirtualAddress();
+  const uint64_t desc_bytes =
+      omm_count * array.per_omm_descs.StrideInBytes;
+  if (desc_offset > descs->GetBufferByteLength() ||
+      desc_bytes > descs->GetBufferByteLength() - desc_offset)
+    return false;
+  std::vector<uint8_t> states;
+  states.reserve(static_cast<size_t>(omm_count));
+  for (uint64_t i = 0; i < omm_count; ++i) {
+    std::vector<uint8_t> desc_bytes_data;
+    if (!ReadReplayBufferRange(
+            descs, desc_offset + i * array.per_omm_descs.StrideInBytes,
+            sizeof(D3D12OpacityMicromapDescCompat), desc_bytes_data))
+      return false;
+    D3D12OpacityMicromapDescCompat omm = {};
+    std::memcpy(&omm, desc_bytes_data.data(), sizeof(omm));
+    if (omm.subdivision_level != 0 ||
+        !D3D12IsSupportedOmmFormat(omm.format) ||
+        omm.byte_offset > input->GetBufferByteLength() - input_offset ||
+        omm.byte_offset == input->GetBufferByteLength() - input_offset)
+      return false;
+    uint8_t encoded = 0;
+    if (!input->ReadBufferRange(input_offset + omm.byte_offset, &encoded,
+                                sizeof(encoded)))
+      return false;
+    const uint8_t state = encoded & 0x3u;
+    // Unknown states require any-hit/provider semantics that are not present
+    // in this bounded native-Metal path. Reject rather than treating them as
+    // opaque and silently changing visibility.
+    if (state > 1)
+      return false;
+    states.push_back(state);
+  }
+
+  const uint64_t alignment = kD3D12RaytracingOmmArrayByteAlignment;
+  const uint64_t encoded_size =
+      (alignment + omm_count * sizeof(D3D12OpacityMicromapDescCompat) +
+       alignment - 1) &
+      ~(alignment - 1);
+  const uint64_t dest_offset =
+      cmd.dest_acceleration_structure - dest->GetGPUVirtualAddress();
+  if (dest_offset != 0 ||
+      ((dest->GetGPUVirtualAddress() + dest_offset) & (alignment - 1)) != 0 ||
+      (cmd.scratch_acceleration_structure &
+       (kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0 ||
+      dest_offset > dest->GetBufferByteLength() ||
+      encoded_size > dest->GetBufferByteLength() - dest_offset)
+    return false;
+  dest->SetOpacityMicromapStates(std::move(states), encoded_size);
+  dest->SetRaytracingBuildInfo(
+      static_cast<D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE>(
+          kD3D12RaytracingAccelerationStructureTypeOmmArray), omm_count);
+  return true;
+}
+
+static bool ResolveReplayOpacityMicromapGeometryState(
+    MTLD3D12Device *device,
+    const D3D12OpacityMicromapLinkageDescCompat &linkage,
+    uint32_t primitive_count, bool &opaque) {
+  opaque = false;
+  if (!device || !linkage.index_buffer.StartAddress ||
+      !linkage.index_buffer.StrideInBytes || !primitive_count ||
+      (linkage.index_format != DXGI_FORMAT_R16_UINT &&
+       linkage.index_format != DXGI_FORMAT_R32_UINT) ||
+      ((linkage.index_format == DXGI_FORMAT_R16_UINT) &&
+       (linkage.index_buffer.StartAddress & 1u)) ||
+      ((linkage.index_format == DXGI_FORMAT_R32_UINT) &&
+       (linkage.index_buffer.StartAddress & 3u)) ||
+      (linkage.opacity_micromap_array &&
+       (linkage.opacity_micromap_array &
+        (kD3D12RaytracingOmmArrayByteAlignment - 1))))
+    return false;
+  auto *index_resource =
+      device->LookupResourceByGPUAddress(linkage.index_buffer.StartAddress);
+  if (!index_resource || !index_resource->IsBuffer())
+    return false;
+  const uint64_t index_offset = linkage.index_buffer.StartAddress -
+                                index_resource->GetGPUVirtualAddress();
+  if (primitive_count >
+      UINT64_MAX / linkage.index_buffer.StrideInBytes)
+    return false;
+  const uint64_t index_bytes =
+      uint64_t(primitive_count) * linkage.index_buffer.StrideInBytes;
+  if (index_offset > index_resource->GetBufferByteLength() ||
+      index_bytes > index_resource->GetBufferByteLength() - index_offset)
+    return false;
+
+  bool have_state = false;
+  bool first_opaque = false;
+  for (uint32_t primitive = 0; primitive < primitive_count; ++primitive) {
+    std::vector<uint8_t> encoded_index;
+    const uint32_t index_size = linkage.index_format == DXGI_FORMAT_R32_UINT
+                                    ? sizeof(uint32_t)
+                                    : sizeof(uint16_t);
+    if (!ReadReplayBufferRange(
+            index_resource,
+            index_offset + uint64_t(primitive) * linkage.index_buffer.StrideInBytes,
+            index_size, encoded_index))
+      return false;
+    int32_t index = 0;
+    if (index_size == sizeof(uint32_t)) {
+      uint32_t value = 0;
+      std::memcpy(&value, encoded_index.data(), sizeof(value));
+      index = static_cast<int32_t>(value);
+    } else {
+      uint16_t value = 0;
+      std::memcpy(&value, encoded_index.data(), sizeof(value));
+      index = static_cast<int16_t>(value);
+    }
+
+    bool state_opaque = false;
+    if (index == kD3D12RaytracingOmmSpecialFullyOpaque) {
+      state_opaque = true;
+    } else if (index == kD3D12RaytracingOmmSpecialFullyTransparent) {
+      state_opaque = false;
+    } else if (index == kD3D12RaytracingOmmSpecialUnknownOpaque ||
+               index == kD3D12RaytracingOmmSpecialUnknownTransparent) {
+      // Unknown states require an any-hit/provider path that this bounded
+      // implementation does not have. Reject instead of guessing.
+      return false;
+    } else {
+      if (index < 0 || !linkage.opacity_micromap_array)
+        return false;
+      auto *array = device->LookupResourceByGPUAddress(
+          linkage.opacity_micromap_array);
+      if (!array || !array->HasOpacityMicromapStates())
+        return false;
+      const uint64_t array_offset = linkage.opacity_micromap_array -
+                                    array->GetGPUVirtualAddress();
+      const uint64_t omm_index = uint64_t(linkage.base_location) +
+                                 static_cast<uint32_t>(index);
+      if (array_offset > array->GetOpacityMicromapStates().size() ||
+          omm_index >= array->GetOpacityMicromapStates().size() - array_offset)
+        return false;
+      const uint8_t state =
+          array->GetOpacityMicromapStates()[array_offset + omm_index];
+      if (state > 1)
+        return false;
+      state_opaque = state == 1;
+    }
+    if (!have_state) {
+      first_opaque = state_opaque;
+      have_state = true;
+    } else if (first_opaque != state_opaque) {
+      // A single Metal geometry descriptor cannot express per-triangle OMM
+      // opacity. Keep the operation fail-closed until descriptor splitting is
+      // implemented rather than silently applying the first state globally.
+      return false;
+    }
+  }
+  opaque = first_opaque;
+  return have_state;
+}
+
 static bool ReplayPlanarCopy(const CmdCopyTextureRegion &cmd,
                              MTLD3D12Resource *dst,
                              MTLD3D12Resource *src, bool src_is_buffer,
@@ -14350,6 +14569,22 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
             cmd->dest_acceleration_structure);
         auto *scratch = m_device->LookupResourceByGPUAddress(
             cmd->scratch_acceleration_structure);
+        if (static_cast<UINT>(cmd->type) ==
+            kD3D12RaytracingAccelerationStructureTypeOmmArray) {
+          st.CloseRenderEncoder();
+          if (dest)
+            dest->ClearOpacityMicromapStates();
+          const bool built = BuildReplayOpacityMicromapArray(m_device, *cmd,
+                                                              dest);
+          QTRACE("BuildRaytracingAS OMM array %s dest=%p states=%llu",
+                 built ? "BUILT" : "SKIPPED", (void *)dest,
+                 (unsigned long long)(built && dest
+                                          ? dest->GetOpacityMicromapStates().size()
+                                          : 0));
+          break;
+        }
+        if (dest)
+          dest->ClearOpacityMicromapStates();
         if (!m_device->SupportsMetalRaytracing() || !dest || !scratch ||
             !scratch->GetMTLBuffer().handle) {
           QTRACE("BuildRaytracingAS SKIPPED type=%u dest=%p scratch=%p",
@@ -14369,6 +14604,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         std::vector<D3D12_GPU_VIRTUAL_ADDRESS> bottom_level_pointers;
         WMT::Reference<WMT::AccelerationStructure> mixed_triangle_child;
         WMT::Reference<WMT::AccelerationStructure> mixed_aabb_child;
+        WMT::Reference<WMT::AccelerationStructure>
+            omm_disabled_acceleration_structure;
+        bool omm_disabled_variant = false;
         bool mixed_compound = false;
         const char *kind = "unknown";
         if (cmd->type ==
@@ -14379,62 +14617,284 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           inputs.NumDescs = cmd->num_descs;
           inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
           inputs.pGeometryDescs = cmd->geometries;
-          bool has_aabb_geometry = false;
+          bool has_omm_geometry = false;
           for (UINT i = 0; i < cmd->num_descs; ++i)
-            has_aabb_geometry |=
+            has_omm_geometry |=
                 cmd->geometries[i].Type ==
-                D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
-          if (cmd->num_descs > 1 && has_aabb_geometry) {
-            if (cmd->num_descs > 2) {
-              constexpr UINT kMaxGeometryDescs =
-                  CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs;
-              std::array<WMTAccelerationStructureGeometryInfo,
-                         kMaxGeometryDescs>
-                  mixed_infos = {};
-              bool mixed_valid = cmd->num_descs <= kMaxGeometryDescs;
-              uint64_t mixed_primitive_count = 0;
-              for (UINT i = 0; mixed_valid && i < cmd->num_descs; ++i) {
-                const auto &geometry = cmd->geometries[i];
-                if (geometry.Type ==
-                    D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
-                  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
-                      inputs;
-                  one.NumDescs = 1;
-                  one.pGeometryDescs = &geometry;
-                  WMTAABBAccelerationStructureInfo aabb = {};
-                  mixed_valid = D3D12ResolveAABBAccelerationStructureInfo(
-                      m_device, &one, aabb);
-                  if (mixed_valid) {
-                    mixed_infos[i].type = WMTAccelerationStructureGeometryAABBs;
-                    mixed_infos[i].geometry.aabbs = aabb;
-                    mixed_primitive_count += aabb.bounding_box_count;
-                    if (auto *resource = m_device->LookupResourceByGPUAddress(
-                            geometry.AABBs.AABBs.StartAddress))
-                      st.RetainResourceMetalObjectsForCompletion(resource);
-                  }
-                } else {
-                  D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
-                      inputs;
-                  one.NumDescs = 1;
-                  one.pGeometryDescs = &geometry;
-                  WMTPrimitiveAccelerationStructureInfo triangle = {};
-                  mixed_valid = D3D12ResolveTriangleAccelerationStructureInfo(
-                                    m_device, &one, triangle) &&
-                                ApplyTriangleGeometryTransform(
-                                    m_device, st, geometry, triangle);
-                  if (mixed_valid) {
-                    mixed_infos[i].type =
-                        WMTAccelerationStructureGeometryTriangles;
-                    mixed_infos[i].geometry.triangles = triangle;
-                    mixed_primitive_count += triangle.triangle_count;
-                    if (auto *resource = m_device->LookupResourceByGPUAddress(
-                            geometry.Triangles.VertexBuffer.StartAddress))
-                      st.RetainResourceMetalObjectsForCompletion(resource);
-                    if (geometry.Triangles.IndexBuffer) {
+                kD3D12RaytracingGeometryTypeOmmTriangles;
+          if (has_omm_geometry) {
+            if (cmd->num_descs != 1) {
+              QTRACE("BuildRaytracingAS SKIPPED mixed OMM geometries");
+              break;
+            }
+            D3D12_RAYTRACING_GEOMETRY_DESC triangles_geometry =
+                cmd->geometries[0];
+            triangles_geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+            triangles_geometry.Triangles = cmd->omm_triangles[0];
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one = inputs;
+            one.NumDescs = 1;
+            one.pGeometryDescs = &triangles_geometry;
+            WMTPrimitiveAccelerationStructureInfo metal_info = {};
+            bool valid =
+                (triangles_geometry.Flags &
+                 D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) == 0 &&
+                D3D12ResolveTriangleAccelerationStructureInfo(
+                    m_device, &one, metal_info);
+            bool omm_opaque = false;
+            valid = valid && ResolveReplayOpacityMicromapGeometryState(
+                                 m_device, cmd->omm_linkages[0],
+                                 metal_info.triangle_count, omm_opaque);
+            if (valid) {
+              metal_info.opaque = omm_opaque;
+              valid = ApplyTriangleGeometryTransform(
+                  m_device, st, triangles_geometry, metal_info);
+            }
+            if (!valid ||
+                !metal_device.accelerationStructureSizesForTriangles(
+                    metal_info, sizes)) {
+              QTRACE("BuildRaytracingAS SKIPPED OMM triangle/linkage");
+              break;
+            }
+            const bool perform_update =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                0;
+            const bool allow_refit =
+                (cmd->flags &
+                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+                0;
+            const bool allow_disable_omms =
+                (cmd->flags & kD3D12RaytracingBuildFlagAllowDisableOmms) != 0;
+            // The bounded provider rejects OPAQUE OMM geometry, so disabling
+            // OMMs restores the ordinary non-opaque geometry behavior.  Keep
+            // a second native BLAS rather than forwarding the D3D12 instance
+            // bit into Metal's unrelated instance-options field.
+            WMTPrimitiveAccelerationStructureInfo disabled_metal_info =
+                metal_info;
+            disabled_metal_info.opaque = false;
+            if (perform_update) {
+              auto *source = m_device->LookupResourceByGPUAddress(
+                  cmd->source_acceleration_structure);
+              acceleration_structure = dest->GetMTLAccelerationStructure();
+              auto source_disabled =
+                  source ? source->GetOmmDisabledAccelerationStructure()
+                         : WMT::Reference<WMT::AccelerationStructure>();
+              auto destination_disabled =
+                  dest->GetOmmDisabledAccelerationStructure();
+              if (!source || !source->GetMTLAccelerationStructure().handle ||
+                  !acceleration_structure.handle || !allow_refit ||
+                  !metal_info.allow_refit ||
+                  (allow_disable_omms &&
+                   (!source_disabled.handle || !destination_disabled.handle))) {
+                QTRACE("BuildRaytracingAS SKIPPED OMM update state");
+                break;
+              }
+              // Retain the source AS objects before encoding.  They are not
+              // backed by the D3D12 resource's MTLBuffer and the alternate
+              // DISABLE_OMMS BLAS is otherwise easy to release before the
+              // asynchronous command buffer completes.
+              st.RetainResourceMetalObjectsForCompletion(source);
+              encoded = cmdbuf.refitTriangleAccelerationStructure(
+                  source->GetMTLAccelerationStructure(),
+                  acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                  scratch_offset);
+              if (allow_disable_omms && encoded) {
+                encoded = cmdbuf.refitTriangleAccelerationStructure(
+                    source_disabled, destination_disabled, disabled_metal_info,
+                    scratch->GetMTLBuffer(), scratch_offset);
+                if (encoded)
+                  omm_disabled_acceleration_structure = destination_disabled;
+              }
+              omm_disabled_variant = allow_disable_omms && encoded;
+              if (encoded)
+                st.RetainResourceMetalObjectsForCompletion(source);
+            } else {
+              acceleration_structure = metal_device.newAccelerationStructure(
+                  sizes.acceleration_structure_size);
+              encoded = acceleration_structure.handle &&
+                        cmdbuf.buildTriangleAccelerationStructure(
+                            acceleration_structure, metal_info,
+                            scratch->GetMTLBuffer(), scratch_offset);
+              if (allow_disable_omms && encoded) {
+                omm_disabled_acceleration_structure =
+                    metal_device.newAccelerationStructure(
+                        sizes.acceleration_structure_size);
+                encoded = omm_disabled_acceleration_structure.handle &&
+                          cmdbuf.buildTriangleAccelerationStructure(
+                              omm_disabled_acceleration_structure,
+                              disabled_metal_info, scratch->GetMTLBuffer(),
+                              scratch_offset);
+                omm_disabled_variant = encoded;
+              }
+            }
+            primitive_count = metal_info.triangle_count;
+            kind = perform_update ? "OMM triangle update" : "OMM triangles";
+            if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                    cmd->omm_triangles[0].VertexBuffer.StartAddress))
+              st.RetainResourceMetalObjectsForCompletion(vertex);
+            if (cmd->omm_triangles[0].IndexBuffer) {
+              if (auto *index = m_device->LookupResourceByGPUAddress(
+                      cmd->omm_triangles[0].IndexBuffer))
+                st.RetainResourceMetalObjectsForCompletion(index);
+            }
+            if (auto *index = m_device->LookupResourceByGPUAddress(
+                    cmd->omm_linkages[0].index_buffer.StartAddress))
+              st.RetainResourceMetalObjectsForCompletion(index);
+            if (auto *array = m_device->LookupResourceByGPUAddress(
+                    cmd->omm_linkages[0].opacity_micromap_array))
+              st.RetainResourceMetalObjectsForCompletion(array);
+          } else {
+            bool has_aabb_geometry = false;
+            for (UINT i = 0; i < cmd->num_descs; ++i)
+              has_aabb_geometry |=
+                  cmd->geometries[i].Type ==
+                  D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS;
+            if (cmd->num_descs > 1 && has_aabb_geometry) {
+              if (cmd->num_descs > 2) {
+                constexpr UINT kMaxGeometryDescs =
+                    CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs;
+                std::array<WMTAccelerationStructureGeometryInfo,
+                           kMaxGeometryDescs>
+                    mixed_infos = {};
+                bool mixed_valid = cmd->num_descs <= kMaxGeometryDescs;
+                uint64_t mixed_primitive_count = 0;
+                for (UINT i = 0; mixed_valid && i < cmd->num_descs; ++i) {
+                  const auto &geometry = cmd->geometries[i];
+                  if (geometry.Type ==
+                      D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+                    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                        inputs;
+                    one.NumDescs = 1;
+                    one.pGeometryDescs = &geometry;
+                    WMTAABBAccelerationStructureInfo aabb = {};
+                    mixed_valid = D3D12ResolveAABBAccelerationStructureInfo(
+                        m_device, &one, aabb);
+                    if (mixed_valid) {
+                      mixed_infos[i].type = WMTAccelerationStructureGeometryAABBs;
+                      mixed_infos[i].geometry.aabbs = aabb;
+                      mixed_primitive_count += aabb.bounding_box_count;
                       if (auto *resource = m_device->LookupResourceByGPUAddress(
-                              geometry.Triangles.IndexBuffer))
+                              geometry.AABBs.AABBs.StartAddress))
                         st.RetainResourceMetalObjectsForCompletion(resource);
                     }
+                  } else {
+                    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                        inputs;
+                    one.NumDescs = 1;
+                    one.pGeometryDescs = &geometry;
+                    WMTPrimitiveAccelerationStructureInfo triangle = {};
+                    mixed_valid = D3D12ResolveTriangleAccelerationStructureInfo(
+                                      m_device, &one, triangle) &&
+                                  ApplyTriangleGeometryTransform(
+                                      m_device, st, geometry, triangle);
+                    if (mixed_valid) {
+                      mixed_infos[i].type =
+                          WMTAccelerationStructureGeometryTriangles;
+                      mixed_infos[i].geometry.triangles = triangle;
+                      mixed_primitive_count += triangle.triangle_count;
+                      if (auto *resource = m_device->LookupResourceByGPUAddress(
+                              geometry.Triangles.VertexBuffer.StartAddress))
+                        st.RetainResourceMetalObjectsForCompletion(resource);
+                      if (geometry.Triangles.IndexBuffer) {
+                        if (auto *resource = m_device->LookupResourceByGPUAddress(
+                                geometry.Triangles.IndexBuffer))
+                          st.RetainResourceMetalObjectsForCompletion(resource);
+                      }
+                    }
+                  }
+                }
+                const bool perform_update =
+                    (cmd->flags &
+                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                    0;
+                const bool allow_refit =
+                    (cmd->flags &
+                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
+                    0;
+                mixed_valid = mixed_valid && (!perform_update || allow_refit);
+                WMTAccelerationStructureSizes native_sizes = {};
+                const bool native_sizes_ok =
+                    mixed_valid &&
+                    metal_device.accelerationStructureSizesForMixedGeometries(
+                        mixed_infos.data(), cmd->num_descs, native_sizes);
+                if (native_sizes_ok) {
+                  if (perform_update) {
+                    auto *source = m_device->LookupResourceByGPUAddress(
+                        cmd->source_acceleration_structure);
+                    acceleration_structure = dest->GetMTLAccelerationStructure();
+                    encoded = source && acceleration_structure.handle &&
+                              source->GetMTLAccelerationStructure().handle &&
+                              cmdbuf.refitMixedAccelerationStructure(
+                                  source->GetMTLAccelerationStructure(),
+                                  acceleration_structure, mixed_infos.data(),
+                                  cmd->num_descs, scratch->GetMTLBuffer(),
+                                  scratch_offset);
+                    if (encoded)
+                      st.RetainResourceMetalObjectsForCompletion(source);
+                  } else {
+                    acceleration_structure =
+                        metal_device.newAccelerationStructure(
+                            native_sizes.acceleration_structure_size);
+                    encoded = acceleration_structure.handle &&
+                              cmdbuf.buildMixedAccelerationStructure(
+                                  acceleration_structure, mixed_infos.data(),
+                                  cmd->num_descs, scratch->GetMTLBuffer(),
+                                  scratch_offset);
+                  }
+                  if (encoded) {
+                    sizes = native_sizes;
+                    primitive_count = mixed_primitive_count;
+                    kind = perform_update ? "native mixed geometry update"
+                                          : "native mixed geometry";
+                  }
+                }
+                if (!encoded) {
+                  QTRACE("BuildRaytracingAS SKIPPED mixed geometry list of %u: "
+                         "native mixed provider rejected it", cmd->num_descs);
+                  break;
+                }
+              }
+              else {
+              // Metal's current mixed primitive descriptor implementation sends
+              // an AABB descriptor through the triangle descriptor vtable. Keep
+              // the D3D12 mixed-geometry contract by building one native child
+              // BLAS per geometry kind and a native TLAS over those children.
+              // The compound remains a real Metal acceleration structure, so it
+              // is traversable and can be refit without treating a successful
+              // size query as proof of execution.
+              WMTPrimitiveAccelerationStructureInfo triangle_info = {};
+              WMTAABBAccelerationStructureInfo aabb_info = {};
+              bool valid = cmd->num_descs <= 2;
+              UINT triangle_count = 0;
+              UINT aabb_count = 0;
+              for (UINT i = 0; valid && i < cmd->num_descs; ++i) {
+                D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                    inputs;
+                one.NumDescs = 1;
+                one.pGeometryDescs = &cmd->geometries[i];
+                if (cmd->geometries[i].Type ==
+                    D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+                  valid = ++aabb_count == 1 &&
+                          D3D12ResolveAABBAccelerationStructureInfo(
+                              m_device, &one, aabb_info);
+                  primitive_count += aabb_info.bounding_box_count;
+                  if (auto *aabbs = m_device->LookupResourceByGPUAddress(
+                          cmd->geometries[i].AABBs.AABBs.StartAddress))
+                    st.RetainResourceMetalObjectsForCompletion(aabbs);
+                } else {
+                  valid = ++triangle_count == 1 &&
+                          D3D12ResolveTriangleAccelerationStructureInfo(
+                              m_device, &one, triangle_info) &&
+                          ApplyTriangleGeometryTransform(
+                              m_device, st, cmd->geometries[i], triangle_info);
+                  primitive_count += triangle_info.triangle_count;
+                  if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                          cmd->geometries[i].Triangles.VertexBuffer.StartAddress))
+                    st.RetainResourceMetalObjectsForCompletion(vertex);
+                  if (cmd->geometries[i].Triangles.IndexBuffer) {
+                    if (auto *index = m_device->LookupResourceByGPUAddress(
+                            cmd->geometries[i].Triangles.IndexBuffer))
+                      st.RetainResourceMetalObjectsForCompletion(index);
                   }
                 }
               }
@@ -14446,13 +14906,36 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                   (cmd->flags &
                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
                   0;
-              mixed_valid = mixed_valid && (!perform_update || allow_refit);
-              WMTAccelerationStructureSizes native_sizes = {};
-              const bool native_sizes_ok =
-                  mixed_valid &&
+              WMTAccelerationStructureSizes triangle_sizes = {};
+              WMTAccelerationStructureSizes aabb_sizes = {};
+              WMTAccelerationStructureSizes instance_sizes = {};
+              if (!valid || triangle_count != 1 || aabb_count != 1 ||
+                  (perform_update && !allow_refit) ||
+                  !metal_device.accelerationStructureSizesForTriangles(
+                      triangle_info, triangle_sizes) ||
+                  !metal_device.accelerationStructureSizesForAABBs(
+                      aabb_info, aabb_sizes) ||
+                  !metal_device.accelerationStructureSizesForInstances(
+                      2, allow_refit, instance_sizes)) {
+                QTRACE("BuildRaytracingAS SKIPPED mixed geometry composite descriptors");
+                break;
+              }
+
+              // Prefer the native mixed-geometry descriptor when the selected
+              // Metal provider accepts it.  The compound BLAS/TLAS path below
+              // remains a compatibility fallback for older Metal toolchains,
+              // but it must not be the only implementation of a legal D3D12
+              // mixed BLAS request.
+              WMTAccelerationStructureGeometryInfo mixed_infos[2] = {};
+              mixed_infos[0].type = WMTAccelerationStructureGeometryTriangles;
+              mixed_infos[0].geometry.triangles = triangle_info;
+              mixed_infos[1].type = WMTAccelerationStructureGeometryAABBs;
+              mixed_infos[1].geometry.aabbs = aabb_info;
+              WMTAccelerationStructureSizes native_mixed_sizes = {};
+              const bool native_mixed_sizes_ok =
                   metal_device.accelerationStructureSizesForMixedGeometries(
-                      mixed_infos.data(), cmd->num_descs, native_sizes);
-              if (native_sizes_ok) {
+                      mixed_infos, 2, native_mixed_sizes);
+              if (native_mixed_sizes_ok) {
                 if (perform_update) {
                   auto *source = m_device->LookupResourceByGPUAddress(
                       cmd->source_acceleration_structure);
@@ -14461,369 +14944,252 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                             source->GetMTLAccelerationStructure().handle &&
                             cmdbuf.refitMixedAccelerationStructure(
                                 source->GetMTLAccelerationStructure(),
-                                acceleration_structure, mixed_infos.data(),
-                                cmd->num_descs, scratch->GetMTLBuffer(),
-                                scratch_offset);
+                                acceleration_structure, mixed_infos, 2,
+                                scratch->GetMTLBuffer(), scratch_offset);
                   if (encoded)
                     st.RetainResourceMetalObjectsForCompletion(source);
                 } else {
-                  acceleration_structure =
-                      metal_device.newAccelerationStructure(
-                          native_sizes.acceleration_structure_size);
+                  acceleration_structure = metal_device.newAccelerationStructure(
+                      native_mixed_sizes.acceleration_structure_size);
                   encoded = acceleration_structure.handle &&
                             cmdbuf.buildMixedAccelerationStructure(
-                                acceleration_structure, mixed_infos.data(),
-                                cmd->num_descs, scratch->GetMTLBuffer(),
-                                scratch_offset);
+                                acceleration_structure, mixed_infos, 2,
+                                scratch->GetMTLBuffer(), scratch_offset);
                 }
                 if (encoded) {
-                  sizes = native_sizes;
-                  primitive_count = mixed_primitive_count;
+                  sizes = native_mixed_sizes;
+                  mixed_compound = false;
                   kind = perform_update ? "native mixed geometry update"
-                                        : "native mixed geometry";
+                                         : "native mixed geometry";
                 }
               }
-              if (!encoded) {
-                QTRACE("BuildRaytracingAS SKIPPED mixed geometry list of %u: "
-                       "native mixed provider rejected it", cmd->num_descs);
-                break;
-              }
-            }
-            else {
-            // Metal's current mixed primitive descriptor implementation sends
-            // an AABB descriptor through the triangle descriptor vtable. Keep
-            // the D3D12 mixed-geometry contract by building one native child
-            // BLAS per geometry kind and a native TLAS over those children.
-            // The compound remains a real Metal acceleration structure, so it
-            // is traversable and can be refit without treating a successful
-            // size query as proof of execution.
-            WMTPrimitiveAccelerationStructureInfo triangle_info = {};
-            WMTAABBAccelerationStructureInfo aabb_info = {};
-            bool valid = cmd->num_descs <= 2;
-            UINT triangle_count = 0;
-            UINT aabb_count = 0;
-            for (UINT i = 0; valid && i < cmd->num_descs; ++i) {
-              D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
-                  inputs;
-              one.NumDescs = 1;
-              one.pGeometryDescs = &cmd->geometries[i];
-              if (cmd->geometries[i].Type ==
-                  D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
-                valid = ++aabb_count == 1 &&
-                        D3D12ResolveAABBAccelerationStructureInfo(
-                            m_device, &one, aabb_info);
-                primitive_count += aabb_info.bounding_box_count;
-                if (auto *aabbs = m_device->LookupResourceByGPUAddress(
-                        cmd->geometries[i].AABBs.AABBs.StartAddress))
-                  st.RetainResourceMetalObjectsForCompletion(aabbs);
-              } else {
-                valid = ++triangle_count == 1 &&
-                        D3D12ResolveTriangleAccelerationStructureInfo(
-                            m_device, &one, triangle_info) &&
-                        ApplyTriangleGeometryTransform(
-                            m_device, st, cmd->geometries[i], triangle_info);
-                primitive_count += triangle_info.triangle_count;
-                if (auto *vertex = m_device->LookupResourceByGPUAddress(
-                        cmd->geometries[i].Triangles.VertexBuffer.StartAddress))
-                  st.RetainResourceMetalObjectsForCompletion(vertex);
-                if (cmd->geometries[i].Triangles.IndexBuffer) {
-                  if (auto *index = m_device->LookupResourceByGPUAddress(
-                          cmd->geometries[i].Triangles.IndexBuffer))
-                    st.RetainResourceMetalObjectsForCompletion(index);
-                }
-              }
-            }
-            const bool perform_update =
-                (cmd->flags &
-                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
-                0;
-            const bool allow_refit =
-                (cmd->flags &
-                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE) !=
-                0;
-            WMTAccelerationStructureSizes triangle_sizes = {};
-            WMTAccelerationStructureSizes aabb_sizes = {};
-            WMTAccelerationStructureSizes instance_sizes = {};
-            if (!valid || triangle_count != 1 || aabb_count != 1 ||
-                (perform_update && !allow_refit) ||
-                !metal_device.accelerationStructureSizesForTriangles(
-                    triangle_info, triangle_sizes) ||
-                !metal_device.accelerationStructureSizesForAABBs(
-                    aabb_info, aabb_sizes) ||
-                !metal_device.accelerationStructureSizesForInstances(
-                    2, allow_refit, instance_sizes)) {
-              QTRACE("BuildRaytracingAS SKIPPED mixed geometry composite descriptors");
-              break;
-            }
 
-            // Prefer the native mixed-geometry descriptor when the selected
-            // Metal provider accepts it.  The compound BLAS/TLAS path below
-            // remains a compatibility fallback for older Metal toolchains,
-            // but it must not be the only implementation of a legal D3D12
-            // mixed BLAS request.
-            WMTAccelerationStructureGeometryInfo mixed_infos[2] = {};
-            mixed_infos[0].type = WMTAccelerationStructureGeometryTriangles;
-            mixed_infos[0].geometry.triangles = triangle_info;
-            mixed_infos[1].type = WMTAccelerationStructureGeometryAABBs;
-            mixed_infos[1].geometry.aabbs = aabb_info;
-            WMTAccelerationStructureSizes native_mixed_sizes = {};
-            const bool native_mixed_sizes_ok =
-                metal_device.accelerationStructureSizesForMixedGeometries(
-                    mixed_infos, 2, native_mixed_sizes);
-            if (native_mixed_sizes_ok) {
+              if (!encoded) {
+                auto make_child_instances = [&](WMT::Buffer &instance_buffer,
+                                               obj_handle_t child_handles[2]) {
+                WMTAccelerationStructureInstanceDescriptor child_instances[2] =
+                    {};
+                for (uint32_t i = 0; i < 2; ++i) {
+                  child_instances[i].transformation_matrix[0] = 1.0f;
+                  child_instances[i].transformation_matrix[4] = 1.0f;
+                  child_instances[i].transformation_matrix[8] = 1.0f;
+                  child_instances[i].mask = 0xff;
+                  child_instances[i].acceleration_structure_index = i;
+                  child_instances[i].user_id = i;
+                }
+                instance_buffer = st.MakeTransientBuffer(
+                    m_device, sizeof(child_instances));
+                if (!instance_buffer.handle)
+                  return false;
+                instance_buffer.updateContents(0, child_instances,
+                                                sizeof(child_instances));
+                child_handles[0] = mixed_triangle_child.handle;
+                child_handles[1] = mixed_aabb_child.handle;
+                return child_handles[0] != 0 && child_handles[1] != 0;
+              };
+
               if (perform_update) {
                 auto *source = m_device->LookupResourceByGPUAddress(
                     cmd->source_acceleration_structure);
                 acceleration_structure = dest->GetMTLAccelerationStructure();
-                encoded = source && acceleration_structure.handle &&
-                          source->GetMTLAccelerationStructure().handle &&
-                          cmdbuf.refitMixedAccelerationStructure(
+                auto source_triangle =
+                    source ? source->GetMixedTriangleAccelerationStructure()
+                           : WMT::Reference<WMT::AccelerationStructure>{};
+                auto source_aabb =
+                    source ? source->GetMixedAABBAccelerationStructure()
+                           : WMT::Reference<WMT::AccelerationStructure>{};
+                mixed_triangle_child = metal_device.newAccelerationStructure(
+                    triangle_sizes.acceleration_structure_size);
+                mixed_aabb_child = metal_device.newAccelerationStructure(
+                    aabb_sizes.acceleration_structure_size);
+                if (!source || !source->GetMTLAccelerationStructure().handle ||
+                    !source_triangle.handle || !source_aabb.handle ||
+                    !acceleration_structure.handle ||
+                    !mixed_triangle_child.handle || !mixed_aabb_child.handle) {
+                  QTRACE("BuildRaytracingAS SKIPPED mixed update state");
+                  break;
+                }
+                bool child_encoded = cmdbuf.refitTriangleAccelerationStructure(
+                    source_triangle, mixed_triangle_child, triangle_info,
+                    scratch->GetMTLBuffer(), scratch_offset);
+                child_encoded &= cmdbuf.refitAABBAccelerationStructure(
+                    source_aabb, mixed_aabb_child, aabb_info,
+                    scratch->GetMTLBuffer(), scratch_offset);
+                WMT::Buffer instance_buffer;
+                obj_handle_t child_handles[2] = {};
+                child_encoded &= make_child_instances(instance_buffer,
+                                                      child_handles);
+                encoded = child_encoded &&
+                          cmdbuf.refitInstanceAccelerationStructure(
                               source->GetMTLAccelerationStructure(),
-                              acceleration_structure, mixed_infos, 2,
-                              scratch->GetMTLBuffer(), scratch_offset);
+                              acceleration_structure, instance_buffer, 0, 2,
+                              child_handles, 2, scratch->GetMTLBuffer(),
+                              scratch_offset);
+                if (encoded)
+                  st.RetainResourceMetalObjectsForCompletion(source);
+              } else {
+                mixed_triangle_child = metal_device.newAccelerationStructure(
+                    triangle_sizes.acceleration_structure_size);
+                mixed_aabb_child = metal_device.newAccelerationStructure(
+                    aabb_sizes.acceleration_structure_size);
+                acceleration_structure = metal_device.newAccelerationStructure(
+                    instance_sizes.acceleration_structure_size);
+                WMT::Buffer instance_buffer;
+                obj_handle_t child_handles[2] = {};
+                const bool instances_ready =
+                    make_child_instances(instance_buffer, child_handles);
+                encoded =
+                    mixed_triangle_child.handle && mixed_aabb_child.handle &&
+                    acceleration_structure.handle && instances_ready &&
+                    cmdbuf.buildTriangleAccelerationStructure(
+                        mixed_triangle_child, triangle_info,
+                        scratch->GetMTLBuffer(), scratch_offset) &&
+                    cmdbuf.buildAABBAccelerationStructure(
+                        mixed_aabb_child, aabb_info, scratch->GetMTLBuffer(),
+                        scratch_offset) &&
+                    cmdbuf.buildInstanceAccelerationStructure(
+                        acceleration_structure, instance_buffer, 0, 2,
+                        child_handles, 2, allow_refit, scratch->GetMTLBuffer(),
+                        scratch_offset);
+              }
+              sizes = instance_sizes;
+              mixed_compound = encoded;
+                kind = perform_update ? "mixed geometry composite update"
+                                       : "mixed geometry composite";
+              }
+            }
+            } else if (cmd->num_descs > 1) {
+              std::array<WMTPrimitiveAccelerationStructureInfo,
+                         CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
+                  metal_infos = {};
+              bool valid = cmd->num_descs <= metal_infos.size();
+              for (UINT i = 0; valid && i < cmd->num_descs; i++) {
+                D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
+                    inputs;
+                one.NumDescs = 1;
+                one.pGeometryDescs = &cmd->geometries[i];
+                valid = D3D12ResolveTriangleAccelerationStructureInfo(
+                    m_device, &one, metal_infos[i]) &&
+                        ApplyTriangleGeometryTransform(
+                            m_device, st, cmd->geometries[i], metal_infos[i]);
+                primitive_count += metal_infos[i].triangle_count;
+              }
+              if (!valid ||
+                  !metal_device.accelerationStructureSizesForTriangleGeometries(
+                      metal_infos.data(), cmd->num_descs, sizes)) {
+                QTRACE("BuildRaytracingAS SKIPPED multi-geometry descriptors");
+                break;
+              }
+              acceleration_structure = metal_device.newAccelerationStructure(
+                  sizes.acceleration_structure_size);
+              encoded = acceleration_structure.handle &&
+                        cmdbuf.buildTriangleAccelerationStructures(
+                            acceleration_structure, metal_infos.data(),
+                            cmd->num_descs, scratch->GetMTLBuffer(),
+                            scratch_offset);
+              kind = "triangle geometries";
+              for (UINT i = 0; i < cmd->num_descs; i++) {
+                const auto &geometry = cmd->geometries[i];
+                if (auto *vertex = m_device->LookupResourceByGPUAddress(
+                        geometry.Triangles.VertexBuffer.StartAddress))
+                  st.RetainResourceMetalObjectsForCompletion(vertex);
+                if (geometry.Triangles.IndexBuffer) {
+                  if (auto *index = m_device->LookupResourceByGPUAddress(
+                          geometry.Triangles.IndexBuffer))
+                    st.RetainResourceMetalObjectsForCompletion(index);
+                }
+              }
+            } else if (cmd->geometries[0].Type ==
+                D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+              WMTAABBAccelerationStructureInfo metal_info = {};
+              if (!D3D12ResolveAABBAccelerationStructureInfo(
+                      m_device, &inputs, metal_info) ||
+                  !metal_device.accelerationStructureSizesForAABBs(metal_info,
+                                                                    sizes)) {
+                QTRACE("BuildRaytracingAS SKIPPED AABB descriptor/size query");
+                break;
+              }
+              const bool perform_update =
+                  (cmd->flags &
+                   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                  0;
+              if (perform_update) {
+                auto *source = m_device->LookupResourceByGPUAddress(
+                    cmd->source_acceleration_structure);
+                acceleration_structure = dest->GetMTLAccelerationStructure();
+                if (!source || !source->GetMTLAccelerationStructure().handle ||
+                    !acceleration_structure.handle || !metal_info.allow_refit) {
+                  QTRACE("BuildRaytracingAS SKIPPED AABB update state");
+                  break;
+                }
+                encoded = cmdbuf.refitAABBAccelerationStructure(
+                    source->GetMTLAccelerationStructure(),
+                    acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                    scratch_offset);
                 if (encoded)
                   st.RetainResourceMetalObjectsForCompletion(source);
               } else {
                 acceleration_structure = metal_device.newAccelerationStructure(
-                    native_mixed_sizes.acceleration_structure_size);
+                    sizes.acceleration_structure_size);
                 encoded = acceleration_structure.handle &&
-                          cmdbuf.buildMixedAccelerationStructure(
-                              acceleration_structure, mixed_infos, 2,
+                          cmdbuf.buildAABBAccelerationStructure(
+                              acceleration_structure, metal_info,
                               scratch->GetMTLBuffer(), scratch_offset);
               }
-              if (encoded) {
-                sizes = native_mixed_sizes;
-                mixed_compound = false;
-                kind = perform_update ? "native mixed geometry update"
-                                       : "native mixed geometry";
-              }
-            }
-
-            if (!encoded) {
-              auto make_child_instances = [&](WMT::Buffer &instance_buffer,
-                                             obj_handle_t child_handles[2]) {
-              WMTAccelerationStructureInstanceDescriptor child_instances[2] =
-                  {};
-              for (uint32_t i = 0; i < 2; ++i) {
-                child_instances[i].transformation_matrix[0] = 1.0f;
-                child_instances[i].transformation_matrix[4] = 1.0f;
-                child_instances[i].transformation_matrix[8] = 1.0f;
-                child_instances[i].mask = 0xff;
-                child_instances[i].acceleration_structure_index = i;
-                child_instances[i].user_id = i;
-              }
-              instance_buffer = st.MakeTransientBuffer(
-                  m_device, sizeof(child_instances));
-              if (!instance_buffer.handle)
-                return false;
-              instance_buffer.updateContents(0, child_instances,
-                                              sizeof(child_instances));
-              child_handles[0] = mixed_triangle_child.handle;
-              child_handles[1] = mixed_aabb_child.handle;
-              return child_handles[0] != 0 && child_handles[1] != 0;
-            };
-
-            if (perform_update) {
-              auto *source = m_device->LookupResourceByGPUAddress(
-                  cmd->source_acceleration_structure);
-              acceleration_structure = dest->GetMTLAccelerationStructure();
-              auto source_triangle =
-                  source ? source->GetMixedTriangleAccelerationStructure()
-                         : WMT::Reference<WMT::AccelerationStructure>{};
-              auto source_aabb =
-                  source ? source->GetMixedAABBAccelerationStructure()
-                         : WMT::Reference<WMT::AccelerationStructure>{};
-              mixed_triangle_child = metal_device.newAccelerationStructure(
-                  triangle_sizes.acceleration_structure_size);
-              mixed_aabb_child = metal_device.newAccelerationStructure(
-                  aabb_sizes.acceleration_structure_size);
-              if (!source || !source->GetMTLAccelerationStructure().handle ||
-                  !source_triangle.handle || !source_aabb.handle ||
-                  !acceleration_structure.handle ||
-                  !mixed_triangle_child.handle || !mixed_aabb_child.handle) {
-                QTRACE("BuildRaytracingAS SKIPPED mixed update state");
+              primitive_count = metal_info.bounding_box_count;
+              kind = perform_update ? "AABB update" : "AABBs";
+              if (auto *aabbs = m_device->LookupResourceByGPUAddress(
+                      cmd->geometries[0].AABBs.AABBs.StartAddress))
+                st.RetainResourceMetalObjectsForCompletion(aabbs);
+            } else {
+              WMTPrimitiveAccelerationStructureInfo metal_info = {};
+              if (!D3D12ResolveTriangleAccelerationStructureInfo(
+                      m_device, &inputs, metal_info) ||
+                  !ApplyTriangleGeometryTransform(
+                      m_device, st, cmd->geometries[0], metal_info) ||
+                  !metal_device.accelerationStructureSizesForTriangles(
+                      metal_info, sizes)) {
+                QTRACE("BuildRaytracingAS SKIPPED triangle descriptor/size query");
                 break;
               }
-              bool child_encoded = cmdbuf.refitTriangleAccelerationStructure(
-                  source_triangle, mixed_triangle_child, triangle_info,
-                  scratch->GetMTLBuffer(), scratch_offset);
-              child_encoded &= cmdbuf.refitAABBAccelerationStructure(
-                  source_aabb, mixed_aabb_child, aabb_info,
-                  scratch->GetMTLBuffer(), scratch_offset);
-              WMT::Buffer instance_buffer;
-              obj_handle_t child_handles[2] = {};
-              child_encoded &= make_child_instances(instance_buffer,
-                                                    child_handles);
-              encoded = child_encoded &&
-                        cmdbuf.refitInstanceAccelerationStructure(
-                            source->GetMTLAccelerationStructure(),
-                            acceleration_structure, instance_buffer, 0, 2,
-                            child_handles, 2, scratch->GetMTLBuffer(),
-                            scratch_offset);
-              if (encoded)
-                st.RetainResourceMetalObjectsForCompletion(source);
-            } else {
-              mixed_triangle_child = metal_device.newAccelerationStructure(
-                  triangle_sizes.acceleration_structure_size);
-              mixed_aabb_child = metal_device.newAccelerationStructure(
-                  aabb_sizes.acceleration_structure_size);
-              acceleration_structure = metal_device.newAccelerationStructure(
-                  instance_sizes.acceleration_structure_size);
-              WMT::Buffer instance_buffer;
-              obj_handle_t child_handles[2] = {};
-              const bool instances_ready =
-                  make_child_instances(instance_buffer, child_handles);
-              encoded =
-                  mixed_triangle_child.handle && mixed_aabb_child.handle &&
-                  acceleration_structure.handle && instances_ready &&
-                  cmdbuf.buildTriangleAccelerationStructure(
-                      mixed_triangle_child, triangle_info,
-                      scratch->GetMTLBuffer(), scratch_offset) &&
-                  cmdbuf.buildAABBAccelerationStructure(
-                      mixed_aabb_child, aabb_info, scratch->GetMTLBuffer(),
-                      scratch_offset) &&
-                  cmdbuf.buildInstanceAccelerationStructure(
-                      acceleration_structure, instance_buffer, 0, 2,
-                      child_handles, 2, allow_refit, scratch->GetMTLBuffer(),
-                      scratch_offset);
-            }
-            sizes = instance_sizes;
-            mixed_compound = encoded;
-              kind = perform_update ? "mixed geometry composite update"
-                                     : "mixed geometry composite";
-            }
-          }
-          } else if (cmd->num_descs > 1) {
-            std::array<WMTPrimitiveAccelerationStructureInfo,
-                       CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs>
-                metal_infos = {};
-            bool valid = cmd->num_descs <= metal_infos.size();
-            for (UINT i = 0; valid && i < cmd->num_descs; i++) {
-              D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one =
-                  inputs;
-              one.NumDescs = 1;
-              one.pGeometryDescs = &cmd->geometries[i];
-              valid = D3D12ResolveTriangleAccelerationStructureInfo(
-                  m_device, &one, metal_infos[i]) &&
-                      ApplyTriangleGeometryTransform(
-                          m_device, st, cmd->geometries[i], metal_infos[i]);
-              primitive_count += metal_infos[i].triangle_count;
-            }
-            if (!valid ||
-                !metal_device.accelerationStructureSizesForTriangleGeometries(
-                    metal_infos.data(), cmd->num_descs, sizes)) {
-              QTRACE("BuildRaytracingAS SKIPPED multi-geometry descriptors");
-              break;
-            }
-            acceleration_structure = metal_device.newAccelerationStructure(
-                sizes.acceleration_structure_size);
-            encoded = acceleration_structure.handle &&
-                      cmdbuf.buildTriangleAccelerationStructures(
-                          acceleration_structure, metal_infos.data(),
-                          cmd->num_descs, scratch->GetMTLBuffer(),
-                          scratch_offset);
-            kind = "triangle geometries";
-            for (UINT i = 0; i < cmd->num_descs; i++) {
-              const auto &geometry = cmd->geometries[i];
+              const bool perform_update =
+                  (cmd->flags &
+                   D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
+                  0;
+              if (perform_update) {
+                auto *source = m_device->LookupResourceByGPUAddress(
+                    cmd->source_acceleration_structure);
+                acceleration_structure = dest->GetMTLAccelerationStructure();
+                if (!source || !source->GetMTLAccelerationStructure().handle ||
+                    !acceleration_structure.handle ||
+                    !metal_info.allow_refit) {
+                  QTRACE("BuildRaytracingAS SKIPPED triangle update state");
+                  break;
+                }
+                encoded = cmdbuf.refitTriangleAccelerationStructure(
+                    source->GetMTLAccelerationStructure(),
+                    acceleration_structure, metal_info, scratch->GetMTLBuffer(),
+                    scratch_offset);
+                if (encoded)
+                  st.RetainResourceMetalObjectsForCompletion(source);
+              } else {
+                acceleration_structure = metal_device.newAccelerationStructure(
+                    sizes.acceleration_structure_size);
+                encoded = acceleration_structure.handle &&
+                          cmdbuf.buildTriangleAccelerationStructure(
+                              acceleration_structure, metal_info,
+                              scratch->GetMTLBuffer(), scratch_offset);
+              }
+              primitive_count = metal_info.triangle_count;
+              kind = perform_update ? "triangle update" : "triangles";
               if (auto *vertex = m_device->LookupResourceByGPUAddress(
-                      geometry.Triangles.VertexBuffer.StartAddress))
+                      cmd->geometries[0].Triangles.VertexBuffer.StartAddress))
                 st.RetainResourceMetalObjectsForCompletion(vertex);
-              if (geometry.Triangles.IndexBuffer) {
+              if (cmd->geometries[0].Triangles.IndexBuffer) {
                 if (auto *index = m_device->LookupResourceByGPUAddress(
-                        geometry.Triangles.IndexBuffer))
+                        cmd->geometries[0].Triangles.IndexBuffer))
                   st.RetainResourceMetalObjectsForCompletion(index);
               }
-            }
-          } else if (cmd->geometries[0].Type ==
-              D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
-            WMTAABBAccelerationStructureInfo metal_info = {};
-            if (!D3D12ResolveAABBAccelerationStructureInfo(
-                    m_device, &inputs, metal_info) ||
-                !metal_device.accelerationStructureSizesForAABBs(metal_info,
-                                                                  sizes)) {
-              QTRACE("BuildRaytracingAS SKIPPED AABB descriptor/size query");
-              break;
-            }
-            const bool perform_update =
-                (cmd->flags &
-                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
-                0;
-            if (perform_update) {
-              auto *source = m_device->LookupResourceByGPUAddress(
-                  cmd->source_acceleration_structure);
-              acceleration_structure = dest->GetMTLAccelerationStructure();
-              if (!source || !source->GetMTLAccelerationStructure().handle ||
-                  !acceleration_structure.handle || !metal_info.allow_refit) {
-                QTRACE("BuildRaytracingAS SKIPPED AABB update state");
-                break;
-              }
-              encoded = cmdbuf.refitAABBAccelerationStructure(
-                  source->GetMTLAccelerationStructure(),
-                  acceleration_structure, metal_info, scratch->GetMTLBuffer(),
-                  scratch_offset);
-              if (encoded)
-                st.RetainResourceMetalObjectsForCompletion(source);
-            } else {
-              acceleration_structure = metal_device.newAccelerationStructure(
-                  sizes.acceleration_structure_size);
-              encoded = acceleration_structure.handle &&
-                        cmdbuf.buildAABBAccelerationStructure(
-                            acceleration_structure, metal_info,
-                            scratch->GetMTLBuffer(), scratch_offset);
-            }
-            primitive_count = metal_info.bounding_box_count;
-            kind = perform_update ? "AABB update" : "AABBs";
-            if (auto *aabbs = m_device->LookupResourceByGPUAddress(
-                    cmd->geometries[0].AABBs.AABBs.StartAddress))
-              st.RetainResourceMetalObjectsForCompletion(aabbs);
-          } else {
-            WMTPrimitiveAccelerationStructureInfo metal_info = {};
-            if (!D3D12ResolveTriangleAccelerationStructureInfo(
-                    m_device, &inputs, metal_info) ||
-                !ApplyTriangleGeometryTransform(
-                    m_device, st, cmd->geometries[0], metal_info) ||
-                !metal_device.accelerationStructureSizesForTriangles(
-                    metal_info, sizes)) {
-              QTRACE("BuildRaytracingAS SKIPPED triangle descriptor/size query");
-              break;
-            }
-            const bool perform_update =
-                (cmd->flags &
-                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE) !=
-                0;
-            if (perform_update) {
-              auto *source = m_device->LookupResourceByGPUAddress(
-                  cmd->source_acceleration_structure);
-              acceleration_structure = dest->GetMTLAccelerationStructure();
-              if (!source || !source->GetMTLAccelerationStructure().handle ||
-                  !acceleration_structure.handle ||
-                  !metal_info.allow_refit) {
-                QTRACE("BuildRaytracingAS SKIPPED triangle update state");
-                break;
-              }
-              encoded = cmdbuf.refitTriangleAccelerationStructure(
-                  source->GetMTLAccelerationStructure(),
-                  acceleration_structure, metal_info, scratch->GetMTLBuffer(),
-                  scratch_offset);
-              if (encoded)
-                st.RetainResourceMetalObjectsForCompletion(source);
-            } else {
-              acceleration_structure = metal_device.newAccelerationStructure(
-                  sizes.acceleration_structure_size);
-              encoded = acceleration_structure.handle &&
-                        cmdbuf.buildTriangleAccelerationStructure(
-                            acceleration_structure, metal_info,
-                            scratch->GetMTLBuffer(), scratch_offset);
-            }
-            primitive_count = metal_info.triangle_count;
-            kind = perform_update ? "triangle update" : "triangles";
-            if (auto *vertex = m_device->LookupResourceByGPUAddress(
-                    cmd->geometries[0].Triangles.VertexBuffer.StartAddress))
-              st.RetainResourceMetalObjectsForCompletion(vertex);
-            if (cmd->geometries[0].Triangles.IndexBuffer) {
-              if (auto *index = m_device->LookupResourceByGPUAddress(
-                      cmd->geometries[0].Triangles.IndexBuffer))
-                st.RetainResourceMetalObjectsForCompletion(index);
             }
           }
         } else if (cmd->type ==
@@ -14868,11 +15234,30 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
           blas_resources.reserve(metal_instances.capacity());
           instance_contributions.reserve(metal_instances.capacity());
           bool instances_valid = true;
+          constexpr UINT kOmmInstanceFlags =
+              kD3D12RaytracingInstanceFlagForceOmm2State |
+              kD3D12RaytracingInstanceFlagDisableOmms;
           for (UINT i = 0; i < cmd->num_descs; i++) {
             const auto &source = d3d_instances[i];
+            const bool disable_omms =
+                (source.Flags & kD3D12RaytracingInstanceFlagDisableOmms) != 0;
             auto *blas = m_device->LookupResourceByGPUAddress(
                 source.AccelerationStructure);
-            if (!blas || !blas->GetMTLAccelerationStructure().handle) {
+            if (!blas || !blas->GetMTLAccelerationStructure().handle ||
+                (disable_omms &&
+                 (!blas->HasOmmDisabledAccelerationStructure() ||
+                  blas->HasMixedAccelerationStructures()))) {
+              QTRACE("BuildRaytracingAS SKIPPED unsupported OMM instance "
+                     "control flags=0x%x blas=%p",
+                     source.Flags, (void *)blas);
+              instances_valid = false;
+              break;
+            }
+            const obj_handle_t selected_acceleration_structure =
+                disable_omms
+                    ? blas->GetOmmDisabledAccelerationStructure().handle
+                    : blas->GetMTLAccelerationStructure().handle;
+            if (!selected_acceleration_structure) {
               instances_valid = false;
               break;
             }
@@ -14891,7 +15276,10 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                       source.Transform[row][column];
                 }
               }
-              target.options = source.Flags;
+              // OMM instance controls are implemented by selecting the
+              // provider's normal/OMM-disabled BLAS above.  They are not
+              // Metal instance option bits and must never be forwarded.
+              target.options = source.Flags & ~kOmmInstanceFlags;
               target.mask = source.InstanceMask;
               // Metal's instance offset selects an
               // intersection-function-table entry. D3D12's instance
@@ -14929,7 +15317,7 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                 break;
               }
             } else if (!append_instance(
-                           blas->GetMTLAccelerationStructure().handle,
+                           selected_acceleration_structure,
                            source.InstanceContributionToHitGroupIndex)) {
               instances_valid = false;
               break;
@@ -15051,6 +15439,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         if (encoded) {
           dest->SetMTLAccelerationStructure(
               acceleration_structure, sizes.acceleration_structure_size);
+          if (omm_disabled_variant)
+            dest->SetOmmDisabledAccelerationStructure(
+                std::move(omm_disabled_acceleration_structure));
           if (mixed_compound)
             dest->SetMixedAccelerationStructures(std::move(mixed_triangle_child),
                                                  std::move(mixed_aabb_child));
@@ -15062,6 +15453,9 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
                   : 0,
               bottom_level_pointers);
           st.RetainMTLObjectForCompletion(acceleration_structure);
+          if (omm_disabled_variant)
+            st.RetainMTLObjectForCompletion(
+                dest->GetOmmDisabledAccelerationStructure());
           st.RetainResourceMetalObjectsForCompletion(dest);
           st.RetainResourceMetalObjectsForCompletion(scratch);
           QTRACE("BuildRaytracingAS encoded %s=%llu as=%llu "
@@ -15283,6 +15677,34 @@ void STDMETHODCALLTYPE MTLD3D12CommandQueue::ExecuteCommandLists(
         auto *source = m_device->LookupResourceByGPUAddress(
             cmd->source_acceleration_structure);
         auto *dest = m_device->LookupResourceByGPUAddress(cmd->dest_buffer);
+        // Agility exposes OMM postbuild descriptors as a separate POD type,
+        // but the command-list entry point retains the legacy descriptor slot.
+        // Their DestBuffer/InfoType prefix is ABI-compatible.  Recognize an
+        // OMM source before interpreting type 0 as the legacy compacted-size
+        // operation; the bounded provider rejects the type-1 visualization
+        // form rather than writing a fabricated decoded-size value.
+        if (source && source->HasOpacityMicromapStates() && dest &&
+            dest->GetMTLBuffer().handle &&
+            static_cast<UINT>(cmd->info_type) == 0u) {
+          const uint64_t dest_offset =
+              cmd->dest_buffer - dest->GetGPUVirtualAddress();
+          if (dest->GetBufferByteLength() >= sizeof(uint64_t) &&
+              dest_offset <=
+                  dest->GetBufferByteLength() - sizeof(uint64_t)) {
+            const uint64_t current_size =
+                source->GetOpacityMicromapArraySize();
+            dest->GetMTLBuffer().updateContents(dest_offset, &current_size,
+                                                sizeof(current_size));
+            st.RetainResourceMetalObjectsForCompletion(source);
+            st.RetainResourceMetalObjectsForCompletion(dest);
+            QTRACE("EmitRaytracingPostbuildInfo OMM type=%u size=%llu",
+                   (unsigned)cmd->info_type,
+                   (unsigned long long)current_size);
+          } else {
+            QTRACE("EmitRaytracingPostbuildInfo OMM SKIPPED out-of-bounds");
+          }
+          break;
+        }
         const bool current_size_info =
             cmd->info_type ==
             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_CURRENT_SIZE;

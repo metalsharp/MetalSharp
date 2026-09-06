@@ -303,8 +303,20 @@ public:
       uint64_t acceleration_structure_size) {
     m_mtl_acceleration_structure = std::move(acceleration_structure);
     m_mtl_acceleration_structure_size = acceleration_structure_size;
+    m_omm_disabled_acceleration_structure = nullptr;
     m_mixed_triangle_acceleration_structure = nullptr;
     m_mixed_aabb_acceleration_structure = nullptr;
+  }
+  void SetOmmDisabledAccelerationStructure(
+      WMT::Reference<WMT::AccelerationStructure> acceleration_structure) {
+    m_omm_disabled_acceleration_structure = std::move(acceleration_structure);
+  }
+  WMT::Reference<WMT::AccelerationStructure>
+  GetOmmDisabledAccelerationStructure() {
+    return m_omm_disabled_acceleration_structure;
+  }
+  bool HasOmmDisabledAccelerationStructure() const {
+    return m_omm_disabled_acceleration_structure.handle != 0;
   }
   void SetMixedAccelerationStructures(
       WMT::Reference<WMT::AccelerationStructure> triangle_acceleration_structure,
@@ -368,6 +380,25 @@ public:
   const std::vector<D3D12_GPU_VIRTUAL_ADDRESS> &
   GetRaytracingBottomLevelPointers() const {
     return m_raytracing_bottom_level_pointers;
+  }
+
+  void SetOpacityMicromapStates(std::vector<uint8_t> states,
+                                uint64_t encoded_size = 0) {
+    m_opacity_micromap_states = std::move(states);
+    m_opacity_micromap_array_size = encoded_size;
+  }
+  void ClearOpacityMicromapStates() {
+    m_opacity_micromap_states.clear();
+    m_opacity_micromap_array_size = 0;
+  }
+  bool HasOpacityMicromapStates() const {
+    return !m_opacity_micromap_states.empty();
+  }
+  const std::vector<uint8_t> &GetOpacityMicromapStates() const {
+    return m_opacity_micromap_states;
+  }
+  uint64_t GetOpacityMicromapArraySize() const {
+    return m_opacity_micromap_array_size;
   }
 
   static uint64_t SerializedAccelerationStructureBlobSize(
@@ -479,6 +510,8 @@ private:
   WMT::Reference<WMT::AccelerationStructure> m_mtl_acceleration_structure;
   uint64_t m_mtl_acceleration_structure_size = 0;
   WMT::Reference<WMT::AccelerationStructure>
+      m_omm_disabled_acceleration_structure;
+  WMT::Reference<WMT::AccelerationStructure>
       m_mixed_triangle_acceleration_structure;
   WMT::Reference<WMT::AccelerationStructure>
       m_mixed_aabb_acceleration_structure;
@@ -491,6 +524,8 @@ private:
       D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
   uint64_t m_raytracing_bottom_level_pointer_count = 0;
   std::vector<D3D12_GPU_VIRTUAL_ADDRESS> m_raytracing_bottom_level_pointers;
+  std::vector<uint8_t> m_opacity_micromap_states;
+  uint64_t m_opacity_micromap_array_size = 0;
   WMT::Reference<WMT::AccelerationStructure>
       m_serialized_acceleration_structure;
   uint64_t m_serialized_acceleration_structure_size = 0;

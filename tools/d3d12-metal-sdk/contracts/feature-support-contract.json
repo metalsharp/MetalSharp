@@ -178,6 +178,30 @@
       "state": "required",
       "tier": "required"
     },
+    "D3D12_DXR_OMM_SER_BOUNDARY": {
+      "probe": "tools/d3d12-metal-sdk/probes/probe_dxr_omm_ser.cpp",
+      "probe_status": "config1_omm_acceptance_bounded_level0_oc1_two_state_opaque_transparent_visibility_exact_postbuild_alignment_refit_lifetime_four_state_and_update_disable_negative_recording_and_options22_ser_noop_readbacks_passed",
+      "reported": "partial",
+      "required_fields": [
+        "RAYTRACING_PIPELINE_CONFIG1 ALLOW_OPACITY_MICROMAPS",
+        "OPACITY_MICROMAP_ARRAY prebuild/build",
+        "OMM_TRIANGLES linkage",
+        "OMM postbuild current/compacted-size slot",
+        "D3D12_FEATURE_D3D12_OPTIONS22 ShaderExecutionReorderingActuallyReorders"
+      ],
+      "proven_subset": [
+        "one level-0 OC1 2-state OMM descriptor per array",
+        "opaque versus transparent exact inline RayQuery candidate readback",
+        "single-geometry OMM BLAS build and in-place refit",
+        "ALLOW_DISABLE_OMMS alternate BLAS with DISABLE_OMMS selection and FORCE_OMM_2_STATE two-state no-op",
+        "deep-copied OMM CPU descriptors and exact 128-byte array alignment",
+        "invalid OMM format/layout/four-state/unknown-state/update-disable flag rejection and deferred Close E_INVALIDARG",
+        "deterministic SER no-op with FALSE capability report"
+      ],
+      "risk": "This is a provider-backed bounded DXR 1.2 slice, not a native Metal OMM/SER claim. Four-state unknown values, mixed per-triangle opacity, OMM-specific update flags, opaque-geometry flag combinations, compaction/serialization, broader array/layout/subdivision matrices, cross-process data, and actual SER reordering remain fail-closed; the proven instance controls are limited to one level-0 OC1 two-state OMM BLAS; D3D12_OPTIONS5.RaytracingTier remains 1.1.",
+      "state": "required",
+      "tier": "required"
+    },
     "D3D12_FEATURE_D3D12_OPTIONS6": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_vrs",
       "behavior_probes": [

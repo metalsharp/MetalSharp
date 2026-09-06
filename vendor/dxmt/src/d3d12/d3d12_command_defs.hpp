@@ -1,6 +1,7 @@
 #pragma once
 
 #include "d3d12.h"
+#include "d3d12_dxr_compat.hpp"
 #include <cstdint>
 
 namespace dxmt {
@@ -200,6 +201,16 @@ struct CmdBuildRaytracingAccelerationStructure {
   D3D12_GPU_VIRTUAL_ADDRESS instance_descs;
   static constexpr UINT kMaxGeometryDescs = 64;
   D3D12_RAYTRACING_GEOMETRY_DESC geometries[kMaxGeometryDescs];
+  // OMM geometry uses a second pointer pair in the same union slot as the
+  // legacy triangles descriptor. Copy the pair and its child descriptors so
+  // command recording never retains caller-owned OMM structs.
+  D3D12_RAYTRACING_GEOMETRY_TRIANGLES_DESC omm_triangles[kMaxGeometryDescs];
+  D3D12OpacityMicromapLinkageDescCompat omm_linkages[kMaxGeometryDescs];
+  static constexpr UINT kMaxOmmHistogramEntries = 64;
+  D3D12OpacityMicromapArrayDescCompat opacity_micromap_array_desc = {};
+  D3D12OpacityMicromapHistogramEntryCompat
+      omm_histogram[kMaxOmmHistogramEntries];
+  UINT omm_histogram_count = 0;
 };
 
 struct CmdCopyRaytracingAccelerationStructure {

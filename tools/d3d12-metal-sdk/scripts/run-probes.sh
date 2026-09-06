@@ -89,6 +89,7 @@ MINI_PROBES=(
   compute_first_use_dispatch
   dxr_inline
   dxr_acceleration_structures
+  dxr_omm_ser
   tessellation_shader_pso
   tessellation_patch_constant
   start_draw_info
@@ -5814,7 +5815,8 @@ if [[ "$RUN_MINI" == "1" ]]; then
   if mini_probe_selected mesh_object_shader_pso; then
     prepare_mesh_shader_probe
   fi
-  if mini_probe_selected dxr_acceleration_structures; then
+  if mini_probe_selected dxr_acceleration_structures ||
+     mini_probe_selected dxr_omm_ser; then
     prepare_dxr_acceleration_structure_probe
   fi
   if mini_probe_selected subnautica_geometry_dxil_replay; then

@@ -328,6 +328,7 @@ private:
   MTLD3D12CommandAllocator *m_allocator;
   D3D12_COMMAND_LIST_TYPE m_type;
   bool m_closed = false;
+  bool m_recording_error = false;
   uint64_t m_debug_id = 0;
   std::vector<uint8_t> m_cmds;
   ID3D12PipelineState *m_current_pipeline_state = nullptr;

@@ -499,7 +499,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Close() {
     return E_FAIL;
   m_closed = true;
   LogCommandListLifecycle("close", m_debug_id, m_type, m_cmds, m_closed);
-  return S_OK;
+  return m_recording_error ? E_INVALIDARG : S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Reset(
@@ -517,6 +517,7 @@ HRESULT STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::Reset(
     m_allocator = new_allocator;
   }
   m_closed = false;
+  m_recording_error = false;
   ReleaseReferencedPipelineStates();
   m_cmds.clear();
   m_current_pipeline_state = initial_state;
@@ -2225,8 +2226,62 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
     CLTRACE("BuildRaytracingAccelerationStructure ignored null descriptor");
     return;
   }
-  if (desc->Inputs.Type ==
-      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
+  const auto reject_omm_recording = [&]() {
+    m_recording_error = true;
+  };
+  const UINT unsupported_omm_flags =
+      kD3D12RaytracingBuildFlagAllowOmmUpdate;
+  const UINT unsupported_omm_array_flags =
+      kD3D12RaytracingBuildFlagAllowUpdate |
+      kD3D12RaytracingBuildFlagAllowCompaction |
+      kD3D12RaytracingBuildFlagPerformUpdate |
+      kD3D12RaytracingBuildFlagAllowDisableOmms | unsupported_omm_flags;
+  const bool is_omm_array =
+      static_cast<UINT>(desc->Inputs.Type) ==
+      kD3D12RaytracingAccelerationStructureTypeOmmArray;
+  if (is_omm_array) {
+    const auto *array = D3D12GetOpacityMicromapArrayDesc(desc->Inputs);
+    if (desc->Inputs.NumDescs != 1 ||
+        desc->Inputs.DescsLayout != D3D12_ELEMENTS_LAYOUT_ARRAY || !array ||
+        !array->histogram || !array->histogram_entry_count ||
+        array->histogram_entry_count >
+            CmdBuildRaytracingAccelerationStructure::kMaxOmmHistogramEntries ||
+        !array->input_buffer ||
+        (array->input_buffer &
+         (kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 ||
+        !array->per_omm_descs.StartAddress ||
+        (array->per_omm_descs.StartAddress &
+         (kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 ||
+        (array->per_omm_descs.StrideInBytes &
+         (kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 ||
+        array->per_omm_descs.StrideInBytes <
+            sizeof(D3D12OpacityMicromapDescCompat) ||
+        !desc->DestAccelerationStructureData ||
+        !desc->ScratchAccelerationStructureData ||
+        (desc->DestAccelerationStructureData &
+         (kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 ||
+        (desc->ScratchAccelerationStructureData &
+         (kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0 ||
+        (desc->Inputs.Flags & unsupported_omm_array_flags)) {
+      CLTRACE("BuildRaytracingAccelerationStructure unsupported OMM array");
+      reject_omm_recording();
+      return;
+    }
+    uint64_t omm_count = 0;
+    for (UINT i = 0; i < array->histogram_entry_count; ++i) {
+      const auto &entry = array->histogram[i];
+      if (!entry.count || entry.count > 4096 ||
+          entry.subdivision_level != 0 ||
+          !D3D12IsSupportedOmmFormat(entry.format) ||
+          omm_count > 4096 - entry.count) {
+        CLTRACE("BuildRaytracingAccelerationStructure invalid OMM histogram");
+        reject_omm_recording();
+        return;
+      }
+      omm_count += entry.count;
+    }
+  } else if (desc->Inputs.Type ==
+             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
     if (!desc->Inputs.NumDescs ||
         desc->Inputs.NumDescs >
             CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs ||
@@ -2239,6 +2294,23 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
               "descriptors=%u layout=%u",
               desc->Inputs.NumDescs, (unsigned)desc->Inputs.DescsLayout);
       return;
+    }
+    if (desc->Inputs.Flags & kD3D12RaytracingBuildFlagAllowDisableOmms) {
+      const auto *geometry =
+          desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
+              ? desc->Inputs.pGeometryDescs
+              : (desc->Inputs.ppGeometryDescs
+                     ? desc->Inputs.ppGeometryDescs[0]
+                     : nullptr);
+      if (desc->Inputs.NumDescs != 1 ||
+          desc->Inputs.DescsLayout != D3D12_ELEMENTS_LAYOUT_ARRAY ||
+          !geometry ||
+          geometry->Type != kD3D12RaytracingGeometryTypeOmmTriangles) {
+        CLTRACE("BuildRaytracingAccelerationStructure ALLOW_DISABLE_OMMS "
+                "requires one OMM triangle geometry");
+        reject_omm_recording();
+        return;
+      }
     }
   } else if (desc->Inputs.Type !=
                  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL ||
@@ -2257,8 +2329,17 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
   cmd.descs_layout = desc->Inputs.DescsLayout;
   cmd.num_descs = desc->Inputs.NumDescs;
   cmd.instance_descs = desc->Inputs.InstanceDescs;
-  if (desc->Inputs.Type ==
-      D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
+  if (is_omm_array) {
+    const auto *array = D3D12GetOpacityMicromapArrayDesc(desc->Inputs);
+    cmd.opacity_micromap_array_desc = *array;
+    cmd.omm_histogram_count = array->histogram_entry_count;
+    std::memcpy(cmd.omm_histogram, array->histogram,
+                cmd.omm_histogram_count * sizeof(cmd.omm_histogram[0]));
+    // Replay consumes the inline command payload, not a pointer into this
+    // temporary command object.
+    cmd.opacity_micromap_array_desc.histogram = nullptr;
+  } else if (desc->Inputs.Type ==
+             D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL) {
     for (UINT i = 0; i < desc->Inputs.NumDescs; i++) {
       const auto *geometry =
           desc->Inputs.DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY
@@ -2269,6 +2350,45 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
         return;
       }
       cmd.geometries[i] = *geometry;
+      if (geometry->Type == kD3D12RaytracingGeometryTypeOmmTriangles) {
+        if (desc->Inputs.NumDescs != 1 ||
+            desc->Inputs.DescsLayout != D3D12_ELEMENTS_LAYOUT_ARRAY ||
+            (desc->Inputs.Flags & unsupported_omm_flags) ||
+            (geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) ||
+            !desc->DestAccelerationStructureData ||
+            !desc->ScratchAccelerationStructureData ||
+            (desc->DestAccelerationStructureData &
+             (kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0 ||
+            (desc->ScratchAccelerationStructureData &
+             (kD3D12RaytracingAccelerationStructureByteAlignment - 1)) != 0) {
+          CLTRACE("BuildRaytracingAccelerationStructure unsupported OMM BLAS");
+          reject_omm_recording();
+          return;
+        }
+        const auto omm = D3D12GetOpacityMicromapTrianglesDesc(*geometry);
+        if (!omm.triangles || !omm.linkage ||
+            (omm.linkage->index_format != DXGI_FORMAT_R16_UINT &&
+             omm.linkage->index_format != DXGI_FORMAT_R32_UINT) ||
+            (omm.linkage->index_format == DXGI_FORMAT_R16_UINT &&
+             (omm.linkage->index_buffer.StartAddress & 1u)) ||
+            (omm.linkage->index_format == DXGI_FORMAT_R32_UINT &&
+             (omm.linkage->index_buffer.StartAddress & 3u)) ||
+            (omm.linkage->opacity_micromap_array &&
+             (omm.linkage->opacity_micromap_array &
+              (kD3D12RaytracingOmmArrayByteAlignment - 1)))) {
+          CLTRACE("BuildRaytracingAccelerationStructure invalid OMM geometry=%u",
+                  i);
+          reject_omm_recording();
+          return;
+        }
+        cmd.omm_triangles[i] = *omm.triangles;
+        cmd.omm_linkages[i] = *omm.linkage;
+        // The old geometry union cannot carry the new pointer pair without
+        // leaving a dangling caller pointer in the command stream.  The
+        // replay path uses the copied OMM records above.
+        std::memset(&cmd.geometries[i].Triangles, 0,
+                    sizeof(cmd.geometries[i].Triangles));
+      }
     }
   }
   RetainGPUAddress(cmd.dest_acceleration_structure);
@@ -2284,7 +2404,16 @@ void STDMETHODCALLTYPE MTLD3D12GraphicsCommandList::BuildRaytracingAccelerationS
       RetainGPUAddress(geometry.Triangles.IndexBuffer);
     } else if (geometry.Type == D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
       RetainGPUAddress(geometry.AABBs.AABBs.StartAddress);
+    } else if (geometry.Type == kD3D12RaytracingGeometryTypeOmmTriangles) {
+      RetainGPUAddress(cmd.omm_triangles[i].VertexBuffer.StartAddress);
+      RetainGPUAddress(cmd.omm_triangles[i].IndexBuffer);
+      RetainGPUAddress(cmd.omm_linkages[i].index_buffer.StartAddress);
+      RetainGPUAddress(cmd.omm_linkages[i].opacity_micromap_array);
     }
+  }
+  if (is_omm_array) {
+    RetainGPUAddress(cmd.opacity_micromap_array_desc.input_buffer);
+    RetainGPUAddress(cmd.opacity_micromap_array_desc.per_omm_descs.StartAddress);
   }
   Emit(cmd);
   for (UINT i = 0; post_build_info_descs &&

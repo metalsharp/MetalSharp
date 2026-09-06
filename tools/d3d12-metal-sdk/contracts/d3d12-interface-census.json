@@ -212,14 +212,14 @@
           "source_references": [
             {
               "lines": [
-                16
+                17
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1909,
-                1917
+                1910,
+                1918
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -231,10 +231,10 @@
             },
             {
               "lines": [
-                16192,
-                16196,
-                18423,
-                18426
+                16608,
+                16612,
+                18839,
+                18842
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -277,15 +277,15 @@
           "source_references": [
             {
               "lines": [
-                13278,
-                13284,
-                13290,
-                13297,
-                13434,
-                13521,
-                13527,
-                13548,
-                13567
+                13491,
+                13497,
+                13503,
+                13510,
+                13647,
+                13734,
+                13740,
+                13761,
+                13780
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -315,14 +315,14 @@
           "source_references": [
             {
               "lines": [
-                17
+                18
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1924,
-                1925
+                1925,
+                1926
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -334,10 +334,10 @@
             },
             {
               "lines": [
-                16199,
-                16207,
-                18431,
-                18432
+                16615,
+                16623,
+                18847,
+                18848
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -380,19 +380,19 @@
           "source_references": [
             {
               "lines": [
-                13572,
-                13574,
-                13576,
-                13625,
-                13632,
-                13637,
-                13639,
-                13647,
-                18266,
-                18284,
-                18305,
-                18370,
-                18373
+                13785,
+                13787,
+                13789,
+                13838,
+                13845,
+                13850,
+                13852,
+                13860,
+                18682,
+                18700,
+                18721,
+                18786,
+                18789
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -422,9 +422,9 @@
           "source_references": [
             {
               "lines": [
-                18558,
-                18560,
-                18609
+                18974,
+                18976,
+                19025
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -462,10 +462,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -479,37 +479,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -537,18 +537,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -665,8 +665,8 @@
           "source_references": [
             {
               "lines": [
-                18545,
-                18546
+                18961,
+                18962
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -696,14 +696,14 @@
           "source_references": [
             {
               "lines": [
-                15
+                16
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1894,
-                1902
+                1895,
+                1903
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -715,10 +715,10 @@
             },
             {
               "lines": [
-                16185,
-                16189,
-                18415,
-                18418
+                16601,
+                16605,
+                18831,
+                18834
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -761,11 +761,11 @@
           "source_references": [
             {
               "lines": [
-                18447,
-                18449,
-                18463,
-                18479,
-                18483
+                18863,
+                18865,
+                18879,
+                18895,
+                18899
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -778,7 +778,7 @@
             {
               "lines": [
                 2332,
-                10024
+                10046
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -818,19 +818,19 @@
           "source_references": [
             {
               "lines": [
-                12987,
-                12994,
-                12999,
-                13004,
-                13081,
-                13178,
-                13215,
-                13228,
-                13232,
-                13243,
-                13256,
-                13266,
-                13274
+                13200,
+                13207,
+                13212,
+                13217,
+                13294,
+                13391,
+                13428,
+                13441,
+                13445,
+                13456,
+                13469,
+                13479,
+                13487
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -872,10 +872,10 @@
           "source_references": [
             {
               "lines": [
-                18488,
-                18490,
-                18500,
-                18518
+                18904,
+                18906,
+                18916,
+                18934
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -1175,11 +1175,11 @@
           "source_references": [
             {
               "lines": [
-                5562,
-                5569,
-                5577,
-                5583,
-                5590
+                5584,
+                5591,
+                5599,
+                5605,
+                5612
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -1254,12 +1254,12 @@
           "source_references": [
             {
               "lines": [
-                5595,
-                5605,
-                5618,
-                5624,
-                5642,
-                5646
+                5617,
+                5627,
+                5640,
+                5646,
+                5664,
+                5668
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -2582,10 +2582,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -2599,37 +2599,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -2657,18 +2657,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2823,11 +2823,11 @@
           "source_references": [
             {
               "lines": [
-                6534,
-                6536,
-                6539,
-                6541,
-                7391
+                6556,
+                6558,
+                6561,
+                6563,
+                7413
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2876,10 +2876,10 @@
           "source_references": [
             {
               "lines": [
-                7812,
-                7849,
-                7860,
-                7881
+                7834,
+                7871,
+                7882,
+                7903
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2909,8 +2909,8 @@
           "source_references": [
             {
               "lines": [
-                7873,
-                7878
+                7895,
+                7900
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2940,8 +2940,8 @@
           "source_references": [
             {
               "lines": [
-                6296,
-                6298
+                6318,
+                6320
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -2971,9 +2971,9 @@
           "source_references": [
             {
               "lines": [
-                6511,
-                6515,
-                10040
+                6533,
+                6537,
+                10062
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3003,10 +3003,10 @@
           "source_references": [
             {
               "lines": [
-                6270,
-                6272,
-                11036,
-                11037
+                6292,
+                6294,
+                11165,
+                11166
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3036,8 +3036,8 @@
           "source_references": [
             {
               "lines": [
-                9059,
-                9065
+                9081,
+                9087
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3067,15 +3067,15 @@
           "source_references": [
             {
               "lines": [
-                8043,
-                8048,
-                8053,
-                8095,
-                8104,
+                8065,
+                8070,
+                8075,
                 8117,
-                8120,
-                10104,
-                10840
+                8126,
+                8139,
+                8142,
+                10126,
+                10969
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3118,9 +3118,9 @@
             {
               "lines": [
                 3626,
-                6469,
-                6500,
-                9928
+                6491,
+                6522,
+                9950
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3150,10 +3150,10 @@
           "source_references": [
             {
               "lines": [
-                7454,
-                7457,
-                7458,
-                11425
+                7476,
+                7479,
+                7480,
+                11554
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3183,12 +3183,12 @@
           "source_references": [
             {
               "lines": [
-                7650,
-                7653,
-                7656,
-                7667,
-                7676,
-                11452
+                7672,
+                7675,
+                7678,
+                7689,
+                7698,
+                11581
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3218,15 +3218,15 @@
           "source_references": [
             {
               "lines": [
-                7399,
-                7403,
-                7404,
-                7408,
-                7411,
-                7413,
-                7416,
-                7419,
-                7422
+                7421,
+                7425,
+                7426,
+                7430,
+                7433,
+                7435,
+                7438,
+                7441,
+                7444
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3258,8 +3258,8 @@
               "lines": [
                 2602,
                 2616,
-                8838,
-                8853
+                8860,
+                8875
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3290,9 +3290,9 @@
             {
               "lines": [
                 3595,
-                6309,
-                6443,
-                6458
+                6331,
+                6465,
+                6480
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3322,10 +3322,10 @@
           "source_references": [
             {
               "lines": [
-                8128,
-                8130,
-                8166,
-                10126
+                8150,
+                8152,
+                8188,
+                10148
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3355,15 +3355,15 @@
           "source_references": [
             {
               "lines": [
-                8173,
-                8178,
                 8195,
-                8222,
-                8230,
-                8253,
-                8352,
-                8358,
-                10874
+                8200,
+                8217,
+                8244,
+                8252,
+                8275,
+                8374,
+                8380,
+                11003
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3393,10 +3393,10 @@
           "source_references": [
             {
               "lines": [
-                9034,
-                9036,
-                9045,
-                11471
+                9056,
+                9058,
+                9067,
+                11600
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3426,13 +3426,13 @@
           "source_references": [
             {
               "lines": [
-                7607,
-                7610,
-                7613,
-                7624,
-                7633,
-                7641,
-                11443
+                7629,
+                7632,
+                7635,
+                7646,
+                7655,
+                7663,
+                11572
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3462,14 +3462,14 @@
           "source_references": [
             {
               "lines": [
-                8364,
-                8368,
-                8371,
-                8406,
-                8418,
-                8424,
-                10148,
-                11233
+                8386,
+                8390,
+                8393,
+                8428,
+                8440,
+                8446,
+                10170,
+                11362
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3499,10 +3499,10 @@
           "source_references": [
             {
               "lines": [
-                7438,
-                7441,
-                7449,
-                11355
+                7460,
+                7463,
+                7471,
+                11484
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3532,11 +3532,11 @@
           "source_references": [
             {
               "lines": [
-                7687,
-                7700,
-                7770,
-                11274,
-                11276
+                7709,
+                7722,
+                7792,
+                11403,
+                11405
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3566,13 +3566,13 @@
           "source_references": [
             {
               "lines": [
-                7476,
-                7479,
-                7482,
-                7485,
-                7495,
+                7498,
+                7501,
+                7504,
                 7507,
-                11403
+                7517,
+                7529,
+                11532
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3602,20 +3602,20 @@
           "source_references": [
             {
               "lines": [
-                8429,
-                8462,
-                8474,
-                8479,
-                8495,
-                8500,
-                8513,
-                8542,
-                8557,
-                8562,
-                8580,
-                8585,
+                8451,
+                8484,
+                8496,
+                8501,
+                8517,
+                8522,
+                8535,
+                8564,
+                8579,
+                8584,
                 8602,
-                8631
+                8607,
+                8624,
+                8653
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3666,12 +3666,12 @@
           "source_references": [
             {
               "lines": [
-                7550,
-                7554,
-                7559,
-                7562,
-                7573,
-                11414
+                7572,
+                7576,
+                7581,
+                7584,
+                7595,
+                11543
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3707,12 +3707,12 @@
             },
             {
               "lines": [
-                8806,
-                8807,
-                8820,
-                8823,
-                8826,
-                8829
+                8828,
+                8829,
+                8842,
+                8845,
+                8848,
+                8851
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3779,9 +3779,9 @@
           "source_references": [
             {
               "lines": [
-                9250,
-                9251,
-                9255
+                9272,
+                9273,
+                9277
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3832,9 +3832,9 @@
           "source_references": [
             {
               "lines": [
-                8866,
-                8871,
-                10968
+                8888,
+                8893,
+                11097
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3864,8 +3864,8 @@
           "source_references": [
             {
               "lines": [
-                8012,
-                8015
+                8034,
+                8037
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3895,9 +3895,9 @@
           "source_references": [
             {
               "lines": [
-                7431,
-                7433,
-                7820
+                7453,
+                7455,
+                7842
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3927,8 +3927,8 @@
           "source_references": [
             {
               "lines": [
-                8860,
-                8862
+                8882,
+                8884
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3958,7 +3958,7 @@
           "source_references": [
             {
               "lines": [
-                6268
+                6290
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -3989,12 +3989,12 @@
             {
               "lines": [
                 637,
-                7887,
-                7890,
-                7926,
-                7941,
-                8003,
-                8216
+                7909,
+                7912,
+                7948,
+                7963,
+                8025,
+                8238
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4024,14 +4024,14 @@
           "source_references": [
             {
               "lines": [
-                13033
+                13246
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
             {
               "lines": [
-                9076,
-                9084
+                9098,
+                9106
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4067,13 +4067,13 @@
             },
             {
               "lines": [
-                8772,
-                8774,
-                8787,
-                8790,
-                8793,
+                8794,
                 8796,
-                10021
+                8809,
+                8812,
+                8815,
+                8818,
+                10043
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4141,11 +4141,11 @@
           "source_references": [
             {
               "lines": [
-                8524,
-                8636,
-                8647,
-                8688,
-                8711
+                8546,
+                8658,
+                8669,
+                8710,
+                8733
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4175,8 +4175,8 @@
           "source_references": [
             {
               "lines": [
-                8693,
-                8737
+                8715,
+                8759
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4206,8 +4206,8 @@
           "source_references": [
             {
               "lines": [
-                9051,
-                9053
+                9073,
+                9075
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4245,9 +4245,9 @@
           "source_references": [
             {
               "lines": [
-                9429,
-                9431,
-                9447
+                9451,
+                9453,
+                9469
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4277,8 +4277,8 @@
           "source_references": [
             {
               "lines": [
-                9478,
-                9481
+                9500,
+                9503
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4314,12 +4314,12 @@
             },
             {
               "lines": [
-                9534,
-                9537,
-                9553,
-                9557,
-                9561,
-                9565
+                9556,
+                9559,
+                9575,
+                9579,
+                9583,
+                9587
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4375,9 +4375,9 @@
           "source_references": [
             {
               "lines": [
-                11159,
-                11172,
-                11177
+                11288,
+                11301,
+                11306
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4407,9 +4407,9 @@
           "source_references": [
             {
               "lines": [
-                11191,
-                11200,
-                11205
+                11320,
+                11329,
+                11334
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4439,8 +4439,8 @@
           "source_references": [
             {
               "lines": [
-                11218,
-                11224
+                11347,
+                11353
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4478,10 +4478,10 @@
           "source_references": [
             {
               "lines": [
-                11249,
-                11252,
-                11273,
-                11434
+                11378,
+                11381,
+                11402,
+                11563
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4520,8 +4520,8 @@
           "source_references": [
             {
               "lines": [
-                11281,
-                11287
+                11410,
+                11416
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4560,8 +4560,8 @@
           "source_references": [
             {
               "lines": [
-                11318,
-                11336
+                11447,
+                11465
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4600,7 +4600,7 @@
           "source_references": [
             {
               "lines": [
-                11341
+                11470
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4639,7 +4639,7 @@
           "source_references": [
             {
               "lines": [
-                11467
+                11596
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4670,8 +4670,8 @@
           "source_references": [
             {
               "lines": [
-                11359,
-                11381
+                11488,
+                11510
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4702,14 +4702,14 @@
           "source_references": [
             {
               "lines": [
-                61
+                62
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1865,
-                1870
+                1866,
+                1871
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -4721,11 +4721,11 @@
             },
             {
               "lines": [
-                17823,
-                17829,
-                17843,
-                17891,
-                17903
+                18239,
+                18245,
+                18259,
+                18307,
+                18319
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -4737,7 +4737,7 @@
             },
             {
               "lines": [
-                11474
+                11603
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4775,7 +4775,7 @@
           "source_references": [
             {
               "lines": [
-                11418
+                11547
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4806,7 +4806,7 @@
           "source_references": [
             {
               "lines": [
-                11447
+                11576
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4837,7 +4837,7 @@
           "source_references": [
             {
               "lines": [
-                11438
+                11567
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4868,7 +4868,7 @@
           "source_references": [
             {
               "lines": [
-                11429
+                11558
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4899,7 +4899,7 @@
           "source_references": [
             {
               "lines": [
-                11457
+                11586
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4930,7 +4930,7 @@
           "source_references": [
             {
               "lines": [
-                11398
+                11527
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4961,7 +4961,7 @@
           "source_references": [
             {
               "lines": [
-                11407
+                11536
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -4992,8 +4992,8 @@
           "source_references": [
             {
               "lines": [
-                11385,
-                11394
+                11514,
+                11523
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5033,22 +5033,22 @@
             {
               "lines": [
                 3707,
-                9575,
-                9578,
-                9819,
-                9834,
-                9847,
-                9863,
-                9884,
-                9887,
-                9896,
-                9905,
-                9912,
-                9925,
-                9933,
-                9945,
-                9960,
-                9964
+                9597,
+                9600,
+                9841,
+                9856,
+                9869,
+                9885,
+                9906,
+                9909,
+                9918,
+                9927,
+                9934,
+                9947,
+                9955,
+                9967,
+                9982,
+                9986
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5086,8 +5086,8 @@
           "source_references": [
             {
               "lines": [
-                10013,
-                10016
+                10035,
+                10038
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5117,9 +5117,9 @@
           "source_references": [
             {
               "lines": [
-                9975,
-                9977,
-                9988
+                9997,
+                9999,
+                10010
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5149,9 +5149,9 @@
           "source_references": [
             {
               "lines": [
-                9993,
-                9995,
-                10008
+                10015,
+                10017,
+                10030
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5189,8 +5189,8 @@
           "source_references": [
             {
               "lines": [
-                10029,
-                10032
+                10051,
+                10054
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5220,8 +5220,8 @@
           "source_references": [
             {
               "lines": [
-                10091,
-                10111
+                10113,
+                10133
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5251,8 +5251,8 @@
           "source_references": [
             {
               "lines": [
-                10117,
-                10130
+                10139,
+                10152
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5282,8 +5282,8 @@
           "source_references": [
             {
               "lines": [
-                10071,
-                10086
+                10093,
+                10108
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5313,8 +5313,8 @@
           "source_references": [
             {
               "lines": [
-                10135,
-                10146
+                10157,
+                10168
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5344,8 +5344,8 @@
           "source_references": [
             {
               "lines": [
-                10157,
-                10161
+                10179,
+                10183
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5383,8 +5383,8 @@
           "source_references": [
             {
               "lines": [
-                10672,
-                10683
+                10801,
+                10812
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5414,8 +5414,8 @@
           "source_references": [
             {
               "lines": [
-                10169,
-                10181
+                10191,
+                10203
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5445,8 +5445,8 @@
           "source_references": [
             {
               "lines": [
-                10259,
-                10275
+                10281,
+                10297
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5476,8 +5476,8 @@
           "source_references": [
             {
               "lines": [
-                10280,
-                10282
+                10302,
+                10304
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5507,7 +5507,7 @@
           "source_references": [
             {
               "lines": [
-                10212
+                10234
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5537,7 +5537,7 @@
           "source_references": [
             {
               "lines": [
-                10192
+                10214
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5567,8 +5567,8 @@
           "source_references": [
             {
               "lines": [
-                10435,
-                10438
+                10457,
+                10460
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5598,8 +5598,8 @@
           "source_references": [
             {
               "lines": [
-                10186,
-                10189
+                10208,
+                10211
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5637,8 +5637,8 @@
           "source_references": [
             {
               "lines": [
-                10693,
-                10720
+                10822,
+                10849
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5676,8 +5676,9 @@
           "source_references": [
             {
               "lines": [
-                10727,
-                10730
+                4938,
+                10856,
+                10859
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5707,8 +5708,8 @@
           "source_references": [
             {
               "lines": [
-                10750,
-                10765
+                10879,
+                10894
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5746,8 +5747,8 @@
           "source_references": [
             {
               "lines": [
-                10820,
-                11179
+                10949,
+                11308
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5777,8 +5778,8 @@
           "source_references": [
             {
               "lines": [
-                10861,
-                11207
+                10990,
+                11336
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5808,8 +5809,8 @@
           "source_references": [
             {
               "lines": [
-                10892,
-                11462
+                11021,
+                11591
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5839,7 +5840,7 @@
           "source_references": [
             {
               "lines": [
-                10961
+                11090
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5869,9 +5870,9 @@
           "source_references": [
             {
               "lines": [
-                10794,
-                10798,
-                11314
+                10923,
+                10927,
+                11443
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5909,8 +5910,8 @@
           "source_references": [
             {
               "lines": [
-                11032,
-                11036
+                11161,
+                11165
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5940,10 +5941,10 @@
           "source_references": [
             {
               "lines": [
-                10974,
-                10985,
-                10989,
-                10995
+                11103,
+                11114,
+                11118,
+                11124
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -5973,9 +5974,9 @@
           "source_references": [
             {
               "lines": [
-                11001,
-                11016,
-                11026
+                11130,
+                11145,
+                11155
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -6047,10 +6048,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -6064,37 +6065,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -6122,18 +6123,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -6455,8 +6456,8 @@
             },
             {
               "lines": [
-                12335,
-                12405
+                12548,
+                12618
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7009,8 +7010,8 @@
           "source_references": [
             {
               "lines": [
-                9492,
-                9526
+                9514,
+                9548
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -7057,8 +7058,8 @@
           "source_references": [
             {
               "lines": [
-                9466,
-                9527
+                9488,
+                9549
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -7101,11 +7102,11 @@
           "source_references": [
             {
               "lines": [
-                18447,
-                18449,
-                18463,
-                18479,
-                18483
+                18863,
+                18865,
+                18879,
+                18895,
+                18899
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7118,7 +7119,7 @@
             {
               "lines": [
                 2332,
-                10024
+                10046
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -7307,14 +7308,14 @@
           "source_references": [
             {
               "lines": [
-                16
+                17
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1909,
-                1917
+                1910,
+                1918
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7326,10 +7327,10 @@
             },
             {
               "lines": [
-                16192,
-                16196,
-                18423,
-                18426
+                16608,
+                16612,
+                18839,
+                18842
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7372,14 +7373,14 @@
           "source_references": [
             {
               "lines": [
-                59
+                60
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1843,
-                1846
+                1844,
+                1847
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7391,8 +7392,8 @@
             },
             {
               "lines": [
-                17792,
-                17795
+                18208,
+                18211
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7429,15 +7430,15 @@
           "source_references": [
             {
               "lines": [
-                51
+                52
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1716,
-                1720,
-                2165
+                1717,
+                1721,
+                2166
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7449,8 +7450,8 @@
             },
             {
               "lines": [
-                17522,
-                17572
+                17938,
+                17988
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7481,16 +7482,16 @@
           "source_references": [
             {
               "lines": [
-                50
+                51
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1729,
-                1741,
-                1748,
-                2136
+                1730,
+                1742,
+                1749,
+                2137
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7502,10 +7503,10 @@
             },
             {
               "lines": [
-                17438,
-                17444,
-                17462,
-                17484
+                17854,
+                17860,
+                17878,
+                17900
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7536,7 +7537,7 @@
           "source_references": [
             {
               "lines": [
-                538
+                539
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7573,7 +7574,7 @@
           "source_references": [
             {
               "lines": [
-                1786
+                1787
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7603,7 +7604,7 @@
           "source_references": [
             {
               "lines": [
-                1756
+                1757
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7646,8 +7647,8 @@
             },
             {
               "lines": [
-                10050,
-                10058
+                10072,
+                10080
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -7678,18 +7679,18 @@
           "source_references": [
             {
               "lines": [
-                26
+                27
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                670,
-                674,
-                801,
-                804,
-                1956,
-                1977
+                671,
+                675,
+                802,
+                805,
+                1957,
+                1978
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7701,12 +7702,12 @@
             },
             {
               "lines": [
-                16348,
-                16351,
-                16354,
-                16423,
-                16433,
-                16446
+                16764,
+                16767,
+                16770,
+                16839,
+                16849,
+                16862
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7736,14 +7737,14 @@
           "source_references": [
             {
               "lines": [
-                28
+                29
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                730,
-                734
+                731,
+                735
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7755,11 +7756,11 @@
             },
             {
               "lines": [
-                16714,
-                16717,
-                16728,
-                16739,
-                16762
+                17130,
+                17133,
+                17144,
+                17155,
+                17178
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7789,16 +7790,16 @@
           "source_references": [
             {
               "lines": [
-                27
+                28
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                685,
-                692,
-                1058,
-                1117
+                686,
+                693,
+                1059,
+                1118
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7810,18 +7811,18 @@
             },
             {
               "lines": [
-                16465,
-                16468,
-                16474,
-                16483,
-                16491,
-                16512,
-                16584,
-                16636,
-                16673,
-                16698,
-                16704,
-                16708
+                16881,
+                16884,
+                16890,
+                16899,
+                16907,
+                16928,
+                17000,
+                17052,
+                17089,
+                17114,
+                17120,
+                17124
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7851,20 +7852,20 @@
           "source_references": [
             {
               "lines": [
-                742,
-                753,
-                766,
-                792,
-                807,
-                833,
-                841,
-                965,
-                976,
-                987,
-                1019,
-                1036,
-                1087,
-                1157
+                743,
+                754,
+                767,
+                793,
+                808,
+                834,
+                842,
+                966,
+                977,
+                988,
+                1020,
+                1037,
+                1088,
+                1158
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7900,14 +7901,14 @@
           "source_references": [
             {
               "lines": [
-                53
+                54
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1816,
-                1830
+                1817,
+                1831
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7919,12 +7920,12 @@
             },
             {
               "lines": [
-                17729,
-                17735,
-                17750,
-                17756,
-                17769,
-                17788
+                18145,
+                18151,
+                18166,
+                18172,
+                18185,
+                18204
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -7961,15 +7962,15 @@
           "source_references": [
             {
               "lines": [
-                11
+                12
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                659,
-                661,
-                663
+                660,
+                662,
+                664
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -7981,9 +7982,9 @@
             },
             {
               "lines": [
-                15396,
-                15399,
-                15403
+                15812,
+                15815,
+                15819
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8014,15 +8015,15 @@
           "source_references": [
             {
               "lines": [
-                10
+                11
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                607,
-                610,
-                621
+                608,
+                611,
+                622
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8034,26 +8035,26 @@
             },
             {
               "lines": [
-                13915,
-                13918,
-                13927,
-                13942,
-                13955,
-                13965,
-                13971,
-                13977,
-                13981,
-                13993,
-                14003,
-                14045,
-                14059,
-                14111,
-                14228,
-                14230,
-                14242,
-                14270,
-                14330,
-                14341
+                14128,
+                14131,
+                14140,
+                14155,
+                14168,
+                14178,
+                14184,
+                14190,
+                14194,
+                14206,
+                14216,
+                14258,
+                14272,
+                14324,
+                14441,
+                14443,
+                14455,
+                14483,
+                14543,
+                14554
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8084,15 +8085,15 @@
           "source_references": [
             {
               "lines": [
-                9
+                10
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                555,
-                558,
-                569
+                556,
+                559,
+                570
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8104,27 +8105,27 @@
             },
             {
               "lines": [
-                13709,
-                13712,
-                13721,
-                13736,
-                13749,
-                13758,
-                13765,
-                13773,
-                13784,
-                13792,
-                13795,
-                13831,
-                13837,
-                13854,
-                13856,
-                13859,
-                13878,
-                13896,
-                13905,
-                15671,
-                15682
+                13922,
+                13925,
+                13934,
+                13949,
+                13962,
+                13971,
+                13978,
+                13986,
+                13997,
+                14005,
+                14008,
+                14044,
+                14050,
+                14067,
+                14069,
+                14072,
+                14091,
+                14109,
+                14118,
+                16087,
+                16098
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8155,14 +8156,14 @@
           "source_references": [
             {
               "lines": [
-                17
+                18
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1924,
-                1925
+                1925,
+                1926
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8174,10 +8175,10 @@
             },
             {
               "lines": [
-                16199,
-                16207,
-                18431,
-                18432
+                16615,
+                16623,
+                18847,
+                18848
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8220,14 +8221,14 @@
           "source_references": [
             {
               "lines": [
-                60
+                61
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1854,
-                1857
+                1855,
+                1858
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8239,8 +8240,8 @@
             },
             {
               "lines": [
-                17806,
-                17809
+                18222,
+                18225
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8277,8 +8278,8 @@
           "source_references": [
             {
               "lines": [
-                1409,
-                1413
+                1410,
+                1414
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8308,15 +8309,15 @@
           "source_references": [
             {
               "lines": [
-                13
+                14
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1929,
-                1933,
-                1935
+                1930,
+                1934,
+                1936
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8328,39 +8329,39 @@
             },
             {
               "lines": [
-                15436,
-                15439,
-                15443,
-                15451,
-                15457,
-                15462,
-                15472,
-                15515,
-                15525,
-                15528,
-                15538,
-                15545,
-                15552,
-                15572,
-                15581,
-                15586,
-                15593,
-                15619,
-                15622,
-                15671,
-                15682,
-                15696,
-                15787,
-                15817,
-                15840,
-                15885,
-                15897,
-                15904,
-                15917,
-                15947,
-                15959,
+                15852,
+                15855,
+                15859,
+                15867,
+                15873,
+                15878,
+                15888,
+                15931,
+                15941,
+                15944,
+                15954,
+                15961,
+                15968,
+                15988,
+                15997,
+                16002,
+                16009,
                 16035,
-                16040
+                16038,
+                16087,
+                16098,
+                16112,
+                16203,
+                16233,
+                16256,
+                16301,
+                16313,
+                16320,
+                16333,
+                16363,
+                16375,
+                16451,
+                16456
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8391,14 +8392,14 @@
           "source_references": [
             {
               "lines": [
-                44
+                45
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1626,
-                1629
+                1627,
+                1630
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8410,7 +8411,7 @@
             },
             {
               "lines": [
-                18126
+                18542
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8441,14 +8442,14 @@
           "source_references": [
             {
               "lines": [
-                42
+                43
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1182,
-                1185
+                1183,
+                1186
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8460,7 +8461,7 @@
             },
             {
               "lines": [
-                17956
+                18372
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8490,14 +8491,14 @@
           "source_references": [
             {
               "lines": [
-                43
+                44
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1637,
-                1651
+                1638,
+                1652
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8509,9 +8510,9 @@
             },
             {
               "lines": [
-                18106,
-                18114,
-                18120
+                18522,
+                18530,
+                18536
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8542,14 +8543,14 @@
           "source_references": [
             {
               "lines": [
-                48
+                49
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1228,
-                1230
+                1229,
+                1231
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8561,7 +8562,7 @@
             },
             {
               "lines": [
-                18146
+                18562
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8591,16 +8592,16 @@
           "source_references": [
             {
               "lines": [
-                47
+                48
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1692,
-                1699,
-                2130,
-                2145
+                1693,
+                1700,
+                2131,
+                2146
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8612,11 +8613,11 @@
             },
             {
               "lines": [
-                17399,
-                17403,
-                17412,
-                17418,
-                17431
+                17815,
+                17819,
+                17828,
+                17834,
+                17847
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8647,14 +8648,14 @@
           "source_references": [
             {
               "lines": [
-                49
+                50
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1236,
-                1238
+                1237,
+                1239
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8666,7 +8667,7 @@
             },
             {
               "lines": [
-                18151
+                18567
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8696,14 +8697,14 @@
           "source_references": [
             {
               "lines": [
-                46
+                47
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1209,
-                1220
+                1210,
+                1221
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8715,7 +8716,7 @@
             },
             {
               "lines": [
-                17936
+                18352
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8746,14 +8747,14 @@
           "source_references": [
             {
               "lines": [
-                45
+                46
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1190,
-                1202
+                1191,
+                1203
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8765,7 +8766,7 @@
             },
             {
               "lines": [
-                17918
+                18334
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8846,14 +8847,14 @@
           "source_references": [
             {
               "lines": [
-                61
+                62
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1865,
-                1870
+                1866,
+                1871
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8865,11 +8866,11 @@
             },
             {
               "lines": [
-                17823,
-                17829,
-                17843,
-                17891,
-                17903
+                18239,
+                18245,
+                18259,
+                18307,
+                18319
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8881,7 +8882,7 @@
             },
             {
               "lines": [
-                11474
+                11603
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -8919,15 +8920,15 @@
           "source_references": [
             {
               "lines": [
-                57
+                58
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1166,
-                1170,
-                2041
+                1167,
+                1171,
+                2042
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8939,18 +8940,18 @@
             },
             {
               "lines": [
-                16784,
-                16787,
-                16799,
-                16817,
-                16891,
-                16909,
-                16979,
-                16987,
-                17023,
-                17043,
-                17072,
-                17100
+                17200,
+                17203,
+                17215,
+                17233,
+                17307,
+                17325,
+                17395,
+                17403,
+                17439,
+                17459,
+                17488,
+                17516
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -8980,14 +8981,14 @@
           "source_references": [
             {
               "lines": [
-                54
+                55
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1296,
-                1325
+                1297,
+                1326
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -8999,10 +9000,10 @@
             },
             {
               "lines": [
-                17215,
-                17217,
-                17262,
-                17268
+                17631,
+                17633,
+                17678,
+                17684
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9039,7 +9040,7 @@
           "source_references": [
             {
               "lines": [
-                1662
+                1663
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9069,7 +9070,7 @@
           "source_references": [
             {
               "lines": [
-                1496
+                1497
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9099,15 +9100,15 @@
           "source_references": [
             {
               "lines": [
-                33
+                34
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1499,
-                1518,
-                1531
+                1500,
+                1519,
+                1532
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9119,8 +9120,8 @@
             },
             {
               "lines": [
-                18044,
-                18067
+                18460,
+                18483
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9151,14 +9152,14 @@
           "source_references": [
             {
               "lines": [
-                35
+                36
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1561,
-                1564
+                1562,
+                1565
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9170,7 +9171,7 @@
             },
             {
               "lines": [
-                18074
+                18490
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9201,14 +9202,14 @@
           "source_references": [
             {
               "lines": [
-                41
+                42
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1476,
-                1480
+                1477,
+                1481
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9220,7 +9221,7 @@
             },
             {
               "lines": [
-                18098
+                18514
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9251,14 +9252,14 @@
           "source_references": [
             {
               "lines": [
-                37
+                38
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1583,
-                1586
+                1584,
+                1587
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9270,7 +9271,7 @@
             },
             {
               "lines": [
-                18082
+                18498
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9301,14 +9302,14 @@
           "source_references": [
             {
               "lines": [
-                31
+                32
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1458,
-                1461
+                1459,
+                1462
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9320,7 +9321,7 @@
             },
             {
               "lines": [
-                18038
+                18454
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9351,14 +9352,14 @@
           "source_references": [
             {
               "lines": [
-                39
+                40
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1605,
-                1608
+                1606,
+                1609
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9370,7 +9371,7 @@
             },
             {
               "lines": [
-                18090
+                18506
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9401,14 +9402,14 @@
           "source_references": [
             {
               "lines": [
-                56
+                57
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1425,
-                1451
+                1426,
+                1452
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9420,7 +9421,7 @@
             },
             {
               "lines": [
-                18244
+                18660
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9450,7 +9451,7 @@
           "source_references": [
             {
               "lines": [
-                1507
+                1508
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9480,15 +9481,15 @@
           "source_references": [
             {
               "lines": [
-                32
+                33
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1510,
-                1539,
-                1552
+                1511,
+                1540,
+                1553
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9500,9 +9501,9 @@
             },
             {
               "lines": [
-                17971,
-                17973,
-                17996
+                18387,
+                18389,
+                18412
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9533,14 +9534,14 @@
           "source_references": [
             {
               "lines": [
-                34
+                35
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1572,
-                1575
+                1573,
+                1576
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9552,7 +9553,7 @@
             },
             {
               "lines": [
-                18003
+                18419
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9583,14 +9584,14 @@
           "source_references": [
             {
               "lines": [
-                40
+                41
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1486,
-                1490
+                1487,
+                1491
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9602,8 +9603,8 @@
             },
             {
               "lines": [
-                18027,
-                18029
+                18443,
+                18445
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9634,14 +9635,14 @@
           "source_references": [
             {
               "lines": [
-                36
+                37
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1594,
-                1597
+                1595,
+                1598
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9653,7 +9654,7 @@
             },
             {
               "lines": [
-                18011
+                18427
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9684,14 +9685,14 @@
           "source_references": [
             {
               "lines": [
-                30
+                31
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1467,
-                1470
+                1468,
+                1471
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9703,7 +9704,7 @@
             },
             {
               "lines": [
-                17961
+                18377
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9734,14 +9735,14 @@
           "source_references": [
             {
               "lines": [
-                38
+                39
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1616,
-                1619
+                1617,
+                1620
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9753,7 +9754,7 @@
             },
             {
               "lines": [
-                18019
+                18435
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9784,14 +9785,14 @@
           "source_references": [
             {
               "lines": [
-                15
+                16
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1894,
-                1902
+                1895,
+                1903
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9803,10 +9804,10 @@
             },
             {
               "lines": [
-                16185,
-                16189,
-                18415,
-                18418
+                16601,
+                16605,
+                18831,
+                18834
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9849,17 +9850,17 @@
           "source_references": [
             {
               "lines": [
-                29
+                30
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
                 222,
-                528,
-                548,
-                1284,
-                1290
+                529,
+                549,
+                1285,
+                1291
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9871,10 +9872,10 @@
             },
             {
               "lines": [
-                17171,
-                17180,
-                17189,
-                17197
+                17587,
+                17596,
+                17605,
+                17613
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9905,14 +9906,14 @@
           "source_references": [
             {
               "lines": [
-                14
+                15
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1882,
-                1886
+                1883,
+                1887
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -9924,8 +9925,8 @@
             },
             {
               "lines": [
-                16174,
-                16179
+                16590,
+                16595
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -9970,7 +9971,7 @@
           "source_references": [
             {
               "lines": [
-                1948
+                1949
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10000,7 +10001,7 @@
           "source_references": [
             {
               "lines": [
-                1969
+                1970
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10030,14 +10031,14 @@
           "source_references": [
             {
               "lines": [
-                67
+                68
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1990,
-                1993
+                1991,
+                1994
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10049,8 +10050,8 @@
             },
             {
               "lines": [
-                18188,
-                18206
+                18604,
+                18622
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10080,7 +10081,7 @@
           "source_references": [
             {
               "lines": [
-                2034
+                2035
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10121,14 +10122,14 @@
           "source_references": [
             {
               "lines": [
-                18
+                19
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1999,
-                2022
+                2000,
+                2023
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10140,9 +10141,9 @@
             },
             {
               "lines": [
-                16210,
-                16229,
-                16244
+                16626,
+                16645,
+                16660
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10172,15 +10173,15 @@
           "source_references": [
             {
               "lines": [
-                19
+                20
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                596,
-                2059,
-                2065
+                597,
+                2060,
+                2066
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10192,9 +10193,9 @@
             },
             {
               "lines": [
-                16248,
-                16251,
-                16256
+                16664,
+                16667,
+                16672
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10207,7 +10208,7 @@
             },
             {
               "lines": [
-                6973
+                6995
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -10245,15 +10246,15 @@
             },
             {
               "lines": [
-                74
+                75
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2381,
-                2421,
-                2508
+                2510,
+                2550,
+                2637
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10272,11 +10273,11 @@
             {
               "lines": [
                 1606,
-                3542,
-                16154,
-                16158,
-                16163,
-                16168
+                3557,
+                16570,
+                16574,
+                16579,
+                16584
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10289,7 +10290,7 @@
             },
             {
               "lines": [
-                5128
+                5149
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -10313,15 +10314,15 @@
           "source_references": [
             {
               "lines": [
-                73
+                74
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2368,
-                2373,
-                2378
+                2497,
+                2502,
+                2507
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10339,14 +10340,14 @@
             },
             {
               "lines": [
-                16053,
-                16057,
-                16101,
-                16116,
-                16121,
-                16134,
-                16143,
-                16163
+                16469,
+                16473,
+                16517,
+                16532,
+                16537,
+                16550,
+                16559,
+                16579
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10385,14 +10386,14 @@
           "source_references": [
             {
               "lines": [
-                58
+                59
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2070,
-                2089
+                2071,
+                2090
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10404,11 +10405,11 @@
             },
             {
               "lines": [
-                17106,
-                17117,
-                17122,
-                17142,
-                17154
+                17522,
+                17533,
+                17538,
+                17558,
+                17570
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10453,14 +10454,14 @@
           "source_references": [
             {
               "lines": [
-                23
+                24
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2096,
-                2101
+                2097,
+                2102
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10472,9 +10473,9 @@
             },
             {
               "lines": [
-                16308,
-                16312,
-                16317
+                16724,
+                16728,
+                16733
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10487,11 +10488,11 @@
             },
             {
               "lines": [
-                10110,
-                10129,
-                10152,
-                10857,
-                11242
+                10132,
+                10151,
+                10174,
+                10986,
+                11371
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -10542,15 +10543,15 @@
           "source_references": [
             {
               "lines": [
-                21
+                22
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2108,
-                2113,
-                2119
+                2109,
+                2114,
+                2120
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10562,9 +10563,9 @@
             },
             {
               "lines": [
-                16284,
-                16287,
-                16292
+                16700,
+                16703,
+                16708
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10595,19 +10596,24 @@
           "source_references": [
             {
               "lines": [
-                62
+                63
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2220,
-                2225,
-                2238,
-                2246,
-                2251,
-                2268,
-                2297
+                2221,
+                2226,
+                2266,
+                2277,
+                2293,
+                2309,
+                2318,
+                2323,
+                2349,
+                2364,
+                2379,
+                2426
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10619,7 +10625,7 @@
             },
             {
               "lines": [
-                14352
+                14565
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10650,16 +10656,16 @@
           "source_references": [
             {
               "lines": [
-                63
+                64
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2330,
-                2339,
-                2344,
-                2351
+                2459,
+                2468,
+                2473,
+                2480
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10671,7 +10677,7 @@
             },
             {
               "lines": [
-                15084
+                15472
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10701,16 +10707,16 @@
           "source_references": [
             {
               "lines": [
-                66
+                67
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2512,
-                2515,
-                2519,
-                2526
+                2641,
+                2644,
+                2648,
+                2655
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10722,10 +10728,10 @@
             },
             {
               "lines": [
-                11791,
-                15375,
-                15381,
-                15393
+                12004,
+                15791,
+                15797,
+                15809
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10756,15 +10762,15 @@
           "source_references": [
             {
               "lines": [
-                64
+                65
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2293,
-                2305,
-                2316
+                2422,
+                2434,
+                2445
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10776,7 +10782,7 @@
             },
             {
               "lines": [
-                15286
+                15674
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10807,15 +10813,15 @@
           "source_references": [
             {
               "lines": [
-                22
+                23
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2170,
                 2171,
-                2172
+                2172,
+                2173
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10827,9 +10833,9 @@
             },
             {
               "lines": [
-                16297,
-                16299,
-                16305
+                16713,
+                16715,
+                16721
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10860,14 +10866,14 @@
           "source_references": [
             {
               "lines": [
-                25
+                26
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2199,
-                2209
+                2200,
+                2210
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10879,7 +10885,7 @@
             },
             {
               "lines": [
-                16323
+                16739
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10910,14 +10916,14 @@
           "source_references": [
             {
               "lines": [
-                24
+                25
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2176,
-                2186
+                2177,
+                2187
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10929,8 +10935,8 @@
             },
             {
               "lines": [
-                16322,
-                16336
+                16738,
+                16752
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -10961,15 +10967,15 @@
           "source_references": [
             {
               "lines": [
-                65
+                66
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2358,
-                2361,
-                2365
+                2487,
+                2490,
+                2494
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -10981,9 +10987,9 @@
             },
             {
               "lines": [
-                15350,
-                15363,
-                15368
+                15766,
+                15779,
+                15784
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11022,15 +11028,15 @@
           "source_references": [
             {
               "lines": [
-                68
+                69
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2532,
-                2536,
-                2542
+                2661,
+                2665,
+                2671
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11042,9 +11048,9 @@
             },
             {
               "lines": [
-                18212,
-                18218,
-                18228
+                18628,
+                18634,
+                18644
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11074,15 +11080,15 @@
           "source_references": [
             {
               "lines": [
-                69
+                70
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2547,
-                2550,
-                2554
+                2676,
+                2679,
+                2683
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11094,8 +11100,8 @@
             },
             {
               "lines": [
-                18234,
-                18239
+                18650,
+                18655
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11133,15 +11139,15 @@
           "source_references": [
             {
               "lines": [
-                12
+                13
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2558,
-                2561,
-                2564
+                2687,
+                2690,
+                2693
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11153,9 +11159,9 @@
             },
             {
               "lines": [
-                15406,
-                15408,
-                15426
+                15822,
+                15824,
+                15842
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11200,9 +11206,9 @@
           "source_references": [
             {
               "lines": [
-                1332,
-                1383,
-                1404
+                1333,
+                1384,
+                1405
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11240,14 +11246,14 @@
           "source_references": [
             {
               "lines": [
-                70
+                71
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1244,
-                1249
+                1245,
+                1250
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11265,7 +11271,7 @@
             },
             {
               "lines": [
-                18160
+                18576
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11303,14 +11309,14 @@
           "source_references": [
             {
               "lines": [
-                72
+                73
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1270,
-                1278
+                1271,
+                1279
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11328,9 +11334,9 @@
             },
             {
               "lines": [
-                18131,
-                18138,
-                18141
+                18547,
+                18554,
+                18557
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11360,14 +11366,14 @@
           "source_references": [
             {
               "lines": [
-                71
+                72
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1255,
-                1263
+                1256,
+                1264
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11385,9 +11391,9 @@
             },
             {
               "lines": [
-                18169,
-                18180,
-                18184
+                18585,
+                18596,
+                18600
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11399,7 +11405,7 @@
             },
             {
               "lines": [
-                7141
+                7163
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -11438,10 +11444,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -11455,37 +11461,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -11513,18 +11519,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -12666,7 +12672,7 @@
           "source_references": [
             {
               "lines": [
-                7155
+                7177
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -13007,17 +13013,17 @@
               "lines": [
                 2661,
                 2662,
-                5913,
-                6226,
-                6447,
-                6671,
-                7003,
-                7100,
-                8020,
-                8127,
-                9700,
-                11828,
-                12015
+                5922,
+                6235,
+                6456,
+                6680,
+                7012,
+                7109,
+                8029,
+                8136,
+                9709,
+                12041,
+                12228
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -13062,10 +13068,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -13079,37 +13085,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -13137,18 +13143,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -13420,10 +13426,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -13437,37 +13443,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -13495,18 +13501,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -13626,74 +13632,81 @@
                 2141,
                 2325,
                 2828,
-                3661,
-                3706,
-                4129,
-                4159,
-                4177,
-                4229,
-                4681,
-                4728,
-                4772,
-                4817,
-                4834,
-                4856,
-                4944,
-                5005,
-                5025,
-                5106,
-                5160,
-                5176,
-                5340,
-                5436,
-                5841,
-                5871,
-                6037,
-                6082,
-                6137,
-                6790,
-                6811,
-                6855,
-                7203,
-                7257,
-                7401,
-                7541,
-                7857,
-                7933,
-                8349,
-                8355,
-                8629,
-                8632,
-                9414,
-                9497,
-                9540,
-                9870,
-                9966,
-                10018,
-                10078,
-                10097,
-                10225,
-                10445,
-                10448,
-                10567,
-                10623,
+                3676,
+                3721,
+                4144,
+                4174,
+                4192,
+                4244,
+                4690,
+                4737,
+                4781,
+                4826,
+                4843,
+                4865,
+                4953,
+                5014,
+                5034,
+                5115,
+                5169,
+                5185,
+                5349,
+                5445,
+                5850,
+                5880,
+                6046,
+                6091,
+                6146,
+                6799,
+                6820,
+                6864,
+                7212,
+                7266,
+                7410,
+                7550,
+                7866,
+                7942,
+                8358,
+                8364,
+                8638,
+                8641,
+                9423,
+                9506,
+                9549,
+                9879,
+                9975,
+                10027,
+                10087,
+                10106,
+                10234,
+                10454,
+                10457,
+                10576,
                 10632,
-                11415,
-                11594,
-                12153,
-                12230,
-                12378,
-                14100,
-                14133,
-                14176,
-                14369,
-                14844,
-                15108,
-                15189,
-                15310,
-                15776,
-                16109,
-                17126
+                10641,
+                11088,
+                11092,
+                11132,
+                11134,
+                11169,
+                11220,
+                11628,
+                11807,
+                12366,
+                12443,
+                12591,
+                14313,
+                14346,
+                14389,
+                14598,
+                15204,
+                15496,
+                15577,
+                15690,
+                15726,
+                16192,
+                16525,
+                17542
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -13702,12 +13715,12 @@
                 1421,
                 1435,
                 2858,
-                9262,
-                9278,
-                9391,
-                10341,
-                10362,
-                10420
+                9284,
+                9300,
+                9413,
+                10363,
+                10384,
+                10442
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -13789,19 +13802,19 @@
                 2155,
                 2339,
                 2845,
-                5348,
-                5443,
-                11422,
-                14139,
-                14183,
-                14856,
-                15478,
-                15565,
-                16617,
-                17128,
-                17674,
-                17766,
-                17877
+                5357,
+                5452,
+                11635,
+                14352,
+                14396,
+                15216,
+                15894,
+                15981,
+                17033,
+                17544,
+                18090,
+                18182,
+                18293
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -13870,18 +13883,18 @@
               "lines": [
                 679,
                 1240,
-                11003,
-                11024,
-                11109,
-                11137,
-                11184
+                11012,
+                11033,
+                11322,
+                11350,
+                11397
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
             {
               "lines": [
                 2306,
-                6541
+                6563
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -13959,27 +13972,27 @@
                 2180,
                 2367,
                 2866,
-                5362,
-                5447,
-                11427,
-                14154,
-                14193,
-                14944,
-                15491,
-                15532,
-                16050,
-                16621,
-                17133,
-                17683,
-                17768,
-                17882
+                5371,
+                5456,
+                11640,
+                14367,
+                14406,
+                15326,
+                15907,
+                15948,
+                16466,
+                17037,
+                17549,
+                18099,
+                18184,
+                18298
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
             {
               "lines": [
                 2874,
-                7156
+                7178
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -14047,10 +14060,10 @@
               "lines": [
                 702,
                 1265,
-                11028,
-                11080,
-                11144,
-                11187
+                11037,
+                11293,
+                11357,
+                11400
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -14460,11 +14473,11 @@
           "source_references": [
             {
               "lines": [
-                5562,
-                5569,
-                5577,
-                5583,
-                5590
+                5584,
+                5591,
+                5599,
+                5605,
+                5612
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -14496,10 +14509,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -14513,37 +14526,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -14571,18 +14584,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -14699,8 +14712,8 @@
           "source_references": [
             {
               "lines": [
-                5651,
-                5653
+                5673,
+                5675
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -14724,12 +14737,12 @@
           "source_references": [
             {
               "lines": [
-                5595,
-                5605,
-                5618,
-                5624,
-                5642,
-                5646
+                5617,
+                5627,
+                5640,
+                5646,
+                5664,
+                5668
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -15133,8 +15146,8 @@
           "source_references": [
             {
               "lines": [
-                5088,
-                5089
+                5109,
+                5110
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -15158,8 +15171,8 @@
           "source_references": [
             {
               "lines": [
-                5077,
-                5078
+                5098,
+                5099
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -15183,8 +15196,8 @@
           "source_references": [
             {
               "lines": [
-                5094,
-                5095
+                5115,
+                5116
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -15217,8 +15230,8 @@
             {
               "lines": [
                 2011,
-                5103,
-                5105
+                5124,
+                5126
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -15251,8 +15264,8 @@
             {
               "lines": [
                 2017,
-                5228,
-                5230
+                5249,
+                5251
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -15277,8 +15290,8 @@
             {
               "lines": [
                 2019,
-                5242,
-                5244
+                5263,
+                5265
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -15521,14 +15534,14 @@
           "source_references": [
             {
               "lines": [
-                16
+                17
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1909,
-                1917
+                1910,
+                1918
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -15540,10 +15553,10 @@
             },
             {
               "lines": [
-                16192,
-                16196,
-                18423,
-                18426
+                16608,
+                16612,
+                18839,
+                18842
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -15586,14 +15599,14 @@
           "source_references": [
             {
               "lines": [
-                59
+                60
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1843,
-                1846
+                1844,
+                1847
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -15605,8 +15618,8 @@
             },
             {
               "lines": [
-                17792,
-                17795
+                18208,
+                18211
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -15643,7 +15656,7 @@
           "source_references": [
             {
               "lines": [
-                538
+                539
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -15693,8 +15706,8 @@
             },
             {
               "lines": [
-                10050,
-                10058
+                10072,
+                10080
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -15742,14 +15755,14 @@
           "source_references": [
             {
               "lines": [
-                53
+                54
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1816,
-                1830
+                1817,
+                1831
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -15761,12 +15774,12 @@
             },
             {
               "lines": [
-                17729,
-                17735,
-                17750,
-                17756,
-                17769,
-                17788
+                18145,
+                18151,
+                18166,
+                18172,
+                18185,
+                18204
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -15803,14 +15816,14 @@
           "source_references": [
             {
               "lines": [
-                17
+                18
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1924,
-                1925
+                1925,
+                1926
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -15822,10 +15835,10 @@
             },
             {
               "lines": [
-                16199,
-                16207,
-                18431,
-                18432
+                16615,
+                16623,
+                18847,
+                18848
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -15868,14 +15881,14 @@
           "source_references": [
             {
               "lines": [
-                60
+                61
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1854,
-                1857
+                1855,
+                1858
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -15887,8 +15900,8 @@
             },
             {
               "lines": [
-                17806,
-                17809
+                18222,
+                18225
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -15975,14 +15988,14 @@
           "source_references": [
             {
               "lines": [
-                61
+                62
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1865,
-                1870
+                1866,
+                1871
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -15994,11 +16007,11 @@
             },
             {
               "lines": [
-                17823,
-                17829,
-                17843,
-                17891,
-                17903
+                18239,
+                18245,
+                18259,
+                18307,
+                18319
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16010,7 +16023,7 @@
             },
             {
               "lines": [
-                11474
+                11603
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -16048,14 +16061,14 @@
           "source_references": [
             {
               "lines": [
-                54
+                55
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1296,
-                1325
+                1297,
+                1326
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16067,10 +16080,10 @@
             },
             {
               "lines": [
-                17215,
-                17217,
-                17262,
-                17268
+                17631,
+                17633,
+                17678,
+                17684
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16107,14 +16120,14 @@
           "source_references": [
             {
               "lines": [
-                15
+                16
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1894,
-                1902
+                1895,
+                1903
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16126,10 +16139,10 @@
             },
             {
               "lines": [
-                16185,
-                16189,
-                18415,
-                18418
+                16601,
+                16605,
+                18831,
+                18834
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16172,14 +16185,14 @@
           "source_references": [
             {
               "lines": [
-                14
+                15
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1882,
-                1886
+                1883,
+                1887
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16191,8 +16204,8 @@
             },
             {
               "lines": [
-                16174,
-                16179
+                16590,
+                16595
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16229,14 +16242,14 @@
           "source_references": [
             {
               "lines": [
-                58
+                59
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2070,
-                2089
+                2071,
+                2090
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16248,11 +16261,11 @@
             },
             {
               "lines": [
-                17106,
-                17117,
-                17122,
-                17142,
-                17154
+                17522,
+                17533,
+                17538,
+                17558,
+                17570
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16356,14 +16369,14 @@
           "source_references": [
             {
               "lines": [
-                23
+                24
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2096,
-                2101
+                2097,
+                2102
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16375,9 +16388,9 @@
             },
             {
               "lines": [
-                16308,
-                16312,
-                16317
+                16724,
+                16728,
+                16733
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16390,11 +16403,11 @@
             },
             {
               "lines": [
-                10110,
-                10129,
-                10152,
-                10857,
-                11242
+                10132,
+                10151,
+                10174,
+                10986,
+                11371
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -16445,9 +16458,9 @@
           "source_references": [
             {
               "lines": [
-                1332,
-                1383,
-                1404
+                1333,
+                1384,
+                1405
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16493,10 +16506,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16510,37 +16523,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16568,18 +16581,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -16759,10 +16772,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -16776,37 +16789,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -16834,18 +16847,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -17017,11 +17030,11 @@
           "source_references": [
             {
               "lines": [
-                6534,
-                6536,
-                6539,
-                6541,
-                7391
+                6556,
+                6558,
+                6561,
+                6563,
+                7413
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -17370,14 +17383,14 @@
           "source_references": [
             {
               "lines": [
-                16
+                17
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1909,
-                1917
+                1910,
+                1918
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17389,10 +17402,10 @@
             },
             {
               "lines": [
-                16192,
-                16196,
-                18423,
-                18426
+                16608,
+                16612,
+                18839,
+                18842
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -17435,14 +17448,14 @@
           "source_references": [
             {
               "lines": [
-                59
+                60
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1843,
-                1846
+                1844,
+                1847
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17454,8 +17467,8 @@
             },
             {
               "lines": [
-                17792,
-                17795
+                18208,
+                18211
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -17492,7 +17505,7 @@
           "source_references": [
             {
               "lines": [
-                538
+                539
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17542,8 +17555,8 @@
             },
             {
               "lines": [
-                10050,
-                10058
+                10072,
+                10080
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -17574,14 +17587,14 @@
           "source_references": [
             {
               "lines": [
-                53
+                54
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1816,
-                1830
+                1817,
+                1831
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17593,12 +17606,12 @@
             },
             {
               "lines": [
-                17729,
-                17735,
-                17750,
-                17756,
-                17769,
-                17788
+                18145,
+                18151,
+                18166,
+                18172,
+                18185,
+                18204
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -17635,14 +17648,14 @@
           "source_references": [
             {
               "lines": [
-                17
+                18
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1924,
-                1925
+                1925,
+                1926
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17654,10 +17667,10 @@
             },
             {
               "lines": [
-                16199,
-                16207,
-                18431,
-                18432
+                16615,
+                16623,
+                18847,
+                18848
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -17700,14 +17713,14 @@
           "source_references": [
             {
               "lines": [
-                60
+                61
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1854,
-                1857
+                1855,
+                1858
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17719,8 +17732,8 @@
             },
             {
               "lines": [
-                17806,
-                17809
+                18222,
+                18225
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -17841,14 +17854,14 @@
           "source_references": [
             {
               "lines": [
-                61
+                62
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1865,
-                1870
+                1866,
+                1871
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17860,11 +17873,11 @@
             },
             {
               "lines": [
-                17823,
-                17829,
-                17843,
-                17891,
-                17903
+                18239,
+                18245,
+                18259,
+                18307,
+                18319
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -17876,7 +17889,7 @@
             },
             {
               "lines": [
-                11474
+                11603
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -17914,14 +17927,14 @@
           "source_references": [
             {
               "lines": [
-                54
+                55
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1296,
-                1325
+                1297,
+                1326
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17933,10 +17946,10 @@
             },
             {
               "lines": [
-                17215,
-                17217,
-                17262,
-                17268
+                17631,
+                17633,
+                17678,
+                17684
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -17973,14 +17986,14 @@
           "source_references": [
             {
               "lines": [
-                15
+                16
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1894,
-                1902
+                1895,
+                1903
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -17992,10 +18005,10 @@
             },
             {
               "lines": [
-                16185,
-                16189,
-                18415,
-                18418
+                16601,
+                16605,
+                18831,
+                18834
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -18038,14 +18051,14 @@
           "source_references": [
             {
               "lines": [
-                14
+                15
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1882,
-                1886
+                1883,
+                1887
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -18057,8 +18070,8 @@
             },
             {
               "lines": [
-                16174,
-                16179
+                16590,
+                16595
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -18095,14 +18108,14 @@
           "source_references": [
             {
               "lines": [
-                23
+                24
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2096,
-                2101
+                2097,
+                2102
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -18114,9 +18127,9 @@
             },
             {
               "lines": [
-                16308,
-                16312,
-                16317
+                16724,
+                16728,
+                16733
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -18129,11 +18142,11 @@
             },
             {
               "lines": [
-                10110,
-                10129,
-                10152,
-                10857,
-                11242
+                10132,
+                10151,
+                10174,
+                10986,
+                11371
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -18176,14 +18189,14 @@
           "source_references": [
             {
               "lines": [
-                58
+                59
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2070,
-                2089
+                2071,
+                2090
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -18195,11 +18208,11 @@
             },
             {
               "lines": [
-                17106,
-                17117,
-                17122,
-                17142,
-                17154
+                17522,
+                17533,
+                17538,
+                17558,
+                17570
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -18328,9 +18341,9 @@
           "source_references": [
             {
               "lines": [
-                1332,
-                1383,
-                1404
+                1333,
+                1384,
+                1405
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -18732,10 +18745,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -18749,37 +18762,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -18807,18 +18820,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -18991,10 +19004,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19008,37 +19021,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19066,18 +19079,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -19249,10 +19262,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19266,37 +19279,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19324,18 +19337,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -19499,14 +19512,14 @@
           "source_references": [
             {
               "lines": [
-                16
+                17
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1909,
-                1917
+                1910,
+                1918
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19518,10 +19531,10 @@
             },
             {
               "lines": [
-                16192,
-                16196,
-                18423,
-                18426
+                16608,
+                16612,
+                18839,
+                18842
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19564,14 +19577,14 @@
           "source_references": [
             {
               "lines": [
-                59
+                60
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1843,
-                1846
+                1844,
+                1847
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19583,8 +19596,8 @@
             },
             {
               "lines": [
-                17792,
-                17795
+                18208,
+                18211
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19621,7 +19634,7 @@
           "source_references": [
             {
               "lines": [
-                538
+                539
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19671,8 +19684,8 @@
             },
             {
               "lines": [
-                10050,
-                10058
+                10072,
+                10080
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -19703,14 +19716,14 @@
           "source_references": [
             {
               "lines": [
-                53
+                54
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1816,
-                1830
+                1817,
+                1831
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19722,12 +19735,12 @@
             },
             {
               "lines": [
-                17729,
-                17735,
-                17750,
-                17756,
-                17769,
-                17788
+                18145,
+                18151,
+                18166,
+                18172,
+                18185,
+                18204
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19764,14 +19777,14 @@
           "source_references": [
             {
               "lines": [
-                17
+                18
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1924,
-                1925
+                1925,
+                1926
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19783,10 +19796,10 @@
             },
             {
               "lines": [
-                16199,
-                16207,
-                18431,
-                18432
+                16615,
+                16623,
+                18847,
+                18848
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19829,14 +19842,14 @@
           "source_references": [
             {
               "lines": [
-                60
+                61
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1854,
-                1857
+                1855,
+                1858
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19848,8 +19861,8 @@
             },
             {
               "lines": [
-                17806,
-                17809
+                18222,
+                18225
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19960,14 +19973,14 @@
           "source_references": [
             {
               "lines": [
-                61
+                62
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1865,
-                1870
+                1866,
+                1871
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -19979,11 +19992,11 @@
             },
             {
               "lines": [
-                17823,
-                17829,
-                17843,
-                17891,
-                17903
+                18239,
+                18245,
+                18259,
+                18307,
+                18319
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -19995,7 +20008,7 @@
             },
             {
               "lines": [
-                11474
+                11603
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -20033,14 +20046,14 @@
           "source_references": [
             {
               "lines": [
-                54
+                55
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1296,
-                1325
+                1297,
+                1326
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -20052,10 +20065,10 @@
             },
             {
               "lines": [
-                17215,
-                17217,
-                17262,
-                17268
+                17631,
+                17633,
+                17678,
+                17684
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -20092,14 +20105,14 @@
           "source_references": [
             {
               "lines": [
-                15
+                16
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1894,
-                1902
+                1895,
+                1903
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -20111,10 +20124,10 @@
             },
             {
               "lines": [
-                16185,
-                16189,
-                18415,
-                18418
+                16601,
+                16605,
+                18831,
+                18834
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -20157,14 +20170,14 @@
           "source_references": [
             {
               "lines": [
-                14
+                15
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                1882,
-                1886
+                1883,
+                1887
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -20176,8 +20189,8 @@
             },
             {
               "lines": [
-                16174,
-                16179
+                16590,
+                16595
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -20214,14 +20227,14 @@
           "source_references": [
             {
               "lines": [
-                58
+                59
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2070,
-                2089
+                2071,
+                2090
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -20233,11 +20246,11 @@
             },
             {
               "lines": [
-                17106,
-                17117,
-                17122,
-                17142,
-                17154
+                17522,
+                17533,
+                17538,
+                17558,
+                17570
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -20341,14 +20354,14 @@
           "source_references": [
             {
               "lines": [
-                23
+                24
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_defs.hpp"
             },
             {
               "lines": [
-                2096,
-                2101
+                2097,
+                2102
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -20360,9 +20373,9 @@
             },
             {
               "lines": [
-                16308,
-                16312,
-                16317
+                16724,
+                16728,
+                16733
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -20375,11 +20388,11 @@
             },
             {
               "lines": [
-                10110,
-                10129,
-                10152,
-                10857,
-                11242
+                10132,
+                10151,
+                10174,
+                10986,
+                11371
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -20430,9 +20443,9 @@
           "source_references": [
             {
               "lines": [
-                1332,
-                1383,
-                1404
+                1333,
+                1384,
+                1405
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -20689,7 +20702,7 @@
             {
               "lines": [
                 2072,
-                5314
+                5335
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20714,7 +20727,7 @@
             {
               "lines": [
                 2074,
-                5327
+                5348
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20739,7 +20752,7 @@
             {
               "lines": [
                 2080,
-                5360
+                5381
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20764,7 +20777,7 @@
             {
               "lines": [
                 2076,
-                5338
+                5359
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20789,7 +20802,7 @@
             {
               "lines": [
                 2065,
-                5277
+                5298
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20814,10 +20827,10 @@
             {
               "lines": [
                 2067,
-                5217,
-                5289,
-                5343,
-                5365
+                5238,
+                5310,
+                5364,
+                5386
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20842,7 +20855,7 @@
             {
               "lines": [
                 2069,
-                5300
+                5321
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20867,7 +20880,7 @@
             {
               "lines": [
                 2071,
-                5308
+                5329
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20892,7 +20905,7 @@
             {
               "lines": [
                 2064,
-                5271
+                5292
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20917,7 +20930,7 @@
             {
               "lines": [
                 2061,
-                5256
+                5277
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20942,7 +20955,7 @@
             {
               "lines": [
                 2062,
-                5260
+                5281
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20967,7 +20980,7 @@
             {
               "lines": [
                 2063,
-                5264
+                5285
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -20992,7 +21005,7 @@
             {
               "lines": [
                 2078,
-                5348
+                5369
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             }
@@ -21108,10 +21121,10 @@
             },
             {
               "lines": [
-                760,
-                777,
-                813,
-                839
+                761,
+                778,
+                814,
+                840
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_list.cpp"
             },
@@ -21125,37 +21138,37 @@
                 2322,
                 2460,
                 2826,
-                3075,
-                7377,
-                7558,
-                8820,
-                9004,
-                10339,
-                10354,
-                10960,
-                11157,
-                11158,
-                11227,
-                12343,
-                12413,
-                12794,
-                13013,
-                13305,
-                13306,
-                13534,
-                13535,
-                14129,
-                14175,
-                14295,
-                16522,
-                16523,
-                16750,
-                16766,
-                16797,
-                16798,
-                17332,
-                18615,
-                18616
+                3090,
+                7386,
+                7567,
+                8829,
+                9013,
+                10348,
+                10363,
+                10969,
+                11370,
+                11371,
+                11440,
+                12556,
+                12626,
+                13007,
+                13226,
+                13518,
+                13519,
+                13747,
+                13748,
+                14342,
+                14388,
+                14508,
+                16938,
+                16939,
+                17166,
+                17182,
+                17213,
+                17214,
+                17748,
+                19031,
+                19032
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
             },
@@ -21183,18 +21196,18 @@
                 2294,
                 2688,
                 3467,
-                5657,
-                5787,
-                7505,
-                7520,
-                7571,
-                7587,
-                7622,
-                7665,
-                9104,
-                9420,
-                10915,
-                10916
+                5679,
+                5809,
+                7527,
+                7542,
+                7593,
+                7609,
+                7644,
+                7687,
+                9126,
+                9442,
+                11044,
+                11045
               ],
               "path": "vendor/dxmt/src/d3d12/d3d12_device.cpp"
             },
@@ -21821,8 +21834,8 @@
     "version": "1.619.5"
   },
   "source_identity": {
-    "git_head": "6692fa26a3c8bb37a3f6801ffc07992d19ff346c",
-    "runtime_file_count": 229,
+    "git_head": "b041c1a4bdada1ae51bf2b4d34f7cf0a7292b8ac",
+    "runtime_file_count": 230,
     "runtime_roots": [
       "vendor/dxmt/src/airconv",
       "vendor/dxmt/src/d3d12",
@@ -21831,7 +21844,7 @@
       "vendor/dxmt/src/winemetal",
       "vendor/dxmt/src/util"
     ],
-    "runtime_tree_sha256": "d451d2f6c2fe26cf5c7f79daab84325eb9fd94aa41087e20415c4d1aea6512f4"
+    "runtime_tree_sha256": "52dde29a2b0b42e88accf84f969baa19e3a0c559570211b604a5103e2311dd77"
   },
   "state": "phase0_inventory",
   "summary": {
