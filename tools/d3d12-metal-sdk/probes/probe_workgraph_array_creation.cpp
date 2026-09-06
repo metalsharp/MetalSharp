@@ -33,7 +33,7 @@ struct FixtureOptions {
     bool recursion, fanout, early, icb, overdepth, boundary, coalescing, empty_output, zero, mismatch, gpu_headers, gpu_headers_coalescing, gpu_multi_headers, gpu_headers_broadcasting;
     uint32_t gpu_multi_mode = 0;
 };
-static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMODULE module, uint32_t (&values)[16], bool &backing_unchanged, bool &empty_allocation_exact, const FixtureOptions &options) {
+static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMODULE module, uint32_t (&values)[16], bool &backing_unchanged, bool &empty_allocation_exact, bool &consumer_blocked_until_release, const FixtureOptions &options) {
     const auto &[recursion, fanout, early, icb, overdepth, boundary, coalescing, empty_output, zero, mismatch, gpu_headers, gpu_headers_coalescing, gpu_multi_headers, gpu_headers_broadcasting, gpu_multi_mode] = options;
     // Coalescing and broadcasting fixtures deliberately share the single-node
     // GPU-header ABI; their compiled node launch type selects the downstream
@@ -42,7 +42,12 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     const bool gpu_header_single_launch =
         gpu_headers_coalescing || gpu_headers_broadcasting;
     const bool gpu_multi_no_work = (gpu_multi_mode >= 1u && gpu_multi_mode <= 6u) || gpu_multi_mode == 9u || gpu_multi_mode == 11u || gpu_multi_mode == 13u;
+    const bool gpu_multi_cross_queue = gpu_multi_mode == 15u;
     Owned<ID3D12CommandQueue> queue;
+    Owned<ID3D12CommandQueue> producer_queue;
+    Owned<ID3D12CommandAllocator> producer_allocator;
+    Owned<ID3D12GraphicsCommandList> producer_list;
+    Owned<ID3D12Fence> producer_gate, producer_done;
     Owned<ID3D12CommandAllocator> allocator;
     Owned<ID3D12GraphicsCommandList> list;
     Owned<dxmt::GraphicsCommandList10Extension> extension;
@@ -59,6 +64,15 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     if (SUCCEEDED(hr)) hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator.p));
     if (SUCCEEDED(hr)) hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.p, nullptr, IID_PPV_ARGS(&list.p));
     if (SUCCEEDED(hr)) hr = list->QueryInterface(dxmt::kID3D12GraphicsCommandList10, reinterpret_cast<void **>(&extension.p));
+    if (SUCCEEDED(hr) && gpu_multi_cross_queue) {
+        D3D12_COMMAND_QUEUE_DESC producer_desc = {};
+        producer_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+        hr = device->CreateCommandQueue(&producer_desc, IID_PPV_ARGS(&producer_queue.p));
+        if (SUCCEEDED(hr)) hr = device->CreateCommandAllocator(producer_desc.Type, IID_PPV_ARGS(&producer_allocator.p));
+        if (SUCCEEDED(hr)) hr = device->CreateCommandList(0, producer_desc.Type, producer_allocator.p, nullptr, IID_PPV_ARGS(&producer_list.p));
+        if (SUCCEEDED(hr)) hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&producer_gate.p));
+        if (SUCCEEDED(hr)) hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&producer_done.p));
+    }
     auto make_buffer = [&](UINT64 size, bool uav, ID3D12Resource **resource) {
         D3D12_HEAP_PROPERTIES heap = {}; heap.Type = uav ? D3D12_HEAP_TYPE_DEFAULT : D3D12_HEAP_TYPE_UPLOAD;
         heap.CreationNodeMask = heap.VisibleNodeMask = 1;
@@ -114,16 +128,17 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
         if (SUCCEEDED(hr)) {
             const uint64_t address = header_data->GetGPUVirtualAddress();
             const uint32_t words[3] = {uint32_t(address), uint32_t(address >> 32), options.gpu_multi_mode};
-            list->SetComputeRootSignature(producer_root.p); list->SetPipelineState(producer_pipeline.p);
-            list->SetComputeRoot32BitConstants(0, 3, words, 0);
-            list->SetComputeRootUnorderedAccessView(1, address);
-            list->Dispatch(1,1,1);
+            ID3D12GraphicsCommandList *producer_commands = gpu_multi_cross_queue ? producer_list.p : list.p;
+            producer_commands->SetComputeRootSignature(producer_root.p); producer_commands->SetPipelineState(producer_pipeline.p);
+            producer_commands->SetComputeRoot32BitConstants(0, 3, words, 0);
+            producer_commands->SetComputeRootUnorderedAccessView(1, address);
+            producer_commands->Dispatch(1,1,1);
             D3D12_RESOURCE_BARRIER barrier = {}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barrier.Transition.pResource = header_data.p;
             barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
             barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
-            list->ResourceBarrier(1, &barrier);
+            producer_commands->ResourceBarrier(1, &barrier);
         }
     }
     Program program;
@@ -168,7 +183,17 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
         std::memset(recursive_grid, 0, sizeof(recursive_grid));
         std::memset(nonrecursive_grid, 0, sizeof(nonrecursive_grid));
         std::memset(dense, 0, sizeof(dense)); std::memset(sparse, 0, sizeof(sparse));
-        hr = list->Close();
+        if (gpu_multi_cross_queue) {
+            hr = producer_list->Close();
+            if (SUCCEEDED(hr)) hr = producer_queue->Wait(producer_gate.p, 1);
+            if (SUCCEEDED(hr)) {
+                ID3D12CommandList *producer_commands[] = {producer_list.p};
+                producer_queue->ExecuteCommandLists(1, producer_commands);
+                hr = producer_queue->Signal(producer_done.p, 1);
+            }
+            if (SUCCEEDED(hr)) hr = queue->Wait(producer_done.p, 1);
+        }
+        if (SUCCEEDED(hr)) hr = list->Close();
     }
     HANDLE event = nullptr;
     if (SUCCEEDED(hr)) hr = device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence.p));
@@ -180,6 +205,12 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
         ID3D12CommandList *commands[] = {list.p}; queue->ExecuteCommandLists(1, commands);
         hr = queue->Signal(fence.p, 1);
         if (SUCCEEDED(hr)) hr = fence->SetEventOnCompletion(1, event);
+        if (gpu_multi_cross_queue && SUCCEEDED(hr)) {
+            consumer_blocked_until_release = WaitForSingleObject(event, 100) == WAIT_TIMEOUT;
+            if (!consumer_blocked_until_release) hr = E_FAIL;
+            const HRESULT released = producer_gate->Signal(1);
+            if (SUCCEEDED(hr)) hr = released;
+        }
         if (SUCCEEDED(hr) && WaitForSingleObject(event, 30000) != WAIT_OBJECT_0) hr = E_FAIL;
     }
     if (event) CloseHandle(event);
@@ -227,7 +258,7 @@ static bool dispatch_arrays(ID3D12Device5 *device, ID3D12StateObject *state, HMO
     return SUCCEEDED(hr) && (!(overdepth || gpu_multi_no_work) || backing_unchanged) && (!empty_output || empty_allocation_exact) && std::memcmp(values, expected, sizeof(values)) == 0;
 }
 int main(int argc, char **argv) {
-    if (argc != 2 && !(argc == 3 && (!std::strcmp(argv[2], "--dispatch") || !std::strcmp(argv[2], "--recursion") || !std::strcmp(argv[2], "--recursion-fanout") || !std::strcmp(argv[2], "--recursion-early") || !std::strcmp(argv[2], "--recursion-icb") || !std::strcmp(argv[2], "--recursion-overdepth") || !std::strcmp(argv[2], "--recursion-boundary") || !std::strcmp(argv[2], "--recursion-coalescing") || !std::strcmp(argv[2], "--empty-output") || !std::strcmp(argv[2], "--empty-output-zero") || !std::strcmp(argv[2], "--empty-output-mismatch") || !std::strcmp(argv[2], "--gpu-headers") || !std::strcmp(argv[2], "--gpu-headers-coalescing") || !std::strcmp(argv[2], "--gpu-headers-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-entry") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-capacity") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-stride") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-records") || !std::strcmp(argv[2], "--gpu-multi-headers-empty") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-second") || !std::strcmp(argv[2], "--gpu-multi-headers-replication") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-misaligned-table") || !std::strcmp(argv[2], "--gpu-multi-headers-empty-child") || !std::strcmp(argv[2], "--gpu-multi-headers-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers-broadcasting-overflow") || !std::strcmp(argv[2], "--gpu-multi-headers-duplicate-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers-zero-table-stride") || !std::strcmp(argv[2], "--gpu-multi-headers-large-table")))) return 2;
+    if (argc != 2 && !(argc == 3 && (!std::strcmp(argv[2], "--dispatch") || !std::strcmp(argv[2], "--recursion") || !std::strcmp(argv[2], "--recursion-fanout") || !std::strcmp(argv[2], "--recursion-early") || !std::strcmp(argv[2], "--recursion-icb") || !std::strcmp(argv[2], "--recursion-overdepth") || !std::strcmp(argv[2], "--recursion-boundary") || !std::strcmp(argv[2], "--recursion-coalescing") || !std::strcmp(argv[2], "--empty-output") || !std::strcmp(argv[2], "--empty-output-zero") || !std::strcmp(argv[2], "--empty-output-mismatch") || !std::strcmp(argv[2], "--gpu-headers") || !std::strcmp(argv[2], "--gpu-headers-coalescing") || !std::strcmp(argv[2], "--gpu-headers-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-entry") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-capacity") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-stride") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-records") || !std::strcmp(argv[2], "--gpu-multi-headers-empty") || !std::strcmp(argv[2], "--gpu-multi-headers-invalid-second") || !std::strcmp(argv[2], "--gpu-multi-headers-replication") || !std::strcmp(argv[2], "--gpu-multi-headers-replication-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-partial-coalescing") || !std::strcmp(argv[2], "--gpu-multi-headers-misaligned-table") || !std::strcmp(argv[2], "--gpu-multi-headers-empty-child") || !std::strcmp(argv[2], "--gpu-multi-headers-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers-broadcasting-overflow") || !std::strcmp(argv[2], "--gpu-multi-headers-duplicate-broadcasting") || !std::strcmp(argv[2], "--gpu-multi-headers-zero-table-stride") || !std::strcmp(argv[2], "--gpu-multi-headers-large-table") || !std::strcmp(argv[2], "--gpu-multi-headers-cross-queue")))) return 2;
     const bool fanout = argc == 3 && !std::strcmp(argv[2], "--recursion-fanout");
     const bool early = argc == 3 && !std::strcmp(argv[2], "--recursion-early");
     const bool icb = argc == 3 && !std::strcmp(argv[2], "--recursion-icb");
@@ -257,6 +288,7 @@ int main(int argc, char **argv) {
     if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-duplicate-broadcasting")) gpu_multi_mode = 12;
     if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-zero-table-stride")) gpu_multi_mode = 13;
     if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-large-table")) gpu_multi_mode = 14;
+    if (argc == 3 && !std::strcmp(argv[2], "--gpu-multi-headers-cross-queue")) gpu_multi_mode = 15;
     const FixtureOptions options = {recursion,fanout,early,icb,overdepth,boundary,coalescing,empty_output,zero,mismatch,gpu_headers,gpu_headers_coalescing,gpu_multi_headers,gpu_headers_broadcasting,gpu_multi_mode};
     std::ifstream input(argv[1], std::ios::binary);
     std::vector<char> bytes((std::istreambuf_iterator<char>(input)), {});
@@ -289,11 +321,11 @@ int main(int argc, char **argv) {
     const bool creation_pass = positive == S_OK && valid && (recursion || (negative == E_FAIL && !invalid));
     const bool tested = argc == 3;
     uint32_t values[16] = {};
-    bool backing_unchanged = false, empty_allocation_exact = false;
-    const bool exact = creation_pass && tested && dispatch_arrays(device, valid, module, values, backing_unchanged, empty_allocation_exact, options);
+    bool backing_unchanged = false, empty_allocation_exact = false, consumer_blocked_until_release = false;
+    const bool exact = creation_pass && tested && dispatch_arrays(device, valid, module, values, backing_unchanged, empty_allocation_exact, consumer_blocked_until_release, options);
     const bool pass = creation_pass && (!tested || exact);
-    std::printf("{\"pass\":%s,\"creation_hr\":%u,\"missing_dense_hr\":%u,\"missing_dense_null\":%s,\"dispatch_tested\":%s,\"readback_exact\":%s,\"recursion\":%s,\"overdepth\":%s,\"backing_unchanged\":%s,\"empty_allocation_exact\":%s,\"gpu_generated_headers\":%s,\"gpu_header_coalescing\":%s,\"gpu_header_broadcasting\":%s,\"gpu_multi_headers\":%s,\"gpu_multi_mode\":%u,\"values\":[",
-        pass ? "true" : "false", unsigned(positive), unsigned(negative), invalid ? "false" : "true", tested ? "true" : "false", exact ? "true" : "false", recursion ? "true" : "false", overdepth ? "true" : "false", backing_unchanged ? "true" : "false", empty_allocation_exact ? "true" : "false", gpu_headers ? "true" : "false", gpu_headers_coalescing ? "true" : "false", gpu_headers_broadcasting ? "true" : "false", gpu_multi_headers ? "true" : "false", gpu_multi_mode);
+    std::printf("{\"pass\":%s,\"creation_hr\":%u,\"missing_dense_hr\":%u,\"missing_dense_null\":%s,\"dispatch_tested\":%s,\"readback_exact\":%s,\"recursion\":%s,\"overdepth\":%s,\"backing_unchanged\":%s,\"empty_allocation_exact\":%s,\"consumer_blocked_until_release\":%s,\"gpu_generated_headers\":%s,\"gpu_header_coalescing\":%s,\"gpu_header_broadcasting\":%s,\"gpu_multi_headers\":%s,\"gpu_multi_mode\":%u,\"values\":[",
+        pass ? "true" : "false", unsigned(positive), unsigned(negative), invalid ? "false" : "true", tested ? "true" : "false", exact ? "true" : "false", recursion ? "true" : "false", overdepth ? "true" : "false", backing_unchanged ? "true" : "false", empty_allocation_exact ? "true" : "false", consumer_blocked_until_release ? "true" : "false", gpu_headers ? "true" : "false", gpu_headers_coalescing ? "true" : "false", gpu_headers_broadcasting ? "true" : "false", gpu_multi_headers ? "true" : "false", gpu_multi_mode);
     for (unsigned i = 0; i < 16; ++i) std::printf("%s%u", i ? "," : "", values[i]);
     std::printf("]}\n");
     if (invalid) invalid->Release();
