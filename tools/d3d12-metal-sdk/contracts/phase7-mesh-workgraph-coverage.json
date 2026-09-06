@@ -99,6 +99,17 @@
       "remaining": "An eight-descriptor GPU-produced table (four duplicate broadcasting and four sparse thread descriptors) compacts twenty GPU-native commands and preserves exact atomic multiplicity. Larger-than-bounded tables and cross-queue lifetime remain open."
     },
     {
+      "id": "workgraph-gpu-generated-multi-cross-queue",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-cross-queue",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_multi_mode", 15], ["consumer_blocked_until_release"],
+        ["readback_exact"],
+        ["values", [101, 202, 303, 404, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A compute-queue producer publishes the multi-input header, a direct queue waits on its fence, and the consumer remains blocked until the producer gate is released. GPU execution then produces exact dense/sparse output with host_header_read=0; broader cross-queue table lifetimes remain open."
+    },
+    {
       "id": "workgraph-gpu-generated-multi-zero-table-stride",
       "status": "closed",
       "result": "probe-workgraph-gpu-generated-multi-zero-table-stride",

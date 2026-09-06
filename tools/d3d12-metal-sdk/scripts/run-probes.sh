@@ -6535,6 +6535,14 @@ if [[ "$RUN_WORK_GRAPH" == "1" ]]; then
     "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-large-table-${PROFILE}.json" probe_workgraph_arrays_broadcasting.cso --gpu-multi-headers-large-table
   DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
     run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
+    "$RESULTS_DIR/probe-workgraph-gpu-generated-multi-cross-queue-${PROFILE}.json" probe_workgraph_arrays.cso --gpu-multi-headers-cross-queue
+  if [[ -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" ]]; then
+    cp "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" \
+      "$RESULTS_DIR/workgraph-gpu-generated-multi-cross-queue-${PROFILE}.trace.log"
+  fi
+  rm -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log"
+  DXMT_D3D12_TRACE=1 DXMT_D3D12_TRACE_COMPONENTS=Queue \
+    run_probe_exe "$SDK_DIR/out/bin/probe_workgraph_array_creation.exe" \
     "$RESULTS_DIR/probe-workgraph-gpu-generated-coalescing-headers-${PROFILE}.json" probe_workgraph_arrays_coalescing.cso --gpu-headers-coalescing
   if [[ -f "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" ]]; then
     cp "$SDK_DIR/out/bin/probe_workgraph_array_creation_dxmt-d3d12-trace.log" \

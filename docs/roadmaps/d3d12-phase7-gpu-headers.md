@@ -186,11 +186,20 @@ table with four duplicate broadcasting descriptors and four duplicate sparse
 thread descriptors compacts twenty commands and reads back
 `[3232,6464,9696,12928,2020,0,...]`, proving bounded larger-table multiplicity.
 
+The cross-queue variant in `/Volumes/AverySSD/phase7-cross-queue-results/` runs
+the GPU header producer on a compute queue, gates it on an unsignaled fence,
+and submits the direct-queue consumer behind a producer fence wait. The result
+reports `consumer_blocked_until_release=true`, exact `[101,202,303,404,505,...]`
+readback, and a queue trace with `host_header_read=0`; the producer gate is
+released only after the consumer completion fence is observed pending. This
+proves dependency ordering, not unrestricted cross-queue lifetime/residency.
+
 ## Remaining
 
-- Larger-than-bounded descriptor tables and mixed invalid entries; the current
-  eight-entry duplicate, zero-table-stride, broadcast expansion and aggregate-
-  capacity results are bounded evidence only.
+- Larger-than-bounded descriptor tables, broader cross-queue lifetime and mixed
+  invalid entries; the current eight-entry duplicate, zero-table-stride,
+  cross-queue dependency, broadcast expansion and aggregate-capacity results
+  are bounded evidence only.
 - Exact D3D12 GPU-header rejection, zero-work and replication breadth; existing
   host-read/CPU-input zero-stride restrictions also need closure.
 - Alias lifetime, sparse resources, protected-resource exclusion, and resources
