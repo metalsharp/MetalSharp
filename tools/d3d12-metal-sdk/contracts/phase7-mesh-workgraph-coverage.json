@@ -2,7 +2,17 @@
   "schema": "metalsharp.d3d12.phase7-mesh-workgraph-coverage.v1",
   "phase": 7,
   "profile": "phase7-mesh",
-  "status": "partial",
+  "status": "closed",
+  "completion_scope": "bounded_behavior_matrix",
+  "completion_note": "The 73 declared mesh, geometry, Work Graph, node, GPU-header, recursion, empty-output, routing, native-ICB, synchronization, and rejection rows are closed. Broader unclaimed graph topology, resource/argument breadth, unrestricted capacity, and optional Work Graph tier promotion remain explicitly out of scope and fail-closed.",
+  "clean_source_evidence": {
+    "path": "/Volumes/AverySSD/phase7-clean-current",
+    "source_commit": "3bd86d08d09a75b788db01085478b6c9c812728d",
+    "source_dirty": false,
+    "profiles": ["phase7-workgraph", "phase7-mesh", "phase7-geometry-corpus"],
+    "result_count": 73,
+    "gate_command": "python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-gate.py --phase 7 --profile phase7-workgraph --results-dir /Volumes/AverySSD/phase7-clean-current/results"
+  },
   "evidence": [
     {
       "kind": "source",
@@ -18,6 +28,11 @@
       "kind": "probe",
       "path": "tools/d3d12-metal-sdk/probes/probe_workgraph_execution.cpp",
       "note": "Integrated Work Graph input, coalescing, routing, queue-dependency, and readback evidence."
+    },
+    {
+      "kind": "runtime",
+      "path": "/Volumes/AverySSD/phase7-clean-current",
+      "note": "Current-commit clean-source staged results; every manifest-named row has a matching JSON result and profile-specific host-runtime identity with source_dirty=false."
     }
   ],
   "rows": [

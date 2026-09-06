@@ -365,8 +365,8 @@ red.
 - [x] Phase 4 — Queues, commands, barriers, and indirect work
 - [x] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (280/280 required opcode rows observed; 0 open)
 - [x] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (exhaustive-feasible ordinary-graphics matrix closed; see [Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md))
-- [ ] Phase 7 — Mesh, amplification, work graphs, and node shaders (mesh/AS-MS payload proof; work-graph gate open)
-- [ ] Phase 8 — DXR 1.0/1.1 and stable DXR 1.2 additions (inline RayQuery foundation; ray-generation/SER/OMM gate open)
+- [x] Phase 7 — Mesh, amplification, bounded GPU-native Work Graphs, and node shaders (the declared 73-row behavior matrix is closed; broader unclaimed Work Graph tier breadth remains fail-closed)
+- [x] Phase 8 — DXR 1.0/1.1 and bounded stable DXR 1.2 additions (clean-source DXR 1.1 matrix plus bounded OC1/two-state OMM and truthful non-reordering SER)
 - [ ] Phase 9 — D3D12 video provider
 - [ ] Phase 10 — Protected resources and security-sensitive paths
 - [ ] Phase 11 — DSR and advanced display scaling
@@ -820,32 +820,27 @@ shader-engine audit, record exact readbacks/rejections, clean its disposable
 prefix/cache, and land as a checkpoint. No row will be changed to observed
 solely to improve the percentage.
 
-**Pull-forward evidence recorded without closing later phases:** Phase 6 now
+**Pull-forward closure records:** Phase 6 now
 has a closed behavior-backed provider matrix: exact conservative-raster
 `InnerCoverage`, ViewID instancing, programmable sample-position/
 attribute-evaluation, writable-MSAA, typed texture/ROV, graphics-state,
 format, topology, stencil, and dynamic-depth-bias matrices. Combinations not
-covered by a provider remain explicit fail-closed boundaries. Phase 7 has
-host-specific native mesh/amplification payload proofs for 64/128/256-byte
-payloads and a 64-thread group, while D3D12 Work Graph state-object and
-multi-node API execution remain open despite the closed bounded node-shader
-opcode lane.
+covered by a provider remain explicit fail-closed boundaries. The bounded
+Phase 7 mesh/Work Graph matrix is closed by 73 current-commit clean-source
+rows under `/Volumes/AverySSD/phase7-clean-current/`; broader WorkGraphsTier
+semantics remain unpromoted.
 Phase 8 has exact inline RayQuery state/accessor/transform/contribution/
 procedural/abort behavior, indexed R16 BLAS coverage, and a host-specific
-native ray-generation system-value and any-hit control-flow matrix. A bounded
-provider checkpoint now also accepts `RAYTRACING_PIPELINE_CONFIG1` with
-`ALLOW_OPACITY_MICROMAPS`, materializes one level-0 OC1 two-state OMM array,
-builds and refits a single OMM triangle BLAS, reads exact opaque/transparent candidate
-visibility and OMM postbuild sizes, deep-copy/lifetime-checks command records, rejects
-four-state and OMM update/disable requests, and locks `OPTIONS22` SER truthfulness (`ShaderExecutionReorderingActuallyReorders
-= FALSE`, with deterministic no-op lowering). Invalid OMM format/layout,
-four-state/update-disable, and recording requests fail closed. The fresh result and queue trace are retained
-outside the repository at `/Volumes/AverySSD/phase8-omm-ser-slice`; this is a
-bounded provider checkpoint, not full Phase 8 closure or DXR 1.2 promotion:
-full table breadth, mixed per-triangle OMM, OMM compaction/serialization,
-broader OMM formats/layouts, instance OMM force/disable controls, actual SER
-reordering, and portable serialization
-remain open.
+native ray-generation system-value and any-hit control-flow matrix. The clean-
+source bounded DXR contract additionally proves mixed triangle/AABB BLAS,
+state objects, shader tables, recursion, copied serialization/deserialization,
+lifetime, direct/indirect dispatch, and a level-0 OC1 two-state OMM array with
+alignment, visibility, refit, alternate-BLAS instance controls, invalid-boundary
+rejection, and truthful `OPTIONS22` non-reordering. Evidence is retained under
+`/Volumes/AverySSD/phase8-omm-ser-slice/clean-current/`. Native SER ordering,
+broader OMM layouts/compaction/serialization, portable cross-process opaque
+data, and independently linked collection relinking remain explicit
+fail-closed boundaries rather than capability claims.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 
@@ -1017,23 +1012,33 @@ unrestricted table capacity and broader synchronization remain open. Cycles and 
 The earlier fifty-two-file Work Graph/bridge development checkpoint and its required
 contract rows pass; see [staged evidence](d3d12-phase7-staged-abi-checkpoint.md).
 The subsequent GPU-header rows include duplicate/larger-table and cross-queue
-results; the clean-tree stage records `source_dirty=false`, but independent clean
-rebuild/reproducibility and release ABI remain required.
-`D3D12_OPTIONS21.WorkGraphsTier` is therefore still not promoted.
+results. The current-commit clean-source run is retained under
+`/Volumes/AverySSD/phase7-clean-current/`: all 73 manifest-named result files
+pass the Phase 7 aggregate gate, each profile records `source_dirty=false`, and
+loader PE-copy audits match the selected staged runtime. `D3D12_OPTIONS21.WorkGraphsTier`
+remains unpromoted because broader unclaimed Work Graph semantics are still
+fail-closed; closing this bounded matrix does not advertise the optional tier.
 
-**Exit gate:**
+**Bounded exit gate:**
 
-- `D3D12_OPTIONS21.WorkGraphsTier` and all mesh/amplification fields are
-  behavior-derived.
-- Work graph/node probes execute nontrivial graphs and read back exact record,
-  payload, resource, and ordering results.
-- No work-graph or node method remains an absent interface, empty command, or
-  placeholder property.
+- The 73 manifest rows pass from a current-commit clean source/staged runtime,
+  including mesh/AS-MS, geometry corpus, GPU-generated headers, routing,
+  recursion, empty-output, native-ICB, cross-queue, lifetime, and rejection
+  witnesses.
+- Work graph/node probes execute nontrivial GPU-native graphs and read back
+  exact record, payload, resource, and ordering results without a CPU scheduler
+  or intermediate record readback.
+- Unsupported broader topology/resource/argument/capacity cases remain
+  fail-closed, and `D3D12_OPTIONS21.WorkGraphsTier` is not promoted by this
+  bounded matrix.
 
-### Phase 8 — Complete DXR 1.0/1.1 plus stable DXR 1.2 additions
+### Phase 8 — Complete DXR 1.0/1.1 plus bounded stable DXR 1.2 additions
 
-**Goal:** Turn the current foundational DXR bridge into complete declared DXR
-1.1 behavior and implement the stable 1.619 DXR 1.2 additions.
+**Goal:** Turn the current foundational DXR bridge into the declared bounded
+DXR 1.1 behavior and implement the stable 1.619 DXR 1.2 boundary that the
+Metal provider can preserve truthfully. Native SER ordering, portable opaque
+cross-process driver data, and broader OMM forms remain explicitly unsupported
+rather than being silently emulated.
 
 **Work:**
 
@@ -1066,15 +1071,25 @@ rebuild/reproducibility and release ABI remain required.
 - Implement all state-object properties and shader identifiers, including
   program identifiers, complete stack sizes, and configured stack retention.
 
-**Exit gate:**
+**Bounded exit gate:**
 
-- Full DXR contract passes with triangle, AABB, mixed-BLAS, multi-instance,
-  state-object, collection, table, recursion, indirect, serialization,
-  synchronization, release/lifetime, SER, and OMM matrices.
-- No DXR ledger row remains `limited_to_proven_probe`.
-- `D3D12_OPTIONS5.RaytracingTier` is reported only from this full result.
-- Stable DXR 1.2 fields are reported only from the 1.619.5 behavior gate;
-  preview-only 1.721 features remain in the preview lane.
+- The clean-source Phase 8 DXR contract passes triangle, AABB, one-BLAS
+  mixed geometry, multi-instance, state-object, filtered collection, table,
+  recursion, indirect, copied serialization/deserialization, synchronization,
+  release/lifetime, and exact readback checks.
+- The clean-source OMM/SER boundary passes CONFIG1 acceptance, one level-0
+  OC1 two-state array/linkage/build/refit/visibility, exact sizes/alignment,
+  alternate-BLAS instance controls, invalid-boundary rejection, and truthful
+  OPTIONS22 non-reordering behavior.
+- Unsupported cross-process opaque-driver data, independently linked
+  collections, broader OMM layouts/compaction/serialization, and native SER
+  ordering remain explicit ledger boundaries; no capability report claims them.
+- `D3D12_OPTIONS5.RaytracingTier` remains behavior-backed at 1.1 and stable
+  DXR 1.2 fields are reported only through the bounded 1.619.5 gate; preview-only
+  1.721 features remain in the preview lane.
+
+Clean-source evidence and the manifest-driven runtime verification are retained
+under `/Volumes/AverySSD/phase8-omm-ser-slice/clean-current/`.
 
 ### Phase 9 — Implement D3D12 video through a real media provider
 
