@@ -8,12 +8,12 @@ uint2 addressAt(uint offset) {
 void produce() {
     // D3D12_MULTI_NODE_GPU_INPUT: count, padding, node-input address/stride.
     data.Store(0, mode == 2u ? 257u : (mode == 5u ? 0u : 2u)); data.Store(4, 0u);
-    data.Store2(8, addressAt(mode == 9u ? 65u : 64u)); data.Store2(16, uint2(mode == 3u ? 4u : 24u,0));
+    data.Store2(8, addressAt(mode == 9u ? 65u : 64u)); data.Store2(16, uint2(mode == 13u ? 0u : (mode == 3u ? 4u : 24u),0));
     // Two D3D12_NODE_GPU_INPUT descriptors.
     data.Store2(64, uint2(mode == 1u ? 9u : 0u, mode == 11u ? 256u : (mode == 10u ? 0u : (mode == 8u ? 3u : 4u))));
     data.Store2(72, mode == 10u ? uint2(0xffffffffu,0xffffffffu) : addressAt(mode == 4u ? 240u : 112u));
     data.Store2(80, uint2((mode == 7u || mode == 8u || mode == 11u) ? 0u : 8u,0));
-    data.Store2(88, uint2(mode == 6u ? 9u : 1u,4)); data.Store2(96, addressAt(144)); data.Store2(104, uint2(8,0));
+    data.Store2(88, uint2(mode == 6u ? 9u : (mode == 12u ? 0u : 1u),4)); data.Store2(96, addressAt(mode == 12u ? 112u : 144u)); data.Store2(104, uint2(8,0));
     data.Store2(112, uint2(0,101)); data.Store2(120, uint2(1,202));
     data.Store2(128, uint2(2,303)); data.Store2(136, uint2(3,404));
     data.Store2(144, uint2(65536,505)); data.Store2(152, uint2(1,999));
