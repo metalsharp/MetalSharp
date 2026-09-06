@@ -23,7 +23,7 @@
   ],
   "clean_source_evidence": {
     "path": "/Volumes/AverySSD/phase8-omm-ser-slice/clean-current",
-    "source_commit": "3bd86d08d09a75b788db01085478b6c9c812728d",
+    "source_commit": "2f451357fcaba201307583b7c24c95015bd7ebe9",
     "source_dirty": false,
     "runtime_manifest": "build/dxmt-runtime-manifest.json",
     "stage_record": "build/stage-runtime-phase8-clean-current.json"
