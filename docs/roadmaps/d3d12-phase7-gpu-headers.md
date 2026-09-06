@@ -47,7 +47,13 @@ readback and no failed assertion. It uses the staged runtime at
 `/Volumes/AverySSD/metalsharp-phase7-source.tjzA3h/gpu-header-current12/runtime`;
 `/private/tmp/wg-gpu-headers/abi-current16/` is the matching paired Winemetal
 ABI result. The stage records `source_dirty=true`, so this is not clean-source
-reproducibility or release provenance.
+reproducibility or release provenance. A fresh clean-tree staging rerun at
+commit `78647fbe` is recorded at
+`/Volumes/AverySSD/phase7-clean-stage-evidence/stage-phase6-sandbox-phase7-workgraph-clean.json`
+with `source_dirty=false`; its generated 13-artifact manifest verifies against
+`/Volumes/AverySSD/phase7-clean-stage/runtime`, and the fresh GPU-header run is
+`/Volumes/AverySSD/phase7-clean-gpu-results/`. This proves clean source identity
+for the staged snapshot, not an independent clean rebuild attestation.
 
 The new D3D12 probe starts with poisoned header/payload storage. An ordinary
 compute shader writes headers, entrypoint indices, counts, GPU payload
