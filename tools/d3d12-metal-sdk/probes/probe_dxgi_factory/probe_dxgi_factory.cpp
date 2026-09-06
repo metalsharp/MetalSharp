@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -222,6 +223,25 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     IDXGISurface* display_source = nullptr;
     IDXGISurface1* display_source1 = nullptr;
     IDXGISurface* display_copy = nullptr;
+    ID3D12Resource* shared_surface_resource = nullptr;
+    HANDLE shared_surface_handle = nullptr;
+    IDXGISurface* shared_surface = nullptr;
+    DXGI_SURFACE_DESC shared_surface_desc = {
+        4, 4, DXGI_FORMAT_R8G8B8A8_UNORM, {1, 0}};
+    HRESULT shared_surface_resource_hr = E_FAIL;
+    HRESULT shared_surface_handle_hr = E_FAIL;
+    HRESULT shared_surface_open_hr = E_FAIL;
+    HRESULT shared_surface_create_hr = E_FAIL;
+    HRESULT shared_surface_mismatch_hr = E_FAIL;
+    HRESULT shared_surface_null_handle_hr = E_FAIL;
+    IDXGISurface* shared_surface_mismatch = nullptr;
+    IDXGISurface* shared_surface_null_handle = nullptr;
+    HRESULT shared_surface_map_hr = E_FAIL;
+    HRESULT shared_surface_unmap_hr = E_FAIL;
+    HRESULT shared_surface_read_map_hr = E_FAIL;
+    HRESULT shared_surface_read_unmap_hr = E_FAIL;
+    bool shared_surface_source_released_before_map = false;
+    uint32_t shared_surface_pixel = 0;
     IDXGISwapChain1* composition_swapchain = nullptr;
     IDXGIResource* composition_buffer = nullptr;
     DXGI_SWAP_CHAIN_DESC1 composition_desc = {};
@@ -300,6 +320,85 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
                                                DXGI_USAGE_SHADER_INPUT, nullptr,
                                                &display_copy)
                                          : E_FAIL;
+    if (d3d12_device) {
+        D3D12_HEAP_PROPERTIES shared_heap = {};
+        shared_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        shared_heap.CreationNodeMask = 1;
+        shared_heap.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC shared_desc = {};
+        shared_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        shared_desc.Width = shared_surface_desc.Width;
+        shared_desc.Height = shared_surface_desc.Height;
+        shared_desc.DepthOrArraySize = 1;
+        shared_desc.MipLevels = 1;
+        shared_desc.Format = shared_surface_desc.Format;
+        shared_desc.SampleDesc = shared_surface_desc.SampleDesc;
+        shared_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        shared_surface_resource_hr = d3d12_device->CreateCommittedResource(
+            &shared_heap, D3D12_HEAP_FLAG_SHARED, &shared_desc,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&shared_surface_resource));
+        if (shared_surface_resource) {
+            shared_surface_handle_hr = d3d12_device->CreateSharedHandle(
+                shared_surface_resource, nullptr, GENERIC_ALL, nullptr,
+                &shared_surface_handle);
+        }
+        if (d3d12_device && shared_surface_handle) {
+            ID3D12Resource* opened_shared_surface_resource = nullptr;
+            shared_surface_open_hr = d3d12_device->OpenSharedHandle(
+                shared_surface_handle, IID_PPV_ARGS(&opened_shared_surface_resource));
+            if (opened_shared_surface_resource)
+                opened_shared_surface_resource->Release();
+        }
+        if (dxgi_device && shared_surface_handle) {
+            DXGI_SHARED_RESOURCE shared_resource = {shared_surface_handle};
+            const DXGI_USAGE shared_usage = static_cast<DXGI_USAGE>(
+                DXGI_USAGE_SHADER_INPUT | DXGI_USAGE_SHARED);
+            shared_surface_create_hr = dxgi_device->CreateSurface(
+                &shared_surface_desc, 1, shared_usage,
+                &shared_resource, &shared_surface);
+            DXGI_SURFACE_DESC mismatch_desc = shared_surface_desc;
+            mismatch_desc.Width++;
+            shared_surface_mismatch_hr = dxgi_device->CreateSurface(
+                &mismatch_desc, 1, shared_usage,
+                &shared_resource, &shared_surface_mismatch);
+            DXGI_SHARED_RESOURCE null_handle_resource = {};
+            shared_surface_null_handle_hr = dxgi_device->CreateSurface(
+                &shared_surface_desc, 1, shared_usage,
+                &null_handle_resource, &shared_surface_null_handle);
+        }
+        if (shared_surface) {
+            if (shared_surface_resource) {
+                shared_surface_resource->Release();
+                shared_surface_resource = nullptr;
+            }
+            if (shared_surface_handle) {
+                CloseHandle(shared_surface_handle);
+                shared_surface_handle = nullptr;
+            }
+            shared_surface_source_released_before_map = true;
+            DXGI_MAPPED_RECT mapped = {};
+            shared_surface_map_hr = shared_surface->Map(
+                &mapped, DXGI_MAP_WRITE | DXGI_MAP_DISCARD);
+            if (SUCCEEDED(shared_surface_map_hr) && mapped.pBits) {
+                mapped.pBits[0] = 0x11;
+                mapped.pBits[1] = 0x22;
+                mapped.pBits[2] = 0x33;
+                mapped.pBits[3] = 0x44;
+                shared_surface_unmap_hr = shared_surface->Unmap();
+            }
+            if (SUCCEEDED(shared_surface_unmap_hr)) {
+                mapped = {};
+                shared_surface_read_map_hr =
+                    shared_surface->Map(&mapped, DXGI_MAP_READ);
+                if (SUCCEEDED(shared_surface_read_map_hr) && mapped.pBits) {
+                    std::memcpy(&shared_surface_pixel, mapped.pBits,
+                                sizeof(shared_surface_pixel));
+                    shared_surface_read_unmap_hr = shared_surface->Unmap();
+                }
+            }
+        }
+    }
     HRESULT source_map_hr = E_FAIL;
     HRESULT source_unmap_hr = E_FAIL;
     HRESULT surface_get_dc_hr = E_FAIL;
@@ -442,7 +541,22 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
         composition_desc_copy.Width == composition_desc.Width &&
         composition_desc_copy.Height == composition_desc.Height &&
         SUCCEEDED(create_surface_hr) &&
-        SUCCEEDED(create_copy_surface_hr) && SUCCEEDED(source_map_hr) && SUCCEEDED(source_unmap_hr) &&
+        SUCCEEDED(create_copy_surface_hr) &&
+        SUCCEEDED(shared_surface_resource_hr) &&
+        SUCCEEDED(shared_surface_handle_hr) &&
+        SUCCEEDED(shared_surface_open_hr) &&
+        SUCCEEDED(shared_surface_create_hr) &&
+        shared_surface_mismatch_hr == DXGI_ERROR_INVALID_CALL &&
+        shared_surface_mismatch == nullptr &&
+        shared_surface_null_handle_hr == DXGI_ERROR_INVALID_CALL &&
+        shared_surface_null_handle == nullptr &&
+        SUCCEEDED(shared_surface_map_hr) &&
+        SUCCEEDED(shared_surface_unmap_hr) &&
+        SUCCEEDED(shared_surface_read_map_hr) &&
+        SUCCEEDED(shared_surface_read_unmap_hr) &&
+        shared_surface_pixel == 0x44332211u &&
+        shared_surface_source_released_before_map &&
+        SUCCEEDED(source_map_hr) && SUCCEEDED(source_unmap_hr) &&
         SUCCEEDED(surface_get_dc_hr) && surface_dc != nullptr &&
         SUCCEEDED(surface_release_dc_hr) &&
         SUCCEEDED(map_desktop_hr) && SUCCEEDED(unmap_desktop_hr) &&
@@ -517,6 +631,20 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
     print_hr("Composition_GetBuffer", composition_buffer_hr);
     print_hr("CreateSurface", create_surface_hr);
     print_hr("CreateSurface_copy", create_copy_surface_hr);
+    print_hr("CreateSharedSurfaceResource", shared_surface_resource_hr);
+    print_hr("CreateSharedSurfaceHandle", shared_surface_handle_hr);
+    print_hr("OpenSharedSurfaceHandle", shared_surface_open_hr);
+    print_hr("CreateSurface_shared", shared_surface_create_hr);
+    print_hr("CreateSurface_shared_mismatch", shared_surface_mismatch_hr);
+    print_hr("CreateSurface_shared_null_handle", shared_surface_null_handle_hr);
+    print_hr("SharedSurface_Map_write_discard", shared_surface_map_hr);
+    print_hr("SharedSurface_Unmap_write", shared_surface_unmap_hr);
+    print_hr("SharedSurface_Map_read", shared_surface_read_map_hr);
+    print_hr("SharedSurface_Unmap_read", shared_surface_read_unmap_hr);
+    std::printf("    \"shared_surface_pixel\": \"0x%08x\",\n",
+                shared_surface_pixel);
+    std::printf("    \"shared_surface_source_released_before_map\": %s,\n",
+                shared_surface_source_released_before_map ? "true" : "false");
     print_hr("Surface_Map_write_discard", source_map_hr);
     print_hr("Surface_Unmap_write", source_unmap_hr);
     print_hr("Surface_GetDC", surface_get_dc_hr);
@@ -549,6 +677,16 @@ using CreateDeviceFn = HRESULT(WINAPI*)(IUnknown*, D3D_FEATURE_LEVEL, REFIID, vo
         duplication->Release();
     if (composition_buffer)
         composition_buffer->Release();
+    if (shared_surface)
+        shared_surface->Release();
+    if (shared_surface_mismatch)
+        shared_surface_mismatch->Release();
+    if (shared_surface_null_handle)
+        shared_surface_null_handle->Release();
+    if (shared_surface_handle)
+        CloseHandle(shared_surface_handle);
+    if (shared_surface_resource)
+        shared_surface_resource->Release();
     if (composition_swapchain)
         composition_swapchain->Release();
     if (subresource_surface)

@@ -121,6 +121,8 @@ int main() {
     ID3D12CommandQueue* present_queue = nullptr;
     ID3D12CommandQueue* compute_queue = nullptr;
     ID3D12CommandQueue* copy_queue = nullptr;
+    ID3D12CommandQueue* video_queue = nullptr;
+    ID3D12CommandQueue* realtime_queue = nullptr;
     ID3D12CommandQueue* high_priority_queue = nullptr;
     D3D12_COMMAND_QUEUE_DESC high_priority_create_desc = {};
     high_priority_create_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -148,11 +150,15 @@ int main() {
     HRESULT invalid_bundle_queue_hr = check_invalid_queue(invalid_bundle_desc);
     D3D12_COMMAND_QUEUE_DESC video_queue_desc = {};
     video_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE;
-    HRESULT video_queue_hr = check_invalid_queue(video_queue_desc);
+    video_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+    HRESULT video_queue_hr = device ? device->CreateCommandQueue(
+        &video_queue_desc, IID_PPV_ARGS(&video_queue)) : E_FAIL;
     D3D12_COMMAND_QUEUE_DESC realtime_queue_desc = {};
     realtime_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     realtime_queue_desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME;
-    HRESULT realtime_queue_hr = check_invalid_queue(realtime_queue_desc);
+    HRESULT realtime_queue_hr = device ? device->CreateCommandQueue(&realtime_queue_desc,
+                                                                      IID_PPV_ARGS(&realtime_queue))
+                                         : E_FAIL;
     D3D12_COMMAND_QUEUE_DESC timeout_queue_desc = {};
     timeout_queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     timeout_queue_desc.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
@@ -166,10 +172,24 @@ int main() {
         high_priority_desc.Priority == D3D12_COMMAND_QUEUE_PRIORITY_HIGH &&
         high_priority_desc.Flags == D3D12_COMMAND_QUEUE_FLAG_NONE;
     const bool queue_validation_ok = invalid_bundle_queue_hr == E_INVALIDARG &&
-                                     video_queue_hr == E_NOTIMPL &&
-                                     realtime_queue_hr == E_NOTIMPL &&
+                                     video_queue_hr == S_OK &&
+                                     realtime_queue_hr == S_OK &&
                                      timeout_queue_hr == S_OK &&
                                      high_priority_ok;
+
+    ID3D12CommandAllocator* video_allocator = nullptr;
+    ID3D12GraphicsCommandList* video_list = nullptr;
+    HRESULT video_objects_hr =
+        create_allocator_and_list(device, D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
+                                  &video_allocator, &video_list);
+    HRESULT video_close_hr = video_list ? video_list->Close() : E_FAIL;
+    bool video_empty_submission = false;
+    if (video_queue && video_list && SUCCEEDED(video_close_hr)) {
+        ID3D12CommandList* submitted[] = {
+            static_cast<ID3D12CommandList *>(video_list)};
+        video_queue->ExecuteCommandLists(1, submitted);
+        video_empty_submission = true;
+    }
 
     ID3D12CommandAllocator* render_allocator = nullptr;
     ID3D12GraphicsCommandList* render_list = nullptr;
@@ -557,6 +577,7 @@ int main() {
         SUCCEEDED(compute_queue_hr) && SUCCEEDED(copy_queue_hr) && queue_validation_ok &&
         SUCCEEDED(render_objects_hr) &&
         SUCCEEDED(present_objects_hr) && SUCCEEDED(compute_objects_hr) && SUCCEEDED(copy_objects_hr) &&
+        SUCCEEDED(video_objects_hr) && SUCCEEDED(video_close_hr) && video_empty_submission &&
         SUCCEEDED(copy_fence_hr) && SUCCEEDED(render_fence_hr) && SUCCEEDED(compute_fence_hr) &&
         SUCCEEDED(present_fence_hr) && SUCCEEDED(upload_buffer_hr) && SUCCEEDED(copy_buffer_hr) &&
         SUCCEEDED(dxgi_block_fence_hr) && SUCCEEDED(dxgi_device3_qi_hr) && SUCCEEDED(get_default_gpu_priority_hr) &&
@@ -600,8 +621,9 @@ int main() {
     print_hr("copy_create", copy_queue_hr);
     print_hr("high_priority_create", high_priority_queue_hr);
     print_hr("invalid_bundle_queue", invalid_bundle_queue_hr);
-    print_hr("video_queue_not_implemented", video_queue_hr);
-    print_hr("global_realtime_queue_not_implemented", realtime_queue_hr);
+    print_hr("video_decode_queue_create", video_queue_hr);
+    print_hr("global_realtime_queue_create", realtime_queue_hr);
+    std::printf("    \"video_empty_submission\": %s,\n", video_empty_submission ? "true" : "false");
     print_hr("disable_gpu_timeout_queue_rejected", timeout_queue_hr);
     std::printf("    \"queue_validation_ok\": %s,\n", queue_validation_ok ? "true" : "false");
     std::printf("    \"high_priority_ok\": %s,\n", high_priority_ok ? "true" : "false");
@@ -643,6 +665,8 @@ int main() {
     print_hr("present_objects", present_objects_hr);
     print_hr("compute_objects", compute_objects_hr);
     print_hr("copy_objects", copy_objects_hr);
+    print_hr("video_objects", video_objects_hr);
+    print_hr("video_close", video_close_hr);
     print_hr("render_close", render_close_hr);
     print_hr("present_close", present_close_hr);
     print_hr("compute_close", compute_close_hr);

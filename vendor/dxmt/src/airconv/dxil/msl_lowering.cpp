@@ -7462,9 +7462,15 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             const std::string lvalue =
                 "*reinterpret_cast<" + std::string(address_space) +
                 " float*>(" + base + " + (" + lane + ") * 4u)";
-            return temp_type.kind == MSLTypeKind::Half
-                       ? "half(" + lvalue + ")"
-                       : lvalue;
+            if (temp_type.kind == MSLTypeKind::Half)
+                return "half(" + lvalue + ")";
+            // DXIL's min-precision register value is not an ordinary f32
+            // temporary.  Quantize f32 loads through Metal half before
+            // widening so the observable result matches the declared 16-bit
+            // precision rather than merely preserving full precision.
+            if (temp_type.kind == MSLTypeKind::Float)
+                return "float(half(" + lvalue + "))";
+            return lvalue;
         }
         const char *storage = tempRegisterStorage(temp_type);
         const std::string index = "min(uint(" + numericArg(0, "0") + "), 4095u)";
@@ -7504,6 +7510,8 @@ static std::string translateDXIntrinsic(LowerContext &ctx, uint32_t intrinsic_id
             std::string value = numericArg(3, "0");
             if (temp_type.kind == MSLTypeKind::Half)
                 value = "float(" + value + ")";
+            else if (temp_type.kind == MSLTypeKind::Float)
+                value = "float(half(" + value + "))";
             return lvalue + " = " + value;
         }
         const char *storage = tempRegisterStorage(temp_type);

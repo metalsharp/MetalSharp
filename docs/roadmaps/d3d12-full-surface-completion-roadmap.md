@@ -1084,6 +1084,9 @@ rather than being silently emulated.
 - Unsupported cross-process opaque-driver data, independently linked
   collections, broader OMM layouts/compaction/serialization, and native SER
   ordering remain explicit ledger boundaries; no capability report claims them.
+  The bounded `AddToStateObject` provider accepts hit-group alias growth and
+  rejects an out-of-domain DXIL-library addition with `E_INVALIDARG` rather
+  than an unsupported-success boundary.
 - `D3D12_OPTIONS5.RaytracingTier` remains behavior-backed at 1.1 and stable
   DXR 1.2 fields are reported only through the bounded 1.619.5 gate; preview-only
   1.721 features remain in the preview lane.
@@ -1230,7 +1233,12 @@ covers `DuplicateOutput`/`AcquireNextFrame` with a GPU desktop resource, an
 exact CPU `MapDesktopSurface`/`UnMapDesktopSurface` readback, full-frame
 dirty-rectangle sizing, one-frame timeout behavior, and release ordering. It
 also creates a composition swapchain and verifies its descriptor/backbuffer, and maps a
-surface through a DIB-backed `GetDC`/`ReleaseDC` round trip. The swapchain mini
+surface through a DIB-backed `GetDC`/`ReleaseDC` round trip. The current follow-up
+probe additionally exercises one bounded RGBA8 shared texture through
+`CreateSharedHandle`, `OpenSharedHandle`, `IDXGIDevice::CreateSurface`, and
+write/read `Map`/`Unmap`, while rejecting a mismatched descriptor and null handle.
+That follow-up was run from the current dirty source and is behavior evidence only;
+it must be repeated from a clean staged source before promotion. The swapchain mini
 probe verifies background-color and matrix state round trips,
 rotation, HDR metadata reset, and the CoreWindow null-output validation.
 DisplayLink/IOSurface capture, cursor/move metadata, composition/CoreWindow ownership,
@@ -1295,6 +1303,19 @@ compatibility objects alone.
 ### Phase 14 — Remove conservative reports and delete the unsupported ledger
 
 **Goal:** Make capability reporting the consequence of complete behavior.
+
+**Current bounded refresh (does not close Phase 14):** A disposable clean-source
+snapshot at commit `bdc5c0167befdc3deae05a3197cb17a7cbb14ddb` was rebuilt and
+staged with `source_dirty=false`; retained evidence is under
+`/Volumes/AverySSD/phase14-clean-evidence/`. The refreshed command replay,
+four-worker GPU-address reclamation, queue priority/VBlank timing, bounded
+texture discard, DXR `AddToStateObject` invalid-addition rejection
+(`0x80070057`), shared RGBA8 surface lifetime/readback, and swapchain metadata
+probes pass with matching loader PE-copy audits. These results refresh bounded
+behavior provenance only; the full no-op scan still reports open legal
+boundaries and promotion remains disabled. A follow-up clean snapshot at
+`65922fa59aec323367540646013790f2dfbcaf3e` also proves VIDEO_DECODE and
+GLOBAL_REALTIME queue creation plus empty decode-list submission.
 
 **Work:**
 

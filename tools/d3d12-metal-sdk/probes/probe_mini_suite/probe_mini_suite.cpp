@@ -1503,8 +1503,10 @@ static ProbeResult probe_temp_registers() {
             readback->Unmap(0, nullptr);
         }
     }
+    // 1.2345 is rounded to binary16 1.234375 by MinPrecXRegStore,
+    // then widened before the shader adds 1.0f: 2.234375 = 0x400f0000.
     const bool verified = SUCCEEDED(hr) && value == 4661u &&
-                          min_value == 1086324736u &&
+                          min_value == 1074724864u &&
                           float_value == 1069547520u && bool_value == 1u &&
                           half_value == 1069547520u;
     safe_release(readback);
@@ -1523,7 +1525,7 @@ static ProbeResult probe_temp_registers() {
             "\"value\":" + std::to_string(value) +
                 ",\"expected_value\":4661,\"min_value\":" +
                 std::to_string(min_value) +
-                ",\"expected_min_value\":1086324736,\"float_value\":" +
+                ",\"expected_min_value\":1074724864,\"float_value\":" +
                 std::to_string(float_value) +
                 ",\"expected_float_value\":1069547520,\"bool_value\":" +
                 std::to_string(bool_value) +
@@ -4605,6 +4607,27 @@ static ProbeResult probe_dxr_acceleration_structures() {
     if (SUCCEEDED(hr))
         hr = grown_raytracing_state->QueryInterface(IID_PPV_ARGS(&grown_raytracing_properties));
 
+    // A DXIL-library addition would require relinking the Metal function
+    // tables.  It is outside this bounded alias-growth provider and must be
+    // rejected as out-of-domain input, not reported as E_NOTIMPL.
+    D3D12_STATE_SUBOBJECT invalid_addition_subobject = {
+        D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY, nullptr};
+    D3D12_STATE_OBJECT_DESC invalid_addition_desc = {};
+    invalid_addition_desc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    invalid_addition_desc.NumSubobjects = 1;
+    invalid_addition_desc.pSubobjects = &invalid_addition_subobject;
+    ID3D12StateObject* invalid_addition_state = nullptr;
+    const HRESULT invalid_addition_hr =
+        device7 && raytracing_state
+            ? device7->AddToStateObject(&invalid_addition_desc, raytracing_state,
+                                        IID_PPV_ARGS(&invalid_addition_state))
+            : E_FAIL;
+    const bool invalid_addition_rejected =
+        invalid_addition_hr == E_INVALIDARG && invalid_addition_state == nullptr;
+    safe_release(invalid_addition_state);
+    if (SUCCEEDED(hr) && !invalid_addition_rejected)
+        hr = E_FAIL;
+
     const void* raygen_identifier = SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"raygen") : nullptr;
     const void* miss_identifier = SUCCEEDED(hr) ? raytracing_properties->GetShaderIdentifier(L"miss_shader") : nullptr;
     const void* miss_alias_identifier =
@@ -5937,6 +5960,8 @@ static ProbeResult probe_dxr_acceleration_structures() {
             ",\"distinct_shader_identifiers\":" + (distinct_shader_identifiers ? "true" : "false") +
             ",\"stable_shader_identifiers\":" + (stable_shader_identifiers ? "true" : "false") +
             ",\"add_to_state_object_created\":" + (add_to_state_object_created ? "true" : "false") +
+            ",\"invalid_addition_rejected\":" + (invalid_addition_rejected ? "true" : "false") +
+            ",\"invalid_addition_hr\":\"" + hr_hex(invalid_addition_hr) + "\"" +
             ",\"collection_pipeline_created\":" + (collection_pipeline_created ? "true" : "false") +
             ",\"collection_export_filtering_and_merge\":" + (collection_filtering_and_merge ? "true" : "false") +
             ",\"filtered_out_identifier_null\":" + (!filtered_out_identifier ? "true" : "false") +

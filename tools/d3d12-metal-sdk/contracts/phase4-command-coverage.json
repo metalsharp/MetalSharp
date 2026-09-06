@@ -3,6 +3,22 @@
   "phase": 4,
   "profile": "metalsharp-isolated",
   "status": "closed",
+  "clean_source_refresh": {
+    "path": "/Volumes/AverySSD/phase14-clean-evidence",
+    "source_commit": "bdc5c0167befdc3deae05a3197cb17a7cbb14ddb",
+    "source_dirty": false,
+    "profiles": ["phase14-clean-command", "phase14-clean-queues", "phase14-clean-discard"],
+    "runtime_stage": "runtime/stage-phase6-sandbox-phase14-clean-current.json",
+    "command_result": "command/probe-command-replay-phase14-clean-command.json",
+    "queue_result": "queues/probe-queues-phase14-clean-queues.json",
+    "discard_result": "discard/probe-discard-texture-phase14-clean-discard.json",
+    "queue_creation_refresh": {
+      "source_commit": "65922fa59aec323367540646013790f2dfbcaf3e",
+      "source_dirty": false,
+      "profile": "phase14-clean-video-queue-v2",
+      "result": "queues-video-queue-v2/probe-queues-phase14-clean-video-queue-v2.json"
+    }
+  },
   "result": "probe-command-replay",
   "rows": [
     {
@@ -13,6 +29,8 @@
         ["pass"],
         ["coverage", "command_list_reset_close_reuse"],
         ["coverage", "queue_execute_multiple_lists"],
+        ["coverage", "queue_resource_release_before_execute"],
+        ["coverage", "queue_concurrent_replay_reclamation"],
         ["coverage", "predication_execution_verified"],
         ["coverage", "enhanced_barrier_global_buffer_texture"]
       ]

@@ -124,6 +124,41 @@ void install_crash_handler() { AddVectoredExceptionHandler(1, crash_handler); }
 
 namespace dxmt {
 
+namespace {
+thread_local GPUAddressLookupRetentionScope *g_gpu_address_lookup_scope = nullptr;
+}
+
+GPUAddressLookupRetentionScope::GPUAddressLookupRetentionScope()
+    : m_previous(g_gpu_address_lookup_scope) {
+  g_gpu_address_lookup_scope = this;
+}
+
+GPUAddressLookupRetentionScope::~GPUAddressLookupRetentionScope() {
+  // Restore the parent before releasing resources.  A final Release may run
+  // arbitrary cleanup code and must not append to this scope while it is being
+  // drained.
+  g_gpu_address_lookup_scope = m_previous;
+  for (auto *resource : m_resources) {
+    if (resource)
+      resource->Release();
+  }
+}
+
+GPUAddressLookupRetentionScope *GPUAddressLookupRetentionScope::Current() {
+  return g_gpu_address_lookup_scope;
+}
+
+bool GPUAddressLookupRetentionScope::Retain(MTLD3D12Resource *resource) {
+  if (!resource)
+    return true;
+  try {
+    m_resources.push_back(resource);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 D3D_FEATURE_LEVEL D3D12ConfiguredMaximumFeatureLevel() {
   static const D3D_FEATURE_LEVEL maximum = [] {
     const auto configured = Config::getInstance().getOption<std::string>(
@@ -4532,8 +4567,10 @@ public:
     if (!existing_collections.empty())
       return false;
     if (!raytracing_library.pShaderBytecode ||
-        !raytracing_library.BytecodeLength)
+        !raytracing_library.BytecodeLength) {
+      TRACE("StateObject rejected empty DXIL library");
       return false;
+    }
     if (m_exports.empty())
       m_exports.emplace_back(L"raygen");
     const bool has_miss_shader =
@@ -6304,10 +6341,10 @@ HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreateCommandQueue(
        desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_HIGH &&
        desc->Priority != D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME))
     return E_INVALIDARG;
-  if (desc->Type == D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE ||
-      desc->Type == D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE ||
-      desc->Priority == D3D12_COMMAND_QUEUE_PRIORITY_GLOBAL_REALTIME)
-    return E_NOTIMPL;
+  // Queue creation is a legal operation for every declared non-bundle queue
+  // type and priority.  Codec execution remains bounded by the video provider,
+  // but do not reject the queue object with E_NOTIMPL: an empty queue/list
+  // still has real descriptor, synchronization, and lifetime semantics.
 
   auto queue = new MTLD3D12CommandQueue(this, m_device->queue(), *desc);
   HRESULT hr = queue->QueryInterface(riid, command_queue);
@@ -6538,9 +6575,9 @@ MTLD3D12Device::CreateCommandList(UINT node_mask, D3D12_COMMAND_LIST_TYPE type,
   if (!command_list)
     return E_POINTER;
   InitReturnPtr(command_list);
-  if (type == D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE ||
-      type == D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE)
-    return E_NOTIMPL;
+  // Decode/encode command lists use the common command-stream object until a
+  // codec provider is selected.  This preserves legal creation, Close/Reset,
+  // queue submission, and lifetime behavior without claiming codec execution.
 
   if (type == D3D12_COMMAND_LIST_TYPE_VIDEO_PROCESS)
     return CreateD3D12VideoProcessCommandList(this, command_allocator, riid,
@@ -9297,12 +9334,59 @@ void MTLD3D12Device::RegisterResource(MTLD3D12Resource *res) {
 void MTLD3D12Device::UnregisterResource(MTLD3D12Resource *res) {
   if (!res)
     return;
-  D3D12_GPU_VIRTUAL_ADDRESS addr = res->GetGPUVirtualAddress();
+  const D3D12_GPU_VIRTUAL_ADDRESS addr = res->GetGPUVirtualAddress();
+  std::lock_guard<std::mutex> lock(m_resource_mutex);
   if (addr) {
-    std::lock_guard<std::mutex> lock(m_resource_mutex);
-    m_resources_by_gpu_addr.erase(addr);
-    m_work_graph_buffer_resources.erase(res);
+    auto it = m_resources_by_gpu_addr.find(addr);
+    if (it != m_resources_by_gpu_addr.end() && it->second == res)
+      m_resources_by_gpu_addr.erase(it);
   }
+  // Keep the auxiliary work-graph snapshot registry in sync even for
+  // resources whose address was cleared or was never assigned.
+  m_work_graph_buffer_resources.erase(res);
+}
+
+ULONG MTLD3D12Device::ReleaseResourcePublicRef(MTLD3D12Resource *res) {
+  if (!res)
+    return 0;
+
+  ULONG remaining = 0;
+  {
+    // A GPU-address lookup can acquire the first reference while holding this
+    // same registry lock.  Remove the address before dropping the last public
+    // reference so a lookup can never AddRef an object that is already at zero.
+    std::lock_guard<std::mutex> lock(m_resource_mutex);
+    for (;;) {
+      const uint32_t current = res->m_refCount.load(std::memory_order_acquire);
+      if (!current)
+        return 0;
+      if (current == 1) {
+        const D3D12_GPU_VIRTUAL_ADDRESS addr = res->GetGPUVirtualAddress();
+        if (addr) {
+          auto it = m_resources_by_gpu_addr.find(addr);
+          if (it != m_resources_by_gpu_addr.end() && it->second == res)
+            m_resources_by_gpu_addr.erase(it);
+        }
+        m_work_graph_buffer_resources.erase(res);
+      }
+      uint32_t expected = current;
+      if (res->m_refCount.compare_exchange_weak(
+              expected, current - 1, std::memory_order_acq_rel,
+              std::memory_order_acquire)) {
+        remaining = current - 1;
+        break;
+      }
+    }
+  }
+
+  if (!remaining) {
+    const uint32_t private_count = --res->m_refPrivate;
+    if (!private_count) {
+      res->m_refPrivate += 0x80000000;
+      delete res;
+    }
+  }
+  return remaining;
 }
 
 void MTLD3D12Device::RegisterWorkGraphProgram(
@@ -9433,19 +9517,74 @@ MTLD3D12Resource *
 MTLD3D12Device::LookupResourceByGPUAddress(D3D12_GPU_VIRTUAL_ADDRESS addr) {
   if (!addr)
     return nullptr;
-  std::lock_guard<std::mutex> lock(m_resource_mutex);
-  auto it = m_resources_by_gpu_addr.find(addr);
-  if (it != m_resources_by_gpu_addr.end())
-    return it->second;
-  for (auto &[gpu_addr, res] : m_resources_by_gpu_addr) {
-    D3D12_RESOURCE_DESC desc = {};
-    res->GetDesc(&desc);
-    if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
-      if (addr >= gpu_addr && addr < gpu_addr + desc.Width)
-        return res;
+  MTLD3D12Resource *resource = nullptr;
+  MTLD3D12Resource *unretained_resource = nullptr;
+  auto *scope = GPUAddressLookupRetentionScope::Current();
+  {
+    std::lock_guard<std::mutex> lock(m_resource_mutex);
+    auto it = m_resources_by_gpu_addr.find(addr);
+    if (it != m_resources_by_gpu_addr.end()) {
+      resource = it->second;
+    } else {
+      for (auto &[gpu_addr, candidate] : m_resources_by_gpu_addr) {
+        if (!candidate || addr < gpu_addr)
+          continue;
+        D3D12_RESOURCE_DESC desc = {};
+        candidate->GetDesc(&desc);
+        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+          continue;
+        // Use subtraction rather than gpu_addr + Width so a malformed or
+        // attacker-controlled address cannot wrap the end of the range.
+        if (addr - gpu_addr < desc.Width) {
+          resource = candidate;
+          break;
+        }
+      }
+    }
+    // Raw lookup callers normally consume the pointer synchronously.  Queue
+    // replay installs a thread-local scope so those callers still acquire a
+    // registry-locked reference before resource reclamation can proceed.
+    if (resource && scope) {
+      resource->AddRef();
+      if (!scope->Retain(resource)) {
+        unretained_resource = resource;
+        resource = nullptr;
+      }
     }
   }
-  return nullptr;
+  // Do not run a potentially final Release while m_resource_mutex is held;
+  // resource destruction unregisters from that same registry.
+  if (unretained_resource)
+    unretained_resource->Release();
+  return resource;
+}
+
+MTLD3D12Resource *
+MTLD3D12Device::LookupResourceByGPUAddressAndAddRef(
+    D3D12_GPU_VIRTUAL_ADDRESS addr) {
+  if (!addr)
+    return nullptr;
+  std::lock_guard<std::mutex> lock(m_resource_mutex);
+  MTLD3D12Resource *resource = nullptr;
+  auto it = m_resources_by_gpu_addr.find(addr);
+  if (it != m_resources_by_gpu_addr.end()) {
+    resource = it->second;
+  } else {
+    for (auto &[gpu_addr, candidate] : m_resources_by_gpu_addr) {
+      if (!candidate || addr < gpu_addr)
+        continue;
+      D3D12_RESOURCE_DESC desc = {};
+      candidate->GetDesc(&desc);
+      if (desc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER &&
+          addr - gpu_addr < desc.Width) {
+        resource = candidate;
+        break;
+      }
+    }
+  }
+  if (resource)
+    resource->AddRef();
+  return resource;
 }
 
 HRESULT STDMETHODCALLTYPE MTLD3D12Device::CreatePipelineLibrary(
@@ -10868,8 +11007,11 @@ MTLD3D12Device::AddToStateObject(const D3D12_STATE_OBJECT_DESC *addition,
   auto *object =
       new MTLD3D12StateObject(this, addition, state_object_to_grow_from);
   if (!object->InitializeAddition(addition)) {
+    // The bounded provider accepts only hit-group alias growth from an
+    // already-linked pipeline.  Reject other addition shapes as out-of-domain
+    // input rather than exposing an unsupported HRESULT from a legal COM entry point.
     object->Release();
-    return E_NOTIMPL;
+    return E_INVALIDARG;
   }
   HRESULT hr = object->QueryInterface(riid, new_state_object);
   object->Release();

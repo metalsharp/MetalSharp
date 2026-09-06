@@ -1566,15 +1566,7 @@ UINT MTLD3D12Resource::GetEvictionPriority() const {
 ULONG STDMETHODCALLTYPE MTLD3D12Resource::AddRef() { return ++m_refCount; }
 
 ULONG STDMETHODCALLTYPE MTLD3D12Resource::Release() {
-  uint32_t rc = --m_refCount;
-  if (!rc) {
-    uint32_t rp = --m_refPrivate;
-    if (!rp) {
-      m_refPrivate += 0x80000000;
-      delete this;
-    }
-  }
-  return rc;
+  return m_device ? m_device->ReleaseResourcePublicRef(this) : 0;
 }
 
 HRESULT STDMETHODCALLTYPE

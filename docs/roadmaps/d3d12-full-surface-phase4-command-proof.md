@@ -21,7 +21,9 @@
   are sized after count-buffer clamping; multiplication, offset, stride, and
   64-MiB snapshot bounds are fail-closed. The command probe now also records
   direct and indirect DISPATCH_RAYS and DISPATCH_MESH commands, then verifies
-  exact UAV/raster readbacks for both paths.
+  exact UAV/raster readbacks for both paths. Predication evidence covers direct
+  and indirect dispatch/rays/mesh commands with nonzero, zero, and unaligned
+  predicate buffers; every suppressed path is checked by a separate readback.
 - Enhanced barrier groups serialize their global, buffer, and texture records
   rather than only their counts. Queue replay applies enhanced buffer access
   generations and texture layout transitions for the recorded subresource
@@ -32,6 +34,12 @@
   update through a blit copy, and rejects unsupported stage mixes, DXIL,
   indexed/multi-instance, duplicate counters, and out-of-range draws instead
   of writing out of bounds.
+- Queue replay retains every resource resolved from a GPU virtual address
+  under a registry-locked, thread-local RAII scope. The multi-list probe drops
+  upload/target COM references before `ExecuteCommandLists`, and a four-worker
+  probe submits distinct command lists concurrently after the same release;
+  exact readbacks pass in both cases. This closes the queue-side address lookup
+  reclamation race without widening unsupported resource behavior.
 - Command-stream statistics retain a histogram and unknown-type count for every
   serialized command kind. Render-pass begin/end, protected-session, and
   meta-command calls are serialized and replayed as explicit provider-boundary
@@ -105,6 +113,14 @@ The isolated source-staged command probe passed with these behavior checks, incl
     "indirect_value": "0x52415931",
     "direct_behavior_verified": true,
     "indirect_behavior_verified": true,
+    "direct_suppressed_value": 0,
+    "indirect_suppressed_value": 0,
+    "invalid_predicate_value": 0,
+    "indirect_invalid_predicate_value": 0,
+    "direct_predication_verified": true,
+    "indirect_predication_verified": true,
+    "invalid_predication_verified": true,
+    "indirect_invalid_predication_verified": true,
     "argument_offset": 16
   },
   "execute_indirect_dispatch_mesh": {
@@ -118,6 +134,14 @@ The isolated source-staged command probe passed with these behavior checks, incl
     "indirect_pixels": 72,
     "direct_behavior_verified": true,
     "indirect_behavior_verified": true,
+    "direct_suppressed_uav_value": 0,
+    "indirect_suppressed_uav_value": 0,
+    "invalid_predicate_uav_value": 0,
+    "indirect_invalid_predicate_uav_value": 0,
+    "direct_predication_verified": true,
+    "indirect_predication_verified": true,
+    "invalid_predication_verified": true,
+    "indirect_invalid_predication_verified": true,
     "argument_offset": 16
   },
   "predication": {
@@ -125,7 +149,13 @@ The isolated source-staged command probe passed with these behavior checks, incl
     "feature_supported": true,
     "executed_value": 1,
     "suppressed_dispatch_value": 0,
-    "suppressed_copy_value": 0
+    "invalid_predicate_value": 0,
+    "indirect_executed_value": 1,
+    "indirect_suppressed_value": 0,
+    "indirect_invalid_predicate_value": 0,
+    "true_verified": true,
+    "false_verified": true,
+    "invalid_verified": true
   },
   "enhanced_barriers": {
     "pass": true,
@@ -150,14 +180,23 @@ The isolated source-staged command probe passed with these behavior checks, incl
     "pixel3_black": true,
     "pixels_rgba": [[0, 0, 0, 255], [255, 0, 0, 255], [0, 0, 0, 255], [0, 0, 0, 255]]
   },
+  "queue_resource_retention": {
+    "pass": true,
+    "queue_resource_release_before_execute": true,
+    "queue_concurrent_replay_reclamation": true,
+    "worker_count": 4,
+    "caller_resources_released_before_execute": true,
+    "readbacks_verified": true
+  },
   "queue_validation": {
     "pass": true,
     "normal_high_queue_types_verified": true,
     "high_priority_ok": true,
     "vblank_verified": true,
     "invalid_bundle": "0x80070057",
-    "video_queue": "0x80004001",
-    "global_realtime_queue": "0x80004001",
+    "video_decode_queue": "0x00000000",
+    "global_realtime_queue": "0x00000000",
+    "video_empty_submission": true,
     "disable_gpu_timeout": "0x00000000",
     "clock_calibration_verified": true,
     "enqueue_event_signaled_after_all_queues": true
@@ -196,7 +235,12 @@ The isolated source-staged command probe passed with these behavior checks, incl
 ```
 
 The resource probe independently records `atomic_copy_verified=true` and
-`discard_verified=true`. The queue probe also passed with nonzero GPU/CPU clock
+`discard_verified=true`. The current dirty-runtime follow-up command result
+also reports `queue_resource_release_before_execute=true` and
+`queue_concurrent_replay_reclamation=true`, with
+`caller_resources_released_before_execute=true` and four exact readbacks. This
+follow-up is behavior evidence only until repeated from the clean source
+wrapper. The queue probe also passed with nonzero GPU/CPU clock
 calibration values, a 1 GHz timestamp frequency, high-priority queue
 round-trip validation, CoreVideo display-link VBlank completion, cross-queue
 fence ordering, and exact null-output `E_POINTER` validation. A fresh
@@ -225,6 +269,19 @@ with exact direct/indirect DISPATCH_RAYS and DISPATCH_MESH readbacks. View-
 instancing, multi-pixel sample-position, and queue-priority/VBlank/callback
 rows also have exact provider evidence; broader indirect and feature-family
 matrices remain tracked by the later phase lanes.
+
+A clean-source refresh is retained under
+`/Volumes/AverySSD/phase14-clean-evidence/` at commit
+`bdc5c0167befdc3deae05a3197cb17a7cbb14ddb` (`source_dirty=false`). The staged
+runtime manifest, matching PE/Unix loader-copy audits, command replay, queue
+priority/VBlank, and texture-discard results all pass; the command result
+records four-worker reclamation with caller resources released before replay.
+This refresh is behavior/provenance evidence for the bounded rows and does not
+close the broader Phase 14 no-op or unsupported-ledger gate. A follow-up clean
+snapshot at `65922fa59aec323367540646013790f2dfbcaf3e` additionally proves
+`CreateCommandQueue` for VIDEO_DECODE and GLOBAL_REALTIME, decode-list
+creation/Close, and an empty decode-list submission (`pass=true` in the
+`phase14-clean-video-queue-v2` result).
 
 ## Residual limitations carried into later phases
 

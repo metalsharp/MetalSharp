@@ -215,6 +215,9 @@ int main() {
     dxmt::GraphicsCommandList10Extension* compute_list = nullptr;
     ID3D12Resource* backing = nullptr;
     ID3D12Resource* node_output = nullptr;
+    ID3D12Resource* predicate_true = nullptr;
+    ID3D12Resource* predicate_false = nullptr;
+    ID3D12Resource* predicate_invalid = nullptr;
     ID3D12RootSignature* node_root = nullptr;
     ID3DBlob* node_root_blob = nullptr;
     ID3D12Resource* node_local_table = nullptr;
@@ -287,6 +290,14 @@ int main() {
     uint32_t node_launch_values[8] = {};
     bool node_input_gpu_dependency_exact = false;
     uint32_t node_input_gpu_dependency_values[2] = {};
+    bool node_predication_cpu_exact = false;
+    bool node_predication_gpu_exact = false;
+    bool node_predication_invalid_exact = false;
+    bool node_predication_gpu_invalid_exact = false;
+    uint32_t node_predication_cpu_values[2] = {};
+    uint32_t node_predication_gpu_values[2] = {};
+    uint32_t node_predication_invalid_values[2] = {};
+    uint32_t node_predication_gpu_invalid_values[2] = {};
     uint32_t multi_cpu_values[8] = {};
     uint32_t multi_gpu_values[8] = {};
     uint32_t node_shader_values[2] = {};
@@ -356,6 +367,36 @@ int main() {
             &node_output_heap, D3D12_HEAP_FLAG_NONE, &node_output_desc,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
             IID_PPV_ARGS(&node_output));
+    }
+    auto create_predicate_resource = [&](const void* data, size_t size,
+                                         ID3D12Resource** resource) -> HRESULT {
+        auto predicate_desc = buffer_desc(16);
+        HRESULT predicate_hr = device->CreateCommittedResource(
+            &heap, D3D12_HEAP_FLAG_NONE, &predicate_desc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(resource));
+        if (SUCCEEDED(predicate_hr)) {
+            void* mapped = nullptr;
+            predicate_hr = (*resource)->Map(0, nullptr, &mapped);
+            if (SUCCEEDED(predicate_hr) && mapped) {
+                std::memset(mapped, 0, 16);
+                std::memcpy(mapped, data, size);
+                (*resource)->Unmap(0, nullptr);
+            }
+        }
+        return predicate_hr;
+    };
+    if (SUCCEEDED(hr)) {
+        const uint32_t predicate_one = 1;
+        const uint32_t predicate_zero = 0;
+        const uint8_t invalid_predicate_bytes[8] = {0, 0, 1, 0, 0, 0, 0, 0};
+        hr = create_predicate_resource(&predicate_one, sizeof(predicate_one), &predicate_true);
+        if (SUCCEEDED(hr))
+            hr = create_predicate_resource(&predicate_zero, sizeof(predicate_zero), &predicate_false);
+        if (SUCCEEDED(hr))
+            hr = create_predicate_resource(invalid_predicate_bytes,
+                                           sizeof(invalid_predicate_bytes),
+                                           &predicate_invalid);
     }
     if (SUCCEEDED(hr) && serialize_root_signature && device) {
         D3D12_ROOT_PARAMETER node_root_parameter = {};
@@ -1896,6 +1937,241 @@ int main() {
             node_coalescing_gpu_values[5] == 0xf0f0f0f0u;
     }
 
+    if (input_program_ready && node_root && node_output && predicate_true &&
+        predicate_false && predicate_invalid && allocator && base_list && list &&
+        gpu_input_desc && gpu_records) {
+        SetProgramDesc predicate_program = set_program;
+        std::memcpy(predicate_program.WorkGraph.ProgramIdentifier,
+                    input_program_identifier, sizeof(input_program_identifier));
+        const uint32_t cpu_true_record = 41;
+        const uint32_t cpu_false_record = 42;
+        const uint32_t cpu_invalid_record = 43;
+        NodeCPUInput cpu_true_input = {};
+        // Entrypoint 2 is the scalar 32-bit input node; entrypoint 0 has
+        // the vector-record ABI and deliberately rejects a four-byte record.
+        cpu_true_input.EntrypointIndex = 2;
+        cpu_true_input.NumRecords = 1;
+        cpu_true_input.Records = &cpu_true_record;
+        cpu_true_input.RecordStrideInBytes = sizeof(cpu_true_record);
+        NodeCPUInput cpu_false_input = cpu_true_input;
+        cpu_false_input.Records = &cpu_false_record;
+        NodeCPUInput cpu_invalid_input = cpu_true_input;
+        cpu_invalid_input.Records = &cpu_invalid_record;
+        HRESULT predication_hr = allocator->Reset();
+        if (SUCCEEDED(predication_hr))
+            predication_hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(predication_hr)) {
+            DispatchGraphDesc dispatch = {};
+            dispatch.Mode = 0;
+            dispatch.NodeCPUInput = cpu_true_input;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&predicate_program);
+            list->SetPredication(predicate_true, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            list->DispatchGraph(&dispatch);
+            list->SetPredication(nullptr, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            predication_hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = node_output->ReadFromSubresource(
+                node_predication_cpu_values, sizeof(node_predication_cpu_values),
+                sizeof(node_predication_cpu_values), 0, nullptr);
+        const bool cpu_true_exact = SUCCEEDED(predication_hr) &&
+                                    node_predication_cpu_values[0] == 0xabcdef29u &&
+                                    node_predication_cpu_values[1] == 0x12345678u;
+        if (SUCCEEDED(predication_hr))
+            predication_hr = allocator->Reset();
+        if (SUCCEEDED(predication_hr))
+            predication_hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(predication_hr)) {
+            DispatchGraphDesc dispatch = {};
+            dispatch.Mode = 0;
+            dispatch.NodeCPUInput = cpu_false_input;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&predicate_program);
+            list->SetPredication(predicate_false, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            list->DispatchGraph(&dispatch);
+            list->SetPredication(nullptr, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            predication_hr = execute_and_wait(device, queue, base_list);
+        }
+        uint32_t cpu_false_values[2] = {};
+        if (SUCCEEDED(predication_hr))
+            predication_hr = node_output->ReadFromSubresource(
+                cpu_false_values, sizeof(cpu_false_values),
+                sizeof(cpu_false_values), 0, nullptr);
+        node_predication_cpu_exact = cpu_true_exact && SUCCEEDED(predication_hr) &&
+                                     cpu_false_values[0] == node_predication_cpu_values[0] &&
+                                     cpu_false_values[1] == node_predication_cpu_values[1];
+
+        if (SUCCEEDED(predication_hr))
+            predication_hr = allocator->Reset();
+        if (SUCCEEDED(predication_hr))
+            predication_hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(predication_hr)) {
+            DispatchGraphDesc dispatch = {};
+            dispatch.Mode = 0;
+            dispatch.NodeCPUInput = cpu_invalid_input;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&predicate_program);
+            list->SetPredication(predicate_invalid, 2,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            list->DispatchGraph(&dispatch);
+            list->SetPredication(nullptr, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            predication_hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = node_output->ReadFromSubresource(
+                node_predication_invalid_values,
+                sizeof(node_predication_invalid_values),
+                sizeof(node_predication_invalid_values), 0, nullptr);
+        node_predication_invalid_exact = SUCCEEDED(predication_hr) &&
+            node_predication_invalid_values[0] == node_predication_cpu_values[0] &&
+            node_predication_invalid_values[1] == node_predication_cpu_values[1];
+
+        // GPU-input graph dispatches use separate submissions so the upload
+        // descriptor can select a different record for the suppressed case.
+        NodeGPUInput gpu_predicate_input = {};
+        gpu_predicate_input.EntrypointIndex = 2;
+        gpu_predicate_input.NumRecords = 1;
+        gpu_predicate_input.Records = gpu_records->GetGPUVirtualAddress();
+        gpu_predicate_input.RecordStrideInBytes = sizeof(uint32_t);
+        void* mapped_records = nullptr;
+        if (SUCCEEDED(predication_hr))
+            predication_hr = gpu_records->Map(0, nullptr, &mapped_records);
+        if (SUCCEEDED(predication_hr) && mapped_records) {
+            std::memcpy(mapped_records, &cpu_true_record, sizeof(cpu_true_record));
+            std::memcpy(static_cast<uint8_t*>(mapped_records) + sizeof(uint32_t),
+                        &cpu_false_record, sizeof(cpu_false_record));
+            gpu_records->Unmap(0, nullptr);
+        }
+        void* mapped = nullptr;
+        if (SUCCEEDED(predication_hr))
+            predication_hr = gpu_input_desc->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(predication_hr) && mapped) {
+            std::memcpy(static_cast<uint8_t*>(mapped) + 32,
+                        &gpu_predicate_input, sizeof(gpu_predicate_input));
+            gpu_input_desc->Unmap(0, nullptr);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = allocator->Reset();
+        if (SUCCEEDED(predication_hr))
+            predication_hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(predication_hr)) {
+            DispatchGraphDesc dispatch = {};
+            dispatch.Mode = 1;
+            dispatch.Raw[0] = gpu_input_desc->GetGPUVirtualAddress() + 32;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&predicate_program);
+            list->SetPredication(predicate_true, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            list->DispatchGraph(&dispatch);
+            list->SetPredication(nullptr, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            predication_hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = node_output->ReadFromSubresource(
+                node_predication_gpu_values, sizeof(node_predication_gpu_values),
+                sizeof(node_predication_gpu_values), 0, nullptr);
+        const uint32_t gpu_true_value = node_predication_gpu_values[0];
+        const uint32_t gpu_true_second = node_predication_gpu_values[1];
+        const bool gpu_true_exact = SUCCEEDED(predication_hr) &&
+                                    gpu_true_value == 0xabcdef29u &&
+                                    gpu_true_second == 0x12345678u;
+        gpu_predicate_input.Records = gpu_records->GetGPUVirtualAddress() + sizeof(uint32_t);
+        if (SUCCEEDED(predication_hr))
+            predication_hr = gpu_input_desc->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(predication_hr) && mapped) {
+            std::memcpy(static_cast<uint8_t*>(mapped) + 32,
+                        &gpu_predicate_input, sizeof(gpu_predicate_input));
+            gpu_input_desc->Unmap(0, nullptr);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = allocator->Reset();
+        if (SUCCEEDED(predication_hr))
+            predication_hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(predication_hr)) {
+            DispatchGraphDesc dispatch = {};
+            dispatch.Mode = 1;
+            dispatch.Raw[0] = gpu_input_desc->GetGPUVirtualAddress() + 32;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&predicate_program);
+            list->SetPredication(predicate_false, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            list->DispatchGraph(&dispatch);
+            list->SetPredication(nullptr, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            predication_hr = execute_and_wait(device, queue, base_list);
+        }
+        uint32_t gpu_false_values[2] = {};
+        if (SUCCEEDED(predication_hr))
+            predication_hr = node_output->ReadFromSubresource(
+                gpu_false_values, sizeof(gpu_false_values),
+                sizeof(gpu_false_values), 0, nullptr);
+        node_predication_gpu_exact = gpu_true_exact && SUCCEEDED(predication_hr) &&
+                                     gpu_false_values[0] == gpu_true_value &&
+                                     gpu_false_values[1] == gpu_true_second;
+
+        gpu_predicate_input.Records =
+            gpu_records->GetGPUVirtualAddress() + 2 * sizeof(uint32_t);
+        if (SUCCEEDED(predication_hr))
+            predication_hr = gpu_records->Map(0, nullptr, &mapped_records);
+        if (SUCCEEDED(predication_hr) && mapped_records) {
+            std::memcpy(static_cast<uint8_t*>(mapped_records) + 2 * sizeof(uint32_t),
+                        &cpu_invalid_record, sizeof(cpu_invalid_record));
+            gpu_records->Unmap(0, nullptr);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = gpu_input_desc->Map(0, nullptr, &mapped);
+        if (SUCCEEDED(predication_hr) && mapped) {
+            std::memcpy(static_cast<uint8_t*>(mapped) + 32,
+                        &gpu_predicate_input, sizeof(gpu_predicate_input));
+            gpu_input_desc->Unmap(0, nullptr);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = allocator->Reset();
+        if (SUCCEEDED(predication_hr))
+            predication_hr = base_list->Reset(allocator, nullptr);
+        if (SUCCEEDED(predication_hr)) {
+            DispatchGraphDesc dispatch = {};
+            dispatch.Mode = 1;
+            dispatch.Raw[0] = gpu_input_desc->GetGPUVirtualAddress() + 32;
+            list->SetComputeRootSignature(node_root);
+            list->SetComputeRootUnorderedAccessView(0,
+                                                    node_output->GetGPUVirtualAddress());
+            list->SetProgram(&predicate_program);
+            list->SetPredication(predicate_invalid, 2,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            list->DispatchGraph(&dispatch);
+            list->SetPredication(nullptr, 0,
+                                 D3D12_PREDICATION_OP_NOT_EQUAL_ZERO);
+            predication_hr = execute_and_wait(device, queue, base_list);
+        }
+        if (SUCCEEDED(predication_hr))
+            predication_hr = node_output->ReadFromSubresource(
+                node_predication_gpu_invalid_values,
+                sizeof(node_predication_gpu_invalid_values),
+                sizeof(node_predication_gpu_invalid_values), 0, nullptr);
+        node_predication_gpu_invalid_exact =
+            node_predication_gpu_exact && SUCCEEDED(predication_hr) &&
+            node_predication_gpu_invalid_values[0] == gpu_true_value &&
+            node_predication_gpu_invalid_values[1] == gpu_true_second;
+    }
+
     std::printf("{\n");
     std::printf("  \"schema\": \"metalsharp.d3d12-metal.workgraph-execution.v1\",\n");
     const bool all_readbacks =
@@ -1912,7 +2188,9 @@ int main() {
         dxil_node_shader_gpu_readback_exact &&
         node_multi_bytecode_loaded &&
         node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_accepted && node_record_offsets_exact && node_broadcast_multi_exact && node_broadcast_multi_gpu_exact && node_thread_multi_exact && node_coalescing_multi_exact && node_coalescing_gpu_exact && dxil_multi_node_readback_exact &&
-        node_multi_cpu_input_exact && node_multi_gpu_input_exact;
+        node_multi_cpu_input_exact && node_multi_gpu_input_exact &&
+        node_predication_cpu_exact && node_predication_gpu_exact &&
+        node_predication_invalid_exact && node_predication_gpu_invalid_exact;
     std::printf("  \"pass\": %s,\n", SUCCEEDED(hr) && properties_ok && all_readbacks ? "true" : "false");
     std::printf("  \"hr\": \"0x%08lx\",\n", static_cast<unsigned long>(static_cast<uint32_t>(hr)));
     std::printf("  \"properties_complete\": %s,\n", properties_ok ? "true" : "false");
@@ -2015,6 +2293,14 @@ int main() {
     std::printf("  \"node_launch_values\": [%u,%u,%u,%u,%u,%u,%u,%u],\n", node_launch_values[0], node_launch_values[1], node_launch_values[2], node_launch_values[3], node_launch_values[4], node_launch_values[5], node_launch_values[6], node_launch_values[7]);
     std::printf("  \"node_input_gpu_dependency_exact\": %s,\n", node_input_gpu_dependency_exact ? "true" : "false");
     std::printf("  \"node_input_gpu_dependency_values\": [%u, %u],\n", node_input_gpu_dependency_values[0], node_input_gpu_dependency_values[1]);
+    std::printf("  \"node_predication_cpu_exact\": %s,\n", node_predication_cpu_exact ? "true" : "false");
+    std::printf("  \"node_predication_gpu_exact\": %s,\n", node_predication_gpu_exact ? "true" : "false");
+    std::printf("  \"node_predication_invalid_exact\": %s,\n", node_predication_invalid_exact ? "true" : "false");
+    std::printf("  \"node_predication_gpu_invalid_exact\": %s,\n", node_predication_gpu_invalid_exact ? "true" : "false");
+    std::printf("  \"node_predication_cpu_values\": [%u, %u],\n", node_predication_cpu_values[0], node_predication_cpu_values[1]);
+    std::printf("  \"node_predication_gpu_values\": [%u, %u],\n", node_predication_gpu_values[0], node_predication_gpu_values[1]);
+    std::printf("  \"node_predication_invalid_values\": [%u, %u],\n", node_predication_invalid_values[0], node_predication_invalid_values[1]);
+    std::printf("  \"node_predication_gpu_invalid_values\": [%u, %u],\n", node_predication_gpu_invalid_values[0], node_predication_gpu_invalid_values[1]);
     std::printf("  \"node_internal_binding_rejected\": %s,\n", node_internal_binding_rejected ? "true" : "false");
     std::printf("  \"node_input_binding_exact\": %s,\n", node_input_binding_exact ? "true" : "false");
     std::printf("  \"node_input_layouts_exact\": %s,\n", node_input_layouts_exact ? "true" : "false");
@@ -2053,6 +2339,9 @@ int main() {
     release(state);
     release(gpu_multi_input_desc);
     release(gpu_input_desc);
+    release(predicate_invalid);
+    release(predicate_false);
+    release(predicate_true);
     release(gpu_coalescing_records);
     release(gpu_records);
     release(node_root_blob);
@@ -2086,7 +2375,9 @@ int main() {
                    dxil_node_shader_gpu_readback_exact && node_multi_bytecode_loaded &&
                    node_multi_properties_complete && node_input_layouts_exact && node_input_binding_exact && node_internal_binding_rejected && node_input_gpu_dependency_exact && node_launch_geometry_exact && node_dynamic_grid_accepted && node_record_offsets_exact &&
                    dxil_multi_node_readback_exact && node_multi_cpu_input_exact &&
-                   node_multi_gpu_input_exact
+                   node_multi_gpu_input_exact && node_predication_cpu_exact &&
+                   node_predication_gpu_exact && node_predication_invalid_exact &&
+                   node_predication_gpu_invalid_exact
                ? 0
                : 1;
 }
