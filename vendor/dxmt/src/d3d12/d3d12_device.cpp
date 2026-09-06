@@ -4066,6 +4066,7 @@ public:
       m_shader_stack_sizes = source->m_shader_stack_sizes;
       m_pipeline_stack_size = source->m_pipeline_stack_size;
       m_max_trace_recursion_depth = source->m_max_trace_recursion_depth;
+      m_raytracing_pipeline_flags = source->m_raytracing_pipeline_flags;
       m_raygen_compute_pipeline = source->m_raygen_compute_pipeline;
       m_raygen_visible_function_table =
           source->m_raygen_visible_function_table;
@@ -4397,6 +4398,19 @@ public:
             static_cast<const D3D12_RAYTRACING_PIPELINE_CONFIG *>(
                 subobject.pDesc);
         m_max_trace_recursion_depth = config->MaxTraceRecursionDepth;
+      } else if (static_cast<UINT>(subobject.Type) ==
+                 kD3D12RaytracingPipelineConfig1SubobjectType) {
+        if (!subobject.pDesc)
+          return false;
+        const auto *config =
+            static_cast<const D3D12RaytracingPipelineConfig1Compat *>(
+                subobject.pDesc);
+        const UINT unsupported_flags =
+            config->flags & ~kD3D12RaytracingPipelineFlagAllowOpacityMicromaps;
+        if (unsupported_flags)
+          return false;
+        m_max_trace_recursion_depth = config->max_trace_recursion_depth;
+        m_raytracing_pipeline_flags = config->flags;
       }
     }
     for (const auto *association : local_root_associations) {
@@ -4918,6 +4932,13 @@ public:
         // New Metal functions require relinking the visible-function tables;
         // alias growth only accepts hit groups assembled from base exports.
         return false;
+      } else if (static_cast<UINT>(subobject.Type) ==
+                 kD3D12RaytracingPipelineConfig1SubobjectType) {
+        // CONFIG1 is parsed for initial OMM-enabled pipelines, but changing
+        // pipeline flags during AddToStateObject would require rebuilding the
+        // function tables. Reject the addition rather than silently dropping
+        // the new subobject.
+        return false;
       } else if (subobject.Type !=
                      D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG &&
                  subobject.Type !=
@@ -5390,6 +5411,7 @@ private:
   std::unordered_map<std::wstring, UINT64> m_shader_stack_sizes;
   UINT64 m_pipeline_stack_size = 0;
   UINT32 m_max_trace_recursion_depth = 1;
+  UINT32 m_raytracing_pipeline_flags = 0;
   bool m_has_work_graph = false;
   uint64_t m_work_graph_identity = 0;
   std::wstring m_work_graph_name;
@@ -10444,6 +10466,81 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
 
   if (!desc)
     return;
+  const UINT unsupported_omm_flags = kD3D12RaytracingBuildFlagAllowOmmUpdate;
+  if (desc->Flags & unsupported_omm_flags) {
+    TRACE("  prebuild OMM linkage-update flag unsupported");
+    return;
+  }
+  // DXR 1.2 opacity-micromap arrays have no native Metal counterpart on the
+  // proof host.  Keep a bounded provider-backed representation: validate the
+  // declared histogram completely, expose deterministic prebuild sizes, and
+  // materialize the decoded level-0 states when the command executes.  Do not
+  // route this input through the triangle AS size path; that would claim an
+  // OMM build while dropping its linkage.
+  if (static_cast<UINT>(desc->Type) ==
+      kD3D12RaytracingAccelerationStructureTypeOmmArray) {
+    const UINT unsupported_omm_array_flags =
+        kD3D12RaytracingBuildFlagAllowUpdate |
+        kD3D12RaytracingBuildFlagAllowCompaction |
+        kD3D12RaytracingBuildFlagPerformUpdate |
+        kD3D12RaytracingBuildFlagAllowDisableOmms | unsupported_omm_flags;
+    if (desc->NumDescs != 1 ||
+        desc->DescsLayout != D3D12_ELEMENTS_LAYOUT_ARRAY ||
+        !D3D12GetOpacityMicromapArrayDesc(*desc) ||
+        desc->NumDescs > CmdBuildRaytracingAccelerationStructure::kMaxGeometryDescs ||
+        (desc->Flags & unsupported_omm_array_flags))
+      return;
+    const auto *array = D3D12GetOpacityMicromapArrayDesc(*desc);
+    if (array->histogram_entry_count == 0 ||
+        array->histogram_entry_count >
+            CmdBuildRaytracingAccelerationStructure::kMaxOmmHistogramEntries ||
+        !array->histogram || !array->input_buffer ||
+        (array->input_buffer &
+         (kD3D12RaytracingOmmArrayByteAlignment - 1)) != 0 ||
+        !array->per_omm_descs.StartAddress ||
+        (array->per_omm_descs.StartAddress &
+         (kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 ||
+        (array->per_omm_descs.StrideInBytes &
+         (kD3D12RaytracingOmmDescsByteAlignment - 1)) != 0 ||
+        array->per_omm_descs.StrideInBytes <
+            sizeof(D3D12OpacityMicromapDescCompat))
+      return;
+    uint64_t omm_count = 0;
+    for (UINT i = 0; i < array->histogram_entry_count; ++i) {
+      const auto &entry = array->histogram[i];
+      if (entry.count == 0 || entry.count > 4096 ||
+          entry.subdivision_level != 0 ||
+          !D3D12IsSupportedOmmFormat(entry.format) ||
+          omm_count > 4096 - entry.count)
+        return;
+      omm_count += entry.count;
+    }
+    const uint64_t alignment = kD3D12RaytracingOmmArrayByteAlignment;
+    const uint64_t result_bytes =
+        (alignment + omm_count * sizeof(D3D12OpacityMicromapDescCompat) +
+         alignment - 1) &
+        ~(alignment - 1);
+    info->ResultDataMaxSizeInBytes = result_bytes;
+    info->ScratchDataSizeInBytes = 256;
+    info->UpdateScratchDataSizeInBytes = 256;
+    TRACE("  prebuild OMM array=%llu result=%llu scratch=%llu",
+          (unsigned long long)omm_count,
+          (unsigned long long)info->ResultDataMaxSizeInBytes,
+          (unsigned long long)info->ScratchDataSizeInBytes);
+    return;
+  }
+  if (desc->Flags & kD3D12RaytracingBuildFlagAllowDisableOmms) {
+    if (desc->Type !=
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL ||
+        desc->NumDescs != 1 ||
+        desc->DescsLayout != D3D12_ELEMENTS_LAYOUT_ARRAY ||
+        !desc->pGeometryDescs ||
+        desc->pGeometryDescs[0].Type !=
+            kD3D12RaytracingGeometryTypeOmmTriangles) {
+      TRACE("  prebuild ALLOW_DISABLE_OMMS requires one OMM triangle");
+      return;
+    }
+  }
   WMTAccelerationStructureSizes sizes = {};
   uint64_t primitive_count = 0;
   const char *kind = "unknown";
@@ -10629,9 +10726,41 @@ MTLD3D12Device::GetRaytracingAccelerationStructurePrebuildInfo(
              desc->DescsLayout == D3D12_ELEMENTS_LAYOUT_ARRAY_OF_POINTERS &&
              desc->ppGeometryDescs)
       geometry = desc->ppGeometryDescs[0];
-    if (geometry &&
-        geometry->Type ==
-            D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
+    if (geometry && geometry->Type ==
+                         kD3D12RaytracingGeometryTypeOmmTriangles) {
+      const auto omm = D3D12GetOpacityMicromapTrianglesDesc(*geometry);
+      if ((geometry->Flags & D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE) ||
+          !omm.triangles || !omm.linkage ||
+          (omm.linkage->index_format != DXGI_FORMAT_R16_UINT &&
+           omm.linkage->index_format != DXGI_FORMAT_R32_UINT) ||
+          (omm.linkage->index_format == DXGI_FORMAT_R16_UINT &&
+           (omm.linkage->index_buffer.StartAddress & 1u)) ||
+          (omm.linkage->index_format == DXGI_FORMAT_R32_UINT &&
+           (omm.linkage->index_buffer.StartAddress & 3u)) ||
+          (omm.linkage->opacity_micromap_array &&
+           (omm.linkage->opacity_micromap_array &
+            (kD3D12RaytracingOmmArrayByteAlignment - 1))))
+        return;
+      D3D12_RAYTRACING_GEOMETRY_DESC triangles_geometry = *geometry;
+      triangles_geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+      triangles_geometry.Triangles = *omm.triangles;
+      D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS one = *desc;
+      one.NumDescs = 1;
+      one.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+      one.pGeometryDescs = &triangles_geometry;
+      WMTPrimitiveAccelerationStructureInfo metal_info = {};
+      if (!D3D12ResolveTriangleAccelerationStructureInfo(this, &one,
+                                                          metal_info) ||
+          !GetMTLDevice().accelerationStructureSizesForTriangles(metal_info,
+                                                                  sizes)) {
+        TRACE("  prebuild unsupported OMM triangle geometry");
+        return;
+      }
+      primitive_count = metal_info.triangle_count;
+      kind = "BLAS OMM triangles";
+    } else if (geometry &&
+               geometry->Type ==
+                   D3D12_RAYTRACING_GEOMETRY_TYPE_PROCEDURAL_PRIMITIVE_AABBS) {
       WMTAABBAccelerationStructureInfo metal_info = {};
       if (!D3D12ResolveAABBAccelerationStructureInfo(this, desc, metal_info) ||
           !GetMTLDevice().accelerationStructureSizesForAABBs(metal_info,

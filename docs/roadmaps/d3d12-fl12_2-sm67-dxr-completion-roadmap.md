@@ -1740,9 +1740,25 @@ the goal is not complete.
   `D3D12_DISPATCH_RAYS_DESC` and runs it through the same shader-table path. The direct three-ray launch is copied before the output is cleared;
   the four-ray indirect launch then produces an independent procedural marker
   at the otherwise untouched fourth-ray slot, so recording alone cannot make
-  this gate pass.
-  RaytracingTier remains unreported pending
-  mixed triangle/AABB geometry in one BLAS, persistent cross-process
+  this gate pass. A bounded DXR 1.2 boundary probe now accepts CONFIG1 with
+  ALLOW_OPACITY_MICROMAPS, decodes one level-0 OC1 two-state OMM array, deep-
+  copies OMM records, reports exact 256-byte provider sizes, exercises 128-byte
+  input/array and 4-byte descriptor alignment, builds/refits a single OMM BLAS,
+  and proves opaque/transparent inline RayQuery visibility. ALLOW_DISABLE_OMMS
+  retains a separate ordinary BLAS selected by DISABLE_OMMS; FORCE_OMM_2_STATE
+  is a two-state no-op. Four-state/unknown/mixed/opaque/update-disable forms
+  remain fail-closed. OPTIONS22 truthfully reports non-reordering SER. The
+  bounded probe now also passes from a committed clean-source snapshot: its
+  `source_dirty=false` host identity, clean stage, shader-converter outputs,
+  and passing result are retained under
+  `/Volumes/AverySSD/phase8-omm-ser-slice/clean-source-runtime12/`. The phase
+  evidence remains partial because native SER ordering, broader OMM layouts,
+  compaction/serialization, and broader clean-source phase promotion are not
+  proven. The reproducible Runtime12 result and staging manifest remain under
+  `/Volumes/AverySSD/phase8-omm-ser-slice/{results,stage}`.
+  RaytracingTier remains truthfully reported as 1.1; broader DXR promotion
+  remains pending on mixed triangle/AABB geometry in one BLAS, persistent
+  cross-process
   serialization reconstruction, independently linked collection merging,
   new-library state-object growth and broader record-count, stride, and
   local-data shader-table matrices. The resource gate also now covers a

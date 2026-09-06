@@ -832,8 +832,20 @@ multi-node API execution remain open despite the closed bounded node-shader
 opcode lane.
 Phase 8 has exact inline RayQuery state/accessor/transform/contribution/
 procedural/abort behavior, indexed R16 BLAS coverage, and a host-specific
-native ray-generation system-value and any-hit control-flow matrix, while
-full table breadth, SER, OMM, and portable serialization remain open.
+native ray-generation system-value and any-hit control-flow matrix. A bounded
+provider checkpoint now also accepts `RAYTRACING_PIPELINE_CONFIG1` with
+`ALLOW_OPACITY_MICROMAPS`, materializes one level-0 OC1 two-state OMM array,
+builds and refits a single OMM triangle BLAS, reads exact opaque/transparent candidate
+visibility and OMM postbuild sizes, deep-copy/lifetime-checks command records, rejects
+four-state and OMM update/disable requests, and locks `OPTIONS22` SER truthfulness (`ShaderExecutionReorderingActuallyReorders
+= FALSE`, with deterministic no-op lowering). Invalid OMM format/layout,
+four-state/update-disable, and recording requests fail closed. The fresh result and queue trace are retained
+outside the repository at `/Volumes/AverySSD/phase8-omm-ser-slice`; this is a
+bounded provider checkpoint, not full Phase 8 closure or DXR 1.2 promotion:
+full table breadth, mixed per-triangle OMM, OMM compaction/serialization,
+broader OMM formats/layouts, instance OMM force/disable controls, actual SER
+reordering, and portable serialization
+remain open.
 
 ### Phase 6 — Complete graphics stages, rasterization, ROVs, VRS, MSAA, and formats
 

@@ -61,6 +61,17 @@
       "tier": "stubbed-safe"
     },
     {
+      "api": "D3D12 DXR 1.2 OMM/SER additions",
+      "evidence": [
+        "tools/d3d12-metal-sdk/probes/probe_dxr_omm_ser.cpp",
+        "vendor/dxmt/src/d3d12/d3d12_dxr_compat.hpp",
+        "vendor/dxmt/src/d3d12/d3d12_command_queue.cpp"
+      ],
+      "reason": "A bounded provider accepts CONFIG1 with ALLOW_OPACITY_MICROMAPS, materializes one level-0 OC1 two-state OMM array with exact 128-byte-aligned provider storage and postbuild size readback, deep-copies caller-owned histogram/linkage records, builds/refits single-geometry OMM BLAS paths, and distinguishes opaque versus transparent visibility through exact inline RayQuery candidate readback. ALLOW_DISABLE_OMMS builds and retains an alternate non-opaque BLAS selected by DISABLE_OMMS, while FORCE_OMM_2_STATE is a verified no-op for the bounded two-state format. Invalid format/layout/four-state/update-disable requests fail at prebuild, unknown input states are rejected during provider replay, and invalid command recording returns E_INVALIDARG from Close with Reset clearing the error. OPTIONS22 reports ShaderExecutionReorderingActuallyReorders=FALSE with exact undersized-query rejection; MaybeReorderThread remains the permitted deterministic no-op. Four-state unknown values, mixed per-triangle opacity, OMM linkage updates, opaque-geometry flag combinations, compaction/serialization, broader arrays/layouts, native SER ordering, and full DXR 1.2 promotion remain unsupported.",
+      "state": "limited_to_proven_probe",
+      "tier": "stubbed-safe"
+    },
+    {
       "api": "D3D12 state objects",
       "evidence": [
         "vendor/dxmt/src/d3d12/d3d12_device.cpp",
