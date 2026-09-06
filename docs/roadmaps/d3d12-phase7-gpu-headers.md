@@ -164,11 +164,26 @@ Exact output is `[0,0,0,0,505,0,0,0,0,0,0,0,0,0,0,0]`. The sparse consumer now
 uses an atomic sum, so duplicate scheduling cannot hide behind equal stores.
 Other empty-child orderings, larger tables, and queue-dependency breadth remain.
 
+### Multi-input broadcasting and aggregate capacity
+
+`/Volumes/AverySSD/phase7-multi-broadcast-results/` passes fourteen multi-input
+GPU-header variants, including the new broadcasting positive and capacity
+negative rows. The positive table expands its first broadcasting descriptor into
+four GPU-native ICB commands; each command binds one raw record and dispatches
+an exact 2x2x2 grid, while the second thread descriptor contributes 505. Atomic
+readback is `[808,1616,2424,3232,505,0,0,0,0,0,0,0,0,0,0,0]`, proving all
+32 dense groups and the sparse child. The overflow table requests 256 records
+for the first broadcast plus a second nonempty descriptor; GPU preflight rejects
+the aggregate 260-command requirement before backing reset, preserving the full
+2 MiB sentinel. Queue traces record `host_header_read=0`. The runtime is staged
+under `/Volumes/AverySSD/phase7-multi-broadcast-stage/runtime`; its evidence is
+not clean-source release provenance (`source_dirty=true`).
+
 ## Remaining
 
-- Multi-node broadcasting, duplicate/zero-stride descriptors, larger descriptor
-  tables and mixed invalid entries; the current two-descriptor and
-  zero-descriptor results are bounded evidence only.
+- Duplicate/zero-stride descriptor-table forms, larger descriptor tables and
+  mixed invalid entries; the current broadcast expansion and aggregate-capacity
+  rejection are bounded evidence only.
 - Exact D3D12 GPU-header rejection, zero-work and replication breadth; existing
   host-read/CPU-input zero-stride restrictions also need closure.
 - Alias lifetime, sparse resources, protected-resource exclusion, and resources

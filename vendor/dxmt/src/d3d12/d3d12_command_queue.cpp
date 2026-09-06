@@ -4626,7 +4626,7 @@ struct ReplayState {
     return encode_node(encode_node, initial_node_index, 0u, encode_initial, initial_remaining);
   }
 
-  bool CanUseGPUEntry(MTLD3D12Device *device, bool multi = false) {
+  bool CanUseGPUEntry(MTLD3D12Device *device) {
     if (!device || !work_graph_program_set || work_graph_program_type != 5u ||
         work_graph_backing_size < kNodeOutputBackingBytes) return false;
     MTLD3D12Device::WorkGraphProgramSnapshot program;
@@ -4641,12 +4641,6 @@ struct ReplayState {
       if (!entry.is_entrypoint || entry.msl.empty()) continue;
       QTRACE("GPU entry candidate index=%u launch=%u threads=%ux%ux%u grid=%ux%ux%u grid_from_record=%u records=%u", index, entry.launch_type, entry.threads[0], entry.threads[1], entry.threads[2], entry.grid[0], entry.grid[1], entry.grid[2], entry.grid_from_record ? 1u : 0u, entry.input_max_records);
       if (entry.launch_type != 1u && entry.launch_type != 2u && entry.launch_type != 3u) { QTRACE("GPU entry reject launch index=%u", index); return false; }
-      // The bounded multi-input builder emits one command per descriptor. It
-      // cannot yet expand a broadcasting descriptor into one command per
-      // record without first doing a GPU prefix allocation, so reject that
-      // mixed/unsupported form before selecting a success path. Single-node
-      // thread streams remain covered by the one-command launch-3 path.
-      if (multi && entry.launch_type == 1u) { QTRACE("GPU multi entry reject broadcasting launch index=%u", index); return false; }
       if (!entry.threads[0] || !entry.threads[1] || !entry.threads[2] ||
           uint64_t(entry.threads[0]) * entry.threads[1] * entry.threads[2] > 1024u ||
           (entry.launch_type == 3u && uint64_t(entry.threads[0]) * entry.threads[1] * entry.threads[2] != 1u) ||
@@ -4662,8 +4656,8 @@ struct ReplayState {
     QTRACE("GPU entry encode begin header=0x%llx multi=%u", (unsigned long long)header_address, multi ? 1u : 0u);
     WorkGraphGPUInputBundle bundle;
     // Single-node thread/coalescing streams use one command. Multi-node input
-    // uses one bounded command slot per descriptor; the GPU compacts empty
-    // descriptors before publishing the execution range.
+    // uses one slot per thread/coalescing descriptor and per broadcasting
+    // record. GPU preflight validates the total before compacting commands.
     const uint32_t command_capacity = multi ? kNodeOutputMaxAllocations : kNodeOutputRecordSlots;
     if (!PrepareWorkGraphGPUInputBundle(device, header_address, command_capacity,
                                         bundle, multi)) {
@@ -4705,9 +4699,9 @@ struct ReplayState {
   bool EncodeWorkGraphReference(MTLD3D12Device *device,
                                 const CmdDispatchGraph &cmd,
                                 WMT::CommandBuffer command_buffer) {
-    if (cmd.dispatch_mode == 1u && CanUseGPUEntry(device, false))
+    if (cmd.dispatch_mode == 1u && CanUseGPUEntry(device))
       return EncodeWorkGraphGPUEntry(device, cmd.node_input_gpu_address, command_buffer, false);
-    if (cmd.dispatch_mode == 3u && CanUseGPUEntry(device, true))
+    if (cmd.dispatch_mode == 3u && CanUseGPUEntry(device))
       return EncodeWorkGraphGPUEntry(device, cmd.node_input_gpu_address, command_buffer, true);
     CmdDispatchGraph resolved = cmd;
     const bool multi_node = cmd.dispatch_mode == 2u || cmd.dispatch_mode == 3u;

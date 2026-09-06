@@ -149,13 +149,17 @@ static inline uint m12_gpu_multi_entry_error(
   ulong table_length = last * header.node_input_stride + 24ul;
   if (!m12_node_gpu_address_contains(bounds, parameters.bound_count,
                                      header.node_inputs, table_length)) return 4u;
+  ulong command_count = 0ul;
   for (uint index = 0u; index < header.num_node_inputs; ++index) {
     auto input = reinterpret_cast<device const m12_node_gpu_input_header *>(
         header.node_inputs + ulong(index) * header.node_input_stride);
     if (input == nullptr || m12_gpu_entry_error(*input, layouts, bounds, parameters) != 0u)
       return 5u;
-    if (input->record_count != 0u && layouts[input->entrypoint_index].launch_type == 1u)
-      return 6u;
+    if (input->record_count != 0u) {
+      command_count += layouts[input->entrypoint_index].launch_type == 1u
+          ? ulong(input->record_count) : 1ul;
+      if (command_count > ulong(parameters.command_capacity)) return 6u;
+    }
   }
   return 0u;
 }
@@ -199,29 +203,39 @@ kernel void m12_build_gpu_multi_entry_commands(
       multi.node_inputs + ulong(tid) * multi.node_input_stride);
   if (input->record_count == 0u) return;
   auto layout = layouts[input->entrypoint_index];
-  uint command_index = atomic_fetch_add_explicit(
-      reinterpret_cast<device atomic_uint *>(range + 1), 1u,
+  const bool broadcasting = layout.launch_type == 1u;
+  const uint commands = broadcasting ? input->record_count : 1u;
+  // Prepare validated the sum for the entire table before resetting backing.
+  const uint first_command = atomic_fetch_add_explicit(
+      reinterpret_cast<device atomic_uint *>(range + 1), commands,
       memory_order_relaxed);
+  for (uint record = 0u; record < commands; ++record) {
+  uint command_index = first_command + record;
   uint batch = layout.launch_type == 2u ? layout.max_records : 1u;
   contexts[command_index] = templates[input->entrypoint_index];
-  contexts[command_index].version = contexts[command_index].routing_table_count != 0u ? 9u : 8u;
-  contexts[command_index].count = input->record_count;
+  if (!broadcasting)
+    contexts[command_index].version = contexts[command_index].routing_table_count != 0u ? 9u : 8u;
+  contexts[command_index].count = broadcasting ? 1u : input->record_count;
   contexts[command_index].batch_size = batch;
   contexts[command_index].stride = input->record_stride;
   contexts[command_index].size = ulong(layout.record_size);
   contexts[command_index].length = layout.record_size != 0u
-      ? (ulong(input->record_count) - 1ul) * input->record_stride + ulong(layout.record_size) : 0ul;
+      ? (broadcasting ? ulong(layout.record_size) :
+         (ulong(input->record_count) - 1ul) * input->record_stride + ulong(layout.record_size)) : 0ul;
   auto pointer_header = reinterpret_cast<device const m12_gpu_input_pointer_view *>(input);
   compute_command command(handles.commands, command_index);
   command.set_compute_pipeline_state(handles.pipelines[input->entrypoint_index]);
   command.set_kernel_buffer(output, 0);
   command.set_kernel_buffer(contexts + command_index, 28);
   command.set_kernel_buffer(layout.record_size != 0u
-      ? pointer_header->records : reinterpret_cast<device const uchar *>(input), 29);
+      ? pointer_header->records + (broadcasting ? ulong(record) * input->record_stride : 0ul)
+      : reinterpret_cast<device const uchar *>(input), 29);
   command.set_kernel_buffer(backing, 30);
   uint groups = (input->record_count - 1u) / batch + 1u;
-  command.concurrent_dispatch_threadgroups(uint3(groups,1u,1u),
+  command.concurrent_dispatch_threadgroups(broadcasting
+      ? uint3(layout.grid_x, layout.grid_y, layout.grid_z) : uint3(groups,1u,1u),
       uint3(layout.threads_x, layout.threads_y, layout.threads_z));
+  }
 }
 )MSL";
 } // namespace dxmt::dxil
