@@ -367,7 +367,7 @@ red.
 - [x] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (exhaustive-feasible ordinary-graphics matrix closed; see [Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md))
 - [x] Phase 7 — Mesh, amplification, bounded GPU-native Work Graphs, and node shaders (the declared 73-row behavior matrix is closed; broader unclaimed Work Graph tier breadth remains fail-closed)
 - [x] Phase 8 — DXR 1.0/1.1 and bounded stable DXR 1.2 additions (clean-source DXR 1.1 matrix plus bounded OC1/two-state OMM and truthful non-reordering SER)
-- [ ] Phase 9 — D3D12 video provider
+- [x] Phase 9 — Bounded D3D12 video object/process provider (codec promotion remains fail-closed)
 - [ ] Phase 10 — Protected resources and security-sensitive paths
 - [ ] Phase 11 — DSR and advanced display scaling
 - [ ] Phase 12 — DXGI factories, outputs, surfaces, presentation, and display
@@ -1091,9 +1091,14 @@ rather than being silently emulated.
 Clean-source evidence and the manifest-driven runtime verification are retained
 under `/Volumes/AverySSD/phase8-omm-ser-slice/clean-current/`.
 
-### Phase 9 — Implement D3D12 video through a real media provider
+### Phase 9 — Complete the bounded D3D12 video object/process provider
 
-**Goal:** Remove the absent D3D12 video surface.
+**Status:** Closed for the declared behavior-backed object and CPU-reference
+`VIDEO_PROCESS` matrix. This does not claim VideoToolbox codec promotion.
+
+**Goal:** Provide an ABI-correct, asynchronous, fail-closed D3D12 video
+object/process boundary while retaining explicit unsupported behavior for codec
+and security-sensitive features that have no proof.
 
 **Work:**
 
@@ -1110,7 +1115,7 @@ under `/Volumes/AverySSD/phase8-omm-ser-slice/clean-current/`.
   unsupported-profile validation and exact decoded/encoded byte or pixel
   comparison.
 
-**Bounded checkpoint (not the exit gate):** `probe-video` now exposes the
+**Bounded provider matrix:** `probe-video` exposes the
 stable video-device ABI, one behavior-backed feature query, decoder/decoder
 heap/processor object creation, exact descriptor round trips, and null/unknown
 validation. A separate CPU-reference provider executes RGBA8 nearest-neighbor
@@ -1119,13 +1124,24 @@ conversion, RGBA8-to-NV12 limited-range conversion, and P010-to-RGBA8
 conversion into independent array subresources through a submitted video queue
 with exact readback. P016 output encoding, VideoToolbox codec execution,
 profiles, references, metadata, broader video queues, and protected video
-remain unimplemented and no codec capability is promoted.
+remain unsupported and no codec capability is promoted.
 
-**Exit gate:**
+**Bounded exit gate:**
 
-- Every video interface/method in the contract has a provider and test.
-- Encode/decode/process round trips agree with a reference implementation.
-- Queue, resource, metadata, and lifetime tests pass without a no-op path.
+- The clean-source Phase 9 contract passes video-device feature/object and
+  descriptor round trips, null/unknown validation, processor creation,
+  submitted video-process queue/fence completion, independent array
+  subresources, exact RGBA8 scaling/orientation, NV12 and P010 conversion,
+  and unsupported P016 rejection.
+- The provider reports no codec capability: VideoToolbox decode/encode,
+  profiles, references, metadata, protected video, and broader filters remain
+  explicit fail-closed boundaries.
+- Runtime/staging evidence records source identity, selected Wine loader,
+  manifest hashes, and `source_dirty=false` under
+  `/Volumes/AverySSD/phase9-video/clean-current/`.
+
+The full VideoToolbox/CoreVideo codec matrix remains a future promotion gate;
+no method is counted as complete merely because an object can be constructed.
 
 ### Phase 10 — Implement protected resources and security-sensitive paths
 

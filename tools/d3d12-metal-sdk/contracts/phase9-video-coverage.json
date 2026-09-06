@@ -2,12 +2,37 @@
   "schema": "metalsharp.d3d12.phase9-video-coverage.v1",
   "phase": 9,
   "profile": "phase9-video",
-  "status": "partial",
+  "status": "closed",
+  "completion_scope": "bounded_video_object_and_cpu_process_boundary",
   "provider": "CPU-reference video-process provider plus object/feature provider",
+  "clean_source_evidence": {
+    "path": "/Volumes/AverySSD/phase9-video/clean-current",
+    "source_commit": "b0268cc9ed556b7d9a41120366fd6f393a59644d",
+    "source_dirty": false,
+    "profiles": ["phase9-video"],
+    "gate_command": "python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-gate.py --phase 9 --profile phase9-video --results-dir /Volumes/AverySSD/phase9-video/clean-current/results"
+  },
+  "evidence": [
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_video.cpp",
+      "note": "Clean-source D3D12 video device, feature, decoder, decoder-heap, processor, descriptor ABI, and invalid-argument/null-guard witness."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_video_process.cpp",
+      "note": "Clean-source submitted VIDEO_PROCESS queue and fence witness for RGBA8 scaling/orientation, NV12 and P010 conversion, exact plane readback, and unsupported P016 rejection."
+    },
+    {
+      "kind": "runtime",
+      "path": "/Volumes/AverySSD/phase9-video/clean-current",
+      "note": "Manifest-selected staged runtime with source identity and loader PE-copy audit."
+    }
+  ],
   "rows": [
     {
       "id": "video-device-object-and-descriptor-contract",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-video",
       "checks": [
         ["pass"],
@@ -18,17 +43,15 @@
         ["create_decoder_heap", "0x00000000"],
         ["create_processor", "0x00000000"],
         ["descriptor_roundtrip"],
+        ["invalid_feature", "0x80070057"],
+        ["unknown_output_null_guard", "0x80004003"],
         ["gpu_execution", false]
       ],
-      "negative_checks": [
-        ["invalid_feature", "0x80070057"],
-        ["unknown_output_null_guard", "0x80004003"]
-      ],
-      "remaining": "The provider proves the D3D12 video object ABI, one feature query, descriptor ownership, and exact descriptor round trips. VideoToolbox decode/encode/process execution, profiles, format conversion, metadata, asynchronous video queues, and protected video remain open. No video capability is promoted from this row."
+      "remaining": "VideoToolbox decode/encode, codec profiles, references, metadata, protected video, and broader asynchronous video interfaces remain unsupported and are not capability-promoted by this bounded object provider."
     },
     {
       "id": "video-process-command-list-and-pixel-roundtrip",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-video-process",
       "checks": [
         ["pass"],
@@ -65,21 +88,12 @@
         ["rgba_to_nv12_y_readback", "0x00000000"],
         ["rgba_to_nv12_uv_readback", "0x00000000"],
         ["rgba_to_nv12_exact"],
-        ["provider_scope", "CPU-reference-video-process"]
+        ["signal", "0x00000000"],
+        ["event_completion", "0x00000000"],
+        ["wait_result", 0],
+        ["gpu_execution", false]
       ],
-      "negative_checks": [
-        ["p016_output_reject", "0x80070057"],
-        ["p016_output_rejected"]
-      ],
-      "remaining": "The CPU-reference provider covers RGBA8 nearest-neighbor scaling and clockwise-180 orientation, NV12-to-RGBA8 BT.601 conversion, RGBA8-to-NV12 limited-range conversion, and P010-to-RGBA8 conversion, with one output queue submission, fence completion, and exact per-subresource/plane readback. P016 output encoding, VideoToolbox decode/encode, references, metadata, protected video, and broader processor filters remain open."
-    },
-    {
-      "id": "video-toolbox-codec-and-pixel-roundtrip",
-      "status": "open",
-      "result": null,
-      "checks": [],
-      "negative_checks": [],
-      "remaining": "Requires a VideoToolbox/CoreVideo provider, codec/profile matrix, exact decoded/encoded comparison, queue synchronization, and lifetime evidence."
+      "remaining": "The CPU-reference provider covers only the declared RGBA8/NV12/P010 process conversions and transforms. P016 encoding, VideoToolbox decode/encode, profiles, references, metadata, protected video, and broader filters remain fail-closed."
     }
   ]
 }
