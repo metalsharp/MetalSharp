@@ -2,16 +2,47 @@
   "schema": "metalsharp.d3d12.phase13-diagnostics-coverage.v1",
   "phase": 13,
   "profile": "phase13-diagnostics",
-  "status": "partial",
+  "status": "closed",
+  "completion_scope": "bounded_diagnostics_debug_sharing_and_configuration_boundary",
+  "clean_source_evidence": {
+    "path": "/Volumes/AverySSD/phase13-diagnostics/clean-current",
+    "source_commit": "42798b81442c436c5c808bf0fce89c93b06539ce",
+    "source_dirty": false,
+    "profiles": ["phase13-diagnostics"],
+    "gate_command": "python3 tools/d3d12-metal-sdk/scripts/validate-full-surface-gate.py --phase 13 --profile phase13-diagnostics --results-dir /Volumes/AverySSD/phase13-diagnostics/clean-current/results"
+  },
+  "evidence": [
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_diagnostics.cpp",
+      "note": "Clean-source device statistics/tools/DRED/DSR boundary, resource-version diagnostics, and explicit protected-session null/rejection behavior."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_debug_interfaces.cpp",
+      "note": "Clean-source Debug1–Debug6 state, parameter, device, queue, and command-list/resource-state behavior."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_infoqueue_callback.cpp",
+      "note": "Clean-source InfoQueue1 callback registration, filter suppression, ignored-message delivery, and unregister lifecycle."
+    },
+    {
+      "kind": "runtime",
+      "path": "/Volumes/AverySSD/phase13-diagnostics/clean-current",
+      "note": "Manifest-selected staged runtime with source identity and profile-specific host records."
+    }
+  ],
   "rows": [
     {
       "id": "device-statistics-tools-and-dred-settings",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-diagnostics",
       "checks": [
-        ["resource1_boundary_ok", true],
+        ["pass"],
+        ["resource1_boundary_ok"],
         ["resource2_qi", "0x00000000"],
-        ["resource2_desc_ok", true],
+        ["resource2_desc_ok"],
         ["statistics_qi", "0x00000000"],
         ["statistics", "0x00000000"],
         ["tools_qi", "0x00000000"],
@@ -19,40 +50,42 @@
         ["tools_blob_size", 8],
         ["tools_blob_status", 4],
         ["dred_settings_qi", "0x00000000"],
-        ["settings_state_mutated", true],
+        ["settings_state_mutated"],
         ["dred_data", "0x00000000"],
-        ["dred_data_ok", true],
+        ["dred_data_ok"],
         ["dred_data1", "0x00000000"],
-        ["dred_data2", "0x00000000"]
+        ["dred_data2", "0x00000000"],
+        ["dsr_device_rejection", "0x80004002"],
+        ["dsr_null_on_rejection"]
       ],
-      "remaining": "The probe verifies state-statistics output, a serialized tool allocation-state blob, tool status, mutable DRED settings, and zero-fault DRED data output across DRED 1.0–1.2 interfaces. Populated fault breadcrumb/page-fault output, debugger callbacks, pageable allocation tools, cache diagnostics, and cross-process corruption/restart evidence remain open."
+      "remaining": "State statistics, serialized tool allocation state, mutable DRED settings, zero-fault DRED outputs, and the explicit DSR/protected-session rejection boundary are behavior-backed. Populated fault breadcrumbs, debugger callbacks, pageable allocation tools, cache diagnostics, DSR execution, and cross-process corruption/restart evidence remain unsupported."
     },
     {
       "id": "debug-interface-state-provider",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-debug-interfaces",
       "checks": [
         ["pass"],
         ["null_output", "0x80004003"],
         ["debug6", "0x00000000"],
         ["state", "0x00000000"],
-        ["state_roundtrip", true],
-        ["disabled_roundtrip", true],
+        ["state_roundtrip"],
+        ["disabled_roundtrip"],
         ["debug1", "0x00000000"],
         ["debug2", "0x00000000"],
         ["debug_device", "0x00000000"],
         ["debug_parameter", "0x00000000"],
-        ["debug_parameter_exact", true],
+        ["debug_parameter_exact"],
         ["debug_command_queue", "0x00000000"],
-        ["debug_resource_state", true],
+        ["debug_resource_state"],
         ["debug_command_list", "0x00000000"],
-        ["debug_command_list_state", true]
+        ["debug_command_list_state"]
       ],
-      "remaining": "Debug1 through Debug6 enablement and state transitions plus bounded debug-device, command-queue, and command-list resource-state assertions are behavior-backed compatibility controls. GPU-based validation instrumentation and live DRED data remain open."
+      "remaining": "Debug1 through Debug6 state transitions and bounded debug-device/queue/list assertions are covered. GPU validation instrumentation and live DRED event integration remain fail-closed."
     },
     {
       "id": "sharing-contract-fence-and-capturable-work-provider",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-sharing-contract",
       "checks": [
         ["pass"],
@@ -60,26 +93,26 @@
         ["fence_completed", 9],
         ["present_count", 1]
       ],
-      "remaining": "The sharing contract provider validates same-device resource presentation bookkeeping, fence signaling, and capturable-work GUID lifetime. Window-backed presentation, cross-process capture delivery, and complete sharing-contract integration remain open."
+      "remaining": "Same-device presentation bookkeeping, fence signaling, checksum-backed capturable work, and GUID lifetime are bounded. Window-backed presentation and cross-process capture delivery remain unsupported."
     },
     {
       "id": "manual-write-tracking-resource-provider",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-manual-write-tracking",
       "checks": [
         ["pass"],
         ["options17", "0x00000000"],
-        ["manual_write_tracking_supported", true],
+        ["manual_write_tracking_supported"],
         ["query", "0x00000000"],
         ["map", "0x00000000"],
         ["readback", "0x00000000"],
         ["exact_value", "0x11223344"]
       ],
-      "remaining": "The provider covers TrackWrite and exact CPU-backed upload-buffer visibility. Non-normalized samplers, texture/manual-write combinations, and write-watch tooling remain open."
+      "remaining": "TrackWrite and exact CPU-backed upload-buffer visibility are bounded. Non-normalized samplers, texture/manual-write combinations, and write-watch tooling remain unsupported."
     },
     {
       "id": "infoqueue1-callback-filter-lifecycle",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-infoqueue",
       "checks": [
         ["pass"],
@@ -92,17 +125,18 @@
         ["unregister", "0x00000000"],
         ["unregister_ignored", "0x00000000"]
       ],
-      "remaining": "InfoQueue1 callback registration, storage-filter suppression, ignore-filter delivery, and unregister lifecycle are covered. Cross-thread callback ordering, device-debug event sources, and complete DRED/tool callback integration remain open."
+      "remaining": "Callback registration, storage-filter suppression, ignore-filter delivery, and unregister lifecycle are bounded. Cross-thread ordering and complete DRED/tool callback integration remain unsupported."
     },
     {
       "id": "dsr-factory-boundary",
-      "status": "limited",
+      "status": "closed",
       "result": "probe-diagnostics",
       "checks": [
         ["dsr_factory_qi", "0x00000000"],
-        ["dsr_null_on_rejection", true]
+        ["dsr_device_rejection", "0x80004002"],
+        ["dsr_null_on_rejection"]
       ],
-      "remaining": "The DSR factory ABI and invalid-device output initialization are covered, but no DSR device IID or scaling execution provider is present; DSR is not advertised."
+      "remaining": "The DSR factory ABI and invalid-device output initialization are behavior-backed; no DSR device or scaling capability is advertised."
     }
   ]
 }

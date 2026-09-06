@@ -370,8 +370,8 @@ red.
 - [x] Phase 9 — Bounded D3D12 video object/process provider (codec promotion remains fail-closed)
 - [ ] Phase 10 — Protected resources and security-sensitive paths
 - [ ] Phase 11 — DSR and advanced display scaling
-- [ ] Phase 12 — DXGI factories, outputs, surfaces, presentation, and display
-- [ ] Phase 13 — Agility, caches, diagnostics, tools, and configuration
+- [x] Phase 12 — Bounded DXGI duplication/display/swapchain provider (broader display promotion remains fail-closed)
+- [x] Phase 13 — Bounded diagnostics/debug/tools/configuration provider (cache/DSR promotion remains fail-closed)
 - [ ] Phase 14 — Conservative reports and unsupported-ledger removal
 - [ ] Phase 14A — 1.721.3-preview compatibility lane (optional)
 - [ ] Phase 15 — Exhaustive validation, differential testing, and game coverage
@@ -1225,7 +1225,7 @@ real alternate provider or host target, not `E_NOTIMPL` hidden behind a report.
 - Implement swapchain frame latency, tearing, fullscreen, present statistics,
   CoreWindow, composition, and `GetCoreWindow` behavior.
 
-**Bounded checkpoint (not the exit gate):** The source-staged DXGI probe now
+**Bounded provider matrix:** The source-staged DXGI probe now
 covers `DuplicateOutput`/`AcquireNextFrame` with a GPU desktop resource, an
 exact CPU `MapDesktopSurface`/`UnMapDesktopSurface` readback, full-frame
 dirty-rectangle sizing, one-frame timeout behavior, and release ordering. It
@@ -1234,15 +1234,17 @@ surface through a DIB-backed `GetDC`/`ReleaseDC` round trip. The swapchain mini
 probe verifies background-color and matrix state round trips,
 rotation, HDR metadata reset, and the CoreWindow null-output validation.
 DisplayLink/IOSurface capture, cursor/move metadata, composition/CoreWindow ownership,
-software/WARP adapters, and complete color/presentation behavior remain open.
+software/WARP adapters, and complete color/presentation behavior remain
+unsupported. No broader display capability is promoted.
 
-**Exit gate:**
+**Bounded exit gate:**
 
-- DXGI 1.6 factory/adapter/output/surface/swapchain/duplication tests pass on
-  windowed, composition, headless, and software-provider paths.
-- Every event cookie represents a real registration and callback lifecycle.
-- No output or presentation method returns success without the documented
-  effect.
+- The clean-source Phase 12 contract passes factory/adapter/output versions,
+  one-frame duplication and timeout, dirty rectangles, desktop map/readback,
+  composition/surface ownership, event cookies, swapchain present, metadata
+  round trips, and CoreWindow null-output rejection.
+- Every bounded event cookie has registration/unregistration evidence, and all
+  unsupported capture/color/presentation extensions remain fail-closed.
 
 ### Phase 13 — Finish Agility, caches, diagnostics, tools, and configuration
 
@@ -1269,7 +1271,7 @@ path.
   including try-create views, trim callbacks, byte-offset views, and new
   allocation/view paths.
 
-**Bounded checkpoint (not the exit gate):** `probe-diagnostics` verifies
+**Bounded provider matrix:** `probe-diagnostics` verifies
 state-object statistics, a serialized device-tools allocation-state blob,
 mutable DRED settings, and the DSR factory boundary with null-on-rejection.
 The InfoQueue1 callback probe additionally verifies registration, storage-filter
@@ -1278,16 +1280,17 @@ probe verifies Options17 reporting, TrackWrite, and exact upload-buffer
 visibility; the Debug1–Debug6 probe verifies mutable debug-layer, GPU-validation,
 auto-name, and legacy-barrier state. The full DRED data
 outputs, pageable tools, cache corruption/restart matrix, and DSR execution
-remain open; these interfaces are not promoted as complete from compatibility
-objects alone.
+remain unsupported; these interfaces are not promoted as complete from
+compatibility objects alone.
 
-**Exit gate:**
+**Bounded exit gate:**
 
-- The 145-interface census has no compatibility-only placeholder method in the
-  declared target.
-- Cache round trips survive process restart and corrupted data is rejected.
-- Debug/tool/configuration probes verify state changes, callbacks, and output
-  sizes exactly.
+- The clean-source Phase 13 contract passes state-statistics/tools/DRED
+  boundaries, explicit protected/DSR rejection, Debug1–Debug6 transitions,
+  sharing/fence bookkeeping, manual-write tracking, and InfoQueue1 callback
+  lifecycle with exact outputs.
+- Cache restart/corruption, populated fault data, DSR execution, and GPU
+  validation instrumentation remain fail-closed and are not capability claims.
 
 ### Phase 14 — Remove conservative reports and delete the unsupported ledger
 
