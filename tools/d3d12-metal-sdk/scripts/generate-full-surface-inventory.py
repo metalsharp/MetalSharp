@@ -380,7 +380,9 @@ def full_surface_contract(census: dict[str, Any], scan: dict[str, Any]) -> dict[
             "static_scan": "docs/roadmaps/d3d12-full-surface-phase0-inventory.md",
             "no_op_policy": "tools/d3d12-metal-sdk/contracts/d3d12-no-op-policy.json",
             "phase_checkpoint_manifests": [
+                "tools/d3d12-metal-sdk/contracts/phase6-graphics-coverage.json",
                 "tools/d3d12-metal-sdk/contracts/phase7-mesh-workgraph-coverage.json",
+                "tools/d3d12-metal-sdk/contracts/phase8-dxr-coverage.json",
                 "tools/d3d12-metal-sdk/contracts/phase9-video-coverage.json",
                 "tools/d3d12-metal-sdk/contracts/phase12-display-coverage.json",
                 "tools/d3d12-metal-sdk/contracts/phase13-diagnostics-coverage.json",
