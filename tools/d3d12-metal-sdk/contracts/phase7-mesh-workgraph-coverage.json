@@ -58,6 +58,27 @@
       "remaining": "A GPU-produced header selects a fixed 2x2x2 broadcasting entrypoint. Each command binds one record and all eight groups read it through the raw single-record context; atomic sums prove all contributions. The previous stream-context version dropped contributions for nonzero X groups. Broader grid/thread shapes, system-value semantics and resource arguments remain open."
     },
     {
+      "id": "workgraph-gpu-generated-multi-broadcasting",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-broadcasting",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_header_broadcasting"], ["readback_exact"],
+        ["values", [808, 1616, 2424, 3232, 505, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced multi-input table expands one broadcasting descriptor into four GPU-native commands, each with a raw single-record context and an exact 2x2x2 grid, while a second thread descriptor contributes 505. The atomic output proves every group and descriptor ran once. Larger broadcasting tables and broader resource/system-value arguments remain open."
+    },
+    {
+      "id": "workgraph-gpu-generated-multi-broadcasting-capacity-rejection",
+      "status": "closed",
+      "result": "probe-workgraph-gpu-generated-multi-broadcasting-overflow",
+      "profile": "phase7-workgraph",
+      "checks": [["pass"], ["gpu_generated_headers"], ["gpu_multi_headers"],
+        ["gpu_header_broadcasting"], ["gpu_multi_mode", 11],
+        ["backing_unchanged"], ["readback_exact"],
+        ["values", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]],
+      "remaining": "A GPU-produced table whose broadcast record expansion plus a second descriptor exceeds the bounded ICB capacity rejects before backing reset or command encoding; the full 2 MiB sentinel remains unchanged."
+    },
+    {
       "id": "workgraph-gpu-generated-multi-invalid-entry",
       "status": "closed",
       "result": "probe-workgraph-gpu-generated-multi-invalid-entry",
