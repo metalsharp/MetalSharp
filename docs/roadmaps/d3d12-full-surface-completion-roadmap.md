@@ -1,8 +1,9 @@
 # D3D12 Full-Surface Completion Roadmap
 
 **Created:** 2026-08-27  
-**Status:** Active — Phase 0 complete; this roadmap supersedes the scoped
-FL12_2/SM6.7/DXR completion claim for purposes of full API coverage.  
+**Status:** Active — bounded Phases 0–9, 12, and 13 are closed; follow-up
+Phases 7A, 8A, and 9A remain open. This roadmap supersedes the scoped
+FL12_2/SM6.7/DXR completion claim for purposes of full API coverage.
 **Predecessor:** [D3D12 FL12_2 / SM6.7 / DXR completion roadmap](d3d12-fl12_2-sm67-dxr-completion-roadmap.md)  
 **Target:** MetalSharp's vendored DXMT D3D12/DXGI/WineMetal runtime  
 **Stable release baseline:** Microsoft DirectX Agility SDK 1.619.5
@@ -366,8 +367,11 @@ red.
 - [x] Phase 5 — Shader compiler and SM5.x–SM6.9 execution (280/280 required opcode rows observed; 0 open)
 - [x] Phase 6 — Graphics stages, rasterization, ROVs, VRS, MSAA, and formats (exhaustive-feasible ordinary-graphics matrix closed; see [Phase 6 exhaustive-feasible completion roadmap](d3d12-full-surface-phase6-exhaustive-feasible-roadmap.md))
 - [x] Phase 7 — Mesh, amplification, bounded GPU-native Work Graphs, and node shaders (the declared 73-row behavior matrix is closed; broader unclaimed Work Graph tier breadth remains fail-closed)
+- [ ] Phase 7A — Broader Work Graph tier breadth and optional-tier promotion
 - [x] Phase 8 — DXR 1.0/1.1 and bounded stable DXR 1.2 additions (clean-source DXR 1.1 matrix plus bounded OC1/two-state OMM and truthful non-reordering SER)
+- [ ] Phase 8A — Native SER, broader OMM, portable DXR data, and collection linking
 - [x] Phase 9 — Bounded D3D12 video object/process provider (codec promotion remains fail-closed)
+- [ ] Phase 9A — Complete D3D12 video execution and profile breadth
 - [ ] Phase 10 — Protected resources and security-sensitive paths
 - [ ] Phase 11 — DSR and advanced display scaling
 - [x] Phase 12 — Bounded DXGI duplication/display/swapchain provider (broader display promotion remains fail-closed)
@@ -1032,6 +1036,64 @@ fail-closed; closing this bounded matrix does not advertise the optional tier.
   fail-closed, and `D3D12_OPTIONS21.WorkGraphsTier` is not promoted by this
   bounded matrix.
 
+### Phase 7A — Finish broader Work Graph tier breadth and optional-tier promotion
+
+**Status:** Open. Phase 7A is the follow-up to the closed 73-row bounded
+provider; no broader `WorkGraphsTier` capability is currently claimed.
+
+**Goal:** Complete the legal Work Graph surface outside the bounded fixtures,
+including graph topology, node/resource breadth, limits, and scheduler-visible
+semantics, then promote only the tier that the full behavior matrix proves.
+
+**Work:**
+
+- Cover every legal graph/program property and limit, including all declared
+  node launch modes, node arrays, multi-node entrypoints, graph identifiers,
+  backing-memory requirements, record alignment/size, maximum records,
+  allocations, recursion depth, and overflow behavior. Query values must be
+  derived from measured limits rather than fixed optimistic constants.
+- Expand node input/output and argument binding beyond the current u0/space0
+  buffer fixtures: structured/typed resources, textures, UAV/SRV/CBV tables,
+  samplers, local roots, arrays, counters, descriptor offsets, register spaces,
+  and all legal record layouts. Validate that a malformed or short descriptor
+  table cannot alias internal payload/context storage.
+- Complete arbitrary graph topology and scheduling: multiple producers and
+  consumers, cross-group sharing, fan-out/fan-in, dynamic output arrays,
+  empty/partial records, nested dispatches, non-self recursion, legal cycles
+  where specified, and all node-local completion/barrier forms.
+- Stress unrestricted-but-valid capacity and reuse: large GPU-produced header
+  tables, duplicate and zero-stride descriptors where legal, allocation and
+  record exhaustion, partial batches, repeated dispatch/reset, multiple command
+  buffers, and concurrent queues. Every exhaustion and invalid-shape case must
+  preserve the documented no-write/side-effect boundary.
+- Prove GPU-authored headers, descriptor tables, payloads, indirect commands,
+  and downstream launches for every supported input mode without host header or
+  record snapshots. Prove queue/fence ordering, memory visibility, lifetime,
+  device removal, and error recovery across direct, compute, and any declared
+  Work Graph queue path.
+- Reconcile node-shader lowering and the API scheduler for all supported node
+  metadata and DXIL forms. A CPU reference scheduler may remain a negative
+  provider for unsupported shapes, but it cannot be used to promote the
+  Work Graph tier or hide missing GPU ordering.
+- Add a dedicated Phase 7A behavior contract and clean-source result manifest
+  with exact GPU readbacks, capacity witnesses, unchanged-output negatives,
+  ABI/runtime identity, and independent PE/Unix loader hashes. Update the
+  unsupported ledger and `D3D12_OPTIONS21.WorkGraphsTier` only from that
+  manifest.
+
+**Exit gate:**
+
+- The complete declared Work Graph matrix has no skipped legal topology,
+  resource, argument, capacity, synchronization, or reuse row; positive rows
+  execute with exact GPU-authored readback and negative rows reject or preserve
+  memory exactly as the Windows contract requires.
+- All Work Graph feature/property reports equal the maximum passing matrix;
+  no optional tier is promoted from object creation, shader compilation, or a
+  synthetic reference fixture alone.
+- Clean-source reruns pass with `source_dirty=false`, matching runtime
+  artifacts, no stale shader cache, and no host-side scheduling/readback in
+  the promoted execution paths.
+
 ### Phase 8 — Complete DXR 1.0/1.1 plus bounded stable DXR 1.2 additions
 
 **Goal:** Turn the current foundational DXR bridge into the declared bounded
@@ -1094,6 +1156,66 @@ rather than being silently emulated.
 Clean-source evidence and the manifest-driven runtime verification are retained
 under `/Volumes/AverySSD/phase8-omm-ser-slice/clean-current/`.
 
+### Phase 8A — Finish native SER ordering, broad OMM, portable DXR data, and collection linking
+
+**Status:** Open. The bounded Phase 8 contract intentionally leaves every item
+below fail-closed; this phase is not satisfied by the current truthful
+non-reordering SER report or the one level-0 OC1/two-state OMM witness.
+
+**Goal:** Complete the stable 1.619.5 DXR 1.2 additions and state-object data
+boundaries that require semantics beyond the bounded Phase 8 provider.
+
+**Work:**
+
+- Implement native Shader Execution Reordering ordering semantics, including
+  the shader/compiler ABI, reorder barriers and synchronization, eligible
+  invocation grouping, observable order-sensitive ray behavior, and ordering
+  stability across direct/indirect dispatch and queue reuse. `OPTIONS22` may
+  report `ShaderExecutionReorderingActuallyReorders=TRUE` only after a clean
+  probe demonstrates the documented reorder effect; a deterministic no-op or a
+  CPU-side sort is not native SER evidence.
+- Expand OMM arrays and layouts beyond the current level-0 OC1/two-state case:
+  all legal subdivision/array shapes, four-state formats where supported,
+  per-triangle opacity and mixed geometry, descriptor/linkage variants,
+  update/refit flags, disable/force controls, alignment and size rules, and
+  invalid combinations. Verify transparent/opaque/any-hit visibility with
+  exact ray readbacks for every promoted form.
+- Implement OMM and acceleration-structure compaction, postbuild size/info,
+  serialization/deserialization, copy/relocation, refit, and corruption/error
+  handling. Serialized blobs must have exact sizes and checksums, must not
+  embed pointers or process-local Metal object identities, and must reopen in
+  a fresh process with independent backing resources.
+- Define and implement portable cross-process driver data for every promoted
+  DXR resource/state-object form. Rehydrate resources in an independent
+  process using documented metadata/handles, validate access and lifetime,
+  reject stale/corrupt/foreign data, and prove synchronization without relying
+  on the current in-process registry.
+- Finish independently linked collection merging: compile collections
+  independently, merge imports/exports and renamed identifiers, add libraries
+  after initial creation, preserve local/global root and sampler tables,
+  validate missing/duplicate exports, and execute each merged collection after
+  all source collections are released. A single pre-linked Metal table is not
+  independent-linking evidence.
+- Add the Phase 8A clean-source behavior contract, separate native SER/OMM/
+  portability/collection result profiles, negative ABI and corruption probes,
+  cross-process runtime manifests, and matching PE/Unix/WineMetal provenance.
+  Keep the stable tier and all DXR 1.2 reports at their current conservative
+  values until every promoted row passes.
+
+**Exit gate:**
+
+- Native SER produces the required observable order-sensitive behavior and
+  exact repeatable readbacks on a clean source/runtime; all unsupported host
+  paths remain explicit failures rather than being silently emulated.
+- Every promoted OMM layout/array/subdivision/state/linkage/update/compaction/
+  serialization row passes exact size, alignment, visibility, and corruption
+  checks, including independent-process reconstruction where required.
+- Independently compiled collections merge and grow with correct identifiers,
+  root data, tables, stack sizes, and dispatch behavior after source releases.
+- `D3D12_OPTIONS22` and DXR capability reports are generated from the passing
+  Phase 8A matrix, with no stale cache, process-local identity, false success,
+  or unclassified legal operation. Clean evidence records `source_dirty=false`.
+
 ### Phase 9 — Complete the bounded D3D12 video object/process provider
 
 **Status:** Closed for the declared behavior-backed object and CPU-reference
@@ -1145,6 +1267,62 @@ remain unsupported and no codec capability is promoted.
 
 The full VideoToolbox/CoreVideo codec matrix remains a future promotion gate;
 no method is counted as complete merely because an object can be constructed.
+
+### Phase 9A — Finish D3D12 video execution, codec profiles, and async breadth
+
+**Status:** Open. Phase 9A owns the incomplete and partial portions of the
+bounded Phase 9 provider; the current CPU-reference process conversions and
+object/descriptor ABI remain useful prerequisites, not codec evidence.
+
+**Goal:** Provide behavior-backed non-protected D3D12 video execution across
+the host-supported codec/profile and asynchronous interface surface, while
+coordinating protected-video association with Phase 10's security gate.
+
+**Work:**
+
+- Implement VideoToolbox/CoreVideo decode and encode providers for every
+  host-supported H.264, H.265, and AV1 profile/level and the corresponding
+  D3D12 decoder/encoder configuration, rate-control, reference-frame,
+  timestamp, color-space, metadata, and output-buffer descriptors. Include
+  exact validation for unsupported profiles, dimensions, bit depths, chroma,
+  interlace, and malformed reference chains.
+- Complete all legal video surface formats and plane layouts in the stable
+  contract, including P016 and other supported 10/16-bit paths, array slices,
+  packed/planar row pitches, scaling/rotation/color conversion, HDR metadata,
+  and deterministic decoded-pixel or bitstream/reference comparisons. The
+  current RGBA8/NV12/P010 CPU-reference rows remain separate from codec rows.
+- Implement motion-estimation and motion-vector heaps, extension commands,
+  feature queries, versioned video interfaces, and the complete command-list
+  recording model: barriers, predication, resource transitions, queue/fence
+  synchronization, reset/reuse, asynchronous completion, cancellation/error
+  recovery, and device removal.
+- Bridge D3D12 resources to CVPixelBuffer/IOSurface with explicit ownership,
+  plane synchronization, lifetime, and cross-queue visibility. Prove that
+  source resources may be released before execution and that output is not
+  reported complete before the provider has produced the required bytes.
+- Add clean-source codec/profile/format/reference/metadata/async probes, host
+  capability and negative-profile matrices, cold/warm runtime manifests, and
+  exact readback/bitstream evidence. Protected video session/heap/resource
+  association is a joint Phase 9A/Phase 10 deliverable and cannot be promoted
+  until the hardware-security provider passes Phase 10.
+- Update the video unsupported-ledger rows only for operations with a passing
+  native or explicitly specified reference provider. If VideoToolbox cannot
+  provide a required semantic on the proof host, retain the documented
+  fail-closed result rather than claiming generic video support.
+
+**Exit gate:**
+
+- Every declared non-protected video interface, codec/profile/level, format,
+  reference, metadata, motion, extension, command, synchronization, and error
+  row has an exact positive or documented invalid-input result. Decode and
+  encode behavior matches independent reference expectations; object creation
+  alone is never sufficient.
+- Asynchronous submissions pass fresh-prefix completion, queue/fence ordering,
+  reset/reuse, resource-release-before-execution, cancellation, and failure
+  tests with matching PE/Unix runtime identity and `source_dirty=false`.
+- Capability reports expose only the host/provider rows that pass the Phase 9A
+  matrix. Protected-video claims remain withheld until the joint Phase 10
+  security gate is green.
 
 ### Phase 10 — Implement protected resources and security-sensitive paths
 
