@@ -138,7 +138,7 @@
     },
     "D3D12_DXR_ACCELERATION_STRUCTURES": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_mini_suite",
-      "probe_status": "twelve_geometry_indexed_nonindexed_triangle_aabb_blas_clone_shifted_triangle_aabb_tlas_updates_compacted_size_compact_serialize_copy_deserialize_traversal_twelve_instance_tlas_filtered_merged_collection_pipeline_local_srv_uav_cbv_sampler_static_sampler_tables_shader_stack_sizes_grown_hit_group_alias_local_root_constant_renamed_indexed_miss_callable_records_inline_ray_recursive_direct_dispatch_indirect_dispatch_mixed_triangle_and_aabb_child_hits_independent_readback_passed",
+      "probe_status": "clean_source_twelve_geometry_indexed_nonindexed_triangle_aabb_and_single_blas_mixed_geometry_clone_shifted_blas_aabb_tlas_updates_compacted_size_copied_serialization_deserialization_tlas_traversal_source_release_filtered_collection_merge_add_to_state_object_local_descriptor_and_sampler_tables_stack_sizes_renamed_indexed_miss_callable_records_inline_ray_recursive_direct_and_indirect_dispatch_exact_readback_passed",
       "reported": "supported",
       "required_fields": [
         "GetRaytracingAccelerationStructurePrebuildInfo",
@@ -174,13 +174,13 @@
         "renamed miss/callable exports with stable distinct identifiers",
         "indexed execution from two-record 96-byte-stride miss and callable shader tables with local constants and descriptor-table pointers"
       ],
-      "risk": "A twelve-geometry indexed/non-indexed triangle BLAS, one-AABB BLAS, behavior-proven BLAS clone, shifted triangle/AABB/TLAS refits, compacted-size query, traversed compact copy, process-scoped BLAS/TLAS serialization and deserialization through a copied opaque blob, a twelve-instance TLAS with exact serialized pointer list, source-resource release before deserialized-TLAS traversal, mask-isolated inline RayQuery hit, stable distinct export identifiers with the Metal Shader Converter local-sampler slot preserved at bytes 16-23 and private alias hashes isolated to bytes 24-31, filtered same-table multi-collection merging with renamed imports and invalid-export rejection, direct and indirect DispatchRays execution, executed base/grown hit-group records with associated local-root constant and mirrored SRV/UAV/CBV/sampler tables, renamed and indexed miss/callable table records, raygen/triangle-any-hit/closest-hit/procedural-intersection records, depth-2 recursive TraceRay, deterministic shader stack-size values, and configured pipeline stack-size retention prove foundational DXR execution; mixed triangle/AABB geometry within one BLAS, persistent cross-process serialized reconstruction, independently linked collection merging, new-library state-object growth and broader record-count/stride/local-data shader-table matrices remain gated.",
+      "risk": "The clean-source matrix now proves twelve indexed/non-indexed triangle geometries, AABB and one-BLAS mixed triangle/AABB geometry, clone/refit/compact/copy-deserialize traversal, twelve-instance TLAS serialization, source-resource release before traversal, filtered collection merging, AddToStateObject growth, local descriptor/sampler/static-sampler tables, stack sizes, renamed/indexed shader-table records, recursive/direct/indirect dispatch, and exact ray built-ins/readbacks. Cross-process opaque-driver reconstruction and independently linked collections remain fail-closed because Metal object identities are not portable; broader legal table/layout combinations remain outside the declared provider bound.",
       "state": "required",
       "tier": "required"
     },
     "D3D12_DXR_OMM_SER_BOUNDARY": {
       "probe": "tools/d3d12-metal-sdk/probes/probe_dxr_omm_ser.cpp",
-      "probe_status": "config1_omm_acceptance_bounded_level0_oc1_two_state_opaque_transparent_visibility_exact_postbuild_alignment_refit_lifetime_four_state_and_update_disable_negative_recording_and_options22_ser_noop_readbacks_passed",
+      "probe_status": "clean_source_config1_omm_acceptance_bounded_level0_oc1_two_state_opaque_transparent_visibility_exact_postbuild_alignment_refit_lifetime_four_state_unknown_update_disable_negative_recording_alternate_blas_instance_controls_and_options22_ser_noop_readbacks_passed",
       "reported": "partial",
       "required_fields": [
         "RAYTRACING_PIPELINE_CONFIG1 ALLOW_OPACITY_MICROMAPS",
@@ -198,7 +198,7 @@
         "invalid OMM format/layout/four-state/unknown-state/update-disable flag rejection and deferred Close E_INVALIDARG",
         "deterministic SER no-op with FALSE capability report"
       ],
-      "risk": "This is a provider-backed bounded DXR 1.2 slice, not a native Metal OMM/SER claim. Four-state unknown values, mixed per-triangle opacity, OMM-specific update flags, opaque-geometry flag combinations, compaction/serialization, broader array/layout/subdivision matrices, cross-process data, and actual SER reordering remain fail-closed; the proven instance controls are limited to one level-0 OC1 two-state OMM BLAS; D3D12_OPTIONS5.RaytracingTier remains 1.1.",
+      "risk": "This is a provider-backed bounded DXR 1.2 slice, not a native Metal OMM/SER claim. Four-state unknown values, mixed per-triangle opacity, OMM-specific update flags, opaque-geometry flag combinations, compaction/serialization, broader array/layout/subdivision matrices, cross-process data, and actual SER reordering remain fail-closed; the proven instance controls are limited to one level-0 OC1 two-state OMM BLAS; D3D12_OPTIONS5.RaytracingTier remains truthfully 1.1. Clean-source evidence is retained under /Volumes/AverySSD/phase8-omm-ser-slice/clean-current.",
       "state": "required",
       "tier": "required"
     },

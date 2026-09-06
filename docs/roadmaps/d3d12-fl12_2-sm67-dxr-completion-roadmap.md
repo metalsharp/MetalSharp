@@ -1751,17 +1751,14 @@ the goal is not complete.
   bounded probe now also passes from a committed clean-source snapshot: its
   `source_dirty=false` host identity, clean stage, shader-converter outputs,
   and passing result are retained under
-  `/Volumes/AverySSD/phase8-omm-ser-slice/clean-source-runtime12/`. The phase
-  evidence remains partial because native SER ordering, broader OMM layouts,
-  compaction/serialization, and broader clean-source phase promotion are not
-  proven. The reproducible Runtime12 result and staging manifest remain under
-  `/Volumes/AverySSD/phase8-omm-ser-slice/{results,stage}`.
-  RaytracingTier remains truthfully reported as 1.1; broader DXR promotion
-  remains pending on mixed triangle/AABB geometry in one BLAS, persistent
-  cross-process
-  serialization reconstruction, independently linked collection merging,
-  new-library state-object growth and broader record-count, stride, and
-  local-data shader-table matrices. The resource gate also now covers a
+  `/Volumes/AverySSD/phase8-omm-ser-slice/clean-current/`. The bounded OMM/SER
+  boundary now has current-commit `source_dirty=false` host identity, clean
+  staging, exact runtime-manifest verification, and passing direct OMM/DXR/caps
+  results. Native SER ordering, broader OMM layouts, OMM compaction/serialization,
+  portable cross-process driver data, and independently linked collection
+  merging remain explicit fail-closed boundaries; the bounded Phase 8 gate does
+  not claim them. RaytracingTier remains truthfully reported as 1.1. The
+  resource gate also now covers a
   separate two-tile reserved-buffer path: native MTL4 heap mapping, 64 KiB
   tiling, exact tile copies, copied-mapping readback, and zero-after-unmap
   readback pass on the proof host. R8_UNORM one-tile, two-level standard-mip,

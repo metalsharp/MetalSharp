@@ -924,3 +924,15 @@ conversion evidence. Probe fields named `tier1_matrix_complete` or
 `tier1_1_matrix_complete` describe those bounded probe matrices, not exhaustive
 full-surface tier certification. No capability or unsupported-ledger entry was
 promoted based on these runs.
+
+### Current-commit clean-source closeout
+
+The declared Phase 7 behavior matrix is now closed by the current-commit clean
+run retained under `/Volumes/AverySSD/phase7-clean-current/`. Its 73 result
+filenames exactly match `phase7-mesh-workgraph-coverage.json`; the three
+profile-specific host-runtime manifests record commit
+`3bd86d08d09a75b788db01085478b6c9c812728d`, `source_dirty=false`, selected
+runtime paths, and matching PE-copy hashes. The mesh, geometry-corpus, and
+GPU-native Work Graph aggregate command passes with no row blockers. This
+closes the bounded declared matrix only: broader graph topology/resource
+tables, unrestricted capacity, and WorkGraphsTier promotion remain fail-closed.

@@ -1,0 +1,105 @@
+{
+  "schema": "metalsharp.d3d12.phase8-dxr-coverage.v1",
+  "phase": 8,
+  "profile": "standalone-wine",
+  "status": "closed",
+  "completion_scope": "bounded_dxr_1_1_and_stable_dxr_1_2_boundary",
+  "evidence": [
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_mini_dxr_acceleration_structures.cpp",
+      "note": "Clean-source DXR 1.1 triangle/AABB/mixed-BLAS, state-object, shader-table, serialization, lifetime, direct/indirect dispatch, and exact readback matrix."
+    },
+    {
+      "kind": "probe",
+      "path": "tools/d3d12-metal-sdk/probes/probe_dxr_omm_ser.cpp",
+      "note": "Clean-source bounded CONFIG1/OC1 two-state OMM provider and OPTIONS22 SER truthfulness boundary."
+    },
+    {
+      "kind": "runtime",
+      "path": "/Volumes/AverySSD/phase8-omm-ser-slice/clean-current",
+      "note": "Manifest-selected clean-source runtime, profile-specific host identity, loader PE-copy audit, and direct probe results."
+    }
+  ],
+  "clean_source_evidence": {
+    "path": "/Volumes/AverySSD/phase8-omm-ser-slice/clean-current",
+    "source_commit": "3bd86d08d09a75b788db01085478b6c9c812728d",
+    "source_dirty": false,
+    "runtime_manifest": "build/dxmt-runtime-manifest.json",
+    "stage_record": "build/stage-runtime-phase8-clean-current.json"
+  },
+  "rows": [
+    {
+      "id": "dxr-1-1-clean-matrix",
+      "status": "closed",
+      "result": "probe-mini-dxr_acceleration_structures",
+      "profile": "standalone-wine",
+      "checks": [
+        ["ok"],
+        ["mixed_geometry_verified"],
+        ["serialization_blob_copy_deserialized"],
+        ["tlas_deserialized_for_traversal"],
+        ["source_acceleration_structures_released_before_traversal"],
+        ["collection_pipeline_created"],
+        ["collection_export_filtering_and_merge"],
+        ["grown_state_identifiers"],
+        ["shader_identifier_abi_layout"],
+        ["local_descriptor_tables_written"],
+        ["local_sampler_table_written"],
+        ["local_static_sampler_written"],
+        ["shader_stack_size_contract"],
+        ["indirect_ray_behavior_verified"],
+        ["ray_shader_builtin_matrix_verified"],
+        ["ignore_hit_behavior_verified"],
+        ["accept_hit_behavior_verified"],
+        ["tier1_1_matrix_complete"]
+      ],
+      "remaining": "Cross-process opaque Metal driver-data reconstruction and independently linked collection relinking remain explicit unsupported boundaries; broader legal table/layout combinations are outside this bounded provider."
+    },
+    {
+      "id": "dxr-1-2-omm-ser-boundary",
+      "status": "closed",
+      "result": "probe-mini-dxr_omm_ser",
+      "profile": "standalone-wine",
+      "checks": [
+        ["ok"],
+        ["config1_omm_accepted"],
+        ["config1_skip_rejected"],
+        ["options22_verified"],
+        ["omm_sizes_verified"],
+        ["omm_alignment_verified"],
+        ["omm_aligned_128_input_accepted"],
+        ["omm_invalid_input_alignment_rejected"],
+        ["omm_invalid_desc_alignment_rejected"],
+        ["omm_visibility_verified"],
+        ["omm_invalid_format_rejected"],
+        ["omm_invalid_layout_rejected"],
+        ["omm_invalid_four_state_rejected"],
+        ["omm_invalid_update_flags_rejected"],
+        ["omm_invalid_disable_flags_rejected"],
+        ["omm_allow_disable_blas_prebuild_accepted"],
+        ["omm_instance_force_omm2_state_verified"],
+        ["omm_instance_disable_omms_verified"],
+        ["omm_unknown_state_rejected"],
+        ["omm_command_lifetime_verified"],
+        ["omm_refit_recorded"],
+        ["omm_recording_error_verified"],
+        ["shader_execution_reordering_actually_reorders", false]
+      ],
+      "remaining": "Native SER ordering, broader OMM arrays/layouts/subdivision, OMM compaction/serialization, mixed per-triangle opacity, and portable cross-process data remain fail-closed; the provider does not promote DXR 1.2 beyond this OC1 two-state slice."
+    },
+    {
+      "id": "dxr-capability-truthfulness",
+      "status": "closed",
+      "result": "probe-device-caps",
+      "profile": "standalone-wine",
+      "checks": [
+        ["pass"],
+        ["advanced_features", "raytracing_tier", 11],
+        ["feature_levels", "max_supported", "12_2"],
+        ["shader_model", "highest", "6_7"]
+      ],
+      "remaining": "The reported DXR tier remains 1.1 and SER remains non-reordering until a native provider proves broader semantics."
+    }
+  ]
+}
