@@ -2456,12 +2456,18 @@ char* ms_steam_launch_json(const char* home, int* status) {
     }
     redirect_wine_steam_desktop(home);
     if (ms_steam_process_running(home)) {
+        errtext = spawn_wine_install(home, steam, "steam://open/library", NULL, &pid);
         free(steam);
         free(ui);
         free(steam_dir);
+        if (errtext) {
+            char* o = err(errtext);
+            free(errtext);
+            return o;
+        }
         if (status)
             *status = 200;
-        return strdup("{\"ok\":true,\"message\":\"Steam already running\"}");
+        return pid_result(pid, "pid", 0, false);
     }
     ensure_steam_launch_ready(home, steam_dir);
     seed_steam_d3d12_guard(home, steam_dir);
@@ -2657,12 +2663,19 @@ static const char* fixed_unzstd_path(void) {
 }
 
 static char* find_bundled_steam_archive(const char* home) {
+    const char* bundle_dir = getenv("METALSHARP_BUNDLE_DIR");
     const char* fixed[] = {
         "/Applications/MetalSharp.app/Contents/Resources/bundles/metalsharp-steam.tar.zst",
         "/Applications/MetalSharp.app/Contents/Resources/metalsharp-steam.tar.zst",
         "app/bundles/metalsharp-steam.tar.zst",
     };
     char* path;
+    if (bundle_dir) {
+        path = join(bundle_dir, "metalsharp-steam.tar.zst");
+        if (path && access(path, R_OK) == 0)
+            return path;
+        free(path);
+    }
     for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
         path = strdup(fixed[i]);
         if (path && access(path, R_OK) == 0)

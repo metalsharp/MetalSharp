@@ -58,15 +58,20 @@ def main() -> int:
         home = root / "home"
         host_home = root / "host-home"
         steam_dir = home / "prefix-steam/drive_c/Program Files (x86)/Steam"
+        steamapps = steam_dir / "steamapps"
+        game_dir = steamapps / "common/Test Game"
         wine_bin = home / "runtime/wine/bin"
-        steam_dir.mkdir(parents=True)
+        game_dir.mkdir(parents=True)
         host_home.mkdir()
         wine_bin.mkdir(parents=True)
         (steam_dir / "Steam.exe").write_bytes(b"test")
         (steam_dir / "steamui.dll").write_bytes(b"test")
+        (steamapps / "appmanifest_1.acf").write_text(
+            '"AppState"\n{\n\t"appid"\t"1"\n\t"name"\t"Test Game"\n\t"installdir"\t"Test Game"\n}\n'
+        )
         for name in ("wine", "metalsharp-wine"):
             target = wine_bin / name
-            target.write_text("#!/bin/sh\nexit 0\n")
+            target.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$METALSHARP_HOME/steam-launch.args"\n')
             target.chmod(0o755)
 
         port = free_port()
@@ -83,11 +88,32 @@ def main() -> int:
         wine_steam: subprocess.Popen[bytes] | None = None
         try:
             wait_status(port, False)
+            library = request_json(port, "/steam/library")
+            game = next(item for item in library["games"] if item["appid"] == 1)
+            assert game["embedded_icon_path"] is None
+            assert not (game_dir / ".metalsharp").exists(), "ordinary library reads must not scan game contents"
+
+            icon = game_dir / ".metalsharp/steam-embedded-icon.png"
+            icon.parent.mkdir()
+            icon.write_bytes(b"cached")
+            library = request_json(port, "/steam/library")
+            game = next(item for item in library["games"] if item["appid"] == 1)
+            assert game["embedded_icon_path"] == str(icon)
+
             assert native.poll() is None, "native macOS Steam stand-in exited unexpectedly"
             assert foreign_wine.poll() is None, "foreign Wine Steam stand-in exited unexpectedly"
 
             wine_steam = fake_process(steam_dir, r"C:\Program Files (x86)\Steam\steam.exe")
             wait_status(port, True)
+
+            launched = request_json(port, "/steam/launch", method="POST")
+            assert launched.get("ok") is True, launched
+            launch_args = home / "steam-launch.args"
+            for _ in range(50):
+                if launch_args.exists():
+                    break
+                time.sleep(0.1)
+            assert "steam://open/library" in launch_args.read_text().splitlines()
 
             stopped = request_json(port, "/steam/stop", method="POST")
             assert stopped.get("ok") is True, stopped
@@ -110,7 +136,7 @@ def main() -> int:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-    print("Steam process detection and migration handoff shutdown verified")
+    print("Steam process detection, activation, and migration handoff shutdown verified")
     return 0
 
 
