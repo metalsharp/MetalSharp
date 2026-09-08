@@ -15,6 +15,11 @@ char* ms_steam_launch_game_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_auto_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_external_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_d3dmetal_json(const char*, unsigned, const char*, const char*, int*);
+/* App-aware executable selection for D3DMetal bottles (for example Unreal
+ * launchers versus their actual Win64 shipping executable). */
+char* ms_steam_d3dmetal_game_executable(const char*, unsigned);
+/* Remove only byte-matched MetalSharp route DLLs before staging a new route. */
+void ms_steam_cleanup_route_dlls(const char*, const char*, const char*, const char*);
 char* ms_steam_prepare_bottle_route_json(const char*, const char*);
 /* Canonical MTSP recipe/prepare/doctor inspection.  mode: 0 prepare, 1 recipe, 2 doctor. */
 char* ms_steam_mtsp_inspect_json(const char*, const unsigned char*, size_t, int*, int);

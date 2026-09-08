@@ -131,8 +131,8 @@ async function startInstall() {
 }
 
 async function checkSteam() {
-  const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-  if (s?.installed || s?.running) {
+  const s = await api<{ installed: boolean; running: boolean; installing?: boolean }>("GET", "/steam/status");
+  if (s?.installed && !s?.installing) {
     steamInstalled.value = true;
   }
   installingSteam.value = true;
@@ -147,8 +147,8 @@ async function installSteam() {
     return;
   }
   const poll = setInterval(async () => {
-    const s = await api<{ installed: boolean; running: boolean }>("GET", "/steam/status");
-    if (s?.installed || s?.running) {
+    const s = await api<{ installed: boolean; running: boolean; installing?: boolean }>("GET", "/steam/status");
+    if (s?.installed && !s?.installing) {
       clearInterval(poll);
       steamInstalled.value = true;
       steamInstalling.value = false;
@@ -185,8 +185,8 @@ async function finish() {
     }
   }
 
-  await api("POST", "/steam/stop");
-
+  // Do not stop Wine Steam here. Steam may still be completing its first
+  // x64 client update, and killing the prefix at this point leaves it partial.
   emit("done");
 }
 

@@ -26,6 +26,7 @@
 #define GPTK3_INNER_DMG_NAME "Evaluation environment for Windows games 3.0.dmg"
 #define GPTK3_MSC_PKG_NAME   "Metal Shader Converter 3.0.pkg"
 #define GPTK3_MIN_DMG_SIZE   (80ULL * 1024ULL * 1024ULL)
+#define D3DMETAL_RUNTIME     "runtime/d3dmetal-gptk4-beta2"
 
 static const char* gptk_route_dlls[] = {"d3d10.dll", "d3d11.dll",   "d3d12.dll",
                                         "dxgi.dll",  "nvapi64.dll", "nvngx-on-metalfx.dll"};
@@ -108,40 +109,6 @@ static char* path_join(const char* a, const char* b) {
     return p;
 }
 
-static char* find_game_exe(const char* root, unsigned depth) {
-    DIR* dir;
-    struct dirent* entry;
-    if (!root || depth > 8 || !(dir = opendir(root)))
-        return NULL;
-    while ((entry = readdir(dir)) != NULL) {
-        char* path;
-        struct stat info;
-        size_t length;
-        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
-            continue;
-        path = path_join(root, entry->d_name);
-        if (!path || stat(path, &info) != 0) {
-            free(path);
-            continue;
-        }
-        length = strlen(entry->d_name);
-        if (S_ISREG(info.st_mode) && length > 4 && !strcasecmp(entry->d_name + length - 4, ".exe")) {
-            closedir(dir);
-            return path;
-        }
-        if (S_ISDIR(info.st_mode)) {
-            char* found = find_game_exe(path, depth + 1);
-            free(path);
-            if (found) {
-                closedir(dir);
-                return found;
-            }
-        } else
-            free(path);
-    }
-    closedir(dir);
-    return NULL;
-}
 static bool mkdirs(const char* path) {
     char* p = strdup(path);
     size_t i;
@@ -661,7 +628,7 @@ static bool gptk_vcpp_ready(const char* home) {
     return ok;
 }
 
-static bool install_homebrew_gptk(void) {
+static __attribute__((unused)) bool install_homebrew_gptk(void) {
     const char* brew = access("/opt/homebrew/bin/brew", X_OK) == 0 ? "/opt/homebrew/bin/brew" : "/usr/local/bin/brew";
     char* tap[] = {NULL, (char*)"tap", (char*)"gcenx/wine", NULL};
     char* trust[] = {NULL, (char*)"trust", (char*)"--cask", (char*)"gcenx/wine/game-porting-toolkit", NULL};
@@ -675,12 +642,12 @@ static bool install_homebrew_gptk(void) {
            run_process(brew, install, NULL, NULL) && homebrew_gptk_ready();
 }
 
-static bool install_rosetta(void) {
+static __attribute__((unused)) bool install_rosetta(void) {
     char* const argv[] = {(char*)"softwareupdate", (char*)"--install-rosetta", (char*)"--agree-to-license", NULL};
     return run_process("/usr/sbin/softwareupdate", argv, NULL, NULL) && rosetta_ready();
 }
 
-static bool seed_gptk_prefix(const char* home) {
+static __attribute__((unused)) bool seed_gptk_prefix(const char* home) {
     char* prefix = gptk_prefix(home);
     char* system32 = prefix ? path_join(prefix, "drive_c/windows/system32") : NULL;
     char* syswow64 = prefix ? path_join(prefix, "drive_c/windows/syswow64") : NULL;
@@ -1003,8 +970,18 @@ static dstate* state_for(const char* home, const char* id) {
     if (s)
         return s;
     s = load_state(home, id);
-    if (s)
+    if (s) {
+        /* Executable-discovery rules can be corrected after a bottle was saved.
+         * Refresh persisted Steam bottles rather than retaining a stale
+         * recursive fallback (such as an anti-cheat service executable). */
+        char* detected = s->appid ? ms_steam_d3dmetal_game_executable(home, s->appid) : NULL;
+        if (detected && strcmp(s->game_exe, detected)) {
+            snprintf(s->game_exe, sizeof(s->game_exe), "%s", detected);
+            (void)save_state(home, s);
+        }
+        free(detected);
         return s;
+    }
     {
         char* bottles = path_join(home, "bottles");
         char* directory = bottles ? path_join(bottles, id) : NULL;
@@ -1035,7 +1012,7 @@ static dstate* state_for(const char* home, const char* id) {
                     }
                 }
                 {
-                    char* detected = find_game_exe(s->game_dir, 0);
+                    char* detected = ms_steam_d3dmetal_game_executable(home, s->appid);
                     snprintf(s->game_exe, sizeof(s->game_exe), "%s", detected ? detected : "");
                     free(detected);
                 }
@@ -1070,7 +1047,7 @@ static dstate* state_from_steam_app(const char* home, unsigned long long appid, 
     snprintf(s->name, sizeof(s->name), "Game %llu", appid);
     snprintf(s->game_dir, sizeof(s->game_dir), "%s", game_dir);
     {
-        char* detected = find_game_exe(game_dir, 0);
+        char* detected = ms_steam_d3dmetal_game_executable(home, s->appid);
         snprintf(s->game_exe, sizeof(s->game_exe), "%s", detected ? detected : "");
         free(detected);
     }
@@ -1103,12 +1080,27 @@ done:
     return ok;
 }
 
-static bool stage_d3dmetal_game_local(const dstate* s) {
+static bool stage_d3dmetal_game_local(const char* home, dstate* s) {
     char* dir;
     char* slash;
     bool ok = false;
+    /* A bottle can be saved before Steam finishes library discovery. Resolve
+     * the path at the staging boundary so save/reopen never loses its route. */
+    if (s && !s->game_exe[0] && s->appid) {
+        char* detected_dir = ms_steam_game_dir(home, s->appid);
+        if (detected_dir) {
+            char* detected_exe = ms_steam_d3dmetal_game_executable(home, s->appid);
+            snprintf(s->game_dir, sizeof(s->game_dir), "%s", detected_dir);
+            snprintf(s->game_exe, sizeof(s->game_exe), "%s", detected_exe ? detected_exe : "");
+            free(detected_exe);
+            free(detected_dir);
+        }
+    }
     if (!s || !s->game_exe[0] || !(dir = strdup(s->game_exe)))
         return false;
+    /* Match normal Steam route changes: remove only exact MetalSharp artifacts
+     * from the previous pipeline before deploying this route. */
+    ms_steam_cleanup_route_dlls(home, "d3dmetal", s->game_dir, s->game_exe);
     slash = strrchr(dir, '/');
     if (!slash)
         goto done;
@@ -1117,7 +1109,7 @@ static bool stage_d3dmetal_game_local(const dstate* s) {
     for (size_t i = 0; ok && i < sizeof(gptk_route_dlls) / sizeof(gptk_route_dlls[0]); i++) {
         char source[PATH_MAX];
         char* target;
-        snprintf(source, sizeof(source), "%s/%s", GPTK_PE, gptk_route_dlls[i]);
+        snprintf(source, sizeof(source), "%s/%s/wine/x86_64-windows/%s", home, D3DMETAL_RUNTIME, gptk_route_dlls[i]);
         target = path_join(dir, gptk_route_dlls[i]);
         ok = file_ready(source) && target && copy_file_checked(source, target);
         free(target);
@@ -1134,41 +1126,40 @@ static bool gptk3_installed(const char* home) {
     return ready;
 }
 
+static bool d3dmetal_runtime_ready(const char* home) {
+    char* framework = path_join(home, D3DMETAL_RUNTIME "/external/D3DMetal.framework");
+    bool ok = framework_ready(framework);
+    for (size_t i = 0; ok && i < sizeof(gptk_route_dlls) / sizeof(gptk_route_dlls[0]); i++) {
+        char relative[PATH_MAX];
+        char* payload;
+        snprintf(relative, sizeof(relative), D3DMETAL_RUNTIME "/wine/x86_64-windows/%s", gptk_route_dlls[i]);
+        payload = path_join(home, relative);
+        ok = file_ready(payload);
+        free(payload);
+    }
+    free(framework);
+    return ok;
+}
+
 static void refresh_d3dmetal_state(const char* home, dstate* s) {
-    bool gptk = homebrew_gptk_ready();
-    bool prefix = gptk && rosetta_ready() && gptk_prefix_route_ready(home);
-    snprintf(s->step[0], 20, "%s", gptk ? "installed" : "missing");
-    snprintf(s->step[1], 20, "%s", rosetta_ready() ? "installed" : "missing");
-    snprintf(s->step[2], 20, "%s", gptk ? "updated" : "missing");
-    snprintf(s->step[3], 20, "%s", prefix && gptk_vcpp_ready(home) ? "installed" : "missing");
-    snprintf(s->step[4], 20, "%s",
-             prefix && gptk_vcpp_ready(home) && d3dmetal_game_local_ready(s) ? "seeded" : "missing");
-    snprintf(s->step[5], 20, "%s", gptk3_installed(home) ? "installed" : "missing");
-    s->ready = !strcmp(s->step[0], "installed") && !strcmp(s->step[1], "installed") && !strcmp(s->step[2], "updated") &&
-               !strcmp(s->step[3], "installed") && !strcmp(s->step[4], "seeded");
+    bool runtime = d3dmetal_runtime_ready(home);
+    snprintf(s->step[0], 20, "%s", runtime ? "installed" : "missing");
+    snprintf(s->step[1], 20, "%s", runtime && d3dmetal_game_local_ready(s) ? "seeded" : "missing");
+    s->ready = runtime && !strcmp(s->step[1], "seeded");
 }
 
 static void actions_json(ms_json_writer* w, const dstate* s) {
-    const char* ids[] = {"install_homebrew_gptk", "install_rosetta", "repair_gptk_payload",
-                         "install_x64_redist",    "seed_prefix",     "play_d3dmetal"};
-    const char* labels[] = {"Repair Homebrew GPTK", "Repair Rosetta", "Repair GPTK Payload",
-                            "Repair Redist",        "Seed Prefix",    "Play D3DMetal"};
-    const char* steps[] = {"gptk_homebrew", "rosetta", "gptk_payload", "x64_redist", "seed", "play_ready"};
+    const char* ids[] = {"repair_gptk_payload", "seed_prefix", "play_d3dmetal"};
+    const char* labels[] = {"Verify bundled D3DMetal payload", "Stage D3DMetal DLLs", "Play D3DMetal"};
+    const char* steps[] = {"bundled_payload", "game_local_dlls", "play_ready"};
     ms_json_writer_array_begin(w);
-    for (size_t i = 0; i < 6; i++) {
-        const char* sv = i == 0   ? s->step[0]
-                         : i == 1 ? s->step[1]
-                         : i == 2 ? s->step[2]
-                         : i == 3 ? s->step[3]
-                         : i == 4 ? s->step[4]
-                                  : (s->ready ? "installed" : "missing");
+    for (size_t i = 0; i < 3; i++) {
+        const char* sv = i < 2 ? s->step[i] : (s->ready ? "installed" : "missing");
         ms_json_writer_object_begin(w);
         step(w, "id", ids[i]);
         step(w, "label", labels[i]);
         ms_json_writer_key(w, "enabled");
-        ms_json_writer_bool(w, i == 5 ? s->ready
-                                      : strcmp(sv, "installed") != 0 && strcmp(sv, "updated") != 0 &&
-                                            strcmp(sv, "seeded") != 0);
+        ms_json_writer_bool(w, i == 2 ? s->ready : strcmp(sv, "installed") != 0 && strcmp(sv, "seeded") != 0);
         step(w, "state", sv);
         step(w, "detail", steps[i]);
         ms_json_writer_object_end(w);
@@ -1267,27 +1258,8 @@ done:
 }
 
 char* ms_d3dmetal_json(const char* home, const char* action, const unsigned char* body, size_t len, int* status) {
-    if (!strcmp(action, "repair-gptk3")) {
-        char* downloaded = gptk3_download_path();
-        if (!downloaded) {
-            pid_t pid = fork();
-            int wait_status = 0;
-            if (pid == 0) {
-                execl("/usr/bin/open", "open", "https://developer.apple.com/download/all/?q=game%20porting%20toolkit",
-                      (char*)NULL);
-                _exit(127);
-            }
-            if (pid >= 0)
-                while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
-                }
-            if (pid >= 0 && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0)
-                return strdup(
-                    "{\"ok\":true,\"download_opened\":true,\"download_required\":true,\"download_url\":\"https://"
-                    "developer.apple.com/download/all/?q=game%20porting%20toolkit\"}");
-            return bad("Could not launch /usr/bin/open");
-        }
-        free(downloaded);
-    }
+    if (!strcmp(action, "repair-gptk3"))
+        return bad("GPTK 3 overlay staging is retired; MetalSharp uses its bundled GPTK 4 D3DMetal payload");
     ms_json* j = parse(body, len);
     char id[129] = {0}, *s, *game;
     unsigned long long appid = 0;
@@ -1314,10 +1286,14 @@ char* ms_d3dmetal_json(const char* home, const char* action, const unsigned char
             free(game);
             game = ms_steam_game_dir(home, (unsigned)appid);
         }
-        if (!game || !game[0]) {
-            free(game);
+        /* Library discovery can lag behind a bottle edit. Save the requested
+         * pipeline now and leave staging pending; status/play will resolve the
+         * Steam install path when it becomes available. */
+        if (!game)
+            game = strdup("");
+        if (!game) {
             ms_json_free(j);
-            return bad("D3DMetal save requires a detected game install path");
+            return bad("out of memory while saving D3DMetal bottle");
         }
         s = text(j, "name", NULL);
         if (!ensure_d3dmetal_bottle_manifest(home, id, appid, s, game)) {
@@ -1339,11 +1315,18 @@ char* ms_d3dmetal_json(const char* home, const char* action, const unsigned char
         snprintf(st->name, sizeof(st->name), "%s", s && s[0] ? s : "D3DMetal Game");
         free(s);
         snprintf(st->game_dir, sizeof(st->game_dir), "%s", game);
-        {
-            char* detected = find_game_exe(game, 0);
+        if (game[0]) {
+            char* detected = ms_steam_d3dmetal_game_executable(home, st->appid);
             snprintf(st->game_exe, sizeof(st->game_exe), "%s", detected ? detected : "");
             free(detected);
+        } else {
+            st->game_exe[0] = '\0';
         }
+        /* Saving a resolved bottle performs the same route staging as play.
+         * This makes the saved override immediately durable instead of leaving
+         * a surprise "Stage D3DMetal DLLs" action after reopening it. */
+        if (d3dmetal_runtime_ready(home) && st->game_exe[0])
+            (void)stage_d3dmetal_game_local(home, st);
         refresh_d3dmetal_state(home, st);
         st->updated = now_ms();
         save_state(home, st);
@@ -1382,40 +1365,19 @@ char* ms_d3dmetal_json(const char* home, const char* action, const unsigned char
         ms_json_free(j);
         goto respond_state;
     }
-    if (!strcmp(action, "install-homebrew-gptk")) {
-        if (!install_homebrew_gptk()) {
+    if (!strcmp(action, "install-homebrew-gptk") || !strcmp(action, "repair-gptk-payload")) {
+        if (!d3dmetal_runtime_ready(home)) {
             ms_json_free(j);
-            return bad("Homebrew GPTK installation or payload verification failed");
+            return bad("The bundled D3DMetal payload is incomplete; repair the MetalSharp runtime installation");
         }
         snprintf(st->step[0], 20, "installed");
-    } else if (!strcmp(action, "install-rosetta")) {
-        if (!rosetta_ready() && !install_rosetta()) {
+    } else if (!strcmp(action, "install-rosetta") || !strcmp(action, "install-x64-redist") ||
+               !strcmp(action, "seed-prefix")) {
+        if (!d3dmetal_runtime_ready(home) || !stage_d3dmetal_game_local(home, st)) {
             ms_json_free(j);
-            return bad("Rosetta installation failed");
+            return bad("Could not stage the bundled D3DMetal DLLs beside the game executable");
         }
-        snprintf(st->step[1], 20, "installed");
-    } else if (!strcmp(action, "repair-gptk-payload")) {
-        if (strcmp(st->step[0], "installed")) {
-            free(j);
-            return bad("Homebrew GPTK must be installed before repairing the payload");
-        }
-        if (!homebrew_gptk_ready()) {
-            ms_json_free(j);
-            return bad("Homebrew GPTK payload is incomplete");
-        }
-        snprintf(st->step[2], 20, "updated");
-    } else if (!strcmp(action, "install-x64-redist")) {
-        if (!seed_gptk_prefix(home) || !gptk_vcpp_ready(home)) {
-            ms_json_free(j);
-            return bad("VC++ runtime seeding into the GPTK prefix failed");
-        }
-        snprintf(st->step[3], 20, "installed");
-    } else if (!strcmp(action, "seed-prefix")) {
-        if (!gptk_vcpp_ready(home) || !seed_gptk_prefix(home) || !stage_d3dmetal_game_local(st)) {
-            ms_json_free(j);
-            return bad("GPTK prefix seeding failed");
-        }
-        snprintf(st->step[4], 20, "seeded");
+        snprintf(st->step[1], 20, "seeded");
     } else if (!strcmp(action, "repair-gptk3")) {
         char* repair_error = repair_gptk3_overlay(home);
         if (repair_error) {
@@ -1427,6 +1389,13 @@ char* ms_d3dmetal_json(const char* home, const char* action, const unsigned char
         snprintf(st->step[5], 20, "installed");
         snprintf(st->step[2], 20, "updated");
     } else if (!strcmp(action, "play")) {
+        /* Refresh game-local payloads on every launch, so runtime updates take
+         * effect without leaving a stale GPTK/Homebrew dependency behind. */
+        if (!d3dmetal_runtime_ready(home) || !stage_d3dmetal_game_local(home, st)) {
+            ms_json_free(j);
+            return bad("Could not update the D3DMetal DLLs beside the game executable");
+        }
+        refresh_d3dmetal_state(home, st);
         if (!st->ready) {
             free(j);
             return bad("D3DMetal bottle is not ready to play");

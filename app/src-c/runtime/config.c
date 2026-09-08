@@ -189,6 +189,15 @@ static bool config_bool(const ms_json* config, const char* key, bool fallback) {
     return json_boolish(ms_json_object_get(config, key), &value) ? value : fallback;
 }
 
+bool ms_config_msync_enabled(const char* metalsharp_home) {
+    char* path = config_path(metalsharp_home);
+    ms_json* config = path == NULL ? NULL : read_json_file(path);
+    bool enabled = config_bool(config, "msync", true);
+    free(path);
+    ms_json_free(config);
+    return enabled;
+}
+
 char* ms_config_get_json(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
