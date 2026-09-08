@@ -20,6 +20,61 @@ The source directory must contain `configure.ac`, `dlls/`, `include/`, `server/`
 and `tools/`. Keep the source snapshot's checksum/revision with your build logs.
 Do not substitute a different runtime solely because it reports Wine 11.17.
 
+## What makes this MetalSharp Wine
+
+MetalSharp Wine is a maintained Wine fork carrying **WineForge-derived
+integrations**, adapted to the prepared Wine 11.17 source baseline. It is not
+just an upstream Wine build with a different name. The prepared tree also
+incorporates macOS compatibility work from an additional Wine source baseline;
+the list below describes the resulting integration, not a complete per-line
+attribution or a claim that every feature originated in WineForge.
+
+### Integrations compiled into Wine
+
+| Integration | Included work and purpose |
+| --- | --- |
+| D3DMetal module loading | `dlls/ntdll/unix/d3dmetal_loader.c` resolves matching Windows and Unix-side components from `D3DMETAL_RUNTIME_DIR`. This must remain integrated with the normal module loader. |
+| D3DMetal macOS presentation | `dlls/winemac.drv/d3dmetal.c` and `d3dmetal_objc.m` connect the Windows graphics implementation to macOS windows and Metal surfaces. The surface interface was adapted for the 11.17 driver baseline. |
+| DXMT loading | `dlls/ntdll/unix/dxmt_loader.c` and loader/load-order integration select the DXMT runtime through `DXMT_RUNTIME_DIR`, while retaining a separate M12 lane. |
+| PE/Unix graphics bridge compatibility | The `msdxcompat_loader` components and Unix-library loading adjustments support the matching PE DLL/native bridge arrangement. Windows module paths and host library paths are not interchangeable. |
+| macOS synchronization | MSYNC is compiled into both `server/msync.c` and `dlls/ntdll/unix/msync.c`. Client and server must agree on this implementation; both read `WINEMSYNC`. Do not mix a server from another build with this client. |
+| WoW64 host and startup compatibility | The x86_64 host includes both PE architectures, corresponding loader/virtual-memory integration, and prefix bootstrap fixes. Fresh-prefix Wineboot and service startup are part of validation, not optional packaging details. |
+| Launcher compatibility | WineForge-derived launcher/security integration touches `kernelbase`, `advapi32`, process loading, and related service handling. Preserve these patches together rather than copying isolated DLLs from another Wine installation. |
+| macOS driver integration | Window, event, keyboard, and driver interface changes accompany the loader and presentation work. Native modules must be built against the same source headers and server protocol. |
+
+The additional source-baseline work used to make this runtime functional
+includes the macOS host/loader foundation, paired client/server synchronization,
+Windows-to-Unix module-loading compatibility, and Wineboot/service bootstrap
+integration. The prepared tree combines these with the WineForge-derived
+loader, launcher, and presentation adaptations. A reproducible attribution list
+requires the source snapshot and patch history; filenames alone do not establish
+which upstream contributed an individual change. Preserve all original source
+copyright and license notices when preparing or distributing it.
+
+### Enabled features and separately supplied payloads
+
+The configure command below enables Vulkan/OpenGL, CoreAudio, GnuTLS, FFmpeg,
+GStreamer, SDL, OpenCL, Samba NetAPI, fonts, and other host services. These are
+build dependencies and enabled Wine features, not all MetalSharp-specific
+patches. WineDbg is also built; disabling Wine tests does not mean removing the
+debugger.
+
+D3DMetal **integration code is part of the Wine build**, but Apple's D3DMetal
+DLLs/framework are a separate, appropriately obtained payload. The tested local
+arrangement uses GPTK 4 beta 2 with:
+
+- `D3DMETAL_RUNTIME_DIR` pointing to the payload root containing `wine/` and
+  `external/`.
+- `D3DMETAL_FRAMEWORK_PATH` pointing to
+  `external/D3DMetal.framework/D3DMetal`, the executable rather than the framework
+  directory.
+- Matching D3DMetal PE DLLs staged beside the selected game executable.
+
+Likewise, DXMT DLLs and native `winemetal.so` bridges, VKD3D-Proton/DXVK DLLs,
+and MoltenVK are built or obtained separately and paired with this Wine host.
+The DXMT baseline used in this work is v0.80. Do not assume `make install` has
+provided these graphics payloads or configured per-game routing.
+
 ## Necessary tools
 
 - An Apple Silicon Mac with Rosetta 2, or a compatible Intel Mac.
