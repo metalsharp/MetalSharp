@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 BACKEND = Path(sys.argv[1]).resolve()
-VERSION = "0.62.0"
+VERSION = "0.66.0"  # Synthetic release must be newer than the current app.
 
 
 def free_port() -> int:
