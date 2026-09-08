@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import http.server
+import threading
 import os
 import signal
 import socket
@@ -132,9 +134,62 @@ def write_release(root: Path) -> tuple[Path, bytes, bytes]:
     return release, regular_bytes, fex_bytes
 
 
+def test_download_progress(root: Path) -> None:
+    payload = b"x" * (1024 * 1024)
+
+    class SlowDownload(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            for offset in range(0, len(payload), 65536):
+                self.wfile.write(payload[offset:offset + 65536])
+                self.wfile.flush()
+                time.sleep(0.25)
+
+        def log_message(self, *_: object) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowDownload)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        release, _, _ = write_release(root)
+        data = json.loads(release.read_text())
+        for asset in data["assets"]:
+            asset["browser_download_url"] = f"http://127.0.0.1:{server.server_port}/download.dmg"
+            asset["size"] = len(payload)
+        release.write_text(json.dumps(data))
+        with Backend(root, release, 27) as backend:
+            assert request(backend.port, "POST", "/update/start", {"variant": "regular"})["ok"]
+            observed = set()
+            deadline = time.time() + 20
+            while time.time() < deadline:
+                progress = request(backend.port, "GET", "/update/progress")
+                if progress["status"] == "downloading":
+                    observed.add(progress["percent"])
+                    assert progress["percent"] < 80
+                if progress["status"] == "downloaded":
+                    break
+                assert progress["status"] != "error", progress
+                time.sleep(0.1)
+            else:
+                raise AssertionError("slow download did not complete")
+            assert len([p for p in observed if 10 < p < 80]) >= 2, observed
+            result = request(backend.port, "GET", "/update/dmg-path")
+            assert Path(result["path"]).read_bytes() == payload
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join()
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="metalsharp-updater-") as temporary:
         root = Path(temporary)
+        slow_root = root / "slow"
+        slow_root.mkdir()
+        test_download_progress(slow_root)
         release, regular_bytes, fex_bytes = write_release(root)
         supported_root = root / "supported"
         supported_root.mkdir()

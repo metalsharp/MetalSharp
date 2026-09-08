@@ -536,6 +536,9 @@ char* ms_update_start_json(const char* metalsharp_home, const unsigned char* bod
         ms_json* json = info == NULL ? NULL : ms_json_parse(info, strlen(info), error, sizeof(error));
         char* url = json == NULL ? NULL : release_field_json(json, fex ? "fex_download_url" : "download_url");
         char* latest = json == NULL ? NULL : release_field_json(json, "latest_version");
+        long long download_size = 0;
+        if (json)
+            (void)ms_json_as_i64(ms_json_object_get(json, fex ? "fex_download_size" : "download_size"), &download_size);
         free(info);
         ms_json_free(json);
         if (url == NULL || latest == NULL || url[0] == '\0') {
@@ -559,9 +562,34 @@ char* ms_update_start_json(const char* metalsharp_home, const unsigned char* bod
                     }
                     if (curl_pid > 0) {
                         int curl_status = 0;
-                        if (waitpid(curl_pid, &curl_status, 0) == curl_pid && WIFEXITED(curl_status) &&
-                            WEXITSTATUS(curl_status) == 0)
-                            downloaded = true;
+                        for (;;) {
+                            pid_t waited = waitpid(curl_pid, &curl_status, WNOHANG);
+                            if (waited == curl_pid) {
+                                downloaded = WIFEXITED(curl_status) && WEXITSTATUS(curl_status) == 0;
+                                break;
+                            }
+                            if (waited < 0) {
+                                if (errno == EINTR)
+                                    continue;
+                                break;
+                            }
+                            struct stat st;
+                            if (stat(tmp, &st) == 0 && st.st_size >= 0) {
+                                /* Reserve 80-100 for installation. Never report completion
+                                 * before curl succeeds and the temporary file is renamed. */
+                                double fraction = download_size > 0 ? (double)st.st_size / download_size : 0;
+                                unsigned percent = 10 + (unsigned)(69 * (fraction > 1 ? 1 : fraction));
+                                char message[128];
+                                if (download_size > 0)
+                                    snprintf(message, sizeof(message), "Downloading DMG: %.1f / %.1f MiB",
+                                             (double)st.st_size / 1048576, (double)download_size / 1048576);
+                                else
+                                    snprintf(message, sizeof(message), "Downloading DMG: %.1f MiB",
+                                             (double)st.st_size / 1048576);
+                                (void)write_progress(metalsharp_home, "downloading", percent, message, NULL);
+                            }
+                            sleep(1);
+                        }
                     }
                 }
                 if (downloaded && rename(tmp, dest) == 0) {
