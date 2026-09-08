@@ -50,6 +50,19 @@ int main(void) {
     assert(stop_managed_wine_processes(home));
     assert(steam_stop_calls == 1);
 
+    /* Setup emits the v0.80 baseline for both DXMT lanes. Migration must
+     * accept that manifest, not require the retired M12 version suffix. */
+    snprintf(path, sizeof(path), "%s/dxmt-manifest.json", home);
+    write_file(path, "{\"schema\":\"metalsharp.dxmt-runtime.v2\",\"version\":\"" MIGRATION_VERSION
+                     "-dxmt-v0.80-baseline-v1\",\"source\":\"bundled:metalsharp-graphics-dll.tar.zst\"}");
+    assert(migration_manifest_current(path));
+    write_file(path, "{\"version\":\"" MIGRATION_VERSION "-m12-isolated-surface-v1\"}");
+    assert(!migration_manifest_current(path));
+    write_file(path, "{\"version\":\"0.0.0-dxmt-v0.80-baseline-v1\"}");
+    assert(!migration_manifest_current(path));
+    unlink(path);
+    assert(!migration_manifest_current(path));
+
     snprintf(path, sizeof(path), "%s/setup.json", home);
     write_file(path, "{\"completed\":true,\"deviceName\":\"test\"}");
     snprintf(path, sizeof(path), "%s/cache/downloads", home);
