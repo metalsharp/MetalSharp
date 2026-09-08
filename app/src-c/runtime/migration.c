@@ -85,7 +85,7 @@ static const char* const migration_m12_hashes[][2] = {
 static const char* const migration_vkd3d_hashes[][2] = {
     {"x86_64-windows/d3d12.dll", "ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e"},
     {"x86_64-windows/d3d12core.dll", "78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8"},
-    {"x86_64-windows/dxgi.dll", "943dc921530aeba8bc5add09f5a3c5fac7da50e90a84ca2f41f1b87ba532846e"}};
+    {"x86_64-windows/dxgi.dll", "16af74bca22dfc108e94c52c21d34fe6863aaebe8a9b635385a7523bf7e5b266"}};
 static const char* const migration_dxvk_hashes[][2] = {
     {"x86_64-windows/d3d9.dll", "67f8b1f139c7b4838de535876668c44716cec5dda56a1aa88bab5b820acd72fc"},
     {"x86_64-windows/d3d10core.dll", "d8616fc3c1e13b32562325202655d4ecba972b4043bdf8f0b7350d627b842c26"},
