@@ -184,7 +184,7 @@
     "tar": "7.5.19",
     "undici": "6.28.0",
     "js-yaml": "4.3.1",
-    "fast-uri": "3.1.5",
+    "fast-uri": "3.1.6",
     "postcss": "8.5.23",
     "@electron/get": {
       "undici": "7.29.0"
