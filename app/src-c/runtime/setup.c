@@ -21,12 +21,12 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MS_DXMT_VERSION                MS_BACKEND_VERSION "-m12-isolated-surface-v1"
+#define MS_DXMT_VERSION                MS_BACKEND_VERSION "-dxmt-v0.80-baseline-v1"
 #define MS_DXMT_MANIFEST               "metalsharp-dxmt-runtime.json"
 #define MS_MOLTENVK_LIBRARY_SHA256     "8249d81ebf2d46f82b16ca166c2e5cca5d76d91d0a412cd6d3db1aaa6e8430bf"
 #define MS_MOLTENVK_LANE_ICD_SHA256    "578ff08cd0d8734619357541771a5abc9c3470ca300030219a971a9e9dbbe466"
 #define MS_MOLTENVK_RUNTIME_ICD_SHA256 "0dcbf7707cc0a347d0ba2941e835e5e92709919370a1bb0fc252e8dc4d95d322"
-#define MS_DXMT_SCHEMA                 "metalsharp.dxmt-runtime.v1"
+#define MS_DXMT_SCHEMA                 "metalsharp.dxmt-runtime.v2"
 
 static const char* const dxmt_pe[] = {
     "d3d10core.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "dxgi_dxmt.dll", "winemetal.dll", "nvapi64.dll", "nvngx.dll",
@@ -46,6 +46,52 @@ static char* join_path(const char* left, const char* right) {
 static bool file_nonempty(const char* path) {
     struct stat st;
     return path != NULL && stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
+}
+
+/* Native DXMT bridges are unpacked from a tarball. Re-sign after extraction so
+ * Gatekeeper sees a valid local ad-hoc signature even if archive metadata was
+ * normalized by a release or updater tool. */
+static bool adhoc_sign_native_bridge(const char* path) {
+    pid_t child;
+    int status;
+    pid_t waited;
+    if (!file_nonempty(path))
+        return false;
+    child = fork();
+    if (child < 0)
+        return false;
+    if (child == 0) {
+        execl("/usr/bin/codesign", "codesign", "--force", "--sign", "-", path, (char*)NULL);
+        _exit(127);
+    }
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        return false;
+    child = fork();
+    if (child < 0)
+        return false;
+    if (child == 0) {
+        execl("/usr/bin/codesign", "codesign", "--verify", "--strict", path, (char*)NULL);
+        _exit(127);
+    }
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static bool sign_dxmt_native_bridges(const char* runtime_dir) {
+    char *x64 = join_path(runtime_dir, "x86_64-unix/winemetal.so"),
+         *x86 = join_path(runtime_dir, "i386-unix/winemetal.so");
+    bool ok = x64 && adhoc_sign_native_bridge(x64);
+    /* M12 has no i386 bridge; standard DXMT does. */
+    if (x86 && access(x86, F_OK) == 0)
+        ok = adhoc_sign_native_bridge(x86) && ok;
+    free(x64);
+    free(x86);
+    return ok;
 }
 
 static char* setup_read_text(const char* path) {
@@ -322,7 +368,7 @@ static bool download_bundle_archive(const char* home, const char* name) {
     pid = fork();
     if (pid == 0) {
         char url[512];
-        snprintf(url, sizeof(url), "https://github.com/aaf2tbz/metalsharp/releases/download/bundles/%s", name);
+        snprintf(url, sizeof(url), "https://github.com/metalsharp/MetalSharp/releases/download/bundles/%s", name);
         execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2",
               "--connect-timeout", "30", "--max-time", "600", "-o", temporary, url, (char*)NULL);
         _exit(127);
@@ -1792,6 +1838,7 @@ static void run_install_all_worker(const char* home) {
                               copy_directory_contents(src_m12, dst_m12) &&
                               (!has_dxvk || (dst_dxvk && copy_directory_contents(src_dxvk, dst_dxvk))) &&
                               (!has_vkd3d || (dst_vkd3d && copy_directory_contents(src_vkd3d, dst_vkd3d))) &&
+                              sign_dxmt_native_bridges(dst_dxmt) && sign_dxmt_native_bridges(dst_m12) &&
                               write_dxmt_manifest(dst_dxmt) && write_dxmt_manifest(dst_m12);
                 free(src_dxmt);
                 free(src_m12);
@@ -2133,7 +2180,7 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
         char library_env[PATH_MAX * 2];
         char* args[] = {wine, "start", "/wait", "/unix", installer, "/install", NULL};
         setenv("WINEPREFIX", prefix, 1);
-        setenv("WINEARCH", "win64", 1);
+        setenv("WINEARCH", "wow64", 1);
         setenv("WINEDEBUG", "-all", 1);
         snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
                  home);

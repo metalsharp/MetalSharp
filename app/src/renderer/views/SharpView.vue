@@ -910,7 +910,9 @@ const visibleRuntimeProfiles = computed(() => {
         {
           id: "d3dmetal",
           name: "D3DMetal (GPTK)",
-          components: ["gptk", "rosetta", "gptk_prefix", "vcrun2019_x64", "vcrun2019_x86"],
+          // D3DMetal is fully bundled; legacy implementation prerequisites
+          // are not bottle components presented to the user.
+          components: [],
         },
       ];
   return profiles
@@ -2713,15 +2715,14 @@ async function loadD3DMetalStatus(bottle: BottleManifest) {
 }
 
 async function saveD3DMetalBottle(bottle: BottleManifest) {
-  if (!bottle.steam_app_id || !bottle.game_install_path) {
-    toast.show("D3DMetal save requires a Steam app id and game install path", "error");
+  if (!bottle.steam_app_id) {
+    toast.show("D3DMetal save requires a Steam app id", "error");
     return;
   }
   bottleLoading.value[bottle.id] = true;
-  // The first save downloads the GPTK fork via Homebrew, which can
-  // take several minutes. Surface a bottom-right toast so the bottle
-  // doesn't look stale while the request is in flight.
-  toast.show("Saving D3DMetal bottle — downloading GPTK runtime on first save…", "success");
+  // Steam library discovery can lag a bottle edit; the backend resolves and
+  // stages the game path again at the save/launch boundary.
+  toast.show("Saving D3DMetal bottle…", "success");
   const result = await api<D3DMetalGptkResponse>(
     "POST",
     "/d3dmetal/bottles/save",
@@ -2729,7 +2730,7 @@ async function saveD3DMetalBottle(bottle: BottleManifest) {
       appid: bottle.steam_app_id,
       bottleId: bottle.id,
       name: bottle.name,
-      gameDir: bottle.game_install_path,
+      gameDir: bottle.game_install_path ?? "",
     },
     10 * 60 * 1000,
   );

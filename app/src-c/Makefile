@@ -81,7 +81,11 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 
 -include $(OBJECTS:.o=.d)
 
-test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST)
+$(BUILD_DIR)/runtime-routes-test: tests/runtime_routes_test.c runtime/steam_actions.c $(OBJECTS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/runtime_routes_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/steam_actions.o,$(OBJECTS))
+
+test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(BUILD_DIR)/runtime-routes-test
+	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@python3 "$(CURDIR)/tests/migration_hash_contract_test.py"
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; test_port=$$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'); HOME="$$test_home" METALSHARP_PORT="$$test_port" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"

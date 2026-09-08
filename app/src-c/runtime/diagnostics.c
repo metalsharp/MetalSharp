@@ -1,4 +1,5 @@
 #include "metalsharp_backend/diagnostics.h"
+#include "metalsharp_backend/config.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include <CommonCrypto/CommonDigest.h>
@@ -1946,8 +1947,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
         struct stat st;
         char* hash;
         const char* source = !strcmp(pipeline, "vkd3d") && i >= 2 ? "dxvk/x86_64-windows" : deploy_subpath;
-        snprintf(path, sizeof(path), "%s/%s/%s", !strcmp(pipeline, "vkd3d") ? lane_root : root, source,
-                 deploy_pe[i]);
+        snprintf(path, sizeof(path), "%s/%s/%s", !strcmp(pipeline, "vkd3d") ? lane_root : root, source, deploy_pe[i]);
         bool present = stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
         bool optional =
             strcmp(pipeline, "m12") && (!strncmp(deploy_pe[i], "nvapi", 5) || !strncmp(deploy_pe[i], "nvngx", 5));
@@ -1988,16 +1988,15 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
         if (!user_home || !*user_home)
             user_home = home;
         if (!strcmp(pipeline, "m12")) {
-            snprintf(unix_path, sizeof(unix_path), "%s/lib/dxmt_m12/x86_64-unix:%s/lib/wine/x86_64-unix", root,
-                     root);
+            snprintf(unix_path, sizeof(unix_path), "%s/lib/dxmt_m12/x86_64-unix:%s/lib/wine/x86_64-unix", root, root);
             snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
             snprintf(windows_path, sizeof(windows_path), "%s/lib/dxmt_m12/x86_64-windows", root);
         } else if (!strcmp(pipeline, "vkd3d")) {
             snprintf(unix_path, sizeof(unix_path), "%s/lib/wine/x86_64-unix", root);
             snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
             snprintf(windows_path, sizeof(windows_path),
-                     "%s/vkd3d-proton/x86_64-windows:%s/dxvk/x86_64-windows:%s/lib/wine/x86_64-windows",
-                     lane_root, lane_root, root);
+                     "%s/vkd3d-proton/x86_64-windows:%s/dxvk/x86_64-windows:%s/lib/wine/x86_64-windows", lane_root,
+                     lane_root, root);
         } else {
             snprintf(unix_path, sizeof(unix_path), "%s/lib/wine/x86_64-unix", root);
             snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
@@ -2036,7 +2035,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             ENV_PAIR("VK_DRIVER_FILES", value);
         }
         ENV_PAIR("MS_GRAPHICS_BACKEND", !strcmp(pipeline, "m12") ? "dxmt" : "vulkan");
-        ENV_PAIR("WINEMSYNC", "1");
+        ENV_PAIR("WINEMSYNC", ms_config_msync_enabled(home) ? "1" : "0");
         ENV_PAIR("METALSHARP_SHADER_CACHE_PATH", shader_path);
         ENV_PAIR("METALSHARP_PIPELINE_CACHE_PATH", pipeline_path);
         ENV_PAIR("METALSHARP_CACHE_SUMMARY", summary);
@@ -2062,8 +2061,8 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             ENV_PAIR("DXMT_ASYNC_PIPELINE_COMPILE", "1");
             ENV_PAIR("DXMT_D3D12_UE_SM6_COMPAT", "1");
             ENV_PAIR("DXMT_D3D12_PSO_WORKERS", "6");
-            ENV_PAIR("DXMT_CONFIG",
-                     "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;dxmt.shaderMetalVersion=310");
+            ENV_PAIR("DXMT_CONFIG", "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;d3d11."
+                                    "maxFeatureLevel=12_1;dxmt.shaderMetalVersion=310");
         }
 #undef ENV_PAIR
     }
@@ -2089,8 +2088,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
         bool optional =
             strcmp(pipeline, "m12") && (!strncmp(deploy_pe[i], "nvapi", 5) || !strncmp(deploy_pe[i], "nvngx", 5));
         const char* source = !strcmp(pipeline, "vkd3d") && i >= 2 ? "dxvk/x86_64-windows" : deploy_subpath;
-        snprintf(path, sizeof(path), "%s/%s/%s", !strcmp(pipeline, "vkd3d") ? lane_root : root, source,
-                 deploy_pe[i]);
+        snprintf(path, sizeof(path), "%s/%s/%s", !strcmp(pipeline, "vkd3d") ? lane_root : root, source, deploy_pe[i]);
         if (!optional && (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size == 0)) {
             ms_json_writer_object_begin(&w);
             ms_json_writer_key(&w, "filename");

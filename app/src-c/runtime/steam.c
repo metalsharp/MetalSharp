@@ -1183,14 +1183,19 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     const char* home = getenv("HOME");
     char* wine_prefix = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam");
     char* wine_exe = wine_prefix == NULL ? NULL : join_path(wine_prefix, "Steam.exe");
+    char* steam_x64 = wine_prefix == NULL ? NULL : join_path(wine_prefix, "steamclient64.dll");
+    char* steam_manifest64 =
+        wine_prefix == NULL ? NULL : join_path(wine_prefix, "package/steam_client_win64.installed");
     char* wine = join_path(metalsharp_home, "runtime/wine/bin/wine");
     char* wine_wrapper = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
     char* install_lock = join_path(metalsharp_home, ".steam-installing");
     char* mac_app = home == NULL ? NULL : join_path(home, "Applications/Steam.app");
     char* mac_bundle =
         home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/Steam.AppBundle/Steam/Steam.app");
-    bool windows_installed = wine_exe != NULL && access(wine_exe, F_OK) == 0;
     bool installing = install_lock != NULL && access(install_lock, F_OK) == 0;
+    bool windows_installed = wine_exe != NULL && steam_x64 != NULL && steam_manifest64 != NULL &&
+                             access(wine_exe, F_OK) == 0 && access(steam_x64, F_OK) == 0 &&
+                             access(steam_manifest64, F_OK) == 0 && !installing;
     bool mac_installed = access("/Applications/Steam.app", F_OK) == 0 ||
                          (mac_app != NULL && access(mac_app, F_OK) == 0) ||
                          (mac_bundle != NULL && access(mac_bundle, F_OK) == 0);
@@ -1250,6 +1255,8 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     result = ms_json_writer_take(&writer);
     free(wine_prefix);
     free(wine_exe);
+    free(steam_x64);
+    free(steam_manifest64);
     free(wine);
     free(wine_wrapper);
     free(install_lock);

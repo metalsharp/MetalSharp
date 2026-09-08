@@ -418,13 +418,9 @@ function runtimeReportFromD3DMetalState(state: D3DMetalGptkState, actions: D3DMe
     prefix_path: "Homebrew GPTK",
     game_install_path: state.game_dir,
     runtime_assets: [],
-    components: [
-      { id: "gptk", state: d3dmetalComponentState(state.gptk_payload) },
-      { id: "rosetta", state: d3dmetalComponentState(state.rosetta) },
-      { id: "vcrun2019_x64", state: d3dmetalComponentState(state.x64_redist) },
-      { id: "vcrun2019_x86", state: d3dmetalComponentState(state.x64_redist) },
-      { id: "gptk_prefix", state: d3dmetalComponentState(state.seed) },
-    ],
+    // D3DMetal is a self-contained bundled route; do not expose legacy
+    // GPTK/Rosetta/VC++/prefix implementation details as bottle components.
+    components: [],
     actions: requiredActions,
   };
 }
@@ -438,12 +434,7 @@ const pendingD3DMetalActions = computed(() =>
 const d3dmetalStatusItems = computed(() => {
   const state = d3dmetalState.value;
   if (!state) return [];
-  return [
-    { label: "GPTK", ready: d3dmetalStateReady(state.gptk_payload) },
-    { label: "Rosetta", ready: d3dmetalStateReady(state.rosetta) },
-    { label: "VC++", ready: d3dmetalStateReady(state.x64_redist) },
-    { label: "Prefix", ready: d3dmetalStateReady(state.seed) },
-  ];
+  return [{ label: "D3DMetal", ready: state.play_ready }];
 });
 
 const unresolvedRuntimeComponents = computed(() =>
@@ -880,16 +871,10 @@ async function saveBottleEdit() {
   }
   bottleSaving.value = true;
   if (bottlePreferredMode.value === "d3dmetal") {
-    const gameDir = runtimeReport.value?.game_install_path;
-    if (!gameDir) {
-      toast.show("D3DMetal save requires a detected game install path", "error");
-      bottleSaving.value = false;
-      return;
-    }
-    // The first save downloads the GPTK fork via Homebrew, which can
-    // take several minutes. Surface a bottom-right toast so the bottle
-    // doesn't look stale while the request is in flight.
-    toast.show("Saving D3DMetal bottle — downloading GPTK runtime on first save…", "success");
+    const gameDir = runtimeReport.value?.game_install_path ?? "";
+    // Steam library discovery can lag a bottle edit. The backend saves the
+    // route and resolves/stages the game path on save or launch.
+    toast.show("Saving D3DMetal bottle…", "success");
     const d3dmetalResult = await api<D3DMetalGptkResponse>(
       "POST",
       "/d3dmetal/bottles/save",
@@ -1194,12 +1179,6 @@ function formatBytes(bytes: number): string {
                   </span>
                 </div>
                 <div v-if="d3dmetalState.last_error" class="doctor-notes blocked">{{ d3dmetalState.last_error }}</div>
-                <div v-if="!gptk3Installed" class="runtime-action-row compact-repair-row">
-                  <span>Add GPTK 3.0 overlay (optional){{ gptk3DmgFound ? "" : " — download DMG to ~/Downloads" }}</span>
-                  <button class="btn btn-secondary btn-sm" :disabled="gptk3Installed || d3dmetalActiveActionId !== null" @click="repairGptk3">
-                    {{ d3dmetalActiveActionId === "gptk3" ? "Working..." : "Repair" }}
-                  </button>
-                </div>
                 <div
                   v-for="action in pendingD3DMetalActions"
                   :key="action.id"
