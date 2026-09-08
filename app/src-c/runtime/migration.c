@@ -200,7 +200,7 @@ static bool migration_manifest_current(const char* path) {
     char* text = read_text(path);
     char expected[128];
     bool current;
-    snprintf(expected, sizeof(expected), "\"version\":\"%s-m12-isolated-surface-v1\"", MIGRATION_VERSION);
+    snprintf(expected, sizeof(expected), "\"version\":\"%s-dxmt-v0.80-baseline-v1\"", MIGRATION_VERSION);
     current = text && strstr(text, expected) != NULL;
     free(text);
     return current;
