@@ -231,8 +231,19 @@ verify_hash_manifest() {
   local failed=0
   local hash_tmp
   hash_tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-bundle-hash.XXXXXX")"
-  if ! tar --use-compress-program=unzstd -xf "$archive" -C "$hash_tmp" >/dev/null 2>&1; then
+  # Materialize only the files whose hashes are checked. The assets archive
+  # contains large unrelated runtimes, especially costly after DMG packaging.
+  local members="$hash_tmp/members.txt"
+  awk -F '\t' -v prefix="$prefix" 'NF >= 2 && $1 != "path" && $1 !~ /^#/ { print prefix "/" $1 }' "$manifest" > "$members"
+  if [ ! -s "$members" ]; then
+    echo "$label INVALID: empty hash manifest $manifest" >&2
+    rm -rf "$hash_tmp"
+    return 1
+  fi
+  if ! tar --use-compress-program=unzstd -xf "$archive" -C "$hash_tmp" -T "$members" >"$hash_tmp/extract.log" 2>&1; then
     echo "$label INVALID: unable to extract $archive for hash verification" >&2
+    cat "$hash_tmp/extract.log" >&2
+    df -h "$hash_tmp" >&2 || true
     rm -rf "$hash_tmp"
     return 1
   fi
