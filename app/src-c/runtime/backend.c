@@ -778,10 +778,12 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/steam/library") == 0) {
         ms_log_event(context->metalsharp_home, "Loading Steam library...");
-        body = ms_steam_library_json(context->metalsharp_home);
+        body = request->query != NULL && strcmp(request->query, "refresh=1") == 0
+                   ? ms_steam_library_refresh_json(context->metalsharp_home)
+                   : ms_steam_library_json(context->metalsharp_home);
         if (body == NULL)
             return false;
-        ms_log_event(context->metalsharp_home, "Loaded 0 games");
+        ms_log_event(context->metalsharp_home, "Loaded Steam library");
         set_json_response(response, 200, body);
         return true;
     }
