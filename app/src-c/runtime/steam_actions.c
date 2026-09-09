@@ -2002,8 +2002,8 @@ static char* acf_install_dir(const char* manifest_path) {
 
 static bool executable_helper_name(const char* name) {
     static const char* const ignored[] = {
-        "bootstrapper", "crash",  "easyanticheat",   "installer", "uninstall",      "setup",  "redist",
-        "vcredist",     "server", "start_protected", "d3dconfig", "steamwebhelper", "oalinst"};
+        "bootstrapper", "crash",  "easyanticheat",   "installer", "uninstall",      "setup",   "redist",
+        "vcredist",     "server", "start_protected", "d3dconfig", "steamwebhelper", "oalinst", "vconsole"};
     char lower[256];
     size_t length = strlen(name);
     if (length >= sizeof(lower))
@@ -2143,7 +2143,9 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
     char* ruled = rule_preferred_game_executable(game_dir, id);
     if (ruled)
         return ruled;
-    if (id == 1097150)
+    if (id == 730)
+        preferred[count++] = "game/bin/win64/cs2.exe";
+    else if (id == 1097150)
         preferred[count++] = "FallGuys_client_game.exe";
     else if (id == 4704690)
         preferred[count++] = "Chameleon/Binaries/Win64/PenguinHotel-Win64-Shipping.exe";

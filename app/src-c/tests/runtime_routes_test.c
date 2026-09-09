@@ -18,6 +18,15 @@ static void fixture(const char* home, const char* relative, const char* bytes) {
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* home = argv[1];
+    fixture(home, "cs2/game/bin/win64/vconsole2.exe", "console helper");
+    fixture(home, "cs2/game/bin/win64/cs2.exe", "game executable");
+    char* cs2_dir = join(home, "cs2");
+    char* cs2_exe = preferred_steam_game_executable(cs2_dir, 730, "m11");
+    assert(cs2_exe && strstr(cs2_exe, "/game/bin/win64/cs2.exe"));
+    assert(executable_helper_name("vconsole2.exe"));
+    free(cs2_exe);
+    free(cs2_dir);
+
     fixture(home, "configs/config.json", "{\"msync\":false}");
     set_wine_msync(home);
     assert(!strcmp(getenv("WINEMSYNC"), "0"));
