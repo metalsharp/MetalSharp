@@ -3116,6 +3116,63 @@ static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
         deploy_steamwebhelper_wrapper(home, steam_dir);
 }
 
+static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
+    char* cef_root = steam_dir ? join(steam_dir, "bin/cef") : NULL;
+    DIR* dir = cef_root ? opendir(cef_root) : NULL;
+    struct dirent* entry;
+    bool found = false;
+    bool ready = true;
+    if (!dir) {
+        free(cef_root);
+        return false;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+        char* cef_dir;
+        char* wrapper;
+        if (strncmp(entry->d_name, "cef.", 4) != 0)
+            continue;
+        cef_dir = join(cef_root, entry->d_name);
+        wrapper = cef_dir ? join(cef_dir, "steamwebhelper.exe") : NULL;
+        found = true;
+        if (!steamwebhelper_wrapper_valid(wrapper))
+            ready = false;
+        free(cef_dir);
+        free(wrapper);
+    }
+    closedir(dir);
+    free(cef_root);
+    return found && ready;
+}
+
+char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
+    char* steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+    ms_json_writer writer;
+    bool ready;
+    if (status)
+        *status = 500;
+    if (!steam_dir || access(steam_dir, R_OK) != 0) {
+        free(steam_dir);
+        return err("Wine Steam is not installed yet");
+    }
+    ensure_steam_launch_ready(home, steam_dir);
+    ready = steamwebhelper_wrappers_ready(steam_dir);
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, ready);
+    ms_json_writer_key(&writer, "wrappers_ready");
+    ms_json_writer_bool(&writer, ready);
+    if (!ready) {
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, "Steam webhelper wrapper deployment failed");
+    }
+    ms_json_writer_object_end(&writer);
+    free(steam_dir);
+    if (status)
+        *status = ready ? 200 : 500;
+    return ms_json_writer_take(&writer);
+}
+
 static void seed_steam_d3d12_guard(const char* home, const char* steam_dir) {
     char* prefix = join(home, "prefix-steam");
     char* drive_c = prefix ? join(prefix, "drive_c") : NULL;

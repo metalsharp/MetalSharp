@@ -5,6 +5,7 @@
 bool ms_steam_process_running(const char*);
 char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
+char* ms_steam_ensure_launch_ready_json(const char*, int*);
 char* ms_steam_mac_launch_json(const char*, int*);
 char* ms_steam_mac_install_json(int*);
 char* ms_steam_mac_stop_json(int*);

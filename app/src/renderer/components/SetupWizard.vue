@@ -32,6 +32,7 @@ const vcppX64Done = ref(false);
 const vcppX86Done = ref(false);
 const vcppX64Installing = ref(false);
 const vcppX86Installing = ref(false);
+const finishing = ref(false);
 
 async function checkBrew() {
   brewChecking.value = true;
@@ -180,10 +181,19 @@ async function installSteam() {
 }
 
 async function finish() {
+  if (finishing.value) return;
+  finishing.value = true;
   const keyInput = document.getElementById("setup-api-key") as HTMLInputElement;
   const nameInput = document.getElementById("setup-device-name") as HTMLInputElement;
   const name = nameInput?.value?.trim() || deviceName.value;
   const key = keyInput?.value?.trim();
+
+  const wrappers = await api<{ ok: boolean; error?: string }>("POST", "/steam/ensure-launch-ready");
+  if (!wrappers?.ok) {
+    toast.show(wrappers?.error ?? "Failed to prepare Steam wrapper shims", "error");
+    finishing.value = false;
+    return;
+  }
 
   await api("POST", "/setup/save", { step: 2, deviceName: name, completed: true });
   if (key) {
@@ -195,6 +205,7 @@ async function finish() {
     }>("POST", "/steam/save-api-key", { key });
     if (!result?.ok) {
       toast.show(result?.error ?? "Failed to save Steam API key", "error");
+      finishing.value = false;
       return;
     }
     steamApiKey.value = key;
@@ -206,6 +217,7 @@ async function finish() {
 
   // Do not stop Wine Steam here. Steam may still be completing its first
   // x64 client update, and killing the prefix at this point leaves it partial.
+  finishing.value = false;
   emit("done");
 }
 
@@ -436,7 +448,9 @@ async function installVcppX86() {
             <div class="setup-tip"><strong>First launch</strong> — MetalSharp auto-configures the runtime for each game.</div>
           </div>
           <div class="setup-actions" style="justify-content:center;margin-top:32px;">
-            <button class="btn btn-primary btn-lg" @click="finish">Launch MetalSharp</button>
+            <button class="btn btn-primary btn-lg" :disabled="finishing" @click="finish">
+              {{ finishing ? "Preparing Steam..." : "Launch MetalSharp" }}
+            </button>
           </div>
         </div>
       </div>
