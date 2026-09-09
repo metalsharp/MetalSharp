@@ -353,8 +353,10 @@ static bool write_progress(const char* home, const char* status, unsigned percen
     char* path = progress_path(home);
     ms_json_writer writer;
     char* json;
-    FILE* file;
-    bool ok;
+    char* temporary;
+    FILE* file = NULL;
+    int fd;
+    bool ok = false;
     if (path == NULL)
         return false;
     ms_json_writer_init(&writer);
@@ -376,10 +378,30 @@ static bool write_progress(const char* home, const char* status, unsigned percen
         free(path);
         return false;
     }
-    file = fopen(path, "wb");
-    ok = file != NULL && fputs(json, file) >= 0 && fclose(file) == 0;
-    if (file != NULL && !ok)
-        fclose(file);
+    /* Readers poll this file while the download worker updates it. Writing
+     * directly to the destination exposes the truncate-before-write window
+     * and can return an empty, invalid JSON response. Publish a complete file
+     * with an atomic same-directory rename instead. */
+    temporary = malloc(strlen(path) + sizeof(".tmp.XXXXXX"));
+    if (temporary != NULL) {
+        snprintf(temporary, strlen(path) + sizeof(".tmp.XXXXXX"), "%s.tmp.XXXXXX", path);
+        fd = mkstemp(temporary);
+        if (fd >= 0) {
+            file = fdopen(fd, "wb");
+            if (file != NULL) {
+                bool complete = fputs(json, file) >= 0 && fflush(file) == 0 && fsync(fd) == 0;
+                complete = fclose(file) == 0 && complete;
+                file = NULL;
+                if (complete)
+                    ok = rename(temporary, path) == 0;
+            } else {
+                close(fd);
+            }
+            if (!ok)
+                unlink(temporary);
+        }
+        free(temporary);
+    }
     free(json);
     free(path);
     return ok;
