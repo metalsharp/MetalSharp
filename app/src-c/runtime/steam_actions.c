@@ -594,6 +594,8 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-d3d10");
     else if (id == 17300 && !strcmp(pipeline, "m10"))
         append_launch_arg(argv, count, max, "-dx10");
+    else if (id == 2357570 && !strcmp(pipeline, "m11"))
+        append_launch_arg(argv, count, max, "-d3d11");
 
     if (id == 1196590 || id == 1623730 || id == 1928870 || id == 2358720 || id == 2456740) {
         if (!strcmp(pipeline, "m12")) {
@@ -604,8 +606,8 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-dx11");
         append_launch_arg(argv, count, max, "-d3d11");
     }
-    if (id == 620 || id == 4000 || id == 1260320 || id == 440 || id == 730 || id == 252490 || id == 271590 ||
-        id == 284160 || id == 292030 || id == 1172380 || id == 3241660) {
+    if (id == 620 || id == 4000 || id == 1260320 || id == 440 || id == 730 || id == 2357570 || id == 252490 ||
+        id == 271590 || id == 284160 || id == 292030 || id == 1172380 || id == 3241660) {
         if (strcmp(pipeline, "m13") && strcmp(pipeline, "d3dmetal")) {
             append_launch_arg(argv, count, max, "-steam");
             if (id == 440 || id == 730 || id == 252490 || id == 271590 || id == 284160 || id == 292030 ||
@@ -847,8 +849,8 @@ static void stage_celeste_steam_api(const char* home, const char* game_dir) {
 }
 
 static bool steam_launch_model_app(unsigned id) {
-    return id == 620 || id == 4000 || id == 1260320 || id == 440 || id == 730 || id == 252490 || id == 271590 ||
-           id == 284160 || id == 292030 || id == 1172380 || id == 3241660;
+    return id == 620 || id == 4000 || id == 1260320 || id == 440 || id == 730 || id == 2357570 || id == 252490 ||
+           id == 271590 || id == 284160 || id == 292030 || id == 1172380 || id == 3241660;
 }
 
 static bool steam_secure_launch_model_app(unsigned id) {
