@@ -1,7 +1,7 @@
 <div align="center">
 
 # MetalSharp
-**Updated:** 2026-07-28 
+**Updated:** 2026-08-08
 
 **Run Windows games on MacOS Silicon.**
 
@@ -51,7 +51,7 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 | **_M10(32)_** | D3D10 32Bit to Metal (DXMT) | |
 | **_M9_** | D3D9 To Metal, DXMT Overrides | |
 | **_Mono/FNA_** | Windows XNA/FNA via native Mono | |
-| **_D3DMetal_** | D3D12/11/10 through the latest D3D Framework |
+| **_D3DMetal_** | D3D12/11/10 through the latest D3DFramework |
 
 ## Features
 
@@ -86,7 +86,6 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 - [Install from Source](docs/guides/install-from-source.md)
 - [How to Use MetalSharp](docs/guides/how-to-use-metalsharp.md)
-- [D3DMetal Runtime](docs/runtime/wine-architecture.md#d3dmetal)
 - [Game Compatibility](docs/compatibility/GAMES-SUPPORTED.md)
 - [Launch Architecture](docs/architecture/launch-architecture.md)
 - [Docs Map](docs/README.md)
