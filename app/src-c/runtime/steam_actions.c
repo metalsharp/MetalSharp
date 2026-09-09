@@ -3693,9 +3693,18 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         setenv("SteamOverlayGameId", app_id, 1);
         set_route_paths(home, pipeline);
         if (use_legacy_dxmt_native_modules(id, pipeline)) {
+            char legacy_dllpath[PATH_MAX * 2];
+            char legacy_unixpath[PATH_MAX * 2];
             unsetenv("DXMT_RUNTIME_DIR");
             unsetenv("DXMT_WINEMETAL_UNIXLIB");
             setenv("GRAPHICS_BACKEND", "wine", 1);
+            snprintf(legacy_dllpath, sizeof(legacy_dllpath),
+                     "%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/wine/i386-windows", home, home);
+            snprintf(legacy_unixpath, sizeof(legacy_unixpath),
+                     "%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/dxmt/x86_64-unix", home, home);
+            setenv("WINEDLLPATH", legacy_dllpath, 1);
+            setenv("DYLD_LIBRARY_PATH", legacy_unixpath, 1);
+            setenv("DYLD_FALLBACK_LIBRARY_PATH", legacy_unixpath, 1);
         }
         set_route_default_env(pipeline);
         set_launch_cache_env(home, id, pipeline);
@@ -3718,8 +3727,8 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             }
         }
         if (use_legacy_dxmt_native_modules(id, pipeline))
-            setenv("WINEDLLOVERRIDES", "winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
-                   1);
+            setenv("WINEDLLOVERRIDES",
+                   "winemetal,dxgi,d3d11,d3d10core,d3d12=n;gameoverlayrenderer,gameoverlayrenderer64=d", 1);
         else if (pipeline_overrides(pipeline))
             setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         else
