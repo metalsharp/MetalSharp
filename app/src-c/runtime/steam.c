@@ -1204,10 +1204,23 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     char* wine = join_path(metalsharp_home, "runtime/wine/bin/wine");
     char* wine_wrapper = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
     char* install_lock = join_path(metalsharp_home, ".steam-installing");
+    char* install_stage_path = join_path(metalsharp_home, ".steam-install-stage");
+    char install_stage[64] = "idle";
     char* mac_app = home == NULL ? NULL : join_path(home, "Applications/Steam.app");
     char* mac_bundle =
         home == NULL ? NULL : join_path(home, "Library/Application Support/Steam/Steam.AppBundle/Steam/Steam.app");
     bool installing = install_lock != NULL && access(install_lock, F_OK) == 0;
+    if (install_stage_path != NULL) {
+        FILE* stage_file = fopen(install_stage_path, "rb");
+        if (stage_file != NULL) {
+            if (fgets(install_stage, sizeof(install_stage), stage_file) != NULL) {
+                char* newline = strchr(install_stage, '\n');
+                if (newline != NULL)
+                    *newline = '\0';
+            }
+            fclose(stage_file);
+        }
+    }
     bool windows_installed = wine_exe != NULL && steam_x64 != NULL && steam_manifest64 != NULL &&
                              access(wine_exe, F_OK) == 0 && access(steam_x64, F_OK) == 0 &&
                              access(steam_manifest64, F_OK) == 0 && !installing;
@@ -1266,6 +1279,8 @@ char* ms_steam_status_json(const char* metalsharp_home) {
                                      (wine_wrapper != NULL && access(wine_wrapper, F_OK) == 0));
     ms_json_writer_key(&writer, "installing");
     ms_json_writer_bool(&writer, installing);
+    ms_json_writer_key(&writer, "install_stage");
+    ms_json_writer_string(&writer, install_stage);
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(wine_prefix);
@@ -1275,6 +1290,7 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     free(wine);
     free(wine_wrapper);
     free(install_lock);
+    free(install_stage_path);
     free(mac_app);
     free(mac_bundle);
     return result;

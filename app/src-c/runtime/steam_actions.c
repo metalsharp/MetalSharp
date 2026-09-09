@@ -3212,8 +3212,19 @@ done:
     free(reg_file);
 }
 
+static void write_steam_install_stage(const char* home, const char* stage) {
+    char* path = join(home, ".steam-install-stage");
+    FILE* file = path ? fopen(path, "wb") : NULL;
+    if (file) {
+        fprintf(file, "%s\n", stage);
+        fclose(file);
+    }
+    free(path);
+}
+
 static void steam_install_worker(const char* home, const char* lock_path, const char* installer) {
     FILE* owner = fopen(lock_path, "wb");
+    bool completed = false;
     pid_t pid;
     int wait_status = 0;
     char* wine_error;
@@ -3228,6 +3239,7 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
     }
     if (prefix)
         (void)remove_tree(prefix);
+    write_steam_install_stage(home, "downloading");
     unlink(installer);
     pid = fork();
     if (pid < 0)
@@ -3243,6 +3255,7 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
         goto done;
     /* A first Wine invocation initializes a fresh prefix automatically. Running
      * wineboot --init here also explicitly starts a second service manager. */
+    write_steam_install_stage(home, "creating-steam-prefix");
     wine_error = spawn_wine_install(home, "cmd", "/c", "exit 0", &pid);
     if (wine_error) {
         free(wine_error);
@@ -3256,6 +3269,7 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
         sleep(2);
     if (access(windows_dir, F_OK) != 0)
         goto done;
+    write_steam_install_stage(home, "installing-steam");
     wine_error = spawn_wine_install(home, installer, NULL, NULL, &pid);
     if (wine_error) {
         free(wine_error);
@@ -3274,8 +3288,12 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
     }
     if (!steam_install_complete(steam_dir))
         goto done;
+    completed = true;
+    write_steam_install_stage(home, "complete");
     terminate_wine_steam_session(home);
 done:
+    if (!completed)
+        write_steam_install_stage(home, "failed");
     free(prefix);
     free(windows_dir);
     free(steam_dir);

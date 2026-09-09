@@ -21,6 +21,7 @@ const installLogs = ref<{ text: string; cls: string }[]>([]);
 const steamInstalled = ref(false);
 const steamChecking = ref(false);
 const steamInstalling = ref(false);
+const steamInstallStage = ref("idle");
 const installingSteam = ref(false);
 const brewChecking = ref(true);
 const brewInstalled = ref(false);
@@ -157,9 +158,25 @@ async function goToVcppStep() {
   }
 }
 
+function steamInstallLabel() {
+  switch (steamInstallStage.value) {
+    case "downloading":
+      return "Downloading Steam...";
+    case "creating-steam-prefix":
+      return "Creating Steam prefix...";
+    case "installing-steam":
+      return "Installing Steam...";
+    case "failed":
+      return "Retry Steam installation";
+    default:
+      return steamInstalling.value ? "Preparing Steam..." : "Install Steam";
+  }
+}
+
 async function installSteam() {
   steamInstalled.value = false;
   steamInstalling.value = true;
+  steamInstallStage.value = "downloading";
   const result = await api<{ ok: boolean; error?: string }>("POST", "/steam/install");
   if (!result?.ok) {
     toast.show(result?.error ?? "Failed to install Steam", "error");
@@ -167,16 +184,26 @@ async function installSteam() {
     return;
   }
   const poll = setInterval(async () => {
-    const s = await api<{ installed: boolean; running: boolean; installing?: boolean }>("GET", "/steam/status");
+    const s = await api<{
+      installed: boolean;
+      running: boolean;
+      installing?: boolean;
+      install_stage?: string;
+    }>("GET", "/steam/status");
+    if (s?.install_stage) steamInstallStage.value = s.install_stage;
     if (s?.installed && !s?.installing) {
       clearInterval(poll);
       steamInstalled.value = true;
       steamInstalling.value = false;
+      steamInstallStage.value = "complete";
     }
-  }, 3000);
+  }, 1000);
   setTimeout(() => {
     clearInterval(poll);
-    steamInstalling.value = false;
+    if (!steamInstalled.value) {
+      steamInstalling.value = false;
+      steamInstallStage.value = "failed";
+    }
   }, 300000);
 }
 
@@ -368,8 +395,14 @@ async function installVcppX86() {
           <p>Install Windows Steam to download and play games through MetalSharp's Wine runtime.</p>
           <span v-if="steamInstalled" class="badge badge-ok" style="font-size:13px;padding:10px 20px;">Steam installed</span>
           <button v-else class="btn btn-primary" :disabled="steamInstalling" @click="installSteam">
-            {{ steamInstalling ? "Installing Steam..." : "Install Steam" }}
+            {{ steamInstallLabel() }}
           </button>
+          <div v-if="steamInstalling || steamInstallStage === 'failed'" class="setup-steam-install-status">
+            {{ steamInstallStage === 'downloading' ? 'Downloading Steam installer...' :
+              steamInstallStage === 'creating-steam-prefix' ? 'Creating the Wine Steam prefix...' :
+              steamInstallStage === 'installing-steam' ? 'Steam installer is running...' :
+              'Steam installation did not complete. You can retry.' }}
+          </div>
         </div>
 
         <div class="setup-actions">
