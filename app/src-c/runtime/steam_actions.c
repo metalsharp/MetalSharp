@@ -594,6 +594,8 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-d3d10");
     else if (id == 17300 && !strcmp(pipeline, "m10"))
         append_launch_arg(argv, count, max, "-dx10");
+    else if (id == 2357570 && !strcmp(pipeline, "m11"))
+        append_launch_arg(argv, count, max, "-d3d11");
 
     if (id == 1196590 || id == 1623730 || id == 1928870 || id == 2358720 || id == 2456740) {
         if (!strcmp(pipeline, "m12")) {
