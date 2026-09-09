@@ -1,12 +1,13 @@
 # DXMT and Vulkan Architecture
-**Updated:** 2026-07-28
+**Updated:** 2026-09-08
 
 
-MetalSharp has two graphics translation families:
+MetalSharp separates its graphics translation families:
 
 - **DXMT launch family**: M9/M10/M11/M12 to Metal
 - **DXMT 32Bit Launch Family**: M10(32)/M11(32) to Metal 
 - **DXVK + MoltenVK**: VKD3D D3D12/11/10/9 Via MoltenVk -> Metal
+- **D3DMetal**: managed GPTK 4 beta 2 payload, using MetalSharp Wine 11.17 and the shared Steam prefix
 
 ## Pipeline Map
 
@@ -17,11 +18,13 @@ MetalSharp has two graphics translation families:
 | **M11** | D3D11 -> DXMT -> Metal |
 | **M10** | D3D10 -> DXMT -> Metal |
 | **M9** | D3D9 -> MetalSharp D3D9 -> DXMT launch family -> Metal |
-| **D3DMetal** | Homebrew Gptk D3D12/11 -> Metal |
+| **D3DMetal** | GPTK 4 beta 2 D3D12/11 -> Metal; separate from DXMT and VKD3D |
 
 ## DXMT
 
 _The DXMT launch family is used by M12, M11, M10, and M9_
+
+The managed baseline is DXMT v0.80. The isolated M12 payload remains separate; upstream v0.80 alone is not a substitute for MetalSharp's complete M12 runtime. See [Runtime Bundles and Steam Routing](../runtime/runtime-bundles-and-steam-routing.md).
 
 DXMT-family DLLs:
 

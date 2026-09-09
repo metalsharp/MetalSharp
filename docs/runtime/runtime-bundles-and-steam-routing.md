@@ -1,5 +1,5 @@
 # Runtime Bundles and Steam Routing
-**Updated:** 2026-07-08
+**Updated:** 2026-09-08
 
 
 This is the operational contract for bundle provenance and Wine Steam launch routing.
@@ -8,7 +8,7 @@ This is the operational contract for bundle provenance and Wine Steam launch rou
 
 Runtime assets are downloaded from the `bundles` GitHub release into `app/bundles/` during app packaging and into `~/.metalsharp/cache/bundles/` during installer fallback downloads.
 
-The manifest-tracked assets are listed in `tools/bundles/asset-manifest.tsv`. The verifier checks that each tarball exists and contains the expected baby-named root.
+The manifest-tracked assets are listed in `tools/bundles/asset-manifest.tsv`. The verifier checks archive roots, required files, and lane-specific hash contracts. Release staging also verifies downloaded archive bytes against the published bundle manifest; replacing an asset requires updating that manifest, not bypassing checks.
 
 Current split bundle roots:
 
@@ -16,8 +16,8 @@ Current split bundle roots:
 |---|---|
 | `metalsharp-electron.tar.zst` | Contains `electron/`, the built Electron application payload. |
 | `metalsharp-graphics-dll.tar.zst` | Contains `Graphics/dll/`, the legacy DXMT D3D9/D3D10/D3D11 surface and the isolated M12 D3D12 surface. |
-| `metalsharp-runtime.tar.zst` | Contains `runtime/`, base Wine 11.5, host ABI, and backend executable. |
-| `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, GPTK, DXVK, Goldberg, EAC toggle, shims, and runtime support assets. |
+| `metalsharp-runtime.tar.zst` | Contains `runtime/`, the patched Wine 11.17 runtime, host ABI, and managed runtime payloads including D3DMetal. |
+| `metalsharp-assets.tar.zst` | Contains `assets/`, Mono, Goldberg, EAC toggle, shims, and compatibility/runtime support assets. |
 | `metalsharp-scripts-tools.tar.zst` | Contains `scripts/tools/`, updater scripts, configs, native tools, and CEF helpers. |
 | `metalsharp-steam.tar.zst` | Contains `steam/`, the Steam installer and Steam CEF wrapper assets. |
 | `metalsharp-d3d12-developer-sdk.tar.zst` | Contains `developer-sdk/d3d12/`, the D3D12 contracts, probes, scripts, docs, staged developer Wine runtime, DXMT DLLs, Winemetal bridge files, and runtime provenance manifest. |
@@ -37,15 +37,15 @@ The installer consumes the split runtime tarballs by root name. `metalsharp-grap
 The graphics bundle has two runtime surfaces:
 
 ```text
-Graphics/dll/dxmt/      -> legacy DXMT payload for M9, M10, and M11
-Graphics/dll/dxmt-m12/  -> updated D3D12/DXGI/winemetal payload for M12 only
+Graphics/dll/dxmt/      -> DXMT v0.80 baseline and retained compatibility payloads
+Graphics/dll/dxmt-m12/  -> isolated D3D12/DXGI/winemetal payload for M12
 ```
 
 After install those surfaces live under:
 
 ```text
 ~/.metalsharp/runtime/wine/lib/dxmt/
-~/.metalsharp/runtime/wine/lib/dxmt-m12/
+~/.metalsharp/runtime/wine/lib/dxmt_m12/
 ```
 
 Installed DXMT runtime state is recorded in:
@@ -54,7 +54,11 @@ Installed DXMT runtime state is recorded in:
 ~/.metalsharp/runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json
 ```
 
-Do not trust a runtime by version string alone. Check the manifest, required DLLs, the `dxmt-m12` sidecars, and source archive hash when diagnosing deployment drift.
+Both installed lanes have `metalsharp-dxmt-runtime.json` metadata using schema `metalsharp.dxmt-runtime.v2`; for app 0.65.0 the baseline version is `0.65.0-dxmt-v0.80-baseline-v1`. Migration must accept the same version that setup writes, not the retired M12 manifest suffix.
+
+Do not trust Wine or DXMT version strings alone. Check required files, both lane manifests, and the M12/DXVK/VKD3D/MoltenVK hash contracts when diagnosing deployment drift. The bundled backend is packaged separately at `Contents/Resources/runtime/metalsharp-backend`.
+
+D3DMetal uses `~/.metalsharp/runtime/d3dmetal-gptk4-beta2/` with the same Wine 11.17 host and Steam prefix, not a Homebrew-owned runtime. See [Wine Architecture](wine-architecture.md#d3dmetal).
 
 ## Steam Launch Route
 
@@ -64,7 +68,7 @@ The app launches Wine Steam through:
 Renderer button -> POST /steam/launch -> steam::launch_wine_steam()
 ```
 
-Game launches that need an explicit public route use M12/M11/M10/M9/Mono-FNA route IDs. Raw `dxmt` remains an internal auto-router and legacy compatibility value.
+Game launches that need an explicit public route use M12/M11/M10/M9/VKD3D/D3DMetal/Mono-FNA route IDs. Raw `dxmt` remains an internal auto-router and legacy compatibility value.
 
 ```text
 Renderer Play -> POST /steam/launch-game {"launchMethod":"m12"} -> prepare_steam_pipeline_env() -> direct game launch with Wine Steam alive in the background

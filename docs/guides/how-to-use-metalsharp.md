@@ -1,5 +1,5 @@
 # How to Use MetalSharp
-**Updated:** 2026-07-08
+**Updated:** 2026-09-08
 
 
 ## Install
@@ -24,11 +24,15 @@ Click **Play** from the Library page. Use the launch mode dropdown when you want
 | M10 | D3D10 to Metal |
 | M9 | D3D9 through the DXMT launch/cache family |
 | Mono/FNA | Windows XNA/FNA games through MetalSharp's native Mono runtime, staged FNA/XNA assemblies, native dylibs, FMOD/FAudio/FNA3D shims, and Steamworks shim support |
-| D3DMetal | Apple Game Porting Toolkit via Homebrew, using a shared GPTK prefix and Homebrew-matched D3DMetal route DLLs |
+| D3DMetal | Managed GPTK 4 beta 2 payload with MetalSharp Wine 11.17, using the shared Wine Steam prefix and game-local D3DMetal DLLs |
 
 ### Goldberg Steam Emulator
 
-The Goldberg toggle enables offline play for supported games without Wine Steam running. Toggle it on from the game card — MetalSharp saves the original Steam DLLs as `.orig` and deploys the emulator with the correct appid. Toggle off to restore the originals. Must use for D3DMetal Bottles. 
+The Goldberg toggle enables offline play for supported games without Wine Steam running. Toggle it on from the game card — MetalSharp saves the original Steam DLLs as `.orig` and deploys the emulator with the correct appid. Toggle off to restore the originals. Goldberg is not a requirement of the D3DMetal route: normal D3DMetal Steam launches use the Steam-aware direct launcher. Offline requirements remain game-specific.
+
+### D3DMetal
+
+Select D3DMetal in the game's bottle workspace and save the route. Saving a resolved game stages the matched DLLs; Play refreshes them again. The current UI shows a single D3DMetal readiness indicator, not the old Homebrew installation, Repair Redist, or Seed Prefix sequence. Start Wine Steam and sign in for normal Steam-backed play. See [Wine Architecture](../runtime/wine-architecture.md#d3dmetal) for paths and troubleshooting.
 
 ## Sharp Library
 

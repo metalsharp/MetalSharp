@@ -1,5 +1,5 @@
 # Launch Architecture
-**Updated:** 2026-07-08
+**Updated:** 2026-09-08
 
 
 MetalSharp launches games through the C backend and the current MTSP pipeline resolver.
@@ -29,4 +29,6 @@ Play clicked
 | **M10** | DXMT | Direct Wine launch with legacy `dxmt` D3D10/D3D10core/DXGI DLLs |
 | **M9** | DXMT launch family | Direct Wine launch with bundled `d3d9.dll` and DXMT-family cache/env |
 | **Mono/FNA** | Native Mono | Native FNA/XNA/Mono runtime with FNA/XNA assemblies, native dylib staging, FMOD/FAudio/FNA3D shims, and Steamworks shim support |
-| **D3DMetal** | Homebrew GPTK | Direct GPTK Wine launch with Homebrew D3DMetal framework and prefix-seeded Homebrew route DLLs |
+| **D3DMetal** | Managed GPTK 4 beta 2 | Steam-aware direct launch through MetalSharp Wine 11.17, with game-local D3DMetal DLLs and `prefix-steam` |
+
+D3DMetal uses the same managed Wine runtime as the other Wine-backed Steam routes, not a separate Homebrew Wine installation. Its launcher supplies `SteamAppId`/`SteamGameId`, the payload root in `D3DMETAL_RUNTIME_DIR`, and the framework executable in `D3DMETAL_FRAMEWORK_PATH`. M12 remains a separate DXMT route, not an alias for D3DMetal or VKD3D. See [Wine Architecture](../runtime/wine-architecture.md#d3dmetal).

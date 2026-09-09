@@ -1,5 +1,5 @@
 # MetalSharp Docs
-**Updated:** 2026-07-08
+**Updated:** 2026-09-08
 
 
 Use this page as the repo map before changing launch/runtime code.
@@ -9,7 +9,6 @@ Use this page as the repo map before changing launch/runtime code.
 - [How to Use MetalSharp](guides/how-to-use-metalsharp.md) - install, launch, diagnose, and update flow.
 - [Install from Source](guides/install-from-source.md) - build MetalSharp from source without the DMG.
 - [How to Build MetalSharp Wine](guides/how-to-build-metalsharp-wine.md) - Wine 11.17 source prerequisites, tools, dependencies, and WoW64 build commands.
-- [GPTK (D3DMetal) Guide](guides/gptk-guide.md) - Homebrew GPTK setup, D3DMetal bottle actions, prefix seeding, and troubleshooting.
 
 ## Compatibility
 
@@ -20,7 +19,7 @@ Use this page as the repo map before changing launch/runtime code.
 
 - [Runtime Bundles and Steam Routing](runtime/runtime-bundles-and-steam-routing.md) - bundle provenance, wrapper deployment, and the correct Wine Steam route.
 - [Mono Runtime Lanes](runtime/mono-runtime-lanes.md) - Mono/FNA/XNA route boundaries and native Mono lane details.
-- [Wine Architecture](runtime/wine-architecture.md) - Wine prefix/runtime layout and wrapper behavior.
+- [Wine Architecture](runtime/wine-architecture.md) - Wine 11.17, shared Steam prefixes, bundled D3DMetal, and wrapper behavior.
 - [Launcher Runtime](runtime/launcher-runtime.md) - Sharp Library launcher and CEF/WebView runtime handling.
 - [Compatdata Architecture](runtime/compatdata-architecture.md) - Steam game compatdata ownership.
 - [Host Runtime ABI](runtime/host-runtime-abi.md) - host shim ABI boundaries.
@@ -69,7 +68,7 @@ See [archive README](archive/README.md) for the full list. Do not cite archived 
 
 - Release assets live on the [`bundles` GitHub release](https://github.com/aaf2tbz/metalsharp/releases/tag/bundles).
 - Manifest-tracked hashes live in [tools/bundles/asset-manifest.tsv](../tools/bundles/asset-manifest.tsv).
-- GPTK/D3DMetal is not a MetalSharp bundle asset. D3DMetal uses Homebrew GPTK at `/Applications/Game Porting Toolkit.app` and seeds matched route DLLs into `~/.metalsharp/prefix-gptk` when a D3DMetal bottle is prepared.
+- D3DMetal uses the managed GPTK 4 beta 2 payload at `~/.metalsharp/runtime/d3dmetal-gptk4-beta2/` with MetalSharp Wine 11.17. It does not require a Homebrew GPTK app or a separate GPTK prefix. See [Wine Architecture](runtime/wine-architecture.md#d3dmetal).
 - Verify local and remote bundle state with:
 
 ```bash

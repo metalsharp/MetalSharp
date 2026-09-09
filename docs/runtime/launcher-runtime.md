@@ -33,7 +33,7 @@ The Sharp Library **Epic** tab is the supported game-download path when the Wind
 - Installed games require an explicit **Initialize Bottle** action before first launch. Each title owns `~/.metalsharp/bottles/epic_<appName>/prefix` plus a managed manifest recording its selected pipeline and mouse mode. **No Recenter** is the default; **Mouse Auto** restores Wine cursor warping for games that need relative capture.
 - Pipeline and mouse selectors remain beside Play/Uninstall like the GOG library. Launches inherit the selected MetalSharp graphics backend, and supervision waits on the prefix's real Wineserver. Stop, the card close action, and **Cmd+Opt+Q** terminate the isolated Epic Wineserver. Uninstall removes Legendary's registered game files and that title's bottle.
 - Epic account data, the cached catalog, configured game location, per-game bottle manifests, and each Epic bottle's registry/user settings are explicitly preserved and restored by runtime migration.
-- MetalSharp does not use or redistribute CrossOver code or binaries for this path. The unsupported Windows Epic Launcher card and its legacy `Epic-Games-Prefix` have been removed.
+- This download/authentication path uses native Legendary rather than the Windows Epic Launcher. The unsupported Windows Epic Launcher card and its legacy `Epic-Games-Prefix` have been removed.
 
 Backend routes are `GET /sharp-library/epic/status`, `GET /sharp-library/epic/games`, and POST actions for `install-tool`, `auth`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, and `uninstall`.
 
