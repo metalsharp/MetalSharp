@@ -35,6 +35,8 @@ int main(int argc, char** argv) {
     assert(!strcmp(overwatch_args[1], "-d3d11"));
     assert(!strcmp(overwatch_args[2], "-steam"));
     assert(steam_launch_model_app(2357570));
+    assert(use_legacy_dxmt_native_modules(2357570, "m11"));
+    assert(!use_legacy_dxmt_native_modules(2357570, "d3dmetal"));
     overwatch_argc = 0;
     build_launch_args(2357570, "d3dmetal", overwatch_args, &overwatch_argc, 8);
     assert(overwatch_argc == 0);
