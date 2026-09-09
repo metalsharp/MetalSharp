@@ -86,7 +86,7 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 - [Install from Source](docs/guides/install-from-source.md)
 - [How to Use MetalSharp](docs/guides/how-to-use-metalsharp.md)
-- [GPTK (D3DMetal) Guide](docs/guides/gptk-guide.md)
+- [D3DMetal Runtime](docs/runtime/wine-architecture.md#d3dmetal)
 - [Game Compatibility](docs/compatibility/GAMES-SUPPORTED.md)
 - [Launch Architecture](docs/architecture/launch-architecture.md)
 - [Docs Map](docs/README.md)
