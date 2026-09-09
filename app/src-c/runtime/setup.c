@@ -320,24 +320,96 @@ static bool extract_bundle_archive(const char* home, const char* archive) {
 }
 
 /* Runtime archives downloaded through a quarantined app or browser can cause
- * macOS to propagate com.apple.quarantine onto Wine executables. Extract
- * through a clean temporary tree before copying runtime files; clear the same
- * inherited attribute here so metalsharp-wine --version is executable too. */
-static void clear_runtime_quarantine(const char* home) {
+ * macOS to propagate execution-blocking metadata onto Wine executables. Clear
+ * all runtime xattrs after extraction; the runtime is a locally unpacked,
+ * ad-hoc-signed payload and does not need archive provenance attributes. */
+static bool clear_runtime_quarantine(const char* home) {
     char* runtime = join_path(home, "runtime");
     pid_t pid;
     int wait_status;
+    bool ok = false;
     if (!runtime)
-        return;
+        return false;
     pid = fork();
     if (pid == 0) {
-        execl("/usr/bin/xattr", "xattr", "-dr", "com.apple.quarantine", runtime, (char*)NULL);
+        execl("/usr/bin/xattr", "xattr", "-cr", runtime, (char*)NULL);
         _exit(127);
     }
+    if (pid > 0) {
+        while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+        }
+        ok = WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
+    }
+    free(runtime);
+    return ok;
+}
+
+static bool normalize_runtime_executables(const char* home) {
+    static const char* const paths[] = {
+        "runtime/wine/bin/metalsharp-wine",
+        "runtime/wine/bin/wine",
+        "runtime/wine/bin/wineserver",
+        "runtime/metalsharp-backend",
+    };
+    bool ok = true;
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        char* path = join_path(home, paths[i]);
+        struct stat info;
+        if (!path || stat(path, &info) != 0 || !S_ISREG(info.st_mode) || chmod(path, info.st_mode | S_IXUSR) != 0)
+            ok = false;
+        free(path);
+    }
+    return ok;
+}
+
+static bool validate_wine_runtime(const char* home, const char* wine) {
+    char* logs = join_path(home, "logs");
+    char* logpath = logs ? join_path(logs, "setup-wine-version.log") : NULL;
+    FILE* log;
+    pid_t pid;
+    int wait_status = 0;
+    bool ok = false;
+    if (!logs || !logpath || !mkdir_p(logs) || !(log = fopen(logpath, "wb"))) {
+        free(logs);
+        free(logpath);
+        return false;
+    }
+    fprintf(log, "wine=%s\nhome=%s\n", wine, home);
+    fflush(log);
+    pid = fork();
+    if (pid == 0) {
+        char* args[] = {(char*)wine, (char*)"--version", NULL};
+        char* prefix = join_path(home, "prefix-steam");
+        setenv("METALSHARP_HOME", home, 1);
+        if (prefix)
+            setenv("WINEPREFIX", prefix, 1);
+        setenv("WINEDEBUG", "-all", 1);
+        setenv("WINEDEBUGGER", "none", 1);
+        dup2(fileno(log), STDOUT_FILENO);
+        dup2(fileno(log), STDERR_FILENO);
+        execv(wine, args);
+        dprintf(STDERR_FILENO, "execv failed: %s\n", strerror(errno));
+        free(prefix);
+        _exit(127);
+    }
+    fclose(log);
     if (pid > 0)
         while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
         }
-    free(runtime);
+    log = fopen(logpath, "ab");
+    if (log) {
+        if (pid < 0)
+            fprintf(log, "fork failed: %s\\n", strerror(errno));
+        else if (WIFEXITED(wait_status))
+            fprintf(log, "exit_status=%d\n", WEXITSTATUS(wait_status));
+        else if (WIFSIGNALED(wait_status))
+            fprintf(log, "signal=%d\n", WTERMSIG(wait_status));
+        fclose(log);
+    }
+    ok = pid > 0 && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
+    free(logs);
+    free(logpath);
+    return ok;
 }
 
 static bool download_bundle_archive(const char* home, const char* name) {
@@ -1706,7 +1778,12 @@ static void run_install_all_worker(const char* home) {
         free(existing_wine);
         free(existing_host);
     }
-    clear_runtime_quarantine(home);
+    (void)clear_runtime_quarantine(home);
+    if (!normalize_runtime_executables(home)) {
+        write_install_progress(home, 6, total, "Runtime Assets", "error", "Runtime executables are not runnable",
+                               "could not restore executable permissions");
+        _exit(0);
+    }
     write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
     const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
                                    "runtime/metalsharp-backend",
@@ -1722,25 +1799,12 @@ static void run_install_all_worker(const char* home) {
         free(host);
         _exit(0);
     }
-    {
-        pid_t wine_pid = fork();
-        int wine_status = 0;
-        if (wine_pid == 0) {
-            execl(wine, wine, "--version", (char*)NULL);
-            _exit(127);
-        }
-        if (wine_pid < 0)
-            wine_status = -1;
-        else
-            while (waitpid(wine_pid, &wine_status, 0) < 0 && errno == EINTR) {
-            }
-        if (wine_pid < 0 || !WIFEXITED(wine_status) || WEXITSTATUS(wine_status) != 0) {
-            write_install_progress(home, 6, total, "Runtime Assets", "error", "Wine runtime validation failed",
-                                   "metalsharp-wine --version failed");
-            free(wine);
-            free(host);
-            _exit(0);
-        }
+    if (!validate_wine_runtime(home, wine)) {
+        write_install_progress(home, 6, total, "Runtime Assets", "error", "Wine runtime validation failed",
+                               "see logs/setup-wine-version.log for the command output and exit status");
+        free(wine);
+        free(host);
+        _exit(0);
     }
     free(wine);
     free(host);
