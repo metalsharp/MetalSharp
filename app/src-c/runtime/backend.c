@@ -769,6 +769,14 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steam/ensure-launch-ready") == 0) {
+        int status = 500;
+        body = ms_steam_ensure_launch_ready_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/steam/status") == 0) {
         body = ms_steam_status_json(context->metalsharp_home);
         if (body == NULL)

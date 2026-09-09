@@ -3116,6 +3116,63 @@ static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
         deploy_steamwebhelper_wrapper(home, steam_dir);
 }
 
+static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
+    char* cef_root = steam_dir ? join(steam_dir, "bin/cef") : NULL;
+    DIR* dir = cef_root ? opendir(cef_root) : NULL;
+    struct dirent* entry;
+    bool found = false;
+    bool ready = true;
+    if (!dir) {
+        free(cef_root);
+        return false;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+        char* cef_dir;
+        char* wrapper;
+        if (strncmp(entry->d_name, "cef.", 4) != 0)
+            continue;
+        cef_dir = join(cef_root, entry->d_name);
+        wrapper = cef_dir ? join(cef_dir, "steamwebhelper.exe") : NULL;
+        found = true;
+        if (!steamwebhelper_wrapper_valid(wrapper))
+            ready = false;
+        free(cef_dir);
+        free(wrapper);
+    }
+    closedir(dir);
+    free(cef_root);
+    return found && ready;
+}
+
+char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
+    char* steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+    ms_json_writer writer;
+    bool ready;
+    if (status)
+        *status = 500;
+    if (!steam_dir || access(steam_dir, R_OK) != 0) {
+        free(steam_dir);
+        return err("Wine Steam is not installed yet");
+    }
+    ensure_steam_launch_ready(home, steam_dir);
+    ready = steamwebhelper_wrappers_ready(steam_dir);
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, ready);
+    ms_json_writer_key(&writer, "wrappers_ready");
+    ms_json_writer_bool(&writer, ready);
+    if (!ready) {
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, "Steam webhelper wrapper deployment failed");
+    }
+    ms_json_writer_object_end(&writer);
+    free(steam_dir);
+    if (status)
+        *status = ready ? 200 : 500;
+    return ms_json_writer_take(&writer);
+}
+
 static void seed_steam_d3d12_guard(const char* home, const char* steam_dir) {
     char* prefix = join(home, "prefix-steam");
     char* drive_c = prefix ? join(prefix, "drive_c") : NULL;
@@ -3155,8 +3212,19 @@ done:
     free(reg_file);
 }
 
+static void write_steam_install_stage(const char* home, const char* stage) {
+    char* path = join(home, ".steam-install-stage");
+    FILE* file = path ? fopen(path, "wb") : NULL;
+    if (file) {
+        fprintf(file, "%s\n", stage);
+        fclose(file);
+    }
+    free(path);
+}
+
 static void steam_install_worker(const char* home, const char* lock_path, const char* installer) {
     FILE* owner = fopen(lock_path, "wb");
+    bool completed = false;
     pid_t pid;
     int wait_status = 0;
     char* wine_error;
@@ -3171,6 +3239,7 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
     }
     if (prefix)
         (void)remove_tree(prefix);
+    write_steam_install_stage(home, "downloading");
     unlink(installer);
     pid = fork();
     if (pid < 0)
@@ -3186,6 +3255,7 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
         goto done;
     /* A first Wine invocation initializes a fresh prefix automatically. Running
      * wineboot --init here also explicitly starts a second service manager. */
+    write_steam_install_stage(home, "creating-steam-prefix");
     wine_error = spawn_wine_install(home, "cmd", "/c", "exit 0", &pid);
     if (wine_error) {
         free(wine_error);
@@ -3199,6 +3269,7 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
         sleep(2);
     if (access(windows_dir, F_OK) != 0)
         goto done;
+    write_steam_install_stage(home, "installing-steam");
     wine_error = spawn_wine_install(home, installer, NULL, NULL, &pid);
     if (wine_error) {
         free(wine_error);
@@ -3217,8 +3288,12 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
     }
     if (!steam_install_complete(steam_dir))
         goto done;
+    completed = true;
+    write_steam_install_stage(home, "complete");
     terminate_wine_steam_session(home);
 done:
+    if (!completed)
+        write_steam_install_stage(home, "failed");
     free(prefix);
     free(windows_dir);
     free(steam_dir);
