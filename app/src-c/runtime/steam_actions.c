@@ -250,6 +250,14 @@ static const char* pipeline_backend(const char* pipeline) {
     return "dxmt";
 }
 
+static bool use_legacy_dxmt_native_modules(unsigned id, const char* pipeline) {
+    /* Wine 11.5's M11 path loaded the staged DXMT PE DLLs natively. The
+     * current Wine loader intentionally promotes DXMT names to builtins;
+     * Overwatch's loader is sensitive to that change, so preserve the old
+     * contract for this app while keeping the modern route everywhere else. */
+    return id == 2357570 && pipeline && !strcmp(pipeline, "m11");
+}
+
 static const char* pipeline_overrides(const char* pipeline) {
     if (!strcmp(pipeline, "m12"))
         return "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
@@ -3684,6 +3692,11 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         setenv("SteamGameId", app_id, 1);
         setenv("SteamOverlayGameId", app_id, 1);
         set_route_paths(home, pipeline);
+        if (use_legacy_dxmt_native_modules(id, pipeline)) {
+            unsetenv("DXMT_RUNTIME_DIR");
+            unsetenv("DXMT_WINEMETAL_UNIXLIB");
+            setenv("GRAPHICS_BACKEND", "wine", 1);
+        }
         set_route_default_env(pipeline);
         set_launch_cache_env(home, id, pipeline);
         if (id == 2357570) {
@@ -3704,7 +3717,10 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
                 dprintf(STDERR_FILENO, "pipeline=%s\\nexecutable=%s\\n", pipeline, executable);
             }
         }
-        if (pipeline_overrides(pipeline))
+        if (use_legacy_dxmt_native_modules(id, pipeline))
+            setenv("WINEDLLOVERRIDES", "winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d",
+                   1);
+        else if (pipeline_overrides(pipeline))
             setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         else
             unsetenv("WINEDLLOVERRIDES");
