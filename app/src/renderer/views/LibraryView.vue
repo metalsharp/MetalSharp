@@ -401,6 +401,7 @@ watch([library, search, filter], () => {
 <template>
   <div class="library-view">
     <div class="library-header glass-header">
+      <div class="library-drag-strip" aria-hidden="true"></div>
       <div class="library-title-row">
         <div>
           <h1>Library</h1>
@@ -494,7 +495,6 @@ watch([library, search, filter], () => {
   padding: 44px 28px 14px;
   min-width: 0;
   border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
   position: relative;
   overflow: hidden;
 }
@@ -503,16 +503,18 @@ watch([library, search, filter], () => {
   margin: 0 -28px;
   padding: 20px 28px 32px;
 }
-.library-header::after {
-  content: "";
+/* Native drag rectangles must never overlap the control row. Do not put
+   app-region: drag on the header ancestor or a full-header decoration. */
+.library-drag-strip {
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
-    radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
-  pointer-events: none;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  -webkit-app-region: drag;
 }
 .library-title-row {
+  -webkit-app-region: drag;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, auto);
   align-items: flex-start;
@@ -581,6 +583,7 @@ watch([library, search, filter], () => {
   min-width: 0;
 }
 .library-control-button {
+  -webkit-app-region: no-drag;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
