@@ -3686,6 +3686,20 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         set_route_paths(home, pipeline);
         set_route_default_env(pipeline);
         set_launch_cache_env(home, id, pipeline);
+        if (id == 2357570) {
+            char diagnostic_path[PATH_MAX];
+            int diagnostic_fd;
+            snprintf(diagnostic_path, sizeof(diagnostic_path), "%s/logs/%s/%u/launch.stderr.log", home, pipeline, id);
+            diagnostic_fd = open(diagnostic_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (diagnostic_fd >= 0) {
+                setenv("WINEDEBUG", "err-all", 1);
+                (void)dup2(diagnostic_fd, STDERR_FILENO);
+                (void)dup2(diagnostic_fd, STDOUT_FILENO);
+                close(diagnostic_fd);
+                dprintf(STDERR_FILENO, "\\n--- MetalSharp Overwatch launch ---\\n");
+                dprintf(STDERR_FILENO, "pipeline=%s\\nexecutable=%s\\n", pipeline, executable);
+            }
+        }
         if (pipeline_overrides(pipeline))
             setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         else
@@ -3719,6 +3733,12 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         argv[argc++] = wine;
         argv[argc++] = exe_name;
         build_launch_args(id, pipeline, argv, &argc, sizeof(argv) / sizeof(argv[0]));
+        if (id == 2357570) {
+            dprintf(STDERR_FILENO, "command=");
+            for (size_t i = 0; i < argc; i++)
+                dprintf(STDERR_FILENO, "%s%s", i ? " " : "", argv[i]);
+            dprintf(STDERR_FILENO, "\\n");
+        }
         argv[argc] = NULL;
         execv(wine, argv);
         {
