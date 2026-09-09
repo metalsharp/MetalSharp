@@ -6,7 +6,7 @@
 **Run Windows games on MacOS Silicon.**
 
 <a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
-<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.61.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.61.0&style=for-the-badge" alt="Release"></a>
+<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.65.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.65.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-purple.svg?style=for-the-badge" alt="License"></a>
 <a href="https://discord.gg/qW5rUr4dH"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
@@ -15,7 +15,7 @@
 
 ---
 
-MetalSharp is an application designed to run Windows applications and Windows Steam games natively on Apple Silicon macOS. MetalSharp builds and includes its own custom Wine 11.5 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
+MetalSharp is an application designed to run Windows applications and Windows Steam games natively on Apple Silicon macOS. MetalSharp builds and includes its own custom Wine 11.17 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
 
 
 
@@ -51,7 +51,7 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 | **_M10(32)_** | D3D10 32Bit to Metal (DXMT) | |
 | **_M9_** | D3D9 To Metal, DXMT Overrides | |
 | **_Mono/FNA_** | Windows XNA/FNA via native Mono | |
-| **_D3DMetal_** | Apple Game Porting Toolkit via Homebrew. GPTK is not bundled; selecting a D3DMetal bottle installs/trusts Homebrew GPTK + Rosetta, then seeds the GPTK prefix with the game. | Optional upgrade to GPTK 3, Requires Steam-Emu to Play |
+| **_D3DMetal_** | D3D12/11/10 through the latest D3D Framework |
 
 ## Features
 
@@ -72,7 +72,7 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 - About 2 GB free space
 - Homebrew (installed by setup wizard)
 
-All other bundled assets, DLLs, and graphics backends are installed during the setup process. GPTK/D3DMetal is the exception: MetalSharp installs and uses Homebrew GPTK only when a D3DMetal bottle is saved.
+All other bundled assets, DLLs, and graphics backends are installed during the setup process.
 
 ## Developer Setup
 
