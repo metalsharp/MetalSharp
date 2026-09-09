@@ -3692,6 +3692,10 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             snprintf(diagnostic_path, sizeof(diagnostic_path), "%s/logs/%s/%u/launch.stderr.log", home, pipeline, id);
             diagnostic_fd = open(diagnostic_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
             if (diagnostic_fd >= 0) {
+                char dxmt_log_path[PATH_MAX];
+                snprintf(dxmt_log_path, sizeof(dxmt_log_path), "%s/logs/%s/%u/dxmt.log", home, pipeline, id);
+                setenv("DXMT_LOG_PATH", dxmt_log_path, 1);
+                setenv("DXMT_LOG_LEVEL", "trace", 1);
                 setenv("WINEDEBUG", "err-all,+loaddll,+module,+seh", 1);
                 (void)dup2(diagnostic_fd, STDERR_FILENO);
                 (void)dup2(diagnostic_fd, STDOUT_FILENO);
