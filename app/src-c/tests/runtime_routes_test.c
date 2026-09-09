@@ -30,9 +30,10 @@ int main(int argc, char** argv) {
     char* overwatch_args[8] = {NULL};
     size_t overwatch_argc = 0;
     build_launch_args(2357570, "m11", overwatch_args, &overwatch_argc, 8);
-    assert(overwatch_argc == 2);
-    assert(!strcmp(overwatch_args[0], "-d3d11"));
-    assert(!strcmp(overwatch_args[1], "-steam"));
+    assert(overwatch_argc == 3);
+    assert(!strcmp(overwatch_args[0], "-dx11"));
+    assert(!strcmp(overwatch_args[1], "-d3d11"));
+    assert(!strcmp(overwatch_args[2], "-steam"));
     assert(steam_launch_model_app(2357570));
     overwatch_argc = 0;
     build_launch_args(2357570, "d3dmetal", overwatch_args, &overwatch_argc, 8);
