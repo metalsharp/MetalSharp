@@ -190,9 +190,10 @@ async function finish() {
 
   const wrappers = await api<{ ok: boolean; error?: string }>("POST", "/steam/ensure-launch-ready");
   if (!wrappers?.ok) {
-    toast.show(wrappers?.error ?? "Failed to prepare Steam wrapper shims", "error");
-    finishing.value = false;
-    return;
+    toast.show(
+      wrappers?.error ?? "Steam wrapper shims could not be verified; MetalSharp will continue setup and retry before Steam launch.",
+      "error",
+    );
   }
 
   await api("POST", "/setup/save", { step: 2, deviceName: name, completed: true });
