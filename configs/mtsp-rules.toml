@@ -578,7 +578,7 @@ pipeline = "m9"
 name = "Half-Life 2"
 
 [overrides.440]
-pipeline = "m9"
+pipeline = "m11"
 name = "Team Fortress 2"
 
 [overrides.2552430]

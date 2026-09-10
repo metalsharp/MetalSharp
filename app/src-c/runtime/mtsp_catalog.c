@@ -70,7 +70,7 @@ static const char* const chunks[] = {
     "-unix\"],\"wine_overrides\":\"d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d\",\"winedllpath_dirs\":[\"lib/wine/x86_64-win",
     "dows\",\"lib/wine/i386-windows\",\"lib/dxmt/x86_64-windows\",\"lib/metalsharp/x86_64-windows\"]},\"name\":\"Half-Life Deathmatch: ",
     "Source\",\"offline_capable\":false},{\"appid\":440,\"check_dlls\":[],\"components\":[],\"custom_exe_fix\":false,\"default_pipeline\":",
-    "\"m9\",\"default_pipeline_name\":\"M9\",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[{\"arch\":\"64-bit\",\"dest_filename",
+    "\"m11\",\"default_pipeline_name\":\"M11\",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[{\"arch\":\"64-bit\",\"dest_filename",
     "\":null,\"filename\":\"d3d9.dll\",\"source_subpath\":\"lib/wine/x86_64-windows\"},{\"arch\":\"32-bit\",\"dest_filename\":null,\"filename",
     "\":\"d3d9.dll\",\"source_subpath\":\"lib/wine/i386-windows\"},{\"arch\":\"32-bit\",\"dest_filename\":null,\"filename\":\"dxgi.dll\",\"sour",
     "ce_subpath\":\"lib/wine/i386-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"nvapi64.dll\",\"source_subpath\":\"li",
