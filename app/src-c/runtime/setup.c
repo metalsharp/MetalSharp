@@ -1809,7 +1809,11 @@ static void run_install_all_worker(const char* home) {
                                    "runtime/wine/lib/wine/x86_64-unix/winemac.so",
                                    "runtime/wine/lib/wine/x86_64-unix/metalsharp-opengl.dylib",
                                    "runtime/wine/lib/wine/x86_64-windows/opengl32.dll",
-                                   "runtime/wine/lib/wine/i386-windows/opengl32.dll", "runtime/metalsharp-backend",
+                                   "runtime/wine/lib/wine/i386-windows/opengl32.dll",
+                                   "runtime/wine/share/mono/wine-mono-11.3.0/support/winemono-support.msi",
+                                   "runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86.dll",
+                                   "runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86_64.dll",
+                                   "runtime/metalsharp-backend",
                                    "runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll",
                                    "runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll"};
     char* wine = join_path(home, "runtime/wine/bin/metalsharp-wine");

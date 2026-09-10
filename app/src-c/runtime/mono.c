@@ -76,14 +76,14 @@ static char* mono_prefix(const char* home, const char* kind) {
 
 static char* mono_marker(const char* home, const char* kind) {
     char* prefix = mono_prefix(home, kind);
-    char* marker = prefix ? join(prefix, "drive_c/windows/mono/wine-mono-11.2.0") : NULL;
+    char* marker = prefix ? join(prefix, "drive_c/windows/mono/wine-mono-11.3.0") : NULL;
     free(prefix);
     return marker;
 }
 
 static char* mono_cache_path(const char* home) {
     char* cache = join(home, "cache/wine-mono");
-    char* path = cache ? join(cache, "wine-mono-11.2.0-x86.msi") : NULL;
+    char* path = cache ? join(cache, "wine-mono-11.3.0-x86.msi") : NULL;
     free(cache);
     return path;
 }
@@ -121,10 +121,10 @@ static char* status(const char* home, const char* kind) {
     ms_json_writer_key(&w, "prefixKind");
     ms_json_writer_string(&w, kind);
     ms_json_writer_key(&w, "latestVersion");
-    ms_json_writer_string(&w, "11.2.0");
+    ms_json_writer_string(&w, "11.3.0");
     ms_json_writer_key(&w, "installedVersion");
     if (installed)
-        ms_json_writer_string(&w, "11.2.0");
+        ms_json_writer_string(&w, "11.3.0");
     else
         ms_json_writer_null(&w);
     ms_json_writer_key(&w, "installed");
@@ -147,7 +147,7 @@ static char* status(const char* home, const char* kind) {
     ms_json_writer_key(&w, "logPath");
     ms_json_writer_null(&w);
     ms_json_writer_key(&w, "targetVersion");
-    ms_json_writer_string(&w, "11.2.0");
+    ms_json_writer_string(&w, "11.3.0");
     ms_json_writer_key(&w, "lastError");
     if (g_mono_error[0])
         ms_json_writer_string(&w, g_mono_error);
@@ -225,7 +225,7 @@ char* ms_mono_install_json(const char* home, const char* body, size_t len) {
             if (download_pid == 0) {
                 execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error",
                       "-o", cache,
-                      "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-11.2.0/wine-mono-11.2.0-x86.msi",
+                      "https://github.com/wine-mono/wine-mono/releases/download/wine-mono-11.3.0/wine-mono-11.3.0-x86.msi",
                       (char*)NULL);
                 _exit(127);
             }
