@@ -3132,6 +3132,7 @@ onUnmounted(() => {
 <template>
   <div class="sharp-view">
     <div class="sharp-header glass-header">
+      <div class="sharp-drag-strip" aria-hidden="true"></div>
       <div class="sharp-header-title">
         <h1>{{ headerTitle }}</h1>
         <p>{{ headerSubtitle }}</p>
@@ -5044,7 +5045,6 @@ onUnmounted(() => {
   margin: 0 -28px;
   padding: 44px 28px 14px;
   border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
   position: relative;
   z-index: 5;
 }
@@ -5061,6 +5061,17 @@ onUnmounted(() => {
     radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
     radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
   pointer-events: none;
+}
+.sharp-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  -webkit-app-region: drag;
+}
+.sharp-header-title {
+  -webkit-app-region: drag;
 }
 .sharp-header-controls {
   display: flex;

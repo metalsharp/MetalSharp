@@ -2617,6 +2617,9 @@ char* ms_steam_launch_json(const char* home, int* status) {
     ensure_steam_launch_ready(home, steam_dir);
     seed_steam_d3d12_guard(home, steam_dir);
     errtext = spawn_wine(home, steam, "-no-cef-sandbox", "-cef-single-process", "-noverifyfiles", "-no-dwrite", &pid);
+    if (!errtext)
+        for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
+            sleep(1);
     free(steam);
     free(ui);
     free(steam_dir);
@@ -2625,6 +2628,8 @@ char* ms_steam_launch_json(const char* home, int* status) {
         free(errtext);
         return o;
     }
+    if (!ms_steam_process_running(home))
+        return err("Wine Steam was started but did not become ready");
     if (status)
         *status = 200;
     return pid_result(pid, "pid", 0, false);
