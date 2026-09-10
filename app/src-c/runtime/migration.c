@@ -20,7 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "0.65.0"
+#define MIGRATION_VERSION "0.65.5"
 #define MIGRATION_SCHEMA  5
 
 static const char* const migration_payload_denies[] = {"steamapps",
@@ -1440,7 +1440,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.65.0\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.65.5\"}");
     free(p);
     return out;
 }
@@ -1448,7 +1448,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.65.0\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.65.5\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;
