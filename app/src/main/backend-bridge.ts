@@ -262,6 +262,7 @@ export class BackendBridge {
         ...process.env,
         PATH: shellPath,
         METALSHARP_HOMEBREW_INSTALLER: homebrewInstaller,
+        METALSHARP_CPU_TOPOLOGY_SOURCE: path.join(path.dirname(binPath), "shim-sources/wine/cpu_topology_interpose.c"),
         ...(fs.existsSync(bundleDir) ? { METALSHARP_BUNDLE_DIR: bundleDir } : {}),
         METALSHARP_PORT: String(this.port),
         ...(this.metalsharpHome ? { METALSHARP_HOME: this.metalsharpHome } : {}),

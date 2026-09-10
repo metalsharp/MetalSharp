@@ -127,6 +127,13 @@
         ]
       },
       {
+        "from": "../src/wine",
+        "to": "runtime/shim-sources/wine",
+        "filter": [
+          "cpu_topology_interpose.c"
+        ]
+      },
+      {
         "from": "updater",
         "to": "scripts/tools/updater"
       },

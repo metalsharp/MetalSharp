@@ -19,7 +19,10 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 #ifdef __APPLE__
+#include <CoreAudio/CoreAudio.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <libproc.h>
+#include <sys/sysctl.h>
 #endif
 #include <signal.h>
 #include <stdbool.h>
@@ -58,6 +61,41 @@ static char* find_steam_game_executable(const char* home, unsigned id, const cha
 static bool body_id(const char* body, size_t len, unsigned* id);
 static void string_field(ms_json_writer* writer, const char* key, const char* value);
 
+static void prewarm_background_music(void) {
+#ifdef __APPLE__
+    AudioDeviceID device = kAudioObjectUnknown;
+    CFStringRef uid = NULL;
+    UInt32 size = sizeof(device);
+    AudioObjectPropertyAddress address = {kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal,
+                                          kAudioObjectPropertyElementMain};
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size, &device) != noErr)
+        return;
+    address.mSelector = kAudioDevicePropertyDeviceUID;
+    size = sizeof(uid);
+    if (AudioObjectGetPropertyData(device, &address, 0, NULL, &size, &uid) != noErr || !uid)
+        return;
+    bool is_background_music = CFEqual(uid, CFSTR("BGMDevice"));
+    CFRelease(uid);
+    if (!is_background_music || access("/System/Library/Sounds/Funk.aiff", R_OK) != 0)
+        return;
+
+    pid_t child = fork();
+    if (child == 0) {
+        pid_t player = fork();
+        if (player == 0) {
+            execl("/usr/bin/afplay", "afplay", "-v", "0", "-r", "0.1", "/System/Library/Sounds/Funk.aiff", (char*)NULL);
+            _exit(127);
+        }
+        _exit(player < 0 ? 1 : 0);
+    }
+    if (child > 0) {
+        while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {
+        }
+        usleep(500000);
+    }
+#endif
+}
+
 static const char* controller_input_mode_for_home(const char* home) {
     char* configs = join(home, "configs");
     char* path = configs ? join(configs, "config.json") : NULL;
@@ -78,6 +116,26 @@ static const char* controller_input_mode_for_home(const char* home) {
     if (mode[0] == 'X' || mode[0] == 'D')
         mode[0] = (char)tolower((unsigned char)mode[0]);
     return mode;
+}
+
+static bool graphics_runtime_logs_enabled(const char* home) {
+    const char* env = getenv("METALSHARP_GRAPHICS_RUNTIME_LOGS");
+    char* path;
+    char* raw;
+    char error[96];
+    ms_json* json;
+    bool enabled = false;
+    if (env)
+        return !strcmp(env, "1") || !strcasecmp(env, "true") || !strcasecmp(env, "yes") || !strcasecmp(env, "on");
+    path = join(home, "configs/config.json");
+    raw = path ? read_bounded_file(path) : NULL;
+    json = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    if (json && !ms_json_as_bool(ms_json_object_get(json, "graphicsRuntimeLogs"), &enabled))
+        (void)ms_json_as_bool(ms_json_object_get(json, "graphics_runtime_logs"), &enabled);
+    free(path);
+    free(raw);
+    ms_json_free(json);
+    return enabled;
 }
 
 static void remove_input_shim_manifest(const char* game_dir) {
@@ -500,10 +558,27 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
         snprintf(log_path, sizeof(log_path), "%s/logs/%s/%u/", home, subdir, id);
         (void)ensure_directory(log_path);
     } else if (!strcmp(pipeline, "vkd3d")) {
+        char log_path[PATH_MAX], wine_cache[PATH_MAX];
+        bool logs = graphics_runtime_logs_enabled(home);
         setenv("DXVK_STATE_CACHE_PATH", shader, 1);
-        setenv("DXVK_LOG_PATH", cache, 1);
-        setenv("DXVK_LOG_LEVEL", "info", 1);
-        setenv("VKD3D_DEBUG", "info", 1);
+        snprintf(wine_cache, sizeof(wine_cache), "%s/prefix-steam/drive_c/metalsharp-cache/%s/%u", home, subdir, id);
+        (void)ensure_directory(wine_cache);
+        snprintf(wine_cache, sizeof(wine_cache), "C:\\metalsharp-cache\\%s\\%u", subdir, id);
+        setenv("VKD3D_SHADER_CACHE_PATH", wine_cache, 1);
+        if (logs) {
+            snprintf(log_path, sizeof(log_path), "%s/logs/vkd3d/%u", home, id);
+            (void)ensure_directory(log_path);
+            setenv("DXVK_LOG_PATH", log_path, 1);
+            setenv("DXVK_LOG_LEVEL", "info", 1);
+            setenv("VKD3D_DEBUG", "info", 1);
+            setenv("MVK_CONFIG_SHADER_DUMP_DIR", log_path, 1);
+            setenv("VKD3D_SHADER_DUMP_PATH", wine_cache, 1);
+        } else {
+            setenv("DXVK_LOG_LEVEL", "error", 1);
+            setenv("VKD3D_DEBUG", "err", 1);
+            setenv("VKD3D_SHADER_DEBUG", "none", 1);
+            setenv("MVK_CONFIG_LOG_LEVEL", "1", 1);
+        }
     }
 }
 
@@ -653,6 +728,52 @@ static bool run_fna_tool(const char* executable, char* const argv[]) {
     while (waitpid(child, &status, 0) < 0 && errno == EINTR)
         ;
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static void set_app_compat_env(const char* home, unsigned id, const char* pipeline) {
+    if (id != 1245620 || strcmp(pipeline, "vkd3d"))
+        return;
+    if (graphics_runtime_logs_enabled(home)) {
+        setenv("MVK_CONFIG_PERFORMANCE_TRACKING", "1", 1);
+        setenv("MVK_CONFIG_PERFORMANCE_LOGGING_FRAME_COUNT", "300", 1);
+    }
+#ifdef __APPLE__
+    if (!getenv("METALSHARP_CPU_COUNT")) {
+        unsigned count;
+        size_t size = sizeof(count);
+        char value[16];
+        if (sysctlbyname("hw.perflevel0.logicalcpu", &count, &size, NULL, 0) == 0 && count > 0) {
+            snprintf(value, sizeof(value), "%u", count);
+            setenv("METALSHARP_CPU_COUNT", value, 1);
+        }
+    }
+    const char* configured_source = getenv("METALSHARP_CPU_TOPOLOGY_SOURCE");
+    char* source_dir = configured_source ? NULL : join(home, "runtime/shim-sources/wine");
+    char* source = configured_source ? strdup(configured_source)
+                                     : (source_dir ? join(source_dir, "cpu_topology_interpose.c") : NULL);
+    char* output_dir = join(home, "runtime/shims");
+    char* output = output_dir ? join(output_dir, "libmetalsharp_cpu_topology.dylib") : NULL;
+    struct stat source_info, output_info;
+    bool stale = source && output && stat(source, &source_info) == 0 &&
+                 (stat(output, &output_info) != 0 || source_info.st_mtime > output_info.st_mtime);
+    if (stale && ensure_directory(output_dir)) {
+        char* compile[] = {
+            (char*)"/usr/bin/clang", (char*)"-dynamiclib", (char*)"-arch", (char*)"x86_64", (char*)"-arch",
+            (char*)"arm64",          (char*)"-o",          output,         source,          NULL};
+        if (run_fna_tool(compile[0], compile) && access("/usr/bin/codesign", X_OK) == 0) {
+            char* sign[] = {(char*)"/usr/bin/codesign", (char*)"--force", (char*)"-s", (char*)"-", output, NULL};
+            (void)run_fna_tool(sign[0], sign);
+        }
+    }
+    if (output && access(output, R_OK) == 0)
+        setenv("METALSHARP_DYLD_INSERT_LIBRARIES", output, 1);
+    free(source_dir);
+    free(source);
+    free(output_dir);
+    free(output);
+#else
+    (void)home;
+#endif
 }
 
 static void fix_fna_dylib_install_names(const char* path) {
@@ -2229,6 +2350,10 @@ static char* spawn_offline_game(const char* home, const char* executable, unsign
         setenv("SteamGameId", app_id, 1);
         setenv("METALSHARP_PIPELINE", pipeline, 1);
         set_pipeline_runtime_env(home, pipeline);
+        set_launch_cache_env(home, id, pipeline);
+        set_app_compat_env(home, id, pipeline);
+        if (pipeline_overrides(pipeline))
+            setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         if (!strcmp(pipeline, "d3dmetal"))
             snprintf(
                 library_env, sizeof(library_env),
@@ -2252,61 +2377,10 @@ static char* spawn_offline_game(const char* home, const char* executable, unsign
 }
 
 static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
-    char winedllpath[PATH_MAX * 2];
-    char dxmt_config[PATH_MAX];
-    char winemetal[PATH_MAX];
-    char vulkan_icd[PATH_MAX];
-    const char* backend = "dxmt";
     if (!pipeline)
         pipeline = "auto";
-    if (!strcmp(pipeline, "m12")) {
-        snprintf(winedllpath, sizeof(winedllpath), "%s/runtime/wine/lib/dxmt_m12/x86_64-windows", home);
-        setenv("WINEDLLPATH", winedllpath, 1);
-    } else if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "m10") || !strcmp(pipeline, "m11") ||
-               !strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32")) {
-        snprintf(winedllpath, sizeof(winedllpath), "%s/runtime/wine/lib/dxmt/x86_64-windows", home);
-        setenv("WINEDLLPATH", winedllpath, 1);
-    } else if (!strcmp(pipeline, "vkd3d")) {
-        snprintf(winedllpath, sizeof(winedllpath), "%s/vkd3d/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
-                 home, home);
-        setenv("WINEDLLPATH", winedllpath, 1);
-        snprintf(vulkan_icd, sizeof(vulkan_icd), "%s/runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json", home);
-        setenv("VK_ICD_FILENAMES", vulkan_icd, 1);
-        setenv("VK_DRIVER_FILES", vulkan_icd, 1);
-        backend = "vkd3d-proton";
-    } else if (!strcmp(pipeline, "d3dmetal")) {
-        snprintf(winedllpath, sizeof(winedllpath),
-                 "%s/runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows", home,
-                 home);
-        setenv("WINEDLLPATH", winedllpath, 1);
-        snprintf(winemetal, sizeof(winemetal), "%s/runtime/d3dmetal-gptk4-beta2/external/D3DMetal.framework/D3DMetal",
-                 home);
-        setenv("D3DMETAL_FRAMEWORK_PATH", winemetal, 1);
-        snprintf(winemetal, sizeof(winemetal), "%s/runtime/d3dmetal-gptk4-beta2", home);
-        setenv("D3DMETAL_RUNTIME_DIR", winemetal, 1);
-        setenv("WINEDLLOVERRIDES", "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b", 1);
-        backend = "d3dmetal";
-    }
-    if (strncmp(pipeline, "m", 1) == 0 || !strcmp(pipeline, "dxmt")) {
-        char runtime_dir[PATH_MAX];
-        const char* route =
-            (!strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32")) ? "dxmt/i386-unix" : "dxmt/x86_64-unix";
-        snprintf(dxmt_config, sizeof(dxmt_config), "%s/runtime/wine/etc/dxmt.conf", home);
-        snprintf(winemetal, sizeof(winemetal), "\\??\\Z:%s/runtime/wine/lib/%s/winemetal.so", home, route);
-        for (char* p = winemetal + 5; *p; ++p)
-            if (*p == '/')
-                *p = '\\';
-        snprintf(runtime_dir, sizeof(runtime_dir), "%s/runtime/wine/lib/dxmt", home);
-        setenv("DXMT_CONFIG_FILE", dxmt_config, 1);
-        setenv("DXMT_WINEMETAL_UNIXLIB", winemetal, 1);
-        setenv("DXMT_RUNTIME_DIR", runtime_dir, 1);
-        setenv("GRAPHICS_BACKEND", "dxmt", 1);
-    } else {
-        unsetenv("DXMT_RUNTIME_DIR");
-        setenv("GRAPHICS_BACKEND", backend, 1);
-    }
-    setenv("MS_GRAPHICS_BACKEND", backend, 1);
-    set_wine_msync(home);
+    set_route_paths(home, pipeline);
+    set_route_default_env(pipeline);
 }
 
 static bool process_cwd_within(pid_t pid, const char* root) {
@@ -2339,6 +2413,46 @@ static bool process_executable_within(pid_t pid, const char* root) {
 static bool wine_process_owned(pid_t pid, const char* command, const char* prefix, const char* runtime) {
     return strstr(command, prefix) != NULL || process_cwd_within(pid, prefix) ||
            process_executable_within(pid, runtime);
+}
+
+static void reset_stale_wineserver(const char* home) {
+#ifdef __APPLE__
+    char prefix[PATH_MAX], runtime[PATH_MAX], line[4096], name[PROC_PIDPATHINFO_MAXSIZE];
+    pid_t server = 0;
+    bool client = false;
+    FILE* processes;
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    processes = popen("/bin/ps axo pid=,command=", "r");
+    if (!processes)
+        return;
+    while (fgets(line, sizeof(line), processes)) {
+        char* end;
+        long pid = strtol(line, &end, 10);
+        if (end == line || pid <= 1 || pid > INT_MAX || proc_name((int)pid, name, sizeof(name)) <= 0)
+            continue;
+        while (isspace((unsigned char)*end))
+            end++;
+        if (!strcmp(name, "wineserver") && wine_process_owned((pid_t)pid, end, prefix, runtime))
+            server = (pid_t)pid;
+        else if (wine_process_owned((pid_t)pid, end, prefix, runtime) ||
+                 (strlen(name) > 4 && !strcasecmp(name + strlen(name) - 4, ".exe")))
+            client = true;
+    }
+    (void)pclose(processes);
+    if (!server || client)
+        return;
+    (void)kill(server, SIGTERM);
+    for (unsigned i = 0; i < 20 && kill(server, 0) == 0; i++)
+        usleep(50000);
+    if (kill(server, 0) == 0) {
+        (void)kill(server, SIGKILL);
+        for (unsigned i = 0; i < 20 && kill(server, 0) == 0; i++)
+            usleep(50000);
+    }
+#else
+    (void)home;
+#endif
 }
 
 static bool managed_wine_process_running(const char* home, bool steam_only) {
@@ -3718,6 +3832,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         free(cwd);
         return strdup("MetalSharp Wine not found");
     }
+    reset_stale_wineserver(home);
     slash = cwd ? strrchr(cwd, '/') : NULL;
     exe_name = slash ? slash + 1 : cwd;
     if (slash)
@@ -3757,6 +3872,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         set_route_paths(home, pipeline);
         set_route_default_env(pipeline);
         set_launch_cache_env(home, id, pipeline);
+        set_app_compat_env(home, id, pipeline);
         if (pipeline_overrides(pipeline))
             setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         else
@@ -4083,6 +4199,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         return err("required graphics runtime DLLs are missing");
     }
     free(game_dir);
+    prewarm_background_music();
     if (!strcmp(pipeline, "m13"))
         e = spawn_gptk_game(home, executable, id, pipeline, &pid);
     else if (!strcmp(pipeline, "d3dmetal"))

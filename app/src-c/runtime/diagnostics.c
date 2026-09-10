@@ -1992,7 +1992,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
             snprintf(windows_path, sizeof(windows_path), "%s/lib/dxmt_m12/x86_64-windows", root);
         } else if (!strcmp(pipeline, "vkd3d")) {
-            snprintf(unix_path, sizeof(unix_path), "%s/lib/wine/x86_64-unix", root);
+            snprintf(unix_path, sizeof(unix_path), "%s/lib/moltenvk-vkmt:%s/lib/wine/x86_64-unix", root, root);
             snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
             snprintf(windows_path, sizeof(windows_path),
                      "%s/vkd3d-proton/x86_64-windows:%s/dxvk/x86_64-windows:%s/lib/wine/x86_64-windows", lane_root,
@@ -2030,7 +2030,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             ENV_PAIR("DXMT_CONFIG_FILE", value);
             ENV_PAIR("DXMT_WINEMETAL_UNIXLIB", "winemetal.so");
         } else if (!strcmp(pipeline, "vkd3d")) {
-            snprintf(value, sizeof(value), "%s/etc/vulkan/icd.d/MoltenVK_icd.json", root);
+            snprintf(value, sizeof(value), "%s/lib/moltenvk-vkmt/MoltenVK_icd.json", root);
             ENV_PAIR("VK_ICD_FILENAMES", value);
             ENV_PAIR("VK_DRIVER_FILES", value);
         }
@@ -2045,14 +2045,18 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             ENV_PAIR("DXMT_PIPELINE_CACHE_PATH", pipeline_path);
         } else if (!strcmp(pipeline, "vkd3d")) {
             ENV_PAIR("DXVK_STATE_CACHE_PATH", shader_path);
-            snprintf(value, sizeof(value), "%s/pipeline-cache/%s/%lu", user_home, pipeline, appid);
-            ENV_PAIR("DXVK_LOG_PATH", value);
-            ENV_PAIR("DXVK_LOG_LEVEL", "info");
-            ENV_PAIR("VKD3D_DEBUG", "info");
+            snprintf(value, sizeof(value), "C:\\metalsharp-cache\\%s\\%lu", pipeline, appid);
+            ENV_PAIR("VKD3D_SHADER_CACHE_PATH", value);
+            ENV_PAIR("DXVK_LOG_LEVEL", "error");
+            ENV_PAIR("VKD3D_DEBUG", "err");
+            ENV_PAIR("VKD3D_SHADER_DEBUG", "none");
+            ENV_PAIR("MVK_CONFIG_LOG_LEVEL", "1");
             ENV_PAIR("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", "1");
             ENV_PAIR("MVK_PRESENT_MODE", "1");
             ENV_PAIR("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1");
             ENV_PAIR("MVK_CONFIG_RESUME_LOST_DEVICE", "1");
+            ENV_PAIR("MVK_CONFIG_USE_METAL_PRIVATE_API", "1");
+            ENV_PAIR("MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS", "1");
         }
         if (!strcmp(pipeline, "m12")) {
             ENV_PAIR("DXMT_METALFX_SPATIAL_SWAPCHAIN", "1");

@@ -606,9 +606,51 @@ printf '%s' "$crashes" | python3 -c 'import json, sys; assert json.load(sys.stdi
 scan=$(curl --silent --fail "http://127.0.0.1:$port/scan")
 printf '%s' "$scan" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and isinstance(v["data"]["games"], list) and "steam" in v["data"]'
 pipelines=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/pipelines?appid=620")
-printf '%s' "$pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 9 and v["recommended"] == "vkd3d"'
+printf '%s' "$pipelines" | python3 -c '
+import json, sys
+v=json.load(sys.stdin)
+assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 9 and v["recommended"] == "vkd3d"
+m12 = next(p for p in v["pipelines"] if p["id"] == "m12")
+assert m12["backend"] == "dxmt" and m12["graphics_backend"] == "dxmt"
+'
 shape=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/launch-shape?appid=620")
 printf '%s' "$shape" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and v["pipeline"] == "vkd3d"'
+vkd3d_shape=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/launch-shape?appid=1245620&pipeline=vkd3d")
+printf '%s' "$vkd3d_shape" | python3 -c '
+import json, sys
+v=json.load(sys.stdin)
+assert v["backend"] == "vulkan" and v["graphics_backend"] == "vulkan"
+assert {d["filename"] for d in v["launch_shape"]["deploy_dlls"]} == {
+    "d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"
+}
+assert v["launch_shape"]["winedllpath_dirs"][:2] == [
+    "vkd3d-proton/x86_64-windows", "dxvk/x86_64-windows"
+]
+'
+m12_shape=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/launch-shape?appid=1245620&pipeline=m12")
+printf '%s' "$m12_shape" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["backend"] == "dxmt" and v["graphics_backend"] == "dxmt"'
+m12_dry_run=$(curl --silent --fail "http://127.0.0.1:$port/diagnostics/m12/dry-run?appid=1245620")
+printf '%s' "$m12_dry_run" | python3 -c '
+import json, sys
+v=json.load(sys.stdin)
+env = {pair["key"]: pair["value"] for pair in v["env_pairs"]}
+assert v["pipeline"] == "m12" and v["unix_lib_dir"].endswith("/lib/dxmt_m12/x86_64-unix")
+assert env["MS_GRAPHICS_BACKEND"] == "dxmt" and "DXMT_CONFIG" in env
+'
+vkd3d_dry_run=$(curl --silent --fail "http://127.0.0.1:$port/diagnostics/m12/dry-run?appid=1245620&pipeline=vkd3d")
+printf '%s' "$vkd3d_dry_run" | python3 -c '
+import json, sys
+v=json.load(sys.stdin)
+env = {pair["key"]: pair["value"] for pair in v["env_pairs"]}
+assert v["pipeline"] == "vkd3d" and v["unix_lib_dir"] is None
+assert v["windows_dll_dir"].endswith("/vkd3d/vkd3d-proton/x86_64-windows")
+assert env["MS_GRAPHICS_BACKEND"] == "vulkan"
+assert env["MVK_CONFIG_USE_METAL_PRIVATE_API"] == "1"
+assert env["WINEDLLOVERRIDES"] == "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"
+assert "/lib/moltenvk-vkmt:" in env["DYLD_LIBRARY_PATH"]
+assert "VKD3D_FEATURE_LEVEL" not in env
+assert not any(key.startswith("DXMT_") for key in env)
+'
 rules=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/default-rules")
 printf '%s' "$rules" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and isinstance(v["rules"], list)'
 

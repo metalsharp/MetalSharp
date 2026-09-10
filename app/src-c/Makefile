@@ -12,6 +12,9 @@ CFLAGS ?= -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L
 CFLAGS += -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong
 CPPFLAGS += -I$(CURDIR)/include -DMS_BACKEND_VERSION=\"$(VERSION)\"
 LDFLAGS ?=
+ifeq ($(shell uname -s),Darwin)
+LDFLAGS += -framework CoreAudio -framework CoreFoundation
+endif
 
 SOURCES := \
 	runtime/backend.c \
