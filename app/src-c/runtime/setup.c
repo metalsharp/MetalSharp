@@ -323,6 +323,32 @@ static bool extract_bundle_archive(const char* home, const char* archive) {
  * macOS to propagate execution-blocking metadata onto Wine executables. Clear
  * all runtime xattrs after extraction; the runtime is a locally unpacked,
  * ad-hoc-signed payload and does not need archive provenance attributes. */
+static bool native_bridge_signature_valid(const char* path) {
+    pid_t child;
+    int status;
+    pid_t waited;
+    if (!file_nonempty(path))
+        return false;
+    child = fork();
+    if (child < 0)
+        return false;
+    if (child == 0) {
+        execl("/usr/bin/codesign", "codesign", "--verify", "--strict", path, (char*)NULL);
+        _exit(127);
+    }
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static bool sign_wine_host_runtime(const char* home) {
+    char* ntdll = join_path(home, "runtime/wine/lib/wine/x86_64-unix/ntdll.so");
+    bool ok = ntdll && (native_bridge_signature_valid(ntdll) || adhoc_sign_native_bridge(ntdll));
+    free(ntdll);
+    return ok;
+}
+
 static bool clear_runtime_quarantine(const char* home) {
     char* runtime = join_path(home, "runtime");
     pid_t pid;
@@ -1779,6 +1805,11 @@ static void run_install_all_worker(const char* home) {
         free(existing_host);
     }
     (void)clear_runtime_quarantine(home);
+    if (!sign_wine_host_runtime(home)) {
+        write_install_progress(home, 6, total, "Runtime Assets", "error", "Wine host runtime signing failed",
+                               "could not ad-hoc sign runtime/wine/lib/wine/x86_64-unix/ntdll.so");
+        _exit(0);
+    }
     if (!normalize_runtime_executables(home)) {
         write_install_progress(home, 6, total, "Runtime Assets", "error", "Runtime executables are not runnable",
                                "could not restore executable permissions");
@@ -1786,6 +1817,7 @@ static void run_install_all_worker(const char* home) {
     }
     write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
     const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
+                                   "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
                                    "runtime/metalsharp-backend",
                                    "runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll",
                                    "runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll"};

@@ -55,6 +55,7 @@ static char* read_bounded_file(const char* path);
 static char* find_game_executable(const char* directory, unsigned depth);
 static char* preferred_steam_game_executable(const char* game_dir, unsigned id, const char* pipeline);
 static char* find_steam_game_executable(const char* home, unsigned id, const char* pipeline);
+static bool executable_is_32bit(const char* executable);
 static bool body_id(const char* body, size_t len, unsigned* id);
 static void string_field(ms_json_writer* writer, const char* key, const char* value);
 
@@ -360,38 +361,40 @@ static void set_route_paths(const char* home, const char* pipeline) {
                  "%s/runtime/wine/lib/dxmt_m12/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
     } else if (!strcmp(pipeline, "m11")) {
         snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows", home, home);
-        snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/dxmt/x86_64-unix", home, home);
-    } else if (!strcmp(pipeline, "m10")) {
-        snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/"
+                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/"
                  "metalsharp/x86_64-windows",
                  home, home, home);
         snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/dxmt/x86_64-unix", home, home);
+                 "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
+    } else if (!strcmp(pipeline, "m10")) {
+        snprintf(dllpath, sizeof(dllpath),
+                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/"
+                 "metalsharp/x86_64-windows",
+                 home, home, home);
+        snprintf(unixpath, sizeof(unixpath),
+                 "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
     } else if (!strcmp(pipeline, "m9")) {
         snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/"
-                 "dxmt/x86_64-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows",
+                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/wine/"
+                 "i386-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows",
                  home, home, home, home);
         snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/dxmt/x86_64-unix", home, home);
+                 "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
     } else if (!strcmp(pipeline, "m11_32")) {
         snprintf(dllpath, sizeof(dllpath),
                  "%s/runtime/wine/lib/dxmt/i386-windows:%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/wine/"
                  "x86_64-windows",
                  home, home, home);
         snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/dxmt/i386-unix:%s/runtime/wine/lib/wine",
+                 "%s/runtime/wine/lib/dxmt/i386-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
                  home, home, home);
     } else if (!strcmp(pipeline, "m10_32")) {
         snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/dxmt/i386-windows:%s/runtime/wine/lib/wine/"
+                 "%s/runtime/wine/lib/dxmt/i386-windows:%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/wine/"
                  "x86_64-windows",
                  home, home, home);
         snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/dxmt/i386-unix:%s/runtime/wine/lib/wine",
+                 "%s/runtime/wine/lib/dxmt/i386-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
                  home, home, home);
     } else if (!strcmp(pipeline, "vkd3d")) {
         snprintf(
@@ -594,6 +597,8 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-d3d10");
     else if (id == 17300 && !strcmp(pipeline, "m10"))
         append_launch_arg(argv, count, max, "-dx10");
+    else if (id == 312520 && !strcmp(pipeline, "m11"))
+        append_launch_arg(argv, count, max, "-force-d3d11");
 
     if (id == 1196590 || id == 1623730 || id == 1928870 || id == 2358720 || id == 2456740) {
         if (!strcmp(pipeline, "m12")) {
@@ -3757,6 +3762,20 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         set_route_paths(home, pipeline);
         set_route_default_env(pipeline);
         set_launch_cache_env(home, id, pipeline);
+        if (id == 312520) {
+            char diagnostic_path[PATH_MAX];
+            int diagnostic_fd;
+            snprintf(diagnostic_path, sizeof(diagnostic_path), "%s/logs/%s/%u/launch.stderr.log", home, pipeline, id);
+            diagnostic_fd = open(diagnostic_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (diagnostic_fd >= 0) {
+                setenv("WINEDEBUG", "err-all,+loaddll,+module,+seh", 1);
+                (void)dup2(diagnostic_fd, STDERR_FILENO);
+                (void)dup2(diagnostic_fd, STDOUT_FILENO);
+                close(diagnostic_fd);
+                dprintf(STDERR_FILENO, "\\n--- MetalSharp Rain World launch ---\\n");
+                dprintf(STDERR_FILENO, "pipeline=%s\\nexecutable=%s\\n", pipeline, executable);
+            }
+        }
         if (pipeline_overrides(pipeline))
             setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         else
@@ -3790,6 +3809,12 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         argv[argc++] = wine;
         argv[argc++] = exe_name;
         build_launch_args(id, pipeline, argv, &argc, sizeof(argv) / sizeof(argv[0]));
+        if (id == 312520) {
+            dprintf(STDERR_FILENO, "command=");
+            for (size_t i = 0; i < argc; i++)
+                dprintf(STDERR_FILENO, "%s%s", i ? " " : "", argv[i]);
+            dprintf(STDERR_FILENO, "\\n");
+        }
         argv[argc] = NULL;
         execv(wine, argv);
         {
@@ -4070,6 +4095,17 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         if (status)
             *status = 404;
         return err("Game executable not found");
+    }
+    if (!strcmp(pipeline, "m11") && executable_is_32bit(executable)) {
+        /* M11 has separate PE lanes. Keep an explicit M11 request usable for
+         * 32-bit games instead of staging x86_64 DXMT DLLs into a 32-bit game. */
+        snprintf(pipeline, sizeof(pipeline), "m11_32");
+        if (!ensure_steam_bottle_manifest(home, id, pipeline)) {
+            free(executable);
+            if (status)
+                *status = 500;
+            return err("failed to prepare 32-bit M11 bottle manifest");
+        }
     }
     game_dir = ms_steam_game_dir(home, id);
     deploy_controller_input_shims(home, game_dir);

@@ -1,0 +1,5 @@
+# Canonical Wine host runtime hashes; regenerated from the staged runtime payload.
+# The archive contains the ad-hoc-signed Mach-O ntdll.so. Setup verifies the
+# archive hash before extraction and may re-sign after extraction if needed.
+path	sha256
+lib/wine/x86_64-unix/ntdll.so	91ccc67de0a3ec468e5a96b1f03a38e39cb59e5d5b9513f2530570fcf9669659
