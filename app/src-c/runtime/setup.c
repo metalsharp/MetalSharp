@@ -1836,9 +1836,10 @@ static void run_install_all_worker(const char* home) {
         _exit(0);
     }
     write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
-    const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/wine-d3dmetal/bin/wine",
-                                   "runtime/wine-d3dmetal/lib/wine/x86_64-unix/ntdll.so", "runtime/host/manifest.json",
-                                   "runtime/wine/lib/wine/x86_64-unix/ntdll.so", "runtime/metalsharp-backend",
+    const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
+                                   "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
+                                   "runtime/wine/lib/wine/x86_64-unix/ntdll-dxmt.so",
+                                   "runtime/wine/lib/wine/x86_64-unix/ntdll-d3dmetal.so", "runtime/metalsharp-backend",
                                    "runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll",
                                    "runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll"};
     char* wine = join_path(home, "runtime/wine/bin/metalsharp-wine");

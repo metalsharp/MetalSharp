@@ -3,4 +3,5 @@
 # archive hash before extraction and may re-sign after extraction if needed.
 path	sha256
 lib/wine/x86_64-unix/ntdll.so	91ccc67de0a3ec468e5a96b1f03a38e39cb59e5d5b9513f2530570fcf9669659
+lib/wine/x86_64-unix/ntdll-dxmt.so	91ccc67de0a3ec468e5a96b1f03a38e39cb59e5d5b9513f2530570fcf9669659
 lib/wine/x86_64-unix/ntdll-d3dmetal.so	b0e06e8e76340f1895833d8b1a4a6ea5d5dab015f10708bf2ed0539df4ffc4e6

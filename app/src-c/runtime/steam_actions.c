@@ -50,6 +50,7 @@ static void seed_steam_d3d12_guard(const char* home, const char* prefix);
 static bool contains_ci(const char* haystack, const char* needle);
 static bool wine_steam_cleanup_target(const char* command, const char* prefix);
 static bool copy_file_path(const char* source, const char* destination);
+static bool select_wine_ntdll(const char* home, const char* pipeline);
 static bool ensure_directory(const char* path);
 static char* read_bounded_file(const char* path);
 static char* find_game_executable(const char* directory, unsigned depth);
@@ -2867,6 +2868,30 @@ static bool copy_file_path(const char* source, const char* destination) {
     return wait_child_success(pid);
 }
 
+static bool select_wine_ntdll(const char* home, const char* pipeline) {
+    const char* variant = pipeline && !strcmp(pipeline, "d3dmetal") ? "ntdll-d3dmetal.so" : "ntdll-dxmt.so";
+    char* directory = join(home, "runtime/wine/lib/wine/x86_64-unix");
+    char* source = directory ? join(directory, variant) : NULL;
+    char* destination = directory ? join(directory, "ntdll.so") : NULL;
+    char* temporary = destination ? malloc(strlen(destination) + 32) : NULL;
+    bool ok = false;
+    if (!directory || !source || !destination || !temporary || access(source, R_OK) != 0)
+        goto done;
+    snprintf(temporary, strlen(destination) + 32, "%s.route-%ld", destination, (long)getpid());
+    (void)unlink(temporary);
+    if (!copy_file_path(source, temporary) || rename(temporary, destination) != 0)
+        goto done;
+    ok = true;
+done:
+    if (!ok && temporary)
+        (void)unlink(temporary);
+    free(directory);
+    free(source);
+    free(destination);
+    free(temporary);
+    return ok;
+}
+
 static bool copy_bundled_steam_installer(const char* home, const char* installer) {
     char temp_path[PATH_MAX];
     char* archive = find_bundled_steam_archive(home);
@@ -3747,6 +3772,14 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         return error;
     }
     (void)fcntl(exec_pipe[1], F_SETFD, FD_CLOEXEC);
+    if (!select_wine_ntdll(home, pipeline)) {
+        free(wine);
+        free(prefix);
+        free(cwd);
+        close(exec_pipe[0]);
+        close(exec_pipe[1]);
+        return strdup("Wine ntdll route variant is missing or could not be installed");
+    }
     child = fork();
     if (child < 0) {
         char* error = strdup(strerror(errno));
