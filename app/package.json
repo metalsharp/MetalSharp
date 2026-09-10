@@ -110,6 +110,30 @@
         "to": "tools/unzstd"
       },
       {
+        "from": "tools/wrestool",
+        "to": "tools/wrestool"
+      },
+      {
+        "from": "tools/icotool",
+        "to": "tools/icotool"
+      },
+      {
+        "from": "tools/unar",
+        "to": "tools/unar"
+      },
+      {
+        "from": "tools/lsar",
+        "to": "tools/lsar"
+      },
+      {
+        "from": "tools/lib",
+        "to": "tools/lib"
+      },
+      {
+        "from": "tools/licenses",
+        "to": "tools/licenses"
+      },
+      {
         "from": "src-c/build/metalsharp-backend",
         "to": "runtime/metalsharp-backend"
       },

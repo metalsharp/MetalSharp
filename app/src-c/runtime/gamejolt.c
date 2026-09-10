@@ -318,7 +318,11 @@ static char* native_app_cover(const char* game_directory, const char* app_path) 
 static const char* find_tool(const char* name) {
     static const char* const prefixes[] = {"/opt/homebrew/bin/", "/usr/local/bin/", "/usr/bin/"};
     static char paths[2][PATH_MAX];
+    const char* bundled = strcmp(name, "icotool") == 0 ? getenv("METALSHARP_ICOTOOL_PATH")
+                                                       : getenv("METALSHARP_WRESTOOL_PATH");
     size_t slot = strcmp(name, "icotool") == 0 ? 1 : 0;
+    if (bundled && access(bundled, X_OK) == 0)
+        return bundled;
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); ++i) {
         snprintf(paths[slot], sizeof(paths[slot]), "%s%s", prefixes[i], name);
         if (access(paths[slot], X_OK) == 0)

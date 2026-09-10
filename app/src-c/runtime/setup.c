@@ -1504,13 +1504,13 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_key(&writer, "ok");
     ms_json_writer_bool(&writer, true);
     ms_json_writer_key(&writer, "allInstalled");
-    ms_json_writer_bool(&writer, homebrew && rosetta && xcode && wine_ready && host_ready && dxmt_ready && m12_ready);
+    ms_json_writer_bool(&writer, rosetta && xcode && wine_ready && host_ready && dxmt_ready && m12_ready);
     ms_json_writer_key(&writer, "platform");
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
     ms_json_writer_array_begin(&writer);
-    dependency_begin(&writer, "homebrew", "Homebrew", "Package manager — required to install other dependencies",
-                     homebrew, true, "bash scripts/tools/install-homebrew.sh");
+    dependency_begin(&writer, "homebrew", "Homebrew", "Optional package manager for fallback and extra tools",
+                     homebrew, false, "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
                      "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
@@ -1706,25 +1706,33 @@ static void run_install_all_worker(const char* home) {
         _exit(0);
     }
 
-    write_install_progress(home, 1, total, "Homebrew", "installing", "Installing Homebrew...", NULL);
-    if (!install_homebrew()) {
-        write_install_progress(home, 1, total, "Homebrew", "error", "Homebrew installation failed",
-                               "run tools/install-homebrew.sh to retry");
-        _exit(0);
+    {
+        bool bundled_archive_tools = command_available("wrestool") && command_available("icotool") &&
+                                     command_available("unar");
+        if (bundled_archive_tools) {
+            write_install_progress(home, 1, total, "Bundled Tools", "done",
+                                   "Bundled GameJolt icon and RAR tools ready", NULL);
+        } else {
+            write_install_progress(home, 1, total, "Homebrew Fallback", "installing",
+                                   "Bundled tools are incomplete; installing fallback tools...", NULL);
+            if (!install_homebrew()) {
+                write_install_progress(home, 1, total, "Homebrew Fallback", "error", "Fallback tool installation failed",
+                                       "Homebrew is unavailable and bundled archive tools are incomplete");
+                _exit(0);
+            }
+            if ((!command_available("wrestool") || !command_available("icotool")) && !run_brew_install("icoutils")) {
+                write_install_progress(home, 1, total, "Homebrew Fallback", "error",
+                                       "GameJolt icon tools installation failed", "brew install icoutils failed");
+                _exit(0);
+            }
+            if (!command_available("unar") && !run_brew_install("unar")) {
+                write_install_progress(home, 1, total, "Homebrew Fallback", "error",
+                                       "RAR extraction tool installation failed", "brew install unar failed");
+                _exit(0);
+            }
+            write_install_progress(home, 1, total, "Homebrew Fallback", "done", "Fallback tools ready", NULL);
+        }
     }
-    write_install_progress(home, 1, total, "Homebrew Packages", "installing",
-                           "Installing GameJolt archive and icon tools...", NULL);
-    if ((!command_available("wrestool") || !command_available("icotool")) && !run_brew_install("icoutils")) {
-        write_install_progress(home, 1, total, "Homebrew Packages", "error", "GameJolt icon tools installation failed",
-                               "brew install icoutils failed");
-        _exit(0);
-    }
-    if (!command_available("unar") && !run_brew_install("unar")) {
-        write_install_progress(home, 1, total, "Homebrew Packages", "error", "RAR extraction tool installation failed",
-                               "brew install unar failed");
-        _exit(0);
-    }
-    write_install_progress(home, 1, total, "Homebrew Packages", "done", "Homebrew and GameJolt tools ready", NULL);
 
     write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
     if (!install_xcode_cli()) {

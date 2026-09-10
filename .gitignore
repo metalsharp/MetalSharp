@@ -16,6 +16,9 @@ out/
 # create-split-bundles.py): ntdll hook + controller input shims (x/d).
 !lib/metalsharp/x86_64-windows/*.dll
 !lib/metalsharp/i386-windows/*.dll
+# Bundled macOS bootstrap tools include an app-relative libpng dylib.
+!app/tools/lib/
+!app/tools/lib/*.dylib
 .DS_Store
 compile_commands.json
 .vscode/

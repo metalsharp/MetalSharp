@@ -265,12 +265,17 @@ export class BackendBridge {
     const bundledToolsDir = path.join(resourcesDir, "tools");
     const bundledZstd = path.join(bundledToolsDir, "zstd");
     const bundledUnzstd = path.join(bundledToolsDir, "unzstd");
-    const bundledCompressionTools = fs.existsSync(bundledZstd) && fs.existsSync(bundledUnzstd)
-      ? {
-          METALSHARP_ZSTD_PATH: bundledZstd,
-          METALSHARP_UNZSTD_PATH: bundledUnzstd,
-        }
-      : {};
+    const bundledToolPath = (name: string) => path.join(bundledToolsDir, name);
+    const bundledCompressionTools = {
+      ...(fs.existsSync(bundledZstd) ? { METALSHARP_ZSTD_PATH: bundledZstd } : {}),
+      ...(fs.existsSync(bundledUnzstd) ? { METALSHARP_UNZSTD_PATH: bundledUnzstd } : {}),
+      ...(fs.existsSync(bundledToolPath("wrestool"))
+        ? { METALSHARP_WRESTOOL_PATH: bundledToolPath("wrestool") }
+        : {}),
+      ...(fs.existsSync(bundledToolPath("icotool")) ? { METALSHARP_ICOTOOL_PATH: bundledToolPath("icotool") } : {}),
+      ...(fs.existsSync(bundledToolPath("unar")) ? { METALSHARP_UNAR_PATH: bundledToolPath("unar") } : {}),
+      ...(fs.existsSync(bundledToolPath("lsar")) ? { METALSHARP_LSAR_PATH: bundledToolPath("lsar") } : {}),
+    };
     this.proc = spawn(binPath, [], {
       env: {
         ...process.env,

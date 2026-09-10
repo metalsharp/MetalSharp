@@ -27,7 +27,7 @@ const brewChecking = ref(true);
 const brewInstalled = ref(false);
 const brewInstalling = ref(false);
 
-const steps = ["Welcome", "Homebrew", "Runtime", "VC++", "Done"];
+const steps = ["Welcome", "Optional Tools", "Runtime", "VC++", "Done"];
 
 const vcppX64Done = ref(false);
 const vcppX86Done = ref(false);
@@ -69,10 +69,6 @@ async function installHomebrew() {
 
 async function goToRuntimeStep() {
   await checkBrew();
-  if (!brewInstalled.value) {
-    toast.show("Homebrew not detected yet. Complete the administrator password dialog first.", "error");
-    return;
-  }
   step.value = 2;
 }
 async function startInstall() {
@@ -337,26 +333,24 @@ async function installVcppX86() {
           </div>
         </div>
         <div class="setup-actions">
-          <button class="btn btn-primary btn-lg" @click="checkBrew().then(() => step = brewInstalled ? 2 : 1)">Get Started</button>
+          <button class="btn btn-primary btn-lg" @click="checkBrew().then(() => step = 1)">Get Started</button>
         </div>
       </div>
 
       <div v-if="step === 1" class="setup-body">
         <div class="setup-section-header">
-          <h1>Install Homebrew</h1>
-          <p>MetalSharp bundles its zstd extraction tool, so the Homebrew zstd formula is not required. Homebrew remains available for other setup tools; Rosetta and GPTK/D3DMetal are only installed when needed.</p>
+          <h1>Optional Tools</h1>
+          <p>MetalSharp bundles zstd, GameJolt icon tools, and RAR extraction tools. Homebrew is optional for extra tools and fallback support; Rosetta and GPTK/D3DMetal are only installed when needed.</p>
         </div>
 
         <div class="setup-brew-step">
           <p class="setup-brew-instructions">
-            1. Click <strong>Open Terminal</strong> below<br />
-            2. Follow the prompts in Terminal to install Homebrew<br />
-            3. When finished, click <strong>Continue</strong>
+            Homebrew is optional. Install it only if you need additional packages or fallback tools, then click <strong>Continue</strong>.
           </p>
           <div class="setup-actions">
             <button class="btn btn-secondary" @click="step = 0">Back</button>
             <button class="btn btn-primary" :disabled="brewInstalling" @click="installHomebrew">
-              {{ brewInstalling ? "Opening..." : "Open Terminal" }}
+              {{ brewInstalling ? "Opening..." : "Install Homebrew" }}
             </button>
             <button class="btn btn-primary btn-lg" @click="goToRuntimeStep">Continue</button>
           </div>
