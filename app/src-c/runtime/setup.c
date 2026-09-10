@@ -1838,8 +1838,6 @@ static void run_install_all_worker(const char* home) {
     write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
     const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
                                    "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
-                                   "runtime/wine/lib/wine/x86_64-unix/ntdll-dxmt.so",
-                                   "runtime/wine/lib/wine/x86_64-unix/ntdll-d3dmetal.so",
                                    "runtime/wine/lib/wine/x86_64-unix/opengl32.so",
                                    "runtime/wine/lib/wine/x86_64-unix/winemac.so",
                                    "runtime/wine/lib/wine/x86_64-unix/metalsharp-opengl.dylib",

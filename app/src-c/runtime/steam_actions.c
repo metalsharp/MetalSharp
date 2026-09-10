@@ -2869,26 +2869,12 @@ static bool copy_file_path(const char* source, const char* destination) {
 }
 
 static bool select_wine_ntdll(const char* home, const char* pipeline) {
-    const char* variant = pipeline && !strcmp(pipeline, "d3dmetal") ? "ntdll-d3dmetal.so" : "ntdll-dxmt.so";
     char* directory = join(home, "runtime/wine/lib/wine/x86_64-unix");
-    char* source = directory ? join(directory, variant) : NULL;
-    char* destination = directory ? join(directory, "ntdll.so") : NULL;
-    char* temporary = destination ? malloc(strlen(destination) + 32) : NULL;
-    bool ok = false;
-    if (!directory || !source || !destination || !temporary || access(source, R_OK) != 0)
-        goto done;
-    snprintf(temporary, strlen(destination) + 32, "%s.route-%ld", destination, (long)getpid());
-    (void)unlink(temporary);
-    if (!copy_file_path(source, temporary) || rename(temporary, destination) != 0)
-        goto done;
-    ok = true;
-done:
-    if (!ok && temporary)
-        (void)unlink(temporary);
+    char* canonical = directory ? join(directory, "ntdll.so") : NULL;
+    bool ok = canonical && access(canonical, R_OK) == 0;
+    (void)pipeline;
     free(directory);
-    free(source);
-    free(destination);
-    free(temporary);
+    free(canonical);
     return ok;
 }
 
