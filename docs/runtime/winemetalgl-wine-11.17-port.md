@@ -20,6 +20,8 @@ The accepted release artifacts are ARM64-host binaries and cannot be copied into
 
 Do not mix the ARM64-host release artifacts with the x86_64-host runtime. The host sidecar, Unix `opengl32.so`, and `winemac.so` must all report x86_64; the guest DLLs must be supplied for both x86_64 and i386/WoW64.
 
+The runtime carries one canonical `ntdll.so`. Its macOS x86_64 GSBASE behavior is gated per process: DXMT enables the Wine TEB/macOS TSD swap, while D3DMetal and bare Wine retain the legacy behavior unless `WINE_MACOS_GSBASE_SWAP=on` is explicitly requested. The launcher validates the canonical file and no longer copies route-specific ntdll variants.
+
 ## Bounded acceptance probes
 
 The port is validated without launching games:
