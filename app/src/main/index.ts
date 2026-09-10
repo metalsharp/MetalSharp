@@ -700,8 +700,8 @@ async function checkNeedsMigration(): Promise<boolean> {
 async function createWindow(migrating = false) {
   const uiOnly = isUiOnlyRuntime();
   mainWindow = new BrowserWindow({
-    width: migrating ? 640 : 1200,
-    height: migrating ? 420 : 800,
+    width: migrating ? 640 : 900,
+    height: migrating ? 420 : 765,
     minWidth: migrating ? 640 : 900,
     minHeight: migrating ? 420 : 600,
     resizable: !migrating,
