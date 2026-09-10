@@ -141,6 +141,17 @@ source folders, or the referenced upstream/runtime packages.
   libtheora (BSD-3-Clause).
 - Used as: Video playback native library for FNA games.
 
+## Wine Mono 11.3.0
+
+- Repository: https://github.com/wine-mono/wine-mono
+- Release: `wine-mono-11.3.0`
+- License: Component-specific LGPL, GPL-with-exception, MIT/X11, Apache-2.0,
+  BSD, MSPL, and zlib terms as documented by Wine Mono.
+- Files: `LICENSES/WINE-MONO-COPYING`
+- Used as: The bundled Wine CLR support package at
+  `runtime/wine/share/mono/wine-mono-11.3.0`; Wine installs it into a prefix
+  on demand through `mscoree`. It is separate from the native Mono/FNA lane.
+
 ## Mono runtime lane
 
 - Repository: https://github.com/mono/mono
