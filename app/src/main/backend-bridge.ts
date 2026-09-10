@@ -269,9 +269,7 @@ export class BackendBridge {
     const bundledCompressionTools = {
       ...(fs.existsSync(bundledZstd) ? { METALSHARP_ZSTD_PATH: bundledZstd } : {}),
       ...(fs.existsSync(bundledUnzstd) ? { METALSHARP_UNZSTD_PATH: bundledUnzstd } : {}),
-      ...(fs.existsSync(bundledToolPath("wrestool"))
-        ? { METALSHARP_WRESTOOL_PATH: bundledToolPath("wrestool") }
-        : {}),
+      ...(fs.existsSync(bundledToolPath("wrestool")) ? { METALSHARP_WRESTOOL_PATH: bundledToolPath("wrestool") } : {}),
       ...(fs.existsSync(bundledToolPath("icotool")) ? { METALSHARP_ICOTOOL_PATH: bundledToolPath("icotool") } : {}),
       ...(fs.existsSync(bundledToolPath("unar")) ? { METALSHARP_UNAR_PATH: bundledToolPath("unar") } : {}),
       ...(fs.existsSync(bundledToolPath("lsar")) ? { METALSHARP_LSAR_PATH: bundledToolPath("lsar") } : {}),
