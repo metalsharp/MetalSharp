@@ -194,6 +194,7 @@ static char* find_bundle_archive(const char* home, const char* name) {
 
 static const char* fixed_zstd_path(void) {
     const char* bundled = getenv("METALSHARP_ZSTD_PATH");
+    const char* bundled_unzstd = getenv("METALSHARP_UNZSTD_PATH");
     const char* fixed[] = {
         "/Applications/MetalSharp.app/Contents/Resources/tools/zstd",
         "/Applications/MetalSharp.app/Contents/Resources/zstd",
@@ -201,6 +202,8 @@ static const char* fixed_zstd_path(void) {
     };
     if (bundled && access(bundled, X_OK) == 0)
         return bundled;
+    if (bundled_unzstd && access(bundled_unzstd, X_OK) == 0)
+        return bundled_unzstd;
     for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
         if (access(fixed[i], X_OK) == 0)
             return fixed[i];
@@ -1372,6 +1375,11 @@ static bool command_available(const char* name) {
     return false;
 }
 
+static bool configured_tool_available(const char* name, const char* override_name) {
+    const char* override = getenv(override_name);
+    return (override && access(override, X_OK) == 0) || command_available(name);
+}
+
 static bool xcode_cli_functional(void) {
     int input[2];
     pid_t pid;
@@ -1426,34 +1434,6 @@ static bool install_xcode_cli(void) {
         while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
         }
     return xcode_cli_functional();
-}
-
-static bool install_homebrew(void) {
-    const char* configured = getenv("METALSHARP_HOMEBREW_INSTALLER");
-    char* script = configured && access(configured, R_OK) == 0 ? strdup(configured) : NULL;
-    pid_t pid;
-    int wait_status;
-    if (command_available("brew")) {
-        free(script);
-        return true;
-    }
-    if (script == NULL)
-        script = find_setup_source("scripts/tools/install-homebrew.sh");
-    if (script == NULL)
-        script = find_setup_source("tools/install-homebrew.sh");
-    if (script == NULL)
-        return false;
-    pid = fork();
-    if (pid == 0) {
-        execl("/bin/bash", "bash", script, (char*)NULL);
-        _exit(127);
-    }
-    free(script);
-    if (pid < 0)
-        return false;
-    while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
-    }
-    return WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0 && command_available("brew");
 }
 
 static void dependency_begin(ms_json_writer* writer, const char* id, const char* name, const char* desc, bool installed,
@@ -1707,31 +1687,18 @@ static void run_install_all_worker(const char* home) {
     }
 
     {
-        bool bundled_archive_tools = command_available("wrestool") && command_available("icotool") &&
-                                     command_available("unar");
-        if (bundled_archive_tools) {
-            write_install_progress(home, 1, total, "Bundled Tools", "done",
-                                   "Bundled GameJolt icon and RAR tools ready", NULL);
-        } else {
-            write_install_progress(home, 1, total, "Homebrew Fallback", "installing",
-                                   "Bundled tools are incomplete; installing fallback tools...", NULL);
-            if (!install_homebrew()) {
-                write_install_progress(home, 1, total, "Homebrew Fallback", "error", "Fallback tool installation failed",
-                                       "Homebrew is unavailable and bundled archive tools are incomplete");
-                _exit(0);
-            }
-            if ((!command_available("wrestool") || !command_available("icotool")) && !run_brew_install("icoutils")) {
-                write_install_progress(home, 1, total, "Homebrew Fallback", "error",
-                                       "GameJolt icon tools installation failed", "brew install icoutils failed");
-                _exit(0);
-            }
-            if (!command_available("unar") && !run_brew_install("unar")) {
-                write_install_progress(home, 1, total, "Homebrew Fallback", "error",
-                                       "RAR extraction tool installation failed", "brew install unar failed");
-                _exit(0);
-            }
-            write_install_progress(home, 1, total, "Homebrew Fallback", "done", "Fallback tools ready", NULL);
+        bool bundled_archive_tools = configured_tool_available("wrestool", "METALSHARP_WRESTOOL_PATH") &&
+                                     configured_tool_available("icotool", "METALSHARP_ICOTOOL_PATH") &&
+                                     configured_tool_available("lsar", "METALSHARP_LSAR_PATH") &&
+                                     configured_tool_available("unar", "METALSHARP_UNAR_PATH");
+        if (!bundled_archive_tools) {
+            write_install_progress(home, 1, total, "Bundled Tools", "error",
+                                   "MetalSharp bundled tools are missing or not executable",
+                                   "reinstall the application so zstd, icoutils, and The Unarchiver tools are restored");
+            _exit(0);
         }
+        write_install_progress(home, 1, total, "Bundled Tools", "done",
+                               "Bundled icon, archive, and extraction tools ready", NULL);
     }
 
     write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
@@ -1764,12 +1731,12 @@ static void run_install_all_worker(const char* home) {
     write_install_progress(home, 3, total, "Rosetta 2", "done", "Rosetta 2 ready", NULL);
 
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "installing", "Checking zstd...", NULL);
-    if (!command_available("zstd") && (!command_available("brew") || !run_brew_install("zstd"))) {
-        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error", "zstd installation failed",
-                               "brew install zstd failed");
+    if (!fixed_zstd_path()) {
+        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error", "Bundled zstd is missing or not executable",
+                               "reinstall the application so zstd/unzstd are restored");
         _exit(0);
     }
-    write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "zstd ready", NULL);
+    write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "Bundled zstd ready", NULL);
     {
         const char* bundles[] = {"metalsharp-runtime.tar.zst",       "metalsharp-graphics-dll.tar.zst",
                                  "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
@@ -2041,9 +2008,6 @@ static void run_install_all_worker(const char* home) {
         }
     }
     write_install_progress(home, 15, total, "Mono Configs", "done", "Mono configuration staged", NULL);
-    if (!home_required_files_ready(home, (const char*[]){"runtime/mono-arm64/bin/mono"}, 1) &&
-        !command_available("mono"))
-        (void)run_brew_install("mono");
     if (!home_required_files_ready(home, (const char*[]){"runtime/mono-arm64/bin/mono"}, 1) &&
         !command_available("mono")) {
         write_install_progress(home, 16, total, "Runtime Support", "error", "Mono arm64 runtime is incomplete",

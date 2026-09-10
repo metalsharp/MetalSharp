@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, inject, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
-import { api, getAPI } from "../composables/useApi";
+import { api } from "../composables/useApi";
 import IconZap from "~icons/lucide/zap";
 import IconBattery from "~icons/lucide/battery";
 import IconLock from "~icons/lucide/lock";
@@ -23,11 +23,7 @@ const steamChecking = ref(false);
 const steamInstalling = ref(false);
 const steamInstallStage = ref("idle");
 const installingSteam = ref(false);
-const brewChecking = ref(true);
-const brewInstalled = ref(false);
-const brewInstalling = ref(false);
-
-const steps = ["Welcome", "Optional Tools", "Runtime", "VC++", "Done"];
+const steps = ["Welcome", "Bundled Tools", "Runtime", "VC++", "Done"];
 
 const vcppX64Done = ref(false);
 const vcppX86Done = ref(false);
@@ -35,40 +31,7 @@ const vcppX64Installing = ref(false);
 const vcppX86Installing = ref(false);
 const finishing = ref(false);
 
-async function checkBrew() {
-  brewChecking.value = true;
-  const localStatus = await getAPI().homebrewStatus();
-  if (localStatus?.installed) {
-    brewInstalled.value = true;
-    brewChecking.value = false;
-    return;
-  }
-  const deps = await api<{ dependencies: { id: string; installed: boolean }[] }>("GET", "/setup/dependencies");
-  const brewDep = deps?.dependencies?.find((d) => d.id === "homebrew");
-  brewInstalled.value = brewDep?.installed ?? false;
-  brewChecking.value = false;
-}
-
-async function installHomebrew() {
-  brewInstalling.value = true;
-  const result = await getAPI().installHomebrew();
-  if (!result?.ok) {
-    toast.show(result?.error ?? "Failed to install Homebrew", "error");
-    brewInstalling.value = false;
-    return;
-  }
-  if (result.installed) {
-    brewInstalled.value = true;
-    brewInstalling.value = false;
-    toast.show(result.message ?? "Homebrew installed successfully", "success");
-    return;
-  }
-  brewInstalling.value = false;
-  toast.show("Homebrew installed — click Continue", "success");
-}
-
-async function goToRuntimeStep() {
-  await checkBrew();
+function goToRuntimeStep() {
   step.value = 2;
 }
 async function startInstall() {
@@ -333,27 +296,25 @@ async function installVcppX86() {
           </div>
         </div>
         <div class="setup-actions">
-          <button class="btn btn-primary btn-lg" @click="checkBrew().then(() => step = 1)">Get Started</button>
+          <button class="btn btn-primary btn-lg" @click="step = 1">Get Started</button>
         </div>
       </div>
 
       <div v-if="step === 1" class="setup-body">
         <div class="setup-section-header">
-          <h1>Optional Tools</h1>
-          <p>MetalSharp bundles zstd, GameJolt icon tools, and RAR extraction tools. Homebrew is optional for extra tools and fallback support; Rosetta and GPTK/D3DMetal are only installed when needed.</p>
+          <h1>Bundled Tools</h1>
+          <p>MetalSharp includes the tools needed to install and repair the runtime. Setup uses these app-owned binaries directly; Homebrew is not required.</p>
         </div>
 
-        <div class="setup-brew-step">
-          <p class="setup-brew-instructions">
-            Homebrew is optional. Install it only if you need additional packages or fallback tools, then click <strong>Continue</strong>.
-          </p>
-          <div class="setup-actions">
-            <button class="btn btn-secondary" @click="step = 0">Back</button>
-            <button class="btn btn-primary" :disabled="brewInstalling" @click="installHomebrew">
-              {{ brewInstalling ? "Opening..." : "Install Homebrew" }}
-            </button>
-            <button class="btn btn-primary btn-lg" @click="goToRuntimeStep">Continue</button>
-          </div>
+        <div class="setup-tool-list">
+          <div class="setup-tool-row"><strong>zstd / unzstd</strong><span>Runtime bundle extraction</span></div>
+          <div class="setup-tool-row"><strong>wrestool / icotool</strong><span>Windows icon extraction</span></div>
+          <div class="setup-tool-row"><strong>lsar / unar</strong><span>Safe archive inspection and extraction</span></div>
+        </div>
+
+        <div class="setup-actions">
+          <button class="btn btn-secondary" @click="step = 0">Back</button>
+          <button class="btn btn-primary btn-lg" @click="goToRuntimeStep">Continue</button>
         </div>
       </div>
 
@@ -786,20 +747,28 @@ async function installVcppX86() {
   border-top: 1px solid var(--border);
 }
 
-.setup-brew-step {
-  text-align: center;
+.setup-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  margin: 20px 0;
 }
 
-.setup-brew-instructions {
-  text-align: left;
-  font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.8;
+.setup-tool-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 16px;
   background: var(--bg-card);
-  border-radius: var(--radius-md);
   border: 1px solid var(--border);
-  padding: 16px 20px;
-  margin-bottom: 20px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.setup-tool-row strong {
+  color: var(--text-primary);
 }
 
 .setup-steam-section h2 {

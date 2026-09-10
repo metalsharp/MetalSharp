@@ -7,7 +7,7 @@
 1. Download the latest MetalSharp DMG from [GitHub Releases](https://github.com/aaf2tbz/metalsharp/releases).
 2. Drag MetalSharp into `/Applications`. Optionally use the homebrew tap to install.
 3. Open it. If macOS blocks the unsigned app, go to **System Settings → Privacy & Security** and choose **Open Anyway**.
-4. Run setup from inside MetalSharp — it will install Homebrew dependencies, the Wine runtime, MetalSharp-owned graphics/runtime assets, and redistributable source material used by bottle repair.
+4. Run setup from inside MetalSharp — it uses the tools bundled in the app to install the Wine runtime, MetalSharp-owned graphics/runtime assets, and redistributable source material used by bottle repair. Homebrew is not required.
 5. Start Wine Steam, sign in, and download a Windows game.
 
 
