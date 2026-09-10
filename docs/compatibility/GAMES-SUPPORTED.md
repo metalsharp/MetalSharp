@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-09-08 (runtime descriptions; game evidence unchanged)
+Updated: 2026-09-10 (D3DMetal online-play status)
 
 Tested and working games organized by pipeline. Only games confirmed playable are listed.
 
@@ -37,17 +37,17 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 
 The current route uses the managed GPTK 4 beta 2 payload and MetalSharp Wine 11.17. Save stages the matched DLLs beside a resolved game executable; Play refreshes them and uses the Steam-aware direct launcher with `~/.metalsharp/prefix-steam`. There is no route-wide Steam-emulator requirement.
 
-The offline notes below record earlier game tests, not a fresh validation of every title on the current runtime. This documentation update does not change those compatibility results.
+The D3DMetal titles below now support online play except Elden Ring and ARMORED CORE VI FIRES OF RUBICON, which remain offline-only. This documentation update does not change the route or runtime.
 
 | Game | AppID | Notes |
 |---|---:|---|
 | Elden Ring | 1245620 | Offline Play |
 | ARMORED CORE VI FIRES OF RUBICON | 1888160 | Offline Play |
-| High On Life | 1583230 | Offline Play|
-| Cyberpunk 2077 | 1091500 | Offline Play |
-| Ghostrunner | 1139900 | Offline Play |
-| Star Wars Jedi: Fallen Order | 1172830 | Offline Play | 
-| Control: Ultimate Edition | 870780 | Offline Play |
+| High On Life | 1583230 | Online Play |
+| Cyberpunk 2077 | 1091500 | Online Play |
+| Ghostrunner | 1139900 | Online Play |
+| Star Wars Jedi: Fallen Order | 1172830 | Online Play |
+| Control: Ultimate Edition | 870780 | Online Play |
 
 ---
 
