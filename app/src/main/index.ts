@@ -256,6 +256,42 @@ function removeMetalsharpData(root: string): boolean {
   }
 }
 
+function metalsharpRelatedDataPaths(): string[] {
+  const home = os.homedir();
+  const appData = app.getPath("appData");
+  const preferences = path.join(appData, "Preferences");
+  const savedState = path.join(home, "Library", "Saved Application State");
+  const paths = [
+    getMetalsharpDir(),
+    path.join(home, ".metalsharp"),
+    path.join(home, ".metalsharp-dev"),
+    app.getPath("userData"),
+    app.getPath("sessionData"),
+    path.join(home, "Library", "Caches", "metalsharp"),
+    path.join(home, "Library", "Caches", "MetalSharp"),
+    app.getPath("logs"),
+    path.join(appData, "metalsharp"),
+    path.join(appData, "MetalSharp"),
+    path.join(preferences, "com.metalsharp.app.plist"),
+    path.join(preferences, "com.metalsharp.MetalSharp.wineloader.plist"),
+    path.join(savedState, "com.metalsharp.app.savedState"),
+    path.join(home, "Library", "HTTPStorages", "com.metalsharp.app"),
+    path.join(home, "Library", "WebKit", "com.metalsharp.app"),
+  ];
+
+  try {
+    for (const entry of fs.readdirSync(path.join(appData, "CrashReporter"))) {
+      if (entry.toLowerCase().startsWith("metalsharp")) paths.push(path.join(appData, "CrashReporter", entry));
+    }
+  } catch {}
+
+  return [...new Set(paths)];
+}
+
+function removeMetalsharpRelatedData(): boolean {
+  return metalsharpRelatedDataPaths().every((target) => removeMetalsharpData(target));
+}
+
 function verifyMetalsharpDataAccess() {
   ensureMetalsharpDirs();
   const base = getMetalsharpDir();
@@ -1628,10 +1664,9 @@ function registerIpc() {
       title: "Uninstall MetalSharp",
       message: "Are you sure you want to uninstall MetalSharp?",
       detail:
-        "This will permanently delete all Wine prefixes, bottles, game data, " +
-        "Steam installation, Wine runtime, shader caches, and all settings. " +
-        "MetalSharp will also be removed from Applications and moved to Trash. " +
-        "This action cannot be undone.",
+        "This permanently deletes ~/.metalsharp, MetalSharp's Electron application support, caches, logs, " +
+        "preferences, saved state, Wine Steam data, prefixes, bottles, runtime, shader caches, and settings. " +
+        "It preserves unrelated ~/.wine data. MetalSharp will also be moved to Trash. This action cannot be undone.",
       buttons: ["Cancel", "Uninstall"],
       defaultId: 0,
       cancelId: 0,
@@ -1641,8 +1676,7 @@ function registerIpc() {
 
     await cleanup();
 
-    const msDir = getMetalsharpDir();
-    const dataRemoved = removeMetalsharpData(msDir);
+    const dataRemoved = removeMetalsharpRelatedData();
 
     // Spawn a detached shell that waits for this process to exit, then
     // moves the app bundle to the macOS Trash.
@@ -1665,9 +1699,9 @@ function registerIpc() {
         title: dataRemoved ? "MetalSharp Uninstalled" : "MetalSharp Uninstall Incomplete",
         message: dataRemoved
           ? "MetalSharp data has been removed successfully."
-          : `MetalSharp could not completely remove ${msDir}.`,
+          : "MetalSharp could not completely remove all MetalSharp-owned data.",
         detail: dataRemoved
-          ? "All Wine prefixes, bottles, Steam, runtime, and settings have been deleted. " +
+          ? "All MetalSharp-owned Wine prefixes, bottles, Steam data, runtime, caches, settings, and Electron state have been deleted. " +
             (appBundle
               ? "When you close this window, MetalSharp will be moved to the Trash."
               : "Close this window to exit MetalSharp.") +
