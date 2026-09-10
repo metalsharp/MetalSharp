@@ -66,7 +66,7 @@ The D3DMetal titles below now support online play except Elden Ring and ARMORED 
 
 | Game | AppID | Notes |
 |---|---:|---|
-| PEAK | 3527290 | Graphical Issues |
+| PEAK | 3527290 | Working |
 | Hollow Knight: Silksong | 1030300 | |
 | Schedule I | 3164500 | |
 | Dark Deception | 332950 | |
