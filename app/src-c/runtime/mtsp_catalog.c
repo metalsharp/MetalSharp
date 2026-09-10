@@ -1971,7 +1971,7 @@ static const char* const chunks[] = {
     "ths\":[\"lib/wine/x86_64-unix\",\"lib/dxmt/x86_64-unix\"],\"wine_overrides\":\"winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayren",
     "derer,gameoverlayrenderer64=d\",\"winedllpath_dirs\":[\"lib/dxmt/x86_64-windows\",\"lib/metalsharp/x86_64-windows\"]},\"name\":\"P",
     "illars of Eternity\",\"offline_capable\":false},{\"appid\":292030,\"check_dlls\":[\"d3d11.dll\",\"dxgi.dll\",\"winemetal.dll\"],\"comp",
-    "onents\":[],\"custom_exe_fix\":false,\"default_pipeline\":\"m11\",\"default_pipeline_name\":\"M11\",\"env\":{},\"exe_names\":[],\"launch",
+    "onents\":[],\"custom_exe_fix\":false,\"default_pipeline\":\"d3dmetal\",\"default_pipeline_name\":\"D3DMetal\",\"env\":{},\"exe_names\":[],\"launch",
     "_shape\":{\"deploy_dlls\":[{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d11.dll\",\"source_subpath\":\"lib/dxmt/x86_64-w",
     "indows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"dxgi.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\"",
     ":\"64-bit\",\"dest_filename\":null,\"filename\":\"dxgi_dxmt.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\":\"64-bit\",\"",
@@ -7841,7 +7841,7 @@ static const char* const chunks[] = {
     "ch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"metalsharp_ntdll_hook.dll\",\"source_subpath\":\"lib/metalsharp/x86_64-windows",
     "\"}],\"dyld_paths\":[\"lib/wine/x86_64-unix\",\"lib/dxmt/x86_64-unix\"],\"wine_overrides\":\"winemetal,dxgi,d3d11,d3d10core=n,b;ga",
     "meoverlayrenderer,gameoverlayrenderer64=d\",\"winedllpath_dirs\":[\"lib/dxmt/x86_64-windows\",\"lib/metalsharp/x86_64-windows\"",
-    "]},\"name\":\"MECCHA CHAMELEON\",\"offline_capable\":false}]}",
+    "]},\"name\":\"MECCHA CHAMELEON\",\"offline_capable\":false},{\"appid\":1449850,\"check_dlls\":[\"d3d12.dll\",\"d3d11.dll\",\"dxgi.dll\"],\"components\":[],\"custom_exe_fix\":false,\"default_pipeline\":\"d3dmetal\",\"default_pipeline_name\":\"D3DMetal\",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[],\"dyld_paths\":[],\"wine_overrides\":\"d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d\",\"winedllpath_dirs\":[]},\"name\":\"Yu-Gi-Oh! Master Duel\",\"offline_capable\":false}]}",
 };
 
 char* ms_mtsp_default_rules_json(void) {
