@@ -3771,6 +3771,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         setenv("SteamAppId", app_id, 1);
         setenv("SteamGameId", app_id, 1);
         setenv("SteamOverlayGameId", app_id, 1);
+        setenv("METALSHARP_PIPELINE", pipeline, 1);
         set_route_paths(home, pipeline);
         set_route_default_env(pipeline);
         set_launch_cache_env(home, id, pipeline);
