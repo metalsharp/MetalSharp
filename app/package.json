@@ -134,6 +134,14 @@
         "to": "tools/licenses"
       },
       {
+        "from": "../LICENSES",
+        "to": "licenses"
+      },
+      {
+        "from": "../THIRD_PARTY_LICENSES",
+        "to": "THIRD_PARTY_LICENSES"
+      },
+      {
         "from": "src-c/build/metalsharp-backend",
         "to": "runtime/metalsharp-backend"
       },

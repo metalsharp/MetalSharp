@@ -69,17 +69,33 @@ source folders, or the referenced upstream/runtime packages.
 - Files: `src/wine/mojoshader/LICENSE.txt`
 - Used as: Git submodule in src/wine/mojoshader/
 
-## Wine / Wine runtime payload
+## WineForge-derived Wine / Wine runtime payload
 
-- Upstream: https://gitlab.winehq.org/wine/wine (Wine 11.5)
+- WineForge source: https://github.com/Alien4042x/WineForge
+- Upstream Wine: https://gitlab.winehq.org/wine/wine
+- Version: WineForge 0.6.0.4, based on Wine 11.17
 - License: GNU Lesser General Public License v2.1 or later
-- Used as: MetalSharp builds and bundles a custom Wine 11.5 runtime from upstream
-  source, used as the Wine PE/DLL surface, prefix tooling, and Wine-backed
-  game/app launch runtime.
-- Notes: Wine-derived runtime payloads keep their upstream LGPL terms. Runtime
-  bundle manifests and release assets preserve the redistributed payload
-  boundaries. The MetalSharp Wine build includes DXMT integration patches and
-  macOS-specific runtime adjustments not present in upstream Wine or CrossOver.
+- Files: `LICENSES/WINEFORGE-LICENSE`, `LICENSES/WINEFORGE-COPYING.LIB`,
+  and `LICENSES/WINEFORGE-NOTICES.md`
+- Used as: MetalSharp builds and bundles a WineForge-derived Wine 11.17
+  runtime from source for the Wine PE/DLL surface, prefix tooling, and
+  Wine-backed game/app launch runtime.
+- Notes: WineForge is based on Wine and does not replace Wine's upstream
+  license or notices. Runtime bundle manifests and release assets preserve
+  the redistributed payload boundary. MetalSharp's build adds its own
+  documented DXMT, D3DMetal, WoW64, and macOS runtime adjustments.
+
+## WFDXCompat — WineForge DXCompat integration
+
+- Repository: https://github.com/Alien4042x/WFDXCompat
+- License: GNU Lesser General Public License v2.1
+- Files: `LICENSES/WFDXCOMPAT-LGPL-2.1`
+- Used as: WineForge-derived process-local DXCompat loader and frontend
+  integration in the Wine runtime. The optional external WFDXCompat runtime
+  is only used when its matching runtime directory is explicitly staged.
+- Notes: WFDXCompat remains separately attributable from Wine and WineForge;
+  its source and license are preserved at the repository URL and in the
+  distributed license file.
 
 ## Apple Game Porting Toolkit / D3DMetal
 
