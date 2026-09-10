@@ -2809,6 +2809,18 @@ static bool steam_install_complete(const char* steam_dir) {
 }
 
 static const char* fixed_unzstd_path(void) {
+    const char* bundled = getenv("METALSHARP_UNZSTD_PATH");
+    const char* fixed[] = {
+        "/Applications/MetalSharp.app/Contents/Resources/tools/unzstd",
+        "/Applications/MetalSharp.app/Contents/Resources/unzstd",
+        "app/tools/unzstd",
+    };
+    if (bundled && access(bundled, X_OK) == 0)
+        return bundled;
+    for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
+        if (access(fixed[i], X_OK) == 0)
+            return fixed[i];
+    }
     if (access("/opt/homebrew/bin/unzstd", X_OK) == 0)
         return "/opt/homebrew/bin/unzstd";
     if (access("/usr/local/bin/unzstd", X_OK) == 0)

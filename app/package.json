@@ -102,6 +102,14 @@
     ],
     "extraResources": [
       {
+        "from": "tools/zstd",
+        "to": "tools/zstd"
+      },
+      {
+        "from": "tools/unzstd",
+        "to": "tools/unzstd"
+      },
+      {
         "from": "src-c/build/metalsharp-backend",
         "to": "runtime/metalsharp-backend"
       },

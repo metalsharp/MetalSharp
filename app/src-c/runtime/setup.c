@@ -193,6 +193,18 @@ static char* find_bundle_archive(const char* home, const char* name) {
 }
 
 static const char* fixed_zstd_path(void) {
+    const char* bundled = getenv("METALSHARP_ZSTD_PATH");
+    const char* fixed[] = {
+        "/Applications/MetalSharp.app/Contents/Resources/tools/zstd",
+        "/Applications/MetalSharp.app/Contents/Resources/zstd",
+        "app/tools/zstd",
+    };
+    if (bundled && access(bundled, X_OK) == 0)
+        return bundled;
+    for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
+        if (access(fixed[i], X_OK) == 0)
+            return fixed[i];
+    }
     if (access("/opt/homebrew/bin/zstd", X_OK) == 0)
         return "/opt/homebrew/bin/zstd";
     if (access("/usr/local/bin/zstd", X_OK) == 0)

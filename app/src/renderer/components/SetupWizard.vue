@@ -344,7 +344,7 @@ async function installVcppX86() {
       <div v-if="step === 1" class="setup-body">
         <div class="setup-section-header">
           <h1>Install Homebrew</h1>
-          <p>MetalSharp uses Homebrew for setup tools such as zstd and Rosetta checks. GPTK/D3DMetal is optional and is only installed later when you save a game as a D3DMetal bottle.</p>
+          <p>MetalSharp bundles its zstd extraction tool, so the Homebrew zstd formula is not required. Homebrew remains available for other setup tools; Rosetta and GPTK/D3DMetal are only installed when needed.</p>
         </div>
 
         <div class="setup-brew-step">

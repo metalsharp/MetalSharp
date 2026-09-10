@@ -1,0 +1,3 @@
+# name\tversion\tplatform\tpath\tsha256\tsource\tbuild-notes
+zstd\t1.5.7\tdarwin-arm64\tapp/tools/zstd\tb63cf128fb558849fcbbe62c93ebcb1f8dca63819aa126f23e0424889bc96cb5\thttps://github.com/facebook/zstd/releases/tag/v1.5.7\tBuilt from upstream source with programs/zstd; statically linked to libzstd.
+unzstd\t1.5.7\tdarwin-arm64\tapp/tools/unzstd\tb63cf128fb558849fcbbe62c93ebcb1f8dca63819aa126f23e0424889bc96cb5\thttps://github.com/facebook/zstd/releases/tag/v1.5.7\tSame zstd executable under the unzstd argv[0] compatibility name.

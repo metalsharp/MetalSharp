@@ -15,6 +15,14 @@ function getStatusFile(): string {
   return path.join(getMetalsharpDir(), "update_install_status.json");
 }
 
+function getBundledToolsDir(): string {
+  const candidates = [
+    process.resourcesPath ? path.join(process.resourcesPath, "tools") : "",
+    path.resolve(__dirname, "../../tools"),
+  ];
+  return candidates.find((candidate) => fs.existsSync(path.join(candidate, "zstd"))) || candidates[0] || "";
+}
+
 export interface InstallStatus {
   phase: string;
   percent: number;
@@ -111,6 +119,10 @@ export class UpdaterBridge {
 
     fs.mkdirSync(getMetalsharpDir(), { recursive: true });
 
+    const bundledToolsDir = getBundledToolsDir();
+    const toolPath = [bundledToolsDir, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+      .filter(Boolean)
+      .join(":");
     const child = spawn(
       "/bin/bash",
       [
@@ -134,7 +146,7 @@ export class UpdaterBridge {
         env: {
           ...process.env,
           METALSHARP_HOME: getMetalsharpDir(),
-          PATH: ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
+          PATH: toolPath,
         },
       },
     );
@@ -153,6 +165,7 @@ export class UpdaterBridge {
 
     const extractRoot = path.join(getMetalsharpDir(), "cache", "updater-tools");
     const script = path.join(extractRoot, "scripts", "tools", "updater", "update.sh");
+    const bundledToolsDir = getBundledToolsDir();
     try {
       fs.rmSync(extractRoot, { recursive: true, force: true });
       fs.mkdirSync(extractRoot, { recursive: true });
@@ -162,7 +175,9 @@ export class UpdaterBridge {
         {
           env: {
             ...process.env,
-            PATH: ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
+            PATH: [bundledToolsDir, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+              .filter(Boolean)
+              .join(":"),
           },
           stdio: "ignore",
         },

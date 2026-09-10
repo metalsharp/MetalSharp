@@ -257,12 +257,27 @@ export class BackendBridge {
   private spawnBackend(binPath: string) {
     const homebrewInstaller = path.resolve(path.dirname(binPath), "..", "scripts/tools/install-homebrew.sh");
     const bundleDir = path.resolve(path.dirname(binPath), "..", "bundles");
+    const packagedResourcesDir = process.resourcesPath || "";
+    const developmentResourcesDir = path.resolve(path.dirname(binPath), "../..");
+    const resourcesDir = fs.existsSync(path.join(packagedResourcesDir, "tools", "zstd"))
+      ? packagedResourcesDir
+      : developmentResourcesDir;
+    const bundledToolsDir = path.join(resourcesDir, "tools");
+    const bundledZstd = path.join(bundledToolsDir, "zstd");
+    const bundledUnzstd = path.join(bundledToolsDir, "unzstd");
+    const bundledCompressionTools = fs.existsSync(bundledZstd) && fs.existsSync(bundledUnzstd)
+      ? {
+          METALSHARP_ZSTD_PATH: bundledZstd,
+          METALSHARP_UNZSTD_PATH: bundledUnzstd,
+        }
+      : {};
     this.proc = spawn(binPath, [], {
       env: {
         ...process.env,
-        PATH: shellPath,
+        PATH: [bundledToolsDir, shellPath].join(":"),
         METALSHARP_HOMEBREW_INSTALLER: homebrewInstaller,
         ...(fs.existsSync(bundleDir) ? { METALSHARP_BUNDLE_DIR: bundleDir } : {}),
+        ...bundledCompressionTools,
         METALSHARP_PORT: String(this.port),
         ...(this.metalsharpHome ? { METALSHARP_HOME: this.metalsharpHome } : {}),
         ...(this.devMode ? { METALSHARP_DEV: "1" } : {}),
