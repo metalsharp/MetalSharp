@@ -47,7 +47,7 @@ pipeline = "m9"
 name = "Taimumari: Definitive Edition"
 
 [overrides.387290]
-pipeline = "m11"
+pipeline = "m11_32"
 name = "Ori and the Blind Forest: Definitive Edition"
 exe_names = ["oriDE.exe"]
 
@@ -98,7 +98,7 @@ name = "Totally Accurate Battle Simulator"
 [overrides.508440.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.535520]
-pipeline = "m9"
+pipeline = "m11_32"
 name = "Nidhogg 2"
 
 [overrides.17410]
