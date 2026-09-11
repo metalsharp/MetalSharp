@@ -46,7 +46,7 @@ static char* join(const char* a, const char* b) {
 }
 
 static void ensure_steam_launch_ready(const char* home, const char* steam_dir);
-static void seed_steam_d3d12_guard(const char* home, const char* prefix);
+static void seed_steam_registry(const char* home);
 static bool contains_ci(const char* haystack, const char* needle);
 static bool wine_steam_cleanup_target(const char* command, const char* prefix);
 static bool copy_file_path(const char* source, const char* destination);
@@ -375,10 +375,11 @@ static void set_route_paths(const char* home, const char* pipeline) {
         snprintf(unixpath, sizeof(unixpath),
                  "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
     } else if (!strcmp(pipeline, "m9")) {
-        snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/wine/"
-                 "i386-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows",
-                 home, home, home, home);
+        snprintf(
+            dllpath, sizeof(dllpath),
+            "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/wine/"
+            "i386-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows",
+            home, home, home, home);
         snprintf(unixpath, sizeof(unixpath),
                  "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
     } else if (!strcmp(pipeline, "m11_32")) {
@@ -2462,7 +2463,7 @@ static char* spawn_wine(const char* home, const char* first, const char* second,
     }
     redirect_wine_steam_desktop(home);
     ensure_steam_launch_ready(home, steam_dir);
-    seed_steam_d3d12_guard(home, steam_dir);
+    seed_steam_registry(home);
     child = fork();
     if (child < 0) {
         char* s = strdup(strerror(errno));
@@ -2615,7 +2616,7 @@ char* ms_steam_launch_json(const char* home, int* status) {
         return pid_result(pid, "pid", 0, false);
     }
     ensure_steam_launch_ready(home, steam_dir);
-    seed_steam_d3d12_guard(home, steam_dir);
+    seed_steam_registry(home);
     errtext = spawn_wine(home, steam, "-no-cef-sandbox", "-cef-single-process", "-noverifyfiles", "-no-dwrite", &pid);
     if (!errtext)
         for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
@@ -3206,14 +3207,14 @@ char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
     return ms_json_writer_take(&writer);
 }
 
-static void seed_steam_d3d12_guard(const char* home, const char* steam_dir) {
+static void seed_steam_registry(const char* home) {
     char* prefix = join(home, "prefix-steam");
     char* drive_c = prefix ? join(prefix, "drive_c") : NULL;
-    char* reg_file = drive_c ? join(drive_c, "metalsharp-steam-d3d12-guard.reg") : NULL;
+    char* reg_file = drive_c ? join(drive_c, "metalsharp-steam.reg") : NULL;
+    bool retina = ms_config_retina_enabled(home);
     FILE* f;
     pid_t pid;
     char* error_text;
-    (void)steam_dir;
     if (!prefix || !drive_c || !reg_file || !ensure_directory(drive_c))
         goto done;
     f = fopen(reg_file, "wb");
@@ -3232,8 +3233,12 @@ static void seed_steam_d3d12_guard(const char* home, const char* steam_dir) {
     fputs("\"d3d12\"=\"builtin\"\r\n\"d3d12core\"=\"builtin\"\r\n\"d3d12SDKLayers\"=\"builtin\"\r\n\"dxcore\"="
           "\"builtin\"\r\n",
           f);
+    fputs("\r\n[HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver]\r\n", f);
+    fprintf(f, "\"RetinaMode\"=\"%c\"\r\n", retina ? 'Y' : 'N');
+    fputs("\r\n[HKEY_CURRENT_USER\\Control Panel\\Desktop]\r\n", f);
+    fprintf(f, "\"LogPixels\"=dword:%08x\r\n", retina ? 192 : 96);
     fclose(f);
-    error_text = spawn_wine_install(home, "reg", "import", "C:\\metalsharp-steam-d3d12-guard.reg", &pid);
+    error_text = spawn_wine_install(home, "reg", "import", "C:\\metalsharp-steam.reg", &pid);
     if (!error_text) {
         (void)wait_child_success(pid);
     } else {
