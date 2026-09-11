@@ -62,7 +62,8 @@ static bool convert_dxbc(ShaderBytecode &in, ShaderBytecode &out) {
     uint32_t size = 0;
     wchar_t *errors = nullptr;
     hr = converter->Convert(in.data, in.size, nullptr, &data, &size, &errors);
-    if (errors) std::free(errors);
+    // The GPTK converter owns its optional diagnostic buffer; the ABI caller
+    // intentionally ignores it, matching the original adapter.
     converter->Release();
     dlclose(handle);
     if (FAILED(hr) || !data || !size) return false;
@@ -90,8 +91,8 @@ static bool compile_hlsl(const std::string &source, const char *profile, const c
     DxcBuffer buffer{source.data(), source.size(), DXC_CP_UTF8};
     std::vector<std::wstring> storage;
     std::vector<LPCWSTR> args;
-    storage.reserve(64);
-    args.reserve(64);
+    storage.reserve(4 + extra.size() + extra2.size());
+    args.reserve(4 + extra.size() + extra2.size());
     storage.emplace_back(L"-E"); args.push_back(storage.back().c_str());
     auto widen = [](const char *text) {
         std::wstring result;
