@@ -14,8 +14,9 @@ BUNDLE_NATIVE="$SCRIPT_DIR"
 mkdir -p "$APP_NATIVE"
 
 CXX="${CXX:-clang++}"
-CXXFLAGS="${CXXFLAGS:--O2 -std=c++17 -Wall -Wextra -mmacosx-version-min=11.0}"
-LDFLAGS="${LDFLAGS:--framework IOKit -framework CoreFoundation}"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+CXXFLAGS="${CXXFLAGS:--O2 -std=c++17 -Wall -Wextra} -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
+LDFLAGS="${LDFLAGS:--framework IOKit -framework CoreFoundation} -mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
 
 echo "Compiling metalsharp-process-manager-helper with $CXX ..."
 "$CXX" $CXXFLAGS "$SRC" -o "$APP_NATIVE/metalsharp-process-manager-helper" $LDFLAGS
@@ -35,7 +36,7 @@ ACTIVATE_BUNDLE="$SCRIPT_DIR/metalsharp-activate-pid"
 
 if [ -f "$ACTIVATE_SRC" ]; then
   echo "Compiling metalsharp-activate-pid ..."
-  clang -O2 -mmacosx-version-min=11.0 -framework Cocoa "$ACTIVATE_SRC" -o "$ACTIVATE_APP"
+  clang -O2 -mmacosx-version-min="${MACOSX_DEPLOYMENT_TARGET}" -framework Cocoa "$ACTIVATE_SRC" -o "$ACTIVATE_APP"
   cp "$ACTIVATE_APP" "$ACTIVATE_BUNDLE"
   echo "  $ACTIVATE_APP"
   echo "  $ACTIVATE_BUNDLE"
