@@ -1,4 +1,5 @@
 option('native_llvm_path', type : 'string', value: '/usr/local/opt/llvm@15')
+option('macos_x86_lib_path', type : 'string', value: '')
 option('build_airconv_for_windows', type : 'boolean', value : false)
 option('dxmt_debug', type : 'boolean', value : false)
 option('dxmt_native', type : 'boolean', value : false, deprecated : true)
