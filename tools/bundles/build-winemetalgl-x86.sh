@@ -29,8 +29,10 @@ s = s.replace('set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Host architectu
 s = s.replace('OSX_ARCHITECTURES "arm64"', 'OSX_ARCHITECTURES "${WINEMETALGL_HOST_ARCH}"')
 p.write_text(s)
 PY
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+export MACOSX_DEPLOYMENT_TARGET
 cmake -S "$SOURCE" -B "$ROOT/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DWINEMETALGL_HOST_ARCH=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+  -DWINEMETALGL_HOST_ARCH=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET}"
 cmake --build "$ROOT/build" --parallel "${JOBS:-6}"
 install -m 0755 "$ROOT/build/metalsharp-opengl.dylib" "$OUT_DIR/metalsharp-opengl.dylib"
 test "$(lipo -archs "$OUT_DIR/metalsharp-opengl.dylib")" = x86_64

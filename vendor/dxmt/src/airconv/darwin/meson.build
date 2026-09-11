@@ -13,6 +13,10 @@ llvm_ld_flags_darwin = [
   '-L'+join_paths(native_llvm_path, 'lib'),
   '-lm', '-lz', '-lcurses', '-lxml2'
 ]
+macos_x86_lib_path = get_option('macos_x86_lib_path')
+if macos_x86_lib_path != ''
+  llvm_ld_flags_darwin = ['-L'+macos_x86_lib_path] + llvm_ld_flags_darwin
+endif
 
 llvm_extra_libs = []
 if native_llvm_path.startswith('/usr/local/opt') or native_llvm_path.startswith('/opt/homebrew/opt')

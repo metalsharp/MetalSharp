@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+export MACOSX_DEPLOYMENT_TARGET
 DXMT_DIR="${ROOT_DIR}/vendor/dxmt"
 BUILD_DIR="${DXMT_DIR}/build-metalsharp-x64"
 WINE_ROOT="${METALSHARP_WINE_ROOT:-${HOME}/.metalsharp/runtime/wine}"
@@ -9,6 +11,7 @@ TOOLCHAIN_ROOT="${METALSHARP_X86_LLVM_ROOT:-${RUNNER_TEMP:-${HOME}/.cache/metals
 LLVM_NAME="clang+llvm-15.0.7-x86_64-apple-darwin21.0"
 LLVM_DIR="${TOOLCHAIN_ROOT}/${LLVM_NAME}"
 LLVM_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.7/${LLVM_NAME}.tar.xz"
+MACOS_X86_LIBS="${METALSHARP_X86_HOST_LIBS:-}"
 
 mkdir -p "${TOOLCHAIN_ROOT}"
 
@@ -48,6 +51,7 @@ if [[ -f "${BUILD_DIR}/build.ninja" ]]; then
   meson setup "${BUILD_DIR}" "${DXMT_DIR}" --reconfigure \
     --cross-file "${DXMT_DIR}/build-win64.txt" \
     -Dnative_llvm_path="${LLVM_DIR}" \
+    -Dmacos_x86_lib_path="${MACOS_X86_LIBS}" \
     -Dwine_install_path="${WINE_ROOT}" \
     -Denable_nvapi=true \
     -Denable_nvngx=true
@@ -55,6 +59,7 @@ else
   meson setup "${BUILD_DIR}" "${DXMT_DIR}" \
     --cross-file "${DXMT_DIR}/build-win64.txt" \
     -Dnative_llvm_path="${LLVM_DIR}" \
+    -Dmacos_x86_lib_path="${MACOS_X86_LIBS}" \
     -Dwine_install_path="${WINE_ROOT}" \
     -Denable_nvapi=true \
     -Denable_nvngx=true

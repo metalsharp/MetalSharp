@@ -72,6 +72,7 @@ native_compiler_args = [
   '-Wno-unused-const-variable',
   '-Wno-missing-braces',
   '-fblocks',
+  '-mmacosx-version-min=14.0',
 ]
 
 link_args = []
@@ -204,7 +205,8 @@ add_project_link_arguments(cc.get_supported_link_arguments(link_args), language:
 if dxmt_crossbuild
   add_project_arguments(['-arch', native_compiler_arch], language: 'c',  native: true)
   add_project_arguments(['-arch', native_compiler_arch], language: 'cpp',  native: true)
-  add_project_link_arguments(['-arch', native_compiler_arch], language: 'cpp',  native: true)
+  add_project_link_arguments(['-arch', native_compiler_arch, '-mmacosx-version-min=14.0'], language: 'c', native: true)
+  add_project_link_arguments(['-arch', native_compiler_arch, '-mmacosx-version-min=14.0'], language: 'cpp', native: true)
 endif
 
 subdir('libs')
