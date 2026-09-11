@@ -7,5 +7,6 @@
 char* ms_config_get_json(const char* metalsharp_home);
 char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body, size_t body_length, int* status);
 bool ms_config_msync_enabled(const char* metalsharp_home);
+bool ms_config_retina_enabled(const char* metalsharp_home);
 
 #endif

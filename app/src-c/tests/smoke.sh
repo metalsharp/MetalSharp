@@ -44,10 +44,11 @@ v = json.load(sys.stdin)
 assert v["ok"] is True
 assert v["controllerInput"] == "off"
 assert v["msync"] is True
+assert v["retinaMode"] is True
 '
 
 curl --silent --fail --request POST --header 'Content-Type: application/json' \
-    --data '{"graphicsRuntimeLogs":true,"controllerInput":"X","msync":false}' \
+    --data '{"graphicsRuntimeLogs":true,"controllerInput":"X","msync":false,"retinaMode":false}' \
     "http://127.0.0.1:$port/config" >/dev/null
 config_after=$(curl --silent --fail "http://127.0.0.1:$port/config")
 printf '%s' "$config_after" | python3 -c '
@@ -57,6 +58,7 @@ assert v["graphicsRuntimeLogs"] is True
 assert v["graphics_runtime_logs"] is True
 assert v["controllerInput"] == "x"
 assert v["msync"] is False
+assert v["retinaMode"] is False
 '
 
 progress=$(curl --silent --fail "http://127.0.0.1:$port/update/progress")

@@ -198,6 +198,15 @@ bool ms_config_msync_enabled(const char* metalsharp_home) {
     return enabled;
 }
 
+bool ms_config_retina_enabled(const char* metalsharp_home) {
+    char* path = config_path(metalsharp_home);
+    ms_json* config = path == NULL ? NULL : read_json_file(path);
+    bool enabled = config_bool(config, "retinaMode", true);
+    free(path);
+    ms_json_free(config);
+    return enabled;
+}
+
 char* ms_config_get_json(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
@@ -206,6 +215,7 @@ char* ms_config_get_json(const char* metalsharp_home) {
                     ? truthy(env_logs)
                     : config_bool(config, "graphicsRuntimeLogs", config_bool(config, "graphics_runtime_logs", false));
     bool msync = config_bool(config, "msync", true);
+    bool retina = config_bool(config, "retinaMode", true);
     char* controller = controller_input(config);
     ms_json_writer writer;
     char* result;
@@ -230,6 +240,8 @@ char* ms_config_get_json(const char* metalsharp_home) {
     ms_json_writer_string(&writer, controller);
     ms_json_writer_key(&writer, "msync");
     ms_json_writer_bool(&writer, msync);
+    ms_json_writer_key(&writer, "retinaMode");
+    ms_json_writer_bool(&writer, retina);
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(controller);
@@ -261,7 +273,7 @@ static void write_member(ms_json_writer* writer, const char* key, const ms_json*
 }
 
 static bool write_config(const char* path, const ms_json* existing, bool set_logs, bool logs, bool set_controller,
-                         const char* controller, bool set_msync, bool msync) {
+                         const char* controller, bool set_msync, bool msync, bool set_retina, bool retina) {
     char* parent;
     char* slash;
     ms_json_writer writer;
@@ -270,6 +282,7 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     bool emitted_logs_snake = false;
     bool emitted_controller = false;
     bool emitted_msync = false;
+    bool emitted_retina = false;
     parent = strdup(path);
     if (parent == NULL)
         return false;
@@ -303,6 +316,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
             ms_json_writer_key(&writer, key);
             ms_json_writer_bool(&writer, msync);
             emitted_msync = true;
+        } else if (set_retina && strcmp(key, "retinaMode") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_bool(&writer, retina);
+            emitted_retina = true;
         } else {
             write_member(&writer, key, value);
         }
@@ -322,6 +339,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     if (set_msync && !emitted_msync) {
         ms_json_writer_key(&writer, "msync");
         ms_json_writer_bool(&writer, msync);
+    }
+    if (set_retina && !emitted_retina) {
+        ms_json_writer_key(&writer, "retinaMode");
+        ms_json_writer_bool(&writer, retina);
     }
     ms_json_writer_object_end(&writer);
     {
@@ -347,7 +368,8 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
     ms_json* existing = path == NULL ? NULL : read_json_file(path);
     ms_json* request = NULL;
     char error[128];
-    bool set_logs = false, logs = false, set_msync = false, msync = false, set_controller = false;
+    bool set_logs = false, logs = false, set_msync = false, msync = false, set_retina = false, retina = false,
+         set_controller = false;
     char* controller = NULL;
     char* result;
     if (status != NULL)
@@ -376,8 +398,10 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
         set_controller = valid_controller(ms_json_object_get(request, "controllerInput"), &controller);
         value = ms_json_object_get(request, "msync");
         set_msync = value != NULL && ms_json_as_bool(value, &msync);
+        value = ms_json_object_get(request, "retinaMode");
+        set_retina = value != NULL && ms_json_as_bool(value, &retina);
     }
-    if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync))
+    if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync, set_retina, retina))
         goto fail;
     result = ms_config_get_json(metalsharp_home);
     if (status != NULL)

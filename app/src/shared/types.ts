@@ -41,6 +41,7 @@ export interface AppConfig {
   launchMode: "native" | "wine";
   wineAvailable: boolean;
   nativeAvailable: boolean;
+  retinaMode?: boolean;
 }
 
 export interface RustResponse<T = unknown> {

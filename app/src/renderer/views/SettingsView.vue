@@ -42,6 +42,8 @@ const shaderCache = ref<CacheSummary | null>(null);
 const pipelineCache = ref<CacheSummary | null>(null);
 const apiKeyInput = ref("");
 const graphicsRuntimeLogs = ref(false);
+const retinaMode = ref(true);
+const retinaModeBusy = ref(false);
 
 onMounted(async () => {
   apiKeyInput.value = steamApiKey.value ?? "";
@@ -54,6 +56,7 @@ async function refreshConfig() {
   if (result?.ok) {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
+    retinaMode.value = result.retinaMode !== false;
   }
 }
 
@@ -311,6 +314,23 @@ async function toggleGraphicsRuntimeLogs(enabled: boolean) {
   }
 }
 
+async function toggleRetinaMode(enabled: boolean) {
+  if (retinaModeBusy.value || enabled === retinaMode.value) return;
+  const previous = retinaMode.value;
+  retinaModeBusy.value = true;
+  retinaMode.value = enabled;
+  const result = await api<AppConfig>("POST", "/config", { retinaMode: enabled });
+  if (result?.ok) {
+    config.value = result;
+    retinaMode.value = result.retinaMode !== false;
+    toast.show(`Retina rendering ${enabled ? "enabled" : "disabled"} — restart Wine Steam to apply`, "success");
+  } else {
+    retinaMode.value = previous;
+    toast.show("Failed to update Retina rendering", "error");
+  }
+  retinaModeBusy.value = false;
+}
+
 function uninstallMetalsharp() {
   getAPI().uninstallApp();
 }
@@ -383,6 +403,25 @@ function uninstallMetalsharp() {
             {{ macSteamRunning ? "Stop Steam Mac" : "Start Steam Mac" }}
           </button>
           <button v-else class="btn btn-primary btn-sm" @click="installMacSteam">Install macOS Steam</button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-label">High Resolution (Retina)</div>
+          <div class="settings-desc">
+            Sharp Wine windows at native display resolution; restart Wine Steam to apply
+          </div>
+        </div>
+        <div class="settings-value">
+          <label class="settings-toggle toggle-label" aria-label="High Resolution Retina">
+            <input
+              type="checkbox"
+              :checked="retinaMode"
+              :disabled="retinaModeBusy"
+              @change="toggleRetinaMode(($event.target as HTMLInputElement).checked)"
+            />
+            <span class="toggle-switch"></span>
+          </label>
         </div>
       </div>
     </div>
