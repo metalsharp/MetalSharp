@@ -95,6 +95,7 @@ onUnmounted(() => {
 <template>
   <div class="logs-view">
     <div class="logs-header glass-header">
+      <div class="logs-drag-strip" aria-hidden="true"></div>
       <div class="logs-title-row">
         <div>
           <h1>Logs</h1>
@@ -199,15 +200,23 @@ export default {
   margin: 0 -28px;
   padding: 44px 28px 14px;
   border-bottom: 1px solid var(--border);
-  -webkit-app-region: drag;
   position: relative;
   overflow: hidden;
+}
+.logs-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  -webkit-app-region: drag;
 }
 .logs-title-row {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   min-width: 0;
+  -webkit-app-region: drag;
 }
 .logs-title-row > div {
   min-width: 0;

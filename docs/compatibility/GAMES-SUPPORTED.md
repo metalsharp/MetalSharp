@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-09-08 (runtime descriptions; game evidence unchanged)
+Updated: 2026-09-10 (D3DMetal online-play status)
 
 Tested and working games organized by pipeline. Only games confirmed playable are listed.
 
@@ -37,17 +37,28 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 
 The current route uses the managed GPTK 4 beta 2 payload and MetalSharp Wine 11.17. Save stages the matched DLLs beside a resolved game executable; Play refreshes them and uses the Steam-aware direct launcher with `~/.metalsharp/prefix-steam`. There is no route-wide Steam-emulator requirement.
 
-The offline notes below record earlier game tests, not a fresh validation of every title on the current runtime. This documentation update does not change those compatibility results.
+The D3DMetal titles below now support online play except Elden Ring and ARMORED CORE VI FIRES OF RUBICON, which remain offline-only. This documentation update does not change the route or runtime.
 
 | Game | AppID | Notes |
 |---|---:|---|
 | Elden Ring | 1245620 | Offline Play |
 | ARMORED CORE VI FIRES OF RUBICON | 1888160 | Offline Play |
-| High On Life | 1583230 | Offline Play|
-| Cyberpunk 2077 | 1091500 | Offline Play |
-| Ghostrunner | 1139900 | Offline Play |
-| Star Wars Jedi: Fallen Order | 1172830 | Offline Play | 
-| Control: Ultimate Edition | 870780 | Offline Play |
+| High On Life | 1583230 | Online Play |
+| Cyberpunk 2077 | 1091500 | Online Play |
+| Ghostrunner | 1139900 | Online Play |
+| Star Wars Jedi: Fallen Order | 1172830 | Online Play |
+| Control: Ultimate Edition | 870780 | Online Play |
+| BeamNG.drive | 284160 | Online Play |
+| MECCHA CHAMELEON | 4704690 | Online Play |
+| Sons Of The Forest | 1326470 | Online Play |
+| Subnautica 2 | 1962700 | Online Play |
+| Overwatch 2 | 2357570 | Online Play |
+| Sekiro: Shadows Die Twice | 814380 | Online Play |
+| Sonic Frontiers | 1237320 | Online Play |
+| Black Myth: Wukong | 2358720 | Online Play |
+| Borderlands 3 | 397540 | Online Play |
+| The Witcher 3: Wild Hunt | 292030 | Online Play |
+| Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
 
 ---
 
@@ -55,11 +66,10 @@ The offline notes below record earlier game tests, not a fresh validation of eve
 
 | Game | AppID | Notes |
 |---|---:|---|
-| PEAK | 3527290 | Graphical Issues |
+| PEAK | 3527290 | Working |
 | Hollow Knight: Silksong | 1030300 | |
 | Schedule I | 3164500 | |
 | Dark Deception | 332950 | |
-| BeamNG Drive | 284160 | Launch Through Steam |
 | Portal2 | 620 | Steam-Emu Required |
 
 ---
@@ -70,7 +80,6 @@ The offline notes below record earlier game tests, not a fresh validation of eve
 |---|---:|---|
 | Repo | 3241660 | |
 | Cult of the Lamb | 1313140 | |
-| The Witcher 3: Wild Hunt | 292030 | |
 | The Wilds | 1028590 | |
 | The Long Dark | 305620 | Ultra settings verified. |
 | Subnautica | 264710 | |
@@ -82,20 +91,17 @@ The offline notes below record earlier game tests, not a fresh validation of eve
 | Totally Accurate Battle Simulator | 508440 | |
 | Skul: The Hero Slayer | 1147560 | |
 | Crab Game | 1782210 | |
-| MECCHA CHAMELEON | 4704690 | |
 | SkyIsland | 2302640 | |
 | Lethal Company | 1966720 | |
 | Insurgency | 222880 | Launch with `-steam -secure` flags. |
 | Graveyard Keeper | 599140 | |
 | Brawlhalla | 291550 | |
-| Black Myth: Wukong | 2358720 | Launch with Steam, Compatability Mode |
-| Overwatch 2 | 2357570 | Shaders Take A While To Compile |
-| Sons Of The Forest | 463209 | |
 | PlateUp! | 1599600 | | 
 | Nine Sols | 1809540 | |
 | Dave The Diver | 1868140 | |
 | Besiege | 346010 | |
 | AmongUs | 945360 | |
+| Team Fortress 2 | 440 | |
 | Amid Evil | 673130 | |
 
 ---
@@ -107,6 +113,8 @@ The offline notes below record earlier game tests, not a fresh validation of eve
 | Hades | 1145360 | |
 | The Binding Of Isaac: Rebirth | 250900 | | 
 | Balatro | 856021 | |
+| Ori and the Blind Forest: Definitive Edition | 387290 | |
+| Nidhogg 2 | 535520 | |
 
 ---
 
@@ -125,8 +133,6 @@ The offline notes below record earlier game tests, not a fresh validation of eve
 | Half-Life 2 | 220 | |
 | Portal 2 | 620 | Steam Emu supported. |
 | Among Us | 945360 | Steam online play. |
-| Team Fortress 2 | 440 | Steam online play. VAC works. |
-| Nidhogg 2 | 535520 | |
 | Fallout: New Vegas | 22380 | Direct Steam Launch. |
 
 ---

@@ -173,7 +173,12 @@ verify_runtime_core() {
     runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib \
     runtime/wine/lib/moltenvk-vkmt/libMoltenVK.1.dylib \
     runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json \
-    runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json &&
+    runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json \
+    runtime/wine/lib/wine/x86_64-unix/ntdll.so \
+    runtime/wine/share/mono/wine-mono-11.3.0/support/winemono-support.msi \
+    runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86.dll \
+    runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86_64.dll &&
+    verify_hash_manifest "$1" "RUNTIME Wine GSBASE" "runtime/wine" "$SCRIPT_DIR/wine-runtime-hashes.tsv" &&
     verify_hash_manifest "$1" "RUNTIME MoltenVK" "runtime/wine" "$SCRIPT_DIR/moltenvk-runtime-hashes.tsv"
 }
 

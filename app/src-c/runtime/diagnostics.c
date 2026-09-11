@@ -1991,6 +1991,19 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             snprintf(unix_path, sizeof(unix_path), "%s/lib/dxmt_m12/x86_64-unix:%s/lib/wine/x86_64-unix", root, root);
             snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
             snprintf(windows_path, sizeof(windows_path), "%s/lib/dxmt_m12/x86_64-windows", root);
+        } else if (!strcmp(pipeline, "m11") || !strcmp(pipeline, "m10") || !strcmp(pipeline, "m9")) {
+            snprintf(unix_path, sizeof(unix_path), "%s/lib/dxmt/x86_64-unix:%s/lib/wine/x86_64-unix", root, root);
+            snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
+            snprintf(windows_path, sizeof(windows_path),
+                     "%s/lib/dxmt/x86_64-windows:%s/lib/wine/x86_64-windows:%s/lib/metalsharp/x86_64-windows",
+                     root, root, root);
+        } else if (!strcmp(pipeline, "m11_32") || !strcmp(pipeline, "m10_32")) {
+            snprintf(unix_path, sizeof(unix_path), "%s/lib/dxmt/i386-unix:%s/lib/wine/x86_64-unix:%s/lib/wine", root, root,
+                     root);
+            snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);
+            snprintf(windows_path, sizeof(windows_path),
+                     "%s/lib/dxmt/i386-windows:%s/lib/wine/i386-windows:%s/lib/wine/x86_64-windows",
+                     root, root, root);
         } else if (!strcmp(pipeline, "vkd3d")) {
             snprintf(unix_path, sizeof(unix_path), "%s/lib/wine/x86_64-unix", root);
             snprintf(fallback_unix_path, sizeof(fallback_unix_path), "%s", unix_path);

@@ -183,6 +183,8 @@ async function toggleSteam() {
     if (result?.ok) {
       wineSteamRunning.value = true;
       toast.show("Steam started — log in through the Steam window", "success");
+    } else {
+      toast.show(result?.error ?? "Wine Steam did not become ready", "error");
     }
   }
   reloadLibrary();

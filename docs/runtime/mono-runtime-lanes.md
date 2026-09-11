@@ -10,7 +10,7 @@ MetalSharp now treats Mono/FNA as a first-class public route, not a global depen
 
 | Lane | Runtime | Known version | Scope | Notes |
 |------|---------|---------------|-------|-------|
-| Wine Mono | Wine prefix component | bundled by Wine prefix | Windows CLR/bootstrapper apps inside a bottle | Used by .NET installers and Windows apps that call `mscoree.dll` through Wine. Minecraft currently reaches this lane and crashes in the native Mono/runtime path. |
+| Wine Mono | Wine prefix component | 11.3.0, bundled in the Wine runtime | Windows CLR/bootstrapper apps inside a bottle | Wine discovers the bundled support package from `runtime/wine/share/mono/wine-mono-11.3.0` and installs it into a prefix on demand. No separate Settings or GOG download step is required. |
 | Native Mono ARM64 | `~/.metalsharp/runtime/mono-arm64/bin/mono` | 6.14.1 | Terraria/FNA ARM64 style games | This is the dinosaur path that made Terraria work: native macOS Mono, FNA/XNA dllmaps, native SDL/FNA3D/FAudio/shims, and no Wine prefix ownership. |
 | Native Mono x86_64 | `~/.metalsharp/runtime/mono-x86/bin/mono` | 6.12.0.122 | Celeste/FNA legacy lane under Rosetta | This lane exists because some older FNA/Mono dependencies were x86_64-only or behaved better with Mono 6.12 and explicit dllmaps. |
 

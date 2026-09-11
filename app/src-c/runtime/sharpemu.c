@@ -986,9 +986,12 @@ static bool symlinks_stay_inside(const char* root, const char* path) {
 }
 
 static const char* archive_tool(const char* name) {
+    const char* bundled = !strcmp(name, "lsar") ? getenv("METALSHARP_LSAR_PATH") : getenv("METALSHARP_UNAR_PATH");
     const char* candidates[] = {"/opt/homebrew/bin/lsar", "/usr/local/bin/lsar", "/usr/bin/lsar",
                                 "/opt/homebrew/bin/unar", "/usr/local/bin/unar", "/usr/bin/unar"};
     size_t first = !strcmp(name, "lsar") ? 0 : 3;
+    if (bundled && access(bundled, X_OK) == 0)
+        return bundled;
     for (size_t i = first; i < first + 3; ++i)
         if (access(candidates[i], X_OK) == 0)
             return candidates[i];

@@ -897,7 +897,10 @@ static bool symlinks_stay_inside(const char* root, const char* path) {
 }
 
 static const char* tool_path(const char* name) {
+    const char* bundled = !strcmp(name, "lsar") ? getenv("METALSHARP_LSAR_PATH") : getenv("METALSHARP_UNAR_PATH");
     const char* candidates[3] = {NULL, NULL, NULL};
+    if (bundled && access(bundled, X_OK) == 0)
+        return bundled;
     if (!strcmp(name, "lsar")) {
         candidates[0] = "/opt/homebrew/bin/lsar";
         candidates[1] = "/usr/local/bin/lsar";

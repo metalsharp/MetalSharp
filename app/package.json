@@ -102,6 +102,46 @@
     ],
     "extraResources": [
       {
+        "from": "tools/zstd",
+        "to": "tools/zstd"
+      },
+      {
+        "from": "tools/unzstd",
+        "to": "tools/unzstd"
+      },
+      {
+        "from": "tools/wrestool",
+        "to": "tools/wrestool"
+      },
+      {
+        "from": "tools/icotool",
+        "to": "tools/icotool"
+      },
+      {
+        "from": "tools/unar",
+        "to": "tools/unar"
+      },
+      {
+        "from": "tools/lsar",
+        "to": "tools/lsar"
+      },
+      {
+        "from": "tools/lib",
+        "to": "tools/lib"
+      },
+      {
+        "from": "tools/licenses",
+        "to": "tools/licenses"
+      },
+      {
+        "from": "../LICENSES",
+        "to": "licenses"
+      },
+      {
+        "from": "../THIRD_PARTY_LICENSES",
+        "to": "THIRD_PARTY_LICENSES"
+      },
+      {
         "from": "src-c/build/metalsharp-backend",
         "to": "runtime/metalsharp-backend"
       },

@@ -47,7 +47,7 @@ pipeline = "m9"
 name = "Taimumari: Definitive Edition"
 
 [overrides.387290]
-pipeline = "m11"
+pipeline = "m11_32"
 name = "Ori and the Blind Forest: Definitive Edition"
 exe_names = ["oriDE.exe"]
 
@@ -75,7 +75,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.1962700]
-pipeline = "vkd3d"
+pipeline = "d3dmetal"
 name = "Subnautica 2"
 offline_capable = true
 
@@ -98,7 +98,7 @@ name = "Totally Accurate Battle Simulator"
 [overrides.508440.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.535520]
-pipeline = "m9"
+pipeline = "m11_32"
 name = "Nidhogg 2"
 
 [overrides.17410]
@@ -130,7 +130,7 @@ name = "Among Us"
 [overrides.945360.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1139900]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "Ghostrunner"
 
 [overrides.1139900.diagnostics]
@@ -147,7 +147,7 @@ components = ["vcrun2019", "vcrun2013", "directx_jun2010"]
 check_dlls = ["d3d12.dll", "d3d11.dll", "dxgi.dll"]
 
 [overrides.814380]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "Sekiro: Shadows Die Twice - GOTY Edition"
 
 [overrides.814380.diagnostics]
@@ -171,14 +171,14 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"]
 
 [overrides.1583230]
-pipeline = "vkd3d"
+pipeline = "d3dmetal"
 name = "High On Life"
 
 [overrides.1583230.diagnostics]
 check_dlls = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"]
 
 [overrides.397540]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "Borderlands 3"
 
 [overrides.397540.diagnostics]
@@ -200,7 +200,7 @@ name = "Far Cry 5"
 [overrides.552520.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1091500]
-pipeline = "vkd3d"
+pipeline = "d3dmetal"
 name = "Cyberpunk 2077"
 offline_capable = true
 
@@ -276,7 +276,7 @@ components = ["gecko", "webview2", "dotnet48", "vcrun2019_x64", "vcrun2019_x86",
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]
 
 [overrides.870780]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "CONTROL Ultimate Edition"
 
 [overrides.870780.diagnostics]
@@ -327,7 +327,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"]
 
 [overrides.292030]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "The Witcher 3: Wild Hunt"
 
 [overrides.292030.diagnostics]
@@ -468,19 +468,19 @@ name = "Nine Sols"
 [overrides.1809540.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1237320]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "Sonic Frontiers"
 
 [overrides.1237320.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.1326470]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "Sons Of The Forest"
 
 [overrides.1326470.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.2358720]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "Black Myth: Wukong"
 
 [overrides.2358720.dependencies]
@@ -568,7 +568,7 @@ name = "Rust"
 [overrides.252490.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.284160]
-pipeline = "vkd3d"
+pipeline = "d3dmetal"
 name = "BeamNG.drive"
 
 [overrides.284160.diagnostics]
@@ -578,7 +578,7 @@ pipeline = "m9"
 name = "Half-Life 2"
 
 [overrides.440]
-pipeline = "m9"
+pipeline = "m11"
 name = "Team Fortress 2"
 
 [overrides.2552430]
@@ -682,7 +682,7 @@ name = "Graveyard Keeper"
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.4704690]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "MECCHA CHAMELEON"
 
 [overrides.4704690.diagnostics]
@@ -6199,7 +6199,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.2357570]
-pipeline = "m11"
+pipeline = "d3dmetal"
 name = "AppID 2357570"
 exe_names = ["Overwatch.exe"]
 
@@ -6847,3 +6847,10 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.1389550.diagnostics]
 check_dlls = ["d3d10.dll", "dxgi.dll", "winemetal.dll"]
+
+[overrides.1449850]
+pipeline = "d3dmetal"
+name = "Yu-Gi-Oh! Master Duel"
+
+[overrides.1449850.diagnostics]
+check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]

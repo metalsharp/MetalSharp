@@ -89,7 +89,11 @@ static void find_steam_executable(const char* directory, unsigned depth, char** 
 static const char* steam_icon_tool(const char* name) {
     static const char* prefixes[] = {"/opt/homebrew/bin/", "/usr/local/bin/", "/usr/bin/"};
     static char paths[2][PATH_MAX];
+    const char* bundled = !strcmp(name, "icotool") ? getenv("METALSHARP_ICOTOOL_PATH")
+                                                   : getenv("METALSHARP_WRESTOOL_PATH");
     size_t slot = !strcmp(name, "icotool");
+    if (bundled && access(bundled, X_OK) == 0)
+        return bundled;
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
         snprintf(paths[slot], sizeof(paths[slot]), "%s%s", prefixes[i], name);
         if (access(paths[slot], X_OK) == 0)

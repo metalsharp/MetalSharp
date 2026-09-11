@@ -70,9 +70,9 @@ For building from source, see [Install from Source](docs/guides/install-from-sou
 
 - Apple Silicon Mac M1-M5, macOS 15+
 - About 2 GB free space
-- Homebrew (installed by setup wizard)
+- Xcode Command Line Tools
 
-All other bundled assets, DLLs, and graphics backends are installed during the setup process.
+The setup wizard uses MetalSharp-bundled zstd, icon, and archive tools; Homebrew is not required. All other bundled assets, DLLs, and graphics backends are installed during setup.
 
 ## Developer Setup
 

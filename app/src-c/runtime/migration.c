@@ -1192,9 +1192,13 @@ static bool migration_command_available(const char* command) {
 }
 
 static bool ensure_migration_zstd(void) {
+    const char* bundled_zstd = getenv("METALSHARP_ZSTD_PATH");
+    const char* bundled_unzstd = getenv("METALSHARP_UNZSTD_PATH");
     pid_t pid;
     int status = 0;
-    if (migration_command_available("unzstd") || migration_command_available("zstd"))
+    if ((bundled_zstd && access(bundled_zstd, X_OK) == 0) ||
+        (bundled_unzstd && access(bundled_unzstd, X_OK) == 0) ||
+        migration_command_available("unzstd") || migration_command_available("zstd"))
         return true;
     if (!migration_command_available("brew"))
         return false;

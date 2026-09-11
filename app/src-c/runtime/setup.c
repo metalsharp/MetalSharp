@@ -193,6 +193,21 @@ static char* find_bundle_archive(const char* home, const char* name) {
 }
 
 static const char* fixed_zstd_path(void) {
+    const char* bundled = getenv("METALSHARP_ZSTD_PATH");
+    const char* bundled_unzstd = getenv("METALSHARP_UNZSTD_PATH");
+    const char* fixed[] = {
+        "/Applications/MetalSharp.app/Contents/Resources/tools/zstd",
+        "/Applications/MetalSharp.app/Contents/Resources/zstd",
+        "app/tools/zstd",
+    };
+    if (bundled && access(bundled, X_OK) == 0)
+        return bundled;
+    if (bundled_unzstd && access(bundled_unzstd, X_OK) == 0)
+        return bundled_unzstd;
+    for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
+        if (access(fixed[i], X_OK) == 0)
+            return fixed[i];
+    }
     if (access("/opt/homebrew/bin/zstd", X_OK) == 0)
         return "/opt/homebrew/bin/zstd";
     if (access("/usr/local/bin/zstd", X_OK) == 0)
@@ -323,6 +338,32 @@ static bool extract_bundle_archive(const char* home, const char* archive) {
  * macOS to propagate execution-blocking metadata onto Wine executables. Clear
  * all runtime xattrs after extraction; the runtime is a locally unpacked,
  * ad-hoc-signed payload and does not need archive provenance attributes. */
+static bool native_bridge_signature_valid(const char* path) {
+    pid_t child;
+    int status;
+    pid_t waited;
+    if (!file_nonempty(path))
+        return false;
+    child = fork();
+    if (child < 0)
+        return false;
+    if (child == 0) {
+        execl("/usr/bin/codesign", "codesign", "--verify", "--strict", path, (char*)NULL);
+        _exit(127);
+    }
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static bool sign_wine_host_runtime(const char* home) {
+    char* ntdll = join_path(home, "runtime/wine/lib/wine/x86_64-unix/ntdll.so");
+    bool ok = ntdll && (native_bridge_signature_valid(ntdll) || adhoc_sign_native_bridge(ntdll));
+    free(ntdll);
+    return ok;
+}
+
 static bool clear_runtime_quarantine(const char* home) {
     char* runtime = join_path(home, "runtime");
     pid_t pid;
@@ -1334,6 +1375,11 @@ static bool command_available(const char* name) {
     return false;
 }
 
+static bool configured_tool_available(const char* name, const char* override_name) {
+    const char* override = getenv(override_name);
+    return (override && access(override, X_OK) == 0) || command_available(name);
+}
+
 static bool xcode_cli_functional(void) {
     int input[2];
     pid_t pid;
@@ -1390,34 +1436,6 @@ static bool install_xcode_cli(void) {
     return xcode_cli_functional();
 }
 
-static bool install_homebrew(void) {
-    const char* configured = getenv("METALSHARP_HOMEBREW_INSTALLER");
-    char* script = configured && access(configured, R_OK) == 0 ? strdup(configured) : NULL;
-    pid_t pid;
-    int wait_status;
-    if (command_available("brew")) {
-        free(script);
-        return true;
-    }
-    if (script == NULL)
-        script = find_setup_source("scripts/tools/install-homebrew.sh");
-    if (script == NULL)
-        script = find_setup_source("tools/install-homebrew.sh");
-    if (script == NULL)
-        return false;
-    pid = fork();
-    if (pid == 0) {
-        execl("/bin/bash", "bash", script, (char*)NULL);
-        _exit(127);
-    }
-    free(script);
-    if (pid < 0)
-        return false;
-    while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
-    }
-    return WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0 && command_available("brew");
-}
-
 static void dependency_begin(ms_json_writer* writer, const char* id, const char* name, const char* desc, bool installed,
                              bool required, const char* install_command) {
     ms_json_writer_object_begin(writer);
@@ -1466,13 +1484,13 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_key(&writer, "ok");
     ms_json_writer_bool(&writer, true);
     ms_json_writer_key(&writer, "allInstalled");
-    ms_json_writer_bool(&writer, homebrew && rosetta && xcode && wine_ready && host_ready && dxmt_ready && m12_ready);
+    ms_json_writer_bool(&writer, rosetta && xcode && wine_ready && host_ready && dxmt_ready && m12_ready);
     ms_json_writer_key(&writer, "platform");
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
     ms_json_writer_array_begin(&writer);
-    dependency_begin(&writer, "homebrew", "Homebrew", "Package manager — required to install other dependencies",
-                     homebrew, true, "bash scripts/tools/install-homebrew.sh");
+    dependency_begin(&writer, "homebrew", "Homebrew", "Optional package manager for fallback and extra tools",
+                     homebrew, false, "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
                      "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
@@ -1668,25 +1686,20 @@ static void run_install_all_worker(const char* home) {
         _exit(0);
     }
 
-    write_install_progress(home, 1, total, "Homebrew", "installing", "Installing Homebrew...", NULL);
-    if (!install_homebrew()) {
-        write_install_progress(home, 1, total, "Homebrew", "error", "Homebrew installation failed",
-                               "run tools/install-homebrew.sh to retry");
-        _exit(0);
+    {
+        bool bundled_archive_tools = configured_tool_available("wrestool", "METALSHARP_WRESTOOL_PATH") &&
+                                     configured_tool_available("icotool", "METALSHARP_ICOTOOL_PATH") &&
+                                     configured_tool_available("lsar", "METALSHARP_LSAR_PATH") &&
+                                     configured_tool_available("unar", "METALSHARP_UNAR_PATH");
+        if (!bundled_archive_tools) {
+            write_install_progress(home, 1, total, "Bundled Tools", "error",
+                                   "MetalSharp bundled tools are missing or not executable",
+                                   "reinstall the application so zstd, icoutils, and The Unarchiver tools are restored");
+            _exit(0);
+        }
+        write_install_progress(home, 1, total, "Bundled Tools", "done",
+                               "Bundled icon, archive, and extraction tools ready", NULL);
     }
-    write_install_progress(home, 1, total, "Homebrew Packages", "installing",
-                           "Installing GameJolt archive and icon tools...", NULL);
-    if ((!command_available("wrestool") || !command_available("icotool")) && !run_brew_install("icoutils")) {
-        write_install_progress(home, 1, total, "Homebrew Packages", "error", "GameJolt icon tools installation failed",
-                               "brew install icoutils failed");
-        _exit(0);
-    }
-    if (!command_available("unar") && !run_brew_install("unar")) {
-        write_install_progress(home, 1, total, "Homebrew Packages", "error", "RAR extraction tool installation failed",
-                               "brew install unar failed");
-        _exit(0);
-    }
-    write_install_progress(home, 1, total, "Homebrew Packages", "done", "Homebrew and GameJolt tools ready", NULL);
 
     write_install_progress(home, 2, total, "System Tools", "installing", "Checking Xcode Command Line Tools...", NULL);
     if (!install_xcode_cli()) {
@@ -1718,12 +1731,12 @@ static void run_install_all_worker(const char* home) {
     write_install_progress(home, 3, total, "Rosetta 2", "done", "Rosetta 2 ready", NULL);
 
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "installing", "Checking zstd...", NULL);
-    if (!command_available("zstd") && (!command_available("brew") || !run_brew_install("zstd"))) {
-        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error", "zstd installation failed",
-                               "brew install zstd failed");
+    if (!fixed_zstd_path()) {
+        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error", "Bundled zstd is missing or not executable",
+                               "reinstall the application so zstd/unzstd are restored");
         _exit(0);
     }
-    write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "zstd ready", NULL);
+    write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "Bundled zstd ready", NULL);
     {
         const char* bundles[] = {"metalsharp-runtime.tar.zst",       "metalsharp-graphics-dll.tar.zst",
                                  "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
@@ -1779,6 +1792,11 @@ static void run_install_all_worker(const char* home) {
         free(existing_host);
     }
     (void)clear_runtime_quarantine(home);
+    if (!sign_wine_host_runtime(home)) {
+        write_install_progress(home, 6, total, "Runtime Assets", "error", "Wine host runtime signing failed",
+                               "could not ad-hoc sign runtime/wine/lib/wine/x86_64-unix/ntdll.so");
+        _exit(0);
+    }
     if (!normalize_runtime_executables(home)) {
         write_install_progress(home, 6, total, "Runtime Assets", "error", "Runtime executables are not runnable",
                                "could not restore executable permissions");
@@ -1786,6 +1804,15 @@ static void run_install_all_worker(const char* home) {
     }
     write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
     const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
+                                   "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
+                                   "runtime/wine/lib/wine/x86_64-unix/opengl32.so",
+                                   "runtime/wine/lib/wine/x86_64-unix/winemac.so",
+                                   "runtime/wine/lib/wine/x86_64-unix/metalsharp-opengl.dylib",
+                                   "runtime/wine/lib/wine/x86_64-windows/opengl32.dll",
+                                   "runtime/wine/lib/wine/i386-windows/opengl32.dll",
+                                   "runtime/wine/share/mono/wine-mono-11.3.0/support/winemono-support.msi",
+                                   "runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86.dll",
+                                   "runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86_64.dll",
                                    "runtime/metalsharp-backend",
                                    "runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll",
                                    "runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll"};
@@ -1985,9 +2012,6 @@ static void run_install_all_worker(const char* home) {
         }
     }
     write_install_progress(home, 15, total, "Mono Configs", "done", "Mono configuration staged", NULL);
-    if (!home_required_files_ready(home, (const char*[]){"runtime/mono-arm64/bin/mono"}, 1) &&
-        !command_available("mono"))
-        (void)run_brew_install("mono");
     if (!home_required_files_ready(home, (const char*[]){"runtime/mono-arm64/bin/mono"}, 1) &&
         !command_available("mono")) {
         write_install_progress(home, 16, total, "Runtime Support", "error", "Mono arm64 runtime is incomplete",
