@@ -35,6 +35,7 @@ interface AppConfig {
   graphics_runtime_logs?: boolean;
   controllerInput?: "off" | "x" | "d";
   msync?: boolean;
+  retinaMode?: boolean;
 }
 
 interface UpdateStatus {

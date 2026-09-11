@@ -1,5 +1,5 @@
 # Wine Architecture
-**Updated:** 2026-09-08
+**Updated:** 2026-09-11
 
 
 MetalSharp ships a self-contained Wine runtime at:
@@ -158,6 +158,10 @@ points at `~/.metalsharp/prefix-steam/` so Runtime Doctor and repair actions aff
 Wine Steam remains the live background client that stays connected for Steam games. Env-dependent Steam game launches
 run the game executable directly through the selected MTSP pipeline with this prefix, route env, cache paths, and
 `SteamAppId`/`SteamGameId`; client-only Steam handoff remains internal for diagnostics/bootstrap cases.
+
+High Resolution (Retina) is enabled by default for this shared prefix. Before each managed launch, MetalSharp applies
+Wine's `RetinaMode` setting and sets Windows DPI to 192; disabling the setting restores 96 DPI. Restart Wine Steam after
+changing it. Because games share the prefix, disabling Retina mode can reduce render resolution and GPU load.
 
 ## Important Environment
 
