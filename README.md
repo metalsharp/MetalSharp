@@ -1,8 +1,6 @@
 <div align="center">
 
-# MetalSharp
-
-<img width="512" height="512" alt="metalsharp-transparent-under-1mb" src="https://github.com/user-attachments/assets/9ac314ad-0404-496f-bb1f-f5d9842535dd" />
+<h1><img src="docs/assets/metalsharp-transparent.png" alt="MetalSharp logo" width="56" height="56" /> MetalSharp</h1>
 
 **Updated:** 2026-08-10
 
