@@ -1,7 +1,10 @@
 <div align="center">
 
 # MetalSharp
-**Updated:** 2026-08-08
+
+<img width="512" height="512" alt="metalsharp-transparent-under-1mb" src="https://github.com/user-attachments/assets/9ac314ad-0404-496f-bb1f-f5d9842535dd" />
+
+**Updated:** 2026-08-10
 
 **Run Windows games on MacOS Silicon.**
 
@@ -15,7 +18,7 @@
 
 ---
 
-MetalSharp is an application designed to run Windows applications and Windows Steam games natively on Apple Silicon macOS. MetalSharp builds and includes its own custom Wine 11.17 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
+MetalSharp is an application designed to run Windows applications and Windows Steam games natively on Apple Silicon macOS. MetalSharp builds and includes it's own custom Wine 11.17 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
 
 
 
