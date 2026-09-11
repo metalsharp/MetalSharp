@@ -4,7 +4,6 @@
 
 **Run Windows games on MacOS Silicon.**
 
-<a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.65.5"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.65.5&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-purple.svg?style=for-the-badge" alt="License"></a>
