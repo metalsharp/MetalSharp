@@ -1,15 +1,20 @@
 CC ?= clang
+MACOSX_DEPLOYMENT_TARGET ?= 14.0
 PROJECT_ROOT := $(abspath ../..)
 BUILD_DIR ?= $(CURDIR)/build
 TARGET ?= $(BUILD_DIR)/metalsharp-backend
 INSTALL_TARGET ?= $(TARGET)
-VERSION ?= 0.65.0
+VERSION ?= 0.65.5
 JSON_TEST ?= $(BUILD_DIR)/json-test
 MIGRATION_TEST ?= $(BUILD_DIR)/migration-test
 HTTP_SERVER_TEST ?= $(BUILD_DIR)/http-server-test
 
 CFLAGS ?= -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L
 CFLAGS += -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong
+ifeq ($(shell uname -s),Darwin)
+CFLAGS += -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
+LDFLAGS += -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
+endif
 CPPFLAGS += -I$(CURDIR)/include -DMS_BACKEND_VERSION=\"$(VERSION)\"
 LDFLAGS ?=
 

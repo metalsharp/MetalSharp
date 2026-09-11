@@ -9,6 +9,30 @@ it includes this SDK source plus a staged developer Wine/DXMT runtime under
 `runtime/`. See [docs/developer-runtime.md](docs/developer-runtime.md) for the
 portable package layout, platform posture, and CI publish flow.
 
+## macOS 14 deployment target
+
+Every shipped runtime Mach-O must be built with a minimum deployment target of
+macOS 14.0; rewriting Mach-O metadata after compilation is not sufficient. The
+release audit also rejects an undefined `pipe2` reference in the Wine Unix
+runtime (the issue #615 failure mode):
+
+```bash
+python3 tools/ci/audit-macos-deployment-targets.py \
+  app/bundles/runtime app/bundles/Graphics \
+  --max 14.0 --forbid-undefined-symbol pipe2
+```
+
+GPTK's proprietary `libdxccontainer.dylib` is replaced at build time by the
+small ABI-compatible open-source shim in `src/dxccontainer-macos14.cpp`. Build
+it only against a DXC `libdxcompiler.dylib` that was itself compiled with
+`MACOSX_DEPLOYMENT_TARGET=14.0`:
+
+```bash
+DXC_SOURCE_DIR=/path/to/DirectXShaderCompiler \
+DXC_BUILD_DIR=/path/to/DirectXShaderCompiler/build-macos14-x86 \
+tools/d3d12-metal-sdk/scripts/build-dxccontainer-macos14.sh
+```
+
 The SDK exists to make D3D12 changes evidence-driven before game-specific debugging starts. A D3D12 claim should be backed by at least one of:
 
 - a contract entry in `contracts/`
