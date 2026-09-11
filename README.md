@@ -2,8 +2,6 @@
 
 <h1><img src="docs/assets/metalsharp-transparent.png" alt="MetalSharp logo" width="56" height="56" /> MetalSharp</h1>
 
-**Updated:** 2026-08-10
-
 **Run Windows games on MacOS Silicon.**
 
 <a href="https://github.com/aaf2tbz/metalsharp/actions"><img src="https://img.shields.io/github/actions/workflow/status/aaf2tbz/metalsharp/ci.yml?branch=main&style=for-the-badge" alt="CI"></a>
