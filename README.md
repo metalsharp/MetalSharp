@@ -78,7 +78,7 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 - Apple M4 Macbook Air, 10-core CPU (4 performance, 6 efficiency)
 - 16 GB memory
-- macOS Golden Gate beta, version 27.0
+- macOS Golden Gate, Version 27.0
 
 ## Documentation
 
