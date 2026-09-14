@@ -111,6 +111,11 @@ interface BackendResponse {
   drives?: unknown[];
   prefixes?: unknown[];
   mapped?: number;
+  version?: string;
+  available?: boolean;
+  current_version?: string;
+  key?: string | null;
+  sync?: { api_key_set: boolean; steam_id_detected: boolean };
 }
 
 interface SetupState {
@@ -221,6 +226,7 @@ type MetalsharpAPI = {
   restartAfterMigration: () => Promise<{ ok: boolean; error?: string; deletedDmg?: string | null; launched?: string }>;
   ejectDmg: () => Promise<void>;
   installDeps: (command: string) => Promise<{ ok: boolean; error?: string }>;
+  runSteamFix: () => Promise<{ ok: boolean; output?: string; error?: string }>;
   installHomebrew: () => Promise<{ ok: boolean; installed?: boolean; path?: string; message?: string; error?: string }>;
   homebrewStatus: () => Promise<{ installed: boolean; path?: string }>;
   openInFinder: (path: string) => Promise<void>;

@@ -2,8 +2,12 @@
 import { computed, nextTick, ref, onMounted, onUnmounted, type Component } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
+import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
 import type { SharpApp } from "../api-types";
+import LibraryTopbar from "../components/LibraryTopbar.vue";
+import LibraryFooter from "../components/LibraryFooter.vue";
 import { themedNavIcon } from "../composables/useTheme";
+import IconChevronLeft from "~icons/lucide/chevron-left";
 import IconUpload from "~icons/lucide/upload";
 import IconMonitor from "~icons/lucide/monitor";
 import IconX from "~icons/lucide/x";
@@ -26,6 +30,10 @@ import IconCpu from "~icons/lucide/cpu";
 import IconMonitorCog from "~icons/lucide/monitor-cog";
 import IconMicroscope from "~icons/lucide/microscope";
 import sharpLogoUrl from "../icon.png";
+
+const emit = defineEmits<{ navigate: [view: string] }>();
+const libraryThemeStyle = useLibraryThemeStyle();
+
 
 const refreshIcon = computed(() => themedNavIcon("refresh"));
 
@@ -3130,10 +3138,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="sharp-view">
+  <div class="sharp-view" :style="libraryThemeStyle">
+    <LibraryTopbar active-tab="sharp-library" :show-search="false" @navigate="emit('navigate', $event)" />
     <div class="sharp-header glass-header">
       <div class="sharp-drag-strip" aria-hidden="true"></div>
       <div class="sharp-header-title">
+        <span class="sharp-eyebrow">METALSHARP · INSTALLERS &amp; EMULATORS</span>
         <h1>{{ headerTitle }}</h1>
         <p>{{ headerSubtitle }}</p>
       </div>
@@ -5025,6 +5035,8 @@ onUnmounted(() => {
         </section>
       </template>
     </div>
+
+    <LibraryFooter />
   </div>
 </template>
 
@@ -6998,5 +7010,231 @@ details[open] > .drawer-summary {
     min-height: calc(100vh - 260px);
     height: calc(100vh - 260px);
   }
+}
+
+/* ---------- Library-look re-skin (themed via --library-* on .sharp-view) ---------- */
+/* Match the main library shell: no root padding, the topbar spans the full
+   window width, and each section manages its own 28px gutters. */
+.sharp-view {
+  padding: 0;
+  background:
+    radial-gradient(ellipse 70% 34% at 50% -6%, color-mix(in srgb, var(--library-accent) 9%, transparent), transparent 68%),
+    linear-gradient(180deg, #171a1d 0%, #111416 46%, #111416 100%);
+}
+.sharp-view > .library-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+}
+.sharp-header {
+  height: auto;
+  margin: 0;
+  padding: 26px 28px;
+  gap: 26px;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: none;
+}
+.sharp-body {
+  margin: 0;
+}
+.sharp-header::after {
+  display: none;
+}
+.sharp-eyebrow {
+  display: block;
+  margin-bottom: 10px;
+  color: rgba(240, 239, 231, 0.6);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10px;
+  letter-spacing: 0.52em;
+  text-transform: uppercase;
+}
+.sharp-header-title h1 {
+  margin: 0;
+  color: #eee9dd;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(34px, 3.6vw, 54px);
+  font-weight: 500;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.sharp-header-title p {
+  margin-top: 8px;
+  color: #aeb3b2;
+  font-size: 13.5px;
+}
+.sharp-body.view-body-surface,
+.sharp-body {
+  background: transparent;
+}
+.installer-workspace,
+.gog-panel,
+.epic-panel,
+.emulator-panel {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.018);
+  box-shadow: none;
+}
+.sharp-card {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: #1b1f22;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+.sharp-card:hover {
+  border-color: color-mix(in srgb, var(--library-accent) 55%, transparent);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+}
+.sharp-card-title {
+  color: #f0f0ed;
+  font-weight: 650;
+}
+.sharp-card-banner {
+  background: #14171a;
+}
+.sharp-view .btn {
+  border-radius: 6px;
+  font-weight: 650;
+}
+.sharp-view .btn-primary {
+  border-color: var(--library-accent);
+  color: #15181a;
+  background: var(--library-accent);
+}
+.sharp-view .btn-primary:hover:not(:disabled) {
+  filter: brightness(1.09);
+  border-color: var(--library-accent);
+  background: var(--library-accent);
+}
+.sharp-view .btn-secondary {
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e6e8e6;
+  background: rgba(255, 255, 255, 0.05);
+}
+.sharp-view .btn-secondary:hover:not(:disabled) {
+  border-color: var(--library-accent);
+  background: rgba(255, 255, 255, 0.09);
+}
+.sharp-view .btn-danger {
+  border-color: rgba(255, 92, 92, 0.55);
+  color: #ff8585;
+  background: color-mix(in srgb, #ff5c5c 12%, transparent);
+}
+.sharp-source-trigger {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.sharp-source-trigger:hover {
+  border-color: var(--library-accent);
+}
+.sharp-source-popover {
+  border: 1px solid var(--library-accent);
+  border-radius: 10px;
+  background: #1b1f22;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.5);
+}
+.sharp-source-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.sharp-source-option.selected {
+  background: color-mix(in srgb, var(--library-accent) 16%, transparent);
+}
+.sharp-source-check {
+  color: var(--library-accent);
+}
+.sharp-card-bottle {
+  color: var(--library-accent);
+}
+.sharp-view ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+/* ---------- Per-tab fit: content lives between the header rule and the footer ---------- */
+.sharp-view > .library-topbar {
+  flex-shrink: 0;
+}
+.sharp-view {
+  overflow-y: hidden;
+}
+.sharp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.installer-workspace,
+.gog-panel,
+.epic-panel,
+.emulator-panel,
+.gamejolt-panel {
+  min-height: 100%;
+}
+.gamejolt-panel {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---------- Thinner emulator dashboard headers (PCSX2/RPCS3/shadPS4/SharpEmu) ---------- */
+.rpcs3-overview {
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 12px;
+}
+.rpcs3-overview-main {
+  gap: 12px;
+}
+.rpcs3-brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+}
+.rpcs3-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.rpcs3-title-row {
+  gap: 8px;
+  margin: 2px 0 3px;
+}
+.rpcs3-title-row h2 {
+  font-size: 17px;
+}
+.emulator-platform-label {
+  font-size: 12px;
+}
+.rpcs3-state-pill {
+  padding: 2px 7px;
+  font-size: 9px;
+}
+.rpcs3-overview-copy p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.rpcs3-stats {
+  gap: 6px;
+}
+.rpcs3-stat {
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.rpcs3-stat svg {
+  width: 14px;
+  height: 14px;
+}
+.rpcs3-stat small {
+  font-size: 9px;
+}
+.rpcs3-stat strong {
+  font-size: 11.5px;
 }
 </style>

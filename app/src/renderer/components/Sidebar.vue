@@ -8,9 +8,7 @@ import IconBone from "~icons/lucide/bone";
 import IconTreePine from "~icons/lucide/tree-pine";
 import IconCitrus from "~icons/lucide/citrus";
 import IconSparkles from "~icons/lucide/sparkles";
-import IconBanana from "~icons/lucide/banana";
 import IconFlame from "~icons/lucide/flame";
-import IconTreePalm from "~icons/lucide/tree-palm";
 import IconScanLine from "~icons/lucide/scan-line";
 import IconActivity from "~icons/lucide/activity";
 import IconGamepad from "~icons/lucide/gamepad-2";
@@ -143,10 +141,7 @@ const themeOptions: ThemeOption[] = [
   { name: "forest", label: "Forest", icon: IconTreePine },
   { name: "orange-peel", label: "Orange Peel", icon: IconCitrus },
   { name: "dragonfruit", label: "Dragonfruit", icon: IconSparkles },
-  { name: "banana", label: "Banana", icon: IconBanana },
   { name: "lava", label: "Lava", icon: IconFlame },
-  { name: "beach", label: "Beach", icon: IconTreePalm },
-  { name: "xray", label: "Xray", icon: IconScanLine },
 ];
 
 const currentThemeOption = computed(() => themeOptions.find((o) => o.name === props.theme) ?? themeOptions[0]);

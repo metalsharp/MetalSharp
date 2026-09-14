@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   restartAfterMigration: () => ipcRenderer.invoke("app:restart-after-migration"),
   ejectDmg: () => ipcRenderer.invoke("app:eject-dmg"),
   installDeps: (command: string) => ipcRenderer.invoke("app:install-deps", command),
+  runSteamFix: () => ipcRenderer.invoke("app:run-steam-fix"),
   installHomebrew: () => ipcRenderer.invoke("app:install-homebrew"),
   homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
