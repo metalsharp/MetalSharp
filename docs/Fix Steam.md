@@ -1,5 +1,6 @@
-Did Steam break for you after updating? You can run the following command to fix it.
-This is a copy and paste prompt you can use to fix your broken install:
+### Did Steam break for you after updating? 
+
+**_You can run the following command to fix it:_**
 
 bash <<'METALSHARP_STEAM_FIX'
 set -euo pipefail
