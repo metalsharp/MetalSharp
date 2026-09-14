@@ -93,8 +93,7 @@ const mockSetupAPI = {
       return respond({ installed: mockSteamInstalled, running: false, installing: false });
     }
     if (route === "/setup/device-name") return respond({ name: "Preview-MacBook" });
-    if (route === "/setup/state")
-      return respond({ deviceName: "Preview-MacBook", runtimeMigrationRequired: false });
+    if (route === "/setup/state") return respond({ deviceName: "Preview-MacBook", runtimeMigrationRequired: false });
     if (route === "/steam/library") return respond({ total: 0, installed_count: 0, games: [] });
     if (route === "/steam/api-key") return respond({ key: null });
     if (route === "/steam/save-api-key")
@@ -103,8 +102,7 @@ const mockSetupAPI = {
         library: { ok: true, total: 0, installed_count: 0, games: [] },
       });
     if (route === "/status") return respond({ version: "0.61.0-preview" });
-    if (route === "/update/check")
-      return respond({ available: false, current_version: "0.61.0" });
+    if (route === "/update/check") return respond({ available: false, current_version: "0.61.0" });
     if (route === "/config") return respond();
     return respond();
   },

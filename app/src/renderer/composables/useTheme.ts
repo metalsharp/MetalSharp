@@ -18,29 +18,13 @@ import IconScroll from "~icons/lucide/scroll";
 import IconScrollText from "~icons/lucide/scroll-text";
 import IconServer from "~icons/lucide/server";
 import IconSkull from "~icons/lucide/skull";
-import IconSun from "~icons/lucide/sun";
 import IconTrees from "~icons/lucide/trees";
 import IconZap from "~icons/lucide/zap";
 
 // prettier-ignore
-export type ThemeName =
-  | "dark"
-  | "light"
-  | "skeleton"
-  | "forest"
-  | "orange-peel"
-  | "dragonfruit"
-  | "lava";
+export type ThemeName = "dark" | "light" | "skeleton" | "forest" | "orange-peel" | "dragonfruit" | "lava";
 
-export const themes: ThemeName[] = [
-  "dark",
-  "light",
-  "skeleton",
-  "forest",
-  "orange-peel",
-  "dragonfruit",
-  "lava",
-];
+export const themes: ThemeName[] = ["dark", "light", "skeleton", "forest", "orange-peel", "dragonfruit", "lava"];
 
 function readSavedTheme(): ThemeName {
   const requested = new URLSearchParams(window.location.search).get("theme");
