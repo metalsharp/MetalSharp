@@ -1,5 +1,5 @@
 import { computed } from "vue";
-import { useTheme, type ThemeName } from "./useTheme";
+import { type ThemeName, useTheme } from "./useTheme";
 
 // The library's runtime theme tokens, shared so the Sharp Library and Logs
 // views can render with the exact same themed surface language.
