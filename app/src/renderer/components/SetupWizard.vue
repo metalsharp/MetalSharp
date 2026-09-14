@@ -1,29 +1,65 @@
 <script setup lang="ts">
-import { ref, inject, type Ref } from "vue";
+import { computed, ref, inject, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
 import { api } from "../composables/useApi";
 import IconZap from "~icons/lucide/zap";
 import IconBattery from "~icons/lucide/battery";
 import IconLock from "~icons/lucide/lock";
 import IconCheck from "~icons/lucide/check";
+import IconLoader2 from "~icons/lucide/loader-2";
+import IconScrollText from "~icons/lucide/scroll-text";
+import IconMonitor from "~icons/lucide/monitor";
+import IconGamepad2 from "~icons/lucide/gamepad-2";
+import IconPlay from "~icons/lucide/play";
 
 const emit = defineEmits<{ done: [] }>();
 const toast = useToast();
 const library = inject<Ref<{ ok: boolean; total: number; installed_count: number; games: unknown[] } | null>>("library", ref(null));
 const steamApiKey = inject<Ref<string | null>>("steamApiKey", ref(null));
 
-const step = ref(0);
+// In mock preview mode a ?step=N query opens the wizard directly on a step.
+const mockStepParam = Number(new URLSearchParams(window.location.search).get("step") ?? "0");
+const step = ref(new URLSearchParams(window.location.search).has("mock") && Number.isFinite(mockStepParam) ? Math.min(Math.max(mockStepParam, 0), 3) : 0);
 const deviceName = ref("");
 const installProgress = ref(0);
 const installStatus = ref("");
 const installing = ref(false);
 const installLogs = ref<{ text: string; cls: string }[]>([]);
+const installCurrent = ref("");
+const installFailed = ref(false);
+const logOpen = ref(false);
+const steamFailed = ref(false);
+const runtimeReady = computed(() => installStatus.value === "complete");
+const steamButtonLabel = computed(() => {
+  if (steamInstalled.value) return "Steam Installed";
+  if (steamInstalling.value) return steamInstallLabel();
+  if (steamFailed.value) return "Steam Install Failed";
+  return "Install Steam";
+});
 const steamInstalled = ref(false);
 const steamChecking = ref(false);
 const steamInstalling = ref(false);
 const steamInstallStage = ref("idle");
 const installingSteam = ref(false);
-const steps = ["Welcome", "Bundled Tools", "Runtime", "VC++", "Done"];
+const steps = ["Welcome", "Runtime", "VC++", "Done"];
+const stepTitles = [
+  "Welcome to MetalSharp",
+  "Install Runtime",
+  "VC++ Runtimes",
+  "You're All Set!",
+];
+const stepTaglines = [
+  "Your Windows games. At home on Mac.",
+  "One download, everything translated.",
+  "The DLLs Windows games expect.",
+  "MetalSharp is ready.",
+];
+const showcaseCovers = [
+  { appid: 1091500, name: "Cyberpunk 2077", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/library_600x900_2x.jpg" },
+  { appid: 1245620, name: "Elden Ring", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1245620/library_600x900_2x.jpg" },
+  { appid: 1145360, name: "Hades", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1145360/library_600x900_2x.jpg" },
+  { appid: 1332010, name: "Stray", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1332010/library_600x900_2x.jpg" },
+];
 
 const vcppX64Done = ref(false);
 const vcppX86Done = ref(false);
@@ -32,12 +68,20 @@ const vcppX86Installing = ref(false);
 const finishing = ref(false);
 
 function goToRuntimeStep() {
-  step.value = 2;
+  step.value = 1;
 }
+const installButtonLabel = computed(() => {
+  if (installStatus.value === "complete") return "Install Complete";
+  if (installing.value) return installCurrent.value || "Preparing…";
+  if (installFailed.value) return "Install Failed";
+  return "Install Runtime";
+});
 async function startInstall() {
   installing.value = true;
   installLogs.value = [];
   installProgress.value = 0;
+  installFailed.value = false;
+  installCurrent.value = "";
 
   const started = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-all");
   if (!started?.ok) {
@@ -64,6 +108,7 @@ async function startInstall() {
 
     const pct = progress.total > 0 ? Math.round((progress.step / progress.total) * 100) : 0;
     installProgress.value = pct;
+    if (progress.current) installCurrent.value = progress.current;
 
     if (progress.step !== lastStep || progress.status !== lastStatusText) {
       if (progress.status === "done" || progress.status === "skipped") {
@@ -73,6 +118,8 @@ async function startInstall() {
         if (progress.error) installLogs.value.push({ text: `Error: ${progress.error}`, cls: "error" });
         clearInterval(poll);
         installing.value = false;
+        installFailed.value = true;
+        logOpen.value = true;
         return;
       } else if (progress.status === "installing" && progress.step !== lastStep) {
         installLogs.value.push({ text: progress.log, cls: "active" });
@@ -99,117 +146,11 @@ async function checkSteam() {
 }
 
 async function goToVcppStep() {
-  if (installStatus.value !== "complete" || !steamInstalled.value || steamInstalling.value || steamChecking.value) return;
-  steamChecking.value = true;
-  try {
-    // Installation completion must be confirmed, not inferred from a running client.
-    await checkSteam();
-    if (steamInstalled.value && !steamInstalling.value) {
-      step.value = 3;
-    } else {
-      toast.show("Wait until Steam is detected as installed before continuing.", "error");
-    }
-  } catch {
-    steamInstalled.value = false;
-    toast.show("Could not confirm Steam installation. Please try again.", "error");
-  } finally {
-    steamChecking.value = false;
-  }
-}
-
-function steamInstallLabel() {
-  switch (steamInstallStage.value) {
-    case "downloading":
-      return "Downloading Steam...";
-    case "creating-steam-prefix":
-      return "Creating Steam prefix...";
-    case "installing-steam":
-      return "Installing Steam...";
-    case "failed":
-      return "Retry Steam installation";
-    default:
-      return steamInstalling.value ? "Preparing Steam..." : "Install Steam";
-  }
-}
-
-async function installSteam() {
-  steamInstalled.value = false;
-  steamInstalling.value = true;
-  steamInstallStage.value = "downloading";
-  const result = await api<{ ok: boolean; error?: string }>("POST", "/steam/install");
-  if (!result?.ok) {
-    toast.show(result?.error ?? "Failed to install Steam", "error");
-    steamInstalling.value = false;
-    return;
-  }
-  const poll = setInterval(async () => {
-    const s = await api<{
-      installed: boolean;
-      running: boolean;
-      installing?: boolean;
-      install_stage?: string;
-    }>("GET", "/steam/status");
-    if (s?.install_stage) steamInstallStage.value = s.install_stage;
-    if (s?.installed && !s?.installing) {
-      clearInterval(poll);
-      steamInstalled.value = true;
-      steamInstalling.value = false;
-      steamInstallStage.value = "complete";
-    }
-  }, 1000);
-  setTimeout(() => {
-    clearInterval(poll);
-    if (!steamInstalled.value) {
-      steamInstalling.value = false;
-      steamInstallStage.value = "failed";
-    }
-  }, 300000);
-}
-
-async function finish() {
-  if (finishing.value) return;
-  finishing.value = true;
-  const keyInput = document.getElementById("setup-api-key") as HTMLInputElement;
-  const nameInput = document.getElementById("setup-device-name") as HTMLInputElement;
-  const name = nameInput?.value?.trim() || deviceName.value;
-  const key = keyInput?.value?.trim();
-
-  const wrappers = await api<{ ok: boolean; error?: string }>("POST", "/steam/ensure-launch-ready");
-  if (!wrappers?.ok) {
-    toast.show(
-      wrappers?.error ?? "Steam wrapper shims could not be verified; MetalSharp will continue setup and retry before Steam launch.",
-      "error",
-    );
-  }
-
-  await api("POST", "/setup/save", { step: 2, deviceName: name, completed: true });
-  if (key) {
-    const result = await api<{
-      ok: boolean;
-      error?: string;
-      library?: { ok: boolean; total: number; installed_count: number; games: unknown[] };
-      sync?: { steam_id_detected: boolean };
-    }>("POST", "/steam/save-api-key", { key });
-    if (!result?.ok) {
-      toast.show(result?.error ?? "Failed to save Steam API key", "error");
-      finishing.value = false;
-      return;
-    }
-    steamApiKey.value = key;
-    if (result.library) library.value = result.library;
-    if (result.sync && !result.sync.steam_id_detected) {
-      toast.show("API key saved, but SteamID was not detected yet", "error");
-    }
-  }
-
-  // Do not stop Wine Steam here. Steam may still be completing its first
-  // x64 client update, and killing the prefix at this point leaves it partial.
-  finishing.value = false;
-  emit("done");
+  step.value = 2;
 }
 
 async function goToDoneStep() {
-  step.value = 4;
+  step.value = 3;
   const gen = await api<{ name: string }>("GET", "/setup/device-name");
   if (gen?.name) deviceName.value = gen.name;
 }
@@ -250,197 +191,191 @@ async function installVcppX86() {
 <template>
   <div class="setup-overlay">
     <div class="setup-wizard">
-      <div class="setup-steps">
-        <template v-for="(s, i) in steps" :key="i">
-          <div class="setup-step-item" :class="{ done: i < step, current: i === step }">
-            <div class="setup-step-dot" :class="{ done: i < step, current: i === step }"></div>
-            <span class="setup-step-label" :class="{ current: i === step }">{{ s }}</span>
-          </div>
-          <div v-if="i < steps.length - 1" class="setup-step-line" :class="{ done: i < step }"></div>
-        </template>
-      </div>
-
-      <div v-if="step === 0" class="setup-body">
-        <div class="setup-hero">
-          <img class="setup-hero-icon" src="../assets/metalsharp-logo.png" alt="MetalSharp" />
-          <h1 class="setup-hero-title">Welcome to MetalSharp</h1>
-          <p class="setup-hero-sub">A compatibility layer for running Windows Steam games on Apple Silicon through Wine and Metal translation.</p>
+      <div class="setup-visual">
+        <div class="setup-visual-art" aria-hidden="true"></div>
+        <div class="setup-visual-vignette" aria-hidden="true"></div>
+        <img class="setup-visual-logo" src="../assets/setup-hero-logo.png" alt="MetalSharp" />
+        <div class="setup-covers" aria-hidden="true">
+          <img v-for="(cover, i) in showcaseCovers" :key="cover.appid" :src="cover.url" :alt="cover.name" loading="lazy" />
         </div>
-        <div class="setup-features">
-          <div class="setup-feature">
-            <div class="setup-feature-icon">
-              <IconZap width="20" height="20" />
+        <div class="setup-steps">
+          <template v-for="(s, i) in steps" :key="i">
+            <div class="setup-step-item" :class="{ done: i < step, current: i === step }">
+              <div class="setup-step-dot" :class="{ done: i < step, current: i === step }"></div>
+              <span class="setup-step-label" :class="{ current: i === step }">{{ s }}</span>
             </div>
-            <div>
-              <div class="setup-feature-title">D3D9/10/11/12 Support</div>
-              <div class="setup-feature-desc">D3D12 via M12/DXMT, D3D10/11 via DXMT, Offline D3D12 Support with D3DMetal.</div>
-            </div>
-          </div>
-          <div class="setup-feature">
-            <div class="setup-feature-icon">
-              <IconBattery width="20" height="20" />
-            </div>
-            <div>
-              <div class="setup-feature-title">FNA/XNA via Native Mono</div>
-              <div class="setup-feature-desc">XNA and FNA titles run through native Mono with SDL2 and Metal audio/input shims</div>
-            </div>
-          </div>
-          <div class="setup-feature">
-            <div class="setup-feature-icon">
-              <IconLock width="20" height="20" />
-            </div>
-            <div>
-              <div class="setup-feature-title">Wine Steam Integration</div>
-              <div class="setup-feature-desc">Windows Steam runs inside a Wine prefix — browse your library, install, and launch games</div>
-            </div>
-          </div>
-        </div>
-        <div class="setup-actions">
-          <button class="btn btn-primary btn-lg" @click="step = 1">Get Started</button>
+            <div v-if="i < steps.length - 1" class="setup-step-line" :class="{ done: i < step }"></div>
+          </template>
         </div>
       </div>
 
-      <div v-if="step === 1" class="setup-body">
-        <div class="setup-section-header">
-          <h1>Bundled Tools</h1>
-          <p>MetalSharp includes the tools needed to install and repair the runtime. Setup uses these app-owned binaries directly; Homebrew is not required.</p>
-        </div>
+      <div class="setup-pane">
+        <div class="setup-pane-scroll">
+          <div class="setup-eyebrow">STEP {{ step + 1 }} OF {{ steps.length }}</div>
+          <h1 class="setup-title">{{ stepTitles[step] }}</h1>
+          <p class="setup-tagline">{{ stepTaglines[step] }}</p>
 
-        <div class="setup-tool-list">
-          <div class="setup-tool-row"><strong>zstd / unzstd</strong><span>Runtime bundle extraction</span></div>
-          <div class="setup-tool-row"><strong>wrestool / icotool</strong><span>Windows icon extraction</span></div>
-          <div class="setup-tool-row"><strong>lsar / unar</strong><span>Safe archive inspection and extraction</span></div>
-        </div>
-
-        <div class="setup-actions">
-          <button class="btn btn-secondary" @click="step = 0">Back</button>
-          <button class="btn btn-primary btn-lg" @click="goToRuntimeStep">Continue</button>
-        </div>
-      </div>
-
-      <div v-if="step === 2" class="setup-body">
-        <div class="setup-section-header">
-          <h1>Install Runtime</h1>
-          <p>Install the MetalSharp-owned Wine runtime, DXMT graphics runtimes, Steam support files, Mono/FNA support, scripts, and bottle rules. GPTK is not installed during first-time setup.</p>
-        </div>
-
-        <button
-          v-if="installStatus !== 'complete'"
-          class="btn btn-primary btn-lg"
-          :disabled="installing"
-          @click="startInstall"
-        >
-          {{ installing ? "Installing..." : "Install Runtime" }}
-        </button>
-
-        <div v-if="installing || installLogs.length > 0" class="setup-progress-section">
-          <div class="setup-progress-bar-container">
-            <div class="setup-progress-bar" :style="{ width: installProgress + '%' }"></div>
-            <span class="setup-progress-label">{{ installProgress }}%</span>
-          </div>
-          <div class="setup-log">
-            <div v-for="(log, i) in installLogs" :key="i" class="setup-log-line" :class="log.cls">
-              {{ log.text }}
-            </div>
-          </div>
-        </div>
-
-        <div v-if="installStatus === 'complete'" class="setup-steam-section">
-          <h2>Steam</h2>
-          <p>Install Windows Steam to download and play games through MetalSharp's Wine runtime.</p>
-          <span v-if="steamInstalled" class="badge badge-ok" style="font-size:13px;padding:10px 20px;">Steam installed</span>
-          <button v-else class="btn btn-primary" :disabled="steamInstalling" @click="installSteam">
-            {{ steamInstallLabel() }}
-          </button>
-          <div v-if="steamInstalling || steamInstallStage === 'failed'" class="setup-steam-install-status">
-            {{ steamInstallStage === 'downloading' ? 'Downloading Steam installer...' :
-              steamInstallStage === 'creating-steam-prefix' ? 'Creating the Wine Steam prefix...' :
-              steamInstallStage === 'installing-steam' ? 'Steam installer is running...' :
-              'Steam installation did not complete. You can retry.' }}
-          </div>
-        </div>
-
-        <div class="setup-actions">
-          <button class="btn btn-secondary" @click="step = 1">Back</button>
-          <button
-            v-if="installStatus === 'complete'"
-            class="btn btn-primary btn-lg"
-            :disabled="!steamInstalled || steamInstalling || steamChecking"
-            @click="goToVcppStep"
-          >
-            {{ steamChecking ? "Checking Steam..." : "Next: VC++ Runtimes" }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="step === 3" class="setup-body">
-        <div class="setup-section-header">
-          <h1>VC++ 2015-2022 Runtimes</h1>
-          <p>Many Windows games depend on the Microsoft Visual C++ Redistributable. Install both x64 and x86 into the standard MetalSharp Wine prefix so Steam games can find the runtime DLLs they need at launch.</p>
-        </div>
-
-        <div class="setup-vcpp-section">
-          <div class="setup-vcpp-card">
-            <div class="setup-vcpp-info">
-              <div class="setup-vcpp-name">VC++ 2015-2022 <strong>x64</strong></div>
-              <div class="setup-vcpp-desc">Required for 64-bit games (Portal 2, Elden Ring, most modern titles)</div>
-            </div>
-            <span v-if="vcppX64Done" class="badge badge-ok" style="font-size:12px;padding:6px 14px;">Done</span>
-            <button v-else class="btn btn-primary" :disabled="vcppX64Installing" @click="installVcppX64">
-              {{ vcppX64Installing ? "Installing..." : "Install x64" }}
-            </button>
-          </div>
-
-          <div class="setup-vcpp-card">
-            <div class="setup-vcpp-info">
-              <div class="setup-vcpp-name">VC++ 2015-2022 <strong>x86</strong></div>
-              <div class="setup-vcpp-desc">Required for 32-bit games and WoW64 compatibility (older titles, 32-bit components)</div>
-            </div>
-            <span v-if="vcppX86Done" class="badge badge-ok" style="font-size:12px;padding:6px 14px;">Done</span>
-            <button v-else class="btn btn-primary" :disabled="vcppX86Installing" @click="installVcppX86">
-              {{ vcppX86Installing ? "Installing..." : "Install x86" }}
-            </button>
-          </div>
-        </div>
-
-        <div class="setup-actions">
-          <button class="btn btn-secondary" @click="step = 2">Back</button>
-          <button class="btn btn-primary btn-lg" @click="goToDoneStep">Continue</button>
-        </div>
-      </div>
-
-      <div v-if="step === 4" class="setup-body">
-        <div class="setup-complete">
-          <div class="setup-complete-icon">
-            <IconCheck width="36" height="36" />
-          </div>
-          <h1>You're All Set!</h1>
-          <p>MetalSharp is ready. Open your library, start Steam, and download games.</p>
-          <div class="setup-form">
-            <div class="setup-form-group">
-              <label class="setup-label">Device Name</label>
-              <input id="setup-device-name" type="text" :value="deviceName" placeholder="e.g. Swift-Falcon" class="setup-input" />
-              <div class="setup-hint">Identifies your machine to Steam for persistent login.</div>
-            </div>
-            <div class="setup-form-group">
-              <label class="setup-label">Steam Web API Key (optional)</label>
-              <input id="setup-api-key" type="password" placeholder="Enter your Steam Web API key..." class="setup-input" />
-              <div class="setup-hint">
-                Loads your full game library. Get a free key at
-                <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a>
+          <div v-if="step === 0" class="setup-body">
+            <p class="setup-lede">Play Windows Steam games on Apple Silicon.</p>
+            <div class="setup-features">
+              <div class="setup-feature">
+                <div class="setup-feature-icon"><IconZap width="20" height="20" /></div>
+                <div>
+                  <div class="setup-feature-title">DirectX 9/10/11/12 Support</div>
+                  <div class="setup-feature-desc">Windows graphics, translated for Metal.</div>
+                </div>
+              </div>
+              <div class="setup-feature">
+                <div class="setup-feature-icon"><IconMonitor width="20" height="20" /></div>
+                <div>
+                  <div class="setup-feature-title">FNA &amp; XNA</div>
+                  <div class="setup-feature-desc">Native Mono support for your games.</div>
+                </div>
+              </div>
+              <div class="setup-feature">
+                <div class="setup-feature-icon"><IconGamepad2 width="20" height="20" /></div>
+                <div>
+                  <div class="setup-feature-title">Steam integration</div>
+                  <div class="setup-feature-desc">Browse, install, and launch your library.</div>
+                </div>
               </div>
             </div>
           </div>
-          <div class="setup-tips">
-            <div class="setup-tip"><strong>Start Steam</strong> — Click "Start Steam" in your Library, then log in through the Steam window.</div>
-            <div class="setup-tip"><strong>Download a game</strong> — Find it in your Library and click Install.</div>
-            <div class="setup-tip"><strong>First launch</strong> — MetalSharp auto-configures the runtime for each game.</div>
+
+          <div v-if="step === 1" class="setup-body">
+            <p class="setup-lede">
+              Installs the Wine runtime, graphics runtimes, Steam support files, and Mono/FNA support.
+              GPTK is not installed during first-time setup.
+            </p>
+
+            <div class="setup-tools-label">Bundled tools — no Homebrew required</div>
+            <div class="setup-tool-list">
+              <div class="setup-tool-row"><strong>zstd / unzstd</strong><span>Runtime bundle extraction</span></div>
+              <div class="setup-tool-row"><strong>unrar</strong><span>RAR archive extraction</span></div>
+              <div class="setup-tool-row"><strong>wrestool / icotool</strong><span>Windows icon extraction</span></div>
+              <div class="setup-tool-row"><strong>lsar / unar</strong><span>Safe archive inspection and extraction</span></div>
+            </div>
+
+            <div class="setup-install-grid">
+              <div class="setup-install-col">
+                <button
+                  class="setup-btn primary install-btn"
+                  :class="{ working: installing, done: installStatus === 'complete' }"
+                  :disabled="installing || installStatus === 'complete'"
+                  @click="startInstall"
+                >
+                  <span v-if="installing" class="install-btn-progress" :style="{ width: installProgress + '%' }"></span>
+                  <span class="install-btn-label">
+                    <IconLoader2 v-if="installing" class="install-spinner" width="16" height="16" />
+                    <IconCheck v-else-if="installStatus === 'complete'" width="17" height="17" />
+                    {{ installButtonLabel }}
+                  </span>
+                </button>
+                <button
+                  v-if="installLogs.length"
+                  class="setup-btn ghost install-log-btn"
+                  :class="{ active: logOpen }"
+                  title="View install log"
+                  @click="logOpen = !logOpen"
+                >
+                  <IconScrollText width="14" height="14" />
+                  Install Log
+                </button>
+              </div>
+              <div class="setup-install-col">
+                <button
+                  class="setup-btn primary install-btn"
+                  :class="{ working: steamInstalling, done: steamInstalled }"
+                  :disabled="!runtimeReady || steamInstalling || steamInstalled"
+                  @click="installSteam"
+                >
+                  <span v-if="steamInstalling" class="install-btn-progress indeterminate"></span>
+                  <span class="install-btn-label">
+                    <IconLoader2 v-if="steamInstalling" class="install-spinner" width="16" height="16" />
+                    <IconCheck v-else-if="steamInstalled" width="17" height="17" />
+                    {{ steamButtonLabel }}
+                  </span>
+                </button>
+              </div>
+            </div>
+            <div v-if="logOpen && installLogs.length" class="setup-log">
+              <div v-for="(log, i) in installLogs" :key="i" class="setup-log-line" :class="log.cls">
+                {{ log.text }}
+              </div>
+            </div>
           </div>
-          <div class="setup-actions" style="justify-content:center;margin-top:32px;">
-            <button class="btn btn-primary btn-lg" :disabled="finishing" @click="finish">
-              {{ finishing ? "Preparing Steam..." : "Launch MetalSharp" }}
+
+          <div v-if="step === 2" class="setup-body">
+            <p class="setup-lede">
+              Many Windows games depend on the Microsoft Visual C++ Redistributable. Install both into the
+              standard MetalSharp Wine prefix so games can find the DLLs they need at launch.
+            </p>
+            <div class="setup-vcpp-section">
+              <div class="setup-vcpp-card">
+                <div class="setup-vcpp-info">
+                  <div class="setup-vcpp-name">VC++ 2015-2022 <strong>x64</strong></div>
+                  <div class="setup-vcpp-desc">Required for 64-bit games (Portal 2, Elden Ring, most modern titles)</div>
+                </div>
+                <span v-if="vcppX64Done" class="badge badge-ok">Done</span>
+                <button v-else class="setup-btn primary sm" :disabled="vcppX64Installing" @click="installVcppX64">
+                  {{ vcppX64Installing ? "Installing..." : "Install x64" }}
+                </button>
+              </div>
+              <div class="setup-vcpp-card">
+                <div class="setup-vcpp-info">
+                  <div class="setup-vcpp-name">VC++ 2015-2022 <strong>x86</strong></div>
+                  <div class="setup-vcpp-desc">Required for 32-bit games and WoW64 compatibility</div>
+                </div>
+                <span v-if="vcppX86Done" class="badge badge-ok">Done</span>
+                <button v-else class="setup-btn primary sm" :disabled="vcppX86Installing" @click="installVcppX86">
+                  {{ vcppX86Installing ? "Installing..." : "Install x86" }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="step === 3" class="setup-body">
+            <div class="setup-complete-icon"><IconCheck width="30" height="30" /></div>
+            <div class="setup-form">
+              <div class="setup-form-group">
+                <label class="setup-label">Device Name</label>
+                <input id="setup-device-name" type="text" :value="deviceName" placeholder="e.g. Swift-Falcon" class="setup-input" />
+                <div class="setup-hint">Identifies your machine to Steam for persistent login.</div>
+              </div>
+              <div class="setup-form-group">
+                <label class="setup-label">Steam Web API Key (optional)</label>
+                <input id="setup-api-key" type="password" placeholder="Enter your Steam Web API key..." class="setup-input" />
+                <div class="setup-hint">
+                  Loads your full game library. Get a free key at
+                  <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a>
+                </div>
+              </div>
+            </div>
+            <div class="setup-tips">
+              <div class="setup-tip"><strong>Start Steam</strong> — Click "Start Steam" in your Library, then log in through the Steam window.</div>
+              <div class="setup-tip"><strong>First launch</strong> — MetalSharp auto-configures the runtime for each game. Optionally, configure a different setting using the bottle selection dropdown.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="setup-actions">
+          <button v-if="step > 0 && step < 3" class="setup-btn ghost" @click="step = step - 1">Back</button>
+          <button v-if="step === 0" class="setup-btn primary" @click="step = 1">
+            <IconPlay width="16" height="16" fill="currentColor" /> Get Started
+          </button>
+          <template v-else-if="step === 1">
+            <button
+              class="setup-btn primary"
+              :disabled="installStatus !== 'complete'"
+              @click="goToVcppStep"
+            >
+              Next: Install VC++
             </button>
-          </div>
+          </template>
+          <button v-else-if="step === 2" class="setup-btn primary" @click="goToDoneStep">Continue</button>
+          <button v-else class="setup-btn primary" :disabled="finishing" @click="finish">
+            {{ finishing ? "Preparing Steam..." : "Launch MetalSharp" }}
+          </button>
         </div>
       </div>
     </div>
@@ -453,430 +388,529 @@ async function installVcppX86() {
   inset: 0;
   z-index: 1000;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  background:
-    radial-gradient(ellipse 90% 70% at 50% 12%, rgba(95, 183, 232, 0.08), transparent 60%),
-    radial-gradient(ellipse 60% 50% at 85% 90%, rgba(95, 183, 232, 0.05), transparent 55%),
-    linear-gradient(rgba(14, 18, 24, 0.88), rgba(14, 18, 24, 0.92)),
-    url("../assets/textures/metal-foil.png") center / cover;
+  padding: clamp(10px, 2.5vh, 24px) clamp(10px, 2.5vw, 36px);
+  background: #08090c;
 }
-
 .setup-wizard {
-  width: 540px;
-  max-width: 94vw;
-  max-height: 90vh;
-  overflow-y: auto;
-  background-color: color-mix(in srgb, var(--bg-surface) 32%, transparent);
-  background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.19), transparent 26%),
-    linear-gradient(
-      112deg,
-      rgba(255, 255, 255, 0.09),
-      transparent 46%,
-      rgba(255, 255, 255, 0.05)
-    );
-  backdrop-filter: blur(42px) saturate(210%) brightness(1.12);
-  -webkit-backdrop-filter: blur(42px) saturate(210%) brightness(1.12);
-  border: 1px solid color-mix(in srgb, white 18%, var(--border));
-  border-radius: var(--radius-lg);
-  padding: 32px;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: #101316;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
   font-family: var(--font-rethink);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.09),
-    inset 0 -1px rgba(255, 255, 255, 0.08),
-    0 16px 42px rgba(0, 0, 0, 0.18);
   isolation: isolate;
 }
 
-.setup-steps {
+/* ---- left visual ---- */
+.setup-visual {
+  position: relative;
+  flex: 1 1 52%;
+  min-width: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+.setup-visual-art {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(95% 58% at 52% 76%, rgba(255, 166, 77, 0.5), rgba(255, 120, 40, 0.16) 46%, transparent 72%),
+    radial-gradient(70% 45% at 22% 60%, rgba(96, 142, 92, 0.14), transparent 65%),
+    radial-gradient(60% 40% at 80% 30%, rgba(64, 90, 120, 0.18), transparent 70%),
+    linear-gradient(180deg, #131b25 0%, #0f151c 55%, #0b0e12 100%);
+}
+.setup-visual-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(38% 26% at 52% 66%, rgba(255, 214, 150, 0.2), transparent 70%),
+    linear-gradient(180deg, transparent 60%, rgba(8, 10, 13, 0.55) 100%);
+}
+.setup-visual-vignette {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(9, 11, 14, 0.35), transparent 30%, transparent 70%, rgba(9, 11, 14, 0.5));
+  pointer-events: none;
+}
+.setup-visual-logo {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 34%;
+  width: clamp(280px, 36vw, 470px);
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 24px 60px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 80px rgba(255, 176, 92, 0.18));
+  pointer-events: none;
+  user-select: none;
+}
+.setup-covers {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
   justify-content: center;
-  gap: 0;
-  margin-bottom: 32px;
+  gap: clamp(10px, 1.4vw, 18px);
+  padding: 0 40px 84px;
+  perspective: 900px;
+}
+.setup-covers img {
+  width: clamp(80px, 8.5vw, 124px);
+  aspect-ratio: 0.7;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 26px 55px rgba(0, 0, 0, 0.55);
+  transition: transform 0.3s ease;
+}
+.setup-covers img:nth-child(1) { transform: perspective(900px) rotateY(9deg) translateY(5px); }
+.setup-covers img:nth-child(2) { transform: perspective(900px) translateY(-16px) scale(1.13); z-index: 2; }
+.setup-covers img:nth-child(3) { transform: perspective(900px) rotateY(-6deg) translateY(-5px); }
+.setup-covers img:nth-child(4) { transform: perspective(900px) rotateY(-9deg) translateY(7px); }
+
+.setup-steps {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  padding: 0 40px 26px;
 }
 .setup-step-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 .setup-step-dot {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
-  background: var(--border-strong);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
   transition: all var(--transition);
 }
 .setup-step-dot.done {
-  background: var(--success);
+  border-color: transparent;
+  background: rgba(239, 230, 211, 0.55);
 }
 .setup-step-dot.current {
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-glow);
+  border-color: #efe6d3;
+  background: #efe6d3;
+  box-shadow: 0 0 12px rgba(239, 230, 211, 0.45);
 }
 .setup-step-label {
-  font-size: 10px;
-  color: var(--text-dim);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
 }
 .setup-step-label.current {
-  color: var(--accent);
-  font-weight: 600;
+  color: #fff;
+  font-weight: 650;
 }
 .setup-step-line {
-  width: 48px;
-  height: 2px;
-  background: var(--border-strong);
-  margin: 0 8px;
-  margin-bottom: 18px;
-  transition: background var(--transition);
+  flex: 1;
+  height: 1px;
+  margin-top: 6px;
+  background: rgba(255, 255, 255, 0.18);
 }
 .setup-step-line.done {
-  background: var(--success);
+  background: rgba(239, 230, 211, 0.5);
 }
 
-.setup-body {
-  text-align: center;
+/* ---- right pane ---- */
+.setup-pane {
+  flex: 1 1 48%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(26px, 4.5vw, 60px) clamp(26px, 4vw, 68px) clamp(20px, 3vw, 34px);
+  background: linear-gradient(180deg, #171a1e 0%, #131518 100%);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
 }
-
-.setup-hero {
-  margin-bottom: 32px;
+.setup-pane-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
-.setup-hero-icon {
-  width: 56px;
-  height: 56px;
-  object-fit: contain;
-  margin-bottom: 16px;
-  filter: drop-shadow(0 2px 8px rgba(95, 183, 232, 0.25));
+.setup-eyebrow {
+  color: rgba(240, 239, 231, 0.5);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.42em;
 }
-.setup-hero-title {
-  font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  background: linear-gradient(180deg, #f4f7fa 0%, #cdd6de 55%, #93a1ad 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
+.setup-title {
+  margin: 18px 0 12px;
+  color: #f2efe6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(32px, 3.4vw, 54px);
+  font-weight: 500;
+  line-height: 1.02;
 }
-.setup-hero-sub {
-  color: var(--text-secondary);
-  font-size: 14px;
+.setup-tagline {
+  margin: 0;
+  color: #e9e7e0;
+  font-size: clamp(16px, 1.4vw, 21px);
+}
+.setup-lede {
+  margin: 18px 0 22px;
+  color: #9aa09e;
+  font-size: 13.5px;
   line-height: 1.5;
 }
+.setup-body {
+  margin-top: 8px;
+}
 
+/* features (welcome) */
 .setup-features {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 28px;
-  text-align: left;
+  margin-top: 14px;
 }
 .setup-feature {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px;
-  background-color: #171b20;
-  border-radius: var(--radius-md);
-  border: 1px solid color-mix(in srgb, white 10%, var(--border));
-  transition: border-color var(--transition), box-shadow var(--transition);
+  gap: 18px;
+  padding: 19px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
-.setup-feature:hover {
-  border-color: color-mix(in srgb, white 22%, var(--border));
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07);
+.setup-feature:first-child {
+  border-top: 0;
 }
 .setup-feature-icon {
-  color: var(--accent);
-  flex-shrink: 0;
-  margin-top: 24px;
-  margin-left: -12px;
-}
-.setup-feature > div:last-child {
-  flex: 1;
-  text-align: center;
-  margin-left: -14px;
-  margin-top: -4px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+  color: #d8d5cc;
+  background: rgba(255, 255, 255, 0.03);
 }
 .setup-feature-title {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 6px;
-  display: inline-block;
-  border: 1px solid rgba(214, 226, 236, 0.2);
-  border-radius: 4px;
-  padding: 1px 8px;
-  background: rgba(255, 255, 255, 0.05);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 0 6px rgba(205, 218, 230, 0.14),
-    0 0 14px rgba(205, 218, 230, 0.08);
-  margin-left: -14px;
-  margin-top: -4px;
+  color: #eceae3;
+  font-size: 15.5px;
+  font-weight: 650;
 }
 .setup-feature-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  line-height: 1.4;
-  text-align: left;
-  margin-left: 14px;
-}
-
-.setup-wizard .btn-primary {
-  position: relative;
-  overflow: hidden;
-  background-color: #3a4149;
-  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 45%);
-  border: 2px solid rgba(214, 226, 236, 0.35);
-  color: var(--text-primary);
-  text-shadow:
-    0 0 14px rgba(255, 255, 255, 0.85),
-    0 0 34px rgba(255, 255, 255, 0.5),
-    0 0 60px rgba(190, 215, 235, 0.35);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.12),
-    inset 0 -1px rgba(0, 0, 0, 0.25),
-    0 2px 6px rgba(0, 0, 0, 0.45),
-    0 8px 20px rgba(0, 0, 0, 0.45),
-    0 16px 38px rgba(0, 0, 0, 0.4);
-}
-.setup-wizard .btn-primary::before {
-  content: "";
-  position: absolute;
-  inset: -14px;
-  background: url("../assets/textures/metal-foil.png") center / cover;
-  filter: blur(3px);
-  z-index: -1;
-  display: none;
-}
-.setup-wizard .btn-primary:hover:not(:disabled) {
-  background-color: #454d56;
-  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 45%);
-  border-color: rgba(224, 234, 243, 0.5);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.16),
-    inset 0 -1px rgba(0, 0, 0, 0.28),
-    0 6px 18px rgba(0, 0, 0, 0.35),
-    0 14px 34px rgba(0, 0, 0, 0.32);
-}
-.setup-wizard .btn-primary:disabled {
-  background-color: #2c3137;
-  background-image: none;
-  border-color: rgba(214, 226, 236, 0.15);
-  color: var(--text-dim);
-  text-shadow: none;
-}
-
-.setup-actions {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 24px;
-}
-
-.setup-section-header {
-  margin-bottom: 20px;
-}
-.setup-section-header h1 {
-  font-size: 20px;
-  margin-bottom: 6px;
-}
-.setup-section-header p {
-  color: var(--text-dim);
+  margin-top: 3px;
+  color: #9aa09e;
   font-size: 13px;
 }
 
-.setup-progress-section {
-  margin-top: 16px;
-  text-align: left;
+/* bundled tools */
+.setup-tools-label {
+  margin: 6px 0 10px;
+  color: rgba(240, 239, 231, 0.5);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
 }
-.setup-progress-bar-container {
-  position: relative;
-  height: 24px;
-  background: var(--bg-deep);
-  border-radius: 12px;
-  overflow: hidden;
-  margin-bottom: 12px;
-}
-.setup-progress-bar {
-  height: 100%;
-  background: linear-gradient(180deg, #75c7f2 0%, #5fb7e8 45%, #3d8fc4 100%);
-  border-radius: 12px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  transition: width 0.3s ease;
-}
-.setup-progress-label {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-.setup-log {
-  max-height: 160px;
-  overflow-y: auto;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.6;
-  background: var(--bg-deep);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-}
-.setup-log-line {
-  color: var(--text-secondary);
-}
-.setup-log-line.success {
-  color: var(--success);
-}
-.setup-log-line.warn {
-  color: var(--warn);
-}
-.setup-log-line.error {
-  color: var(--error);
-}
-.setup-log-line.active {
-  color: var(--accent);
-}
-
-.setup-steam-section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
 .setup-tool-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  text-align: left;
-  margin: 20px 0;
+  margin-bottom: 26px;
 }
-
 .setup-tool-row {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 13px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-secondary);
-  font-size: 13px;
+  padding: 15px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  color: #eceae3;
+  font-size: 14px;
+}
+.setup-tool-row:first-child {
+  border-top: 0;
+}
+.setup-tool-row span {
+  color: #9aa09e;
+  font-size: 12.5px;
+  text-align: right;
 }
 
-.setup-tool-row strong {
-  color: var(--text-primary);
+/* runtime install */
+.setup-install-grid {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+.setup-install-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.install-btn {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.install-btn.working {
+  cursor: progress;
+}
+.install-btn.done {
+  background: #3d9a58;
+  color: #fff;
+}
+.install-btn:disabled:not(.done) {
+  opacity: 0.4;
+}
+.install-btn-progress.indeterminate {
+  width: 100%;
+  animation: setup-indeterminate 1.2s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(20, 22, 26, 0.22), transparent);
+}
+@keyframes setup-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
+.install-btn-progress {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0%;
+  background: rgba(20, 22, 26, 0.18);
+  transition: width 0.3s ease;
+}
+.install-btn-label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.install-spinner {
+  animation: setup-spin 0.9s linear infinite;
+}
+@keyframes setup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.install-log-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  justify-content: center;
+}
+.install-log-btn.active {
+  border-color: #efe6d3;
+  color: #efe6d3;
+}
+.setup-log {
+  max-height: 220px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: #0c0f11;
+  overflow-y: auto;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+.setup-log-line.info { color: #c9ceca; }
+.setup-log-line.active { color: #efe6d3; }
+.setup-log-line.success { color: #7cbf6a; }
+.setup-log-line.warn { color: #ffb84d; }
+.setup-log-line.error { color: #ff5c5c; }
+.setup-steam-section {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
 .setup-steam-section h2 {
-  font-size: 16px;
-  margin-bottom: 4px;
+  margin: 0 0 6px;
+  color: #eceae3;
+  font-size: 17px;
 }
 .setup-steam-section p {
+  margin: 0 0 14px;
+  color: #9aa09e;
   font-size: 13px;
-  color: var(--text-dim);
-  margin-bottom: 12px;
+}
+.setup-steam-install-status {
+  margin-top: 10px;
+  color: #ffb84d;
+  font-size: 12.5px;
 }
 
+/* vcpp */
 .setup-vcpp-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  text-align: left;
-  margin-top: 16px;
 }
 .setup-vcpp-card {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
-  padding: 16px;
-  background: var(--bg-card);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-}
-.setup-vcpp-info {
-  flex: 1;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
 }
 .setup-vcpp-name {
+  color: #eceae3;
   font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 2px;
+  font-weight: 650;
 }
 .setup-vcpp-desc {
+  margin-top: 3px;
+  color: #9aa09e;
   font-size: 12px;
-  color: var(--text-dim);
-  line-height: 1.4;
 }
 
-.setup-complete {
-  text-align: center;
-}
+/* done */
 .setup-complete-icon {
-  color: var(--success);
-  margin-bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(124, 191, 106, 0.4);
+  border-radius: 50%;
+  color: #7cbf6a;
+  background: rgba(124, 191, 106, 0.08);
 }
-.setup-complete h1 {
-  font-size: 22px;
-  margin-bottom: 8px;
-}
-.setup-complete > p {
-  color: var(--text-secondary);
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-
 .setup-form {
-  max-width: 400px;
-  margin: 0 auto 24px;
-  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
 }
 .setup-form-group {
-  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .setup-label {
-  display: block;
+  color: #cfd2cf;
   font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 4px;
+  font-weight: 650;
 }
 .setup-input {
-  width: 100%;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #eceae3;
+  background: rgba(255, 255, 255, 0.04);
+  font: inherit;
   font-size: 13px;
   outline: none;
 }
 .setup-input:focus {
-  border-color: var(--accent);
+  border-color: #efe6d3;
 }
 .setup-hint {
-  font-size: 11px;
-  color: var(--text-dim);
-  margin-top: 4px;
-  line-height: 1.4;
+  color: #838987;
+  font-size: 11.5px;
 }
-
+.setup-hint a {
+  color: #efe6d3;
+}
 .setup-tips {
-  text-align: left;
-  max-width: 400px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 24px;
 }
 .setup-tip {
-  font-size: 12px;
-  color: var(--text-secondary);
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  color: #9aa09e;
+  font-size: 12.5px;
   line-height: 1.5;
-  padding: 8px 12px;
-  background: var(--bg-card);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+}
+.setup-tip strong {
+  color: #d8d5cc;
+}
+
+/* actions */
+.setup-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 22px;
+}
+.setup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  transition: transform 0.16s ease, filter 0.16s ease, border-color 0.16s ease;
+}
+.setup-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+.setup-btn.primary {
+  min-height: 52px;
+  padding: 0 32px;
+  border-radius: 10px;
+  color: #14161a;
+  background: #efe7d6;
+  font-size: 16px;
+  font-weight: 700;
+}
+.setup-btn.primary.sm {
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+.setup-btn.primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.setup-btn.ghost {
+  margin-right: auto;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  color: #cfd2cf;
+  background: transparent;
+  font-size: 13px;
+}
+.setup-btn.ghost:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+@media (max-width: 900px) {
+  .setup-visual {
+    display: none;
+  }
 }
 </style>

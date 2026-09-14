@@ -1,9 +1,7 @@
 import { type Component, ref, watch } from "vue";
 import IconAxe from "~icons/lucide/axe";
-import IconBanana from "~icons/lucide/banana";
 import IconBinoculars from "~icons/lucide/binoculars";
 import IconBone from "~icons/lucide/bone";
-import IconBraces from "~icons/lucide/braces";
 import IconCitrus from "~icons/lucide/citrus";
 import IconClipboardList from "~icons/lucide/clipboard-list";
 import IconCrosshair from "~icons/lucide/crosshair";
@@ -14,47 +12,19 @@ import IconGem from "~icons/lucide/gem";
 import IconGrape from "~icons/lucide/grape";
 import IconLayers from "~icons/lucide/layers";
 import IconLeaf from "~icons/lucide/leaf";
-import IconRadar from "~icons/lucide/radar";
 import IconRefreshCcw from "~icons/lucide/refresh-ccw";
 import IconRotateCw from "~icons/lucide/rotate-cw";
-import IconScanLine from "~icons/lucide/scan-line";
 import IconScroll from "~icons/lucide/scroll";
 import IconScrollText from "~icons/lucide/scroll-text";
 import IconServer from "~icons/lucide/server";
-import IconShell from "~icons/lucide/shell";
 import IconSkull from "~icons/lucide/skull";
-import IconSun from "~icons/lucide/sun";
-import IconTreePalm from "~icons/lucide/tree-palm";
 import IconTrees from "~icons/lucide/trees";
-import IconUmbrella from "~icons/lucide/umbrella";
-import IconWaves from "~icons/lucide/waves";
 import IconZap from "~icons/lucide/zap";
 
 // prettier-ignore
-export type ThemeName =
-  | "dark"
-  | "light"
-  | "skeleton"
-  | "forest"
-  | "orange-peel"
-  | "dragonfruit"
-  | "banana"
-  | "lava"
-  | "beach"
-  | "xray";
+export type ThemeName = "dark" | "light" | "skeleton" | "forest" | "orange-peel" | "dragonfruit" | "lava";
 
-export const themes: ThemeName[] = [
-  "dark",
-  "light",
-  "skeleton",
-  "forest",
-  "orange-peel",
-  "dragonfruit",
-  "banana",
-  "lava",
-  "beach",
-  "xray",
-];
+export const themes: ThemeName[] = ["dark", "light", "skeleton", "forest", "orange-peel", "dragonfruit", "lava"];
 
 function readSavedTheme(): ThemeName {
   const requested = new URLSearchParams(window.location.search).get("theme");
@@ -113,33 +83,12 @@ const themeNavIcons: Partial<Record<ThemeName, Partial<Record<NavIconKey, Compon
     refresh: IconRotateCw,
     steam: IconGrape,
   },
-  banana: {
-    library: IconBanana,
-    sharp: IconSun,
-    logs: IconScroll,
-    refresh: IconRotateCw,
-    steam: IconZap,
-  },
   lava: {
     library: IconFlameKindling,
     sharp: IconFlame,
     logs: IconScrollText,
     refresh: IconRotateCw,
     steam: IconZap,
-  },
-  beach: {
-    library: IconTreePalm,
-    sharp: IconUmbrella,
-    logs: IconWaves,
-    refresh: IconRotateCw,
-    steam: IconShell,
-  },
-  xray: {
-    library: IconScanLine,
-    sharp: IconRadar,
-    logs: IconBraces,
-    refresh: IconRotateCw,
-    steam: IconCrosshair,
   },
 };
 

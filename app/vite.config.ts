@@ -24,5 +24,15 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    proxy: {
+      // Steam's store API sends no CORS headers, so the browser preview fetches
+      // it through this dev-server proxy for artwork enrichment of games whose
+      // assets only exist under hashed CDN paths.
+      "/steam-store-api": {
+        target: "https://store.steampowered.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/steam-store-api/, ""),
+      },
+    },
   },
 });
