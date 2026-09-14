@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, provide, watch, type Component } from "vue";
-import Sidebar from "./components/Sidebar.vue";
+import LibraryView from "./views/LibraryView.vue";
 import Toast from "./components/Toast.vue";
 import SetupWizard from "./components/SetupWizard.vue";
 import MigrationView from "./components/MigrationView.vue";
 import ProcessManagerOverlay from "./components/ProcessManagerOverlay.vue";
-import LibraryView from "./views/LibraryView.vue";
 import SharpView from "./views/SharpView.vue";
 import LogsView from "./views/LogsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import { marked } from "marked";
-import { useTheme } from "./composables/useTheme";
 import { useToast } from "./composables/useToast";
 import { getAPI, api } from "./composables/useApi";
 import type { AppConfig, UpdateStatus, SteamStatus } from "./api-types";
@@ -65,7 +63,6 @@ let libraryLoadInFlight: Promise<void> | null = null;
 let steamLibraryPollInFlight = false;
 let pendingForceReload = false;
 
-const { theme, setTheme } = useTheme();
 const toast = useToast();
 
 const viewMap: Record<string, Component> = {
@@ -76,6 +73,20 @@ const viewMap: Record<string, Component> = {
 };
 
 const activeView = computed(() => viewMap[currentView.value] ?? LibraryView);
+
+// The library shows Play or Collection based on internal state; when another
+// page asks for Collection, remember it until the library remounts.
+const pendingLibraryTab = ref<string | null>(null);
+provide("pendingLibraryTab", pendingLibraryTab);
+
+function navigateTo(view: string) {
+  if (view === "collection") {
+    pendingLibraryTab.value = "collection";
+    currentView.value = "library";
+  } else {
+    currentView.value = view;
+  }
+}
 
 const updateChangelog = computed(() => {
   if (!updateStatus.value?.release_notes) return "";
@@ -170,7 +181,7 @@ async function checkBackend() {
     const res = await getAPI().request("GET", "/status");
     backendConnected.value = res.ok;
     if (res.ok) {
-      const status = res.data as { version?: string } | undefined;
+      const status = (res.data ?? res) as { version?: string } | undefined;
       if (status?.version) backendVersion.value = status.version;
     }
   } catch {
@@ -417,15 +428,11 @@ onMounted(async () => {
   <MigrationView v-else-if="showMigration" />
   <SetupWizard v-else-if="showSetup" @done="onSetupDone()" />
   <template v-else>
-    <Sidebar
-      :current-view="currentView"
-      :theme="theme"
-      @navigate="currentView = $event"
-      @select-theme="setTheme($event)"
-    />
     <main
       class="content"
-      :class="{ 'content-glass-header': ['library', 'sharp-library', 'logs'].includes(currentView) }"
+      :class="{
+        'library-shell': ['library', 'sharp-library', 'logs'].includes(currentView),
+      }"
     >
       <div class="drag-strip"></div>
       <div v-if="updateStatus?.ok && updateStatus?.available && !updateDismissed" class="update-banner">
@@ -461,7 +468,7 @@ onMounted(async () => {
           &times;
         </button>
       </div>
-      <component :is="activeView" :key="currentView" />
+      <component :is="activeView" :key="currentView" @navigate="navigateTo" />
     </main>
   </template>
   <Teleport to="body">
@@ -725,5 +732,13 @@ onMounted(async () => {
 }
 .content.content-glass-header {
   background: transparent;
+}
+.content.library-shell {
+  overflow: hidden;
+  background: #111416;
+}
+.content.library-shell > .drag-strip,
+.content.library-shell > .update-banner {
+  display: none;
 }
 </style>

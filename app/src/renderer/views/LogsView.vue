@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { api, getAPI } from "../composables/useApi";
+import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
+import LibraryTopbar from "../components/LibraryTopbar.vue";
+import LibraryFooter from "../components/LibraryFooter.vue";
+
+const emit = defineEmits<{ navigate: [view: string] }>();
+const libraryThemeStyle = useLibraryThemeStyle();
 
 const logs = ref<string[]>([]);
 const logFiles = ref<{ name: string; lines: string[] }[]>([]);
@@ -93,11 +99,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="logs-view">
+  <div class="logs-view" :style="libraryThemeStyle">
+    <LibraryTopbar active-tab="logs" :show-search="false" @navigate="emit('navigate', $event)" />
     <div class="logs-header glass-header">
       <div class="logs-drag-strip" aria-hidden="true"></div>
       <div class="logs-title-row">
         <div>
+          <span class="logs-eyebrow">METALSHARP · DIAGNOSTICS</span>
           <h1>Logs</h1>
           <p class="subtitle">Live MetalSharp runtime logs</p>
         </div>
@@ -155,6 +163,8 @@ onUnmounted(() => {
         </div>
       </details>
     </div>
+
+    <LibraryFooter />
   </div>
 </template>
 
@@ -185,11 +195,15 @@ export default {
 </script>
 
 <style scoped>
+/* Library-look diagnostics: dark surfaces + live theme accent via --library-* */
 .logs-view {
-  padding: 0 28px 24px;
+  padding: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
+  background:
+    radial-gradient(ellipse 70% 30% at 50% -6%, color-mix(in srgb, var(--library-accent) 9%, transparent), transparent 68%),
+    linear-gradient(180deg, #171a1d 0%, #111416 46%, #111416 100%);
 }
 .logs-header {
   flex-shrink: 0;
@@ -197,11 +211,15 @@ export default {
   flex-direction: column;
   gap: 14px;
   min-width: 0;
-  margin: 0 -28px;
-  padding: 44px 28px 14px;
-  border-bottom: 1px solid var(--border);
+  margin: 0;
+  padding: 26px 28px 16px;
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   position: relative;
   overflow: hidden;
+}
+.logs-header::after {
+  display: none;
 }
 .logs-drag-strip {
   position: absolute;
@@ -221,6 +239,30 @@ export default {
 .logs-title-row > div {
   min-width: 0;
 }
+.logs-eyebrow {
+  display: block;
+  margin-bottom: 10px;
+  color: rgba(240, 239, 231, 0.6);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10px;
+  letter-spacing: 0.52em;
+  text-transform: uppercase;
+}
+.logs-header h1 {
+  margin: 0;
+  color: #eee9dd;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(34px, 3.6vw, 54px);
+  font-weight: 500;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.subtitle {
+  margin-top: 8px;
+  color: #aeb3b2;
+  font-size: 13.5px;
+}
 .logs-controls {
   display: flex;
   justify-content: space-between;
@@ -232,40 +274,27 @@ export default {
 .logs-sections {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .section-btn {
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  border-radius: var(--radius-sm);
-  padding: 5px 11px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--library-control-border);
+  border-radius: 7px;
+  color: var(--library-control-text);
+  background: transparent;
+  font: inherit;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   cursor: pointer;
-  transition: border-color 120ms ease, color 120ms ease;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
 }
 .section-btn:hover {
-  border-color: var(--accent);
-  color: var(--text-primary);
-}
-.logs-header::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse 60% 80% at 20% 50%, rgba(95, 183, 232, 0.08) 0%, transparent 70%),
-              radial-gradient(ellipse 40% 60% at 80% 50%, rgba(95, 183, 232, 0.05) 0%, transparent 60%);
-  pointer-events: none;
-}
-.logs-header h1 {
-  font-size: 24px;
-  font-weight: 750;
-  line-height: 1.1;
-}
-.subtitle {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
+  border-color: var(--library-accent);
+  background: color-mix(in srgb, var(--library-accent) 12%, transparent);
+  transform: translateY(-1px);
 }
 .logs-actions {
   display: flex;
@@ -273,87 +302,117 @@ export default {
   gap: 8px;
   -webkit-app-region: no-drag;
 }
+.logs-actions .btn,
+.live-toolbar .btn {
+  border: 1px solid var(--library-control-border);
+  border-radius: 6px;
+  color: var(--library-control-text);
+  background: transparent;
+  font-weight: 650;
+}
+.logs-actions .btn:hover:not(:disabled),
+.live-toolbar .btn:hover:not(:disabled) {
+  border-color: var(--library-accent);
+  background: color-mix(in srgb, var(--library-accent) 12%, transparent);
+}
 
+.logs-view > .library-footer {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+}
 .log-drawers {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 12px;
+  margin: 16px 28px 0;
 }
 .log-drawer {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #cfd1d0;
+  overflow: hidden;
 }
 .log-drawer summary {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 13px 16px;
   cursor: pointer;
-  font-size: 12px;
+  color: #eeeeed;
+  font: inherit;
+  font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   list-style: none;
+  transition: background 0.16s ease;
+}
+.log-drawer summary:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 .log-drawer summary::-webkit-details-marker {
   display: none;
 }
 .log-drawer summary::after {
   content: "v";
-  color: var(--text-dim);
-  transition: transform 120ms ease;
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 0.16s ease;
 }
 .log-drawer:not([open]) summary::after {
   transform: rotate(-90deg);
 }
 .log-drawer summary span {
   margin-left: auto;
-  color: var(--text-dim);
-  font-weight: 500;
+  color: color-mix(in srgb, var(--library-accent) 80%, #fff);
+  font-weight: 600;
 }
 .report-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
   font-size: 12px;
+}
+.report-row strong {
+  color: #f0f0ed;
 }
 .report-row span,
 .report-row small {
-  color: var(--text-dim);
+  color: #8f958f;
 }
 .report-row small {
   overflow-wrap: anywhere;
 }
 .crash-pipeline-section {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .crash-pipeline-section:first-child {
   border-top: none;
 }
 .crash-pipeline-label {
-  padding: 8px 12px 4px;
+  padding: 10px 16px 4px;
+  color: var(--library-accent);
   font-size: 11px;
   font-weight: 700;
-  color: var(--accent);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.14em;
 }
 .crash-empty {
-  padding: 16px 12px;
-  color: var(--text-dim);
+  padding: 18px 16px;
+  color: #8f958f;
   font-size: 12px;
   text-align: center;
 }
 .file-log {
-  padding: 10px 12px;
-  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 .file-log-name {
-  margin-bottom: 6px;
-  color: var(--text-secondary);
+  margin-bottom: 8px;
+  color: #e6e8e6;
   font-size: 12px;
   font-weight: 700;
 }
@@ -361,14 +420,14 @@ export default {
   max-height: 180px;
   overflow: auto;
   margin: 0;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-deep);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.5;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 8px;
+  background: #0c0f11;
+  color: #b9bfb9;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 
@@ -376,13 +435,13 @@ export default {
   flex: 1;
   max-height: min(54vh, 560px);
   overflow: auto;
-  background: var(--bg-deep);
-  border-top: 1px solid var(--border);
+  background: #0c0f11;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
   padding: 14px 16px;
-  font-family: var(--font-mono);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 12px;
-  line-height: 1.8;
-  color: var(--text-secondary);
+  line-height: 1.75;
+  color: #c9ceca;
   white-space: pre-wrap;
 }
 .live-toolbar {
@@ -391,11 +450,13 @@ export default {
   gap: 8px;
   padding: 8px 12px;
   order: -1;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 .live-log-drawer {
   min-height: 0;
-  margin-top: 16px;
+  margin: 16px 28px 0;
+  border-color: color-mix(in srgb, var(--library-accent) 40%, rgba(255, 255, 255, 0.08));
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
 }
 .live-log-drawer[open] {
   display: flex;
@@ -409,18 +470,22 @@ export default {
   word-break: break-word;
 }
 .log-line.log-event-launch {
-  color: var(--success);
+  color: #7cbf6a;
 }
 .log-line.log-event-stop {
-  color: var(--warn);
+  color: #ffb84d;
 }
 .log-line.log-event-error {
-  color: var(--error);
+  color: #ff5c5c;
 }
 .log-line.log-event-engine {
-  color: var(--accent);
+  color: var(--library-accent);
 }
 .log-line.log-event-warn {
-  color: var(--warn);
+  color: #ffb84d;
+}
+.logs-view ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
 }
 </style>
