@@ -4,6 +4,8 @@
 
 **Run Windows games on MacOS Silicon.**
 
+Note From Developer: This Project is currently undergoing a large transformation/ rebrand that may take weeks to complete. Thanks for all your support, please stay tuned for the next update. 
+
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.61.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.61.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-purple.svg?style=for-the-badge" alt="License"></a>
