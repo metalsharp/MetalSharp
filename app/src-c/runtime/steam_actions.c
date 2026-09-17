@@ -369,7 +369,7 @@ static void set_route_paths(const char* home, const char* pipeline) {
                  "x86_64-windows",
                  home, home, home);
         snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/dxmt/i386-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
+                 "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
                  home, home, home);
     } else if (!strcmp(pipeline, "dxvk")) {
         snprintf(dllpath, sizeof(dllpath), "%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
@@ -420,7 +420,7 @@ static void set_route_paths(const char* home, const char* pipeline) {
     if (pipeline_is_dxmt(pipeline)) {
         char winemetal[PATH_MAX];
         char runtime_dir[PATH_MAX];
-        const char* route = !strcmp(pipeline, "dxmt_32") ? "dxmt/i386-unix" : "dxmt/x86_64-unix";
+        const char* route = "dxmt/x86_64-unix";
         /* __wine_load_unix_lib() takes an NT path, not a host POSIX path. */
         snprintf(winemetal, sizeof(winemetal), "\\??\\Z:%s/runtime/wine/lib/%s/winemetal.so", home, route);
         for (char* p = winemetal + 5; *p; ++p)
@@ -2188,7 +2188,7 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     }
     if (pipeline_is_dxmt(pipeline)) {
         char runtime_dir[PATH_MAX];
-        const char* route = !strcmp(pipeline, "dxmt_32") ? "dxmt/i386-unix" : "dxmt/x86_64-unix";
+        const char* route = "dxmt/x86_64-unix";
         snprintf(dxmt_config, sizeof(dxmt_config), "%s/runtime/wine/etc/dxmt.conf", home);
         snprintf(winemetal, sizeof(winemetal), "\\??\\Z:%s/runtime/wine/lib/%s/winemetal.so", home, route);
         for (char* p = winemetal + 5; *p; ++p)
