@@ -1745,6 +1745,18 @@ function registerIpc() {
     return bridge.getBackendPid();
   });
 
+  ipcMain.handle("backend:base-url", () => `http://127.0.0.1:${bridge.getPort()}`);
+
+  ipcMain.handle("app:open-steam-art-manager", async () => {
+    const samAppPath = path.join(process.resourcesPath, "tools", "steam-art-manager", "Steam Art Manager.app");
+    if (!fs.existsSync(samAppPath)) {
+      return { ok: false, error: "Steam Art Manager is not installed" };
+    }
+    const child = spawn("open", [samAppPath], { detached: true, stdio: "ignore" });
+    child.unref();
+    return { ok: true };
+  });
+
   ipcMain.handle("migrate:check", async () => {
     if (isUiOnlyRuntime()) return { ok: true, needed: false };
     return requestMigrationBackend("GET", "/update/migrate/check");

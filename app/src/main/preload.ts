@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld("metalsharp", {
   updaterInstallStatus: () => ipcRenderer.invoke("updater:install-status"),
   updaterClearStatus: () => ipcRenderer.invoke("updater:clear-status"),
   backendGetPid: () => ipcRenderer.invoke("backend:get-pid"),
+  backendBaseUrl: () => ipcRenderer.invoke("backend:base-url"),
+  openSteamArtManager: () => ipcRenderer.invoke("app:open-steam-art-manager"),
   migrateCheck: () => ipcRenderer.invoke("migrate:check"),
   migrateStart: () => ipcRenderer.invoke("migrate:start"),
   migrateProgress: () => ipcRenderer.invoke("migrate:progress"),
