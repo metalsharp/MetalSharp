@@ -1682,7 +1682,7 @@ static void record_launch_timing(const char* home, unsigned id, unsigned long lo
     }
 }
 
-static bool ensure_steam_bottle_manifest(const char* home, unsigned id, const char* pipeline) {
+bool ms_steam_ensure_bottle_manifest(const char* home, unsigned id, const char* pipeline) {
     char bottle_id[64];
     char name[64];
     char *bottles = join(home, "bottles"), *dir = NULL, *path = NULL, *prefix = NULL;
@@ -3449,7 +3449,7 @@ char* ms_steam_install_game_json(const char* home, const char* body, size_t len,
             *status = 400;
         return err("appid required");
     }
-    if (!ensure_steam_bottle_manifest(home, id, "auto"))
+    if (!ms_steam_ensure_bottle_manifest(home, id, "auto"))
         return err("failed to prepare Steam bottle manifest");
     snprintf(url, sizeof(url), "steam://install/%u", id);
     error_text = spawn_wine(home, "start", url, NULL, NULL, NULL, &pid);
@@ -4110,7 +4110,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             snprintf(pipeline, sizeof(pipeline), "%s", canonical);
         }
     }
-    if (!ensure_steam_bottle_manifest(home, id, pipeline)) {
+    if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
         if (status)
             *status = 500;
         return err("failed to prepare Steam bottle manifest");
@@ -4142,7 +4142,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         /* M11 has separate PE lanes. Keep an explicit M11 request usable for
          * 32-bit games instead of staging x86_64 DXMT DLLs into a 32-bit game. */
         snprintf(pipeline, sizeof(pipeline), "m11_32");
-        if (!ensure_steam_bottle_manifest(home, id, pipeline)) {
+        if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
             free(executable);
             if (status)
                 *status = 500;
@@ -4502,7 +4502,7 @@ char* ms_steam_launch_offline_json(const char* home, const char* body, size_t le
             *status = 404;
         return err("Game executable not found");
     }
-    if (!ensure_steam_bottle_manifest(home, id, pipeline)) {
+    if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
         free(executable);
         if (status)
             *status = 500;
@@ -4821,7 +4821,7 @@ char* ms_steam_misc_json(const char* action, const unsigned char* body, size_t l
             else
                 snprintf(pipeline, sizeof(pipeline), "%s", default_pipeline_for_appid(id));
         }
-        (void)ensure_steam_bottle_manifest(home, id, pipeline);
+        (void)ms_steam_ensure_bottle_manifest(home, id, pipeline);
         snprintf(bottle_id, sizeof(bottle_id), "steam_%u", id);
         prefix = join(home, "prefix-steam");
         ms_json_writer_key(&w, "report");

@@ -206,7 +206,8 @@ static bool save_matrix_record(const char* home, const ms_json* request, const c
 static const char* profile_arch(const char* profile) {
     if (!strcmp(profile, "m10_32") || !strcmp(profile, "m11_32") || !strcmp(profile, "win32_dotnet"))
         return "win32";
-    if (!strcmp(profile, "m11") || !strcmp(profile, "m12") || !strcmp(profile, "vkd3d") || !strcmp(profile, "m13") ||
+    if (!strcmp(profile, "m10") || !strcmp(profile, "m11") || !strcmp(profile, "m12") ||
+        !strcmp(profile, "vkd3d") || !strcmp(profile, "m13") ||
         !strcmp(profile, "d3dmetal") || !strcmp(profile, "dotnet") || !strcmp(profile, "fna_arm64") ||
         !strcmp(profile, "fna_x86"))
         return "win64";
@@ -215,8 +216,12 @@ static const char* profile_arch(const char* profile) {
 static const char* pipeline_profile(const char* pipeline) {
     if (!strcmp(pipeline, "m9"))
         return "m9";
+    if (!strcmp(pipeline, "m10_32"))
+        return "m10_32";
     if (!strcmp(pipeline, "m10"))
         return "m10";
+    if (!strcmp(pipeline, "m11_32"))
+        return "m11_32";
     if (!strcmp(pipeline, "m11"))
         return "m11";
     if (!strcmp(pipeline, "m12"))
@@ -1834,6 +1839,24 @@ static bool valid_bottle_id(const char* id) {
             return false;
     return true;
 }
+
+/* The Steam library can expose an installed game before its per-game bottle
+ * manifest exists.  Route edits use the stable steam_<appid> id, so create
+ * that manifest on first save instead of requiring a launch first. */
+static bool steam_appid_from_bottle_id(const char* id, unsigned* appid) {
+    const char* number;
+    char* end;
+    unsigned long value;
+    if (!id || strncmp(id, "steam_", 6) != 0 || !id[6])
+        return false;
+    number = id + 6;
+    errno = 0;
+    value = strtoul(number, &end, 10);
+    if (errno || end == number || *end || value == 0 || value > 0xffffffffUL)
+        return false;
+    *appid = (unsigned)value;
+    return true;
+}
 char* ms_bottle_relaunch_installer_json(const char* home, const unsigned char* body, size_t len, int* status) {
     char *id = id_from(body, len), *raw, *prefix = NULL, *installer = NULL, *wine, *dir, *logpath;
     char e[96];
@@ -2097,6 +2120,23 @@ char* ms_bottle_action_json(const char* home, const char* action, const unsigned
                 ms_json_free(j);
                 free(id);
                 return fail("name or preferredPipeline required");
+            }
+        }
+        if (!strcmp(action, "edit") || !strcmp(action, "set-runtime-profile")) {
+            unsigned appid;
+            char* existing = manifest(home, id);
+            const char* pipeline = profile ? profile : "auto";
+            bool created = existing != NULL;
+            free(existing);
+            if (!created && steam_appid_from_bottle_id(id, &appid) &&
+                !ms_steam_ensure_bottle_manifest(home, appid, pipeline)) {
+                free(profile);
+                free(version);
+                ms_json_free(j);
+                free(id);
+                if (status)
+                    *status = 500;
+                return fail("failed to prepare Steam bottle manifest");
             }
         }
         if (!strcmp(action, "set-windows-version")) {
