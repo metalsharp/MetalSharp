@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
     fixture(home, "cs2/game/bin/win64/vconsole2.exe", "console helper");
     fixture(home, "cs2/game/bin/win64/cs2.exe", "game executable");
     char* cs2_dir = join(home, "cs2");
-    char* cs2_exe = preferred_steam_game_executable(cs2_dir, 730, "m11");
+    char* cs2_exe = preferred_steam_game_executable(cs2_dir, 730, "dxmt");
     assert(cs2_exe && strstr(cs2_exe, "/game/bin/win64/cs2.exe"));
     assert(executable_helper_name("vconsole2.exe"));
     free(cs2_exe);
@@ -47,6 +47,13 @@ int main(int argc, char** argv) {
     set_route_paths(home, "vkd3d");
     assert(strstr(getenv("VK_DRIVER_FILES"), "lib/moltenvk-vkmt/MoltenVK_icd.json"));
     assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
+    assert(!strcmp(canonical_pipeline("dxmt"), "dxmt"));
+    assert(!strcmp(canonical_pipeline("dxvk"), "dxvk"));
+    assert(!strcmp(canonical_pipeline("dxmt_32"), "dxmt_32"));
+    assert(!strcmp(canonical_pipeline("dxvk_32"), "dxvk_32"));
+    assert(!strcmp(pipeline_backend("dxvk"), "vulkan"));
+    assert(strstr(pipeline_overrides("dxmt"), "d3d10core"));
+    assert(strstr(pipeline_overrides("dxvk"), "d3d9"));
     set_route_paths(home, "d3dmetal");
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));

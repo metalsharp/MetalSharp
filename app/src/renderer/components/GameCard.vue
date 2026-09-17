@@ -198,15 +198,14 @@ const artworkLoadFailed = ref(false);
 const embeddedArtworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
 const hiddenUserPipelineIds = new Set<string>();
-const userSelectablePipelineOrder = ["d3dmetal", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
+const userSelectablePipelineOrder = ["d3dmetal", "vkd3d", "dxmt", "dxvk", "dxmt_32", "dxvk_32", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
   vkd3d: "VKD3D",
   d3dmetal: "D3DMetal",
-  m11: "M11",
-  m11_32: "M11(32)",
-  m10: "M10",
-  m10_32: "M10(32)",
-  m9: "M9",
+  dxmt: "DXMT",
+  dxvk: "DXVK",
+  dxmt_32: "DXMT(32)",
+  dxvk_32: "DXVK(32)",
   fna_arm64: "Mono/FNA",
 };
 function pipelineDisplayName(id: string | null | undefined, fallback = pipelineName.value): string {
@@ -234,6 +233,8 @@ const componentDisplayName: Record<string, string> = {
   vkd3d_dxgi: "VKD3D dxgi.dll",
   dxvk_d3d11: "DXVK d3d11.dll",
   dxvk_d3d10core: "DXVK d3d10core.dll",
+  dxvk_d3d9: "DXVK d3d9.dll",
+  dxvk_dxgi: "DXVK dxgi.dll",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -257,6 +258,10 @@ const componentDisplayName: Record<string, string> = {
 };
 
 const runtimeProfileDisplayName: Record<string, string> = {
+  dxmt: "DXMT",
+  dxvk: "DXVK",
+  dxmt_32: "DXMT(32)",
+  dxvk_32: "DXVK(32)",
   vkd3d: "VKD3D",
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
@@ -272,7 +277,7 @@ function componentLabel(id: string): string {
 function bottleComponentLabel(id: string): string {
   const label = componentLabel(id);
   const profile = runtimeReport.value?.runtime_profile;
-  if (profile === "m11_32" || profile === "m10_32") {
+  if (profile === "dxmt_32" || profile === "dxvk_32") {
     // Only suffix DLL component IDs, not runtime/VC components that already indicate arch
     const dllIds = new Set(["d3d11", "dxgi", "d3d10core", "d3d10_1", "winemetal"]);
     if (dllIds.has(id)) {
@@ -354,7 +359,7 @@ function preferredBottlePipeline(report: SteamRuntimeReport) {
     props.game.launch_method,
     selectedLaunchMode.value,
   ];
-  return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "m11";
+  return candidates.find((id) => id && userSelectablePipelineOrder.includes(id)) ?? "dxmt";
 }
 
 function runtimeDoctorPipelineRequest() {

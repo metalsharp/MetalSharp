@@ -203,13 +203,14 @@ typedef struct profile {
 static const char** profile_components(const char* id) {
     static const char *plain[] = {NULL}, *launcher[] = {"gecko", "vcrun2019_x64", "vcrun2019_x86", "corefonts", NULL},
                       *game[] = {"vcrun2019_x64", "vcrun2019_x86", "vcrun2013", "directx_jun2010", "corefonts", NULL},
-                      *m9[] = {"d3d9", "vcrun2019_x64", "vcrun2019_x86", "directx_jun2010", NULL},
-                      *m10[] = {"d3d10", "d3d10_1", "dxgi", "vcrun2019_x64", "vcrun2019_x86", NULL},
-                      *m10_32[] = {"d3d10core", "d3d10_1", "winemetal", "vcrun2019_x86", NULL},
-                      *m11[] = {"d3d11", "dxgi", "vcrun2019_x64", "vcrun2019_x86", NULL},
-                      *m11_32[] = {"d3d11", "dxgi", "winemetal", "vcrun2019_x86", NULL},
-                      *vkd3d[] = {"vkd3d_d3d12",    "vkd3d_d3d12core", "vkd3d_dxgi",    "dxvk_d3d9", "dxvk_d3d11",
-                                  "dxvk_d3d10core", "vcrun2019_x64",   "vcrun2019_x86", "corefonts", NULL},
+                      *dxmt[] = {"d3d11", "d3d10core", "dxgi", "winemetal", "vcrun2019_x64", "vcrun2019_x86", NULL},
+                      *dxmt_32[] = {"d3d11", "d3d10core", "dxgi", "winemetal", "vcrun2019_x86", NULL},
+                      *dxvk[] = {"dxvk_d3d11", "dxvk_d3d10core", "dxvk_d3d9", "dxvk_dxgi", "vcrun2019_x64",
+                                 "vcrun2019_x86", "corefonts", NULL},
+                      *dxvk_32[] = {"dxvk_d3d11", "dxvk_d3d10core", "dxvk_d3d9", "dxvk_dxgi", "vcrun2019_x86",
+                                    "corefonts", NULL},
+                      *vkd3d[] = {"vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "vcrun2019_x64",
+                                  "vcrun2019_x86", "corefonts", NULL},
                       *m13[] = {"d3d11", "d3d12", "dxgi", "d3d10", "vcrun2019_x64", "vcrun2019_x86", "gpu_vendor_stubs",
                                 NULL},
                       *d3dmetal[] = {"gptk", "rosetta", "gptk_prefix", "vcrun2019_x64", "vcrun2019_x86", NULL},
@@ -225,16 +226,14 @@ static const char** profile_components(const char* id) {
         return launcher;
     if (!strcmp(id, "game_install"))
         return game;
-    if (!strcmp(id, "m9"))
-        return m9;
-    if (!strcmp(id, "m10"))
-        return m10;
-    if (!strcmp(id, "m10_32"))
-        return m10_32;
-    if (!strcmp(id, "m11"))
-        return m11;
-    if (!strcmp(id, "m11_32"))
-        return m11_32;
+    if (!strcmp(id, "dxmt"))
+        return dxmt;
+    if (!strcmp(id, "dxmt_32"))
+        return dxmt_32;
+    if (!strcmp(id, "dxvk"))
+        return dxvk;
+    if (!strcmp(id, "dxvk_32"))
+        return dxvk_32;
     if (!strcmp(id, "vkd3d"))
         return vkd3d;
     if (!strcmp(id, "m13"))
@@ -256,14 +255,13 @@ static const char** profile_components(const char* id) {
 static const profile profiles[] = {{"plain", "Plain Wine", "wow64", "wine_bare", true},
                                    {"launcher", "Launcher", "wow64", "wine_bare", true},
                                    {"game_install", "Game Installer", "wow64", "wine_bare", true},
-                                   {"m9", "D3D9 Metal", "wow64", "m9", true},
-                                   {"m10", "D3D10 Metal", "wow64", "m10", true},
-                                   {"m10_32", "D3D10 Metal (32-bit)", "win32", "m10_32", true},
-                                   {"m11", "D3D11 Metal", "win64", "m11", true},
-                                   {"m11_32", "D3D11 Metal (32-bit)", "win32", "m11_32", true},
+                                   {"dxmt", "DXMT", "win64", "dxmt", true},
+                                   {"dxmt_32", "DXMT(32)", "win32", "dxmt_32", true},
+                                   {"dxvk", "DXVK", "win64", "dxvk", true},
+                                   {"dxvk_32", "DXVK(32)", "win32", "dxvk_32", true},
                                    {"m13", "GPTK D3DMetal", "win64", "m13", true},
                                    {"dotnet", ".NET", "win64", "wine_bare", true},
-                                   {"win32_dotnet", "32-bit .NET", "win32", "m9", true},
+                                   {"win32_dotnet", "32-bit .NET", "win32", "dxvk_32", true},
                                    {"webview", "WebView", "wow64", "wine_bare", true},
                                    {"java_launcher", "Java Launcher", "wow64", "wine_bare", true},
                                    {"fna_arm64", "FNA / Mono ARM64", "win64", "fna_arm64", false},
@@ -380,7 +378,7 @@ char* ms_bottles_matrix_json(const char* home) {
                                  "offline game installer",
                                  "store-adjacent launcher",
                                  "runtime installer"};
-    static const char* profile[] = {"win32_dotnet", "game_install", "m11",     "vkd3d",
+    static const char* profile[] = {"win32_dotnet", "game_install", "dxmt",   "vkd3d",
                                     "launcher",     "game_install", "webview", "plain"};
     static const char* opens[] = {"needs_real_trace", "untested", "untested", "untested",
                                   "untested",         "untested", "untested", "supported"};
@@ -551,9 +549,9 @@ char* ms_bottles_redist_json(const char* home) {
     return o;
 }
 char* ms_bottles_contracts_json(void) {
-    static const char* p[] = {"m9", "m10", "m11", "vkd3d", "m13", "fna_arm64", "wine_bare", "d3dmetal"};
-    static const char* profile[] = {"m9", "m10", "m11", "vkd3d", "m13", "fna_arm64", "plain", "d3dmetal"};
-    static const bool wine[] = {true, true, true, true, true, true, true, false};
+    static const char* p[] = {"dxmt", "dxvk", "dxmt_32", "dxvk_32", "vkd3d", "fna_arm64", "wine_bare", "d3dmetal"};
+    static const char* profile[] = {"dxmt", "dxvk", "dxmt_32", "dxvk_32", "vkd3d", "fna_arm64", "plain", "d3dmetal"};
+    static const bool wine[] = {true, true, true, true, true, false, true, false};
     static const bool offline_route[] = {false, false, false, false, false, false, false, true};
     ms_json_writer w;
     char* o;

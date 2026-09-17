@@ -214,7 +214,6 @@ def build_sdk(bundle_dir: Path, out_dir: Path, release_manifest: Path | None) ->
         copy_tree(runtime_src / "runtime" / "host", sdk_root / "runtime" / "host")
         copy_file(runtime_src / "runtime" / "metalsharp-backend", sdk_root / "runtime" / "metalsharp-backend")
         copy_tree(graphics_src / "Graphics" / "dll" / "dxmt", sdk_root / "runtime" / "dxmt")
-        copy_tree(graphics_src / "Graphics" / "dll" / "dxmt", sdk_root / "runtime" / "dxmt")
         write_runtime_manifest(sdk_root, runtime_asset, graphics_asset)
         write_tar_zst(sdk_root, output)
 
