@@ -608,7 +608,7 @@ printf '%s' "$crashes" | python3 -c 'import json, sys; assert json.load(sys.stdi
 scan=$(curl --silent --fail "http://127.0.0.1:$port/scan")
 printf '%s' "$scan" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and isinstance(v["data"]["games"], list) and "steam" in v["data"]'
 pipelines=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/pipelines?appid=620")
-printf '%s' "$pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 9 and v["recommended"] == "vkd3d"'
+printf '%s' "$pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 7 and v["recommended"] == "vkd3d"'
 shape=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/launch-shape?appid=620")
 printf '%s' "$shape" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and v["pipeline"] == "vkd3d"'
 rules=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/default-rules")

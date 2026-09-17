@@ -135,9 +135,9 @@ function uiOnlyBackendResponse(method: string, url: string): unknown {
         cover_url: "",
         header_url: "",
         size_bytes: 6281222144,
-        launch_method: "m11",
-        launch_method_name: "M11",
-        preferred_pipeline: "m11",
+        launch_method: "dxmt",
+        launch_method_name: "DXMT",
+        preferred_pipeline: "dxmt",
       },
       {
         appid: 105600,

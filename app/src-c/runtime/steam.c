@@ -744,18 +744,16 @@ static const char* default_pipeline_for_appid(unsigned appid) {
 static const char* pipeline_display_name(const char* pipeline) {
     if (!pipeline)
         return "Auto";
-    if (!strcmp(pipeline, "m11"))
-        return "M11";
-    if (!strcmp(pipeline, "m11_32"))
-        return "M11(32)";
-    if (!strcmp(pipeline, "m10"))
-        return "M10";
-    if (!strcmp(pipeline, "m10_32"))
-        return "M10(32)";
-    if (!strcmp(pipeline, "m9"))
-        return "M9";
     if (!strcmp(pipeline, "d3dmetal"))
         return "D3DMetal";
+    if (!strcmp(pipeline, "dxmt"))
+        return "DXMT";
+    if (!strcmp(pipeline, "dxvk"))
+        return "DXVK";
+    if (!strcmp(pipeline, "dxmt_32"))
+        return "DXMT(32)";
+    if (!strcmp(pipeline, "dxvk_32"))
+        return "DXVK(32)";
     if (!strcmp(pipeline, "fna_arm64"))
         return "Mono/FNA";
     return "VKD3D";
@@ -794,8 +792,7 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     ms_json_writer_key(w, "available_pipelines");
     ms_json_writer_array_begin(w);
     {
-        static const char* pipeline_ids[] = {"vkd3d", "m11",      "m11_32",   "m10",
-                                             "m10_32", "m9",    "d3dmetal", "fna_arm64"};
+        static const char* pipeline_ids[] = {"d3dmetal", "vkd3d", "dxmt", "dxvk", "dxmt_32", "dxvk_32", "fna_arm64"};
         for (size_t i = 0; i < sizeof(pipeline_ids) / sizeof(pipeline_ids[0]); i++) {
             ms_json_writer_object_begin(w);
             ms_json_writer_key(w, "id");

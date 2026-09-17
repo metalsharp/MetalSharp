@@ -335,7 +335,6 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     copy_tree(roots["runtime"] / "host", roots["sdk"] / "runtime" / "host")
     copy_file(roots["runtime"] / "metalsharp-backend", roots["sdk"] / "runtime" / "metalsharp-backend")
     copy_tree(roots["graphics"] / "dxmt", roots["sdk"] / "runtime" / "dxmt")
-    copy_tree(roots["graphics"] / "dxmt", roots["sdk"] / "runtime" / "dxmt")
     write_sdk_runtime_manifest(
         roots["sdk"],
         SOURCE_BUNDLES / "metalsharp_bundle.tar.zst",

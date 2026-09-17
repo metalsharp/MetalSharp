@@ -137,11 +137,10 @@ const libraryThemeStyle = computed<Record<string, string>>(() => ({
 const pipelineOptions = [
   { id: "d3dmetal", label: "D3DMetal" },
   { id: "vkd3d", label: "VKD3D" },
-  { id: "m11", label: "M11" },
-  { id: "m11_32", label: "M11(32)" },
-  { id: "m10", label: "M10" },
-  { id: "m10_32", label: "M10(32)" },
-  { id: "m9", label: "M9" },
+  { id: "dxmt", label: "DXMT" },
+  { id: "dxvk", label: "DXVK" },
+  { id: "dxmt_32", label: "DXMT(32)" },
+  { id: "dxvk_32", label: "DXVK(32)" },
   { id: "fna_arm64", label: "Mono/FNA" },
 ];
 const pipelineNames: Record<string, string> = {
@@ -487,22 +486,9 @@ function scrollDock(direction: -1 | 1) {
 }
 
 function isWineSteamRouteId(launchMethod: string) {
-  return [
-    "dxmt",
-    "steam",
-    "wine_steam",
-    "m9",
-    "m10",
-    "m10_32",
-    "m11",
-    "m11_32",
-    "vkd3d",
-    "d3dmetal",
-    "d3d9",
-    "d3d10",
-    "d3d11",
-    "d3d12",
-  ].includes(launchMethod.toLowerCase());
+  return ["d3dmetal", "vkd3d", "dxmt", "dxvk", "dxmt_32", "dxvk_32", "steam", "wine_steam"].includes(
+    launchMethod.toLowerCase(),
+  );
 }
 
 async function launchGame(game: ShowcaseGame) {

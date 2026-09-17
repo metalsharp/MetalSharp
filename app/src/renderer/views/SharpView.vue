@@ -646,11 +646,10 @@ const gogProgress = ref<Record<string, number>>({});
 const engineOptions = [
   { id: "d3dmetal", name: "D3DMetal" },
   { id: "vkd3d", name: "VKD3D" },
-  { id: "m11", name: "M11" },
-  { id: "m11_32", name: "M11(32)" },
-  { id: "m10", name: "M10" },
-  { id: "m10_32", name: "M10(32)" },
-  { id: "m9", name: "M9" },
+  { id: "dxmt", name: "DXMT" },
+  { id: "dxvk", name: "DXVK" },
+  { id: "dxmt_32", name: "DXMT(32)" },
+  { id: "dxvk_32", name: "DXVK(32)" },
   { id: "fna_arm64", name: "Mono/FNA" },
 ];
 
@@ -668,6 +667,8 @@ const componentDisplayName: Record<string, string> = {
   vkd3d_dxgi: "VKD3D dxgi.dll",
   dxvk_d3d11: "DXVK d3d11.dll",
   dxvk_d3d10core: "DXVK d3d10core.dll",
+  dxvk_d3d9: "DXVK d3d9.dll",
+  dxvk_dxgi: "DXVK dxgi.dll",
   d3d12_agility: "D3D12 Agility",
   gpu_vendor_stubs: "GPU Stubs",
   gptk_amd_stub: "GPTK AMD Stub",
@@ -710,7 +711,8 @@ function d3dmetalActionReady(action: D3DMetalGptkAction): boolean {
 function isFnaProfile(profile: string): boolean {
   return profile === "fna_arm64" || profile === "fna_x86";
 }
-const selectableRuntimeProfileIds = new Set(["d3dmetal", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"]);
+const selectableRuntimeProfileIds = new Set(["d3dmetal", "vkd3d", "dxmt", "dxvk", "dxmt_32", "dxvk_32", "fna_arm64"]);
+const selectableRuntimeProfileOrder = ["d3dmetal", "vkd3d", "dxmt", "dxvk", "dxmt_32", "dxvk_32", "fna_arm64"];
 const visibleRuntimeProfiles = computed(() => {
   const profiles = runtimeProfiles.value.some((profile) => profile.id === "d3dmetal")
     ? runtimeProfiles.value
@@ -726,6 +728,7 @@ const visibleRuntimeProfiles = computed(() => {
       ];
   return profiles
     .filter((profile) => selectableRuntimeProfileIds.has(profile.id))
+    .sort((a, b) => selectableRuntimeProfileOrder.indexOf(a.id) - selectableRuntimeProfileOrder.indexOf(b.id))
     .map((profile) => ({
       ...profile,
       name: profile.id === "fna_arm64" ? "Mono/FNA" : profile.name.replace(/^D3D(\d+) Metal$/, "M$1"),

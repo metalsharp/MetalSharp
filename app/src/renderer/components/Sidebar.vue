@@ -36,7 +36,7 @@ type ControllerInput = "off" | "x" | "d";
 const controllerInput = ref<ControllerInput>("off");
 const controllerInputBusy = ref(false);
 
-// MetalFX Spatial upscaling (DXMT routes only: M10/M10(32)/M11/M11(32)).
+// MetalFX Spatial upscaling (DXMT routes only).
 // Drives the existing /metalfx/state + /metalfx/toggle overlay system
 // (metalfx.overlay.json + dxmt.conf); the launcher reconciles the DXMT env
 // from that state at launch.

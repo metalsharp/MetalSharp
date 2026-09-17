@@ -25,7 +25,7 @@ function showSection(section: string) {
   if (target) target.open = !target.open;
 }
 
-const pipelineOrder = ["VKD3D", "M11", "M9", "FNA/Mono", "System", "Other"];
+const pipelineOrder = ["VKD3D", "DXMT", "DXVK", "DXMT(32)", "DXVK(32)", "FNA/Mono", "System", "Other"];
 const crashByPipeline = computed(() => {
   const groups: Record<string, typeof crashReports.value> = {};
   for (const r of crashReports.value) {
