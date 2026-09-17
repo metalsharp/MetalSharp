@@ -206,8 +206,8 @@ static bool save_matrix_record(const char* home, const ms_json* request, const c
 static const char* profile_arch(const char* profile) {
     if (!strcmp(profile, "m10_32") || !strcmp(profile, "m11_32") || !strcmp(profile, "win32_dotnet"))
         return "win32";
-    if (!strcmp(profile, "m10") || !strcmp(profile, "m11") || !strcmp(profile, "m12") ||
-        !strcmp(profile, "vkd3d") || !strcmp(profile, "m13") ||
+    if (!strcmp(profile, "m10") || !strcmp(profile, "m11") || !strcmp(profile, "vkd3d") ||
+        !strcmp(profile, "m13") ||
         !strcmp(profile, "d3dmetal") || !strcmp(profile, "dotnet") || !strcmp(profile, "fna_arm64") ||
         !strcmp(profile, "fna_x86"))
         return "win64";
@@ -224,8 +224,6 @@ static const char* pipeline_profile(const char* pipeline) {
         return "m11_32";
     if (!strcmp(pipeline, "m11"))
         return "m11";
-    if (!strcmp(pipeline, "m12"))
-        return "m12";
     if (!strcmp(pipeline, "vkd3d"))
         return "vkd3d";
     if (!strcmp(pipeline, "m13"))
@@ -246,8 +244,6 @@ static const char* profile_pipeline(const char* profile) {
         return "m10";
     if (!strcmp(profile, "m11") || !strcmp(profile, "m11_32"))
         return "m11";
-    if (!strcmp(profile, "m12"))
-        return "m12";
     if (!strcmp(profile, "m13"))
         return "m13";
     if (!strcmp(profile, "d3dmetal"))
@@ -1638,7 +1634,7 @@ static bool component_artifact_available(const char* home, const char* component
     if (!strcmp(component, "d3d11") || !strcmp(component, "dxgi") || !strcmp(component, "d3d10core") ||
         !strcmp(component, "d3d10_1") || !strcmp(component, "winemetal")) {
         const char* dirs[] = {"runtime/wine/lib/dxmt/x86_64-windows", "runtime/wine/lib/dxmt/i386-windows",
-                              "runtime/wine/lib/dxmt_m12/x86_64-windows", "runtime/wine/lib/wine/x86_64-windows",
+                              "runtime/wine/lib/wine/x86_64-windows",
                               "runtime/wine/lib/wine/i386-windows"};
         char name[128];
         snprintf(name, sizeof(name), "%s.dll", component);
@@ -2082,7 +2078,7 @@ char* ms_bottle_action_json(const char* home, const char* action, const unsigned
             }
             if (strcmp(profile, "plain") && strcmp(profile, "launcher") && strcmp(profile, "game_install") &&
                 strcmp(profile, "m9") && strcmp(profile, "m10") && strcmp(profile, "m10_32") &&
-                strcmp(profile, "m11") && strcmp(profile, "m11_32") && strcmp(profile, "m12") &&
+                strcmp(profile, "m11") && strcmp(profile, "m11_32") &&
                 strcmp(profile, "vkd3d") && strcmp(profile, "m13") && strcmp(profile, "d3dmetal") &&
                 strcmp(profile, "dotnet") && strcmp(profile, "win32_dotnet") && strcmp(profile, "webview") &&
                 strcmp(profile, "java_launcher") && strcmp(profile, "fna_arm64") && strcmp(profile, "fna_x86")) {

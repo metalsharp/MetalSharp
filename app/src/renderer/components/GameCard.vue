@@ -139,12 +139,6 @@ interface BottleEditResponse {
   error?: string;
 }
 
-interface M12DryRun {
-  ok: boolean;
-  dry_run: boolean;
-  missing?: Array<{ filename?: string }>;
-}
-
 const props = defineProps<{
   game: SteamGame;
   running: boolean;
@@ -203,12 +197,9 @@ const currentIsDefaultRule = computed(() => {
 const artworkLoadFailed = ref(false);
 const embeddedArtworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
-// M12 remains a valid backend route and must continue to display for existing
-// bottles, but it is intentionally not offered as a new frontend selection.
-const hiddenUserPipelineIds = new Set(["m12"]);
-const userSelectablePipelineOrder = ["d3dmetal", "m12", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
+const hiddenUserPipelineIds = new Set<string>();
+const userSelectablePipelineOrder = ["d3dmetal", "vkd3d", "m11", "m11_32", "m10", "m10_32", "m9", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
-  m12: "M12",
   vkd3d: "VKD3D",
   d3dmetal: "D3DMetal",
   m11: "M11",
@@ -238,13 +229,6 @@ const componentDisplayName: Record<string, string> = {
   fna3d: "FNA3D",
   faudio: "FAudio",
   fmod: "FMOD Audio",
-  m12_d3d12: "M12 d3d12.dll",
-  m12_d3d11: "M12 d3d11.dll",
-  m12_d3d10core: "M12 d3d10core.dll",
-  m12_dxgi_dxmt: "M12 dxgi_dxmt.dll",
-  m12_dxgi: "M12 dxgi.dll",
-  m12_winemetal: "M12 winemetal.dll / .so",
-  m12_gpu_stubs: "M12 GPU Stubs",
   vkd3d_d3d12: "VKD3D d3d12.dll",
   vkd3d_d3d12core: "VKD3D d3d12core.dll",
   vkd3d_dxgi: "VKD3D dxgi.dll",
@@ -273,7 +257,6 @@ const componentDisplayName: Record<string, string> = {
 };
 
 const runtimeProfileDisplayName: Record<string, string> = {
-  m12: "M12",
   vkd3d: "VKD3D",
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
@@ -934,11 +917,6 @@ async function saveBottleEdit() {
   bottleSaving.value = false;
 
   if (result?.ok && result.bottle) {
-    // Saving an M12 bottle must execute the same read-only M12 diagnostic
-    // that launch uses. It validates the isolated DLL lane, Unix sidecars,
-    // and M12 environment without deploying or spawning the game.
-    const isM12 = bottlePreferredMode.value === "m12";
-    const m12DryRun = isM12 ? await api<M12DryRun>("GET", `/diagnostics/m12/dry-run?appid=${props.game.appid}`) : null;
     bottleName.value = result.bottle.name;
     bottlePreferredMode.value =
       result.bottle.preferred_pipeline && userSelectablePipelineOrder.includes(result.bottle.preferred_pipeline)
@@ -954,15 +932,7 @@ async function saveBottleEdit() {
       runtimeReport.value.bottle_name = result.bottle.name;
       runtimeReport.value.preferred_pipeline = result.bottle.preferred_pipeline || null;
     }
-    if (isM12 && m12DryRun?.ok === false) {
-      const missing = m12DryRun.missing
-        ?.map((entry) => entry.filename)
-        .filter(Boolean)
-        .join(", ");
-      toast.show(`M12 bottle saved, but its dry run failed${missing ? `: ${missing}` : ""}`, "error");
-    } else if (isM12 && !m12DryRun) {
-      toast.show("M12 bottle saved, but its dry run could not be completed", "error");
-    } else if (result.preflight?.ok === false) {
+    if (result.preflight?.ok === false) {
       toast.show(result.preflight.error ?? "Bottle saved; runtime doctor needs attention", "error");
     } else {
       toast.show("Bottle settings saved", "success");

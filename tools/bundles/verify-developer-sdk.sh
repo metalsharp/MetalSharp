@@ -25,19 +25,11 @@ required=(
   "$ROOT/runtime/README.md"
   "$ROOT/runtime/manifest.json"
   "$ROOT/runtime/wine/bin/wine"
-  "$ROOT/runtime/dxmt/x86_64-windows/d3d12.dll"
+  "$ROOT/runtime/dxmt/x86_64-windows/d3d10core.dll"
+  "$ROOT/runtime/dxmt/x86_64-windows/d3d11.dll"
   "$ROOT/runtime/dxmt/x86_64-windows/dxgi.dll"
-  "$ROOT/runtime/dxmt/x86_64-windows/dxgi_dxmt.dll"
   "$ROOT/runtime/dxmt/x86_64-windows/winemetal.dll"
   "$ROOT/runtime/dxmt/x86_64-unix/winemetal.so"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/d3d12.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/dxgi.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/dxgi_dxmt.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-windows/winemetal.dll"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/winemetal.so"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/libc++.1.dylib"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/libc++abi.1.dylib"
-  "$ROOT/runtime/dxmt_m12/x86_64-unix/libunwind.1.dylib"
   "$ROOT/scripts/run-probes.sh"
   "$ROOT/scripts/stage-dxmt-runtime.py"
   "$ROOT/scripts/preflight-runtime-layout.py"
@@ -57,17 +49,17 @@ while IFS=$'\t' read -r rel expected; do
   case "$rel" in
     ""|"#"*|path) continue ;;
   esac
-  path="$TMP_DIR/$ROOT/runtime/dxmt_m12/$rel"
+  path="$TMP_DIR/$ROOT/runtime/dxmt/$rel"
   if [ ! -s "$path" ]; then
-    echo "Developer SDK archive is missing M12 hash-checked file: runtime/dxmt_m12/$rel" >&2
+    echo "Developer SDK archive is missing DXMT hash-checked file: runtime/dxmt/$rel" >&2
     exit 1
   fi
   actual="$(shasum -a 256 "$path" | awk '{print $1}')"
   if [ "$actual" != "$expected" ]; then
-    echo "Developer SDK M12 hash mismatch: runtime/dxmt_m12/$rel expected=$expected actual=$actual" >&2
+    echo "Developer SDK DXMT hash mismatch: runtime/dxmt/$rel expected=$expected actual=$actual" >&2
     exit 1
   fi
-done < "$PROJECT_ROOT/tools/bundles/m12-dxmt-runtime-hashes.tsv"
+done < "$PROJECT_ROOT/tools/bundles/dxmt-runtime-hashes.tsv"
 
 python3 - "$TMP_DIR/$ROOT/runtime/manifest.json" <<'PY'
 import json

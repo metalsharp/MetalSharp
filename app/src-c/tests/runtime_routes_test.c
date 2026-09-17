@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     free(steam_reg_path);
     set_route_paths(home, "vkd3d");
     assert(strstr(getenv("VK_DRIVER_FILES"), "lib/moltenvk-vkmt/MoltenVK_icd.json"));
-    assert(!strcmp(pipeline_backend("m12"), "dxmt"));
+    assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
     set_route_paths(home, "d3dmetal");
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));

@@ -24,7 +24,6 @@ struct pipeline {
 
 static const struct pipeline pipelines[] = {
     {"dxmt", "DXMT", "Auto-selected D3D9/D3D10/D3D11/D3D12 -> Metal via unified DXMT runtime", "dxmt", "dxmt", false, true},
-    {"m12", "M12", "D3D12 -> Metal via DXMT", "dxmt", "dxmt", false, true},
     {"vkd3d", "VKD3D", "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver", "vulkan", "vulkan", false, true},
     {"m11", "M11", "D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
     {"m11_32", "M11(32)", "D3D11 -> Metal via DXMT (32-bit / i386)", "dxmt", "dxmt", false, true},
@@ -43,7 +42,7 @@ static const struct pipeline pipelines[] = {
 static const char* mtsp_pipeline_name(const char* id);
 
 static bool mtsp_pipeline_user_selectable(const char* id) {
-    return !strcmp(id, "m12") || !strcmp(id, "vkd3d") || !strcmp(id, "m11") || !strcmp(id, "m11_32") ||
+    return !strcmp(id, "vkd3d") || !strcmp(id, "m11") || !strcmp(id, "m11_32") ||
            !strcmp(id, "m10") || !strcmp(id, "m10_32") || !strcmp(id, "m9") || !strcmp(id, "d3dmetal") ||
            !strcmp(id, "fna_arm64");
 }
@@ -205,7 +204,7 @@ static const char* mtsp_pipeline_name(const char* id) {
         return "M10";
     if (!strcmp(id, "m9"))
         return "M9";
-    return "M12";
+    return "VKD3D";
 }
 
 static void mtsp_catalog_entry(ms_json_writer* writer, unsigned long long appid, const char* pipeline, const char* name,
@@ -424,7 +423,7 @@ char* ms_mtsp_launch_shape_json(const char* query) {
                        : !strcmp(id, "m10_32")    ? "M10(32)"
                        : !strcmp(id, "m9")        ? "M9"
                        : !strcmp(id, "fna_arm64") ? "Mono/FNA"
-                                                  : "M12";
+                                                  : "VKD3D";
     const char* backend = !strcmp(id, "vkd3d")       ? "vulkan"
                           : !strcmp(id, "d3dmetal")  ? "d3dmetal"
                           : !strcmp(id, "fna_arm64") ? "mono"

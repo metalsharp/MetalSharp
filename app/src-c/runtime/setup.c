@@ -28,11 +28,8 @@
 #define MS_MOLTENVK_RUNTIME_ICD_SHA256 "e0936f00fb33c331123a810be9bd3d0eceb9f69d029739616a57eadfed0dd9ed"
 #define MS_DXMT_SCHEMA                 "metalsharp.dxmt-runtime.v2"
 
-static const char* const dxmt_pe[] = {
-    "d3d10core.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "dxgi_dxmt.dll", "winemetal.dll", "nvapi64.dll", "nvngx.dll",
-};
+static const char* const dxmt_pe[] = {"d3d10core.dll", "d3d11.dll", "dxgi.dll", "winemetal.dll"};
 static const char* const dxmt_unix[] = {"winemetal.so"};
-static const char* const dxmt_m12_unix[] = {"winemetal.so", "libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"};
 
 static char* join_path(const char* left, const char* right) {
     size_t a = strlen(left), b = strlen(right);
@@ -86,7 +83,7 @@ static bool sign_dxmt_native_bridges(const char* runtime_dir) {
     char *x64 = join_path(runtime_dir, "x86_64-unix/winemetal.so"),
          *x86 = join_path(runtime_dir, "i386-unix/winemetal.so");
     bool ok = x64 && adhoc_sign_native_bridge(x64);
-    /* M12 has no i386 bridge; standard DXMT does. */
+    /* The bundled DXMT lane may include both x86_64 and i386 bridges. */
     if (x86 && access(x86, F_OK) == 0)
         ok = adhoc_sign_native_bridge(x86) && ok;
     free(x64);
@@ -920,15 +917,10 @@ static void optional_string(ms_json_writer* writer, const char* key, const char*
 
 static char* runtime_status_json(const char* home) {
     char* dxmt = join_path(home, "runtime/wine/lib/dxmt");
-    char* m12 = join_path(home, "runtime/wine/lib/dxmt_m12");
     char* dxmt_manifest = dxmt == NULL ? NULL : join_path(dxmt, MS_DXMT_MANIFEST);
-    char* m12_manifest = m12 == NULL ? NULL : join_path(m12, MS_DXMT_MANIFEST);
     char* version = manifest_version(dxmt);
-    char* m12_version = manifest_version(m12);
     bool ready = required_ready(dxmt, dxmt_unix, sizeof(dxmt_unix) / sizeof(dxmt_unix[0]));
-    bool m12_ready = required_ready(m12, dxmt_m12_unix, sizeof(dxmt_m12_unix) / sizeof(dxmt_m12_unix[0]));
     bool current = ready && version != NULL && strcmp(version, MS_DXMT_VERSION) == 0;
-    bool m12_current = m12_ready && m12_version != NULL && strcmp(m12_version, MS_DXMT_VERSION) == 0;
     ms_json_writer writer;
     char* result;
     ms_json_writer_init(&writer);
@@ -937,18 +929,11 @@ static char* runtime_status_json(const char* home) {
     ms_json_writer_bool(&writer, current);
     ms_json_writer_key(&writer, "filesReady");
     ms_json_writer_bool(&writer, ready);
-    ms_json_writer_key(&writer, "m12Current");
-    ms_json_writer_bool(&writer, m12_current);
-    ms_json_writer_key(&writer, "m12FilesReady");
-    ms_json_writer_bool(&writer, m12_ready);
     optional_string(&writer, "installedVersion", version);
-    optional_string(&writer, "m12InstalledVersion", m12_version);
     ms_json_writer_key(&writer, "requiredVersion");
     ms_json_writer_string(&writer, MS_DXMT_VERSION);
     optional_string(&writer, "manifestPath", dxmt_manifest);
-    optional_string(&writer, "m12ManifestPath", m12_manifest);
     optional_string(&writer, "path", dxmt);
-    optional_string(&writer, "m12Path", m12);
     ms_json_writer_key(&writer, "dxmt");
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "current");
@@ -961,26 +946,11 @@ static char* runtime_status_json(const char* home) {
     optional_string(&writer, "manifestPath", dxmt_manifest);
     optional_string(&writer, "path", dxmt);
     ms_json_writer_object_end(&writer);
-    ms_json_writer_key(&writer, "dxmt_m12");
-    ms_json_writer_object_begin(&writer);
-    ms_json_writer_key(&writer, "current");
-    ms_json_writer_bool(&writer, m12_current);
-    ms_json_writer_key(&writer, "filesReady");
-    ms_json_writer_bool(&writer, m12_ready);
-    optional_string(&writer, "installedVersion", m12_version);
-    ms_json_writer_key(&writer, "requiredVersion");
-    ms_json_writer_string(&writer, MS_DXMT_VERSION);
-    optional_string(&writer, "manifestPath", m12_manifest);
-    optional_string(&writer, "path", m12);
-    ms_json_writer_object_end(&writer);
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(dxmt);
-    free(m12);
     free(dxmt_manifest);
-    free(m12_manifest);
     free(version);
-    free(m12_version);
     return result;
 }
 
@@ -1003,8 +973,7 @@ char* ms_setup_state_json(const char* metalsharp_home) {
     if (runtime != NULL) {
         char error[128];
         ms_json* runtime_value = ms_json_parse(runtime, strlen(runtime), error, sizeof(error));
-        runtime_current = get_bool(runtime_value, "current", false) && get_bool(runtime_value, "m12Current", false) &&
-                          runtime_lib_ready;
+        runtime_current = get_bool(runtime_value, "current", false) && runtime_lib_ready;
         ms_json_free(runtime_value);
     }
     ms_json_writer_init(&writer);
@@ -1474,7 +1443,6 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     bool wine_ready = file_nonempty(wine) || file_nonempty(metalsharp_wine);
     bool host_ready = host_runtime_installed(metalsharp_home);
     bool dxmt_ready = get_bool(runtime, "current", false);
-    bool m12_ready = get_bool(runtime, "m12Current", false);
     bool mono = access("/opt/homebrew/bin/mono", F_OK) == 0 || access("/usr/local/bin/mono", F_OK) == 0 ||
                 command_available("mono");
     ms_json_writer writer;
@@ -1484,7 +1452,7 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_key(&writer, "ok");
     ms_json_writer_bool(&writer, true);
     ms_json_writer_key(&writer, "allInstalled");
-    ms_json_writer_bool(&writer, rosetta && xcode && wine_ready && host_ready && dxmt_ready && m12_ready);
+    ms_json_writer_bool(&writer, rosetta && xcode && wine_ready && host_ready && dxmt_ready);
     ms_json_writer_key(&writer, "platform");
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
@@ -1510,28 +1478,10 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
                      "metalsharp-setup-host-runtime");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "dxmt_runtime", "DXMT M9-M11 Runtime",
-                     "Bundled D3D9/D3D10/D3D11-to-Metal runtime (0.65.5-m12-isolated-surface-v1) staged under "
-                     "runtime/wine/lib/dxmt.",
+                     "Bundled D3D9/D3D10/D3D11-to-Metal runtime (DXMT v0.80) staged under runtime/wine/lib/dxmt.",
                      dxmt_ready, true, "metalsharp-setup-dxmt");
     if (runtime != NULL) {
         char* status = ms_json_stringify(ms_json_object_get(runtime, "dxmt"));
-        ms_json_writer_key(&writer, "status");
-        ms_json_writer_raw(&writer, status);
-        free(status);
-    }
-    ms_json_writer_object_end(&writer);
-    dependency_begin(&writer, "dxmt_m12_runtime", "DXMT M12 Runtime",
-                     "Isolated D3D12-to-Metal runtime staged under runtime/wine/lib/dxmt_m12 with its own DLLs and "
-                     "winemetal.so sidecars.",
-                     m12_ready, true, "metalsharp-setup-dxmt-m12");
-    {
-        char* m12_path = join_path(metalsharp_home, "runtime/wine/lib/dxmt_m12");
-        ms_json_writer_key(&writer, "path");
-        ms_json_writer_string(&writer, m12_path ? m12_path : "");
-        free(m12_path);
-    }
-    if (runtime != NULL) {
-        char* status = ms_json_stringify(ms_json_object_get(runtime, "dxmt_m12"));
         ms_json_writer_key(&writer, "status");
         ms_json_writer_raw(&writer, status);
         free(status);
@@ -1915,28 +1865,22 @@ static void run_install_all_worker(const char* home) {
                 graphics_ok = false;
             } else {
                 char *src_dxmt = join_path(temp, "Graphics/dll/dxmt"),
-                     *src_m12 = join_path(temp, "Graphics/dll/dxmt-m12"),
                      *src_dxvk = join_path(temp, "Graphics/dll/dxvk"),
                      *src_vkd3d = join_path(temp, "Graphics/dll/vkd3d-proton"),
-                     *dst_dxmt = join_path(home, "runtime/wine/lib/dxmt"),
-                     *dst_m12 = join_path(home, "runtime/wine/lib/dxmt_m12"), *dst_dxvk = join_path(home, "vkd3d/dxvk"),
+                     *dst_dxmt = join_path(home, "runtime/wine/lib/dxmt"), *dst_dxvk = join_path(home, "vkd3d/dxvk"),
                      *dst_vkd3d = join_path(home, "vkd3d/vkd3d-proton");
                 struct stat dxvk_info, vkd3d_info;
                 bool has_dxvk = src_dxvk && stat(src_dxvk, &dxvk_info) == 0 && S_ISDIR(dxvk_info.st_mode);
                 bool has_vkd3d = src_vkd3d && stat(src_vkd3d, &vkd3d_info) == 0 && S_ISDIR(vkd3d_info.st_mode);
-                graphics_ok = src_dxmt && src_m12 && dst_dxmt && dst_m12 &&
+                graphics_ok = src_dxmt && dst_dxmt &&
                               copy_directory_contents(src_dxmt, dst_dxmt) &&
-                              copy_directory_contents(src_m12, dst_m12) &&
                               (!has_dxvk || (dst_dxvk && copy_directory_contents(src_dxvk, dst_dxvk))) &&
                               (!has_vkd3d || (dst_vkd3d && copy_directory_contents(src_vkd3d, dst_vkd3d))) &&
-                              sign_dxmt_native_bridges(dst_dxmt) && sign_dxmt_native_bridges(dst_m12) &&
-                              write_dxmt_manifest(dst_dxmt) && write_dxmt_manifest(dst_m12);
+                              sign_dxmt_native_bridges(dst_dxmt) && write_dxmt_manifest(dst_dxmt);
                 free(src_dxmt);
-                free(src_m12);
                 free(src_dxvk);
                 free(src_vkd3d);
                 free(dst_dxmt);
-                free(dst_m12);
                 free(dst_dxvk);
                 free(dst_vkd3d);
             }
@@ -1955,7 +1899,7 @@ static void run_install_all_worker(const char* home) {
     }
     runtime = runtime_status_json(home);
     json = runtime ? ms_json_parse(runtime, strlen(runtime), error, sizeof(error)) : NULL;
-    dxmt = get_bool(json, "current", false) && get_bool(json, "m12Current", false);
+    dxmt = get_bool(json, "current", false);
     free(runtime);
     ms_json_free(json);
     if (!dxmt) {

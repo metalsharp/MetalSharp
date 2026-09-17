@@ -518,7 +518,7 @@ function uninstallMetalsharp() {
             <div class="so-row-info">
               <div class="so-label">Graphics Runtime Logs</div>
               <div class="so-desc">
-                Opt in to DXMT graphics logs for future launches. Off by default so M12 games do not emit runtime logs
+                Opt in to DXMT graphics logs for future launches. Off by default to keep routine launches quiet
                 unless requested.
               </div>
             </div>

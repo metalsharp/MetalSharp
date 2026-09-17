@@ -185,33 +185,23 @@ verify_runtime_core() {
 verify_graphics_core() {
   local path="$1"
   verify_required_files "$path" "GRAPHICS" \
+    Graphics/dll/d3dmetal/x86_64-unix/d3d10.so \
+    Graphics/dll/d3dmetal/x86_64-unix/d3d11.so \
+    Graphics/dll/d3dmetal/x86_64-unix/d3d12.so \
+    Graphics/dll/d3dmetal/x86_64-unix/dxgi.so \
+    Graphics/dll/d3dmetal/x86_64-windows/d3d10.dll \
+    Graphics/dll/d3dmetal/x86_64-windows/d3d11.dll \
+    Graphics/dll/d3dmetal/x86_64-windows/d3d12.dll \
+    Graphics/dll/d3dmetal/x86_64-windows/dxgi.dll \
     Graphics/dll/dxmt/x86_64-unix/winemetal.so \
     Graphics/dll/dxmt/x86_64-windows/d3d10core.dll \
     Graphics/dll/dxmt/x86_64-windows/d3d11.dll \
-    Graphics/dll/dxmt/x86_64-windows/d3d12.dll \
     Graphics/dll/dxmt/x86_64-windows/dxgi.dll \
-    Graphics/dll/dxmt/x86_64-windows/dxgi_dxmt.dll \
-    Graphics/dll/dxmt/x86_64-windows/nvapi64.dll \
-    Graphics/dll/dxmt/x86_64-windows/nvngx.dll \
     Graphics/dll/dxmt/x86_64-windows/winemetal.dll \
-    Graphics/dll/dxmt/i386-unix/winemetal.so \
     Graphics/dll/dxmt/i386-windows/d3d10core.dll \
     Graphics/dll/dxmt/i386-windows/d3d11.dll \
     Graphics/dll/dxmt/i386-windows/dxgi.dll \
-    Graphics/dll/dxmt/i386-windows/dxgi_dxmt.dll \
     Graphics/dll/dxmt/i386-windows/winemetal.dll \
-    Graphics/dll/dxmt-m12/x86_64-unix/winemetal.so \
-    Graphics/dll/dxmt-m12/x86_64-unix/libc++.1.dylib \
-    Graphics/dll/dxmt-m12/x86_64-unix/libc++abi.1.dylib \
-    Graphics/dll/dxmt-m12/x86_64-unix/libunwind.1.dylib \
-    Graphics/dll/dxmt-m12/x86_64-windows/d3d10core.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/d3d11.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/d3d12.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/dxgi.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/dxgi_dxmt.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/nvapi64.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/nvngx.dll \
-    Graphics/dll/dxmt-m12/x86_64-windows/winemetal.dll \
     Graphics/dll/dxvk/x86_64-windows/d3d9.dll \
     Graphics/dll/dxvk/x86_64-windows/d3d10core.dll \
     Graphics/dll/dxvk/x86_64-windows/d3d11.dll \
@@ -223,7 +213,8 @@ verify_graphics_core() {
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll &&
-    verify_hash_manifest "$path" "GRAPHICS M12" "Graphics/dll/dxmt-m12" "$SCRIPT_DIR/m12-dxmt-runtime-hashes.tsv" &&
+    archive_not_contains "$path" 'Graphics/dll/dxmt-m12|Graphics/dll/dxmt_m12' &&
+    verify_hash_manifest "$path" "GRAPHICS DXMT" "Graphics/dll/dxmt" "$SCRIPT_DIR/dxmt-runtime-hashes.tsv" &&
     verify_hash_manifest "$path" "GRAPHICS DXVK" "Graphics/dll/dxvk" "$SCRIPT_DIR/dxvk-runtime-hashes.tsv" &&
     verify_hash_manifest "$path" "GRAPHICS VKD3D" "Graphics/dll/vkd3d-proton" "$SCRIPT_DIR/vkd3d-proton-runtime-hashes.tsv"
 }

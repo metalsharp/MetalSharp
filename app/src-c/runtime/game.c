@@ -81,8 +81,6 @@ static const char* pipeline_name(const char* pipeline) {
         return "D3DMetal (GPTK)";
     if (!strcmp(pipeline, "fna_arm64"))
         return "FNA / Mono ARM64";
-    if (!strcmp(pipeline, "m12"))
-        return "M12";
     if (!strcmp(pipeline, "m11"))
         return "M11";
     if (!strcmp(pipeline, "m10"))

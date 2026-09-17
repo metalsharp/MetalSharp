@@ -208,9 +208,6 @@ static const char** profile_components(const char* id) {
                       *m10_32[] = {"d3d10core", "d3d10_1", "winemetal", "vcrun2019_x86", NULL},
                       *m11[] = {"d3d11", "dxgi", "vcrun2019_x64", "vcrun2019_x86", NULL},
                       *m11_32[] = {"d3d11", "dxgi", "winemetal", "vcrun2019_x86", NULL},
-                      *m12[] = {"m12_d3d12",     "m12_d3d11",     "m12_d3d10core", "m12_dxgi_dxmt",
-                                "m12_dxgi",      "m12_winemetal", "m12_gpu_stubs", "vcrun2019_x64",
-                                "vcrun2019_x86", "d3d12_agility", "corefonts",     NULL},
                       *vkd3d[] = {"vkd3d_d3d12",    "vkd3d_d3d12core", "vkd3d_dxgi",    "dxvk_d3d9", "dxvk_d3d11",
                                   "dxvk_d3d10core", "vcrun2019_x64",   "vcrun2019_x86", "corefonts", NULL},
                       *m13[] = {"d3d11", "d3d12", "dxgi", "d3d10", "vcrun2019_x64", "vcrun2019_x86", "gpu_vendor_stubs",
@@ -238,8 +235,6 @@ static const char** profile_components(const char* id) {
         return m11;
     if (!strcmp(id, "m11_32"))
         return m11_32;
-    if (!strcmp(id, "m12"))
-        return m12;
     if (!strcmp(id, "vkd3d"))
         return vkd3d;
     if (!strcmp(id, "m13"))
@@ -266,7 +261,6 @@ static const profile profiles[] = {{"plain", "Plain Wine", "wow64", "wine_bare",
                                    {"m10_32", "D3D10 Metal (32-bit)", "win32", "m10_32", true},
                                    {"m11", "D3D11 Metal", "win64", "m11", true},
                                    {"m11_32", "D3D11 Metal (32-bit)", "win32", "m11_32", true},
-                                   {"m12", "D3D12 Metal", "win64", "m12", true},
                                    {"m13", "GPTK D3DMetal", "win64", "m13", true},
                                    {"dotnet", ".NET", "win64", "wine_bare", true},
                                    {"win32_dotnet", "32-bit .NET", "win32", "m9", true},
@@ -386,7 +380,7 @@ char* ms_bottles_matrix_json(const char* home) {
                                  "offline game installer",
                                  "store-adjacent launcher",
                                  "runtime installer"};
-    static const char* profile[] = {"win32_dotnet", "game_install", "m11",     "m12",
+    static const char* profile[] = {"win32_dotnet", "game_install", "m11",     "vkd3d",
                                     "launcher",     "game_install", "webview", "plain"};
     static const char* opens[] = {"needs_real_trace", "untested", "untested", "untested",
                                   "untested",         "untested", "untested", "supported"};
@@ -557,10 +551,10 @@ char* ms_bottles_redist_json(const char* home) {
     return o;
 }
 char* ms_bottles_contracts_json(void) {
-    static const char* p[] = {"m9", "m10", "m11", "m12", "vkd3d", "m13", "fna_arm64", "wine_bare", "d3dmetal"};
-    static const char* profile[] = {"m9", "m10", "m11", "m12", "vkd3d", "m13", "fna_arm64", "plain", "d3dmetal"};
-    static const bool wine[] = {true, true, true, true, true, true, false, true, false};
-    static const bool offline_route[] = {false, false, false, false, false, false, false, false, true};
+    static const char* p[] = {"m9", "m10", "m11", "vkd3d", "m13", "fna_arm64", "wine_bare", "d3dmetal"};
+    static const char* profile[] = {"m9", "m10", "m11", "vkd3d", "m13", "fna_arm64", "plain", "d3dmetal"};
+    static const bool wine[] = {true, true, true, true, true, true, true, false};
+    static const bool offline_route[] = {false, false, false, false, false, false, false, true};
     ms_json_writer w;
     char* o;
     size_t i;
@@ -570,7 +564,7 @@ char* ms_bottles_contracts_json(void) {
     ms_json_writer_bool(&w, true);
     ms_json_writer_key(&w, "contracts");
     ms_json_writer_array_begin(&w);
-    for (i = 0; i < 9; i++) {
+    for (i = 0; i < 8; i++) {
         ms_json_writer_object_begin(&w);
         obj_string(&w, "pipeline", p[i]);
         obj_string(&w, "runtime_profile", profile[i]);

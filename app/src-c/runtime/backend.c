@@ -1047,14 +1047,6 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, status, body);
         return true;
     }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/diagnostics/m12/dry-run") == 0) {
-        int status = 500;
-        body = ms_diagnostics_json("m12-dry-run", request->query, request->body, request->body_length, &status);
-        if (body == NULL)
-            return false;
-        set_json_response(response, status, body);
-        return true;
-    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/diagnostics/pipeline/dry-run") == 0) {
         int status = 500;
         body = ms_diagnostics_json("pipeline-dry-run", request->query, request->body, request->body_length, &status);
