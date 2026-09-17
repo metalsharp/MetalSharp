@@ -60,6 +60,10 @@ let processManagerWindow: BrowserWindow | null = null;
 let bridge: BackendBridge;
 let updaterBridge: UpdaterBridge;
 let steamappsWatcher: fs.FSWatcher | null = null;
+let gridArtWatchers: fs.FSWatcher[] = [];
+let gridArtWatchedDirs = "";
+let gridArtRescanTimer: ReturnType<typeof setInterval> | null = null;
+let gridArtDebounce: ReturnType<typeof setTimeout> | null = null;
 let gamejoltDownloadsConfigured = false;
 let nextGameJoltDownloadId = 1;
 
@@ -977,10 +981,86 @@ async function cleanup() {
     steamappsWatcher.close();
     steamappsWatcher = null;
   }
+  for (const watcher of gridArtWatchers) {
+    try {
+      watcher.close();
+    } catch {}
+  }
+  gridArtWatchers = [];
+  if (gridArtRescanTimer) {
+    clearInterval(gridArtRescanTimer);
+    gridArtRescanTimer = null;
+  }
   await bridge?.killProcess();
 }
 
 let migrationMode = false;
+
+// Steam Art Manager (and Steam's own "Set Custom Image") write grid artwork
+// into userdata/<account>/config/grid/. Watch those directories and push
+// "grid-art:changed" so the library re-resolves app cards and the hero the
+// moment the green save button commits new artwork.
+function notifyGridArtChanged() {
+  if (gridArtDebounce) clearTimeout(gridArtDebounce);
+  gridArtDebounce = setTimeout(() => {
+    gridArtDebounce = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("grid-art:changed");
+    }
+  }, 2000);
+}
+
+function startGridArtWatcher() {
+  const usersDir = path.join(
+    getMetalsharpDir(),
+    "prefix-steam",
+    "drive_c",
+    "Program Files (x86)",
+    "Steam",
+    "userdata",
+  );
+  let gridDirs: string[] = [];
+  try {
+    if (fs.existsSync(usersDir)) {
+      gridDirs = fs
+        .readdirSync(usersDir, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => path.join(usersDir, e.name, "config", "grid"))
+        .filter((p) => fs.existsSync(p));
+    }
+  } catch {
+    gridDirs = [];
+  }
+  const signature = gridDirs.join("|");
+  if (signature === gridArtWatchedDirs) return;
+  for (const watcher of gridArtWatchers) {
+    try {
+      watcher.close();
+    } catch {}
+  }
+  gridArtWatchers = [];
+  gridArtWatchedDirs = signature;
+  for (const gridDir of gridDirs) {
+    try {
+      const watcher = fs.watch(gridDir, (_eventType, filename) => {
+        if (!filename || /\.(png|jpe?g|webp)$/i.test(filename)) {
+          notifyGridArtChanged();
+        }
+      });
+      watcher.on("error", () => {
+        gridArtWatchedDirs = "";
+      });
+      gridArtWatchers.push(watcher);
+    } catch {
+      // grid dir vanished between scan and watch — picked up on next rescan
+    }
+  }
+  if (!gridArtRescanTimer) {
+    // Pick up new Steam accounts (new grid dirs) without leaking watchers:
+    // startGridArtWatcher is a no-op while the directory signature is stable.
+    gridArtRescanTimer = setInterval(() => startGridArtWatcher(), 60_000);
+  }
+}
 
 app.whenReady().then(async () => {
   if (isProcessManagerOnlyRuntime()) {
@@ -1047,6 +1127,7 @@ app.whenReady().then(async () => {
 
   if (!needsMigration) {
     startSteamappsWatcher();
+    startGridArtWatcher();
   }
 
   app.on("activate", () => {
