@@ -1899,7 +1899,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
     ms_json_writer_key(&w, "unix_lib_dir");
     if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32")) {
         char path[2048];
-        snprintf(path, sizeof(path), "%s/lib/dxmt/%s-unix", root, !strcmp(pipeline, "dxmt_32") ? "i386" : "x86_64");
+        snprintf(path, sizeof(path), "%s/lib/dxmt/x86_64-unix", root);
         ms_json_writer_string(&w, path);
     } else
         ms_json_writer_null(&w);
@@ -1907,7 +1907,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
     if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32")) {
         char path[2048];
         struct stat st;
-        snprintf(path, sizeof(path), "%s/lib/dxmt/%s-unix", root, !strcmp(pipeline, "dxmt_32") ? "i386" : "x86_64");
+        snprintf(path, sizeof(path), "%s/lib/dxmt/x86_64-unix", root);
         ms_json_writer_bool(&w, stat(path, &st) == 0 && S_ISDIR(st.st_mode));
     } else {
         ms_json_writer_null(&w);
@@ -1919,8 +1919,7 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
             char path[2048];
             struct stat st;
             char* hash;
-            snprintf(path, sizeof(path), "%s/lib/dxmt/%s-unix/%s", root,
-                     !strcmp(pipeline, "dxmt_32") ? "i386" : "x86_64", dxmt_unix[i]);
+            snprintf(path, sizeof(path), "%s/lib/dxmt/x86_64-unix/%s", root, dxmt_unix[i]);
             bool present = stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
             if (!present)
                 all_present = false;
