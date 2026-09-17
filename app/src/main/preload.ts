@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   installHomebrew: () => ipcRenderer.invoke("app:install-homebrew"),
   homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
+  onGridArtChanged: (callback: () => void) => ipcRenderer.on("grid-art:changed", callback),
   onGameJoltDownload: (callback: (update: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, update: unknown) => callback(update);
     ipcRenderer.on("gamejolt:download", listener);

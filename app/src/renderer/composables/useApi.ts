@@ -44,6 +44,7 @@ const browserAPI = {
   },
   onGameJoltDownload: () => () => {},
   onSteamappsChanged: () => () => {},
+  onGridArtChanged: () => () => {},
 } as unknown as MetalsharpAPI;
 
 // Preview isolation mode: appending ?mock to the dev-server URL detaches the
@@ -116,6 +117,7 @@ const mockSetupAPI = {
   },
   onGameJoltDownload: () => () => {},
   onSteamappsChanged: () => () => {},
+  onGridArtChanged: () => () => {},
 } as unknown as MetalsharpAPI;
 
 function getAPI(): MetalsharpAPI {

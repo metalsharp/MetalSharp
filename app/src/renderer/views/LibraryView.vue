@@ -87,6 +87,9 @@ const artworkSources = ref<Record<number, string[]>>({});
 const heroArtSources = ref<Record<number, string>>({});
 const backendBase = ref("");
 const artManagerOpening = ref(false);
+// Bumped whenever grid artwork changes on disk (Steam Art Manager save) so
+// cached /art/grid URLs re-resolve to the freshly written images.
+const artVersion = ref(0);
 const fallbackArtApps = ref(new Set<number>());
 
 function markFallbackArt(appid: number) {
@@ -180,7 +183,7 @@ function storeArt(appid: number) {
 // Image") served by the backend from the Wine Steam userdata grid cache.
 // When present, these override fetched CDN artwork.
 function gridArtUrl(appid: number, kind: "hero" | "poster" | "header") {
-  return backendBase.value ? `${backendBase.value}/art/grid/${appid}/${kind}` : "";
+  return backendBase.value ? `${backendBase.value}/art/grid/${appid}/${kind}?v=${artVersion.value}` : "";
 }
 
 function artworkCandidates(game: ShowcaseGame) {
@@ -390,7 +393,7 @@ const heroBleedStyle = computed<Record<string, string>>(() => ({
 // Hero art is a CSS background so it has no @error fallback — probe candidates
 // with Image() and keep the first one that actually loads. User grid artwork
 // (Steam Art Manager) is probed first so it always overrides online fetches.
-watch([featuredGame, backendBase], ([game]) => {
+function probeHeroArt(game: ShowcaseGame) {
   if (!game || heroArtSources.value[game.appid]) return;
   const candidates = [
     gridArtUrl(game.appid, "hero"),
@@ -430,6 +433,10 @@ watch([featuredGame, backendBase], ([game]) => {
     image.src = url;
   };
   probe(0);
+}
+
+watch([featuredGame, backendBase], ([game]) => {
+  probeHeroArt(game);
 }, { immediate: true });
 
 async function openArtManager() {
@@ -729,6 +736,16 @@ onMounted(() => {
   window.metalsharp.backendBaseUrl().then((base) => {
     backendBase.value = base;
   }).catch(() => {});
+  // Fired when the Steam Art Manager save button (or Steam's "Set Custom
+  // Image") writes grid artwork. Bust the per-game artwork caches so every
+  // app card and the hero re-probe against the new images.
+  window.metalsharp.onGridArtChanged?.(() => {
+    artVersion.value = Date.now();
+    artworkSources.value = {};
+    heroArtSources.value = {};
+    fallbackArtApps.value = new Set<number>();
+    if (featuredGame.value) probeHeroArt(featuredGame.value);
+  });
 });
 
 function handleImageError(event: Event, game: ShowcaseGame) {
