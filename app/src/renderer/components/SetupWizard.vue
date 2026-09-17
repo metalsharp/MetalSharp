@@ -140,9 +140,62 @@ async function startInstall() {
 }
 
 async function checkSteam() {
-  const s = await api<{ installed: boolean; running: boolean; installing?: boolean }>("GET", "/steam/status");
+  const s = await api<{ installed: boolean; running: boolean; installing?: boolean; install_stage?: string }>(
+    "GET",
+    "/steam/status",
+  );
   steamInstalled.value = s?.installed === true && s?.installing !== true;
-  installingSteam.value = true;
+  steamInstalling.value = s?.installing === true;
+  if (s?.install_stage) steamInstallStage.value = s.install_stage;
+  return s;
+}
+
+function steamInstallLabel() {
+  switch (steamInstallStage.value) {
+    case "downloading":
+      return "Downloading Steam...";
+    case "creating-steam-prefix":
+      return "Creating Steam prefix...";
+    case "installing-steam":
+      return "Installing Steam...";
+    case "failed":
+      return "Retry Steam installation";
+    default:
+      return steamInstalling.value ? "Preparing Steam..." : "Install Steam";
+  }
+}
+
+async function installSteam() {
+  if (steamInstalling.value || steamInstalled.value) return;
+  steamFailed.value = false;
+  steamInstalling.value = true;
+  steamInstallStage.value = "downloading";
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/steam/install");
+  if (!result?.ok) {
+    steamInstalling.value = false;
+    steamFailed.value = true;
+    steamInstallStage.value = "failed";
+    toast.show(result?.error ?? "Failed to install Steam", "error");
+    return;
+  }
+
+  const startedAt = Date.now();
+  const poll = setInterval(async () => {
+    const s = await checkSteam();
+    if (s?.installed && !s.installing) {
+      clearInterval(poll);
+      steamInstalled.value = true;
+      steamInstalling.value = false;
+      steamInstallStage.value = "complete";
+      toast.show("Steam installed", "success");
+    } else if (Date.now() - startedAt > 300000) {
+      clearInterval(poll);
+      steamInstalling.value = false;
+      steamFailed.value = true;
+      steamInstallStage.value = "failed";
+      toast.show("Steam installation timed out", "error");
+    }
+  }, 1000);
 }
 
 async function goToVcppStep() {
@@ -153,6 +206,47 @@ async function goToDoneStep() {
   step.value = 3;
   const gen = await api<{ name: string }>("GET", "/setup/device-name");
   if (gen?.name) deviceName.value = gen.name;
+}
+
+async function finish() {
+  if (finishing.value) return;
+  finishing.value = true;
+  try {
+    const keyInput = document.getElementById("setup-api-key") as HTMLInputElement;
+    const nameInput = document.getElementById("setup-device-name") as HTMLInputElement;
+    const name = nameInput?.value?.trim() || deviceName.value;
+    const key = keyInput?.value?.trim();
+
+    const wrappers = await api<{ ok: boolean; error?: string }>("POST", "/steam/ensure-launch-ready");
+    if (!wrappers?.ok) {
+      toast.show(
+        wrappers?.error ?? "Steam wrapper shims could not be verified; MetalSharp will retry before Steam launch.",
+        "error",
+      );
+    }
+
+    await api("POST", "/setup/save", { step: 2, deviceName: name, completed: true });
+    if (key) {
+      const result = await api<{
+        ok: boolean;
+        error?: string;
+        library?: { ok: boolean; total: number; installed_count: number; games: unknown[] };
+        sync?: { steam_id_detected: boolean };
+      }>("POST", "/steam/save-api-key", { key });
+      if (!result?.ok) {
+        toast.show(result?.error ?? "Failed to save Steam API key", "error");
+        return;
+      }
+      steamApiKey.value = key;
+      if (result.library) library.value = result.library;
+      if (result.sync && !result.sync.steam_id_detected) {
+        toast.show("API key saved, but SteamID was not detected yet", "error");
+      }
+    }
+    emit("done");
+  } finally {
+    finishing.value = false;
+  }
 }
 
 async function installVcppX64() {
