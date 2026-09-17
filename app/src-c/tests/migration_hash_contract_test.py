@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[3]
 MIGRATION_SOURCE = ROOT / "app/src-c/runtime/migration.c"
 
 CONTRACTS = {
-    "migration_m12_hashes": ROOT / "tools/bundles/m12-dxmt-runtime-hashes.tsv",
+    "migration_dxmt_hashes": ROOT / "tools/bundles/dxmt-runtime-hashes.tsv",
     "migration_vkd3d_hashes": ROOT / "tools/bundles/vkd3d-proton-runtime-hashes.tsv",
     "migration_dxvk_hashes": ROOT / "tools/bundles/dxvk-runtime-hashes.tsv",
 }

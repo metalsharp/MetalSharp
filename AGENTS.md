@@ -43,7 +43,6 @@ Steam games use `steam_<appid>` bottles. Wine Steam remains the background clien
 | `M9` | D3D9 and compatible 32-bit titles |
 | `M10` / `M10(32)` | D3D10 translation |
 | `M11` / `M11(32)` | D3D11 translation |
-| `M12` | D3D12 through the isolated DXMT M12 runtime |
 | `VKD3D` | D3D12 through vkd3d-proton and MoltenVK |
 | `D3DMetal` | Apple Game Porting Toolkit runtime |
 | `Mono/FNA` | XNA/FNA through Mono and native shims |
@@ -56,7 +55,6 @@ Important runtime paths:
 - Bottles: `~/.metalsharp/bottles/<bottle_id>/`
 - Logs: `~/.metalsharp/logs/`
 - Shader cache: `~/.metalsharp/shader-cache/<pipeline>/<appid>/`
-- M12 DLLs: `~/.metalsharp/runtime/wine/lib/dxmt_m12/`
 
 ## Backend API
 

@@ -40,7 +40,6 @@ VALID_PIPELINES = {
     "m10_32",
     "m11",
     "m11_32",
-    "m12",
     "dxmt",
     "vkd3d",
     "d3dmetal",

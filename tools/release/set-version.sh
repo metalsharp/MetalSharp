@@ -86,7 +86,7 @@ const checks = [
   ["migration version", migration.includes(`MIGRATION_VERSION "${version}"`)],
   ["migration fallback version", migration.includes(`\\"version\\":\\"${version}\\"`)],
   ["updater fallback version", updater.includes(`\\"current_version\\":\\"${version}\\"`)],
-  ["setup runtime description", setup.includes(`runtime (${version}-m12-isolated-surface-v1)`) ],
+  ["setup DXMT runtime contract", setup.includes('MS_BACKEND_VERSION "-dxmt-v0.80-baseline-v1"')],
   ["C smoke expected version", smoke.includes(`assert v["version"] == "${version}"`)],
   ["README release link", readme.includes(`/releases/tag/v${version}`)],
   ["README release badge", readme.includes(`filter=v${version}`)],

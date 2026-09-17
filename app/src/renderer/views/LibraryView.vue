@@ -144,10 +144,7 @@ const pipelineOptions = [
   { id: "m9", label: "M9" },
   { id: "fna_arm64", label: "Mono/FNA" },
 ];
-// Display-only names. m12 stays a valid backend route for existing bottles
-// but is intentionally not offered as a new selection (matches the old UI).
 const pipelineNames: Record<string, string> = {
-  m12: "M12",
   ...Object.fromEntries(pipelineOptions.map((option) => [option.id, option.label])),
 };
 const pipelineLabel = (id: string | null | undefined) => (id && pipelineNames[id]) || "Auto";
@@ -499,7 +496,6 @@ function isWineSteamRouteId(launchMethod: string) {
     "m10_32",
     "m11",
     "m11_32",
-    "m12",
     "vkd3d",
     "d3dmetal",
     "d3d9",

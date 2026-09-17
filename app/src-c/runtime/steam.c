@@ -744,8 +744,6 @@ static const char* default_pipeline_for_appid(unsigned appid) {
 static const char* pipeline_display_name(const char* pipeline) {
     if (!pipeline)
         return "Auto";
-    if (!strcmp(pipeline, "m12"))
-        return "M12";
     if (!strcmp(pipeline, "m11"))
         return "M11";
     if (!strcmp(pipeline, "m11_32"))
@@ -796,7 +794,7 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     ms_json_writer_key(w, "available_pipelines");
     ms_json_writer_array_begin(w);
     {
-        static const char* pipeline_ids[] = {"m12",    "vkd3d", "m11",      "m11_32",   "m10",
+        static const char* pipeline_ids[] = {"vkd3d", "m11",      "m11_32",   "m10",
                                              "m10_32", "m9",    "d3dmetal", "fna_arm64"};
         for (size_t i = 0; i < sizeof(pipeline_ids) / sizeof(pipeline_ids[0]); i++) {
             ms_json_writer_object_begin(w);

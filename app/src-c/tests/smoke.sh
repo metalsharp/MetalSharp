@@ -103,7 +103,7 @@ install_progress=$(curl --silent --fail "http://127.0.0.1:$port/setup/install-pr
 printf '%s' "$install_progress" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["status"] == "idle" and v["step"] == 0 and v["total"] == 0'
 installing=$(curl --silent --fail "http://127.0.0.1:$port/setup/installing")
 printf '%s' "$installing" | python3 -c 'import json, sys; assert json.load(sys.stdin) == {"installing": False}'
-mtsp=$(curl --silent --request POST --header 'Content-Type: application/json' --data '{"appid":1234,"pipeline":"m12"}' "http://127.0.0.1:$port/mtsp/prepare")
+mtsp=$(curl --silent --request POST --header 'Content-Type: application/json' --data '{"appid":1234,"pipeline":"vkd3d"}' "http://127.0.0.1:$port/mtsp/prepare")
 printf '%s' "$mtsp" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is False and v["appid"] == 1234'
 bottles=$(curl --silent --fail "http://127.0.0.1:$port/bottles")
 printf '%s' "$bottles" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and isinstance(v["bottles"], list)'
@@ -577,7 +577,7 @@ v = json.load(sys.stdin)
 assert v["ok"] is True
 assert v["platform"] == "macos"
 assert len(v["dependencies"]) == 10
-assert {d["id"] for d in v["dependencies"]} == {"homebrew", "xcode_cli", "rosetta", "metalsharp_wine", "metalsharp_host_runtime", "dxmt_runtime", "dxmt_m12_runtime", "mono", "moltenvk", "steam"}
+assert {d["id"] for d in v["dependencies"]} == {"homebrew", "xcode_cli", "rosetta", "metalsharp_wine", "metalsharp_host_runtime", "dxmt_runtime", "mono", "moltenvk", "steam"}
 '
 device=$(curl --silent --fail "http://127.0.0.1:$port/setup/device-name")
 printf '%s' "$device" | python3 -c '

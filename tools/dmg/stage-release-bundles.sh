@@ -6,12 +6,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BUNDLE_DIR="${1:-$PROJECT_ROOT/app/bundles}"
 STAGE_DIR="${2:-$PROJECT_ROOT/dist/staged-bundles}"
 MANIFEST="$PROJECT_ROOT/tools/bundles/asset-manifest.tsv"
-M12_HASH_MANIFEST="$PROJECT_ROOT/tools/bundles/m12-dxmt-runtime-hashes.tsv"
+DXMT_HASH_MANIFEST="$PROJECT_ROOT/tools/bundles/dxmt-runtime-hashes.tsv"
 
-verify_staged_dxmt_m12() {
-  local root="$STAGE_DIR/Graphics/dll/dxmt-m12"
+verify_staged_dxmt() {
+  local root="$STAGE_DIR/Graphics/dll/dxmt"
   if [ ! -d "$root/x86_64-windows" ] || [ ! -d "$root/x86_64-unix" ]; then
-    echo "Staged graphics bundle is missing Graphics/dll/dxmt-m12 runtime lanes" >&2
+    echo "Staged graphics bundle is missing Graphics/dll/dxmt runtime lanes" >&2
     exit 1
   fi
 
@@ -23,7 +23,7 @@ verify_staged_dxmt_m12() {
 
     local path="$root/$rel"
     if [ ! -s "$path" ]; then
-      echo "Staged dxmt-m12 runtime missing: Graphics/dll/dxmt-m12/$rel" >&2
+      echo "Staged DXMT runtime missing: Graphics/dll/dxmt/$rel" >&2
       failed=1
       continue
     fi
@@ -31,15 +31,15 @@ verify_staged_dxmt_m12() {
     local actual
     actual="$(shasum -a 256 "$path" | awk '{print $1}')"
     if [ "$actual" != "$expected" ]; then
-      echo "Staged dxmt-m12 hash mismatch: Graphics/dll/dxmt-m12/$rel expected=$expected actual=$actual" >&2
+      echo "Staged DXMT hash mismatch: Graphics/dll/dxmt/$rel expected=$expected actual=$actual" >&2
       failed=1
     fi
-  done < "$M12_HASH_MANIFEST"
+  done < "$DXMT_HASH_MANIFEST"
 
   if [ "$failed" -ne 0 ]; then
     exit 1
   fi
-  echo "VERIFIED: staged Graphics/dll/dxmt-m12 matches $M12_HASH_MANIFEST"
+  echo "VERIFIED: staged Graphics/dll/dxmt matches $DXMT_HASH_MANIFEST"
 }
 
 rm -rf "$STAGE_DIR"
@@ -69,4 +69,4 @@ while IFS=$'\t' read -r asset root platforms _notes; do
   echo "STAGED: $asset -> $root/"
 done < "$MANIFEST"
 
-verify_staged_dxmt_m12
+verify_staged_dxmt
