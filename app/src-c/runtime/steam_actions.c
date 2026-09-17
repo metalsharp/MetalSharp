@@ -214,12 +214,10 @@ static const char* canonical_pipeline(const char* requested) {
         !strcasecmp(requested, "m10_32") || !strcasecmp(requested, "d3d11_32") ||
         !strcasecmp(requested, "d3d10_32") || !strcasecmp(requested, "dx10_32"))
         return "dxmt_32";
-    if (!strcasecmp(requested, "dxvk") || !strcasecmp(requested, "m9") || !strcasecmp(requested, "d3d9") ||
-        !strcasecmp(requested, "dx9"))
-        return "dxvk";
-    if (!strcasecmp(requested, "dxvk_32") || !strcasecmp(requested, "d3d9_32") ||
+    if (!strcasecmp(requested, "dxvk") || !strcasecmp(requested, "dxvk_32") || !strcasecmp(requested, "m9") ||
+        !strcasecmp(requested, "d3d9") || !strcasecmp(requested, "dx9") || !strcasecmp(requested, "d3d9_32") ||
         !strcasecmp(requested, "dx9_32"))
-        return "dxvk_32";
+        return "vkd3d";
     if (!strcasecmp(requested, "m13") || !strcasecmp(requested, "gptk") || !strcasecmp(requested, "steam_d3dmetal"))
         return "m13";
     if (!strcasecmp(requested, "d3dmetal") || !strcasecmp(requested, "d3dmetal_native"))
@@ -238,16 +236,12 @@ static bool pipeline_is_dxmt(const char* pipeline) {
     return pipeline && (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32"));
 }
 
-static bool pipeline_is_dxvk(const char* pipeline) {
-    return pipeline && (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"));
-}
-
 static void set_wine_msync(const char* home) {
     setenv("WINEMSYNC", ms_config_msync_enabled(home) ? "1" : "0", 1);
 }
 
 static const char* pipeline_backend(const char* pipeline) {
-    if (!strcmp(pipeline, "vkd3d") || pipeline_is_dxvk(pipeline))
+    if (!strcmp(pipeline, "vkd3d"))
         return "vulkan";
     if (!strcmp(pipeline, "m13"))
         return "gptk";
@@ -260,8 +254,6 @@ static const char* pipeline_backend(const char* pipeline) {
 
 static const char* pipeline_overrides(const char* pipeline) {
     if (!strcmp(pipeline, "vkd3d"))
-        return "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
-    if (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
         return "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
     if (!strcmp(pipeline, "dxmt"))
         return "winemetal,dxgi,d3d11,d3d10core=n,b,d3d12=b;gameoverlayrenderer,gameoverlayrenderer64=d";
@@ -371,19 +363,11 @@ static void set_route_paths(const char* home, const char* pipeline) {
         snprintf(unixpath, sizeof(unixpath),
                  "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
                  home, home, home);
-    } else if (!strcmp(pipeline, "dxvk")) {
-        snprintf(dllpath, sizeof(dllpath), "%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
-                 home, home);
-        snprintf(unixpath, sizeof(unixpath), "%s/runtime/wine/lib/wine/x86_64-unix", home);
-    } else if (!strcmp(pipeline, "dxvk_32")) {
-        snprintf(dllpath, sizeof(dllpath),
-                 "%s/vkd3d/dxvk/i386-windows:%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/wine/x86_64-windows",
-                 home, home, home);
-        snprintf(unixpath, sizeof(unixpath), "%s/runtime/wine/lib/wine/x86_64-unix", home);
     } else if (!strcmp(pipeline, "vkd3d")) {
         snprintf(
             dllpath, sizeof(dllpath),
-            "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows", home, home);
+            "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
+            home, home, home);
         /* Keep VKD3D on its dedicated current MoltenVK lane.  Do not use the
          * Wine-bundled fallback driver or any DXMT sidecars here. */
         snprintf(unixpath, sizeof(unixpath), "%s/runtime/wine/lib/moltenvk-vkmt:%s/runtime/wine/lib/wine/x86_64-unix",
@@ -480,7 +464,7 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
         setenv("DXMT_PIPELINE_CACHE_PATH", cache, 1);
         snprintf(log_path, sizeof(log_path), "%s/logs/%s/%u/", home, subdir, id);
         (void)ensure_directory(log_path);
-    } else if (!strcmp(pipeline, "vkd3d") || pipeline_is_dxvk(pipeline)) {
+    } else if (!strcmp(pipeline, "vkd3d")) {
         setenv("DXVK_STATE_CACHE_PATH", shader, 1);
         setenv("DXVK_LOG_PATH", cache, 1);
         setenv("DXVK_LOG_LEVEL", "info", 1);
@@ -505,7 +489,7 @@ static void set_route_default_env(const char* pipeline) {
         unsetenv("DXMT_D3D12_PSO_WORKERS");
         unsetenv("DXMT_CONFIG");
     }
-    if (!strcmp(pipeline, "vkd3d") || pipeline_is_dxvk(pipeline)) {
+    if (!strcmp(pipeline, "vkd3d")) {
         setenv("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", "1", 1);
         setenv("MVK_PRESENT_MODE", "1", 1);
         setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1", 1);
@@ -532,14 +516,14 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-api");
         append_launch_arg(argv, count, max, "Vulkan");
     }
-    if ((id == 400 || id == 620 || id == 4000) && !strcmp(pipeline, "dxvk")) {
+    if ((id == 400 || id == 620 || id == 4000) && !strcmp(pipeline, "vkd3d")) {
         append_launch_arg(argv, count, max, "-dxlevel");
         append_launch_arg(argv, count, max, "90");
         append_launch_arg(argv, count, max, "-novid");
-    } else if ((id == 240 || id == 500 || id == 550) && !strcmp(pipeline, "dxvk")) {
+    } else if ((id == 240 || id == 500 || id == 550) && !strcmp(pipeline, "vkd3d")) {
         append_launch_arg(argv, count, max, "-dxlevel");
         append_launch_arg(argv, count, max, "90");
-    } else if (id == 7670 && !strcmp(pipeline, "dxvk"))
+    } else if (id == 7670 && !strcmp(pipeline, "vkd3d"))
         append_launch_arg(argv, count, max, "-dx9");
     else if (id == 12210 && !strcmp(pipeline, "dxmt"))
         append_launch_arg(argv, count, max, "-d3d10");
@@ -1286,15 +1270,12 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
         files[file_count++] = "nvngx-on-metalfx.dll";
     } else if (!strcmp(pipeline, "vkd3d")) {
         static const char* const files_vkd3d[] = {"d3d12.dll", "d3d12core.dll", "dxgi.dll"};
+        static const char* const files_dxvk[] = {"d3d11.dll", "d3d10core.dll", "d3d9.dll"};
         for (size_t i = 0; i < sizeof(files_vkd3d) / sizeof(files_vkd3d[0]); i++)
             ok = stage_route_asset(home, "vkd3d/vkd3d-proton/x86_64-windows", files_vkd3d[i], exe_dir) && ok;
+        for (size_t i = 0; i < sizeof(files_dxvk) / sizeof(files_dxvk[0]); i++)
+            ok = stage_route_asset(home, "vkd3d/dxvk/x86_64-windows", files_dxvk[i], exe_dir) && ok;
         goto prefix_done;
-    } else if (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32")) {
-        source = !strcmp(pipeline, "dxvk_32") ? "vkd3d/dxvk/i386-windows" : "vkd3d/dxvk/x86_64-windows";
-        files[file_count++] = "d3d11.dll";
-        files[file_count++] = "d3d10core.dll";
-        files[file_count++] = "d3d9.dll";
-        files[file_count++] = "dxgi.dll";
     } else if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32")) {
         source = !strcmp(pipeline, "dxmt_32") ? "lib/dxmt/i386-windows" : "lib/dxmt/x86_64-windows";
         files[file_count++] = "d3d11.dll";
@@ -2156,18 +2137,10 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
         snprintf(winedllpath, sizeof(winedllpath), "%s/runtime/wine/lib/dxmt/%s-windows", home,
                  !strcmp(pipeline, "dxmt_32") ? "i386" : "x86_64");
         setenv("WINEDLLPATH", winedllpath, 1);
-    } else if (pipeline_is_dxvk(pipeline)) {
-        snprintf(winedllpath, sizeof(winedllpath), "%s/vkd3d/dxvk/%s-windows:%s/runtime/wine/lib/wine/%s-windows", home,
-                 !strcmp(pipeline, "dxvk_32") ? "i386" : "x86_64", home,
-                 !strcmp(pipeline, "dxvk_32") ? "i386" : "x86_64");
-        setenv("WINEDLLPATH", winedllpath, 1);
-        snprintf(vulkan_icd, sizeof(vulkan_icd), "%s/runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", home);
-        setenv("VK_ICD_FILENAMES", vulkan_icd, 1);
-        setenv("VK_DRIVER_FILES", vulkan_icd, 1);
-        backend = "dxvk";
     } else if (!strcmp(pipeline, "vkd3d")) {
         snprintf(winedllpath, sizeof(winedllpath),
-                 "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows", home, home);
+                 "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
+                 home, home, home);
         setenv("WINEDLLPATH", winedllpath, 1);
         snprintf(vulkan_icd, sizeof(vulkan_icd), "%s/runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json", home);
         setenv("VK_ICD_FILENAMES", vulkan_icd, 1);
@@ -3713,7 +3686,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         else
             unsetenv("WINEDLLOVERRIDES");
-        if (!strcmp(pipeline, "dxvk") && (id == 774361 || id == 17410 || id == 49520)) {
+        if (!strcmp(pipeline, "vkd3d") && (id == 774361 || id == 17410 || id == 49520)) {
             setenv("DXMT_ASYNC_PIPELINE_COMPILE", "0", 1);
             setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "0", 1);
             setenv("DXMT_METALFX_SPATIAL", "0", 1);
@@ -4015,7 +3988,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             *status = 404;
         return err("Game executable not found");
     }
-    if ((!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxvk")) && executable_is_32bit(executable)) {
+    if (!strcmp(pipeline, "dxmt") && executable_is_32bit(executable)) {
         /* DXMT and DXVK have separate PE lanes for 32-bit games. */
         char widened_pipeline[32];
         snprintf(widened_pipeline, sizeof(widened_pipeline), "%s_32", pipeline);
@@ -4217,23 +4190,16 @@ char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, si
                 ready = false;
             free(source);
         }
-    } else if (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32")) {
-        const char* arch = !strcmp(pipeline, "dxvk_32") ? "i386" : "x86_64";
-        static const char* const files[] = {"d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"};
-        char source_dir[PATH_MAX];
-        snprintf(source_dir, sizeof(source_dir), "%s/vkd3d/dxvk/%s-windows", home, arch);
-        for (size_t i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
-            char* source = join(source_dir, files[i]);
-            if (!source || access(source, R_OK) != 0)
-                ready = false;
-            free(source);
-        }
     } else if (!strcmp(pipeline, "vkd3d")) {
         dlls[dll_count++] = "d3d12.dll";
         dlls[dll_count++] = "d3d12core.dll";
         dlls[dll_count++] = "dxgi.dll";
+        dlls[dll_count++] = "d3d11.dll";
+        dlls[dll_count++] = "d3d10core.dll";
+        dlls[dll_count++] = "d3d9.dll";
         for (size_t i = 0; i < dll_count; i++) {
-            char* source_dir = join(home, "vkd3d/vkd3d-proton/x86_64-windows");
+            const char* subpath = i < 3 ? "vkd3d/vkd3d-proton/x86_64-windows" : "vkd3d/dxvk/x86_64-windows";
+            char* source_dir = join(home, subpath);
             char* source = source_dir ? join(source_dir, dlls[i]) : NULL;
             if (!source || access(source, R_OK) != 0)
                 ready = false;

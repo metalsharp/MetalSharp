@@ -528,7 +528,7 @@ static char* cache_doctor_report(const char* query, int* status) {
                  !strcasecmp(requested, "dxmt"))
             pipeline = "dxmt";
         else if (!strcasecmp(requested, "m9") || !strcasecmp(requested, "dxvk"))
-            pipeline = "dxvk";
+            pipeline = "vkd3d";
         else if (!strcasecmp(requested, "vkd3d"))
             pipeline = "vkd3d";
     }
@@ -592,7 +592,7 @@ static char* pso_manifest_report(const char* query, int* status) {
                  !strcasecmp(requested, "dxmt"))
             pipeline = "dxmt";
         else if (!strcasecmp(requested, "m9") || !strcasecmp(requested, "dxvk"))
-            pipeline = "dxvk";
+            pipeline = "vkd3d";
     }
     char directory[2048];
     DIR* dir;
@@ -814,17 +814,10 @@ static char* launch_diagnostic_report(const char* query, int* status) {
     static const launch_artifact vkd3d_artifacts[] = {
         {"vkd3d-proton/x86_64-windows", "d3d12.dll", false},
         {"vkd3d-proton/x86_64-windows", "d3d12core.dll", false},
-        {"vkd3d-proton/x86_64-windows", "dxgi.dll", false}};
-    static const launch_artifact dxvk_artifacts[] = {
+        {"vkd3d-proton/x86_64-windows", "dxgi.dll", false},
         {"dxvk/x86_64-windows", "d3d11.dll", false},
         {"dxvk/x86_64-windows", "d3d10core.dll", false},
-        {"dxvk/x86_64-windows", "d3d9.dll", false},
-        {"dxvk/x86_64-windows", "dxgi.dll", false}};
-    static const launch_artifact dxvk32_artifacts[] = {
-        {"dxvk/i386-windows", "d3d11.dll", false},
-        {"dxvk/i386-windows", "d3d10core.dll", false},
-        {"dxvk/i386-windows", "d3d9.dll", false},
-        {"dxvk/i386-windows", "dxgi.dll", false}};
+        {"dxvk/x86_64-windows", "d3d9.dll", false}};
     static const launch_artifact dxmt_artifacts[] = {
         {"lib/dxmt/x86_64-windows", "d3d11.dll", false},
         {"lib/dxmt/x86_64-windows", "d3d10core.dll", false},
@@ -872,20 +865,8 @@ static char* launch_diagnostic_report(const char* query, int* status) {
         pipeline_name = "DXMT(32)";
         backend = "dxmt";
         graphics_backend = "dxmt";
-    } else if (!strcasecmp(pipeline, "dxvk") || !strcasecmp(pipeline, "m9")) {
-        pipeline = "dxvk";
-        artifacts = dxvk_artifacts;
-        artifact_count = sizeof(dxvk_artifacts) / sizeof(dxvk_artifacts[0]);
-        pipeline_name = "DXVK";
-        backend = "vulkan";
-        graphics_backend = "vulkan";
-    } else if (!strcasecmp(pipeline, "dxvk_32")) {
-        pipeline = "dxvk_32";
-        artifacts = dxvk32_artifacts;
-        artifact_count = sizeof(dxvk32_artifacts) / sizeof(dxvk32_artifacts[0]);
-        pipeline_name = "DXVK(32)";
-        backend = "vulkan";
-        graphics_backend = "vulkan";
+    } else if (!strcasecmp(pipeline, "dxvk") || !strcasecmp(pipeline, "dxvk_32") || !strcasecmp(pipeline, "m9")) {
+        pipeline = "vkd3d";
     } else if (!strcasecmp(pipeline, "d3dmetal")) {
         pipeline = "d3dmetal";
         artifacts = m13_artifacts;

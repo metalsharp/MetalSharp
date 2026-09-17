@@ -79,12 +79,8 @@ static const char* pipeline_name(const char* pipeline) {
         return "VKD3D-Proton";
     if (!strcmp(pipeline, "dxmt"))
         return "DXMT";
-    if (!strcmp(pipeline, "dxvk"))
-        return "DXVK";
     if (!strcmp(pipeline, "dxmt_32"))
         return "DXMT(32)";
-    if (!strcmp(pipeline, "dxvk_32"))
-        return "DXVK(32)";
     if (!strcmp(pipeline, "d3dmetal"))
         return "D3DMetal (GPTK)";
     if (!strcmp(pipeline, "fna_arm64"))
@@ -130,8 +126,8 @@ char* ms_game_resolve_json(const char* home, const unsigned char* body, size_t l
         snprintf(pipeline, 16, "dxmt");
     else if (!strcmp(pipeline, "m11_32") || !strcmp(pipeline, "m10_32"))
         snprintf(pipeline, 16, "dxmt_32");
-    else if (!strcmp(pipeline, "m9"))
-        snprintf(pipeline, 16, "dxvk");
+    else if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
+        snprintf(pipeline, 16, "vkd3d");
     if (status)
         *status = 200;
     ms_json_writer_init(&w);

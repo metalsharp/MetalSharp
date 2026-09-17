@@ -37,8 +37,6 @@ RULES_PATH = ROOT / "configs" / "mtsp-rules.toml"
 VALID_PIPELINES = {
     "dxmt",
     "dxmt_32",
-    "dxvk",
-    "dxvk_32",
     "vkd3d",
     "d3dmetal",
     "m13",

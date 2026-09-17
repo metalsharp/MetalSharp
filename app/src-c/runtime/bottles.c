@@ -205,12 +205,9 @@ static const char** profile_components(const char* id) {
                       *game[] = {"vcrun2019_x64", "vcrun2019_x86", "vcrun2013", "directx_jun2010", "corefonts", NULL},
                       *dxmt[] = {"d3d11", "d3d10core", "dxgi", "winemetal", "vcrun2019_x64", "vcrun2019_x86", NULL},
                       *dxmt_32[] = {"d3d11", "d3d10core", "dxgi", "winemetal", "vcrun2019_x86", NULL},
-                      *dxvk[] = {"dxvk_d3d11", "dxvk_d3d10core", "dxvk_d3d9", "dxvk_dxgi", "vcrun2019_x64",
-                                 "vcrun2019_x86", "corefonts", NULL},
-                      *dxvk_32[] = {"dxvk_d3d11", "dxvk_d3d10core", "dxvk_d3d9", "dxvk_dxgi", "vcrun2019_x86",
-                                    "corefonts", NULL},
-                      *vkd3d[] = {"vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "vcrun2019_x64",
-                                  "vcrun2019_x86", "corefonts", NULL},
+                      *vkd3d[] = {"vkd3d_d3d12", "vkd3d_d3d12core", "vkd3d_dxgi", "dxvk_d3d11",
+                                  "dxvk_d3d10core", "dxvk_d3d9", "dxvk_dxgi", "vcrun2019_x64", "vcrun2019_x86",
+                                  "corefonts", NULL},
                       *m13[] = {"d3d11", "d3d12", "dxgi", "d3d10", "vcrun2019_x64", "vcrun2019_x86", "gpu_vendor_stubs",
                                 NULL},
                       *d3dmetal[] = {"gptk", "rosetta", "gptk_prefix", "vcrun2019_x64", "vcrun2019_x86", NULL},
@@ -230,10 +227,6 @@ static const char** profile_components(const char* id) {
         return dxmt;
     if (!strcmp(id, "dxmt_32"))
         return dxmt_32;
-    if (!strcmp(id, "dxvk"))
-        return dxvk;
-    if (!strcmp(id, "dxvk_32"))
-        return dxvk_32;
     if (!strcmp(id, "vkd3d"))
         return vkd3d;
     if (!strcmp(id, "m13"))
@@ -257,11 +250,9 @@ static const profile profiles[] = {{"plain", "Plain Wine", "wow64", "wine_bare",
                                    {"game_install", "Game Installer", "wow64", "wine_bare", true},
                                    {"dxmt", "DXMT", "win64", "dxmt", true},
                                    {"dxmt_32", "DXMT(32)", "win32", "dxmt_32", true},
-                                   {"dxvk", "DXVK", "win64", "dxvk", true},
-                                   {"dxvk_32", "DXVK(32)", "win32", "dxvk_32", true},
                                    {"m13", "GPTK D3DMetal", "win64", "m13", true},
                                    {"dotnet", ".NET", "win64", "wine_bare", true},
-                                   {"win32_dotnet", "32-bit .NET", "win32", "dxvk_32", true},
+                                   {"win32_dotnet", "32-bit .NET", "win32", "dxmt_32", true},
                                    {"webview", "WebView", "wow64", "wine_bare", true},
                                    {"java_launcher", "Java Launcher", "wow64", "wine_bare", true},
                                    {"fna_arm64", "FNA / Mono ARM64", "win64", "fna_arm64", false},
@@ -549,10 +540,10 @@ char* ms_bottles_redist_json(const char* home) {
     return o;
 }
 char* ms_bottles_contracts_json(void) {
-    static const char* p[] = {"dxmt", "dxvk", "dxmt_32", "dxvk_32", "vkd3d", "fna_arm64", "wine_bare", "d3dmetal"};
-    static const char* profile[] = {"dxmt", "dxvk", "dxmt_32", "dxvk_32", "vkd3d", "fna_arm64", "plain", "d3dmetal"};
-    static const bool wine[] = {true, true, true, true, true, false, true, false};
-    static const bool offline_route[] = {false, false, false, false, false, false, false, true};
+    static const char* p[] = {"dxmt", "dxmt_32", "vkd3d", "fna_arm64", "wine_bare", "d3dmetal"};
+    static const char* profile[] = {"dxmt", "dxmt_32", "vkd3d", "fna_arm64", "plain", "d3dmetal"};
+    static const bool wine[] = {true, true, true, false, true, false};
+    static const bool offline_route[] = {false, false, false, false, false, true};
     ms_json_writer w;
     char* o;
     size_t i;
@@ -562,7 +553,7 @@ char* ms_bottles_contracts_json(void) {
     ms_json_writer_bool(&w, true);
     ms_json_writer_key(&w, "contracts");
     ms_json_writer_array_begin(&w);
-    for (i = 0; i < 8; i++) {
+    for (i = 0; i < 6; i++) {
         ms_json_writer_object_begin(&w);
         obj_string(&w, "pipeline", p[i]);
         obj_string(&w, "runtime_profile", profile[i]);
