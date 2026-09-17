@@ -83,8 +83,8 @@ const pendingLibraryTab = ref<string | null>(null);
 provide("pendingLibraryTab", pendingLibraryTab);
 
 function navigateTo(view: string) {
-  if (view === "collection") {
-    pendingLibraryTab.value = "collection";
+  if (view === "play" || view === "collection") {
+    pendingLibraryTab.value = view === "collection" ? "collection" : "play";
     currentView.value = "library";
   } else {
     currentView.value = view;

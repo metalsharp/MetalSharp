@@ -672,10 +672,13 @@ watch(
 );
 
 onMounted(() => {
-  // Honor a Collection request made while another page was active.
+  // Honor a Play/Collection request made while another page was active.
   if (pendingLibraryTab.value === "collection") {
     pendingLibraryTab.value = null;
     openCollection();
+  } else if (pendingLibraryTab.value === "play") {
+    pendingLibraryTab.value = null;
+    openPlay();
   }
   void loadGameSettings();
 });
