@@ -12,6 +12,7 @@ import { marked } from "marked";
 import { useToast } from "./composables/useToast";
 import { getAPI, api } from "./composables/useApi";
 import type { AppConfig, UpdateStatus, SteamStatus } from "./api-types";
+import startupVideoUrl from "./assets/MetalSharp-Startup.mp4";
 
 interface SteamGame {
   appid: number;
@@ -37,6 +38,8 @@ const currentView = ref("library");
 const isProcessManagerOverlay = new URLSearchParams(window.location.search).get("overlay") === "process-manager";
 const showSetup = ref(false);
 const showMigration = ref(false);
+const showStartupVideo = ref(false);
+const startupVideoSeenKey = "metalsharp-startup-video-seen";
 const backendConnected = ref(false);
 const backendVersion = ref<string | null>(null);
 const wineSteamInstalled = ref(false);
@@ -370,6 +373,12 @@ function startHealthPolling() {
   }, 120000);
 }
 
+function finishStartupVideo() {
+  if (!showStartupVideo.value) return;
+  localStorage.setItem(startupVideoSeenKey, "true");
+  showStartupVideo.value = false;
+}
+
 function onSetupDone() {
   showSetup.value = false;
   initApp();
@@ -412,6 +421,7 @@ onMounted(async () => {
     return;
   }
   const firstLaunch = await getAPI().isFirstLaunch();
+  if (firstLaunch && !localStorage.getItem(startupVideoSeenKey)) showStartupVideo.value = true;
   const setupState = await api<{ deviceName?: string; runtimeMigrationRequired?: boolean }>("GET", "/setup/state");
   if (setupState?.deviceName) setupDeviceName.value = setupState.deviceName;
   if (firstLaunch || setupState?.runtimeMigrationRequired) {
@@ -424,6 +434,19 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div v-if="showStartupVideo" class="startup-video-overlay" role="dialog" aria-label="MetalSharp introduction">
+    <video
+      class="startup-video"
+      :src="startupVideoUrl"
+      autoplay
+      muted
+      playsinline
+      preload="auto"
+      @ended="finishStartupVideo"
+      @error="finishStartupVideo"
+    ></video>
+    <button class="startup-video-skip" type="button" @click="finishStartupVideo">Skip intro</button>
+  </div>
   <ProcessManagerOverlay v-if="isProcessManagerOverlay" />
   <MigrationView v-else-if="showMigration" />
   <SetupWizard v-else-if="showSetup" @done="onSetupDone()" />
@@ -740,5 +763,33 @@ onMounted(async () => {
 .content.library-shell > .drag-strip,
 .content.library-shell > .update-banner {
   display: none;
+}
+.startup-video-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #050607;
+}
+.startup-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.startup-video-skip {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  padding: 9px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+.startup-video-skip:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 </style>
