@@ -200,7 +200,7 @@ async function toggleSteam() {
 <style scoped>
 .library-topbar {
   position: relative;
-  z-index: 10;
+  z-index: 1000;
   display: flex;
   align-items: center;
   gap: 24px;
@@ -236,6 +236,7 @@ async function toggleSteam() {
 }
 .library-theme-control {
   position: relative;
+  z-index: 1001;
   flex: 0 0 auto;
   margin-right: 4px;
 }
@@ -270,7 +271,7 @@ async function toggleSteam() {
 }
 .library-theme-menu {
   position: absolute;
-  z-index: 30;
+  z-index: 1002;
   top: calc(100% + 8px);
   left: 0;
   display: flex;
@@ -496,6 +497,7 @@ async function toggleSteam() {
 }
 .library-tab-control {
   position: relative;
+  z-index: 1001;
   flex: 0 0 auto;
 }
 .library-tab-button {
@@ -519,7 +521,7 @@ async function toggleSteam() {
 }
 .library-tab-menu {
   position: absolute;
-  z-index: 30;
+  z-index: 1002;
   top: calc(100% + 8px);
   right: 0;
   display: flex;
