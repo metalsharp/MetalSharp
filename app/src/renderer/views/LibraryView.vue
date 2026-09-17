@@ -868,14 +868,14 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
             class="library-art-button"
             type="button"
             title="Customize Steam artwork with Steam Art Manager"
+            aria-label="Customize Steam artwork with Steam Art Manager"
             :disabled="artManagerOpening"
             @click="openArtManager"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
               <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
             </svg>
-            <span>Art</span>
           </button>
           <div class="library-bottle-control">
             <span class="library-control-label">Bottle</span>
@@ -1482,20 +1482,15 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
 .library-view .library-art-button {
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
   min-height: 42px;
-  padding: 0 13px;
+  padding: 0 12px;
   border: 1px solid rgba(231, 234, 236, 0.3);
   border-radius: 8px;
   background: rgba(12, 15, 16, 0.72);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(14px);
   color: #dfe3e2;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 .library-view .library-art-button:hover {

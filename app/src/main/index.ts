@@ -1752,6 +1752,41 @@ function registerIpc() {
     if (!fs.existsSync(samAppPath)) {
       return { ok: false, error: "Steam Art Manager is not installed" };
     }
+    const wineSteamPath = path.join(getMetalsharpDir(), "prefix-steam", "drive_c", "Program Files (x86)", "Steam");
+    // Pre-seed SAM's settings so it skips its Steam-path prompt. Never
+    // overwrite a path the user already chose inside SAM.
+    try {
+      const samConfigDir = path.join(os.homedir(), "Library", "Application Support", "dev.tormak.steam-art-manager");
+      const samSettingsPath = path.join(samConfigDir, "settings.json");
+      let samSettings: Record<string, unknown> = {};
+      if (fs.existsSync(samSettingsPath)) {
+        samSettings = JSON.parse(fs.readFileSync(samSettingsPath, "utf8"));
+      }
+      if (!samSettings.steamInstallPath && fs.existsSync(wineSteamPath)) {
+        fs.mkdirSync(samConfigDir, { recursive: true });
+        fs.writeFileSync(
+          samSettingsPath,
+          JSON.stringify({ ...samSettings, steamInstallPath: wineSteamPath }, null, 2),
+        );
+      }
+    } catch (error) {
+      console.warn("Could not pre-configure Steam Art Manager path:", error);
+    }
+    // The first time, hand the user the copy-paste path in case SAM still asks.
+    const introMarker = path.join(getMetalsharpDir(), ".steam-art-manager-intro-shown");
+    if (!fs.existsSync(introMarker) && fs.existsSync(wineSteamPath)) {
+      clipboard.writeText(wineSteamPath);
+      await dialog.showMessageBox({
+        type: "info",
+        title: "Steam Art Manager",
+        message: "If Steam Art Manager asks for your Steam install path, paste (⌘V) the path below — it has been copied to your clipboard:",
+        detail: wineSteamPath,
+        buttons: ["OK"],
+      });
+      try {
+        fs.writeFileSync(introMarker, new Date().toISOString());
+      } catch {}
+    }
     const child = spawn("open", [samAppPath], { detached: true, stdio: "ignore" });
     child.unref();
     return { ok: true };
