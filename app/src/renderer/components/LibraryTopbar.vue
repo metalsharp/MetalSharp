@@ -656,9 +656,12 @@ async function toggleSteam() {
   color: #fff !important;
   background: transparent !important;
 }
-/* With the search hidden (Sharp Library / Logs) push the tab dropdown and
-   settings button to the right edge, opposite the brand/theme/steam group. */
-.library-topbar.no-search .library-nav {
+/* With the search hidden (Sharp Library / Logs), keep the theme control
+   beside the tab dropdown at the right edge. */
+.library-topbar.no-search .library-theme-control {
   margin-left: auto;
+}
+.library-topbar.no-search .library-nav {
+  margin-left: 0;
 }
 </style>
