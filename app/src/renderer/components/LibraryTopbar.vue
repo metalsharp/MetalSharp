@@ -212,14 +212,15 @@ async function toggleSteam() {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
   -webkit-app-region: drag;
 }
-.library-window-space,
-.library-header-right,
-.library-brand,
-.library-nav,
 .library-search,
-.library-steam-split,
-.library-steam-gear,
-.library-steam-fix-menu {
+.library-steam-fix-backdrop {
+  -webkit-app-region: no-drag;
+}
+.library-topbar button,
+.library-topbar input,
+.library-topbar select,
+.library-topbar textarea,
+.library-topbar a {
   -webkit-app-region: no-drag;
 }
 .library-window-space {
@@ -347,7 +348,6 @@ async function toggleSteam() {
   position: relative;
   display: inline-flex;
   align-items: stretch;
-  -webkit-app-region: no-drag;
 }
 .library-steam-split .library-steam-button {
   margin-left: 0;
