@@ -216,8 +216,8 @@ static const char* profile_arch(const char* profile) {
     return "wow64";
 }
 static const char* pipeline_profile(const char* pipeline) {
-    if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk"))
-        return "dxvk";
+    if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
+        return "vkd3d";
     if (!strcmp(pipeline, "m10") || !strcmp(pipeline, "m11") || !strcmp(pipeline, "dxmt"))
         return "dxmt";
     if (!strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32") || !strcmp(pipeline, "dxmt_32"))
@@ -238,8 +238,8 @@ static const char* profile_pipeline(const char* profile) {
     if (!strcmp(profile, "plain") || !strcmp(profile, "launcher") || !strcmp(profile, "game_install") ||
         !strcmp(profile, "dotnet") || !strcmp(profile, "webview") || !strcmp(profile, "java_launcher"))
         return "wine_bare";
-    if (!strcmp(profile, "m9") || !strcmp(profile, "dxvk"))
-        return "dxvk";
+    if (!strcmp(profile, "m9") || !strcmp(profile, "dxvk") || !strcmp(profile, "dxvk_32"))
+        return "vkd3d";
     if (!strcmp(profile, "m10") || !strcmp(profile, "m11") || !strcmp(profile, "dxmt"))
         return "dxmt";
     if (!strcmp(profile, "m10_32") || !strcmp(profile, "m11_32") || !strcmp(profile, "dxmt_32"))

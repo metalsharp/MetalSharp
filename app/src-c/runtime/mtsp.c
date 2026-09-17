@@ -26,9 +26,7 @@ static const struct pipeline pipelines[] = {
     {"d3dmetal", "D3DMetal", "D3D11/D3D12 via Apple D3DMetal 4.0 (GPTK Wine)", "d3dmetal", "d3dmetal", true, false},
     {"vkd3d", "VKD3D", "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver", "vulkan", "vulkan", false, true},
     {"dxmt", "DXMT", "D3D10/D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
-    {"dxvk", "DXVK", "D3D9/D3D10/D3D11 via DXVK and MoltenVK", "vulkan", "vulkan", false, true},
     {"dxmt_32", "DXMT(32)", "32-bit D3D10/D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
-    {"dxvk_32", "DXVK(32)", "32-bit D3D9/D3D10/D3D11 via DXVK", "vulkan", "vulkan", false, true},
     {"m13", "M13", "D3D11/D3D12 via Apple Game Porting Toolkit", "gptk", "gptk", false, true},
     {"m32", "M32", "32-bit Wine fallback", "wine32", "wine", false, true},
     {"fna_arm64", "Mono/FNA", "Windows XNA/FNA via MetalSharp Mono runtime", "mono", "native", false, false},
@@ -40,8 +38,8 @@ static const struct pipeline pipelines[] = {
 static const char* mtsp_pipeline_name(const char* id);
 
 static bool mtsp_pipeline_user_selectable(const char* id) {
-    return !strcmp(id, "d3dmetal") || !strcmp(id, "vkd3d") || !strcmp(id, "dxmt") || !strcmp(id, "dxvk") ||
-           !strcmp(id, "dxmt_32") || !strcmp(id, "dxvk_32") || !strcmp(id, "fna_arm64");
+    return !strcmp(id, "d3dmetal") || !strcmp(id, "vkd3d") || !strcmp(id, "dxmt") || !strcmp(id, "dxmt_32") ||
+           !strcmp(id, "fna_arm64");
 }
 
 static unsigned long long query_appid(const char* query) {
@@ -177,10 +175,6 @@ static const char* mtsp_pipeline_name(const char* id) {
         return "DXMT";
     if (!strcmp(id, "dxmt_32"))
         return "DXMT(32)";
-    if (!strcmp(id, "dxvk"))
-        return "DXVK";
-    if (!strcmp(id, "dxvk_32"))
-        return "DXVK(32)";
     if (!strcmp(id, "fna_arm64") || !strcmp(id, "fna_x86"))
         return "Mono/FNA";
     if (!strcmp(id, "wine_bare"))
@@ -408,20 +402,20 @@ char* ms_mtsp_launch_shape_json(const char* query) {
         id = !strcmp(requested, "auto") || !requested[0] ? default_pipeline : requested;
     } else
         id = default_pipeline;
+    if (!strcmp(id, "dxvk") || !strcmp(id, "dxvk_32") || !strcmp(id, "m9"))
+        id = "vkd3d";
     const char* name = !strcmp(id, "d3dmetal")  ? "D3DMetal"
                        : !strcmp(id, "vkd3d")     ? "VKD3D"
                        : !strcmp(id, "dxmt")      ? "DXMT"
-                       : !strcmp(id, "dxvk")      ? "DXVK"
                        : !strcmp(id, "dxmt_32")   ? "DXMT(32)"
-                       : !strcmp(id, "dxvk_32")   ? "DXVK(32)"
                        : !strcmp(id, "fna_arm64") ? "Mono/FNA"
                                                   : "VKD3D";
-    const char* backend = !strcmp(id, "vkd3d") || !strcmp(id, "dxvk") || !strcmp(id, "dxvk_32") ? "vulkan"
+    const char* backend = !strcmp(id, "vkd3d") ? "vulkan"
                           : !strcmp(id, "d3dmetal") ? "d3dmetal"
                           : !strcmp(id, "fna_arm64") ? "mono"
                                                      : "dxmt";
     const char* custom_exe = appid == 1145360 ? "x86/Hades.exe" : NULL;
-    const char* graphics = !strcmp(id, "vkd3d") || !strcmp(id, "dxvk") || !strcmp(id, "dxvk_32") ? "vulkan"
+    const char* graphics = !strcmp(id, "vkd3d") ? "vulkan"
                            : !strcmp(id, "d3dmetal") ? "d3dmetal"
                            : !strcmp(id, "fna_arm64") ? "mono"
                                                       : "dxmt";

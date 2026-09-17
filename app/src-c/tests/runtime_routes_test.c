@@ -48,12 +48,12 @@ int main(int argc, char** argv) {
     assert(strstr(getenv("VK_DRIVER_FILES"), "lib/moltenvk-vkmt/MoltenVK_icd.json"));
     assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
     assert(!strcmp(canonical_pipeline("dxmt"), "dxmt"));
-    assert(!strcmp(canonical_pipeline("dxvk"), "dxvk"));
+    assert(!strcmp(canonical_pipeline("dxvk"), "vkd3d"));
     assert(!strcmp(canonical_pipeline("dxmt_32"), "dxmt_32"));
-    assert(!strcmp(canonical_pipeline("dxvk_32"), "dxvk_32"));
-    assert(!strcmp(pipeline_backend("dxvk"), "vulkan"));
+    assert(!strcmp(canonical_pipeline("dxvk_32"), "vkd3d"));
+    assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
     assert(strstr(pipeline_overrides("dxmt"), "d3d10core"));
-    assert(strstr(pipeline_overrides("dxvk"), "d3d9"));
+    assert(strstr(pipeline_overrides("vkd3d"), "d3d9"));
     set_route_paths(home, "d3dmetal");
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));

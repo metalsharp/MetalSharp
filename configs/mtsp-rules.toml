@@ -5,7 +5,7 @@
 # names. Pipeline choices are based on verified Windows renderer/API data:
 # - fna_arm64/fna_x86: XNA/FNA/Mono titles.
 # - dxmt/dxmt_32: D3D10/D3D11 through DXMT (64-bit/i386).
-# - dxvk/dxvk_32: D3D9/D3D10/D3D11 through DXVK (64-bit/i386).
+# - vkd3d: D3D12 through VKD3D-Proton with the bundled DXVK D3D9-D3D11 fallback set.
 # - wine_bare: non-D3D or Vulkan-first titles where DXMT is not the renderer.
 #
 # D3D12 titles use the VKD3D-Proton lane; DXMT and DXVK cover the D3D9-D3D11 lanes.
@@ -41,7 +41,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.375520]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Taimumari: Definitive Edition"
 
 [overrides.387290]
@@ -100,7 +100,7 @@ pipeline = "dxmt_32"
 name = "Nidhogg 2"
 
 [overrides.17410]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Mirror's Edge"
 
 [overrides.620]
@@ -108,7 +108,7 @@ pipeline = "vkd3d"
 name = "Portal 2"
 
 [overrides.265930]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Goat Simulator"
 
 [overrides.265930.dependencies]
@@ -118,7 +118,7 @@ components = ["dotnet40", "vcrun2010", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "mscoree.dll", "msvcr100.dll", "msvcp100.dll"]
 
 [overrides.391540]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Undertale"
 
 [overrides.945360]
@@ -182,7 +182,7 @@ name = "Borderlands 3"
 [overrides.397540.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.49520]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Borderlands 2"
 
 [overrides.298110]
@@ -216,7 +216,7 @@ name = "Dave the Diver"
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.774361]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Blasphemous"
 
 [overrides.1551360]
@@ -572,7 +572,7 @@ name = "BeamNG.drive"
 [overrides.284160.diagnostics]
 check_dlls = ["d3d12.dll", "d3d12core.dll", "d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"]
 [overrides.220]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Half-Life 2"
 
 [overrides.440]
@@ -609,7 +609,7 @@ name = "Counter-Strike 2"
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.22380]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Fallout: New Vegas"
 
 [overrides.22380.diagnostics]
@@ -690,7 +690,7 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 # Verify DX version on PCGamingWiki if a default is wrong
 
 [overrides.50]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Half-Life: Opposing Force"
 
 [overrides.50.dependencies]
@@ -700,7 +700,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.60]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Ricochet"
 
 [overrides.60.dependencies]
@@ -710,7 +710,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.240]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Counter-Strike: Source"
 
 [overrides.240.dependencies]
@@ -720,7 +720,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.300]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Day of Defeat: Source"
 
 [overrides.300.dependencies]
@@ -730,7 +730,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.320]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Half-Life 2: Deathmatch"
 
 [overrides.320.dependencies]
@@ -740,7 +740,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.360]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Half-Life Deathmatch: Source"
 
 [overrides.360.dependencies]
@@ -750,7 +750,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.500]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Left 4 Dead"
 
 [overrides.500.dependencies]
@@ -760,7 +760,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.550]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Left 4 Dead 2"
 
 [overrides.550.dependencies]
@@ -770,7 +770,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.1200]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Red Orchestra: Ostfront 41-45"
 
 [overrides.1200.dependencies]
@@ -780,7 +780,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.2210]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Quake 4"
 
 [overrides.2210.dependencies]
@@ -790,7 +790,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.2270]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Wolfenstein 3D"
 
 [overrides.2270.dependencies]
@@ -800,7 +800,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.2280]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "DOOM + DOOM II"
 
 [overrides.2280.dependencies]
@@ -810,7 +810,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.2320]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Quake II"
 
 [overrides.2320.dependencies]
@@ -820,7 +820,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.4000]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Garry's Mod"
 
 [overrides.4000.dependencies]
@@ -830,7 +830,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.4700]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Total War: Medieval II"
 
 [overrides.4700.dependencies]
@@ -840,7 +840,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.6000]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Star Wars Republic Commando"
 
 [overrides.6000.dependencies]
@@ -850,7 +850,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.6020]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Star Wars Jedi Knight - Jedi Academy"
 
 [overrides.6020.dependencies]
@@ -860,7 +860,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.7110]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Jade Empire: Special Edition"
 
 [overrides.7110.dependencies]
@@ -870,7 +870,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.7940]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Warhammer 40,000: Dawn of War II"
 
 [overrides.7940.dependencies]
@@ -940,7 +940,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.9010]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Return to Castle Wolfenstein"
 
 [overrides.9010.dependencies]
@@ -970,7 +970,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.10090]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Call of Duty: World at War"
 
 [overrides.10090.dependencies]
@@ -1020,7 +1020,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.12320]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Sacred Gold"
 
 [overrides.12320.dependencies]
@@ -1030,7 +1030,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13200]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Unreal 2: The Awakening"
 
 [overrides.13200.dependencies]
@@ -1040,7 +1040,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13240]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Unreal Tournament GOTY"
 
 [overrides.13240.dependencies]
@@ -1050,7 +1050,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13500]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Prince of Persia: Warrior Within"
 
 [overrides.13500.dependencies]
@@ -1060,7 +1060,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13520]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Far Cry"
 
 [overrides.13520.dependencies]
@@ -1070,7 +1070,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13530]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Prince of Persia: The Two Thrones"
 
 [overrides.13530.dependencies]
@@ -1080,7 +1080,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13540]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Tom Clancy's Rainbow Six Vegas"
 
 [overrides.13540.dependencies]
@@ -1090,7 +1090,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13560]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Tom Clancy's Splinter Cell"
 
 [overrides.13560.dependencies]
@@ -1100,7 +1100,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13580]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Tom Clancy's Splinter Cell Double Agent"
 
 [overrides.13580.dependencies]
@@ -1110,7 +1110,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13600]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Prince of Persia: The Sands of Time"
 
 [overrides.13600.dependencies]
@@ -1120,7 +1120,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13620]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Tom Clancy's Ghost Recon Desert Siege"
 
 [overrides.13620.dependencies]
@@ -1130,7 +1130,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.13640]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Tom Clancy's Ghost Recon Advanced Warfighter"
 
 [overrides.13640.dependencies]
@@ -1150,7 +1150,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.17460]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Mass Effect (2007)"
 
 [overrides.17460.dependencies]
@@ -1160,7 +1160,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.19900]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Far Cry 2"
 
 [overrides.19900.dependencies]
@@ -1170,7 +1170,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.19980]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Prince of Persia"
 
 [overrides.19980.dependencies]
@@ -1180,7 +1180,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.20800]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Rise of the Triad"
 
 [overrides.20800.dependencies]
@@ -1190,7 +1190,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.20820]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Lord of the Rings: War in the North"
 
 [overrides.20820.dependencies]
@@ -1200,7 +1200,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.20900]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "The Witcher: Enhanced Edition"
 
 [overrides.20900.dependencies]
@@ -1210,7 +1210,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.20920]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "The Witcher 2: Assassins of Kings Enhanced Edition"
 
 [overrides.20920.dependencies]
@@ -1220,7 +1220,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.22000]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "World of Goo"
 
 [overrides.22000.dependencies]
@@ -1230,7 +1230,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.22040]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Sid Meier's Civilization IV"
 
 [overrides.22040.dependencies]
@@ -1250,7 +1250,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.22300]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Fallout 3"
 
 [overrides.22300.dependencies]
@@ -1260,7 +1260,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.22320]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "The Elder Scrolls III: Morrowind GOTY"
 
 [overrides.22320.dependencies]
@@ -1270,7 +1270,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.23490]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Tropico 3"
 
 [overrides.23490.dependencies]
@@ -1300,7 +1300,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.32370]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Star Wars Knights of the Old Republic"
 
 [overrides.32370.dependencies]
@@ -1320,7 +1320,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.34030]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Total War: Napoleon"
 
 [overrides.34030.dependencies]
@@ -1330,7 +1330,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.35140]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Batman: Arkham Asylum"
 
 [overrides.35140.dependencies]
@@ -1340,7 +1340,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.35450]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Red Orchestra 2"
 
 [overrides.35450.dependencies]
@@ -1380,7 +1380,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.39500]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Gothic 3"
 
 [overrides.39500.dependencies]
@@ -1390,7 +1390,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.39510]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Gothic II Gold"
 
 [overrides.39510.dependencies]
@@ -1410,7 +1410,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.40390]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Risen 2: Dark Waters"
 
 [overrides.40390.dependencies]
@@ -1450,7 +1450,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.47780]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Dead Space 2"
 
 [overrides.47780.dependencies]
@@ -1460,7 +1460,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.47810]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Dragon Age: Origins - Ultimate Edition"
 
 [overrides.47810.dependencies]
@@ -1480,7 +1480,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.49540]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Command & Conquer Red Alert 3"
 
 [overrides.49540.dependencies]
@@ -1557,7 +1557,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.108710]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Alan Wake"
 
 [overrides.108710.dependencies]
@@ -1587,7 +1587,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.112901]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Tropico 4"
 
 [overrides.112901.dependencies]
@@ -1617,7 +1617,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.200260]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Batman: Arkham City - Game of the Year Edition"
 
 [overrides.200260.dependencies]
@@ -1737,7 +1737,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.209000]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Batman: Arkham Origins"
 
 [overrides.209000.dependencies]
@@ -1747,7 +1747,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d9.dll", "d3dx9_43.dll", "D3DCompiler_43.dll", "xinput1_3.dll", "winemetal.dll"]
 
 [overrides.209100]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Ridge Racer Unbounded"
 
 [overrides.209100.dependencies]
@@ -2197,7 +2197,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.261640]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Borderlands: The Pre-Sequel"
 
 [overrides.261640.dependencies]
@@ -2227,7 +2227,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.268050]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "The Evil Within"
 
 [overrides.268050.dependencies]
@@ -2337,7 +2337,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.287070]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Battle Academy"
 
 [overrides.287070.dependencies]
@@ -4007,7 +4007,7 @@ components = ["vcrun2019_x86", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.901246]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "Sins of a Solar Empire: Rebellion"
 
 [overrides.901246.dependencies]
@@ -6202,7 +6202,7 @@ name = "AppID 2357570"
 exe_names = ["Overwatch.exe"]
 
 [overrides.321040]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "DiRT 3 Complete Edition"
 exe_names = ["dirt3_game.exe"]
 
@@ -6293,7 +6293,7 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.2427420]
-pipeline = "dxvk"
+pipeline = "vkd3d"
 name = "S.T.A.L.K.E.R.: Clear Sky - Enhanced Edition"
 
 [overrides.2427420.dependencies]

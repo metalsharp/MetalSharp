@@ -198,14 +198,12 @@ const artworkLoadFailed = ref(false);
 const embeddedArtworkLoadFailed = ref(false);
 const launchModeStorageKey = computed(() => `metalsharp-launch-mode-${props.game.appid}`);
 const hiddenUserPipelineIds = new Set<string>();
-const userSelectablePipelineOrder = ["d3dmetal", "vkd3d", "dxmt", "dxvk", "dxmt_32", "dxvk_32", "fna_arm64"];
+const userSelectablePipelineOrder = ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "fna_arm64"];
 const userSelectablePipelineNames: Record<string, string> = {
   vkd3d: "VKD3D",
   d3dmetal: "D3DMetal",
   dxmt: "DXMT",
-  dxvk: "DXVK",
   dxmt_32: "DXMT(32)",
-  dxvk_32: "DXVK(32)",
   fna_arm64: "Mono/FNA",
 };
 function pipelineDisplayName(id: string | null | undefined, fallback = pipelineName.value): string {
@@ -259,9 +257,7 @@ const componentDisplayName: Record<string, string> = {
 
 const runtimeProfileDisplayName: Record<string, string> = {
   dxmt: "DXMT",
-  dxvk: "DXVK",
   dxmt_32: "DXMT(32)",
-  dxvk_32: "DXVK(32)",
   vkd3d: "VKD3D",
   fna_arm64: "FNA / Mono ARM64",
   fna_x86: "FNA / Mono x86_64",
@@ -277,7 +273,7 @@ function componentLabel(id: string): string {
 function bottleComponentLabel(id: string): string {
   const label = componentLabel(id);
   const profile = runtimeReport.value?.runtime_profile;
-  if (profile === "dxmt_32" || profile === "dxvk_32") {
+  if (profile === "dxmt_32") {
     // Only suffix DLL component IDs, not runtime/VC components that already indicate arch
     const dllIds = new Set(["d3d11", "dxgi", "d3d10core", "d3d10_1", "winemetal"]);
     if (dllIds.has(id)) {

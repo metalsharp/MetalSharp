@@ -138,9 +138,7 @@ const pipelineOptions = [
   { id: "d3dmetal", label: "D3DMetal" },
   { id: "vkd3d", label: "VKD3D" },
   { id: "dxmt", label: "DXMT" },
-  { id: "dxvk", label: "DXVK" },
   { id: "dxmt_32", label: "DXMT(32)" },
-  { id: "dxvk_32", label: "DXVK(32)" },
   { id: "fna_arm64", label: "Mono/FNA" },
 ];
 const pipelineNames: Record<string, string> = {
@@ -486,7 +484,7 @@ function scrollDock(direction: -1 | 1) {
 }
 
 function isWineSteamRouteId(launchMethod: string) {
-  return ["d3dmetal", "vkd3d", "dxmt", "dxvk", "dxmt_32", "dxvk_32", "steam", "wine_steam"].includes(
+  return ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "steam", "wine_steam"].includes(
     launchMethod.toLowerCase(),
   );
 }
