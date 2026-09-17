@@ -3,6 +3,7 @@ import { computed, inject, ref, type Component, type Ref } from "vue";
 import { api, steamFix } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { themes, useTheme, type ThemeName } from "../composables/useTheme";
+import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
 import SettingsOverlay from "./SettingsOverlay.vue";
 import IconSearch from "~icons/lucide/search";
 import IconSettings from "~icons/lucide/settings";
@@ -36,6 +37,7 @@ const emit = defineEmits<{
 }>();
 
 const { theme, setTheme } = useTheme();
+const libraryThemeStyle = useLibraryThemeStyle();
 const themeMenuOpen = ref(false);
 const tabMenuOpen = ref(false);
 const themeButtonEl = ref<HTMLElement | null>(null);
@@ -194,7 +196,11 @@ async function toggleSteam() {
     </header>
 
     <Teleport to="body">
-      <div v-if="themeMenuOpen" class="library-theme-menu library-topbar-overlay" :style="themeMenuStyle">
+      <div
+        v-if="themeMenuOpen"
+        class="library-theme-menu library-topbar-overlay"
+        :style="[libraryThemeStyle, themeMenuStyle]"
+      >
         <button
           v-for="themeName in themes"
           :key="themeName"
@@ -206,7 +212,11 @@ async function toggleSteam() {
           <span>{{ themeLabels[themeName] }}</span>
         </button>
       </div>
-      <div v-if="tabMenuOpen" class="library-tab-menu library-topbar-overlay" :style="tabMenuStyle">
+      <div
+        v-if="tabMenuOpen"
+        class="library-tab-menu library-topbar-overlay"
+        :style="[libraryThemeStyle, tabMenuStyle]"
+      >
         <button
           v-for="option in tabOptions"
           :key="option.id"
