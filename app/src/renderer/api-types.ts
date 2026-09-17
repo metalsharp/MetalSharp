@@ -215,6 +215,7 @@ interface GameJoltDownloadUpdate {
 
 type MetalsharpAPI = {
   onGameJoltDownload: (callback: (update: GameJoltDownloadUpdate) => void) => () => void;
+  onSteamappsChanged: (callback: () => void) => () => void;
   request: (
     method: string,
     url: string,

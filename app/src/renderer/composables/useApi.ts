@@ -43,6 +43,7 @@ const browserAPI = {
     }
   },
   onGameJoltDownload: () => () => {},
+  onSteamappsChanged: () => () => {},
 } as unknown as MetalsharpAPI;
 
 // Preview isolation mode: appending ?mock to the dev-server URL detaches the
@@ -114,6 +115,7 @@ const mockSetupAPI = {
     return { ok: true, output: "Deployed MetalSharp Steam webhelper wrapper to 1 CEF directories." };
   },
   onGameJoltDownload: () => () => {},
+  onSteamappsChanged: () => () => {},
 } as unknown as MetalsharpAPI;
 
 function getAPI(): MetalsharpAPI {

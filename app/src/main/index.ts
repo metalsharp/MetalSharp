@@ -924,7 +924,7 @@ function configureGameJoltDownloads() {
   });
 }
 
-function startSteamappsWatcher() {
+function startSteamappsWatcher(attempt = 0) {
   const steamappsDir = path.join(
     getMetalsharpDir(),
     "prefix-steam",
@@ -934,24 +934,41 @@ function startSteamappsWatcher() {
     "steamapps",
   );
 
-  if (!fs.existsSync(steamappsDir)) return;
+  if (!fs.existsSync(steamappsDir)) {
+    // The Wine Steam client may not be installed yet; retry instead of
+    // silently never watching.
+    if (attempt < 120) setTimeout(() => startSteamappsWatcher(attempt + 1), 30_000);
+    return;
+  }
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  const scheduleChanged = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("steamapps:changed");
+      }
+    }, 2000);
+  };
+
   try {
     steamappsWatcher = fs.watch(steamappsDir, (eventType, filename) => {
-      if (!filename) return;
-      if (filename.startsWith("appmanifest_") && filename.endsWith(".acf")) {
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send("steamapps:changed");
-          }
-        }, 2000);
+      if (!filename || (filename.startsWith("appmanifest_") && filename.endsWith(".acf"))) {
+        scheduleChanged();
       }
+    });
+    steamappsWatcher.on("error", () => {
+      // Directory replaced (e.g. Steam reinstall) — restart watching.
+      if (steamappsWatcher) {
+        steamappsWatcher.close();
+        steamappsWatcher = null;
+      }
+      startSteamappsWatcher(0);
     });
   } catch {
     // steamapps dir may not exist yet
+    if (attempt < 120) setTimeout(() => startSteamappsWatcher(attempt + 1), 30_000);
   }
 }
 
