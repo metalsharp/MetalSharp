@@ -38,6 +38,8 @@ const emit = defineEmits<{
 const { theme, setTheme } = useTheme();
 const themeMenuOpen = ref(false);
 const tabMenuOpen = ref(false);
+const themeButtonEl = ref<HTMLElement | null>(null);
+const tabButtonEl = ref<HTMLElement | null>(null);
 const settingsOpen = ref(false);
 const steamFixMenuOpen = ref(false);
 const steamFixBusy = ref(false);
@@ -70,6 +72,16 @@ const tabOptions: { id: TopbarTab; label: string; icon: Component }[] = [
   { id: "logs", label: "Logs", icon: IconScrollText },
 ];
 const activeTabOption = computed(() => tabOptions.find((option) => option.id === props.activeTab) || tabOptions[0]);
+const themeMenuStyle = computed(() => {
+  if (!themeMenuOpen.value || !themeButtonEl.value) return {};
+  const rect = themeButtonEl.value.getBoundingClientRect();
+  return { top: `${rect.bottom + 8}px`, left: `${rect.left}px` };
+});
+const tabMenuStyle = computed(() => {
+  if (!tabMenuOpen.value || !tabButtonEl.value) return {};
+  const rect = tabButtonEl.value.getBoundingClientRect();
+  return { top: `${rect.bottom + 8}px`, left: `${rect.right - 174}px` };
+});
 
 function chooseTab(tab: TopbarTab) {
   tabMenuOpen.value = false;
@@ -151,41 +163,28 @@ async function toggleSteam() {
           />
         </label>
         <div class="library-theme-control">
-          <button class="library-theme-button" type="button" aria-label="Theme" @click="themeMenuOpen = !themeMenuOpen">
+          <button
+            ref="themeButtonEl"
+            class="library-theme-button"
+            type="button"
+            aria-label="Theme"
+            @click="themeMenuOpen = !themeMenuOpen"
+          >
             <component :is="themeIcons[theme] || IconMoon" width="17" height="17" />
           </button>
-          <div v-if="themeMenuOpen" class="library-theme-menu">
-            <button
-              v-for="themeName in themes"
-              :key="themeName"
-              type="button"
-              :class="{ active: themeName === theme }"
-              @click="setTheme(themeName); themeMenuOpen = false"
-            >
-              <span class="theme-menu-swatch" :data-theme="themeName"></span>
-              <span>{{ themeLabels[themeName] }}</span>
-            </button>
-          </div>
         </div>
         <nav class="library-nav" aria-label="Library navigation">
           <div class="library-tab-control">
-            <button class="library-tab-button" type="button" @click="tabMenuOpen = !tabMenuOpen">
+            <button
+              ref="tabButtonEl"
+              class="library-tab-button"
+              type="button"
+              @click="tabMenuOpen = !tabMenuOpen"
+            >
               <component :is="activeTabOption.icon" width="16" height="16" />
               <span>{{ activeTabOption.label }}</span>
               <IconChevronDown width="14" height="14" />
             </button>
-            <div v-if="tabMenuOpen" class="library-tab-menu">
-              <button
-                v-for="option in tabOptions"
-                :key="option.id"
-                type="button"
-                :class="{ active: option.id === activeTab }"
-                @click="chooseTab(option.id)"
-              >
-                <component :is="option.icon" width="16" height="16" />
-                <span>{{ option.label }}</span>
-              </button>
-            </div>
           </div>
           <button class="library-settings-button" type="button" aria-label="Settings" title="Settings" @click="openSettings">
             <IconSettings width="19" height="19" />
@@ -193,6 +192,33 @@ async function toggleSteam() {
         </nav>
       </div>
     </header>
+
+    <Teleport to="body">
+      <div v-if="themeMenuOpen" class="library-theme-menu library-topbar-overlay" :style="themeMenuStyle">
+        <button
+          v-for="themeName in themes"
+          :key="themeName"
+          type="button"
+          :class="{ active: themeName === theme }"
+          @click="setTheme(themeName); themeMenuOpen = false"
+        >
+          <span class="theme-menu-swatch" :data-theme="themeName"></span>
+          <span>{{ themeLabels[themeName] }}</span>
+        </button>
+      </div>
+      <div v-if="tabMenuOpen" class="library-tab-menu library-topbar-overlay" :style="tabMenuStyle">
+        <button
+          v-for="option in tabOptions"
+          :key="option.id"
+          type="button"
+          :class="{ active: option.id === activeTab }"
+          @click="chooseTab(option.id)"
+        >
+          <component :is="option.icon" width="16" height="16" />
+          <span>{{ option.label }}</span>
+        </button>
+      </div>
+    </Teleport>
 
   <SettingsOverlay v-if="settingsOpen" @close="settingsOpen = false" />
 </template>
@@ -270,7 +296,7 @@ async function toggleSteam() {
   color: #fff !important;
 }
 .library-theme-menu {
-  position: absolute;
+  position: fixed;
   z-index: 1002;
   top: calc(100% + 8px);
   left: 0;
@@ -520,10 +546,8 @@ async function toggleSteam() {
   background: transparent;
 }
 .library-tab-menu {
-  position: absolute;
+  position: fixed;
   z-index: 1002;
-  top: calc(100% + 8px);
-  right: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -533,6 +557,10 @@ async function toggleSteam() {
   border-radius: 8px;
   background: var(--library-control-bg);
   box-shadow: 0 14px 35px rgba(0, 0, 0, 0.45);
+}
+.library-topbar-overlay {
+  z-index: 20000 !important;
+  -webkit-app-region: no-drag;
 }
 .library-tab-menu button {
   display: flex;
