@@ -213,6 +213,10 @@
       {
         "from": "bundles/metalsharp-d3d12-developer-sdk.tar.zst",
         "to": "bundles/metalsharp-d3d12-developer-sdk.tar.zst"
+      },
+      {
+        "from": "tools/steam-art-manager",
+        "to": "tools/steam-art-manager"
       }
     ],
     "directories": {

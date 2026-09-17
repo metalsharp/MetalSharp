@@ -85,6 +85,8 @@ const msyncEnabled = ref(true);
 const msyncBusy = ref(false);
 const artworkSources = ref<Record<number, string[]>>({});
 const heroArtSources = ref<Record<number, string>>({});
+const backendBase = ref("");
+const artManagerOpening = ref(false);
 const fallbackArtApps = ref(new Set<number>());
 
 function markFallbackArt(appid: number) {
@@ -174,12 +176,29 @@ function storeArt(appid: number) {
   return `https://store.akamai.steamstatic.com/images/storepagebackground/app/${appid}`;
 }
 
+// User-authored Steam grid artwork (Steam Art Manager / Steam "Set Custom
+// Image") served by the backend from the Wine Steam userdata grid cache.
+// When present, these override fetched CDN artwork.
+function gridArtUrl(appid: number, kind: "hero" | "poster" | "header") {
+  return backendBase.value ? `${backendBase.value}/art/grid/${appid}/${kind}` : "";
+}
+
 function artworkCandidates(game: ShowcaseGame) {
   const primary = game.cover_url || steamArt(game.appid, "library_600x900_2x");
   const steamDbFallback = `https://steamdb.info/resize/600x900/${primary}`;
   const embedded = game.embedded_icon_path ? `file://${encodeURI(game.embedded_icon_path)}` : "";
   return [
-    ...new Set([primary, steamDbFallback, steamArt(game.appid, "library_hero"), game.header_url, storeArt(game.appid), embedded, sharpLogoUrl].filter(Boolean)),
+    ...new Set([
+      gridArtUrl(game.appid, "poster"),
+      gridArtUrl(game.appid, "header"),
+      primary,
+      steamDbFallback,
+      steamArt(game.appid, "library_hero"),
+      game.header_url,
+      storeArt(game.appid),
+      embedded,
+      sharpLogoUrl,
+    ].filter(Boolean)),
   ];
 }
 
@@ -369,20 +388,27 @@ const heroBleedStyle = computed<Record<string, string>>(() => ({
 }));
 
 // Hero art is a CSS background so it has no @error fallback — probe candidates
-// with Image() and keep the first one that actually loads.
-watch(featuredGame, (game) => {
+// with Image() and keep the first one that actually loads. User grid artwork
+// (Steam Art Manager) is probed first so it always overrides online fetches.
+watch([featuredGame, backendBase], ([game]) => {
   if (!game || heroArtSources.value[game.appid]) return;
   const candidates = [
+    gridArtUrl(game.appid, "hero"),
     game.hero_url,
     game.cover_url,
     game.header_url,
   ].filter(Boolean) as string[];
+  const tail = [storeArt(game.appid), sharpLogoUrl];
   const probe = (index: number) => {
     const url = candidates[index];
     if (!url) {
       void enrichArtwork(game.appid).then((extra) => {
         const hero = extra?.hero || extra?.shot || extra?.card;
-        if (hero) heroArtSources.value = { ...heroArtSources.value, [game.appid]: hero };
+        if (hero) {
+          heroArtSources.value = { ...heroArtSources.value, [game.appid]: hero };
+          return;
+        }
+        probeTail(0);
       });
       return;
     }
@@ -393,8 +419,29 @@ watch(featuredGame, (game) => {
     image.onerror = () => probe(index + 1);
     image.src = url;
   };
+  const probeTail = (index: number) => {
+    const url = tail[index];
+    if (!url) return;
+    const image = new Image();
+    image.onload = () => {
+      heroArtSources.value = { ...heroArtSources.value, [game.appid]: url };
+    };
+    image.onerror = () => probeTail(index + 1);
+    image.src = url;
+  };
   probe(0);
 }, { immediate: true });
+
+async function openArtManager() {
+  if (artManagerOpening.value) return;
+  artManagerOpening.value = true;
+  try {
+    const result = await window.metalsharp.openSteamArtManager();
+    if (!result?.ok) console.warn("Steam Art Manager could not be launched:", result?.error);
+  } finally {
+    artManagerOpening.value = false;
+  }
+}
 
 function heroArt(game: ShowcaseGame) {
   return heroArtSources.value[game.appid] || game.hero_url;
@@ -679,6 +726,9 @@ onMounted(() => {
     openPlay();
   }
   void loadGameSettings();
+  window.metalsharp.backendBaseUrl().then((base) => {
+    backendBase.value = base;
+  }).catch(() => {});
 });
 
 function handleImageError(event: Event, game: ShowcaseGame) {
@@ -814,6 +864,19 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
           </div>
         </div>
         <div class="library-hero-controls" @click.stop>
+          <button
+            class="library-art-button"
+            type="button"
+            title="Customize Steam artwork with Steam Art Manager"
+            :disabled="artManagerOpening"
+            @click="openArtManager"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+              <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
+            </svg>
+            <span>Art</span>
+          </button>
           <div class="library-bottle-control">
             <span class="library-control-label">Bottle</span>
             <select v-model="selectedPipeline" :disabled="pipelineSaving" @change="savePipeline">
@@ -1415,6 +1478,33 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   background: rgba(12, 15, 16, 0.72);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(14px);
+}
+.library-view .library-art-button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid rgba(231, 234, 236, 0.3);
+  border-radius: 8px;
+  background: rgba(12, 15, 16, 0.72);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+  color: #dfe3e2;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.library-view .library-art-button:hover {
+  border-color: var(--library-accent, rgba(231, 234, 236, 0.55));
+  color: #fff;
+}
+.library-view .library-art-button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .library-control-label {
   color: #aeb4b3;
