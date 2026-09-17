@@ -1313,7 +1313,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   margin: 0 0 12px;
   color: #efcf9d;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(48px, 5.25vw, 78px);
+  font-size: clamp(24px, 2.625vw, 39px);
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 0.96;
@@ -1873,7 +1873,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
     background: linear-gradient(0deg, rgba(7, 9, 10, 0.92), transparent);
   }
   .library-hero h1 {
-    font-size: 48px;
+    font-size: 24px;
   }
   .library-hero-description {
     font-size: 15px;
