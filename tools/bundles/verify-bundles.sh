@@ -206,10 +206,6 @@ verify_graphics_core() {
     Graphics/dll/dxvk/x86_64-windows/d3d10core.dll \
     Graphics/dll/dxvk/x86_64-windows/d3d11.dll \
     Graphics/dll/dxvk/x86_64-windows/dxgi.dll \
-    Graphics/dll/dxvk/i386-windows/d3d9.dll \
-    Graphics/dll/dxvk/i386-windows/d3d10core.dll \
-    Graphics/dll/dxvk/i386-windows/d3d11.dll \
-    Graphics/dll/dxvk/i386-windows/dxgi.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll &&
