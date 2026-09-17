@@ -273,11 +273,11 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     copy_tree(source_dxmt / "x86_64-unix", roots["graphics"] / "dxmt" / "x86_64-unix")
     copy_tree(source_dxmt / "x86_64-windows", roots["graphics"] / "dxmt" / "x86_64-windows")
     dxvk_root_env = os.environ.get("METALSHARP_DXVK_ROOT")
-    dxvk_root = Path(dxvk_root_env).expanduser() if dxvk_root_env else Path.home() / ".metalsharp" / "runtime" / "wine" / "lib" / "dxvk"
+    dxvk_root = Path(dxvk_root_env).expanduser() if dxvk_root_env else Path.home() / ".metalsharp" / "vkd3d" / "dxvk"
     if dxvk_root.exists():
         copy_tree(dxvk_root, roots["graphics"] / "dxvk")
     vkd3d_root_env = os.environ.get("METALSHARP_VKD3D_ROOT")
-    vkd3d_root = Path(vkd3d_root_env).expanduser() if vkd3d_root_env else Path.home() / ".metalsharp" / "runtime" / "wine" / "lib" / "vkd3d-proton"
+    vkd3d_root = Path(vkd3d_root_env).expanduser() if vkd3d_root_env else Path.home() / ".metalsharp" / "vkd3d" / "vkd3d-proton"
     if vkd3d_root.exists():
         copy_tree(vkd3d_root, roots["graphics"] / "vkd3d-proton")
 

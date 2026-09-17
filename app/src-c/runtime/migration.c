@@ -87,14 +87,10 @@ static const char* const migration_vkd3d_hashes[][2] = {
     {"x86_64-windows/d3d12core.dll", "78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8"},
     {"x86_64-windows/dxgi.dll", "16af74bca22dfc108e94c52c21d34fe6863aaebe8a9b635385a7523bf7e5b266"}};
 static const char* const migration_dxvk_hashes[][2] = {
-    {"x86_64-windows/d3d9.dll", "489fd49961bb2780b77ecf23b62b3abdbcaeeb0975a286f2189d26b7694b2481"},
-    {"x86_64-windows/d3d10core.dll", "b0b51e959532926ef3d1397a26b752bf10459db01a4baaf4ecb194c0ab7f45ea"},
-    {"x86_64-windows/d3d11.dll", "a9b2d981686e3ebe2a4eeda2b11f053a7e46a99af667fdffd4197b4753ae6e8f"},
-    {"x86_64-windows/dxgi.dll", "2aeb1716ede8738532f8f7fa19cc7a3c9353da5cca0b988aadd0d9e135ce0e8a"},
-    {"i386-windows/d3d9.dll", "34710ca909d344f8c50db5cca2b8a9d0f45e4f23b63bbc92b5f2636942eca3dd"},
-    {"i386-windows/d3d10core.dll", "9bcd33daba0de152dfdf72440c17ddce45dc602aa42d0884312ddf2d66949e2d"},
-    {"i386-windows/d3d11.dll", "266b2d19cf8d0446dc506fea6d9e089f6b9a24522cbbb3f2328068f8a238fb4e"},
-    {"i386-windows/dxgi.dll", "ddc8064e0fe41eadd5bf5d176b357f0aaa6360f8bf0a1e32e09cd691e940a755"}};
+    {"x86_64-windows/d3d9.dll", "ab6d25f0a6f9a7375483710a714a3aa0b81b08ec645764ad47340d9d56b7daeb"},
+    {"x86_64-windows/d3d10core.dll", "f85c6298bfbbba66ad7e2728e420807909cc443a766bfd1496f7bae1b6bc1f62"},
+    {"x86_64-windows/d3d11.dll", "a88c7ded56f8f280f17fc6cbde8f61829935fb89f6998a3fd31687aef6f11501"},
+    {"x86_64-windows/dxgi.dll", "e37f43183a1bc7174fc898c6e23729b0b60aede0d641c51b752228129ec4cb21"}};
 
 static char* path_join(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);

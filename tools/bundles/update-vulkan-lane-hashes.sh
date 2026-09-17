@@ -62,11 +62,7 @@ tar --use-compress-program=unzstd -xf "$GRAPHICS_ARCHIVE" -C "$TMP_DIR/gf" \
   Graphics/dll/dxvk/x86_64-windows/d3d9.dll \
   Graphics/dll/dxvk/x86_64-windows/d3d10core.dll \
   Graphics/dll/dxvk/x86_64-windows/d3d11.dll \
-  Graphics/dll/dxvk/x86_64-windows/dxgi.dll \
-  Graphics/dll/dxvk/i386-windows/d3d9.dll \
-  Graphics/dll/dxvk/i386-windows/d3d10core.dll \
-  Graphics/dll/dxvk/i386-windows/d3d11.dll \
-  Graphics/dll/dxvk/i386-windows/dxgi.dll
+  Graphics/dll/dxvk/x86_64-windows/dxgi.dll
 
 rv_hash() { # runtime/wine-relative path
   local f="$TMP_DIR/rt/runtime/wine/$1"
@@ -94,10 +90,6 @@ DXVK_X64_D3D9="$(gf_hash "dxvk/x86_64-windows/d3d9.dll")"
 DXVK_X64_D3D10CORE="$(gf_hash "dxvk/x86_64-windows/d3d10core.dll")"
 DXVK_X64_D3D11="$(gf_hash "dxvk/x86_64-windows/d3d11.dll")"
 DXVK_X64_DXGI="$(gf_hash "dxvk/x86_64-windows/dxgi.dll")"
-DXVK_I386_D3D9="$(gf_hash "dxvk/i386-windows/d3d9.dll")"
-DXVK_I386_D3D10CORE="$(gf_hash "dxvk/i386-windows/d3d10core.dll")"
-DXVK_I386_D3D11="$(gf_hash "dxvk/i386-windows/d3d11.dll")"
-DXVK_I386_DXGI="$(gf_hash "dxvk/i386-windows/dxgi.dll")"
 
 UTILS="$ROOT_DIR/tools/bundles"
 
@@ -149,11 +141,7 @@ write_tsv "$UTILS/dxvk-runtime-hashes.tsv" \
   "x86_64-windows/d3d9.dll" "$DXVK_X64_D3D9" \
   "x86_64-windows/d3d10core.dll" "$DXVK_X64_D3D10CORE" \
   "x86_64-windows/d3d11.dll" "$DXVK_X64_D3D11" \
-  "x86_64-windows/dxgi.dll" "$DXVK_X64_DXGI" \
-  "i386-windows/d3d9.dll" "$DXVK_I386_D3D9" \
-  "i386-windows/d3d10core.dll" "$DXVK_I386_D3D10CORE" \
-  "i386-windows/d3d11.dll" "$DXVK_I386_D3D11" \
-  "i386-windows/dxgi.dll" "$DXVK_I386_DXGI"
+  "x86_64-windows/dxgi.dll" "$DXVK_X64_DXGI"
 
 [ "$CHECK" -eq 1 ] && exit 0
 

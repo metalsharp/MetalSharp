@@ -1,6 +1,6 @@
 # asset	root	bytes_required_by	notes
 metalsharp-electron.tar.zst	electron	mac	Electron application payload.
-metalsharp-graphics-dll.tar.zst	Graphics/dll	mac	D3DMetal, DXMT macOS 15 x64/i386 lanes, rebuilt DXVK 3.1 x64/i386 lanes, and VKD3D-Proton DLL payloads.
+metalsharp-graphics-dll.tar.zst	Graphics/dll	mac	D3DMetal, DXMT v0.80 macOS 15 x64/i386 lanes, Gcenx DXVK-macOS 1.10.3 (+d3d9 PR) x64 lane targeting macOS 15+, and VKD3D-Proton DLL payloads. DXVK i386 retired.
 metalsharp-runtime.tar.zst	runtime	mac	Patched Wine 11.17 runtime with gated GSBASE/TEB behavior, rebuilt ntdll x64/i386 pair, no winemetalgl.conf, bundled Wine Mono 11.3.0, host runtime ABI, and backend executable.
 metalsharp-assets.tar.zst	assets	mac	Mono, GPTK, DXVK, Goldberg, shims, FNA kickstart (universal MonoKickstart + fnalibs), XNA 4.0 assembly set, version-matched Unity Mono runtimes (2020.3/2021.3/2022.3/6000.0), SDL3, and runtime support assets.
 fnalibs.tar.zst	fnalibs	mac	SDL2-linked FNA3D, FAudio, SDL2, theorafile, and real FMOD native payloads for FNA repair.
