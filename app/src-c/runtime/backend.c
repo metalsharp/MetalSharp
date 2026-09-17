@@ -166,7 +166,7 @@ static unsigned char* read_binary(const char* path, size_t* length) {
     if (!path || !length)
         return NULL;
     int fd = open(path, O_RDONLY | O_NOFOLLOW);
-    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > 16 * 1024 * 1024) {
+    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > (off_t)MS_HTTP_MAX_BODY_BYTES) {
         if (fd >= 0)
             close(fd);
         return NULL;

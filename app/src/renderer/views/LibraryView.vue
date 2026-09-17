@@ -394,7 +394,10 @@ const heroBleedStyle = computed<Record<string, string>>(() => ({
 // with Image() and keep the first one that actually loads. User grid artwork
 // (Steam Art Manager) is probed first so it always overrides online fetches.
 function probeHeroArt(game: ShowcaseGame) {
-  if (!game || heroArtSources.value[game.appid]) return;
+  // Wait for the backend base URL: probing before it loads would race, cache
+  // a CDN candidate, and the guard below would then block the grid-art probe
+  // forever. The watch re-fires once backendBase is set.
+  if (!game || !backendBase.value || heroArtSources.value[game.appid]) return;
   const candidates = [
     gridArtUrl(game.appid, "hero"),
     game.hero_url,
