@@ -71,3 +71,7 @@ vkd3d-proton-reference/
 *.dmg
 *.pkg
 *.app/
+# Bundled Steam Art Manager (built from Tormak9970/Steam-Art-Manager; not
+# regeneratable from this repo) ships inside the app resources.
+!app/tools/steam-art-manager/
+!app/tools/steam-art-manager/**
