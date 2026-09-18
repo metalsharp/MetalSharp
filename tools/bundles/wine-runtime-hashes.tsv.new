@@ -1,0 +1,13 @@
+# Canonical Wine host runtime hashes; regenerated from the staged runtime payload.
+# The archive contains the ad-hoc-signed Mach-O ntdll.so. Setup verifies the
+# archive hash before extraction and may re-sign after extraction if needed.
+path	sha256
+lib/wine/x86_64-unix/ntdll.so	728d28504256ee25ec62dae6f23e80ac64ff660626a77d8d92b341795a0e2fa7
+lib/wine/x86_64-unix/opengl32.so	a16142febf7fee10e713040eaf5951ffe956bfa8dfa67a946c38344d67bf8317
+lib/wine/x86_64-unix/winemac.so	e39ec04fbe3db971e272e13209bffc5ccb059232015b565e5082e161069df199
+lib/wine/x86_64-unix/metalsharp-opengl.dylib	c30e70d2118ea4e64dd1b0e23c987473213494abe1b67ddae43c02c2f905c21f
+lib/wine/x86_64-windows/opengl32.dll	281c88d31661da3bad69082cea243b74e81aec49f92f65462beff3c9ab5c70b4
+lib/wine/i386-windows/opengl32.dll	7269e65cec8f2ada466f139647a080cb8c78586ffcac00d1bdbe30d232d45451
+share/mono/wine-mono-11.3.0/support/winemono-support.msi	0567d9569c9ca7f678c7ccd4a5ccffbd9dc7bdd3c632ce204afaf7068bf9c2db
+share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86.dll	cda071f4f4948abc4ab85593ec06f3b633c7420dcf455d10157e06d460f2db9f
+share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86_64.dll	ffc91174da9285dd7fdd1ee144db417ddf5233efc42914f45747ced0095e547c
