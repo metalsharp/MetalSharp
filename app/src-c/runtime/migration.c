@@ -597,6 +597,10 @@ static bool runtime_ready(const char* home) {
             ms_clear_quarantine_tree(dxmt_root);
             ms_clear_quarantine_tree(dxvk_root);
             ms_clear_quarantine_tree(vkd3d_root);
+            /* Wrapper/shim guarantee: the steamwebhelper wrapper, bridge
+             * shim and Goldberg payloads must survive every migration. */
+            if (!ms_steam_wrappers_ensure(home))
+                ok = false;
             free(dxmt_root);
             free(dxvk_root);
             free(vkd3d_root);
