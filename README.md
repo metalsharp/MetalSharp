@@ -15,7 +15,7 @@
 
 <div align="center">
   
-MetalSharp is an application designed to run Windows Applications and Windows Steam games natively on Apple Silicon MacOS. Easily Select Between Different Launch Methods, Change Artwork For Games, And More. 
+MetalSharp Is An Application Designed To Run Windows Applications and Windows Steam Games Natively on Apple Silicon MacOS. Easily Select Between Different Launch Methods, Change Artwork For Games, And More. 
 
 </div>
 
