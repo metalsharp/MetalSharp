@@ -3047,6 +3047,69 @@ static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
     return found && ready;
 }
 
+/* MetalSharp: migration-time guarantee that the Steam wrappers and shims
+ * cannot be lost. Re-extracts the steamwebhelper wrapper from the bundled
+ * archive when the cache was wiped, redeploys it into every CEF directory,
+ * restores the steam-bridge shim from runtime/shims, and restores the
+ * Goldberg payloads from the assets fallback when the runtime copies
+ * vanish. Returns true when every wrapper is present afterwards. */
+bool ms_steam_wrappers_ensure(const char* home) {
+    bool ok = true;
+    char* steam_dir = home ? join(home, "prefix-steam/drive_c/Program Files (x86)/Steam") : NULL;
+
+    deploy_steamwebhelper_wrapper(home, steam_dir);
+    if (!steamwebhelper_wrappers_ready(steam_dir))
+        ok = false;
+
+    /* Steam bridge shim: restore the deployed copy from runtime/shims. */
+    {
+        char* shim = join(home, "runtime/shims/libsteam_api.dylib");
+        char* bridge_dir = join(home, "runtime/steam-bridge");
+        char* bridge = bridge_dir ? join(bridge_dir, "libsteam_api.dylib") : NULL;
+        if (shim && bridge && access(shim, R_OK) == 0 && access(bridge, R_OK) != 0) {
+            if (ensure_directory(bridge_dir) && copy_file_path(shim, bridge))
+                ok = ok && true;
+            else
+                ok = false;
+        }
+        free(shim);
+        free(bridge_dir);
+        free(bridge);
+    }
+
+    /* Goldberg payloads: restore from the assets fallback when lost. */
+    {
+        static const char* const payloads[][2] = {
+            {"runtime/goldberg/x64/steam_api64.dll", "assets/goldberg/x64/steam_api64.dll"},
+            {"runtime/goldberg/x86/steam_api.dll", "assets/goldberg/x86/steam_api.dll"},
+        };
+        for (size_t i = 0; i < sizeof(payloads) / sizeof(payloads[0]); ++i) {
+            char* runtime_copy = join(home, payloads[i][0]);
+            char* assets_copy = join(home, payloads[i][1]);
+            if (runtime_copy && assets_copy && access(runtime_copy, R_OK) != 0 &&
+                access(assets_copy, R_OK) == 0) {
+                char* parent = strdup(runtime_copy);
+                char* slash = parent ? strrchr(parent, '/') : NULL;
+                if (slash) {
+                    *slash = '\0';
+                    if (ensure_directory(parent) && copy_file_path(assets_copy, runtime_copy)) {
+                        free(parent);
+                        continue;
+                    }
+                }
+                free(parent);
+            }
+            if (runtime_copy && access(runtime_copy, R_OK) != 0)
+                ok = false;
+            free(runtime_copy);
+            free(assets_copy);
+        }
+    }
+
+    free(steam_dir);
+    return ok;
+}
+
 char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
     char* steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
     ms_json_writer writer;
