@@ -1953,21 +1953,74 @@ function registerIpc() {
       return { ok: false, error: "Steam Art Manager is not installed" };
     }
     const wineSteamPath = path.join(getMetalsharpDir(), "prefix-steam", "drive_c", "Program Files (x86)", "Steam");
-    // Pre-seed SAM's settings so it skips its Steam-path prompt. Never
-    // overwrite a path the user already chose inside SAM.
+    // Persist SAM's connection settings (Steam path, SteamGridDB key, Steam
+    // key map) inside ~/.metalsharp so they survive SAM state resets, app
+    // reinstalls and webview cache wipes. On launch: restore missing values
+    // from the MetalSharp backup, then refresh the backup from SAM.
     try {
       const samConfigDir = path.join(os.homedir(), "Library", "Application Support", "dev.tormak.steam-art-manager");
       const samSettingsPath = path.join(samConfigDir, "settings.json");
-      let samSettings: Record<string, unknown> = {};
-      if (fs.existsSync(samSettingsPath)) {
-        samSettings = JSON.parse(fs.readFileSync(samSettingsPath, "utf8"));
+      const backupDir = path.join(getMetalsharpDir(), "config");
+      const backupPath = path.join(backupDir, "steam-art-manager-settings.json");
+      const persistKeys = ["steamInstallPath", "steamGridDbApiKey", "steamApiKeyMap"] as const;
+
+      const readJson = (file: string): Record<string, unknown> | null => {
+        try {
+          if (!fs.existsSync(file)) return null;
+          const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+          return parsed && typeof parsed === "object" ? parsed : null;
+        } catch {
+          return null;
+        }
+      };
+      const isEmptyValue = (value: unknown): boolean =>
+        value === undefined ||
+        value === null ||
+        value === "" ||
+        (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
+
+      const samSettings = readJson(samSettingsPath);
+      const backupSettings = readJson(backupPath) ?? {};
+      const merged: Record<string, unknown> = samSettings ? { ...samSettings } : { version: "3.19.1" };
+
+      let mutated = !samSettings; // recreate the file if it was missing/corrupt
+      for (const key of persistKeys) {
+        const backupValue = backupSettings[key];
+        if (isEmptyValue(merged[key]) && !isEmptyValue(backupValue)) {
+          merged[key] = backupValue;
+          mutated = true;
+        }
       }
-      if (!samSettings.steamInstallPath && fs.existsSync(wineSteamPath)) {
+      if (isEmptyValue(merged.steamInstallPath) && fs.existsSync(wineSteamPath)) {
+        merged.steamInstallPath = wineSteamPath;
+        mutated = true;
+      }
+
+      if (mutated) {
         fs.mkdirSync(samConfigDir, { recursive: true });
-        fs.writeFileSync(samSettingsPath, JSON.stringify({ ...samSettings, steamInstallPath: wineSteamPath }, null, 2));
+        fs.writeFileSync(samSettingsPath, JSON.stringify(merged, null, 2));
+      }
+
+      // Refresh the MetalSharp-side backup from the (possibly updated)
+      // SAM settings so values the user set inside SAM are never lost.
+      const backedUp: Record<string, unknown> = {
+        version: merged.version ?? "3.19.1",
+        updatedAt: new Date().toISOString(),
+      };
+      let backupChanged = !fs.existsSync(backupPath);
+      for (const key of persistKeys) {
+        const value = merged[key];
+        backedUp[key] = isEmptyValue(value) ? backupSettings[key] : value;
+        if (!backupChanged && JSON.stringify(backedUp[key]) !== JSON.stringify(backupSettings[key])) {
+          backupChanged = true;
+        }
+      }
+      if (backupChanged) {
+        fs.mkdirSync(backupDir, { recursive: true });
+        fs.writeFileSync(backupPath, JSON.stringify(backedUp, null, 2));
       }
     } catch (error) {
-      console.warn("Could not pre-configure Steam Art Manager path:", error);
+      console.warn("Could not persist Steam Art Manager settings:", error);
     }
     // The first time, hand the user the copy-paste path in case SAM still asks.
     const introMarker = path.join(getMetalsharpDir(), ".steam-art-manager-intro-shown");
