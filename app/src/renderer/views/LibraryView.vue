@@ -564,6 +564,11 @@ async function launchGame(game: ShowcaseGame) {
   if (result?.ok) {
     rememberPlayed(game.appid);
     toast.show(`Launched ${game.name}`, "success");
+    // Remind the player about the Cmd+Opt+Q escape hatch once the game has
+    // had a moment to take over the screen.
+    setTimeout(() => {
+      void window.metalsharp.showLaunchOverlay(game.name).catch(() => {});
+    }, 5000);
   } else toast.show(result?.error || `Failed to launch ${game.name}`, "error");
 }
 

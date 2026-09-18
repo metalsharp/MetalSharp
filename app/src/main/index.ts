@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "child_process";
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, screen, session, shell } from "electron";
 import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
@@ -675,8 +675,7 @@ function forceQuitRunningGames(): void {
 }
 
 // Cmd+Opt+Q force-quits all running games but leaves the Wine Steam client up.
-function registerForceQuitGamesShortcut(): void {
-  if (process.platform !== "darwin") return;
+function registerForceQuitGamesShortcut(): void {  if (process.platform !== "darwin") return;
   for (const accelerator of ["Command+Option+Q", "Command+Alt+Q"]) {
     let ok = false;
     try {
@@ -686,6 +685,113 @@ function registerForceQuitGamesShortcut(): void {
     }
     if (ok || globalShortcut.isRegistered(accelerator)) return;
     console.warn(`MetalSharp force-quit games shortcut not registered: ${accelerator}`);
+  }
+}
+
+// Transient HUD shown over a freshly launched game: slides in from the right
+// edge, reminds the player of the Cmd+Opt+Q escape hatch, slides away.
+// Must survive fullscreen game Spaces: high window level +
+// visibleOnFullScreen, non-activating and click-through so gameplay is
+// never interrupted.
+let launchOverlayWindow: BrowserWindow | null = null;
+let launchOverlayHideTimer: ReturnType<typeof setTimeout> | null = null;
+let launchOverlayCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function destroyLaunchOverlay(): void {
+  if (launchOverlayHideTimer) {
+    clearTimeout(launchOverlayHideTimer);
+    launchOverlayHideTimer = null;
+  }
+  if (launchOverlayCloseTimer) {
+    clearTimeout(launchOverlayCloseTimer);
+    launchOverlayCloseTimer = null;
+  }
+  if (launchOverlayWindow && !launchOverlayWindow.isDestroyed()) {
+    launchOverlayWindow.destroy();
+  }
+  launchOverlayWindow = null;
+}
+
+function showLaunchOverlay(gameName: string): void {
+  if (process.platform !== "darwin") return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    destroyLaunchOverlay();
+    const workArea = screen.getPrimaryDisplay().workAreaSize;
+    const width = 460;
+    const height = 108;
+    const win = new BrowserWindow({
+      width,
+      height,
+      x: workArea.width - width - 28,
+      y: Math.max(0, Math.round(workArea.height / 2 - height / 2)),
+      frame: false,
+      transparent: true,
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      focusable: false,
+      skipTaskbar: true,
+      show: false,
+      title: "MetalSharp Launch Overlay",
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+    launchOverlayWindow = win;
+    win.setIgnoreMouseEvents(true);
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    } as Electron.VisibleOnAllWorkspacesOptions);
+    const safeName = String(gameName || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      html,body{margin:0;padding:0;background:transparent;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+      .pill{margin:10px 0 10px 14px;padding:16px 22px;border-radius:16px;border:1px solid rgba(239,207,157,.28);
+        background:rgba(10,12,14,.82);box-shadow:0 12px 34px rgba(0,0,0,.45);backdrop-filter:blur(10px);
+        transform:translateX(120%);animation:slidein .5s cubic-bezier(.16,1,.3,1) .25s forwards,
+        slideout .45s ease-in 8.4s forwards}
+      .eyebrow{color:rgba(174,179,178,.9);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:7px}
+      .game{color:#f1efe9;font-size:14px;font-weight:700;margin-bottom:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:392px}
+      .line{color:#e8e2d4;font-size:13px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+      kbd{display:inline-block;min-width:22px;text-align:center;padding:2px 7px;border-radius:6px;
+        border:1px solid rgba(239,207,157,.4);background:rgba(239,207,157,.12);color:#efcf9d;
+        font-family:inherit;font-size:12px;font-weight:700}
+      @keyframes slidein{to{transform:translateX(0)}}
+      @keyframes slideout{to{transform:translateX(130%);opacity:0}}
+    </style></head><body><div class="pill">
+      <div class="eyebrow">Now Playing</div>
+      <div class="game">${safeName}</div>
+      <div class="line">Press <kbd>&#8984;</kbd>+<kbd>&#8997;</kbd>+<kbd>Q</kbd>&nbsp;To Quit Playing Anytime</div>
+    </div></body></html>`;
+    win.once("ready-to-show", () => {
+      if (launchOverlayWindow !== win || win.isDestroyed()) return;
+      win.showInactive();
+      launchOverlayHideTimer = setTimeout(() => {
+        try {
+          win.webContents.executeJavaScript(
+            "document.querySelector('.pill').style.animation='slideout .45s ease-in forwards'",
+          ).catch(() => {});
+        } catch {}
+      }, 8400);
+      launchOverlayCloseTimer = setTimeout(() => {
+        try {
+          win.close();
+        } catch {}
+        if (launchOverlayWindow === win) launchOverlayWindow = null;
+      }, 9100);
+    });
+    win.loadURL(
+      "data:text/html;charset=utf-8," +
+        encodeURIComponent(html),
+    );
+  } catch (error) {
+    console.warn("MetalSharp launch overlay failed:", error);
   }
 }
 
@@ -1844,6 +1950,11 @@ function registerIpc() {
   });
 
   ipcMain.handle("backend:base-url", () => `http://127.0.0.1:${bridge.getPort()}`);
+
+  ipcMain.handle("app:show-launch-overlay", (_e, gameName: unknown) => {
+    showLaunchOverlay(typeof gameName === "string" ? gameName : "");
+    return { ok: true };
+  });
 
   ipcMain.handle("app:open-steam-art-manager", async () => {
     const samAppPath = path.join(process.resourcesPath, "tools", "steam-art-manager", "Steam Art Manager.app");

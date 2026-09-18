@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
   onGridArtChanged: (callback: () => void) => ipcRenderer.on("grid-art:changed", callback),
+  showLaunchOverlay: (gameName: string) => ipcRenderer.invoke("app:show-launch-overlay", gameName),
   onGameJoltDownload: (callback: (update: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, update: unknown) => callback(update);
     ipcRenderer.on("gamejolt:download", listener);

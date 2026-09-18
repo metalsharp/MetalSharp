@@ -217,6 +217,7 @@ type MetalsharpAPI = {
   onGameJoltDownload: (callback: (update: GameJoltDownloadUpdate) => void) => () => void;
   onSteamappsChanged: (callback: () => void) => () => void;
   onGridArtChanged: (callback: () => void) => () => void;
+  showLaunchOverlay: (gameName: string) => Promise<{ ok: boolean }>;
   request: (
     method: string,
     url: string,
