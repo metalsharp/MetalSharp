@@ -18,7 +18,9 @@ import urllib.request
 from pathlib import Path
 
 BACKEND = Path(sys.argv[1]).resolve()
-VERSION = "0.66.0"  # Synthetic release must be newer than the current app.
+# MetalSharp: keep the synthetic release ahead of the app version; the
+# set-version script bumps this alongside the app version.
+VERSION = "0.71.0"  # Synthetic release must be newer than the current app.
 
 
 def free_port() -> int:

@@ -55,6 +55,7 @@ const version = process.argv[2];
 const replacements = [
   ["app/src-c/runtime/migration.c", /(\\"version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
   ["app/src-c/runtime/updater.c", /(\\"current_version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
+  ["app/src-c/tests/updater_test.py", /(VERSION = \")[0-9]+\.[0-9]+\.[0-9]+/g],
 ];
 for (const [path, pattern] of replacements) {
   const source = fs.readFileSync(path, "utf8");

@@ -73,6 +73,7 @@ const readyDetail = computed(() =>
   border-top: 1px solid var(--line);
   color: #d8dad9;
   background: #1b1e20;
+  -webkit-app-region: drag;
 }
 .library-footer-status,
 .library-update-status {
@@ -96,6 +97,7 @@ const readyDetail = computed(() =>
   color: #777d7b;
   background: #282c2d;
   cursor: default;
+  -webkit-app-region: no-drag;
 }
 .library-update-icon.available {
   border-color: rgba(104, 205, 125, 0.65);

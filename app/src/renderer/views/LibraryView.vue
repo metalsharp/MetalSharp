@@ -82,6 +82,8 @@ const metalFxBusy = ref(false);
 const controllerInput = ref<"off" | "x" | "d">("off");
 const controllerBusy = ref(false);
 const msyncEnabled = ref(true);
+const steamEmuActive = ref(false);
+const steamEmuBusy = ref(false);
 const msyncBusy = ref(false);
 const artworkSources = ref<Record<number, string[]>>({});
 const heroArtSources = ref<Record<number, string>>({});
@@ -625,6 +627,39 @@ async function loadGameSettings() {
   }
 }
 
+async function loadSteamEmuStatus(appid: number) {
+  const result = await api<{ ok: boolean; goldberg_active: boolean; cache_files_ok?: boolean; backed_up_at?: number | null }>(
+    "GET",
+    `/goldberg/status?appid=${appid}`,
+  );
+  if (result?.ok) steamEmuActive.value = result.goldberg_active;
+}
+
+async function setSteamEmu(enabled: boolean) {
+  const game = featuredGame.value;
+  if (!game || steamEmuBusy.value) return;
+  steamEmuBusy.value = true;
+  const result = await api<{ ok: boolean; goldberg_active: boolean; cache_files_ok?: boolean; error?: string }>(
+    "POST",
+    "/goldberg/toggle",
+    { appid: game.appid, enable: enabled },
+  );
+  if (result?.ok) {
+    steamEmuActive.value = result.goldberg_active;
+    toast.show(
+      enabled
+        ? result.cache_files_ok === false
+          ? "Steam Emu enabled, but no backup cache found — restore from OFF may rely on .orig files only"
+          : "Steam Emu enabled; original Steam DLLs cached for safe restore"
+        : "Steam Emu disabled; original Steam DLLs restored",
+      "success",
+    );
+  } else {
+    toast.show(result?.error || "Failed to toggle Steam Emu", "error");
+  }
+  steamEmuBusy.value = false;
+}
+
 async function setMetalFx(mode: "1.75" | "1.50" | "off") {
   if (metalFxBusy.value) return;
   metalFxBusy.value = true;
@@ -676,6 +711,8 @@ watch(
     const selectable = [effective, recommended].find((id) => pipelineOptions.some((option) => option.id === id));
     selectedPipeline.value = selectable || pipelineOptions[0].id;
     if (game) void loadGameSettings();
+    if (game?.installed) void loadSteamEmuStatus(game.appid);
+    else steamEmuActive.value = false;
   },
   { immediate: true },
 );
@@ -948,6 +985,18 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
               <span>msync</span>
               <button type="button" :class="{ active: msyncEnabled }" @click="setMsync(!msyncEnabled)">
                 {{ msyncEnabled ? "On" : "Off" }}
+              </button>
+            </div>
+            <div class="game-setting-row game-setting-toggle">
+              <span>Steam Emu</span>
+              <button
+                type="button"
+                :class="{ active: steamEmuActive }"
+                :disabled="steamEmuBusy || !featuredGame?.installed"
+                :title="featuredGame?.installed ? 'gbe_fork Steam emulator' : 'Requires an installed game'"
+                @click="setSteamEmu(!steamEmuActive)"
+              >
+                {{ steamEmuActive ? "On" : "Off" }}
               </button>
             </div>
           </div>
