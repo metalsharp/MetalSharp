@@ -576,7 +576,7 @@ import json, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
 assert v["platform"] == "macos"
-assert len(v["dependencies"]) == 10
+assert len(v["dependencies"]) == 9
 assert {d["id"] for d in v["dependencies"]} == {"homebrew", "xcode_cli", "rosetta", "metalsharp_wine", "metalsharp_host_runtime", "dxmt_runtime", "mono", "moltenvk", "steam"}
 '
 device=$(curl --silent --fail "http://127.0.0.1:$port/setup/device-name")
