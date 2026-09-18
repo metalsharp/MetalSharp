@@ -4,8 +4,6 @@
 
 **Run Windows games on MacOS Silicon.**
 
-Note From Developer: This Project is currently undergoing a large transformation/ rebrand that may take weeks to complete. Thanks for all your support, please stay tuned for the next update. -- Release Coming Today by 8 PM Mountain Time!
-
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.61.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.61.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-purple.svg?style=for-the-badge" alt="License"></a>
@@ -15,10 +13,11 @@ Note From Developer: This Project is currently undergoing a large transformation
 
 ---
 
-MetalSharp is an application designed to run Windows Applications and Windows Steam games natively on Apple Silicon MacOS. MetalSharp builds and includes it's own custom Wine 11.5 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
+MetalSharp is an application designed to run Windows Applications and Windows Steam games natively on Apple Silicon MacOS. MetalSharp builds and includes it's own custom Wine 11.17 runtime, game launch rules, custom DXMT build, runtime bottles, and repair tooling.
 
 
-<img width="1012" height="877" alt="Screenshot 2026-09-10 at 8 05 07 PM" src="https://github.com/user-attachments/assets/8123b9ec-f51e-4f40-98c7-880c509c5179" />
+<img width="1289" height="877" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/27f30479-5191-4f4d-bb42-766b09e7f57b" />
+
 
 
 
@@ -45,11 +44,8 @@ If Steam no longer runs after an update / breaks, see here: [Fix Steam Wrapper](
 | Route | Engine | Notes |
 |---|---|---|
 | **_VKD3D_** | D3D12/D3D11/D3D10/D3D9 through Vulkan | D3D12 Still In Development |
-| **_M11_** | D3D11 to Metal (DXMT) | |
-| **_M11(32)_** | D3D11 32Bit to Metal (DXMT) | |
-| **_M10_** | D3D10 to Metal (DXMT) | |
-| **_M10(32)_** | D3D10 32Bit to Metal (DXMT) | |
-| **_M9_** | D3D9 To Metal, DXMT Overrides | |
+| **_DXMT_** | D3D11, D3D10 to Metal | |
+| **_DXMT(32)_** | D3D11, D3D10 32Bit to Metal | |
 | **_Mono/FNA_** | Windows XNA/FNA via native Mono | |
 | **_D3DMetal_** | D3D12/11/10 through the latest D3DFramework |
 
@@ -68,11 +64,8 @@ If Steam no longer runs after an update / breaks, see here: [Fix Steam Wrapper](
 
 ## Requirements
 
-- Apple Silicon Mac M1-M5, macOS 15+
+- Apple Silicon Mac M1-M5, MacOS 15+
 - About 2 GB free space
-- Xcode Command Line Tools
-
-The setup wizard uses MetalSharp-bundled zstd, icon, and archive tools; Homebrew is not required. All other bundled assets, DLLs, and graphics backends are installed during setup.
 
 ## Developer Setup
 
