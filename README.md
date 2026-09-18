@@ -44,11 +44,11 @@ Homebrew installs MetalSharp.app in /Applications. Open it and the setup wizard 
 
 If Steam no longer runs after an update / breaks, see here: [Fix Steam Wrapper](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20Steam.md).
 
-## Routes - _Graphics Routes are intentionally separated to avoid launch conflicts_
+## Graphics Routes
 
 | Route | Engine | Notes |
 |---|---|---|
-| **_VKD3D_** | D3D12/D3D11/D3D10/D3D9 through Vulkan | D3D12 Still In Development |
+| **_VKD3D_** | D3D12/D3D11/D3D10/D3D9 through Vulkan -> Metal | D3D12 Still In Development |
 | **_DXMT_** | D3D11, D3D10 to Metal | |
 | **_DXMT(32)_** | D3D11, D3D10 32Bit to Metal | |
 | **_Mono/FNA_** | Windows XNA/FNA via native Mono | |
