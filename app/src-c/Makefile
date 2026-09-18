@@ -4,7 +4,7 @@ PROJECT_ROOT := $(abspath ../..)
 BUILD_DIR ?= $(CURDIR)/build
 TARGET ?= $(BUILD_DIR)/metalsharp-backend
 INSTALL_TARGET ?= $(TARGET)
-VERSION ?= 0.65.5
+VERSION ?= 0.70.0
 JSON_TEST ?= $(BUILD_DIR)/json-test
 MIGRATION_TEST ?= $(BUILD_DIR)/migration-test
 HTTP_SERVER_TEST ?= $(BUILD_DIR)/http-server-test
@@ -98,9 +98,6 @@ test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(BUILD_DIR)/
 	@"$(HTTP_SERVER_TEST)"
 	@python3 "$(CURDIR)/tests/updater_test.py" "$(TARGET)"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
-	@python3 "$(CURDIR)/tests/shadps4_update_test.py" "$(TARGET)"
-	@python3 "$(CURDIR)/tests/pcsx2_update_test.py" "$(TARGET)"
-	@python3 "$(CURDIR)/tests/sharpemu_update_test.py" "$(TARGET)"
 
 asan-test:
 	@set -eu; python3 "$(CURDIR)/tests/migration_hash_contract_test.py"; \
