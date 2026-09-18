@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="docs/assets/metalsharp-transparent.png" alt="MetalSharp logo" width="56" height="56" /> MetalSharp</h1>
+<h1><img src="docs/assets/metalsharp-transparent.png" alt="MetalSharp logo" width="40" height="40" /> MetalSharp</h1>
 
 **Run Windows games on MacOS Silicon.**
 
