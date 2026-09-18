@@ -62,8 +62,9 @@ const updateDismissed = ref(false);
 let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let installPollTimer: ReturnType<typeof setInterval> | null = null;
 let steamLibraryPollTimer: ReturnType<typeof setInterval> | null = null;
-let libraryLoadInFlight: Promise<void> | null = null;
 let steamLibraryPollInFlight = false;
+let steamappsReloadTimer: ReturnType<typeof setTimeout> | null = null;
+let libraryLoadInFlight: Promise<void> | null = null;
 let pendingForceReload = false;
 
 const toast = useToast();
@@ -83,8 +84,8 @@ const pendingLibraryTab = ref<string | null>(null);
 provide("pendingLibraryTab", pendingLibraryTab);
 
 function navigateTo(view: string) {
-  if (view === "collection") {
-    pendingLibraryTab.value = "collection";
+  if (view === "play" || view === "collection") {
+    pendingLibraryTab.value = view === "collection" ? "collection" : "play";
     currentView.value = "library";
   } else {
     currentView.value = view;
@@ -371,6 +372,12 @@ function startHealthPolling() {
     if (prev && !backendConnected.value) toast.show("Backend connection lost", "error");
     else if (!prev && backendConnected.value) toast.show("Backend connected", "success");
   }, 120000);
+
+  // Re-check for releases while the app runs so the footer flips to
+  // "Update Available" without needing an app restart.
+  setInterval(() => {
+    void checkForUpdates();
+  }, 15 * 60_000);
 }
 
 function finishStartupVideo() {
@@ -390,6 +397,29 @@ async function initApp() {
   const state = await api<{ deviceName?: string }>("GET", "/setup/state");
   if (state?.deviceName) setupDeviceName.value = state.deviceName;
   startHealthPolling();
+  wireSteamappsRefresh();
+}
+
+// The MetalSharp Steam client writes/removes appmanifest_*.acf files on every
+// install, uninstall, and download state change. The main process watches the
+// steamapps directory and pushes "steamapps:changed" — reload the library as
+// soon as the manifests settle so games appear/disappear without a restart.
+// The 15s watch-steamapps poll and the window-focus refresh stay as backups.
+function wireSteamappsRefresh() {
+  getAPI().onSteamappsChanged?.(() => {
+    if (steamappsReloadTimer) clearTimeout(steamappsReloadTimer);
+    steamappsReloadTimer = setTimeout(() => {
+      steamappsReloadTimer = null;
+      void loadLibrary(false);
+    }, 2500);
+  });
+  window.addEventListener("focus", () => {
+    if (steamappsReloadTimer) return;
+    steamappsReloadTimer = setTimeout(() => {
+      steamappsReloadTimer = null;
+      void loadLibrary(false);
+    }, 500);
+  });
 }
 
 function applyLowPerformanceMode(enabled: boolean) {

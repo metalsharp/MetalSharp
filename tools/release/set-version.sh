@@ -55,6 +55,7 @@ const version = process.argv[2];
 const replacements = [
   ["app/src-c/runtime/migration.c", /(\\"version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
   ["app/src-c/runtime/updater.c", /(\\"current_version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
+  ["app/src-c/tests/updater_test.py", /(VERSION = \")[0-9]+\.[0-9]+\.[0-9]+/g],
 ];
 for (const [path, pattern] of replacements) {
   const source = fs.readFileSync(path, "utf8");
@@ -86,7 +87,7 @@ const checks = [
   ["migration version", migration.includes(`MIGRATION_VERSION "${version}"`)],
   ["migration fallback version", migration.includes(`\\"version\\":\\"${version}\\"`)],
   ["updater fallback version", updater.includes(`\\"current_version\\":\\"${version}\\"`)],
-  ["setup runtime description", setup.includes(`runtime (${version}-m12-isolated-surface-v1)`) ],
+  ["setup DXMT runtime contract", setup.includes('MS_BACKEND_VERSION "-dxmt-v0.80-baseline-v1"')],
   ["C smoke expected version", smoke.includes(`assert v["version"] == "${version}"`)],
   ["README release link", readme.includes(`/releases/tag/v${version}`)],
   ["README release badge", readme.includes(`filter=v${version}`)],

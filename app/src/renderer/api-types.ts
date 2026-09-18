@@ -215,6 +215,9 @@ interface GameJoltDownloadUpdate {
 
 type MetalsharpAPI = {
   onGameJoltDownload: (callback: (update: GameJoltDownloadUpdate) => void) => () => void;
+  onSteamappsChanged: (callback: () => void) => () => void;
+  onGridArtChanged: (callback: () => void) => () => void;
+  showLaunchOverlay: (gameName: string) => Promise<{ ok: boolean }>;
   request: (
     method: string,
     url: string,
@@ -262,6 +265,8 @@ type MetalsharpAPI = {
   updaterInstallStatus: () => Promise<InstallStatus | null>;
   updaterClearStatus: () => Promise<void>;
   backendGetPid: () => Promise<number | null>;
+  backendBaseUrl: () => Promise<string>;
+  openSteamArtManager: () => Promise<{ ok: boolean; error?: string }>;
   migrateCheck: () => Promise<BackendResponse>;
   migrateStart: () => Promise<BackendResponse>;
   migrateProgress: () => Promise<BackendResponse>;

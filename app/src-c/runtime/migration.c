@@ -20,7 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "0.65.5"
+#define MIGRATION_VERSION "0.70.0"
 #define MIGRATION_SCHEMA  5
 
 static const char* const migration_payload_denies[] = {"steamapps",
@@ -69,32 +69,28 @@ typedef struct {
     migration_link* gptk_links;
 } preserved_data;
 
-static const char* const migration_m12_hashes[][2] = {
-    {"x86_64-windows/d3d10core.dll", "976ab683cb5be01bea6138360c29a6818769449cf1eeb801da89d8269671b7d2"},
-    {"x86_64-windows/d3d11.dll", "6c249dd831a6dd69f006caa9ac52f7eafc292468ee334f2b8a6adbdbbbfaca84"},
-    {"x86_64-windows/d3d12.dll", "25bf6da9103af1b77c2c0ffc688fdb95c70e22eb01cd6a211fdb17e1149c44d7"},
-    {"x86_64-windows/dxgi.dll", "1f8dfdea49674243f2923d3f7d1e6c38479c34d5cbf114ac133a806ff5abf877"},
-    {"x86_64-windows/dxgi_dxmt.dll", "d080469f446e6d4ce0b1ea6267e25adefdab46349dff10ae5fdaa80279dd8064"},
-    {"x86_64-windows/winemetal.dll", "495065128e43c44184397ace644db22120fa4cdcef32d894d53208addd223f38"},
-    {"x86_64-windows/nvapi64.dll", "aca9ce27b93a955023a4ff1fb3d8faea8310be676f832e571afc3baa71862b71"},
-    {"x86_64-windows/nvngx.dll", "16ec884e0a75e034e965b5c6fea0fe42c23bffd1b8183493638b2c7cdff4dde1"},
-    {"x86_64-unix/winemetal.so", "17c77f18708e3be6be36bb4cdc0df12b47f47618f4a630a7d1239008c4eee7a5"},
-    {"x86_64-unix/libc++.1.dylib", "9bfcf5310f95ebaeddaa55482debbb115a5cb109244dece727a314933dcbcc15"},
-    {"x86_64-unix/libc++abi.1.dylib", "b819a65788f8f4e8bc1e67a601e8e3d59c52c14a74910e61f2e7307006340fb4"},
-    {"x86_64-unix/libunwind.1.dylib", "105e72335d9e919e32028d151934b97d4b75267528023cb7f22111ac8065de0e"}};
+static const char* const migration_dxmt_hashes[][2] = {
+    {"i386-windows/d3d10core.dll", "aa5139ecc9af95b01b23d403212fad12eff6f4e5453137c49f2996b2a0f7ec4c"},
+    {"i386-windows/d3d11.dll", "0f3f340b1ccf56dfa87207d97998280e23c00ed948227c7f1770d95e38957582"},
+    {"i386-windows/dxgi.dll", "b8770d4e8a6a17a6a1503056f51ac02f2db6bbfb281b2b7a0c9d5d5e2c381bc7"},
+    {"i386-windows/nvngx.dll", "93d9ac54a57d2ebd0a20be550c0cb38c0a30311eb49eaa6f576569d97910c83b"},
+    {"i386-windows/winemetal.dll", "5a9ed6c48ba9857d76984757d00d0e9319b9f8f91d62cd392ddd4232d787cfe5"},
+    {"x86_64-unix/winemetal.so", "ad1eac52db9b68db62f73161911c6e04fbec122b85fa21b7752085371d32ec98"},
+    {"x86_64-windows/d3d10core.dll", "572a68f6ddfb53e88e681a337a0ab74272a25b35c61b88b068235477592bef7b"},
+    {"x86_64-windows/d3d11.dll", "be17605d3decfbf3ffb4bf69f744129774b9d769a4155e6fa8b3711a288f3455"},
+    {"x86_64-windows/dxgi.dll", "fe0b8cece3d4b044513177c625b66b9528c070f7859a7d64ca0dc9c40d8e6ef9"},
+    {"x86_64-windows/nvapi64.dll", "adacbff12fde35689f43fbfd8448e852517889bbb47bce171c4028b05d452e6d"},
+    {"x86_64-windows/nvngx.dll", "19b12db9b7489216683eeb0e5a521e47c8f963623018b2c3d3a806999f82477f"},
+    {"x86_64-windows/winemetal.dll", "a38e4c59360a592ab9861442f7dc29dd81653474d6fc524577816cb42a6fce86"}};
 static const char* const migration_vkd3d_hashes[][2] = {
     {"x86_64-windows/d3d12.dll", "ac2b8674798bdbdd21ce1aa48daf1e2657813ecc878b80e2641bf0d2c3f2a43e"},
     {"x86_64-windows/d3d12core.dll", "78ab917a20dbc050ba3d0def8c0241e53c90ded0a036462955108e0ef78022a8"},
     {"x86_64-windows/dxgi.dll", "16af74bca22dfc108e94c52c21d34fe6863aaebe8a9b635385a7523bf7e5b266"}};
 static const char* const migration_dxvk_hashes[][2] = {
-    {"x86_64-windows/d3d9.dll", "67f8b1f139c7b4838de535876668c44716cec5dda56a1aa88bab5b820acd72fc"},
-    {"x86_64-windows/d3d10core.dll", "d8616fc3c1e13b32562325202655d4ecba972b4043bdf8f0b7350d627b842c26"},
-    {"x86_64-windows/d3d11.dll", "e7cf78bdc3722b40f19919ada77cfb535bdb3708934eb6d4c13111f5454b8c74"},
-    {"x86_64-windows/dxgi.dll", "1568105bcbbb0a98e6f12f386725e8186483c985a3c95cfe1484cfef125ae63c"},
-    {"i386-windows/d3d9.dll", "3bbe4b5aa1445380223ab5ce98f9ea5ad91ab3599e3354b4e91943a017474dbd"},
-    {"i386-windows/d3d10core.dll", "a7010f0a1b4eaa54b892c79fbdc01c83b6030770acd6045962fff05c142dfbeb"},
-    {"i386-windows/d3d11.dll", "04a6393bff8da791eccc81f6e54012e148ec9f960d465405bf5e0c76f024f063"},
-    {"i386-windows/dxgi.dll", "ce7d7235562b534474098e77e4d26742b91807e766693a44dfdd5e50385199df"}};
+    {"x86_64-windows/d3d9.dll", "ab6d25f0a6f9a7375483710a714a3aa0b81b08ec645764ad47340d9d56b7daeb"},
+    {"x86_64-windows/d3d10core.dll", "f85c6298bfbbba66ad7e2728e420807909cc443a766bfd1496f7bae1b6bc1f62"},
+    {"x86_64-windows/d3d11.dll", "a88c7ded56f8f280f17fc6cbde8f61829935fb89f6998a3fd31687aef6f11501"},
+    {"x86_64-windows/dxgi.dll", "e37f43183a1bc7174fc898c6e23729b0b60aede0d641c51b752228129ec4cb21"}};
 
 static char* path_join(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
@@ -561,7 +557,6 @@ static bool runtime_ready(const char* home) {
                               "configs/mtsp-rules.toml",
                               "runtime/wine/etc/dxmt.conf",
                               "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json",
-                              "runtime/wine/lib/dxmt_m12/metalsharp-dxmt-runtime.json",
                               "runtime/wine/lib/moltenvk-vkmt/libMoltenVK.dylib",
                               "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json"};
     bool ok = true;
@@ -584,28 +579,34 @@ static bool runtime_ready(const char* home) {
     free(host_lib);
     {
         char *unix_dir = path_join(home, "runtime/wine/lib/wine/x86_64-unix"),
-             *dxmt_manifest = path_join(home, "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json"),
-             *m12_manifest = path_join(home, "runtime/wine/lib/dxmt_m12/metalsharp-dxmt-runtime.json");
-        ok = ok && directory_local(unix_dir) && migration_manifest_current(dxmt_manifest) &&
-             migration_manifest_current(m12_manifest);
+             *dxmt_manifest = path_join(home, "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json");
+        ok = ok && directory_local(unix_dir) && migration_manifest_current(dxmt_manifest);
         {
-            char *m12_root = path_join(home, "runtime/wine/lib/dxmt_m12"), *dxvk_root = path_join(home, "vkd3d/dxvk"),
+            char *dxmt_root = path_join(home, "runtime/wine/lib/dxmt"), *dxvk_root = path_join(home, "vkd3d/dxvk"),
                  *vkd3d_root = path_join(home, "vkd3d/vkd3d-proton");
-            ok = ok && m12_root && dxvk_root && vkd3d_root &&
-                 hash_set_current(m12_root, migration_m12_hashes,
-                                  sizeof(migration_m12_hashes) / sizeof(migration_m12_hashes[0])) &&
+            ok = ok && dxmt_root && dxvk_root && vkd3d_root &&
+                 hash_set_current(dxmt_root, migration_dxmt_hashes,
+                                  sizeof(migration_dxmt_hashes) / sizeof(migration_dxmt_hashes[0])) &&
                  hash_set_current(dxvk_root, migration_dxvk_hashes,
                                   sizeof(migration_dxvk_hashes) / sizeof(migration_dxvk_hashes[0])) &&
                  hash_set_current(vkd3d_root, migration_vkd3d_hashes,
                                   sizeof(migration_vkd3d_hashes) / sizeof(migration_vkd3d_hashes[0])) &&
                  migration_moltenvk_current(home);
-            free(m12_root);
+            /* Gatekeeper hygiene: staged lanes must never carry quarantine
+             * provenance after a migration pass. */
+            ms_clear_quarantine_tree(dxmt_root);
+            ms_clear_quarantine_tree(dxvk_root);
+            ms_clear_quarantine_tree(vkd3d_root);
+            /* Wrapper/shim guarantee: the steamwebhelper wrapper, bridge
+             * shim and Goldberg payloads must survive every migration. */
+            if (!ms_steam_wrappers_ensure(home))
+                ok = false;
+            free(dxmt_root);
             free(dxvk_root);
             free(vkd3d_root);
         }
         free(unix_dir);
         free(dxmt_manifest);
-        free(m12_manifest);
     }
     return ok;
 }
@@ -1440,7 +1441,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.65.5\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.70.0\"}");
     free(p);
     return out;
 }
@@ -1448,7 +1449,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.65.5\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.70.0\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;

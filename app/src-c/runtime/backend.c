@@ -42,6 +42,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,7 +166,7 @@ static unsigned char* read_binary(const char* path, size_t* length) {
     if (!path || !length)
         return NULL;
     int fd = open(path, O_RDONLY | O_NOFOLLOW);
-    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > 16 * 1024 * 1024) {
+    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > (off_t)MS_HTTP_MAX_BODY_BYTES) {
         if (fd >= 0)
             close(fd);
         return NULL;
@@ -205,6 +206,77 @@ static const char* image_type(const char* path) {
     return "image/jpeg";
 }
 
+/* Serve user-authored Steam grid artwork for the library UI. Steam Art
+ * Manager (and Steam's own "Set Custom Image") writes custom art to
+ * <userdata>/<account>/config/grid/ using Steam's grid file naming:
+ *   hero:   <appid>_hero.png/.jpg
+ *   poster: <appid>p.png/.jpg
+ *   header: <appid>.png/.jpg (wide capsule)
+ * When present, these override fetched CDN artwork. */
+static bool handle_grid_art(const ms_http_request* request, ms_http_response* response, const char* metalsharp_home) {
+    long appid = 0;
+    char kind[16] = {0};
+    if (sscanf(request->path, "/art/grid/%ld/%15s", &appid, kind) != 2 || appid <= 0 || appid > 2147483647L) {
+        set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"invalid grid art request\"}"));
+        return true;
+    }
+    static const char* const hero_names[] = {"%ld_hero.png", "%ld_hero.jpg", NULL};
+    static const char* const poster_names[] = {"%ldp.png", "%ldp.jpg", NULL};
+    static const char* const header_names[] = {"%ld.png", "%ld.jpg", NULL};
+    const char* const* names = NULL;
+    if (!strcmp(kind, "hero"))
+        names = hero_names;
+    else if (!strcmp(kind, "poster"))
+        names = poster_names;
+    else if (!strcmp(kind, "header"))
+        names = header_names;
+    if (!names) {
+        set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"unknown grid art kind\"}"));
+        return true;
+    }
+    char newest[PATH_MAX] = {0};
+    struct stat newest_stat;
+    memset(&newest_stat, 0, sizeof(newest_stat));
+    for (size_t i = 0; names[i] != NULL; i++) {
+        char filename[64];
+        snprintf(filename, sizeof(filename), names[i], appid);
+        char pattern[PATH_MAX];
+        snprintf(pattern, sizeof(pattern),
+                 "%s/prefix-steam/drive_c/Program Files (x86)/Steam/userdata/*/config/grid/%s",
+                 metalsharp_home, filename);
+        glob_t results;
+        memset(&results, 0, sizeof(results));
+        if (glob(pattern, GLOB_NOSORT, NULL, &results) != 0)
+            continue;
+        for (size_t m = 0; m < (size_t)results.gl_pathc; m++) {
+            struct stat st;
+            if (stat(results.gl_pathv[m], &st) != 0 || !S_ISREG(st.st_mode))
+                continue;
+            if (newest[0] == '\0' || st.st_mtime > newest_stat.st_mtime) {
+                snprintf(newest, sizeof(newest), "%s", results.gl_pathv[m]);
+                newest_stat = st;
+            }
+        }
+        globfree(&results);
+    }
+    if (newest[0] == '\0') {
+        set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"no custom grid art\"}"));
+        return true;
+    }
+    size_t length = 0;
+    unsigned char* data = read_binary(newest, &length);
+    if (!data) {
+        set_json_response(response, 500, strdup("{\"ok\":false,\"error\":\"failed to read grid art\"}"));
+        return true;
+    }
+    response->status = 200;
+    response->content_type = image_type(newest);
+    response->body = data;
+    response->body_length = length;
+    response->owns_body = true;
+    return true;
+}
+
 bool ms_backend_handle(const ms_http_request* request, ms_http_response* response, void* context_ptr) {
     ms_backend_context* context = (ms_backend_context*)context_ptr;
     char* body;
@@ -227,6 +299,9 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
             return false;
         set_json_response(response, 200, body);
         return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strncmp(request->path, "/art/grid/", 10) == 0) {
+        return handle_grid_art(request, response, context->metalsharp_home);
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/host-abi") == 0) {
         body = host_abi_json(context->steam_bridge_port);
@@ -1042,14 +1117,6 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/diagnostics/launch/timing") == 0) {
         int status = 500;
         body = ms_diagnostics_json("launch-timing", request->query, request->body, request->body_length, &status);
-        if (body == NULL)
-            return false;
-        set_json_response(response, status, body);
-        return true;
-    }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/diagnostics/m12/dry-run") == 0) {
-        int status = 500;
-        body = ms_diagnostics_json("m12-dry-run", request->query, request->body, request->body_length, &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

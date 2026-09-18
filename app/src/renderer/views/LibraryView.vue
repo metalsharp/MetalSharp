@@ -82,9 +82,16 @@ const metalFxBusy = ref(false);
 const controllerInput = ref<"off" | "x" | "d">("off");
 const controllerBusy = ref(false);
 const msyncEnabled = ref(true);
+const steamEmuActive = ref(false);
+const steamEmuBusy = ref(false);
 const msyncBusy = ref(false);
 const artworkSources = ref<Record<number, string[]>>({});
 const heroArtSources = ref<Record<number, string>>({});
+const backendBase = ref("");
+const artManagerOpening = ref(false);
+// Bumped whenever grid artwork changes on disk (Steam Art Manager save) so
+// cached /art/grid URLs re-resolve to the freshly written images.
+const artVersion = ref(0);
 const fallbackArtApps = ref(new Set<number>());
 
 function markFallbackArt(appid: number) {
@@ -137,17 +144,11 @@ const libraryThemeStyle = computed<Record<string, string>>(() => ({
 const pipelineOptions = [
   { id: "d3dmetal", label: "D3DMetal" },
   { id: "vkd3d", label: "VKD3D" },
-  { id: "m11", label: "M11" },
-  { id: "m11_32", label: "M11(32)" },
-  { id: "m10", label: "M10" },
-  { id: "m10_32", label: "M10(32)" },
-  { id: "m9", label: "M9" },
+  { id: "dxmt", label: "DXMT" },
+  { id: "dxmt_32", label: "DXMT(32)" },
   { id: "fna_arm64", label: "Mono/FNA" },
 ];
-// Display-only names. m12 stays a valid backend route for existing bottles
-// but is intentionally not offered as a new selection (matches the old UI).
 const pipelineNames: Record<string, string> = {
-  m12: "M12",
   ...Object.fromEntries(pipelineOptions.map((option) => [option.id, option.label])),
 };
 const pipelineLabel = (id: string | null | undefined) => (id && pipelineNames[id]) || "Auto";
@@ -180,12 +181,29 @@ function storeArt(appid: number) {
   return `https://store.akamai.steamstatic.com/images/storepagebackground/app/${appid}`;
 }
 
+// User-authored Steam grid artwork (Steam Art Manager / Steam "Set Custom
+// Image") served by the backend from the Wine Steam userdata grid cache.
+// When present, these override fetched CDN artwork.
+function gridArtUrl(appid: number, kind: "hero" | "poster" | "header") {
+  return backendBase.value ? `${backendBase.value}/art/grid/${appid}/${kind}?v=${artVersion.value}` : "";
+}
+
 function artworkCandidates(game: ShowcaseGame) {
   const primary = game.cover_url || steamArt(game.appid, "library_600x900_2x");
   const steamDbFallback = `https://steamdb.info/resize/600x900/${primary}`;
   const embedded = game.embedded_icon_path ? `file://${encodeURI(game.embedded_icon_path)}` : "";
   return [
-    ...new Set([primary, steamDbFallback, steamArt(game.appid, "library_hero"), game.header_url, storeArt(game.appid), embedded, sharpLogoUrl].filter(Boolean)),
+    ...new Set([
+      gridArtUrl(game.appid, "poster"),
+      gridArtUrl(game.appid, "header"),
+      primary,
+      steamDbFallback,
+      steamArt(game.appid, "library_hero"),
+      game.header_url,
+      storeArt(game.appid),
+      embedded,
+      sharpLogoUrl,
+    ].filter(Boolean)),
   ];
 }
 
@@ -375,20 +393,30 @@ const heroBleedStyle = computed<Record<string, string>>(() => ({
 }));
 
 // Hero art is a CSS background so it has no @error fallback — probe candidates
-// with Image() and keep the first one that actually loads.
-watch(featuredGame, (game) => {
-  if (!game || heroArtSources.value[game.appid]) return;
+// with Image() and keep the first one that actually loads. User grid artwork
+// (Steam Art Manager) is probed first so it always overrides online fetches.
+function probeHeroArt(game: ShowcaseGame) {
+  // Wait for the backend base URL: probing before it loads would race, cache
+  // a CDN candidate, and the guard below would then block the grid-art probe
+  // forever. The watch re-fires once backendBase is set.
+  if (!game || !backendBase.value || heroArtSources.value[game.appid]) return;
   const candidates = [
+    gridArtUrl(game.appid, "hero"),
     game.hero_url,
     game.cover_url,
     game.header_url,
   ].filter(Boolean) as string[];
+  const tail = [storeArt(game.appid), sharpLogoUrl];
   const probe = (index: number) => {
     const url = candidates[index];
     if (!url) {
       void enrichArtwork(game.appid).then((extra) => {
         const hero = extra?.hero || extra?.shot || extra?.card;
-        if (hero) heroArtSources.value = { ...heroArtSources.value, [game.appid]: hero };
+        if (hero) {
+          heroArtSources.value = { ...heroArtSources.value, [game.appid]: hero };
+          return;
+        }
+        probeTail(0);
       });
       return;
     }
@@ -399,8 +427,33 @@ watch(featuredGame, (game) => {
     image.onerror = () => probe(index + 1);
     image.src = url;
   };
+  const probeTail = (index: number) => {
+    const url = tail[index];
+    if (!url) return;
+    const image = new Image();
+    image.onload = () => {
+      heroArtSources.value = { ...heroArtSources.value, [game.appid]: url };
+    };
+    image.onerror = () => probeTail(index + 1);
+    image.src = url;
+  };
   probe(0);
+}
+
+watch([featuredGame, backendBase], ([game]) => {
+  probeHeroArt(game);
 }, { immediate: true });
+
+async function openArtManager() {
+  if (artManagerOpening.value) return;
+  artManagerOpening.value = true;
+  try {
+    const result = await window.metalsharp.openSteamArtManager();
+    if (!result?.ok) console.warn("Steam Art Manager could not be launched:", result?.error);
+  } finally {
+    artManagerOpening.value = false;
+  }
+}
 
 function heroArt(game: ShowcaseGame) {
   return heroArtSources.value[game.appid] || game.hero_url;
@@ -490,23 +543,9 @@ function scrollDock(direction: -1 | 1) {
 }
 
 function isWineSteamRouteId(launchMethod: string) {
-  return [
-    "dxmt",
-    "steam",
-    "wine_steam",
-    "m9",
-    "m10",
-    "m10_32",
-    "m11",
-    "m11_32",
-    "m12",
-    "vkd3d",
-    "d3dmetal",
-    "d3d9",
-    "d3d10",
-    "d3d11",
-    "d3d12",
-  ].includes(launchMethod.toLowerCase());
+  return ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "steam", "wine_steam"].includes(
+    launchMethod.toLowerCase(),
+  );
 }
 
 async function launchGame(game: ShowcaseGame) {
@@ -527,6 +566,11 @@ async function launchGame(game: ShowcaseGame) {
   if (result?.ok) {
     rememberPlayed(game.appid);
     toast.show(`Launched ${game.name}`, "success");
+    // Remind the player about the Cmd+Opt+Q escape hatch once the game has
+    // had a moment to take over the screen.
+    setTimeout(() => {
+      void window.metalsharp.showLaunchOverlay(game.name).catch(() => {});
+    }, 5000);
   } else toast.show(result?.error || `Failed to launch ${game.name}`, "error");
 }
 
@@ -583,6 +627,39 @@ async function loadGameSettings() {
   }
 }
 
+async function loadSteamEmuStatus(appid: number) {
+  const result = await api<{ ok: boolean; goldberg_active: boolean; cache_files_ok?: boolean; backed_up_at?: number | null }>(
+    "GET",
+    `/goldberg/status?appid=${appid}`,
+  );
+  if (result?.ok) steamEmuActive.value = result.goldberg_active;
+}
+
+async function setSteamEmu(enabled: boolean) {
+  const game = featuredGame.value;
+  if (!game || steamEmuBusy.value) return;
+  steamEmuBusy.value = true;
+  const result = await api<{ ok: boolean; goldberg_active: boolean; cache_files_ok?: boolean; error?: string }>(
+    "POST",
+    "/goldberg/toggle",
+    { appid: game.appid, enable: enabled },
+  );
+  if (result?.ok) {
+    steamEmuActive.value = result.goldberg_active;
+    toast.show(
+      enabled
+        ? result.cache_files_ok === false
+          ? "Steam Emu enabled, but no backup cache found — restore from OFF may rely on .orig files only"
+          : "Steam Emu enabled; original Steam DLLs cached for safe restore"
+        : "Steam Emu disabled; original Steam DLLs restored",
+      "success",
+    );
+  } else {
+    toast.show(result?.error || "Failed to toggle Steam Emu", "error");
+  }
+  steamEmuBusy.value = false;
+}
+
 async function setMetalFx(mode: "1.75" | "1.50" | "off") {
   if (metalFxBusy.value) return;
   metalFxBusy.value = true;
@@ -634,6 +711,8 @@ watch(
     const selectable = [effective, recommended].find((id) => pipelineOptions.some((option) => option.id === id));
     selectedPipeline.value = selectable || pipelineOptions[0].id;
     if (game) void loadGameSettings();
+    if (game?.installed) void loadSteamEmuStatus(game.appid);
+    else steamEmuActive.value = false;
   },
   { immediate: true },
 );
@@ -690,12 +769,28 @@ watch(
 );
 
 onMounted(() => {
-  // Honor a Collection request made while another page was active.
+  // Honor a Play/Collection request made while another page was active.
   if (pendingLibraryTab.value === "collection") {
     pendingLibraryTab.value = null;
     openCollection();
+  } else if (pendingLibraryTab.value === "play") {
+    pendingLibraryTab.value = null;
+    openPlay();
   }
   void loadGameSettings();
+  window.metalsharp.backendBaseUrl().then((base) => {
+    backendBase.value = base;
+  }).catch(() => {});
+  // Fired when the Steam Art Manager save button (or Steam's "Set Custom
+  // Image") writes grid artwork. Bust the per-game artwork caches so every
+  // app card and the hero re-probe against the new images.
+  window.metalsharp.onGridArtChanged?.(() => {
+    artVersion.value = Date.now();
+    artworkSources.value = {};
+    heroArtSources.value = {};
+    fallbackArtApps.value = new Set<number>();
+    if (featuredGame.value) probeHeroArt(featuredGame.value);
+  });
 });
 
 function handleImageError(event: Event, game: ShowcaseGame) {
@@ -831,6 +926,19 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
           </div>
         </div>
         <div class="library-hero-controls" @click.stop>
+          <button
+            class="library-art-button"
+            type="button"
+            title="Customize Steam artwork with Steam Art Manager"
+            aria-label="Customize Steam artwork with Steam Art Manager"
+            :disabled="artManagerOpening"
+            @click="openArtManager"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+              <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
+            </svg>
+          </button>
           <div class="library-bottle-control">
             <span class="library-control-label">Bottle</span>
             <select v-model="selectedPipeline" :disabled="pipelineSaving" @change="savePipeline">
@@ -877,6 +985,18 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
               <span>msync</span>
               <button type="button" :class="{ active: msyncEnabled }" @click="setMsync(!msyncEnabled)">
                 {{ msyncEnabled ? "On" : "Off" }}
+              </button>
+            </div>
+            <div class="game-setting-row game-setting-toggle">
+              <span>Steam Emu</span>
+              <button
+                type="button"
+                :class="{ active: steamEmuActive }"
+                :disabled="steamEmuBusy || !featuredGame?.installed"
+                :title="featuredGame?.installed ? 'gbe_fork Steam emulator' : 'Requires an installed game'"
+                @click="setSteamEmu(!steamEmuActive)"
+              >
+                {{ steamEmuActive ? "On" : "Off" }}
               </button>
             </div>
           </div>
@@ -1330,7 +1450,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   margin: 0 0 12px;
   color: #efcf9d;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(48px, 5.25vw, 78px);
+  font-size: clamp(24px, 2.625vw, 39px);
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 0.96;
@@ -1432,6 +1552,28 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   background: rgba(12, 15, 16, 0.72);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(14px);
+}
+.library-view .library-art-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(231, 234, 236, 0.3);
+  border-radius: 8px;
+  background: rgba(12, 15, 16, 0.72);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+  color: #dfe3e2;
+  cursor: pointer;
+}
+.library-view .library-art-button:hover {
+  border-color: var(--library-accent, rgba(231, 234, 236, 0.55));
+  color: #fff;
+}
+.library-view .library-art-button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .library-control-label {
   color: #aeb4b3;
@@ -1890,7 +2032,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
     background: linear-gradient(0deg, rgba(7, 9, 10, 0.92), transparent);
   }
   .library-hero h1 {
-    font-size: 48px;
+    font-size: 24px;
   }
   .library-hero-description {
     font-size: 15px;

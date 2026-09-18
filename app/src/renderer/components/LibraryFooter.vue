@@ -9,7 +9,10 @@ const backendConnected = inject<Ref<boolean>>("backendConnected")!;
 const backendVersion = inject<Ref<string | null>>("backendVersion")!;
 const updateStatus = inject<Ref<UpdateStatus | null>>("updateStatus")!;
 const updateDownloading = inject<Ref<boolean>>("updateDownloading")!;
+const updateProgress = inject<Ref<number>>("updateProgress")!;
+const updateMessage = inject<Ref<string>>("updateMessage")!;
 const startUpdateDownload = inject<() => void>("startUpdateDownload")!;
+const clampedProgress = computed(() => Math.min(100, Math.max(3, Math.round(updateProgress.value))));
 
 const gameCount = computed(() => library.value?.total ?? 0);
 const installedCount = computed(() => library.value?.installed_count ?? 0);
@@ -45,12 +48,15 @@ const readyDetail = computed(() =>
         <IconArrowDown width="17" height="17" />
       </button>
       <div>
-        <strong v-if="updateDownloading">Updating…</strong>
+        <strong v-if="updateDownloading">Updating… {{ clampedProgress }}%</strong>
         <strong v-else-if="updateStatus?.ok && updateStatus.available">Updated Ready: Download Now?</strong>
         <strong v-else>Up To Date</strong>
-        <span v-if="updateDownloading">{{ updateStatus?.latest_version || "Preparing update" }}</span>
+        <span v-if="updateDownloading">{{ updateMessage || updateStatus?.latest_version || "Preparing update" }}</span>
         <span v-else-if="updateStatus?.ok && updateStatus.available">v{{ updateStatus.latest_version }} ready</span>
         <span v-else>Everything's up to date</span>
+        <div v-if="updateDownloading" class="library-update-progress">
+          <div class="library-update-progress-bar" :style="{ width: `${clampedProgress}%` }"></div>
+        </div>
       </div>
     </div>
   </footer>
@@ -67,6 +73,7 @@ const readyDetail = computed(() =>
   border-top: 1px solid var(--line);
   color: #d8dad9;
   background: #1b1e20;
+  -webkit-app-region: drag;
 }
 .library-footer-status,
 .library-update-status {
@@ -90,6 +97,7 @@ const readyDetail = computed(() =>
   color: #777d7b;
   background: #282c2d;
   cursor: default;
+  -webkit-app-region: no-drag;
 }
 .library-update-icon.available {
   border-color: rgba(104, 205, 125, 0.65);
@@ -122,5 +130,19 @@ const readyDetail = computed(() =>
   margin-top: 3px;
   color: #969b9a;
   font-size: 11px;
+}
+.library-update-progress {
+  width: 190px;
+  height: 5px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: rgba(231, 234, 236, 0.14);
+  overflow: hidden;
+}
+.library-update-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #74d28a, #efcf9d);
+  transition: width 0.4s ease;
 }
 </style>

@@ -3,6 +3,7 @@ import { computed, inject, ref, type Component, type Ref } from "vue";
 import { api, steamFix } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { themes, useTheme, type ThemeName } from "../composables/useTheme";
+import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
 import SettingsOverlay from "./SettingsOverlay.vue";
 import IconSearch from "~icons/lucide/search";
 import IconSettings from "~icons/lucide/settings";
@@ -36,8 +37,11 @@ const emit = defineEmits<{
 }>();
 
 const { theme, setTheme } = useTheme();
+const libraryThemeStyle = useLibraryThemeStyle();
 const themeMenuOpen = ref(false);
 const tabMenuOpen = ref(false);
+const themeButtonEl = ref<HTMLElement | null>(null);
+const tabButtonEl = ref<HTMLElement | null>(null);
 const settingsOpen = ref(false);
 const steamFixMenuOpen = ref(false);
 const steamFixBusy = ref(false);
@@ -70,6 +74,16 @@ const tabOptions: { id: TopbarTab; label: string; icon: Component }[] = [
   { id: "logs", label: "Logs", icon: IconScrollText },
 ];
 const activeTabOption = computed(() => tabOptions.find((option) => option.id === props.activeTab) || tabOptions[0]);
+const themeMenuStyle = computed(() => {
+  if (!themeMenuOpen.value || !themeButtonEl.value) return {};
+  const rect = themeButtonEl.value.getBoundingClientRect();
+  return { top: `${rect.bottom + 8}px`, left: `${rect.left}px` };
+});
+const tabMenuStyle = computed(() => {
+  if (!tabMenuOpen.value || !tabButtonEl.value) return {};
+  const rect = tabButtonEl.value.getBoundingClientRect();
+  return { top: `${rect.bottom + 8}px`, left: `${rect.right - 174}px` };
+});
 
 function chooseTab(tab: TopbarTab) {
   tabMenuOpen.value = false;
@@ -151,41 +165,28 @@ async function toggleSteam() {
           />
         </label>
         <div class="library-theme-control">
-          <button class="library-theme-button" type="button" aria-label="Theme" @click="themeMenuOpen = !themeMenuOpen">
+          <button
+            ref="themeButtonEl"
+            class="library-theme-button"
+            type="button"
+            aria-label="Theme"
+            @click="themeMenuOpen = !themeMenuOpen"
+          >
             <component :is="themeIcons[theme] || IconMoon" width="17" height="17" />
           </button>
-          <div v-if="themeMenuOpen" class="library-theme-menu">
-            <button
-              v-for="themeName in themes"
-              :key="themeName"
-              type="button"
-              :class="{ active: themeName === theme }"
-              @click="setTheme(themeName); themeMenuOpen = false"
-            >
-              <span class="theme-menu-swatch" :data-theme="themeName"></span>
-              <span>{{ themeLabels[themeName] }}</span>
-            </button>
-          </div>
         </div>
         <nav class="library-nav" aria-label="Library navigation">
           <div class="library-tab-control">
-            <button class="library-tab-button" type="button" @click="tabMenuOpen = !tabMenuOpen">
+            <button
+              ref="tabButtonEl"
+              class="library-tab-button"
+              type="button"
+              @click="tabMenuOpen = !tabMenuOpen"
+            >
               <component :is="activeTabOption.icon" width="16" height="16" />
               <span>{{ activeTabOption.label }}</span>
               <IconChevronDown width="14" height="14" />
             </button>
-            <div v-if="tabMenuOpen" class="library-tab-menu">
-              <button
-                v-for="option in tabOptions"
-                :key="option.id"
-                type="button"
-                :class="{ active: option.id === activeTab }"
-                @click="chooseTab(option.id)"
-              >
-                <component :is="option.icon" width="16" height="16" />
-                <span>{{ option.label }}</span>
-              </button>
-            </div>
           </div>
           <button class="library-settings-button" type="button" aria-label="Settings" title="Settings" @click="openSettings">
             <IconSettings width="19" height="19" />
@@ -194,13 +195,48 @@ async function toggleSteam() {
       </div>
     </header>
 
+    <Teleport to="body">
+      <div
+        v-if="themeMenuOpen"
+        class="library-theme-menu library-topbar-overlay"
+        :style="[libraryThemeStyle, themeMenuStyle]"
+      >
+        <button
+          v-for="themeName in themes"
+          :key="themeName"
+          type="button"
+          :class="{ active: themeName === theme }"
+          @click="setTheme(themeName); themeMenuOpen = false"
+        >
+          <span class="theme-menu-swatch" :data-theme="themeName"></span>
+          <span>{{ themeLabels[themeName] }}</span>
+        </button>
+      </div>
+      <div
+        v-if="tabMenuOpen"
+        class="library-tab-menu library-topbar-overlay"
+        :style="[libraryThemeStyle, tabMenuStyle]"
+      >
+        <button
+          v-for="option in tabOptions"
+          :key="option.id"
+          type="button"
+          :class="{ active: option.id === activeTab }"
+          @click="chooseTab(option.id)"
+        >
+          <component :is="option.icon" width="16" height="16" />
+          <span>{{ option.label }}</span>
+        </button>
+      </div>
+    </Teleport>
+
   <SettingsOverlay v-if="settingsOpen" @close="settingsOpen = false" />
 </template>
 
 <style scoped>
 .library-topbar {
   position: relative;
-  z-index: 10;
+  z-index: 1000;
   display: flex;
   align-items: center;
   gap: 24px;
@@ -212,14 +248,15 @@ async function toggleSteam() {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
   -webkit-app-region: drag;
 }
-.library-window-space,
-.library-header-right,
-.library-brand,
-.library-nav,
 .library-search,
-.library-steam-split,
-.library-steam-gear,
-.library-steam-fix-menu {
+.library-steam-fix-backdrop {
+  -webkit-app-region: no-drag;
+}
+.library-topbar button,
+.library-topbar input,
+.library-topbar select,
+.library-topbar textarea,
+.library-topbar a {
   -webkit-app-region: no-drag;
 }
 .library-window-space {
@@ -235,6 +272,7 @@ async function toggleSteam() {
 }
 .library-theme-control {
   position: relative;
+  z-index: 1001;
   flex: 0 0 auto;
   margin-right: 4px;
 }
@@ -268,8 +306,8 @@ async function toggleSteam() {
   color: #fff !important;
 }
 .library-theme-menu {
-  position: absolute;
-  z-index: 30;
+  position: fixed;
+  z-index: 1002;
   top: calc(100% + 8px);
   left: 0;
   display: flex;
@@ -347,7 +385,6 @@ async function toggleSteam() {
   position: relative;
   display: inline-flex;
   align-items: stretch;
-  -webkit-app-region: no-drag;
 }
 .library-steam-split .library-steam-button {
   margin-left: 0;
@@ -496,6 +533,7 @@ async function toggleSteam() {
 }
 .library-tab-control {
   position: relative;
+  z-index: 1001;
   flex: 0 0 auto;
 }
 .library-tab-button {
@@ -518,10 +556,8 @@ async function toggleSteam() {
   background: transparent;
 }
 .library-tab-menu {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 8px);
-  right: 0;
+  position: fixed;
+  z-index: 1002;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -531,6 +567,10 @@ async function toggleSteam() {
   border-radius: 8px;
   background: var(--library-control-bg);
   box-shadow: 0 14px 35px rgba(0, 0, 0, 0.45);
+}
+.library-topbar-overlay {
+  z-index: 20000 !important;
+  -webkit-app-region: no-drag;
 }
 .library-tab-menu button {
   display: flex;
@@ -616,9 +656,12 @@ async function toggleSteam() {
   color: #fff !important;
   background: transparent !important;
 }
-/* With the search hidden (Sharp Library / Logs) push the tab dropdown and
-   settings button to the right edge, opposite the brand/theme/steam group. */
-.library-topbar.no-search .library-nav {
+/* With the search hidden (Sharp Library / Logs), keep the theme control
+   beside the tab dropdown at the right edge. */
+.library-topbar.no-search .library-theme-control {
   margin-left: auto;
+}
+.library-topbar.no-search .library-nav {
+  margin-left: 0;
 }
 </style>
