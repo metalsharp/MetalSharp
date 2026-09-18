@@ -675,7 +675,8 @@ function forceQuitRunningGames(): void {
 }
 
 // Cmd+Opt+Q force-quits all running games but leaves the Wine Steam client up.
-function registerForceQuitGamesShortcut(): void {  if (process.platform !== "darwin") return;
+function registerForceQuitGamesShortcut(): void {
+  if (process.platform !== "darwin") return;
   for (const accelerator of ["Command+Option+Q", "Command+Alt+Q"]) {
     let ok = false;
     try {
@@ -774,9 +775,9 @@ function showLaunchOverlay(gameName: string): void {
       win.showInactive();
       launchOverlayHideTimer = setTimeout(() => {
         try {
-          win.webContents.executeJavaScript(
-            "document.querySelector('.pill').style.animation='slideout .45s ease-in forwards'",
-          ).catch(() => {});
+          win.webContents
+            .executeJavaScript("document.querySelector('.pill').style.animation='slideout .45s ease-in forwards'")
+            .catch(() => {});
         } catch {}
       }, 8400);
       launchOverlayCloseTimer = setTimeout(() => {
@@ -786,10 +787,7 @@ function showLaunchOverlay(gameName: string): void {
         if (launchOverlayWindow === win) launchOverlayWindow = null;
       }, 9100);
     });
-    win.loadURL(
-      "data:text/html;charset=utf-8," +
-        encodeURIComponent(html),
-    );
+    win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
   } catch (error) {
     console.warn("MetalSharp launch overlay failed:", error);
   }
@@ -1117,14 +1115,7 @@ function notifyGridArtChanged() {
 }
 
 function startGridArtWatcher() {
-  const usersDir = path.join(
-    getMetalsharpDir(),
-    "prefix-steam",
-    "drive_c",
-    "Program Files (x86)",
-    "Steam",
-    "userdata",
-  );
+  const usersDir = path.join(getMetalsharpDir(), "prefix-steam", "drive_c", "Program Files (x86)", "Steam", "userdata");
   let gridDirs: string[] = [];
   try {
     if (fs.existsSync(usersDir)) {
@@ -1973,10 +1964,7 @@ function registerIpc() {
       }
       if (!samSettings.steamInstallPath && fs.existsSync(wineSteamPath)) {
         fs.mkdirSync(samConfigDir, { recursive: true });
-        fs.writeFileSync(
-          samSettingsPath,
-          JSON.stringify({ ...samSettings, steamInstallPath: wineSteamPath }, null, 2),
-        );
+        fs.writeFileSync(samSettingsPath, JSON.stringify({ ...samSettings, steamInstallPath: wineSteamPath }, null, 2));
       }
     } catch (error) {
       console.warn("Could not pre-configure Steam Art Manager path:", error);
@@ -1988,7 +1976,8 @@ function registerIpc() {
       await dialog.showMessageBox({
         type: "info",
         title: "Steam Art Manager",
-        message: "If Steam Art Manager asks for your Steam install path, paste (⌘V) the path below — it has been copied to your clipboard:",
+        message:
+          "If Steam Art Manager asks for your Steam install path, paste (⌘V) the path below — it has been copied to your clipboard:",
         detail: wineSteamPath,
         buttons: ["OK"],
       });
