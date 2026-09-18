@@ -11,6 +11,7 @@
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include <ctype.h>
+#include <sys/xattr.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -200,22 +201,24 @@ static void deploy_controller_input_shims(const char* home, const char* game_dir
 static const char* canonical_pipeline(const char* requested) {
     if (!requested || !requested[0] || !strcasecmp(requested, "auto") || !strcasecmp(requested, "dxmt"))
         return requested && !strcasecmp(requested, "dxmt") ? "dxmt" : "auto";
-    if (!strcasecmp(requested, "m12") || !strcasecmp(requested, "d3d12") || !strcasecmp(requested, "dx12"))
-        return "m12";
+    if (!strcasecmp(requested, "d3d12") || !strcasecmp(requested, "dx12"))
+        return "vkd3d";
     if (!strcasecmp(requested, "vkd3d") || !strcasecmp(requested, "vkd3d_proton") ||
         !strcasecmp(requested, "vulkan_d3d12"))
         return "vkd3d";
-    if (!strcasecmp(requested, "m11") || !strcasecmp(requested, "d3d11") || !strcasecmp(requested, "dx11") ||
-        !strcasecmp(requested, "steam_d3dmetal_perf") || !strcasecmp(requested, "steam_metalfx"))
-        return "m11";
-    if (!strcasecmp(requested, "m11_32") || !strcasecmp(requested, "d3d11_32") || !strcasecmp(requested, "dx11_32"))
-        return "m11_32";
-    if (!strcasecmp(requested, "m10") || !strcasecmp(requested, "d3d10") || !strcasecmp(requested, "dx10"))
-        return "m10";
-    if (!strcasecmp(requested, "m10_32") || !strcasecmp(requested, "d3d10_32") || !strcasecmp(requested, "dx10_32"))
-        return "m10_32";
-    if (!strcasecmp(requested, "m9") || !strcasecmp(requested, "d3d9") || !strcasecmp(requested, "dx9"))
-        return "m9";
+    if (!strcasecmp(requested, "dxmt") || !strcasecmp(requested, "m11") || !strcasecmp(requested, "m10") ||
+        !strcasecmp(requested, "d3d11") || !strcasecmp(requested, "dx11") || !strcasecmp(requested, "d3d10") ||
+        !strcasecmp(requested, "dx10") || !strcasecmp(requested, "steam_d3dmetal_perf") ||
+        !strcasecmp(requested, "steam_metalfx"))
+        return "dxmt";
+    if (!strcasecmp(requested, "dxmt_32") || !strcasecmp(requested, "m11_32") ||
+        !strcasecmp(requested, "m10_32") || !strcasecmp(requested, "d3d11_32") ||
+        !strcasecmp(requested, "d3d10_32") || !strcasecmp(requested, "dx10_32"))
+        return "dxmt_32";
+    if (!strcasecmp(requested, "dxvk") || !strcasecmp(requested, "dxvk_32") || !strcasecmp(requested, "m9") ||
+        !strcasecmp(requested, "d3d9") || !strcasecmp(requested, "dx9") || !strcasecmp(requested, "d3d9_32") ||
+        !strcasecmp(requested, "dx9_32"))
+        return "vkd3d";
     if (!strcasecmp(requested, "m13") || !strcasecmp(requested, "gptk") || !strcasecmp(requested, "steam_d3dmetal"))
         return "m13";
     if (!strcasecmp(requested, "d3dmetal") || !strcasecmp(requested, "d3dmetal_native"))
@@ -231,9 +234,7 @@ static const char* canonical_pipeline(const char* requested) {
 }
 
 static bool pipeline_is_dxmt(const char* pipeline) {
-    return pipeline && (!strcmp(pipeline, "m9") || !strcmp(pipeline, "m10") || !strcmp(pipeline, "m10_32") ||
-                        !strcmp(pipeline, "m11") || !strcmp(pipeline, "m11_32") || !strcmp(pipeline, "m12") ||
-                        !strcmp(pipeline, "dxmt"));
+    return pipeline && (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32"));
 }
 
 static void set_wine_msync(const char* home) {
@@ -253,20 +254,12 @@ static const char* pipeline_backend(const char* pipeline) {
 }
 
 static const char* pipeline_overrides(const char* pipeline) {
-    if (!strcmp(pipeline, "m12"))
-        return "winemetal,d3d12,dxgi,dxgi_dxmt,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
     if (!strcmp(pipeline, "vkd3d"))
         return "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
-    if (!strcmp(pipeline, "m11"))
-        return "winemetal,dxgi,d3d11,d3d12,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
-    if (!strcmp(pipeline, "m11_32"))
-        return "d3d11,dxgi,winemetal=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
-    if (!strcmp(pipeline, "m10"))
-        return "winemetal,d3d10,d3d10_1,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
-    if (!strcmp(pipeline, "m10_32"))
-        return "d3d10,d3d10_1,d3d10core,d3d11,dxgi,winemetal=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
-    if (!strcmp(pipeline, "m9"))
-        return "d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
+    if (!strcmp(pipeline, "dxmt"))
+        return "winemetal,dxgi,d3d11,d3d10core=n,b,d3d12=b;gameoverlayrenderer,gameoverlayrenderer64=d";
+    if (!strcmp(pipeline, "dxmt_32"))
+        return "winemetal,dxgi,d3d11,d3d10core=n,b,d3d12=b;gameoverlayrenderer,gameoverlayrenderer64=d";
     if (!strcmp(pipeline, "m13") || !strcmp(pipeline, "d3dmetal"))
         return "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
     return NULL;
@@ -356,47 +349,20 @@ static void set_route_paths(const char* home, const char* pipeline) {
     dllpath[0] = '\0';
     unixpath[0] = '\0';
 
-    if (!strcmp(pipeline, "m12")) {
-        snprintf(dllpath, sizeof(dllpath), "%s/runtime/wine/lib/dxmt_m12/x86_64-windows", home);
-        snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/dxmt_m12/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
-    } else if (!strcmp(pipeline, "m11")) {
+    if (!strcmp(pipeline, "dxmt")) {
         snprintf(dllpath, sizeof(dllpath),
                  "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/"
                  "metalsharp/x86_64-windows",
                  home, home, home);
         snprintf(unixpath, sizeof(unixpath),
                  "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
-    } else if (!strcmp(pipeline, "m10")) {
-        snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/"
-                 "metalsharp/x86_64-windows",
-                 home, home, home);
-        snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
-    } else if (!strcmp(pipeline, "m9")) {
-        snprintf(
-            dllpath, sizeof(dllpath),
-            "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/wine/"
-            "i386-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows",
-            home, home, home, home);
-        snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
-    } else if (!strcmp(pipeline, "m11_32")) {
+    } else if (!strcmp(pipeline, "dxmt_32")) {
         snprintf(dllpath, sizeof(dllpath),
                  "%s/runtime/wine/lib/dxmt/i386-windows:%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/wine/"
                  "x86_64-windows",
                  home, home, home);
         snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/dxmt/i386-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
-                 home, home, home);
-    } else if (!strcmp(pipeline, "m10_32")) {
-        snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/dxmt/i386-windows:%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/wine/"
-                 "x86_64-windows",
-                 home, home, home);
-        snprintf(unixpath, sizeof(unixpath),
-                 "%s/runtime/wine/lib/dxmt/i386-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
+                 "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix:%s/runtime/wine/lib/wine",
                  home, home, home);
     } else if (!strcmp(pipeline, "vkd3d")) {
         snprintf(
@@ -404,7 +370,7 @@ static void set_route_paths(const char* home, const char* pipeline) {
             "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
             home, home, home);
         /* Keep VKD3D on its dedicated current MoltenVK lane.  Do not use the
-         * Wine-bundled fallback driver or any DXMT/M12 sidecars here. */
+         * Wine-bundled fallback driver or any DXMT sidecars here. */
         snprintf(unixpath, sizeof(unixpath), "%s/runtime/wine/lib/moltenvk-vkmt:%s/runtime/wine/lib/wine/x86_64-unix",
                  home, home);
     } else if (!strcmp(pipeline, "d3dmetal")) {
@@ -439,16 +405,13 @@ static void set_route_paths(const char* home, const char* pipeline) {
     if (pipeline_is_dxmt(pipeline)) {
         char winemetal[PATH_MAX];
         char runtime_dir[PATH_MAX];
-        const char* route = !strcmp(pipeline, "m12")                                       ? "dxmt_m12/x86_64-unix"
-                            : (!strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32")) ? "dxmt/i386-unix"
-                                                                                           : "dxmt/x86_64-unix";
+        const char* route = "dxmt/x86_64-unix";
         /* __wine_load_unix_lib() takes an NT path, not a host POSIX path. */
         snprintf(winemetal, sizeof(winemetal), "\\??\\Z:%s/runtime/wine/lib/%s/winemetal.so", home, route);
         for (char* p = winemetal + 5; *p; ++p)
             if (*p == '/')
                 *p = '\\';
-        snprintf(runtime_dir, sizeof(runtime_dir), "%s/runtime/wine/lib/%s", home,
-                 !strcmp(pipeline, "m12") ? "dxmt_m12" : "dxmt");
+        snprintf(runtime_dir, sizeof(runtime_dir), "%s/runtime/wine/lib/dxmt", home);
         setenv("DXMT_WINEMETAL_UNIXLIB", winemetal, 1);
         setenv("DXMT_RUNTIME_DIR", runtime_dir, 1);
         setenv("GRAPHICS_BACKEND", "dxmt", 1);
@@ -487,8 +450,6 @@ static void set_route_paths(const char* home, const char* pipeline) {
 static void set_launch_cache_env(const char* home, unsigned id, const char* pipeline) {
     const char* subdir = pipeline;
     char shader[PATH_MAX], cache[PATH_MAX], summary[PATH_MAX * 2];
-    if (!strcmp(pipeline, "dxmt"))
-        subdir = "m11";
     snprintf(shader, sizeof(shader), "%s/shader-cache/%s/%u", home, subdir, id);
     snprintf(cache, sizeof(cache), "%s/pipeline-cache/%s/%u", home, subdir, id);
     (void)ensure_directory(shader);
@@ -516,21 +477,10 @@ static void set_route_default_env(const char* pipeline) {
     if (pipeline_is_dxmt(pipeline)) {
         setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "1", 1);
         setenv("DXMT_ASYNC_PIPELINE_COMPILE", "1", 1);
-        if (!strcmp(pipeline, "m12")) {
-            setenv("DXMT_METALFX_SPATIAL", "1", 1);
-            setenv("DXMT_METALFX_TEMPORAL", "1", 1);
-            setenv("DXMT_D3D12_UE_SM6_COMPAT", "1", 1);
-            setenv("DXMT_D3D12_PSO_WORKERS", "6", 1);
-            setenv("DXMT_CONFIG",
-                   "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
-                   "dxmt.shaderMetalVersion=310",
-                   1);
-        } else {
-            setenv("DXMT_CONFIG",
-                   "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
-                   "dxmt.shaderMetalVersion=310",
-                   1);
-        }
+        setenv("DXMT_CONFIG",
+               "d3d11.metalSpatialUpscaleFactor=1.43;d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
+               "dxmt.shaderMetalVersion=310",
+               1);
     } else {
         unsetenv("DXMT_METALFX_SPATIAL_SWAPCHAIN");
         unsetenv("DXMT_METALFX_SPATIAL");
@@ -558,25 +508,6 @@ static bool append_launch_arg(char** argv, size_t* count, size_t max, const char
 }
 
 static void build_launch_args(unsigned id, const char* pipeline, char** argv, size_t* count, size_t max) {
-    static char dpcvars[] =
-        "-dpcvars=r.Nanite=0,r.Nanite.ProjectEnabled=0,r.Nanite.AllowTessellation=0,r.Nanite.Tessellation=0,r.Nanite."
-        "SkinnedMeshes=0,r.Nanite.AsyncRasterization=0,r.GeometryCollection.Nanite=0,r.RayTracing=0,r.Lumen."
-        "HardwareRayTracing=0,r.Shadow.Virtual.Enable=0";
-    if (!strcmp(pipeline, "m12")) {
-        append_launch_arg(argv, count, max, "-windowed");
-        append_launch_arg(argv, count, max, "-ResX=1280");
-        append_launch_arg(argv, count, max, "-ResY=720");
-        append_launch_arg(argv, count, max, "-ForceRes");
-    }
-    if (id == 1962700 && !strcmp(pipeline, "m12")) {
-        append_launch_arg(argv, count, max, "-dx12");
-        append_launch_arg(argv, count, max, "-d3d12");
-        append_launch_arg(argv, count, max, dpcvars);
-        append_launch_arg(argv, count, max, "-NoNanite");
-        append_launch_arg(
-            argv, count, max,
-            "-ExecCmds=r.Nanite 0;r.Nanite.ProjectEnabled 0;r.Nanite.Tessellation 0;r.GeometryCollection.Nanite 0");
-    }
     if (id == 379720 || id == 275850 || id == 892970 || id == 252490 || id == 570 || id == 548430 || id == 526870 ||
         id == 1272080)
         append_launch_arg(argv, count, max, "-vulkan");
@@ -586,28 +517,23 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-api");
         append_launch_arg(argv, count, max, "Vulkan");
     }
-    if ((id == 400 || id == 620 || id == 4000) && !strcmp(pipeline, "m9")) {
+    if ((id == 400 || id == 620 || id == 4000) && !strcmp(pipeline, "vkd3d")) {
         append_launch_arg(argv, count, max, "-dxlevel");
         append_launch_arg(argv, count, max, "90");
         append_launch_arg(argv, count, max, "-novid");
-    } else if ((id == 240 || id == 500 || id == 550) && !strcmp(pipeline, "m9")) {
+    } else if ((id == 240 || id == 500 || id == 550) && !strcmp(pipeline, "vkd3d")) {
         append_launch_arg(argv, count, max, "-dxlevel");
         append_launch_arg(argv, count, max, "90");
-    } else if (id == 7670 && !strcmp(pipeline, "m9"))
+    } else if (id == 7670 && !strcmp(pipeline, "vkd3d"))
         append_launch_arg(argv, count, max, "-dx9");
-    else if (id == 12210 && !strcmp(pipeline, "m10"))
+    else if (id == 12210 && !strcmp(pipeline, "dxmt"))
         append_launch_arg(argv, count, max, "-d3d10");
-    else if (id == 17300 && !strcmp(pipeline, "m10"))
+    else if (id == 17300 && !strcmp(pipeline, "dxmt"))
         append_launch_arg(argv, count, max, "-dx10");
-    else if (id == 312520 && !strcmp(pipeline, "m11"))
+    else if (id == 312520 && !strcmp(pipeline, "dxmt"))
         append_launch_arg(argv, count, max, "-force-d3d11");
 
-    if (id == 1196590 || id == 1623730 || id == 1928870 || id == 2358720 || id == 2456740) {
-        if (!strcmp(pipeline, "m12")) {
-            append_launch_arg(argv, count, max, "-dx12");
-            append_launch_arg(argv, count, max, "-d3d12");
-        }
-    } else if ((id == 1623730 || id == 2358720) && !strcmp(pipeline, "m11")) {
+    if ((id == 1623730 || id == 2358720) && !strcmp(pipeline, "dxmt")) {
         append_launch_arg(argv, count, max, "-dx11");
         append_launch_arg(argv, count, max, "-d3d11");
     }
@@ -1223,6 +1149,10 @@ static bool stage_route_asset(const char* home, const char* source_subpath, cons
     if (source && target && access(source, R_OK) == 0) {
         (void)ensure_directory(destination);
         ok = copy_file_path(source, target);
+        /* Staged route DLLs are loaded by the game — strip quarantine so
+         * Gatekeeper can never block a freshly staged payload. */
+        if (ok && target)
+            (void)removexattr(target, "com.apple.quarantine", XATTR_NOFOLLOW);
     }
     free(source_root);
     free(source_dir);
@@ -1268,10 +1198,11 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                                         "winemetal.dll", "metalsharp_ntdll_hook.dll"};
     const char* source_subpaths[] = {
         "runtime/wine/lib/dxmt/x86_64-windows",     "runtime/wine/lib/dxmt/i386-windows",
-        "runtime/wine/lib/dxmt_m12/x86_64-windows", "runtime/wine/lib/metalsharp/x86_64-windows",
+        "runtime/wine/lib/metalsharp/x86_64-windows",
         "runtime/wine/lib/metalsharp/i386-windows", "runtime/wine/lib/wine/x86_64-windows",
         "runtime/wine/lib/wine/i386-windows",       "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows",
-        "vkd3d/vkd3d-proton/x86_64-windows",        "vkd3d/dxvk/x86_64-windows"};
+        "vkd3d/vkd3d-proton/x86_64-windows",        "vkd3d/dxvk/x86_64-windows",
+        "vkd3d/dxvk/i386-windows"};
     char* exe_dir = executable ? strdup(executable) : NULL;
     char* slash = exe_dir ? strrchr(exe_dir, '/') : NULL;
     (void)pipeline;
@@ -1342,55 +1273,23 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
         files[file_count++] = "dxgi.dll";
         files[file_count++] = "nvapi64.dll";
         files[file_count++] = "nvngx-on-metalfx.dll";
-    } else if (!strcmp(pipeline, "m12")) {
-        source = "lib/dxmt_m12/x86_64-windows";
-        files[file_count++] = "d3d12.dll";
-        files[file_count++] = "d3d11.dll";
-        files[file_count++] = "dxgi.dll";
-        files[file_count++] = "dxgi_dxmt.dll";
-        files[file_count++] = "d3d10core.dll";
-        files[file_count++] = "winemetal.dll";
-        files[file_count++] = "nvapi64.dll";
-        files[file_count++] = "nvngx.dll";
     } else if (!strcmp(pipeline, "vkd3d")) {
-        static const char* const vkd3d_files[] = {"d3d12.dll", "d3d12core.dll"};
-        static const char* const dxvk_files[] = {"d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"};
-        for (size_t i = 0; i < sizeof(vkd3d_files) / sizeof(vkd3d_files[0]); i++)
-            ok = stage_route_asset(home, "vkd3d/vkd3d-proton/x86_64-windows", vkd3d_files[i], exe_dir) && ok;
-        for (size_t i = 0; i < sizeof(dxvk_files) / sizeof(dxvk_files[0]); i++)
-            ok = stage_route_asset(home, "vkd3d/dxvk/x86_64-windows", dxvk_files[i], exe_dir) && ok;
+        static const char* const files_vkd3d[] = {"d3d12.dll", "d3d12core.dll", "dxgi.dll"};
+        static const char* const files_dxvk[] = {"d3d11.dll", "d3d10core.dll", "d3d9.dll"};
+        for (size_t i = 0; i < sizeof(files_vkd3d) / sizeof(files_vkd3d[0]); i++)
+            ok = stage_route_asset(home, "vkd3d/vkd3d-proton/x86_64-windows", files_vkd3d[i], exe_dir) && ok;
+        for (size_t i = 0; i < sizeof(files_dxvk) / sizeof(files_dxvk[0]); i++)
+            ok = stage_route_asset(home, "vkd3d/dxvk/x86_64-windows", files_dxvk[i], exe_dir) && ok;
         goto prefix_done;
-    } else if (!strcmp(pipeline, "m11") || !strcmp(pipeline, "m11_32")) {
-        source = !strcmp(pipeline, "m11_32") ? "lib/dxmt/i386-windows" : "lib/dxmt/x86_64-windows";
+    } else if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32")) {
+        source = !strcmp(pipeline, "dxmt_32") ? "lib/dxmt/i386-windows" : "lib/dxmt/x86_64-windows";
         files[file_count++] = "d3d11.dll";
-        files[file_count++] = "dxgi.dll";
         files[file_count++] = "d3d10core.dll";
+        files[file_count++] = "dxgi.dll";
         files[file_count++] = "winemetal.dll";
-        if (!strcmp(pipeline, "m11")) {
-            source = "lib/dxmt/x86_64-windows";
-            files[file_count++] = "nvapi64.dll";
-            files[file_count++] = "nvngx.dll";
+        if (!strcmp(pipeline, "dxmt")) {
             files[file_count++] = "metalsharp_ntdll_hook.dll";
         }
-    } else if (!strcmp(pipeline, "m10") || !strcmp(pipeline, "m10_32")) {
-        const char* arch = !strcmp(pipeline, "m10_32") ? "i386" : "x86_64";
-        char wine_source[PATH_MAX];
-        snprintf(wine_source, sizeof(wine_source), "lib/wine/%s-windows", arch);
-        ok = stage_route_asset(home, wine_source, "d3d10.dll", exe_dir) && ok;
-        ok = stage_route_asset(home, wine_source, "d3d10_1.dll", exe_dir) && ok;
-        source = !strcmp(pipeline, "m10_32") ? "lib/dxmt/i386-windows" : "lib/dxmt/x86_64-windows";
-        files[file_count++] = "d3d11.dll";
-        files[file_count++] = "dxgi.dll";
-        files[file_count++] = "d3d10core.dll";
-        files[file_count++] = "winemetal.dll";
-    } else if (!strcmp(pipeline, "m9")) {
-        if (is32) {
-            ok = stage_route_asset(home, "lib/wine/i386-windows", "d3d9.dll", exe_dir) && ok;
-            ok = stage_route_asset(home, "lib/wine/i386-windows", "dxgi.dll", exe_dir) && ok;
-        } else {
-            ok = stage_route_asset(home, "lib/wine/x86_64-windows", "d3d9.dll", exe_dir) && ok;
-        }
-        goto prefix_done;
     } else {
         goto done;
     }
@@ -1398,39 +1297,12 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
         const char* asset_source =
             !strcmp(files[i], "metalsharp_ntdll_hook.dll") ? "lib/metalsharp/x86_64-windows" : source;
         bool staged = stage_route_asset(home, asset_source, files[i], exe_dir);
-        bool optional =
-            strcmp(pipeline, "m12") != 0 && (!strncmp(files[i], "nvapi", 5) || !strncmp(files[i], "nvngx", 5));
+        bool optional = !strncmp(files[i], "nvapi", 5) || !strncmp(files[i], "nvngx", 5);
         if (!staged && !optional)
             ok = false;
     }
 
 prefix_done:
-    /* M12 stages its graphics DLLs into the
-     * shared Steam prefix system32.  It is intentionally not done for VKD3D
-     * or the legacy DXMT routes. */
-    if (!strcmp(pipeline, "m12")) {
-        char* prefix = join(home, "prefix-steam/drive_c/windows/system32");
-        if (prefix) {
-            for (size_t i = 0; i < file_count; i++) {
-                const char* asset_source = !strcmp(files[i], "metalsharp_ntdll_hook.dll")
-                                               ? "lib/metalsharp/x86_64-windows"
-                                               : "lib/dxmt_m12/x86_64-windows";
-                bool staged = stage_route_asset(home, asset_source, files[i], prefix);
-                bool optional = !strncmp(files[i], "nvapi", 5) || !strncmp(files[i], "nvngx", 5);
-                if (!staged && !optional)
-                    ok = false;
-            }
-        }
-        free(prefix);
-    }
-    /* Unreal's M12 recipe has a second target in Engine/Binaries/Win64. */
-    if (!strcmp(pipeline, "m12") && game_dir) {
-        char* engine = join(game_dir, "Engine/Binaries/Win64");
-        if (engine && access(engine, F_OK) == 0)
-            for (size_t i = 0; i < file_count; i++)
-                ok = stage_route_asset(home, "lib/dxmt_m12/x86_64-windows", files[i], engine) && ok;
-        free(engine);
-    }
 done:
     free(game_dir);
     free(exe_dir);
@@ -1682,7 +1554,7 @@ static void record_launch_timing(const char* home, unsigned id, unsigned long lo
     }
 }
 
-static bool ensure_steam_bottle_manifest(const char* home, unsigned id, const char* pipeline) {
+bool ms_steam_ensure_bottle_manifest(const char* home, unsigned id, const char* pipeline) {
     char bottle_id[64];
     char name[64];
     char *bottles = join(home, "bottles"), *dir = NULL, *path = NULL, *prefix = NULL;
@@ -2156,7 +2028,7 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "FallGuys_client_game.exe";
     else if (id == 4704690)
         preferred[count++] = "Chameleon/Binaries/Win64/PenguinHotel-Win64-Shipping.exe";
-    else if (id == 1145360 && pipeline && !strcmp(pipeline, "m11_32"))
+    else if (id == 1145360 && pipeline && !strcmp(pipeline, "dxmt_32"))
         preferred[count++] = "x86/Hades.exe";
     else if (id == 1145360)
         preferred[count++] = "x64Vk/Hades.exe";
@@ -2266,16 +2138,14 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     const char* backend = "dxmt";
     if (!pipeline)
         pipeline = "auto";
-    if (!strcmp(pipeline, "m12")) {
-        snprintf(winedllpath, sizeof(winedllpath), "%s/runtime/wine/lib/dxmt_m12/x86_64-windows", home);
-        setenv("WINEDLLPATH", winedllpath, 1);
-    } else if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "m10") || !strcmp(pipeline, "m11") ||
-               !strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32")) {
-        snprintf(winedllpath, sizeof(winedllpath), "%s/runtime/wine/lib/dxmt/x86_64-windows", home);
+    if (pipeline_is_dxmt(pipeline)) {
+        snprintf(winedllpath, sizeof(winedllpath), "%s/runtime/wine/lib/dxmt/%s-windows", home,
+                 !strcmp(pipeline, "dxmt_32") ? "i386" : "x86_64");
         setenv("WINEDLLPATH", winedllpath, 1);
     } else if (!strcmp(pipeline, "vkd3d")) {
-        snprintf(winedllpath, sizeof(winedllpath), "%s/vkd3d/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
-                 home, home);
+        snprintf(winedllpath, sizeof(winedllpath),
+                 "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
+                 home, home, home);
         setenv("WINEDLLPATH", winedllpath, 1);
         snprintf(vulkan_icd, sizeof(vulkan_icd), "%s/runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json", home);
         setenv("VK_ICD_FILENAMES", vulkan_icd, 1);
@@ -2294,10 +2164,9 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
         setenv("WINEDLLOVERRIDES", "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b", 1);
         backend = "d3dmetal";
     }
-    if (strncmp(pipeline, "m", 1) == 0 || !strcmp(pipeline, "dxmt")) {
+    if (pipeline_is_dxmt(pipeline)) {
         char runtime_dir[PATH_MAX];
-        const char* route =
-            (!strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32")) ? "dxmt/i386-unix" : "dxmt/x86_64-unix";
+        const char* route = "dxmt/x86_64-unix";
         snprintf(dxmt_config, sizeof(dxmt_config), "%s/runtime/wine/etc/dxmt.conf", home);
         snprintf(winemetal, sizeof(winemetal), "\\??\\Z:%s/runtime/wine/lib/%s/winemetal.so", home, route);
         for (char* p = winemetal + 5; *p; ++p)
@@ -3178,6 +3047,69 @@ static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
     return found && ready;
 }
 
+/* MetalSharp: migration-time guarantee that the Steam wrappers and shims
+ * cannot be lost. Re-extracts the steamwebhelper wrapper from the bundled
+ * archive when the cache was wiped, redeploys it into every CEF directory,
+ * restores the steam-bridge shim from runtime/shims, and restores the
+ * Goldberg payloads from the assets fallback when the runtime copies
+ * vanish. Returns true when every wrapper is present afterwards. */
+bool ms_steam_wrappers_ensure(const char* home) {
+    bool ok = true;
+    char* steam_dir = home ? join(home, "prefix-steam/drive_c/Program Files (x86)/Steam") : NULL;
+
+    deploy_steamwebhelper_wrapper(home, steam_dir);
+    if (!steamwebhelper_wrappers_ready(steam_dir))
+        ok = false;
+
+    /* Steam bridge shim: restore the deployed copy from runtime/shims. */
+    {
+        char* shim = join(home, "runtime/shims/libsteam_api.dylib");
+        char* bridge_dir = join(home, "runtime/steam-bridge");
+        char* bridge = bridge_dir ? join(bridge_dir, "libsteam_api.dylib") : NULL;
+        if (shim && bridge && access(shim, R_OK) == 0 && access(bridge, R_OK) != 0) {
+            if (ensure_directory(bridge_dir) && copy_file_path(shim, bridge))
+                ok = ok && true;
+            else
+                ok = false;
+        }
+        free(shim);
+        free(bridge_dir);
+        free(bridge);
+    }
+
+    /* Goldberg payloads: restore from the assets fallback when lost. */
+    {
+        static const char* const payloads[][2] = {
+            {"runtime/goldberg/x64/steam_api64.dll", "assets/goldberg/x64/steam_api64.dll"},
+            {"runtime/goldberg/x86/steam_api.dll", "assets/goldberg/x86/steam_api.dll"},
+        };
+        for (size_t i = 0; i < sizeof(payloads) / sizeof(payloads[0]); ++i) {
+            char* runtime_copy = join(home, payloads[i][0]);
+            char* assets_copy = join(home, payloads[i][1]);
+            if (runtime_copy && assets_copy && access(runtime_copy, R_OK) != 0 &&
+                access(assets_copy, R_OK) == 0) {
+                char* parent = strdup(runtime_copy);
+                char* slash = parent ? strrchr(parent, '/') : NULL;
+                if (slash) {
+                    *slash = '\0';
+                    if (ensure_directory(parent) && copy_file_path(assets_copy, runtime_copy)) {
+                        free(parent);
+                        continue;
+                    }
+                }
+                free(parent);
+            }
+            if (runtime_copy && access(runtime_copy, R_OK) != 0)
+                ok = false;
+            free(runtime_copy);
+            free(assets_copy);
+        }
+    }
+
+    free(steam_dir);
+    return ok;
+}
+
 char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
     char* steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
     ms_json_writer writer;
@@ -3449,7 +3381,7 @@ char* ms_steam_install_game_json(const char* home, const char* body, size_t len,
             *status = 400;
         return err("appid required");
     }
-    if (!ensure_steam_bottle_manifest(home, id, "auto"))
+    if (!ms_steam_ensure_bottle_manifest(home, id, "auto"))
         return err("failed to prepare Steam bottle manifest");
     snprintf(url, sizeof(url), "steam://install/%u", id);
     error_text = spawn_wine(home, "start", url, NULL, NULL, NULL, &pid);
@@ -3804,7 +3736,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         set_route_paths(home, pipeline);
         set_route_default_env(pipeline);
         set_launch_cache_env(home, id, pipeline);
-        if (id == 312520) {
+        if (id == 312520 || id == 2357570) {
             char diagnostic_path[PATH_MAX];
             int diagnostic_fd;
             snprintf(diagnostic_path, sizeof(diagnostic_path), "%s/logs/%s/%u/launch.stderr.log", home, pipeline, id);
@@ -3822,27 +3754,13 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
         else
             unsetenv("WINEDLLOVERRIDES");
-        if (!strcmp(pipeline, "m9") && (id == 774361 || id == 17410 || id == 49520)) {
+        if (!strcmp(pipeline, "vkd3d") && (id == 774361 || id == 17410 || id == 49520)) {
             setenv("DXMT_ASYNC_PIPELINE_COMPILE", "0", 1);
             setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "0", 1);
             setenv("DXMT_METALFX_SPATIAL", "0", 1);
             setenv("DXMT_CONFIG",
                    "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;dxmt.shaderMetalVersion=310", 1);
             setenv("METALSHARP_M9_SYNC_LOADING", "1", 1);
-        }
-        if (id == 1962700 && !strcmp(pipeline, "m12")) {
-            setenv("DXMT_D3D12_ENABLE_GEOMETRY_MESH", "1", 1);
-            setenv("DXMT_D3D12_FORCE_SWAPCHAIN_BLIT", "1", 1);
-            setenv("DXMT_D3D12_AUTOPRESENT_SWAPCHAIN", "1", 1);
-            setenv("DXMT_D3D12_LIVE_PRESENT", "1", 1);
-            setenv("DXMT_D3D12_REASSERT_WINDOW_HANDOFF", "1", 1);
-            setenv("DXMT_D3D12_DISABLE_RUNTIME_MSC", "1", 1);
-            setenv("DXMT_D3D12_FORCE_COLOR_WRITE_STATE", "1", 1);
-            setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "0", 1);
-            setenv("DXMT_METALFX_SPATIAL", "0", 1);
-            setenv("DXMT_METALFX_TEMPORAL", "0", 1);
-            setenv("DXMT_CONFIG",
-                   "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;dxmt.shaderMetalVersion=310", 1);
         }
         snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
                  home);
@@ -3851,7 +3769,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         argv[argc++] = wine;
         argv[argc++] = exe_name;
         build_launch_args(id, pipeline, argv, &argc, sizeof(argv) / sizeof(argv[0]));
-        if (id == 312520) {
+        if (id == 312520 || id == 2357570) {
             dprintf(STDERR_FILENO, "command=");
             for (size_t i = 0; i < argc; i++)
                 dprintf(STDERR_FILENO, "%s%s", i ? " " : "", argv[i]);
@@ -4110,7 +4028,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             snprintf(pipeline, sizeof(pipeline), "%s", canonical);
         }
     }
-    if (!ensure_steam_bottle_manifest(home, id, pipeline)) {
+    if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
         if (status)
             *status = 500;
         return err("failed to prepare Steam bottle manifest");
@@ -4138,15 +4056,16 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             *status = 404;
         return err("Game executable not found");
     }
-    if (!strcmp(pipeline, "m11") && executable_is_32bit(executable)) {
-        /* M11 has separate PE lanes. Keep an explicit M11 request usable for
-         * 32-bit games instead of staging x86_64 DXMT DLLs into a 32-bit game. */
-        snprintf(pipeline, sizeof(pipeline), "m11_32");
-        if (!ensure_steam_bottle_manifest(home, id, pipeline)) {
+    if (!strcmp(pipeline, "dxmt") && executable_is_32bit(executable)) {
+        /* DXMT and DXVK have separate PE lanes for 32-bit games. */
+        char widened_pipeline[32];
+        snprintf(widened_pipeline, sizeof(widened_pipeline), "%s_32", pipeline);
+        snprintf(pipeline, sizeof(pipeline), "%s", widened_pipeline);
+        if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
             free(executable);
             if (status)
                 *status = 500;
-            return err("failed to prepare 32-bit M11 bottle manifest");
+            return err("failed to prepare 32-bit graphics bottle manifest");
         }
     }
     game_dir = ms_steam_game_dir(home, id);
@@ -4323,35 +4242,31 @@ char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, si
     if (!executable)
         ready = false;
 
-    if (!strcmp(pipeline, "m11") || !strcmp(pipeline, "m11_32")) {
-        const char* arch = !strcmp(pipeline, "m11_32") ? "i386" : "x86_64";
-        static const char* const common[] = {"d3d11.dll", "dxgi.dll", "dxgi_dxmt.dll", "d3d10core.dll",
-                                             "winemetal.dll"};
-        static const char* const wide[] = {"nvapi64.dll", "nvngx.dll", "metalsharp_ntdll_hook.dll"};
+    if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32")) {
+        const char* arch = !strcmp(pipeline, "dxmt_32") ? "i386" : "x86_64";
+        static const char* const common[] = {"d3d11.dll", "d3d10core.dll", "dxgi.dll", "winemetal.dll"};
         char source_dir[PATH_MAX];
         snprintf(source_dir, sizeof(source_dir), "%s/runtime/wine/lib/dxmt/%s-windows", home, arch);
         for (size_t i = 0; i < sizeof(common) / sizeof(common[0]); i++)
             dlls[dll_count++] = common[i];
-        if (!strcmp(pipeline, "m11"))
-            for (size_t i = 0; i < sizeof(wide) / sizeof(wide[0]); i++)
-                dlls[dll_count++] = wide[i];
+        if (!strcmp(pipeline, "dxmt"))
+            dlls[dll_count++] = "metalsharp_ntdll_hook.dll";
         for (size_t i = 0; i < dll_count; i++) {
             char* source = join(source_dir, dlls[i]);
-            bool optional = (!strncmp(dlls[i], "nvapi", 5) || !strncmp(dlls[i], "nvngx", 5));
             bool present = source && access(source, R_OK) == 0;
-            if (!present && !optional)
+            if (!present)
                 ready = false;
             free(source);
         }
     } else if (!strcmp(pipeline, "vkd3d")) {
         dlls[dll_count++] = "d3d12.dll";
         dlls[dll_count++] = "d3d12core.dll";
+        dlls[dll_count++] = "dxgi.dll";
         dlls[dll_count++] = "d3d11.dll";
         dlls[dll_count++] = "d3d10core.dll";
         dlls[dll_count++] = "d3d9.dll";
-        dlls[dll_count++] = "dxgi.dll";
         for (size_t i = 0; i < dll_count; i++) {
-            const char* subpath = i < 2 ? "vkd3d/vkd3d-proton/x86_64-windows" : "vkd3d/dxvk/x86_64-windows";
+            const char* subpath = i < 3 ? "vkd3d/vkd3d-proton/x86_64-windows" : "vkd3d/dxvk/x86_64-windows";
             char* source_dir = join(home, subpath);
             char* source = source_dir ? join(source_dir, dlls[i]) : NULL;
             if (!source || access(source, R_OK) != 0)
@@ -4502,7 +4417,7 @@ char* ms_steam_launch_offline_json(const char* home, const char* body, size_t le
             *status = 404;
         return err("Game executable not found");
     }
-    if (!ensure_steam_bottle_manifest(home, id, pipeline)) {
+    if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
         free(executable);
         if (status)
             *status = 500;
@@ -4799,7 +4714,7 @@ char* ms_steam_misc_json(const char* action, const unsigned char* body, size_t l
     ms_json_writer_key(&w, "appid");
     ms_json_writer_u64(&w, id);
     if (!strcmp(action, "runtime-doctor") || !strcmp(action, "d3d12-runtime-doctor")) {
-        char pipeline[32] = "m12";
+        char pipeline[32] = "vkd3d";
         char bottle_id[64];
         char saved_pipeline[32] = "";
         char* prefix;
@@ -4821,7 +4736,7 @@ char* ms_steam_misc_json(const char* action, const unsigned char* body, size_t l
             else
                 snprintf(pipeline, sizeof(pipeline), "%s", default_pipeline_for_appid(id));
         }
-        (void)ensure_steam_bottle_manifest(home, id, pipeline);
+        (void)ms_steam_ensure_bottle_manifest(home, id, pipeline);
         snprintf(bottle_id, sizeof(bottle_id), "steam_%u", id);
         prefix = join(home, "prefix-steam");
         ms_json_writer_key(&w, "report");

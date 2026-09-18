@@ -1,6 +1,6 @@
 {
   "name": "metalsharp",
-  "version": "0.65.5",
+  "version": "0.70.0",
   "description": "MetalSharp — D3D→Metal translation layer frontend",
   "author": "MetalSharp",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -213,6 +213,10 @@
       {
         "from": "bundles/metalsharp-d3d12-developer-sdk.tar.zst",
         "to": "bundles/metalsharp-d3d12-developer-sdk.tar.zst"
+      },
+      {
+        "from": "tools/steam-art-manager",
+        "to": "tools/steam-art-manager"
       }
     ],
     "directories": {

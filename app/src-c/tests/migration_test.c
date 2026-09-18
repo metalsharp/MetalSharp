@@ -20,6 +20,22 @@ char* ms_steam_stop_json(const char* home, int* status) {
     return strdup("{\"ok\":true,\"running\":false}");
 }
 
+#include <stdbool.h>
+
+/* migration.c now clears quarantine on staged lanes and guarantees the
+ * Steam wrappers; the test tree links neither setup.c nor steam_actions.c,
+ * so provide no-ops. */
+void ms_clear_quarantine_tree(const char* path) {
+    (void)path;
+}
+
+
+
+bool ms_steam_wrappers_ensure(const char* home) {
+    (void)home;
+    return true;
+}
+
 #include "../runtime/migration.c"
 
 static void make_directory(const char* path) {
@@ -50,13 +66,13 @@ int main(void) {
     assert(stop_managed_wine_processes(home));
     assert(steam_stop_calls == 1);
 
-    /* Setup emits the v0.80 baseline for both DXMT lanes. Migration must
-     * accept that manifest, not require the retired M12 version suffix. */
+    /* Setup emits the current v0.80 DXMT baseline manifest. Migration must
+     * accept it without requiring a retired secondary graphics lane. */
     snprintf(path, sizeof(path), "%s/dxmt-manifest.json", home);
     write_file(path, "{\"schema\":\"metalsharp.dxmt-runtime.v2\",\"version\":\"" MIGRATION_VERSION
                      "-dxmt-v0.80-baseline-v1\",\"source\":\"bundled:metalsharp-graphics-dll.tar.zst\"}");
     assert(migration_manifest_current(path));
-    write_file(path, "{\"version\":\"" MIGRATION_VERSION "-m12-isolated-surface-v1\"}");
+    write_file(path, "{\"version\":\"" MIGRATION_VERSION "-retired-secondary-lane-v1\"}");
     assert(!migration_manifest_current(path));
     write_file(path, "{\"version\":\"0.0.0-dxmt-v0.80-baseline-v1\"}");
     assert(!migration_manifest_current(path));

@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("metalsharp", {
   installHomebrew: () => ipcRenderer.invoke("app:install-homebrew"),
   homebrewStatus: () => ipcRenderer.invoke("app:homebrew-status"),
   onSteamappsChanged: (callback: () => void) => ipcRenderer.on("steamapps:changed", callback),
+  onGridArtChanged: (callback: () => void) => ipcRenderer.on("grid-art:changed", callback),
+  showLaunchOverlay: (gameName: string) => ipcRenderer.invoke("app:show-launch-overlay", gameName),
   onGameJoltDownload: (callback: (update: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, update: unknown) => callback(update);
     ipcRenderer.on("gamejolt:download", listener);
@@ -42,6 +44,8 @@ contextBridge.exposeInMainWorld("metalsharp", {
   updaterInstallStatus: () => ipcRenderer.invoke("updater:install-status"),
   updaterClearStatus: () => ipcRenderer.invoke("updater:clear-status"),
   backendGetPid: () => ipcRenderer.invoke("backend:get-pid"),
+  backendBaseUrl: () => ipcRenderer.invoke("backend:base-url"),
+  openSteamArtManager: () => ipcRenderer.invoke("app:open-steam-art-manager"),
   migrateCheck: () => ipcRenderer.invoke("migrate:check"),
   migrateStart: () => ipcRenderer.invoke("migrate:start"),
   migrateProgress: () => ipcRenderer.invoke("migrate:progress"),

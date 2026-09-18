@@ -13,11 +13,6 @@ REMOTE_MANIFEST="$TMP_DIR/metalsharp-bundle-manifest.tsv"
 trap 'rm -rf "$TMP_DIR"' EXIT
 REPAIR_BUNDLES="${METALSHARP_REPAIR_BUNDLES:-1}"
 SKIP_DEVELOPER_SDK="${METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE:-0}"
-# M12 (dxmt-m12) dll refresh is off by default. Rebuilding the m12 lane from a
-# local runtime root silently changes the dlls and desyncs the bundle from the
-# installer's compiled-in DXMT_M12_EXPECTED_HASHES. Set METALSHARP_REPAIR_M12=1
-# only when intentionally refreshing the canonical m12 material.
-REPAIR_M12="${METALSHARP_REPAIR_M12:-0}"
 
 mkdir -p "$BUNDLE_DIR" "$OUT_DIR"
 curl -fL --retry 3 -o "$REMOTE_MANIFEST" \
@@ -70,31 +65,6 @@ download_asset() {
     return 1
   fi
   mv "$partial" "$dest"
-}
-
-repair_graphics_m12_bundle() {
-  local archive="$BUNDLE_DIR/metalsharp-graphics-dll.tar.zst"
-  local m12_root="${METALSHARP_DXMT_M12_ROOT:-$HOME/.metalsharp/runtime/wine/lib/dxmt_m12}"
-  if [ ! -s "$archive" ] || [ ! -d "$m12_root/x86_64-windows" ] || [ ! -d "$m12_root/x86_64-unix" ]; then
-    return 0
-  fi
-
-  local tmp root
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-graphics-m12.XXXXXX")"
-  root="$tmp/root"
-  mkdir -p "$root"
-  tar --use-compress-program=unzstd -xf "$archive" -C "$root"
-  mkdir -p "$root/Graphics/dll/dxmt-m12/x86_64-unix" "$root/Graphics/dll/dxmt-m12/x86_64-windows"
-  cp -R -p "$m12_root/x86_64-unix/." "$root/Graphics/dll/dxmt-m12/x86_64-unix/"
-  cp -R -p "$m12_root/x86_64-windows/." "$root/Graphics/dll/dxmt-m12/x86_64-windows/"
-  (
-    cd "$root"
-    tar -cf "$tmp/metalsharp-graphics-dll.tar" Graphics
-  )
-  zstd -q -19 -T0 -f "$tmp/metalsharp-graphics-dll.tar" -o "$archive"
-  chmod 0644 "$archive"
-  rm -rf "$tmp"
-  echo "repaired graphics M12 payload: $archive from $m12_root"
 }
 
 repair_assets_fnalibs_bundle() {
@@ -150,11 +120,6 @@ while IFS=$'\t' read -r asset _root _platforms _notes; do
 done < "$MANIFEST"
 
 if [ "$REPAIR_BUNDLES" = "1" ]; then
-  if [ "$REPAIR_M12" = "1" ]; then
-    repair_graphics_m12_bundle
-  else
-    echo "M12 dll repair disabled (METALSHARP_REPAIR_M12!=1); preserving canonical dxmt-m12 lane"
-  fi
   repair_assets_fnalibs_bundle
 
   "$PROJECT_ROOT/tools/dmg/repair-runtime-bundle.py" \

@@ -204,23 +204,26 @@ static bool save_matrix_record(const char* home, const ms_json* request, const c
     return ok;
 }
 static const char* profile_arch(const char* profile) {
-    if (!strcmp(profile, "m10_32") || !strcmp(profile, "m11_32") || !strcmp(profile, "win32_dotnet"))
+    if (!strcmp(profile, "dxmt_32") || !strcmp(profile, "dxvk_32") || !strcmp(profile, "m10_32") ||
+        !strcmp(profile, "m11_32") || !strcmp(profile, "win32_dotnet"))
         return "win32";
-    if (!strcmp(profile, "m11") || !strcmp(profile, "m12") || !strcmp(profile, "vkd3d") || !strcmp(profile, "m13") ||
+    if (!strcmp(profile, "dxmt") || !strcmp(profile, "dxvk") || !strcmp(profile, "m10") || !strcmp(profile, "m11") ||
+        !strcmp(profile, "vkd3d") ||
+        !strcmp(profile, "m13") ||
         !strcmp(profile, "d3dmetal") || !strcmp(profile, "dotnet") || !strcmp(profile, "fna_arm64") ||
         !strcmp(profile, "fna_x86"))
         return "win64";
     return "wow64";
 }
 static const char* pipeline_profile(const char* pipeline) {
-    if (!strcmp(pipeline, "m9"))
-        return "m9";
-    if (!strcmp(pipeline, "m10"))
-        return "m10";
-    if (!strcmp(pipeline, "m11"))
-        return "m11";
-    if (!strcmp(pipeline, "m12"))
-        return "m12";
+    if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
+        return "vkd3d";
+    if (!strcmp(pipeline, "m10") || !strcmp(pipeline, "m11") || !strcmp(pipeline, "dxmt"))
+        return "dxmt";
+    if (!strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32") || !strcmp(pipeline, "dxmt_32"))
+        return "dxmt_32";
+    if (!strcmp(pipeline, "dxvk_32"))
+        return "dxvk_32";
     if (!strcmp(pipeline, "vkd3d"))
         return "vkd3d";
     if (!strcmp(pipeline, "m13"))
@@ -235,14 +238,14 @@ static const char* profile_pipeline(const char* profile) {
     if (!strcmp(profile, "plain") || !strcmp(profile, "launcher") || !strcmp(profile, "game_install") ||
         !strcmp(profile, "dotnet") || !strcmp(profile, "webview") || !strcmp(profile, "java_launcher"))
         return "wine_bare";
-    if (!strcmp(profile, "m9") || !strcmp(profile, "win32_dotnet"))
-        return "m9";
-    if (!strcmp(profile, "m10") || !strcmp(profile, "m10_32"))
-        return "m10";
-    if (!strcmp(profile, "m11") || !strcmp(profile, "m11_32"))
-        return "m11";
-    if (!strcmp(profile, "m12"))
-        return "m12";
+    if (!strcmp(profile, "m9") || !strcmp(profile, "dxvk") || !strcmp(profile, "dxvk_32"))
+        return "vkd3d";
+    if (!strcmp(profile, "m10") || !strcmp(profile, "m11") || !strcmp(profile, "dxmt"))
+        return "dxmt";
+    if (!strcmp(profile, "m10_32") || !strcmp(profile, "m11_32") || !strcmp(profile, "dxmt_32"))
+        return "dxmt_32";
+    if (!strcmp(profile, "dxvk_32") || !strcmp(profile, "win32_dotnet"))
+        return "dxvk_32";
     if (!strcmp(profile, "m13"))
         return "m13";
     if (!strcmp(profile, "d3dmetal"))
@@ -1595,13 +1598,14 @@ static bool component_artifact_available(const char* home, const char* component
     }
     if (!strcmp(component, "vkd3d_d3d12") || !strcmp(component, "vkd3d_d3d12core") ||
         !strcmp(component, "vkd3d_dxgi") || !strcmp(component, "dxvk_d3d9") || !strcmp(component, "dxvk_d3d11") ||
-        !strcmp(component, "dxvk_d3d10core")) {
+        !strcmp(component, "dxvk_d3d10core") || !strcmp(component, "dxvk_dxgi")) {
         const char* dir = strstr(component, "vkd3d_") ? "vkd3d/vkd3d-proton/x86_64-windows" : "vkd3d/dxvk/x86_64-windows";
         const char* filename = !strcmp(component, "vkd3d_d3d12") ? "d3d12.dll"
                               : !strcmp(component, "vkd3d_d3d12core") ? "d3d12core.dll"
                               : !strcmp(component, "vkd3d_dxgi") ? "dxgi.dll"
                               : !strcmp(component, "dxvk_d3d9") ? "d3d9.dll"
                               : !strcmp(component, "dxvk_d3d10core") ? "d3d10core.dll"
+                              : !strcmp(component, "dxvk_dxgi") ? "dxgi.dll"
                                                                        : "d3d11.dll";
         char* root = join(home, dir);
         char* file = root ? join(root, filename) : NULL;
@@ -1633,7 +1637,7 @@ static bool component_artifact_available(const char* home, const char* component
     if (!strcmp(component, "d3d11") || !strcmp(component, "dxgi") || !strcmp(component, "d3d10core") ||
         !strcmp(component, "d3d10_1") || !strcmp(component, "winemetal")) {
         const char* dirs[] = {"runtime/wine/lib/dxmt/x86_64-windows", "runtime/wine/lib/dxmt/i386-windows",
-                              "runtime/wine/lib/dxmt_m12/x86_64-windows", "runtime/wine/lib/wine/x86_64-windows",
+                              "runtime/wine/lib/wine/x86_64-windows",
                               "runtime/wine/lib/wine/i386-windows"};
         char name[128];
         snprintf(name, sizeof(name), "%s.dll", component);
@@ -1832,6 +1836,24 @@ static bool valid_bottle_id(const char* id) {
     for (size_t i = 0; i < n; i++)
         if (!(isalnum((unsigned char)id[i]) || id[i] == '_' || id[i] == '-'))
             return false;
+    return true;
+}
+
+/* The Steam library can expose an installed game before its per-game bottle
+ * manifest exists.  Route edits use the stable steam_<appid> id, so create
+ * that manifest on first save instead of requiring a launch first. */
+static bool steam_appid_from_bottle_id(const char* id, unsigned* appid) {
+    const char* number;
+    char* end;
+    unsigned long value;
+    if (!id || strncmp(id, "steam_", 6) != 0 || !id[6])
+        return false;
+    number = id + 6;
+    errno = 0;
+    value = strtoul(number, &end, 10);
+    if (errno || end == number || *end || value == 0 || value > 0xffffffffUL)
+        return false;
+    *appid = (unsigned)value;
     return true;
 }
 char* ms_bottle_relaunch_installer_json(const char* home, const unsigned char* body, size_t len, int* status) {
@@ -2058,8 +2080,9 @@ char* ms_bottle_action_json(const char* home, const char* action, const unsigned
                 return fail("id and profile required");
             }
             if (strcmp(profile, "plain") && strcmp(profile, "launcher") && strcmp(profile, "game_install") &&
-                strcmp(profile, "m9") && strcmp(profile, "m10") && strcmp(profile, "m10_32") &&
-                strcmp(profile, "m11") && strcmp(profile, "m11_32") && strcmp(profile, "m12") &&
+                strcmp(profile, "dxmt") && strcmp(profile, "dxmt_32") && strcmp(profile, "dxvk") &&
+                strcmp(profile, "dxvk_32") && strcmp(profile, "m9") && strcmp(profile, "m10") &&
+                strcmp(profile, "m10_32") && strcmp(profile, "m11") && strcmp(profile, "m11_32") &&
                 strcmp(profile, "vkd3d") && strcmp(profile, "m13") && strcmp(profile, "d3dmetal") &&
                 strcmp(profile, "dotnet") && strcmp(profile, "win32_dotnet") && strcmp(profile, "webview") &&
                 strcmp(profile, "java_launcher") && strcmp(profile, "fna_arm64") && strcmp(profile, "fna_x86")) {
@@ -2097,6 +2120,23 @@ char* ms_bottle_action_json(const char* home, const char* action, const unsigned
                 ms_json_free(j);
                 free(id);
                 return fail("name or preferredPipeline required");
+            }
+        }
+        if (!strcmp(action, "edit") || !strcmp(action, "set-runtime-profile")) {
+            unsigned appid;
+            char* existing = manifest(home, id);
+            const char* pipeline = profile ? profile : "auto";
+            bool created = existing != NULL;
+            free(existing);
+            if (!created && steam_appid_from_bottle_id(id, &appid) &&
+                !ms_steam_ensure_bottle_manifest(home, appid, pipeline)) {
+                free(profile);
+                free(version);
+                ms_json_free(j);
+                free(id);
+                if (status)
+                    *status = 500;
+                return fail("failed to prepare Steam bottle manifest");
             }
         }
         if (!strcmp(action, "set-windows-version")) {

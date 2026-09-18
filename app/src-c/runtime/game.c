@@ -77,23 +77,21 @@ static char* manifest_pipeline(const char* home, unsigned long long id) {
 static const char* pipeline_name(const char* pipeline) {
     if (!strcmp(pipeline, "vkd3d"))
         return "VKD3D-Proton";
+    if (!strcmp(pipeline, "dxmt"))
+        return "DXMT";
+    if (!strcmp(pipeline, "dxmt_32"))
+        return "DXMT(32)";
     if (!strcmp(pipeline, "d3dmetal"))
         return "D3DMetal (GPTK)";
     if (!strcmp(pipeline, "fna_arm64"))
         return "FNA / Mono ARM64";
-    if (!strcmp(pipeline, "m12"))
-        return "M12";
-    if (!strcmp(pipeline, "m11"))
-        return "M11";
-    if (!strcmp(pipeline, "m10"))
-        return "M10";
-    if (!strcmp(pipeline, "m9"))
-        return "M9";
     return "Wine";
 }
 static const char* graphics_backend(const char* pipeline) {
     if (!strcmp(pipeline, "vkd3d"))
         return "vkd3d-proton";
+    if (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
+        return "dxvk";
     if (!strcmp(pipeline, "d3dmetal"))
         return "d3dmetal";
     if (!strcmp(pipeline, "wine_bare"))
@@ -123,6 +121,12 @@ char* ms_game_resolve_json(const char* home, const unsigned char* body, size_t l
         return bad("out of memory");
     }
     if (!strcmp(pipeline, "auto"))
+        snprintf(pipeline, 16, "vkd3d");
+    else if (!strcmp(pipeline, "m11") || !strcmp(pipeline, "m10"))
+        snprintf(pipeline, 16, "dxmt");
+    else if (!strcmp(pipeline, "m11_32") || !strcmp(pipeline, "m10_32"))
+        snprintf(pipeline, 16, "dxmt_32");
+    else if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
         snprintf(pipeline, 16, "vkd3d");
     if (status)
         *status = 200;
