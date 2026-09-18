@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+/* Recursively clear macOS quarantine xattrs from an installed tree so
+ * Gatekeeper never blocks locally unpacked payloads. */
+void ms_clear_quarantine_tree(const char* path);
+
 char* ms_setup_state_json(const char* metalsharp_home);
 char* ms_setup_save_json(const char* metalsharp_home, const unsigned char* body, size_t body_length, int* status);
 char* ms_setup_device_name_json(void);

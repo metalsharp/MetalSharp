@@ -592,6 +592,11 @@ static bool runtime_ready(const char* home) {
                  hash_set_current(vkd3d_root, migration_vkd3d_hashes,
                                   sizeof(migration_vkd3d_hashes) / sizeof(migration_vkd3d_hashes[0])) &&
                  migration_moltenvk_current(home);
+            /* Gatekeeper hygiene: staged lanes must never carry quarantine
+             * provenance after a migration pass. */
+            ms_clear_quarantine_tree(dxmt_root);
+            ms_clear_quarantine_tree(dxvk_root);
+            ms_clear_quarantine_tree(vkd3d_root);
             free(dxmt_root);
             free(dxvk_root);
             free(vkd3d_root);

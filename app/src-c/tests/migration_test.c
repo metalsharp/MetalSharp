@@ -20,6 +20,12 @@ char* ms_steam_stop_json(const char* home, int* status) {
     return strdup("{\"ok\":true,\"running\":false}");
 }
 
+/* migration.c now clears quarantine on staged lanes; the test tree has no
+ * xattr helper linked, so provide a no-op. */
+void ms_clear_quarantine_tree(const char* path) {
+    (void)path;
+}
+
 #include "../runtime/migration.c"
 
 static void make_directory(const char* path) {
