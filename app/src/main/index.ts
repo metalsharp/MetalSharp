@@ -2062,7 +2062,13 @@ function registerIpc() {
     } catch {
       try {
         fs.rmSync(
-          path.join(os.homedir(), "Library", "Application Support", "dev.tormak.steam-art-manager", ".window-state.json"),
+          path.join(
+            os.homedir(),
+            "Library",
+            "Application Support",
+            "dev.tormak.steam-art-manager",
+            ".window-state.json",
+          ),
           { force: true },
         );
       } catch {}
