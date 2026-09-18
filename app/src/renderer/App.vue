@@ -372,6 +372,12 @@ function startHealthPolling() {
     if (prev && !backendConnected.value) toast.show("Backend connection lost", "error");
     else if (!prev && backendConnected.value) toast.show("Backend connected", "success");
   }, 120000);
+
+  // Re-check for releases while the app runs so the footer flips to
+  // "Update Available" without needing an app restart.
+  setInterval(() => {
+    void checkForUpdates();
+  }, 15 * 60_000);
 }
 
 function finishStartupVideo() {
