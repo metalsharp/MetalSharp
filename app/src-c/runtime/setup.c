@@ -361,25 +361,31 @@ static bool sign_wine_host_runtime(const char* home) {
     return ok;
 }
 
-static bool clear_runtime_quarantine(const char* home) {
-    char* runtime = join_path(home, "runtime");
+/* Recursively clear quarantine/provenance xattrs from an installed tree by
+ * delegating to /usr/bin/xattr (handles arbitrary depth without recursion). */
+void ms_clear_quarantine_tree(const char* path) {
     pid_t pid;
     int wait_status;
-    bool ok = false;
-    if (!runtime)
-        return false;
+    if (!path || !path[0])
+        return;
     pid = fork();
     if (pid == 0) {
-        execl("/usr/bin/xattr", "xattr", "-cr", runtime, (char*)NULL);
+        execl("/usr/bin/xattr", "xattr", "-cr", path, (char*)NULL);
         _exit(127);
     }
     if (pid > 0) {
         while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
         }
-        ok = WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
     }
+}
+
+static bool clear_runtime_quarantine(const char* home) {
+    char* runtime = join_path(home, "runtime");
+    if (!runtime)
+        return false;
+    ms_clear_quarantine_tree(runtime);
     free(runtime);
-    return ok;
+    return true;
 }
 
 static bool normalize_runtime_executables(const char* home) {
@@ -1877,6 +1883,11 @@ static void run_install_all_worker(const char* home) {
                               (!has_dxvk || (dst_dxvk && copy_directory_contents(src_dxvk, dst_dxvk))) &&
                               (!has_vkd3d || (dst_vkd3d && copy_directory_contents(src_vkd3d, dst_vkd3d))) &&
                               sign_dxmt_native_bridges(dst_dxmt) && write_dxmt_manifest(dst_dxmt);
+                /* Gatekeeper hygiene: freshly staged lanes must never carry
+                 * quarantine provenance from the source archive. */
+                ms_clear_quarantine_tree(dst_dxmt);
+                ms_clear_quarantine_tree(dst_dxvk);
+                ms_clear_quarantine_tree(dst_vkd3d);
                 free(src_dxmt);
                 free(src_dxvk);
                 free(src_vkd3d);

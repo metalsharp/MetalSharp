@@ -11,6 +11,7 @@
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include <ctype.h>
+#include <sys/xattr.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1148,6 +1149,10 @@ static bool stage_route_asset(const char* home, const char* source_subpath, cons
     if (source && target && access(source, R_OK) == 0) {
         (void)ensure_directory(destination);
         ok = copy_file_path(source, target);
+        /* Staged route DLLs are loaded by the game — strip quarantine so
+         * Gatekeeper can never block a freshly staged payload. */
+        if (ok && target)
+            (void)removexattr(target, "com.apple.quarantine", XATTR_NOFOLLOW);
     }
     free(source_root);
     free(source_dir);
