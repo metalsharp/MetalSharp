@@ -2038,6 +2038,35 @@ function registerIpc() {
         fs.writeFileSync(introMarker, new Date().toISOString());
       } catch {}
     }
+    // Guard: the window-state plugin occasionally saves corrupt geometry
+    // (observed 18400x11200 with visible:false) which makes SAM open with no
+    // visible window at all. Reset obviously-broken states to defaults.
+    try {
+      const samConfigDir = path.join(os.homedir(), "Library", "Application Support", "dev.tormak.steam-art-manager");
+      const windowStatePath = path.join(samConfigDir, ".window-state.json");
+      if (fs.existsSync(windowStatePath)) {
+        const state = JSON.parse(fs.readFileSync(windowStatePath, "utf8")) as {
+          main?: { width?: number; height?: number; x?: number; y?: number };
+        };
+        const main = state?.main;
+        const corrupt =
+          !main ||
+          typeof main.width !== "number" ||
+          typeof main.height !== "number" ||
+          main.width <= 0 ||
+          main.height <= 0 ||
+          main.width > 10000 ||
+          main.height > 10000;
+        if (corrupt) fs.rmSync(windowStatePath, { force: true });
+      }
+    } catch {
+      try {
+        fs.rmSync(
+          path.join(os.homedir(), "Library", "Application Support", "dev.tormak.steam-art-manager", ".window-state.json"),
+          { force: true },
+        );
+      } catch {}
+    }
     const child = spawn("open", [samAppPath], { detached: true, stdio: "ignore" });
     child.unref();
     return { ok: true };
