@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld("metalsharp", {
   backendGetPid: () => ipcRenderer.invoke("backend:get-pid"),
   backendBaseUrl: () => ipcRenderer.invoke("backend:base-url"),
   openSteamArtManager: () => ipcRenderer.invoke("app:open-steam-art-manager"),
+  blurMainWindow: () => ipcRenderer.invoke("app:blur-main-window"),
+  focusMainWindow: () => ipcRenderer.invoke("app:focus-main-window"),
   migrateCheck: () => ipcRenderer.invoke("migrate:check"),
   migrateStart: () => ipcRenderer.invoke("migrate:start"),
   migrateProgress: () => ipcRenderer.invoke("migrate:progress"),

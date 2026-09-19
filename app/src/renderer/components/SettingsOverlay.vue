@@ -38,6 +38,7 @@ const reloadLibrary = inject<() => Promise<void>>("loadLibrary")!;
 const library =
   inject<Ref<{ ok: boolean; total: number; installed_count: number; games: unknown[] } | null>>("library")!;
 const developerMode = inject<Ref<boolean>>("developerMode")!;
+const reopenSetup = inject<(() => void) | null>("reopenSetup", null);;
 const lowPerformanceMode = inject<Ref<boolean>>("lowPerformanceMode")!;
 
 const toast = useToast();
@@ -406,6 +407,15 @@ function uninstallMetalsharp() {
               <button v-if="wineSteamInstalled" class="so-btn" type="button" @click="toggleSteam">
                 {{ wineSteamRunning ? "Stop Steam" : "Start Steam" }}
               </button>
+            </div>
+          </div>
+          <div v-if="!wineSteamInstalled && reopenSetup" class="so-row">
+            <div class="so-row-info">
+              <div class="so-label">Missing Windows Steam?</div>
+              <div class="so-desc">Re-run the setup wizard to install or repair the Steam runtime</div>
+            </div>
+            <div class="so-row-control">
+              <button class="so-btn primary" type="button" @click="reopenSetup">Run Setup Wizard</button>
             </div>
           </div>
           <div class="so-row">

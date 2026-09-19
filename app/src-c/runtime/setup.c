@@ -1579,7 +1579,11 @@ static pid_t g_install_pid = 0;
 
 static void refresh_installing(void) {
     int wait_status;
-    if (g_install_pid > 0 && waitpid(g_install_pid, &wait_status, WNOHANG) == g_install_pid) {
+    /* ECHILD means something else reaped the worker first (bottle actions
+     * install a process-wide SIGCHLD reaper that is never restored) — treat
+     * that as worker-gone or the installing flag sticks forever. */
+    pid_t reaped = g_install_pid > 0 ? waitpid(g_install_pid, &wait_status, WNOHANG) : 0;
+    if (g_install_pid > 0 && (reaped == g_install_pid || (reaped < 0 && errno == ECHILD))) {
         g_install_pid = 0;
         atomic_store(&g_installing, false);
     }
@@ -2154,29 +2158,168 @@ fail:
     return false;
 }
 
-char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
+static bool vcpp_dlls_present(const char* home, bool x86) {
     const char* const dlls_x64[] = {"vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"};
     const char* const dlls_x86[] = {"vcruntime140.dll", "msvcp140.dll"};
     const char* const* dlls = x86 ? dlls_x86 : dlls_x64;
     size_t dll_count = x86 ? 2 : 3;
-    char *prefix = join_path(home, "prefix-steam"), *system32 = NULL, *syswow64 = NULL, *wine = NULL, *installer = NULL,
-         *installer_dir = NULL, *out = NULL;
+    char* prefix = join_path(home, "prefix-steam");
+    char* dir = prefix ? join_path(prefix, x86 ? "drive_c/windows/syswow64" : "drive_c/windows/system32") : NULL;
+    bool ok = dir != NULL;
+    for (size_t i = 0; ok && i < dll_count; i++) {
+        char* path = join_path(dir, dlls[i]);
+        struct stat info;
+        if (!path || stat(path, &info) != 0 || info.st_size <= 10000)
+            ok = false;
+        free(path);
+    }
+    free(prefix);
+    free(dir);
+    return ok;
+}
+
+/* wine_pid > 0 records the Wine-hosted installer process so a later backend
+ * session can detect a still-open orphaned installer before spawning a
+ * second one against the same prefix. */
+static void write_vcpp_progress_ex(const char* home, const char* arch, const char* state, const char* error,
+                                   pid_t wine_pid) {
+    char* path = join_path(home, "vcpp_progress.json");
+    FILE* file;
+    if (!path)
+        return;
+    file = fopen(path, "wb");
+    if (file) {
+        if (error)
+            fprintf(file, "{\"arch\":\"%s\",\"status\":\"%s\",\"error\":\"%s\"", arch, state, error);
+        else
+            fprintf(file, "{\"arch\":\"%s\",\"status\":\"%s\",\"error\":null", arch, state);
+        if (wine_pid > 0)
+            fprintf(file, ",\"wine_pid\":%lld", (long long)wine_pid);
+        fprintf(file, "}");
+        fclose(file);
+    }
+    free(path);
+}
+
+static void write_vcpp_progress(const char* home, const char* arch, const char* state, const char* error) {
+    write_vcpp_progress_ex(home, arch, state, error, 0);
+}
+
+static pid_t g_vcpp_pid = 0;
+static bool g_vcpp_active = false;
+
+static void refresh_vcpp_worker(void) {
+    int wait_status;
+    /* ECHILD: a process-wide SIGCHLD reaper (bottle actions) may have reaped
+     * the worker first — that still means worker-gone. */
+    pid_t reaped = g_vcpp_pid > 0 ? waitpid(g_vcpp_pid, &wait_status, WNOHANG) : 0;
+    if (g_vcpp_pid > 0 && (reaped == g_vcpp_pid || (reaped < 0 && errno == ECHILD))) {
+        g_vcpp_pid = 0;
+        g_vcpp_active = false;
+    }
+}
+
+/* Returns the recorded Wine installer pid (0 when absent) and optionally the
+ * progress state string of the last VC++ install attempt. */
+static long long read_vcpp_progress_state(const char* home, char* state_out, size_t state_size) {
+    char* path = join_path(home, "vcpp_progress.json");
+    char* text = path ? read_file(path, NULL) : NULL;
+    char parse_error[128];
+    ms_json* progress = NULL;
+    long long wine_pid = 0;
+    if (state_size > 0)
+        state_out[0] = '\0';
+    if (text)
+        progress = ms_json_parse(text, strlen(text), parse_error, sizeof(parse_error));
+    if (progress && ms_json_type_of(progress) == MS_JSON_OBJECT) {
+        const ms_json* value;
+        if ((value = ms_json_object_get(progress, "wine_pid")) != NULL) {
+            long long parsed = 0;
+            if (ms_json_as_i64(value, &parsed))
+                wine_pid = parsed;
+        }
+        if ((value = ms_json_object_get(progress, "status")) != NULL) {
+            char* state = NULL;
+            if (ms_json_as_string(value, &state)) {
+                snprintf(state_out, state_size, "%s", state);
+                free(state);
+            }
+        }
+    }
+    ms_json_free(progress);
+    free(text);
+    free(path);
+    return wine_pid;
+}
+
+#ifdef __APPLE__
+/* Best-effort: raise the Wine-hosted installer windows above the MetalSharp
+ * wizard. System Events automation can be declined (TCC); failure is silent
+ * and the wizard still tracks install state by polling. */
+static void spawn_installer_activator(const char* wine_path) {
+    const char* slash = wine_path ? strrchr(wine_path, '/') : NULL;
+    const char* name = slash ? slash + 1 : wine_path;
+    char script[512];
+    pid_t pid;
+    if (!name || !name[0] || strlen(name) > 128)
+        return;
+    snprintf(script, sizeof(script),
+             "tell application \"System Events\"\n"
+             "repeat with p in (every process whose name is \"%s\")\n"
+             "set frontmost of p to true\n"
+             "end repeat\n"
+             "end tell",
+             name);
+    pid = fork();
+    if (pid != 0)
+        return;
+    {
+        char* args[] = {(char*)"/usr/bin/osascript", (char*)"-e", script, NULL};
+        for (int attempt = 0; attempt < 3; attempt++) {
+            pid_t osa;
+            sleep(2);
+            osa = fork();
+            if (osa == 0) {
+                execv("/usr/bin/osascript", args);
+                _exit(127);
+            }
+            if (osa > 0)
+                waitpid(osa, NULL, 0);
+        }
+    }
+    _exit(0);
+}
+#else
+static void spawn_installer_activator(const char* wine_path) {
+    (void)wine_path;
+}
+#endif
+
+static void run_vcpp_install_worker(const char* home, bool x86) {
+    const char* arch = x86 ? "x86" : "x64";
+    pthread_t parent_monitor;
+    char* prefix = join_path(home, "prefix-steam");
+    char* wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
+    char* installer = join_path(home, x86 ? "runtime/redist/vcredist/vc_redist.x86.exe"
+                                          : "runtime/redist/vcredist/vc_redist.x64.exe");
+    char* installer_dir = NULL;
     int child_status = 0;
     pid_t pid, waited;
-    bool verified = true;
-    if (status)
-        *status = 200;
-    system32 = prefix ? join_path(prefix, "drive_c/windows/system32") : NULL;
-    if (!system32 || access(system32, F_OK) != 0) {
-        if (status)
-            *status = 400;
-        out = setup_error("Wine prefix not ready — install runtime and Steam first");
-        goto done;
+    bool wait_indeterminate = false;
+    /* Bottle actions install a process-wide SIGCHLD reaper and never restore
+     * it; the disposition is inherited across fork and would reap the Wine
+     * installer (and curl) children out from under us, turning successful
+     * installs into spurious failures. Restore default reaping semantics. */
+    (void)signal(SIGCHLD, SIG_DFL);
+    if (pthread_create(&parent_monitor, NULL, install_parent_monitor, NULL) == 0)
+        pthread_detach(parent_monitor);
+    if (!wine || access(wine, X_OK) != 0) {
+        free(wine);
+        wine = join_path(home, "runtime/wine/bin/wine");
     }
-    if (x86)
-        syswow64 = prefix ? join_path(prefix, "drive_c/windows/syswow64") : NULL;
-    /* Ensure both cached redists before
-     * launching either architecture's installer. */
+    write_vcpp_progress(home, arch, "preparing", NULL);
+    /* Ensure both cached redists before launching either
+     * architecture's installer (mirrors the historical behaviour). */
     {
         char* unused = NULL;
         bool x64_ok = download_vcpp_installer(home, false, &unused);
@@ -2185,26 +2328,21 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
         bool x86_ok = download_vcpp_installer(home, true, &unused);
         free(unused);
         if (!x64_ok || !x86_ok) {
-            if (status)
-                *status = 500;
-            out = setup_error(x86 ? "VC++ x86 installer not found" : "VC++ x64 installer not found");
-            goto done;
+            write_vcpp_progress(home, arch, "error",
+                                x86 ? "VC++ x86 installer not found" : "VC++ x64 installer not found");
+            _exit(1);
         }
     }
-    installer = join_path(home, x86 ? "runtime/redist/vcredist/vc_redist.x86.exe"
-                                    : "runtime/redist/vcredist/vc_redist.x64.exe");
-    wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
-    if (!wine || access(wine, X_OK) != 0) {
-        free(wine);
-        wine = join_path(home, "runtime/wine/bin/wine");
+    if (!prefix || access(prefix, F_OK) != 0) {
+        write_vcpp_progress(home, arch, "error", "Wine prefix not ready — install runtime and Steam first");
+        _exit(1);
     }
     if (!wine || access(wine, X_OK) != 0 || !installer || !vcpp_installer_downloaded(installer)) {
-        if (status)
-            *status = 500;
-        out = setup_error(!wine || access(wine, X_OK) != 0
-                              ? "MetalSharp Wine not found"
-                              : (x86 ? "VC++ x86 installer not found" : "VC++ x64 installer not found"));
-        goto done;
+        write_vcpp_progress(home, arch, "error",
+                            !wine || access(wine, X_OK) != 0
+                                ? "MetalSharp Wine not found"
+                                : (x86 ? "VC++ x86 installer not found" : "VC++ x64 installer not found"));
+        _exit(1);
     }
     installer_dir = strdup(installer);
     if (installer_dir) {
@@ -2214,10 +2352,8 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
     }
     pid = fork();
     if (pid < 0) {
-        if (status)
-            *status = 500;
-        out = setup_error("could not start VC++ installer");
-        goto done;
+        write_vcpp_progress(home, arch, "error", "could not start VC++ installer");
+        _exit(1);
     }
     if (pid == 0) {
         char library_env[PATH_MAX * 2];
@@ -2237,37 +2373,166 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
         execv(wine, args);
         _exit(127);
     }
+    /* Record the Wine installer process so a later backend session can detect
+     * a still-open orphaned installer before spawning a second one. */
+    write_vcpp_progress_ex(home, arch, "running", NULL, pid);
+#ifdef __APPLE__
+    spawn_installer_activator(wine);
+#endif
     do {
         waited = waitpid(pid, &child_status, 0);
     } while (waited < 0 && errno == EINTR);
-    if (waited != pid || !WIFEXITED(child_status) ||
-        (WEXITSTATUS(child_status) != 0 && WEXITSTATUS(child_status) != 194)) {
+    /* ECHILD after the SIG_DFL reset means the exit status is genuinely gone;
+     * treat it as indeterminate and let the DLL verification below decide. */
+    wait_indeterminate = waited < 0 && errno == ECHILD;
+    if (!wait_indeterminate &&
+        (waited != pid || !WIFEXITED(child_status) ||
+         (WEXITSTATUS(child_status) != 0 && WEXITSTATUS(child_status) != 194))) {
+        write_vcpp_progress(home, arch, "error", x86 ? "VC++ x86 installer failed" : "VC++ x64 installer failed");
+        _exit(1);
+    }
+    if (!vcpp_dlls_present(home, x86)) {
+        write_vcpp_progress(home, arch, "error",
+                            x86 ? "VC++ x86 installer completed, but runtime DLLs were not found in syswow64"
+                                : "VC++ x64 installer completed, but runtime DLLs were not found in system32");
+        _exit(1);
+    }
+    write_vcpp_progress(home, arch, "complete", NULL);
+    _exit(0);
+}
+
+char* ms_setup_vcpp_status_json(const char* home) {
+    char* path = join_path(home, "vcpp_progress.json");
+    char* text = path ? read_file(path, NULL) : NULL;
+    char parse_error[128];
+    ms_json* progress = NULL;
+    bool x64_installed = vcpp_dlls_present(home, false);
+    bool x86_installed = vcpp_dlls_present(home, true);
+    bool installing;
+    char *arch = NULL, *state = NULL, *error = NULL;
+    ms_json_writer w;
+    char* out;
+    refresh_vcpp_worker();
+    if (text)
+        progress = ms_json_parse(text, strlen(text), parse_error, sizeof(parse_error));
+    if (progress && ms_json_type_of(progress) == MS_JSON_OBJECT) {
+        const ms_json* value;
+        if ((value = ms_json_object_get(progress, "arch")) != NULL)
+            ms_json_as_string(value, &arch);
+        if ((value = ms_json_object_get(progress, "status")) != NULL)
+            ms_json_as_string(value, &state);
+        if ((value = ms_json_object_get(progress, "error")) != NULL)
+            ms_json_as_string(value, &error);
+    }
+    if (!g_vcpp_active && state && (strcmp(state, "preparing") == 0 || strcmp(state, "running") == 0)) {
+        /* The backend restarted (or the worker died) mid-install; the progress
+         * file can no longer reach a terminal state on its own. Persist the
+         * corrected terminal state so stale wine_pids cannot linger. */
+        bool arch_installed = arch ? (strcmp(arch, "x86") == 0 ? x86_installed : x64_installed) : false;
+        free(state);
+        state = strdup(arch_installed ? "complete" : "error");
+        if (!arch_installed) {
+            free(error);
+            error = strdup("MetalSharp restarted before the VC++ installer finished — start it again");
+        }
+        if (arch)
+            write_vcpp_progress(home, arch, state, arch_installed ? NULL : error);
+    }
+    installing = g_vcpp_active || (state && (strcmp(state, "preparing") == 0 || strcmp(state, "running") == 0));
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, true);
+    ms_json_writer_key(&w, "x64_installed");
+    ms_json_writer_bool(&w, x64_installed);
+    ms_json_writer_key(&w, "x86_installed");
+    ms_json_writer_bool(&w, x86_installed);
+    ms_json_writer_key(&w, "installing");
+    ms_json_writer_bool(&w, installing);
+    ms_json_writer_key(&w, "arch");
+    if (arch)
+        ms_json_writer_string(&w, arch);
+    else
+        ms_json_writer_null(&w);
+    ms_json_writer_key(&w, "status");
+    if (state)
+        ms_json_writer_string(&w, state);
+    else
+        ms_json_writer_null(&w);
+    ms_json_writer_key(&w, "error");
+    if (error)
+        ms_json_writer_string(&w, error);
+    else
+        ms_json_writer_null(&w);
+    ms_json_writer_object_end(&w);
+    out = ms_json_writer_take(&w);
+    free(arch);
+    free(state);
+    free(error);
+    ms_json_free(progress);
+    free(text);
+    free(path);
+    return out;
+}
+
+char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
+    const char* arch = x86 ? "x86" : "x64";
+    char* prefix = join_path(home, "prefix-steam");
+    char* system32 = prefix ? join_path(prefix, "drive_c/windows/system32") : NULL;
+    char* out = NULL;
+    pid_t pid;
+    if (status)
+        *status = 200;
+    if (!system32 || access(system32, F_OK) != 0) {
         if (status)
-            *status = 500;
-        out = setup_error(x86 ? "VC++ x86 installer failed" : "VC++ x64 installer failed");
+            *status = 400;
+        out = setup_error("Wine prefix not ready — install runtime and Steam first");
         goto done;
     }
-    for (size_t i = 0; i < dll_count; i++) {
-        char* path = join_path(x86 ? syswow64 : system32, dlls[i]);
-        struct stat info;
-        if (!path || stat(path, &info) != 0 || info.st_size <= 10000)
-            verified = false;
-        free(path);
-    }
-    if (!verified) {
-        if (status)
-            *status = 500;
-        out = setup_error(x86 ? "VC++ x86 installer completed, but runtime DLLs were not found in syswow64"
-                              : "VC++ x64 installer completed, but runtime DLLs were not found in system32");
+    /* Already satisfied: never relaunch the GUI just to show "Repair". */
+    if (vcpp_dlls_present(home, x86)) {
+        out = strdup("{\"ok\":true,\"already_installed\":true}");
         goto done;
     }
-    out = strdup("{\"ok\":true}");
+    refresh_vcpp_worker();
+    if (g_vcpp_active) {
+        out = strdup("{\"ok\":true,\"started\":true,\"installing\":true}");
+        goto done;
+    }
+    /* A previous backend session may have left the Wine installer open (the
+     * worker exits with its parent, but the GUI grandchild survives). Never
+     * spawn a second installer against the same prefix while one is live. */
+    {
+        char progress_state[16] = {0};
+        long long orphan_pid = read_vcpp_progress_state(home, progress_state, sizeof(progress_state));
+        if (strcmp(progress_state, "running") == 0 && orphan_pid > 0 && kill((pid_t)orphan_pid, 0) == 0) {
+            if (status)
+                *status = 409;
+            out = setup_error("The VC++ installer window is still open — finish or close it before starting again");
+            goto done;
+        }
+    }
+    /* The installer runs interactively under Wine, so it must never hold the
+     * single-threaded HTTP server hostage: spawn a detached worker and let the
+     * wizard poll /setup/vcpp-status for DLL presence and progress. */
+    write_vcpp_progress(home, arch, "preparing", NULL);
+    pid = fork();
+    if (pid < 0) {
+        write_vcpp_progress(home, arch, "error", "could not start VC++ installer");
+        if (status)
+            *status = 500;
+        out = setup_error("could not start VC++ installer");
+        goto done;
+    }
+    if (pid == 0) {
+        close_install_worker_descriptors();
+        run_vcpp_install_worker(home, x86);
+    }
+    g_vcpp_pid = pid;
+    g_vcpp_active = true;
+    out = strdup("{\"ok\":true,\"started\":true}");
 done:
     free(prefix);
     free(system32);
-    free(syswow64);
-    free(wine);
-    free(installer);
-    free(installer_dir);
     return out;
 }
