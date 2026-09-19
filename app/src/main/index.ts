@@ -1294,6 +1294,19 @@ function registerIpc() {
     },
   );
 
+  ipcMain.handle("app:blur-main-window", () => {
+    // Resign key so freshly spawned Wine installer windows (Steam setup, VC++
+    // redistributables) can rise above the full-window setup wizard overlay.
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.blur();
+  });
+
+  ipcMain.handle("app:focus-main-window", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
   ipcMain.handle("app:is-first-launch", () => {
     if (isUiOnlyRuntime()) return false;
     return isFirstLaunch();

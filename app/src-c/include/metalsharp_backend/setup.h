@@ -18,5 +18,6 @@ char* ms_setup_installing_json(void);
 char* ms_setup_install_dependencies_json(const unsigned char*, size_t, int*);
 char* ms_setup_install_all_json(const char*, int*);
 char* ms_setup_install_vcpp_json(const char*, bool, int*);
+char* ms_setup_vcpp_status_json(const char*);
 
 #endif
