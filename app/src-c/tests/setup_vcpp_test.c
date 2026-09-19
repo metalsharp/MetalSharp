@@ -26,8 +26,14 @@ int main(int argc, char** argv) {
     char state[16] = {0};
     char* status_json;
     char dll_payload[20001];
+    char cleanup[512];
     memset(dll_payload, 'x', sizeof(dll_payload) - 1);
     dll_payload[sizeof(dll_payload) - 1] = '\0';
+    /* Idempotent re-runs: stale fixtures from a previous bare invocation
+     * (fixed default home) would abort the DLL-presence assertions. CI passes
+     * a fresh mktemp home, but bare runs reuse the default. */
+    snprintf(cleanup, sizeof(cleanup), "rm -rf \"%s\"", home);
+    (void)system(cleanup);
 
     /* vcpp_dlls_present: nothing installed in a fresh home. */
     assert(!vcpp_dlls_present(home, false));
