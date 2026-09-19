@@ -8,8 +8,8 @@ Tested and working games organized by pipeline. Only games confirmed playable ar
 
 | Source | Tested game | Launch path |
 |---|---|---|
-| GameJolt | The Joy of Creation: Reborn | GameJolt card Play action through its configured Windows bottle |
-| GOG | Fall of Porcupine: Prologue | GOG card Play action through its selected bottle pipeline |
+| GameJolt | The Joy of Creation: Reborn | DXMT |
+| GOG | Fall of Porcupine: Prologue | DXMT |
 
 PCSX2 is available as an isolated emulator provider, but no PlayStation 2 title is listed here until a user-owned dump has been manually confirmed playable. Runtime installation and synthetic homebrew/process fixtures do not count as a game compatibility claim.
 
@@ -22,22 +22,16 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Pipeline | Backend | Use |
 |---|---|---|
 | **D3DMetal** | Managed GPTK 4 beta 2 / Apple D3DMetal | D3D11/D3D12 through MetalSharp Wine 11.17, the shared Steam prefix, and game-local route DLLs. |
-| **VKD3D** | Vulkan | D3D12/D3D11/D3D10/D3D9 Vulkan |
-| **M11** | DXMT | D3D11 to Metal |
-| **M11 (32-bit)** | DXMT | D3D11 to Metal, 32-bit prefix route |
-| **M10** | DXMT | D3D10 to Metal |
-| **M9** | DXMT | D3D9 to Metal |
+| **VKD3D** | Vulkan | D3D12/D3D11/D3D10/D3D9 -> Vulkan -> Metal |
+| **DXMT** | DXMT | D3D11, D3D10 to Metal |
+| **DXMT (32-bit)** | DXMT | D3D11, D3D10 32 Bit to Metal |
 | **Mono/FNA** | MonoKickstart + FNA | XNA/FNA/MonoGame via native Mono runtime |
 
 Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remain backend machinery and are not shown in bottle selectors.
 
 ---
 
-## D3DMetal
-
-The current route uses the managed GPTK 4 beta 2 payload and MetalSharp Wine 11.17. Save stages the matched DLLs beside a resolved game executable; Play refreshes them and uses the Steam-aware direct launcher with `~/.metalsharp/prefix-steam`. There is no route-wide Steam-emulator requirement.
-
-The D3DMetal titles below now support online play except Elden Ring and ARMORED CORE VI FIRES OF RUBICON, which remain offline-only. This documentation update does not change the route or runtime.
+## D3DMetal - D3D12, D3D11, D3D10 through Apple's D3DMetal Framework
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -62,7 +56,7 @@ The D3DMetal titles below now support online play except Elden Ring and ARMORED 
 
 ---
 
-## VKD3D
+## VKD3D - D3D12, D3D11, D3D10, D3D9 -> Vulkan -> Metal
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -71,10 +65,15 @@ The D3DMetal titles below now support online play except Elden Ring and ARMORED 
 | Schedule I | 3164500 | |
 | Dark Deception | 332950 | |
 | Portal2 | 620 | Steam-Emu Required |
+| Mirror's Edge | 17410 | Sync-loading mitigation active. |
+| Half-Life 2 | 220 | |
+| Portal 2 | 620 | Steam Emu supported. |
+| Among Us | 945360 | Steam online play. |
+| Fallout: New Vegas | 22380 | Direct Steam Launch. |
 
 ---
 
-## M11 — D3D11 to Metal
+## DXMT — D3D11, D3D10 to Metal
 
 | Game | AppID | Notes |
 |---|---:|---|
@@ -103,37 +102,19 @@ The D3DMetal titles below now support online play except Elden Ring and ARMORED 
 | AmongUs | 945360 | |
 | Team Fortress 2 | 440 | |
 | Amid Evil | 673130 | |
+| Octopath Traveler II | 	1971650 | |
+| Mind Scanners | 1389550 | | 
 
 ---
 
-## M11 (32-bit) — D3D11 to Metal, 32-bit prefix route
+## DXMT (32-bit) — D3D11, D3D10 to Metal, 32-bit prefix route
 
 | Game | AppID | Notes |
 |---|---:|---|
 | Hades | 1145360 | |
 | The Binding Of Isaac: Rebirth | 250900 | | 
-| Balatro | 856021 | |
 | Ori and the Blind Forest: Definitive Edition | 387290 | |
 | Nidhogg 2 | 535520 | |
-
----
-
-## M10 — D3D10 to Metal
-
-| Game | AppID | Notes |
-| Mind Scanners | 1389550 | | 
-
----
-
-## M9 — D3D9 to Metal
-
-| Game | AppID | Notes |
-|---|---:|---|
-| Mirror's Edge | 17410 | Sync-loading mitigation active. |
-| Half-Life 2 | 220 | |
-| Portal 2 | 620 | Steam Emu supported. |
-| Among Us | 945360 | Steam online play. |
-| Fallout: New Vegas | 22380 | Direct Steam Launch. |
 
 ---
 
