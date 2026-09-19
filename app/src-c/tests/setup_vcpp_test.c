@@ -5,6 +5,7 @@
 #include "../runtime/setup.c"
 #include <assert.h>
 #include <string.h>
+#include <unistd.h>
 
 static void fixture(const char* home, const char* relative, const char* bytes) {
     char* path = join_path(home, relative);
@@ -66,6 +67,19 @@ int main(int argc, char** argv) {
     assert(strstr(status_json, "\"installing\":false"));
     assert(strstr(status_json, "\"status\":\"complete\""));
     free(status_json);
+
+    /* A non-terminal state whose recorded wine pid is STILL ALIVE (our own
+     * pid is conveniently live) must report installing and leave the file
+     * untouched — the install endpoint's orphan gate depends on the recorded
+     * wine_pid surviving status polls after a backend restart. */
+    write_vcpp_progress_ex(home, "x86", "running", NULL, (pid_t)getpid());
+    status_json = ms_setup_vcpp_status_json(home);
+    assert(status_json);
+    assert(strstr(status_json, "\"installing\":true"));
+    assert(strstr(status_json, "\"status\":\"running\""));
+    free(status_json);
+    assert(read_vcpp_progress_state(home, state, sizeof(state)) == (long long)getpid());
+    assert(!strcmp(state, "running"));
 
     /* A non-terminal state with a dead/reaped worker is corrected to a
      * terminal state (backend-restart staleness contract). */
