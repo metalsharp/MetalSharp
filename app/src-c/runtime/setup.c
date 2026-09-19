@@ -2265,7 +2265,7 @@ static void spawn_installer_activator(const char* wine_path) {
         return;
     snprintf(script, sizeof(script),
              "tell application \"System Events\"\n"
-             "repeat with p in (every process whose name is \"%s\")\n"
+             "repeat with p in (every process whose name is \"%s\" or name is \"wine\")\n"
              "set frontmost of p to true\n"
              "end repeat\n"
              "end tell",
@@ -2405,6 +2405,7 @@ char* ms_setup_vcpp_status_json(const char* home) {
     char* path = join_path(home, "vcpp_progress.json");
     char* text = path ? read_file(path, NULL) : NULL;
     char parse_error[128];
+    long long wine_pid = 0;
     ms_json* progress = NULL;
     bool x64_installed = vcpp_dlls_present(home, false);
     bool x86_installed = vcpp_dlls_present(home, true);
@@ -2423,20 +2424,36 @@ char* ms_setup_vcpp_status_json(const char* home) {
             ms_json_as_string(value, &state);
         if ((value = ms_json_object_get(progress, "error")) != NULL)
             ms_json_as_string(value, &error);
+        if ((value = ms_json_object_get(progress, "wine_pid")) != NULL) {
+            long long parsed_pid = 0;
+            if (ms_json_as_i64(value, &parsed_pid))
+                wine_pid = parsed_pid;
+        }
     }
     if (!g_vcpp_active && state && (strcmp(state, "preparing") == 0 || strcmp(state, "running") == 0)) {
-        /* The backend restarted (or the worker died) mid-install; the progress
-         * file can no longer reach a terminal state on its own. Persist the
-         * corrected terminal state so stale wine_pids cannot linger. */
-        bool arch_installed = arch ? (strcmp(arch, "x86") == 0 ? x86_installed : x64_installed) : false;
-        free(state);
-        state = strdup(arch_installed ? "complete" : "error");
-        if (!arch_installed) {
+        if (wine_pid > 0 && kill((pid_t)wine_pid, 0) == 0) {
+            /* The Wine installer from a previous backend session is still
+             * open. Keep the progress file intact — the install endpoint's
+             * orphan gate depends on the recorded wine_pid — and report the
+             * install as still in progress so the wizard waits it out. */
+            free(state);
+            state = strdup("running");
             free(error);
-            error = strdup("MetalSharp restarted before the VC++ installer finished — start it again");
+            error = NULL;
+        } else {
+            /* Worker gone and no live installer: the progress file can no
+             * longer reach a terminal state on its own. Persist the corrected
+             * terminal state so stale wine_pids cannot linger. */
+            bool arch_installed = arch ? (strcmp(arch, "x86") == 0 ? x86_installed : x64_installed) : false;
+            free(state);
+            state = strdup(arch_installed ? "complete" : "error");
+            if (!arch_installed) {
+                free(error);
+                error = strdup("MetalSharp restarted before the VC++ installer finished — start it again");
+            }
+            if (arch)
+                write_vcpp_progress(home, arch, state, arch_installed ? NULL : error);
         }
-        if (arch)
-            write_vcpp_progress(home, arch, state, arch_installed ? NULL : error);
     }
     installing = g_vcpp_active || (state && (strcmp(state, "preparing") == 0 || strcmp(state, "running") == 0));
     ms_json_writer_init(&w);
