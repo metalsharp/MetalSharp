@@ -67,9 +67,7 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 | Portal2 | 620 | Steam-Emu Required |
 | Mirror's Edge | 17410 | Sync-loading mitigation active. |
 | Half-Life 2 | 220 | |
-| Portal 2 | 620 | Steam Emu supported. |
 | Among Us | 945360 | Steam online play. |
-| Fallout: New Vegas | 22380 | Direct Steam Launch. |
 
 ---
 
