@@ -11,8 +11,6 @@ Tested and working games organized by pipeline. Only games confirmed playable ar
 | GameJolt | The Joy of Creation: Reborn | DXMT |
 | GOG | Fall of Porcupine: Prologue | DXMT |
 
-PCSX2 is available as an isolated emulator provider, but no PlayStation 2 title is listed here until a user-owned dump has been manually confirmed playable. Runtime installation and synthetic homebrew/process fixtures do not count as a game compatibility claim.
-
 ## Test System
 
 Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an M4 MacBook Air with 16GB RAM.
