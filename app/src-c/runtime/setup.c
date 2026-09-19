@@ -2252,6 +2252,19 @@ static long long read_vcpp_progress_state(const char* home, char* state_out, siz
     return wine_pid;
 }
 
+/* Liveness of a recorded installer pid. EPERM means the process exists but
+ * is not signalable by this uid — that still counts as alive so a privileged
+ * backend can never classify a running installer as gone. A recycled pid
+ * belonging to an unrelated live process would keep the orphan gate engaged;
+ * bounded by the installer session lifetime and the wizard's poll cap. */
+static bool vcpp_pid_alive(long long pid_value) {
+    int rc;
+    if (pid_value <= 0)
+        return false;
+    rc = kill((pid_t)pid_value, 0);
+    return rc == 0 || (rc < 0 && errno == EPERM);
+}
+
 #ifdef __APPLE__
 /* Best-effort: raise the Wine-hosted installer windows above the MetalSharp
  * wizard. System Events automation can be declined (TCC); failure is silent
@@ -2261,7 +2274,7 @@ static void spawn_installer_activator(const char* wine_path) {
     const char* name = slash ? slash + 1 : wine_path;
     char script[512];
     pid_t pid;
-    if (!name || !name[0] || strlen(name) > 128)
+    if (!name || !name[0] || strlen(name) > 128 || strpbrk(name, "\\\"") != NULL)
         return;
     snprintf(script, sizeof(script),
              "tell application \"System Events\"\n"
@@ -2431,7 +2444,7 @@ char* ms_setup_vcpp_status_json(const char* home) {
         }
     }
     if (!g_vcpp_active && state && (strcmp(state, "preparing") == 0 || strcmp(state, "running") == 0)) {
-        if (wine_pid > 0 && kill((pid_t)wine_pid, 0) == 0) {
+        if (vcpp_pid_alive(wine_pid)) {
             /* The Wine installer from a previous backend session is still
              * open. Keep the progress file intact — the install endpoint's
              * orphan gate depends on the recorded wine_pid — and report the
@@ -2522,7 +2535,7 @@ char* ms_setup_install_vcpp_json(const char* home, bool x86, int* status) {
     {
         char progress_state[16] = {0};
         long long orphan_pid = read_vcpp_progress_state(home, progress_state, sizeof(progress_state));
-        if (strcmp(progress_state, "running") == 0 && orphan_pid > 0 && kill((pid_t)orphan_pid, 0) == 0) {
+        if (strcmp(progress_state, "running") == 0 && vcpp_pid_alive(orphan_pid)) {
             if (status)
                 *status = 409;
             out = setup_error("The VC++ installer window is still open — finish or close it before starting again");
