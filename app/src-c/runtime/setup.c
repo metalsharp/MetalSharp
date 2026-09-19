@@ -2259,7 +2259,9 @@ static long long read_vcpp_progress_state(const char* home, char* state_out, siz
  * bounded by the installer session lifetime and the wizard's poll cap. */
 static bool vcpp_pid_alive(long long pid_value) {
     int rc;
-    if (pid_value <= 0)
+    /* Out-of-range values from a corrupt/hand-edited progress file are treated
+     * as dead rather than truncated into an unrelated live process. */
+    if (pid_value <= 0 || pid_value > (long long)INT_MAX)
         return false;
     rc = kill((pid_t)pid_value, 0);
     return rc == 0 || (rc < 0 && errno == EPERM);
@@ -2274,7 +2276,7 @@ static void spawn_installer_activator(const char* wine_path) {
     const char* name = slash ? slash + 1 : wine_path;
     char script[512];
     pid_t pid;
-    if (!name || !name[0] || strlen(name) > 128 || strpbrk(name, "\\\"") != NULL)
+    if (!name || !name[0] || strlen(name) > 128 || strpbrk(name, "\\\"\n\r") != NULL)
         return;
     snprintf(script, sizeof(script),
              "tell application \"System Events\"\n"
