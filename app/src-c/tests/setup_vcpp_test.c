@@ -4,6 +4,7 @@
  * "installer completed but was not detected / had to run twice" bug class. */
 #include "../runtime/setup.c"
 #include <assert.h>
+#include <limits.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -67,6 +68,13 @@ int main(int argc, char** argv) {
     assert(strstr(status_json, "\"installing\":false"));
     assert(strstr(status_json, "\"status\":\"complete\""));
     free(status_json);
+
+    /* Out-of-range pids from a corrupt progress file are dead, never
+     * truncated into an unrelated live process. */
+    assert(!vcpp_pid_alive(0));
+    assert(!vcpp_pid_alive(-1));
+    assert(!vcpp_pid_alive((long long)INT_MAX + 12345));
+    assert(!vcpp_pid_alive((long long)INT_MAX)); /* beyond Darwin's pid ceiling */
 
     /* A non-terminal state whose recorded wine pid is STILL ALIVE (our own
      * pid is conveniently live) must report installing and leave the file
