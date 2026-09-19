@@ -33,6 +33,8 @@ async function browserRequest(
 
 const browserAPI = {
   request: browserRequest,
+  blurMainWindow: async () => {},
+  focusMainWindow: async () => {},
   isFirstLaunch: async () => false,
   isMigrationMode: async () => false,
   isBackendAlive: async () => {
@@ -112,6 +114,8 @@ const mockSetupAPI = {
   isFirstLaunch: async () => true,
   isMigrationMode: async () => false,
   isBackendAlive: async () => true,
+  blurMainWindow: async () => {},
+  focusMainWindow: async () => {},
   runSteamFix: async () => {
     await new Promise((resolve) => setTimeout(resolve, 900));
     return { ok: true, output: "Deployed MetalSharp Steam webhelper wrapper to 1 CEF directories." };

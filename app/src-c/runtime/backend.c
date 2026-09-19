@@ -405,6 +405,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, status, body);
         return true;
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/setup/vcpp-status") == 0) {
+        body = ms_setup_vcpp_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/setup/install-vcpp-x64") == 0) {
         int status = 500;
         body = ms_setup_install_vcpp_json(context->metalsharp_home, false, &status);

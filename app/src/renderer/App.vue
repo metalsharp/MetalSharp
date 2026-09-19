@@ -38,6 +38,18 @@ const currentView = ref("library");
 const isProcessManagerOverlay = new URLSearchParams(window.location.search).get("overlay") === "process-manager";
 const showSetup = ref(false);
 const showMigration = ref(false);
+const setupReopened = ref(false);
+
+function reopenSetup() {
+  // Re-running the wizard from Settings is the supported way to fix a Steam
+  // stub installed without finishing ("Not Installed" in Settings) or a
+  // damaged runtime bundle. Reopened wizards can be dismissed without
+  // completing every step.
+  setupReopened.value = true;
+  currentView.value = "library";
+  showSetup.value = true;
+}
+provide("reopenSetup", reopenSetup);
 const showStartupVideo = ref(false);
 const startupVideoSeenKey = "metalsharp-startup-video-seen";
 const backendConnected = ref(false);
@@ -388,7 +400,14 @@ function finishStartupVideo() {
 
 function onSetupDone() {
   showSetup.value = false;
+  setupReopened.value = false;
   initApp();
+}
+
+function onSetupClosed() {
+  showSetup.value = false;
+  setupReopened.value = false;
+  startHealthPolling();
 }
 
 async function initApp() {
@@ -479,7 +498,7 @@ onMounted(async () => {
   </div>
   <ProcessManagerOverlay v-if="isProcessManagerOverlay" />
   <MigrationView v-else-if="showMigration" />
-  <SetupWizard v-else-if="showSetup" @done="onSetupDone()" />
+  <SetupWizard v-else-if="showSetup" :dismissible="setupReopened" @done="onSetupDone()" @close="onSetupClosed()" />
   <template v-else>
     <main
       class="content"
