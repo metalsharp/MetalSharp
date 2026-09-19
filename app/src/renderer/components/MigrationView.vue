@@ -90,6 +90,7 @@ async function pollProgress() {
 }
 
 function startPolling() {
+  if (pollTimer) return;
   pollTimer = setInterval(pollProgress, 500);
 }
 
@@ -109,6 +110,13 @@ async function restartApp() {
     error.value = result?.error ?? "Failed to launch the updated MetalSharp app";
     message.value = `Error: ${error.value}`;
   }
+}
+
+async function retryMigration() {
+  error.value = null;
+  status.value = "idle";
+  message.value = "Retrying migration...";
+  await startMigration();
 }
 
 onMounted(async () => {
@@ -156,7 +164,12 @@ onUnmounted(() => {
       <button v-if="complete" class="restart-btn" :disabled="launching" @click="restartApp()">
         {{ launching ? "Launching..." : "Launch MetalSharp" }}
       </button>
-      <p v-if="error" class="error-hint">Try restarting the app. If the issue persists, check the logs.</p>
+      <template v-if="error">
+        <div class="error-actions">
+          <button class="restart-btn" :disabled="launching" @click="retryMigration()">Try Again</button>
+        </div>
+        <p class="error-hint">Try restarting the app. If the issue persists, check the logs.</p>
+      </template>
       </div>
     </div>
   </div>
@@ -409,8 +422,13 @@ onUnmounted(() => {
 }
 
 .error-hint {
+  color: rgba(255, 122, 122, 0.7);
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.35);
   margin-top: 12px;
+}
+.error-actions {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
 }
 </style>
