@@ -51,6 +51,7 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 | Borderlands 3 | 397540 | Online Play |
 | The Witcher 3: Wild Hunt | 292030 | Online Play |
 | Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
+| Palworld | 1623730 | | 
 
 ---
 
