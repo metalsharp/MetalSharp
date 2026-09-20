@@ -102,6 +102,7 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 | Amid Evil | 673130 | |
 | Octopath Traveler II | 	1971650 | |
 | Mind Scanners | 1389550 | | 
+| Dredge | 1562430 | |
 
 ---
 
