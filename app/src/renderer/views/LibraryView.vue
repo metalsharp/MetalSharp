@@ -61,7 +61,7 @@ const wineSteamInstalled = inject<Ref<boolean>>("wineSteamInstalled")!;
 const wineSteamRunning = inject<Ref<boolean>>("wineSteamRunning")!;
 const backendConnected = inject<Ref<boolean>>("backendConnected")!;
 const reloadLibrary = inject<() => Promise<void>>("loadLibrary")!;
-const pendingLibraryTab = inject<Ref<string | null>>("pendingLibraryTab");;
+const pendingLibraryTab = inject<Ref<string | null>>("pendingLibraryTab");
 const updateStatus = inject<Ref<UpdateStatus | null>>("updateStatus")!;
 const updateDownloading = inject<Ref<boolean>>("updateDownloading")!;
 const toast = useToast();
@@ -193,17 +193,19 @@ function artworkCandidates(game: ShowcaseGame) {
   const steamDbFallback = `https://steamdb.info/resize/600x900/${primary}`;
   const embedded = game.embedded_icon_path ? `file://${encodeURI(game.embedded_icon_path)}` : "";
   return [
-    ...new Set([
-      gridArtUrl(game.appid, "poster"),
-      gridArtUrl(game.appid, "header"),
-      primary,
-      steamDbFallback,
-      steamArt(game.appid, "library_hero"),
-      game.header_url,
-      storeArt(game.appid),
-      embedded,
-      sharpLogoUrl,
-    ].filter(Boolean)),
+    ...new Set(
+      [
+        gridArtUrl(game.appid, "poster"),
+        gridArtUrl(game.appid, "header"),
+        primary,
+        steamDbFallback,
+        steamArt(game.appid, "library_hero"),
+        game.header_url,
+        storeArt(game.appid),
+        embedded,
+        sharpLogoUrl,
+      ].filter(Boolean),
+    ),
   ];
 }
 
@@ -374,8 +376,7 @@ const filteredGames = computed(() => {
       (filter.value === "installed" && game.installed) ||
       (filter.value === "not_installed" && !game.installed);
     const matchesSearch =
-      !query ||
-      [game.name, game.developer, ...game.tags].some((value) => value.toLowerCase().includes(query));
+      !query || [game.name, game.developer, ...game.tags].some((value) => value.toLowerCase().includes(query));
     return matchesFilter && matchesSearch;
   });
 });
@@ -400,12 +401,9 @@ function probeHeroArt(game: ShowcaseGame) {
   // a CDN candidate, and the guard below would then block the grid-art probe
   // forever. The watch re-fires once backendBase is set.
   if (!game || !backendBase.value || heroArtSources.value[game.appid]) return;
-  const candidates = [
-    gridArtUrl(game.appid, "hero"),
-    game.hero_url,
-    game.cover_url,
-    game.header_url,
-  ].filter(Boolean) as string[];
+  const candidates = [gridArtUrl(game.appid, "hero"), game.hero_url, game.cover_url, game.header_url].filter(
+    Boolean,
+  ) as string[];
   const tail = [storeArt(game.appid), sharpLogoUrl];
   const probe = (index: number) => {
     const url = candidates[index];
@@ -440,9 +438,13 @@ function probeHeroArt(game: ShowcaseGame) {
   probe(0);
 }
 
-watch([featuredGame, backendBase], ([game]) => {
-  probeHeroArt(game);
-}, { immediate: true });
+watch(
+  [featuredGame, backendBase],
+  ([game]) => {
+    probeHeroArt(game);
+  },
+  { immediate: true },
+);
 
 async function openArtManager() {
   if (artManagerOpening.value) return;
@@ -543,9 +545,7 @@ function scrollDock(direction: -1 | 1) {
 }
 
 function isWineSteamRouteId(launchMethod: string) {
-  return ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "steam", "wine_steam"].includes(
-    launchMethod.toLowerCase(),
-  );
+  return ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "steam", "wine_steam"].includes(launchMethod.toLowerCase());
 }
 
 async function launchGame(game: ShowcaseGame) {
@@ -623,15 +623,18 @@ async function loadGameSettings() {
     msyncEnabled.value = config.msync !== false;
   }
   if (metalFx?.ok) {
-    metalFxMode.value = metalFx.enabled === false ? "off" : Math.abs((metalFx.factor || 1.5) - 1.75) < 0.01 ? "1.75" : "1.50";
+    metalFxMode.value =
+      metalFx.enabled === false ? "off" : Math.abs((metalFx.factor || 1.5) - 1.75) < 0.01 ? "1.75" : "1.50";
   }
 }
 
 async function loadSteamEmuStatus(appid: number) {
-  const result = await api<{ ok: boolean; goldberg_active: boolean; cache_files_ok?: boolean; backed_up_at?: number | null }>(
-    "GET",
-    `/goldberg/status?appid=${appid}`,
-  );
+  const result = await api<{
+    ok: boolean;
+    goldberg_active: boolean;
+    cache_files_ok?: boolean;
+    backed_up_at?: number | null;
+  }>("GET", `/goldberg/status?appid=${appid}`);
   if (result?.ok) steamEmuActive.value = result.goldberg_active;
 }
 
@@ -663,7 +666,11 @@ async function setSteamEmu(enabled: boolean) {
 async function setMetalFx(mode: "1.75" | "1.50" | "off") {
   if (metalFxBusy.value) return;
   metalFxBusy.value = true;
-  const result = await api<{ ok: boolean }>("POST", "/metalfx/toggle", mode === "off" ? { enabled: false } : { enabled: true, factor: Number(mode) });
+  const result = await api<{ ok: boolean }>(
+    "POST",
+    "/metalfx/toggle",
+    mode === "off" ? { enabled: false } : { enabled: true, factor: Number(mode) },
+  );
   if (result?.ok) metalFxMode.value = mode;
   else toast.show("Failed to update MetalFX", "error");
   metalFxBusy.value = false;
@@ -778,9 +785,12 @@ onMounted(() => {
     openPlay();
   }
   void loadGameSettings();
-  window.metalsharp.backendBaseUrl().then((base) => {
-    backendBase.value = base;
-  }).catch(() => {});
+  window.metalsharp
+    .backendBaseUrl()
+    .then((base) => {
+      backendBase.value = base;
+    })
+    .catch(() => {});
   // Fired when the Steam Art Manager save button (or Steam's "Set Custom
   // Image") writes grid artwork. Bust the per-game artwork caches so every
   // app card and the hero re-probe against the new images.
@@ -898,7 +908,14 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                     {{ option.label }}
                   </option>
                 </select>
-                <button type="button" @click="selectGame(game); openPlay(); launchGame(game)">
+                <button
+                  type="button"
+                  @click="
+                    selectGame(game);
+                    openPlay();
+                    launchGame(game);
+                  "
+                >
                   <IconPlay width="14" height="14" fill="currentColor" />
                   <span>Play</span>
                 </button>
@@ -914,167 +931,194 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
       </section>
       <template v-else>
         <section v-if="featuredGame" class="library-hero">
-        <div class="library-hero-art" :style="{ backgroundImage: `url('${heroArt(featuredGame)}')` }"></div>
-        <div class="library-hero-wash"></div>
-        <div class="library-hero-content">
-          <h1>{{ featuredGame.name }}</h1>
-          <div class="library-hero-actions">
-            <button class="library-play-button" type="button" @click="launchGame(featuredGame)">
-              <IconPlay width="18" height="18" fill="currentColor" />
-              <span>{{ launchingAppId === featuredGame.appid ? "Launching" : "Play" }}</span>
+          <div class="library-hero-art" :style="{ backgroundImage: `url('${heroArt(featuredGame)}')` }"></div>
+          <div class="library-hero-wash"></div>
+          <div class="library-hero-content">
+            <h1>{{ featuredGame.name }}</h1>
+            <div class="library-hero-actions">
+              <button class="library-play-button" type="button" @click="launchGame(featuredGame)">
+                <IconPlay width="18" height="18" fill="currentColor" />
+                <span>{{ launchingAppId === featuredGame.appid ? "Launching" : "Play" }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="library-hero-controls" @click.stop>
+            <button
+              class="library-art-button"
+              type="button"
+              title="Customize Steam artwork with Steam Art Manager"
+              aria-label="Customize Steam artwork with Steam Art Manager"
+              :disabled="artManagerOpening"
+              @click="openArtManager"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+                <path
+                  d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"
+                />
+              </svg>
+            </button>
+            <div class="library-bottle-control">
+              <span class="library-control-label">Bottle</span>
+              <select v-model="selectedPipeline" :disabled="pipelineSaving" @change="savePipeline">
+                <option v-for="option in pipelineOptions" :key="option.id" :value="option.id">
+                  {{ option.label }}
+                </option>
+              </select>
+              <span v-if="pipelineSaving" class="library-control-saving">Saving…</span>
+            </div>
+            <button
+              class="library-game-settings-button"
+              type="button"
+              aria-label="Game settings"
+              title="Game settings"
+              @click="gameSettingsOpen = !gameSettingsOpen"
+            >
+              <IconSettings width="17" height="17" />
+            </button>
+            <div v-if="gameSettingsOpen" class="game-settings-popover" @click.stop>
+              <div class="game-settings-header">
+                <div>
+                  <span>GAME SETTINGS</span>
+                  <strong>{{ featuredGame.name }}</strong>
+                </div>
+                <button type="button" aria-label="Close settings" @click="gameSettingsOpen = false">×</button>
+              </div>
+              <div class="game-setting-row">
+                <span>MetalFX</span>
+                <div class="game-setting-options">
+                  <button :class="{ active: metalFxMode === '1.75' }" type="button" @click="setMetalFx('1.75')">
+                    1.75×
+                  </button>
+                  <button :class="{ active: metalFxMode === '1.50' }" type="button" @click="setMetalFx('1.50')">
+                    1.50×
+                  </button>
+                  <button :class="{ active: metalFxMode === 'off' }" type="button" @click="setMetalFx('off')">
+                    Off
+                  </button>
+                </div>
+              </div>
+              <div class="game-setting-row">
+                <span>Controller input</span>
+                <div class="game-setting-options">
+                  <button :class="{ active: controllerInput === 'off' }" type="button" @click="setController('off')">
+                    Off
+                  </button>
+                  <button :class="{ active: controllerInput === 'x' }" type="button" @click="setController('x')">
+                    XInput
+                  </button>
+                  <button :class="{ active: controllerInput === 'd' }" type="button" @click="setController('d')">
+                    DInput
+                  </button>
+                </div>
+              </div>
+              <div class="game-setting-row game-setting-toggle">
+                <span>msync</span>
+                <button type="button" :class="{ active: msyncEnabled }" @click="setMsync(!msyncEnabled)">
+                  {{ msyncEnabled ? "On" : "Off" }}
+                </button>
+              </div>
+              <div class="game-setting-row game-setting-toggle">
+                <span>Steam Emu</span>
+                <button
+                  type="button"
+                  :class="{ active: steamEmuActive }"
+                  :disabled="steamEmuBusy || !featuredGame?.installed"
+                  :title="featuredGame?.installed ? 'gbe_fork Steam emulator' : 'Requires an installed game'"
+                  @click="setSteamEmu(!steamEmuActive)"
+                >
+                  {{ steamEmuActive ? "On" : "Off" }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section v-else class="library-empty-hero">
+          <div class="library-empty-hero-content">
+            <IconLibrary width="42" height="42" />
+            <p class="library-hero-eyebrow">YOUR LIBRARY AWAITS</p>
+            <h1>No installed games</h1>
+            <p class="library-hero-description">
+              Start Steam or install a game to see your real library here. MetalSharp will use the games already
+              installed on this Mac.
+            </p>
+            <button class="library-play-button" type="button" @click="toggleSteam">
+              <IconGamepad width="18" height="18" />
+              <span>Start Steam</span>
             </button>
           </div>
-        </div>
-        <div class="library-hero-controls" @click.stop>
-          <button
-            class="library-art-button"
-            type="button"
-            title="Customize Steam artwork with Steam Art Manager"
-            aria-label="Customize Steam artwork with Steam Art Manager"
-            :disabled="artManagerOpening"
-            @click="openArtManager"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
-              <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
-            </svg>
-          </button>
-          <div class="library-bottle-control">
-            <span class="library-control-label">Bottle</span>
-            <select v-model="selectedPipeline" :disabled="pipelineSaving" @change="savePipeline">
-              <option v-for="option in pipelineOptions" :key="option.id" :value="option.id">
-                {{ option.label }}
-              </option>
-            </select>
-            <span v-if="pipelineSaving" class="library-control-saving">Saving…</span>
+        </section>
+
+        <section class="jump-back-section">
+          <div class="jump-back-heading">
+            <button type="button" @click="openCollection">
+              <span>View all</span>
+              <IconChevronRight width="18" height="18" />
+            </button>
           </div>
-          <button
-            class="library-game-settings-button"
-            type="button"
-            aria-label="Game settings"
-            title="Game settings"
-            @click="gameSettingsOpen = !gameSettingsOpen"
-          >
-            <IconSettings width="17" height="17" />
-          </button>
-          <div v-if="gameSettingsOpen" class="game-settings-popover" @click.stop>
-            <div class="game-settings-header">
-              <div>
-                <span>GAME SETTINGS</span>
-                <strong>{{ featuredGame.name }}</strong>
-              </div>
-              <button type="button" aria-label="Close settings" @click="gameSettingsOpen = false">×</button>
-            </div>
-            <div class="game-setting-row">
-              <span>MetalFX</span>
-              <div class="game-setting-options">
-                <button :class="{ active: metalFxMode === '1.75' }" type="button" @click="setMetalFx('1.75')">1.75×</button>
-                <button :class="{ active: metalFxMode === '1.50' }" type="button" @click="setMetalFx('1.50')">1.50×</button>
-                <button :class="{ active: metalFxMode === 'off' }" type="button" @click="setMetalFx('off')">Off</button>
-              </div>
-            </div>
-            <div class="game-setting-row">
-              <span>Controller input</span>
-              <div class="game-setting-options">
-                <button :class="{ active: controllerInput === 'off' }" type="button" @click="setController('off')">Off</button>
-                <button :class="{ active: controllerInput === 'x' }" type="button" @click="setController('x')">XInput</button>
-                <button :class="{ active: controllerInput === 'd' }" type="button" @click="setController('d')">DInput</button>
-              </div>
-            </div>
-            <div class="game-setting-row game-setting-toggle">
-              <span>msync</span>
-              <button type="button" :class="{ active: msyncEnabled }" @click="setMsync(!msyncEnabled)">
-                {{ msyncEnabled ? "On" : "Off" }}
-              </button>
-            </div>
-            <div class="game-setting-row game-setting-toggle">
-              <span>Steam Emu</span>
-              <button
-                type="button"
-                :class="{ active: steamEmuActive }"
-                :disabled="steamEmuBusy || !featuredGame?.installed"
-                :title="featuredGame?.installed ? 'gbe_fork Steam emulator' : 'Requires an installed game'"
-                @click="setSteamEmu(!steamEmuActive)"
+
+          <div class="showcase-dock">
+            <button
+              class="dock-arrow"
+              type="button"
+              aria-label="Previous games"
+              :disabled="!canScrollBack"
+              @click="scrollDock(-1)"
+            >
+              <IconChevronLeft width="20" height="20" />
+            </button>
+            <div class="showcase-grid">
+              <article
+                v-for="(game, index) in jumpBackGames"
+                :key="game.appid"
+                class="showcase-card"
+                :class="{
+                  'showcase-card-featured': game.appid === featuredGame?.appid,
+                  [`showcase-card-${index}`]: true,
+                }"
+                tabindex="0"
+                role="button"
+                @click="selectGame(game)"
+                @keydown.enter="selectGame(game)"
               >
-                {{ steamEmuActive ? "On" : "Off" }}
-              </button>
+                <div class="showcase-cover">
+                  <img
+                    :src="gameArt(game)"
+                    :alt="game.name"
+                    loading="lazy"
+                    :class="{ 'fallback-sharpen': fallbackArtApps.has(game.appid) }"
+                    @error="handleImageError($event, game)"
+                    @load="handleImageLoad($event, game)"
+                  />
+                  <div class="showcase-cover-shade"></div>
+                  <button class="showcase-play" type="button" @click.stop="launchGame(game)">
+                    <IconPlay width="16" height="16" fill="currentColor" />
+                    <span>{{ launchingAppId === game.appid ? "Launching" : "Play" }}</span>
+                  </button>
+                </div>
+                <div class="showcase-card-reflection" aria-hidden="true"></div>
+              </article>
             </div>
+            <button
+              class="dock-arrow"
+              type="button"
+              aria-label="Next games"
+              :disabled="!canScrollForward"
+              @click="scrollDock(1)"
+            >
+              <IconChevronRight width="20" height="20" />
+            </button>
           </div>
-        </div>
-      </section>
-      <section v-else class="library-empty-hero">
-        <div class="library-empty-hero-content">
-          <IconLibrary width="42" height="42" />
-          <p class="library-hero-eyebrow">YOUR LIBRARY AWAITS</p>
-          <h1>No installed games</h1>
-          <p class="library-hero-description">
-            Start Steam or install a game to see your real library here. MetalSharp will use the games already installed
-            on this Mac.
-          </p>
-          <button class="library-play-button" type="button" @click="toggleSteam">
-            <IconGamepad width="18" height="18" />
-            <span>Start Steam</span>
-          </button>
-        </div>
-      </section>
-
-      <section class="jump-back-section">
-        <div class="jump-back-heading">
-          <button type="button" @click="openCollection">
-            <span>View all</span>
-            <IconChevronRight width="18" height="18" />
-          </button>
-        </div>
-
-        <div class="showcase-dock">
-          <button
-            class="dock-arrow"
-            type="button"
-            aria-label="Previous games"
-            :disabled="!canScrollBack"
-            @click="scrollDock(-1)"
-          >
-            <IconChevronLeft width="20" height="20" />
-          </button>
-          <div class="showcase-grid">
-          <article
-            v-for="(game, index) in jumpBackGames"
-            :key="game.appid"
-            class="showcase-card"
-            :class="{ 'showcase-card-featured': game.appid === featuredGame?.appid, [`showcase-card-${index}`]: true }"
-            tabindex="0"
-            role="button"
-            @click="selectGame(game)"
-            @keydown.enter="selectGame(game)"
-          >
-            <div class="showcase-cover">
-              <img
-                :src="gameArt(game)"
-                :alt="game.name"
-                loading="lazy"
-                :class="{ 'fallback-sharpen': fallbackArtApps.has(game.appid) }"
-                @error="handleImageError($event, game)"
-                @load="handleImageLoad($event, game)"
-              />
-              <div class="showcase-cover-shade"></div>
-              <button class="showcase-play" type="button" @click.stop="launchGame(game)">
-                <IconPlay width="16" height="16" fill="currentColor" />
-                <span>{{ launchingAppId === game.appid ? "Launching" : "Play" }}</span>
-              </button>
-            </div>
-            <div class="showcase-card-reflection" aria-hidden="true"></div>
-          </article>
-          </div>
-          <button
-            class="dock-arrow"
-            type="button"
-            aria-label="Next games"
-            :disabled="!canScrollForward"
-            @click="scrollDock(1)"
-          >
-            <IconChevronRight width="20" height="20" />
-          </button>
-        </div>
         </section>
       </template>
     </main>
@@ -1097,7 +1141,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   --library-control-bg: #080a0d;
   --library-control-text: #ffffff;
   --library-control-hover: #171a1e;
-  --library-control-border: rgba(255,255,255,.22);
+  --library-control-border: rgba(255, 255, 255, 0.22);
   --surface: #111416;
   --surface-raised: #191c1f;
   --line: rgba(231, 234, 236, 0.14);
@@ -1111,7 +1155,12 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   overflow: hidden;
   color: #f1f1ef;
   background: var(--surface);
-  font-family: "Rethink Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    "Rethink Sans",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 :global(:root[data-theme="skeleton"]) .library-view .library-hero h1,
 :global(:root[data-theme="skeleton"]) .library-view .collection-page-header h1 {
@@ -1127,7 +1176,10 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
 }
 :global(:root[data-theme="skeleton"]) .library-view .showcase-card-featured .showcase-cover {
   border-color: #d6d0c4;
-  box-shadow: 0 17px 29px rgba(0, 0, 0, 0.5), 0 0 20px var(--library-dock-glow), 0 1px 0 rgba(255, 255, 255, 0.15) inset;
+  box-shadow:
+    0 17px 29px rgba(0, 0, 0, 0.5),
+    0 0 20px var(--library-dock-glow),
+    0 1px 0 rgba(255, 255, 255, 0.15) inset;
 }
 .library-scroll {
   position: relative;
@@ -1210,7 +1262,9 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   border-radius: 8px;
   background: #242729;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.32);
-  transition: transform 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease;
 }
 .collection-card:hover {
   border-color: rgba(231, 196, 131, 0.72);
@@ -1308,7 +1362,9 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   font: inherit;
   font-size: 11px;
   font-weight: 700;
-  transition: filter 0.16s ease, transform 0.16s ease;
+  transition:
+    filter 0.16s ease,
+    transform 0.16s ease;
 }
 .collection-card-info button:hover {
   filter: brightness(1.09);
@@ -1370,7 +1426,13 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   position: absolute;
   z-index: 1;
   inset: 0;
-  background: linear-gradient(90deg, rgba(6, 8, 9, 0.91) 0%, rgba(6, 8, 9, 0.62) 30%, rgba(6, 8, 9, 0.08) 67%, rgba(6, 8, 9, 0.17) 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(6, 8, 9, 0.91) 0%,
+    rgba(6, 8, 9, 0.62) 30%,
+    rgba(6, 8, 9, 0.08) 67%,
+    rgba(6, 8, 9, 0.17) 100%
+  );
   pointer-events: none;
 }
 .library-empty-hero {
@@ -1388,7 +1450,12 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   content: "";
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(125deg, transparent 0 18px, rgba(255, 255, 255, 0.02) 19px, transparent 20px 42px);
+  background: repeating-linear-gradient(
+    125deg,
+    transparent 0 18px,
+    rgba(255, 255, 255, 0.02) 19px,
+    transparent 20px 42px
+  );
   opacity: 0.35;
 }
 .library-empty-hero-content {
@@ -1428,7 +1495,13 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   bottom: -120px;
   left: 0;
   height: 300px;
-  background: linear-gradient(180deg, transparent 0%, rgba(17, 20, 22, 0.22) 34%, rgba(17, 20, 22, 0.76) 72%, #111416 100%);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(17, 20, 22, 0.22) 34%,
+    rgba(17, 20, 22, 0.76) 72%,
+    #111416 100%
+  );
   pointer-events: none;
 }
 .library-hero-content {
@@ -1502,7 +1575,9 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   font: inherit;
   font-size: 15px;
   font-weight: 700;
-  transition: transform 0.18s ease, background 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease;
 }
 .library-play-button:hover {
   background: var(--library-control-hover);
@@ -1623,7 +1698,10 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   background: var(--library-control-bg);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
   cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
 }
 .library-game-settings-button:hover {
   border-color: var(--library-control-border);
@@ -1803,7 +1881,11 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   color: #fff;
   background: rgba(40, 44, 45, 0.72);
   cursor: pointer;
-  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
 }
 .dock-arrow:hover:not(:disabled) {
   border-color: var(--library-accent);
@@ -1834,7 +1916,9 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   outline: none;
   isolation: isolate;
   transform-origin: center bottom;
-  transition: transform 0.25s ease, filter 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    filter 0.25s ease;
 }
 .showcase-card::after {
   content: "";
@@ -1845,7 +1929,12 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   bottom: -6px;
   left: -20px;
   border-radius: 18px;
-  background: radial-gradient(ellipse at center 64%, var(--library-dock-glow) 0%, color-mix(in srgb, var(--library-dock-glow) 58%, transparent) 34%, transparent 74%);
+  background: radial-gradient(
+    ellipse at center 64%,
+    var(--library-dock-glow) 0%,
+    color-mix(in srgb, var(--library-dock-glow) 58%, transparent) 34%,
+    transparent 74%
+  );
   filter: blur(12px);
   opacity: 0.82;
   pointer-events: none;
@@ -1895,11 +1984,16 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   border: 1px solid rgba(224, 226, 224, 0.33);
   border-radius: 7px;
   background: #242729;
-  box-shadow: 0 15px 23px rgba(0, 0, 0, 0.42), 0 1px 0 rgba(255, 255, 255, 0.13) inset;
+  box-shadow:
+    0 15px 23px rgba(0, 0, 0, 0.42),
+    0 1px 0 rgba(255, 255, 255, 0.13) inset;
 }
 .showcase-card-featured .showcase-cover {
   border-color: color-mix(in srgb, var(--library-accent) 82%, rgba(226, 177, 83, 0.84));
-  box-shadow: 0 17px 29px rgba(0, 0, 0, 0.5), 0 0 20px var(--library-accent-glow), 0 1px 0 rgba(255, 255, 255, 0.15) inset;
+  box-shadow:
+    0 17px 29px rgba(0, 0, 0, 0.5),
+    0 0 20px var(--library-accent-glow),
+    0 1px 0 rgba(255, 255, 255, 0.15) inset;
 }
 .showcase-cover img {
   display: block;
@@ -1945,7 +2039,9 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   font-weight: 700;
   opacity: 0;
   transform: translate(-50%, 8px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 .showcase-card:hover .showcase-play,
 .showcase-card:focus-visible .showcase-play {
@@ -2092,5 +2188,12 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   .showcase-play {
     transition: none;
   }
+}
+
+/* Light theme: dock scroll arrows get white borders (accent border is too
+   low-contrast against the light dock surface). */
+[data-theme="light"] .dock-arrow,
+[data-theme="light"] .dock-arrow:hover:not(:disabled) {
+  border-color: #fff;
 }
 </style>

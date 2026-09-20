@@ -123,112 +123,112 @@ async function toggleSteam() {
 </script>
 
 <template>
-    <header class="library-topbar" :class="{ 'no-search': !showSearch }">
-      <div class="library-window-space" aria-hidden="true"></div>
-      <div class="library-header-right">
-        <div class="library-brand" aria-label="MetalSharp">
-          <img src="../assets/metalsharp-logo.png" alt="" class="library-brand-mark" />
-          <span>MetalSharp</span>
-        </div>
-        <div class="library-steam-split">
-          <button class="library-steam-button" type="button" @click="toggleSteam">
-            <svg class="steam-mark" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="16.4" cy="6.8" r="3.25"></circle>
-              <circle cx="6.1" cy="17.1" r="2.35"></circle>
-              <path d="M8.15 15.85 13.45 9.8M3.85 17.8l-2.3-.9"></path>
-            </svg>
-            <span>{{ wineSteamRunning ? "Stop Steam" : "Start Steam" }}</span>
-          </button>
-          <button
-            class="library-steam-gear"
-            type="button"
-            aria-label="Steam options"
-            :disabled="steamFixBusy"
-            @click.stop="steamFixMenuOpen = !steamFixMenuOpen"
-          >
-            <IconSettings width="13" height="13" />
-          </button>
-          <div v-if="steamFixMenuOpen" class="library-steam-fix-backdrop" @click="steamFixMenuOpen = false"></div>
-          <div v-if="steamFixMenuOpen" class="library-steam-fix-menu">
-            <button type="button" :disabled="steamFixBusy" @click="runSteamFix">
-              {{ steamFixBusy ? "Fixing Steam..." : "Fix Steam" }}
-            </button>
-          </div>
-        </div>
-        <label v-if="showSearch" class="library-search">
-          <IconSearch width="18" height="18" aria-hidden="true" />
-          <input
-            :value="search"
-            type="search"
-            placeholder="Search games, genres, or tags..."
-            @input="onSearchInput($event)"
-          />
-        </label>
-        <div class="library-theme-control">
-          <button
-            ref="themeButtonEl"
-            class="library-theme-button"
-            type="button"
-            aria-label="Theme"
-            @click="themeMenuOpen = !themeMenuOpen"
-          >
-            <component :is="themeIcons[theme] || IconMoon" width="17" height="17" />
-          </button>
-        </div>
-        <nav class="library-nav" aria-label="Library navigation">
-          <div class="library-tab-control">
-            <button
-              ref="tabButtonEl"
-              class="library-tab-button"
-              type="button"
-              @click="tabMenuOpen = !tabMenuOpen"
-            >
-              <component :is="activeTabOption.icon" width="16" height="16" />
-              <span>{{ activeTabOption.label }}</span>
-              <IconChevronDown width="14" height="14" />
-            </button>
-          </div>
-          <button class="library-settings-button" type="button" aria-label="Settings" title="Settings" @click="openSettings">
-            <IconSettings width="19" height="19" />
-          </button>
-        </nav>
+  <header class="library-topbar" :class="{ 'no-search': !showSearch }">
+    <div class="library-window-space" aria-hidden="true"></div>
+    <div class="library-header-right">
+      <div class="library-brand" aria-label="MetalSharp">
+        <img src="../assets/metalsharp-logo.png" alt="" class="library-brand-mark" />
+        <span>MetalSharp</span>
       </div>
-    </header>
+      <div class="library-steam-split">
+        <button class="library-steam-button" type="button" @click="toggleSteam">
+          <svg class="steam-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="16.4" cy="6.8" r="3.25"></circle>
+            <circle cx="6.1" cy="17.1" r="2.35"></circle>
+            <path d="M8.15 15.85 13.45 9.8M3.85 17.8l-2.3-.9"></path>
+          </svg>
+          <span>{{ wineSteamRunning ? "Stop Steam" : "Start Steam" }}</span>
+        </button>
+        <button
+          class="library-steam-gear"
+          type="button"
+          aria-label="Steam options"
+          :disabled="steamFixBusy"
+          @click.stop="steamFixMenuOpen = !steamFixMenuOpen"
+        >
+          <IconSettings width="13" height="13" />
+        </button>
+        <div v-if="steamFixMenuOpen" class="library-steam-fix-backdrop" @click="steamFixMenuOpen = false"></div>
+        <div v-if="steamFixMenuOpen" class="library-steam-fix-menu">
+          <button type="button" :disabled="steamFixBusy" @click="runSteamFix">
+            {{ steamFixBusy ? "Fixing Steam..." : "Fix Steam" }}
+          </button>
+        </div>
+      </div>
+      <label v-if="showSearch" class="library-search">
+        <IconSearch width="18" height="18" aria-hidden="true" />
+        <input
+          :value="search"
+          type="search"
+          placeholder="Search games, genres, or tags..."
+          @input="onSearchInput($event)"
+        />
+      </label>
+      <div class="library-theme-control">
+        <button
+          ref="themeButtonEl"
+          class="library-theme-button"
+          type="button"
+          aria-label="Theme"
+          @click="themeMenuOpen = !themeMenuOpen"
+        >
+          <component :is="themeIcons[theme] || IconMoon" width="17" height="17" />
+        </button>
+      </div>
+      <nav class="library-nav" aria-label="Library navigation">
+        <div class="library-tab-control">
+          <button ref="tabButtonEl" class="library-tab-button" type="button" @click="tabMenuOpen = !tabMenuOpen">
+            <component :is="activeTabOption.icon" width="16" height="16" />
+            <span>{{ activeTabOption.label }}</span>
+            <IconChevronDown width="14" height="14" />
+          </button>
+        </div>
+        <button
+          class="library-settings-button"
+          type="button"
+          aria-label="Settings"
+          title="Settings"
+          @click="openSettings"
+        >
+          <IconSettings width="19" height="19" />
+        </button>
+      </nav>
+    </div>
+  </header>
 
-    <Teleport to="body">
-      <div
-        v-if="themeMenuOpen"
-        class="library-theme-menu library-topbar-overlay"
-        :style="[libraryThemeStyle, themeMenuStyle]"
+  <Teleport to="body">
+    <div
+      v-if="themeMenuOpen"
+      class="library-theme-menu library-topbar-overlay"
+      :style="[libraryThemeStyle, themeMenuStyle]"
+    >
+      <button
+        v-for="themeName in themes"
+        :key="themeName"
+        type="button"
+        :class="{ active: themeName === theme }"
+        @click="
+          setTheme(themeName);
+          themeMenuOpen = false;
+        "
       >
-        <button
-          v-for="themeName in themes"
-          :key="themeName"
-          type="button"
-          :class="{ active: themeName === theme }"
-          @click="setTheme(themeName); themeMenuOpen = false"
-        >
-          <span class="theme-menu-swatch" :data-theme="themeName"></span>
-          <span>{{ themeLabels[themeName] }}</span>
-        </button>
-      </div>
-      <div
-        v-if="tabMenuOpen"
-        class="library-tab-menu library-topbar-overlay"
-        :style="[libraryThemeStyle, tabMenuStyle]"
+        <span class="theme-menu-swatch" :data-theme="themeName"></span>
+        <span>{{ themeLabels[themeName] }}</span>
+      </button>
+    </div>
+    <div v-if="tabMenuOpen" class="library-tab-menu library-topbar-overlay" :style="[libraryThemeStyle, tabMenuStyle]">
+      <button
+        v-for="option in tabOptions"
+        :key="option.id"
+        type="button"
+        :class="{ active: option.id === activeTab }"
+        @click="chooseTab(option.id)"
       >
-        <button
-          v-for="option in tabOptions"
-          :key="option.id"
-          type="button"
-          :class="{ active: option.id === activeTab }"
-          @click="chooseTab(option.id)"
-        >
-          <component :is="option.icon" width="16" height="16" />
-          <span>{{ option.label }}</span>
-        </button>
-      </div>
-    </Teleport>
+        <component :is="option.icon" width="16" height="16" />
+        <span>{{ option.label }}</span>
+      </button>
+    </div>
+  </Teleport>
 
   <SettingsOverlay v-if="settingsOpen" @close="settingsOpen = false" />
 </template>
@@ -347,12 +347,24 @@ async function toggleSteam() {
   border-radius: 50%;
   background: var(--library-accent);
 }
-.theme-menu-swatch[data-theme="light"] { background: #4db8ff; }
-.theme-menu-swatch[data-theme="skeleton"] { background: #d6d0c4; }
-.theme-menu-swatch[data-theme="forest"] { background: #6fce88; }
-.theme-menu-swatch[data-theme="orange-peel"] { background: #ff9a45; }
-.theme-menu-swatch[data-theme="dragonfruit"] { background: #ff66aa; }
-.theme-menu-swatch[data-theme="lava"] { background: #ff6b52; }
+.theme-menu-swatch[data-theme="light"] {
+  background: #4db8ff;
+}
+.theme-menu-swatch[data-theme="skeleton"] {
+  background: #d6d0c4;
+}
+.theme-menu-swatch[data-theme="forest"] {
+  background: #6fce88;
+}
+.theme-menu-swatch[data-theme="orange-peel"] {
+  background: #ff9a45;
+}
+.theme-menu-swatch[data-theme="dragonfruit"] {
+  background: #ff66aa;
+}
+.theme-menu-swatch[data-theme="lava"] {
+  background: #ff6b52;
+}
 .library-brand {
   display: flex;
   flex: 0 0 auto;
@@ -458,13 +470,18 @@ async function toggleSteam() {
   border-radius: 8px;
   color: var(--library-control-text);
   background: var(--library-control-bg);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.07), 0 2px 8px rgba(0, 0, 0, 0.17);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.07),
+    0 2px 8px rgba(0, 0, 0, 0.17);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
-  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
 }
 .library-steam-button:hover {
   border-color: var(--library-control-border);
@@ -492,8 +509,12 @@ async function toggleSteam() {
   background: var(--library-control-bg);
   border: 1px solid var(--library-control-border);
   border-radius: 8px;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025), 0 3px 8px rgba(0, 0, 0, 0.12);
-  transition: border-color 0.18s ease, background 0.18s ease;
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.025),
+    0 3px 8px rgba(0, 0, 0, 0.12);
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
 }
 .library-search:focus-within {
   border-color: var(--library-control-border);
@@ -608,7 +629,9 @@ async function toggleSteam() {
   background: transparent;
   border-radius: 8px;
   font-size: 14px;
-  transition: color 0.18s ease, background 0.18s ease;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease;
 }
 .library-nav-item:hover {
   color: #fff;
@@ -617,7 +640,9 @@ async function toggleSteam() {
 .library-nav-item.active {
   color: var(--library-control-text);
   background: var(--library-control-bg);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08), 0 2px 7px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.08),
+    0 2px 7px rgba(0, 0, 0, 0.2);
 }
 .library-settings-button {
   display: inline-flex;
@@ -632,7 +657,11 @@ async function toggleSteam() {
   border-radius: 8px;
   background: var(--library-control-bg);
   color: var(--library-control-text);
-  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
 }
 .library-settings-button:hover {
   border-color: var(--library-control-border);
@@ -663,5 +692,29 @@ async function toggleSteam() {
 }
 .library-topbar.no-search .library-nav {
   margin-left: 0;
+}
+
+/* Light theme: header chrome borders are white, and the Play dropdown overlay
+   keeps the mono-black surface with white text used by every other theme
+   (the light control tokens are near-white on white, which is unreadable). */
+[data-theme="light"] .library-theme-button,
+[data-theme="light"] .library-tab-button,
+[data-theme="light"] .library-settings-button,
+[data-theme="light"] .library-steam-button,
+[data-theme="light"] .library-steam-gear {
+  border-color: #fff;
+}
+[data-theme="light"] .library-theme-button:hover,
+[data-theme="light"] .library-tab-button:hover,
+[data-theme="light"] .library-settings-button:hover,
+[data-theme="light"] .library-steam-button:hover {
+  border-color: #fff;
+}
+[data-theme="light"] .library-tab-menu {
+  background: #080a0d;
+}
+[data-theme="light"] .library-tab-menu button:hover,
+[data-theme="light"] .library-tab-menu button.active {
+  background: #171a1e;
 }
 </style>
