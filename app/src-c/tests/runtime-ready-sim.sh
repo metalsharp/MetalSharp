@@ -41,9 +41,9 @@ mkdir -p "$SIM/gfx" "$SIM/runtime/goldberg" "$SIM/configs" "$SIM/st" "$SIM/vkd3d
 tar --use-compress-program=unzstd -xf "$GRAPHICS" -C "$SIM/gfx"
 tar --use-compress-program=unzstd -xf "$GOLDBERG" -C "$SIM/runtime/goldberg"
 tar --use-compress-program=unzstd -xf "$SCRIPTS" -C "$SIM/st"
-cp -R "$SIM/gfx/Graphics/dll/dxmt" "$SIM/runtime/wine/lib/dxmt"
-cp -R "$SIM/gfx/Graphics/dll/dxvk" "$SIM/vkd3d/dxvk"
-cp -R "$SIM/gfx/Graphics/dll/vkd3d-proton" "$SIM/vkd3d/vkd3d-proton"
+mkdir -p "$SIM/runtime/wine/lib/dxmt" && cp -R "$SIM/gfx/Graphics/dll/dxmt/." "$SIM/runtime/wine/lib/dxmt/"
+mkdir -p "$SIM/vkd3d/dxvk" && cp -R "$SIM/gfx/Graphics/dll/dxvk/." "$SIM/vkd3d/dxvk/"
+mkdir -p "$SIM/vkd3d/vkd3d-proton" && cp -R "$SIM/gfx/Graphics/dll/vkd3d-proton/." "$SIM/vkd3d/vkd3d-proton/"
 cp "$SIM/st/scripts/tools/configs/mtsp-rules.toml" "$SIM/configs/mtsp-rules.toml"
 
 # 3. Installer post-processing:

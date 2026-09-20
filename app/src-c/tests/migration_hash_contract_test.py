@@ -31,6 +31,22 @@ def read_manifest(path: Path) -> dict[str, str]:
     return rows
 
 
+def read_migration_cdhashes(path: Path) -> dict[str, str]:
+    """Parse '# migration-cdhash: <path> <cdhash>' markers.
+
+    Declares the install-time code-signature identifier (CDHash) that
+    migration.c must pin for paths whose installed bytes differ from the
+    archive (see read_migration_skips)."""
+    cdhashes: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        if line.startswith("# migration-cdhash:"):
+            fields = line[len("# migration-cdhash:") :].strip().split(None, 1)
+            if len(fields) != 2 or not re.fullmatch(r"[0-9a-f]{40}", fields[1]):
+                raise AssertionError(f"invalid migration-cdhash marker in {path}: {line}")
+            cdhashes[fields[0]] = fields[1]
+    return cdhashes
+
+
 def read_migration_skips(path: Path) -> dict[str, str]:
     """Parse '# migration-skip: <path> <reason>' comments.
 
@@ -49,7 +65,7 @@ def read_migration_skips(path: Path) -> dict[str, str]:
     return skips
 
 
-def read_c_table(source: str, name: str) -> dict[str, str]:
+def read_c_table(source: str, name: str, hash_length: int = 64) -> dict[str, str]:
     match = re.search(
         rf"static const char\* const {re.escape(name)}\[\]\[2\] = \{{(.*?)\}};",
         source,
@@ -57,7 +73,7 @@ def read_c_table(source: str, name: str) -> dict[str, str]:
     )
     if not match:
         raise AssertionError(f"missing migration hash table: {name}")
-    rows = dict(re.findall(r'\{"([^"]+)",\s*"([0-9a-f]{64})"\}', match.group(1)))
+    rows = dict(re.findall(rf'\{{"([^"]+)",\s*"([0-9a-f]{{{hash_length}}})"\}}', match.group(1)))
     if not rows:
         raise AssertionError(f"migration hash table is empty: {name}")
     return rows
@@ -65,6 +81,20 @@ def read_c_table(source: str, name: str) -> dict[str, str]:
 
 def main() -> int:
     source = MIGRATION_SOURCE.read_text()
+
+    makefile = (ROOT / "app/src-c/Makefile").read_text()
+    version_match = re.search(r"^VERSION \?= (\S+)", makefile, re.MULTILINE)
+    migration_version_match = re.search(r'#define MIGRATION_VERSION "(\S+)"', source)
+    if not version_match or not migration_version_match:
+        print("could not read VERSION from Makefile or MIGRATION_VERSION from migration.c", file=sys.stderr)
+        return 1
+    if version_match.group(1) != migration_version_match.group(1):
+        print(
+            f"version drift: Makefile VERSION={version_match.group(1)} but "
+            f"migration.c MIGRATION_VERSION={migration_version_match.group(1)} — update migration.c",
+            file=sys.stderr,
+        )
+        return 1
     for table, manifest_path in CONTRACTS.items():
         manifest = read_manifest(manifest_path)
         skips = read_migration_skips(manifest_path)
@@ -96,6 +126,18 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+    # Enforce the alternative pin for skipped paths: CDHash table must cover
+    # every migration-cdhash marker exactly, so a skipped path can never end
+    # up pinned by nothing.
+    cdhash_markers = read_migration_cdhashes(CONTRACTS["migration_dxmt_hashes"])
+    cdhash_table = read_c_table(source, "migration_dxmt_cdhashes", hash_length=40)
+    if cdhash_markers != cdhash_table:
+        print(
+            f"migration cdhash contract mismatch: markers={sorted(cdhash_markers)} table={sorted(cdhash_table)}",
+            file=sys.stderr,
+        )
+        return 1
+
     print("migration hash contracts match published bundle contracts")
     return 0
 
