@@ -52,6 +52,7 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 | The Witcher 3: Wild Hunt | 292030 | Online Play |
 | Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
 | Palworld | 1623730 | Online Play| 
+| Hogwarts Legacy | 990080 | Online Play |
 
 ---
 
