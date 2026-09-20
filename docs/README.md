@@ -7,6 +7,7 @@ Use this page as the repo map before changing launch/runtime code.
 ## Guides
 
 - [How to Use MetalSharp](guides/how-to-use-metalsharp.md) - install, launch, diagnose, and update flow.
+- [Game Streaming](guides/game-streaming.md) - stream games to a phone or tablet with Sunshine + Moonlight.
 - [Install from Source](guides/install-from-source.md) - build MetalSharp from source without the DMG.
 - [How to Build MetalSharp Wine](guides/how-to-build-metalsharp-wine.md) - Wine 11.17 source prerequisites, tools, dependencies, and WoW64 build commands.
 
