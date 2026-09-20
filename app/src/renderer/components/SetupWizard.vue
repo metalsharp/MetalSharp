@@ -205,7 +205,7 @@ async function installSteam() {
 }
 
 async function goToDoneStep() {
-  step.value = 3;
+  step.value = steps.length - 1; /* Done page: last page, whatever the count */
   const gen = await api<{ name: string }>("GET", "/setup/device-name");
   if (gen?.name) deviceName.value = gen.name;
 }
