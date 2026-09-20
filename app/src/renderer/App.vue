@@ -5,6 +5,7 @@ import Toast from "./components/Toast.vue";
 import SetupWizard from "./components/SetupWizard.vue";
 import MigrationView from "./components/MigrationView.vue";
 import ProcessManagerOverlay from "./components/ProcessManagerOverlay.vue";
+import StreamingOverlay from "./components/StreamingOverlay.vue";
 import SharpView from "./views/SharpView.vue";
 import LogsView from "./views/LogsView.vue";
 import SettingsView from "./views/SettingsView.vue";
@@ -50,6 +51,12 @@ function reopenSetup() {
   showSetup.value = true;
 }
 provide("reopenSetup", reopenSetup);
+
+function openStreaming() {
+  showStreaming.value = true;
+}
+provide("openStreaming", openStreaming);
+const showStreaming = ref(false);
 const showStartupVideo = ref(false);
 const startupVideoSeenKey = "metalsharp-startup-video-seen";
 const backendConnected = ref(false);
@@ -543,6 +550,7 @@ onMounted(async () => {
       <component :is="activeView" :key="currentView" @navigate="navigateTo" />
     </main>
   </template>
+  <StreamingOverlay v-if="showStreaming" @close="showStreaming = false" />
   <Teleport to="body">
     <div v-if="showUpdateChangelog" class="modal-backdrop" @click="showUpdateChangelog = false">
       <section class="update-changelog-modal" @click.stop>

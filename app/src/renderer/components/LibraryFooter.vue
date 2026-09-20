@@ -2,6 +2,8 @@
 import { computed, inject, type Ref } from "vue";
 import IconArrowDown from "~icons/lucide/arrow-down-to-line";
 import IconCheckCircle from "~icons/lucide/check-circle-2";
+import IconTv from "~icons/lucide/tv";
+import IconWifi from "~icons/lucide/wifi";
 import type { UpdateStatus } from "../api-types";
 
 const library = inject<Ref<{ total: number; installed_count: number } | null>>("library")!;
@@ -12,6 +14,7 @@ const updateDownloading = inject<Ref<boolean>>("updateDownloading")!;
 const updateProgress = inject<Ref<number>>("updateProgress")!;
 const updateMessage = inject<Ref<string>>("updateMessage")!;
 const startUpdateDownload = inject<() => void>("startUpdateDownload")!;
+const openStreaming = inject<(() => void) | null>("openStreaming", null);
 const clampedProgress = computed(() => Math.min(100, Math.max(3, Math.round(updateProgress.value))));
 
 const gameCount = computed(() => library.value?.total ?? 0);
@@ -35,6 +38,22 @@ const readyDetail = computed(() =>
         <span>{{ installedCount }} of {{ gameCount }} games · {{ readyDetail }}</span>
       </div>
     </div>
+    <button
+      v-if="openStreaming"
+      class="library-footer-streaming"
+      type="button"
+      title="Game Streaming — play on your phone or tablet with Moonlight"
+      @click="openStreaming()"
+    >
+      <span class="library-footer-streaming-icon" aria-hidden="true">
+        <IconTv width="18" height="18" />
+        <span class="library-footer-streaming-wifi"><IconWifi width="9" height="9" /></span>
+      </span>
+      <span class="library-footer-streaming-text">
+        <strong>Stream</strong>
+        <span>To phone / tablet</span>
+      </span>
+    </button>
     <div class="library-update-status">
       <button
         class="library-update-icon"
@@ -115,6 +134,56 @@ const readyDetail = computed(() =>
   justify-content: center;
   flex: 0 0 auto;
   color: #74d28a;
+}
+.library-footer-streaming {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: #d8dad9;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+.library-footer-streaming:hover {
+  border-color: rgba(116, 210, 200, 0.45);
+  background: rgba(116, 210, 200, 0.06);
+}
+.library-footer-streaming-icon {
+  position: relative;
+  display: inline-flex;
+  color: #74d2c8;
+}
+.library-footer-streaming-wifi {
+  position: absolute;
+  right: -5px;
+  bottom: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  color: #0f1214;
+  background: #74d2c8;
+}
+.library-footer-streaming-text {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.library-footer-streaming-text strong {
+  color: #e2e4e3;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.library-footer-streaming-text span {
+  color: #8b9290;
+  font-size: 10.5px;
 }
 .library-footer-status strong,
 .library-update-status strong {
