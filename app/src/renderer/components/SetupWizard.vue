@@ -30,6 +30,7 @@ const installCurrent = ref("");
 const installFailed = ref(false);
 const logOpen = ref(false);
 const steamFailed = ref(false);
+const finishing = ref(false);
 const runtimeReady = computed(() => installStatus.value === "complete");
 const steamButtonLabel = computed(() => {
   if (steamInstalled.value) return "Steam Installed";
