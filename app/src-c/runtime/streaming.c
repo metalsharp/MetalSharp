@@ -240,7 +240,7 @@ static bool streaming_installed(void) {
 /* The web server answers any request (even 401) once it is up. */
 static bool streaming_web_up_timeout(const char* max_time) {
     char out[64] = {0};
-    char* args[] = {(char*)"curl",
+    char* args[] = {(char*)"/usr/bin/curl",
                     (char*)"-sk",
                     (char*)"--max-time",
                     (char*)max_time,
@@ -270,7 +270,7 @@ static bool streaming_api(const char* user, const char* pass, bool post, const c
     bool net_ok;
     snprintf(auth_header, sizeof(auth_header), "%s:%s", user, pass);
     snprintf(code_format, sizeof(code_format), "\n%%{http_code}");
-    args[n++] = (char*)"curl";
+    args[n++] = (char*)"/usr/bin/curl";
     args[n++] = (char*)"-sk";
     args[n++] = (char*)"-X";
     args[n++] = (char*)(post ? "POST" : "GET");
@@ -335,7 +335,7 @@ static bool streaming_sha256_file(const char* path, char* out_hex, size_t out_si
  * before anything is installed. */
 static bool streaming_expected_dmg_sha256(char* out_hex, size_t out_size) {
     char* response = malloc(512 * 1024);
-    char* args[] = {(char*)"curl",
+    char* args[] = {(char*)"/usr/bin/curl",
                     (char*)"-sk",
                     (char*)"--max-time",
                     (char*)"20",
@@ -452,7 +452,7 @@ static void streaming_install_worker(const char* home) {
 
     streaming_write_progress(home, "downloading", NULL);
     {
-        char* curl_args[] = {(char*)"curl",
+        char* curl_args[] = {(char*)"/usr/bin/curl",
                              (char*)"-fL",
                              (char*)"--retry",
                              (char*)"2",
