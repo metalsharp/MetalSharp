@@ -70,12 +70,19 @@ typedef struct {
 } preserved_data;
 
 static const char* const migration_dxmt_hashes[][2] = {
+    /* NOTE: x86_64-unix/winemetal.so is deliberately NOT content-hashed here.
+     * The installer ad-hoc re-signs it after extraction (codesign --force
+     * --sign -) and ad-hoc signatures are non-deterministic, so its installed
+     * sha256 differs on every machine. runtime_ready() pins that file's
+     * signature validity via dxmt_bridge_signature_valid() instead. The
+     * dxmt-runtime-hashes.tsv contract keeps the archive (pre-sign) hash for
+     * CI bundle verification; migration_hash_contract_test.py excludes this
+     * path via the TSV's migration-skip marker. */
     {"i386-windows/d3d10core.dll", "aa5139ecc9af95b01b23d403212fad12eff6f4e5453137c49f2996b2a0f7ec4c"},
     {"i386-windows/d3d11.dll", "0f3f340b1ccf56dfa87207d97998280e23c00ed948227c7f1770d95e38957582"},
     {"i386-windows/dxgi.dll", "b8770d4e8a6a17a6a1503056f51ac02f2db6bbfb281b2b7a0c9d5d5e2c381bc7"},
     {"i386-windows/nvngx.dll", "93d9ac54a57d2ebd0a20be550c0cb38c0a30311eb49eaa6f576569d97910c83b"},
     {"i386-windows/winemetal.dll", "5a9ed6c48ba9857d76984757d00d0e9319b9f8f91d62cd392ddd4232d787cfe5"},
-    {"x86_64-unix/winemetal.so", "ad1eac52db9b68db62f73161911c6e04fbec122b85fa21b7752085371d32ec98"},
     {"x86_64-windows/d3d10core.dll", "572a68f6ddfb53e88e681a337a0ab74272a25b35c61b88b068235477592bef7b"},
     {"x86_64-windows/d3d11.dll", "be17605d3decfbf3ffb4bf69f744129774b9d769a4155e6fa8b3711a288f3455"},
     {"x86_64-windows/dxgi.dll", "fe0b8cece3d4b044513177c625b66b9528c070f7859a7d64ca0dc9c40d8e6ef9"},
@@ -190,6 +197,30 @@ static bool hash_set_current(const char* root, const char* const hashes[][2], si
 static bool directory_local(const char* path) {
     struct stat st;
     return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+/* Signature validity of the DXMT native bridge. The installer ad-hoc re-signs
+ * winemetal.so after extraction and ad-hoc signatures are non-deterministic,
+ * so its content hash differs on every machine — what must hold on a healthy
+ * install is that the bridge carries a valid signature (Gatekeeper-wise). */
+static bool dxmt_bridge_signature_valid(const char* path) {
+    pid_t child;
+    int status;
+    pid_t waited;
+    struct stat st;
+    if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size == 0)
+        return false;
+    child = fork();
+    if (child < 0)
+        return false;
+    if (child == 0) {
+        execl("/usr/bin/codesign", "codesign", "--verify", "--strict", path, (char*)NULL);
+        _exit(127);
+    }
+    do {
+        waited = waitpid(child, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    return waited > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 static bool migration_manifest_current(const char* path) {
@@ -580,7 +611,10 @@ static bool runtime_ready(const char* home) {
     {
         char *unix_dir = path_join(home, "runtime/wine/lib/wine/x86_64-unix"),
              *dxmt_manifest = path_join(home, "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json");
+        char *dxmt_bridge = path_join(home, "runtime/wine/lib/dxmt/x86_64-unix/winemetal.so");
         ok = ok && directory_local(unix_dir) && migration_manifest_current(dxmt_manifest);
+        ok = ok && dxmt_bridge_signature_valid(dxmt_bridge);
+        free(dxmt_bridge);
         {
             char *dxmt_root = path_join(home, "runtime/wine/lib/dxmt"), *dxvk_root = path_join(home, "vkd3d/dxvk"),
                  *vkd3d_root = path_join(home, "vkd3d/vkd3d-proton");
