@@ -199,14 +199,16 @@ static bool directory_local(const char* path) {
     return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-/* Content pin for the DXMT native bridge. The installer ad-hoc re-signs
- * winemetal.so after extraction; ad-hoc signature bytes are derived from the
- * file's basename + content, so the installed sha256 IS deterministic for a
- * fixed bundle — but coupling a pinned sha256 to the local codesign byte
- * format breaks whenever macOS changes its signing output. The CDHash is the
- * stable identifier of the signature itself: it changes if the file's content
- * or signature changes, and matches across machines. A missing/invalid
- * signature yields no CDHash at all, so unsigned or corrupted bridges fail. */
+/* Identity + integrity pin for the DXMT native bridge. The installer ad-hoc
+ * re-signs winemetal.so after extraction; ad-hoc signature bytes derive from
+ * the file's basename + content, so the installed sha256 IS deterministic —
+ * but coupling a pinned sha256 to the local codesign byte format breaks
+ * whenever macOS changes its signing output. Two codesign steps cover both
+ * concerns: --verify --strict validates the sealed content (a page-tampered
+ * binary still carries its original signature and would otherwise pass a
+ * CDHash-only check), and the CDHash comparison pins the signature identity
+ * across codesign byte-format drift. Unsigned, tampered, or corrupted bridges
+ * fail. */
 static bool dxmt_bridge_cdhash_matches(const char* path, const char* expected_cdhash) {
     sigset_t block, previous;
     int pipefd[2];
@@ -225,6 +227,43 @@ static bool dxmt_bridge_cdhash_matches(const char* path, const char* expected_cd
     sigemptyset(&block);
     sigaddset(&block, SIGCHLD);
     pthread_sigmask(SIG_BLOCK, &block, &previous);
+
+    /* Step 1 — integrity gate. -dvv is display mode: it happily reprints the
+     * original CDHash for a binary whose sealed pages were tampered after
+     * signing. Only --verify --strict actually validates the sealed content,
+     * so a broken seal fails closed here. */
+    {
+        char* verify_args[] = {(char*)"/usr/bin/codesign", (char*)"--verify", (char*)"--strict", (char*)path, NULL};
+        int verify_status;
+        pid_t verify_pid, verify_wait;
+        int devnull;
+        verify_pid = fork();
+        if (verify_pid < 0) {
+            pthread_sigmask(SIG_SETMASK, &previous, NULL);
+            return false;
+        }
+        if (verify_pid == 0) {
+            pthread_sigmask(SIG_SETMASK, &previous, NULL);
+            devnull = open("/dev/null", O_WRONLY);
+            if (devnull >= 0) {
+                dup2(devnull, STDOUT_FILENO);
+                dup2(devnull, STDERR_FILENO);
+                close(devnull);
+            }
+            execv("/usr/bin/codesign", verify_args);
+            _exit(127);
+        }
+        do {
+            verify_wait = waitpid(verify_pid, &verify_status, 0);
+        } while (verify_wait < 0 && errno == EINTR);
+        if (verify_wait < 0 && errno == ECHILD) {
+            /* Stolen by the foreign reaper: indeterminate, fail-open. */
+        } else if (verify_wait != verify_pid || !WIFEXITED(verify_status) || WEXITSTATUS(verify_status) != 0) {
+            pthread_sigmask(SIG_SETMASK, &previous, NULL);
+            return false;
+        }
+    }
+
     pid = fork();
     if (pid < 0) {
         close(pipefd[0]);
@@ -685,10 +724,12 @@ static bool runtime_ready(const char* home) {
                  hash_set_current(vkd3d_root, migration_vkd3d_hashes,
                                   sizeof(migration_vkd3d_hashes) / sizeof(migration_vkd3d_hashes[0])) &&
                  migration_moltenvk_current(home);
-            for (size_t c = 0; c < sizeof(migration_dxmt_cdhashes) / sizeof(migration_dxmt_cdhashes[0]); c++) {
-                char* bridge = path_join(dxmt_root, migration_dxmt_cdhashes[c][0]);
-                ok = ok && dxmt_bridge_cdhash_matches(bridge, migration_dxmt_cdhashes[c][1]);
-                free(bridge);
+            if (dxmt_root) {
+                for (size_t c = 0; c < sizeof(migration_dxmt_cdhashes) / sizeof(migration_dxmt_cdhashes[0]); c++) {
+                    char* bridge = path_join(dxmt_root, migration_dxmt_cdhashes[c][0]);
+                    ok = ok && dxmt_bridge_cdhash_matches(bridge, migration_dxmt_cdhashes[c][1]);
+                    free(bridge);
+                }
             }
             /* Gatekeeper hygiene: staged lanes must never carry quarantine
              * provenance after a migration pass. */
