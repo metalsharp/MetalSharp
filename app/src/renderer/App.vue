@@ -504,7 +504,6 @@ onMounted(async () => {
     <button class="startup-video-skip" type="button" @click="finishStartupVideo">Skip intro</button>
   </div>
   <ProcessManagerOverlay v-if="isProcessManagerOverlay" />
-  <StreamingOverlay v-if="showStreaming" @close="showStreaming = false" />
   <MigrationView v-else-if="showMigration" />
   <SetupWizard v-else-if="showSetup" :dismissible="setupReopened" @done="onSetupDone()" @close="onSetupClosed()" />
   <template v-else>
@@ -551,6 +550,7 @@ onMounted(async () => {
       <component :is="activeView" :key="currentView" @navigate="navigateTo" />
     </main>
   </template>
+  <StreamingOverlay v-if="showStreaming" @close="showStreaming = false" />
   <Teleport to="body">
     <div v-if="showUpdateChangelog" class="modal-backdrop" @click="showUpdateChangelog = false">
       <section class="update-changelog-modal" @click.stop>
