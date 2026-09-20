@@ -31,6 +31,7 @@
 #include "metalsharp_backend/rpcs3.h"
 #include "metalsharp_backend/scan.h"
 #include "metalsharp_backend/setup.h"
+#include "metalsharp_backend/streaming.h"
 #include "metalsharp_backend/shadps4.h"
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/sharpemu.h"
@@ -410,6 +411,53 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/streaming/status") == 0) {
+        body = ms_streaming_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/streaming/install") == 0) {
+        int status = 200;
+        body = ms_streaming_install_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/streaming/launch") == 0) {
+        int status = 200;
+        body = ms_streaming_launch_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/streaming/stop") == 0) {
+        int status = 200;
+        body = ms_streaming_stop_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/streaming/pin") == 0) {
+        int status = 200;
+        body = ms_streaming_pin_json(context->metalsharp_home, request->body, request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/streaming/unpair-all") == 0) {
+        int status = 200;
+        body = ms_streaming_unpair_all_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
         return true;
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/setup/install-vcpp-x64") == 0) {
