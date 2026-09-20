@@ -145,6 +145,9 @@ const readyDetail = computed(() =>
   color: #d8dad9;
   background: rgba(255, 255, 255, 0.03);
   cursor: pointer;
+  /* the footer is a window-drag region: without no-drag, macOS swallows
+     every click on this button as a window move */
+  -webkit-app-region: no-drag;
   transition:
     border-color 0.16s ease,
     background 0.16s ease;

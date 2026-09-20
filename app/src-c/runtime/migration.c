@@ -20,7 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "0.70.0"
+#define MIGRATION_VERSION "0.71.0"
 #define MIGRATION_SCHEMA  5
 
 static const char* const migration_payload_denies[] = {"steamapps",
@@ -68,7 +68,6 @@ typedef struct {
     migration_link* steam_links;
     migration_link* gptk_links;
 } preserved_data;
-
 
 static char* path_join(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
@@ -131,15 +130,10 @@ static bool file_nonempty_local(const char* path) {
     return path && stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_size > 0;
 }
 
-
-
 static bool directory_local(const char* path) {
     struct stat st;
     return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
-
-
-
 
 static bool copy_file_local(const char* source, const char* destination) {
     FILE *in = NULL, *out = NULL;
@@ -1073,54 +1067,6 @@ static void write_migration_report(const char* home, bool preserved, bool restor
     free(logs);
 }
 
-static bool run_migration_wineboot(const char* home, const char* prefix) {
-    char *wine = path_join(home, "runtime/wine/bin/metalsharp-wine"), *runtime = path_join(home, "runtime/wine"),
-         *fallback = NULL;
-    pid_t pid;
-    int status = 0;
-    if (!wine || access(wine, X_OK) != 0) {
-        free(wine);
-        free(runtime);
-        return false;
-    }
-    fallback = runtime ? path_join(runtime, "lib/wine/x86_64-unix") : NULL;
-    if ((pid = fork()) == 0) {
-        char* args[] = {wine, "wineboot", "-u", NULL};
-        setenv("WINEPREFIX", prefix, 1);
-        setenv("WINEDEBUG", "-all", 1);
-        setenv("WINEDEBUGGER", "/usr/bin/true", 1);
-        setenv("WINEDLOVERRIDES", "winedbg=d", 1);
-        if (fallback)
-            setenv("DYLD_FALLBACK_LIBRARY_PATH", fallback, 1);
-        execv(wine, args);
-        _exit(127);
-    }
-    if (pid < 0) {
-        free(wine);
-        free(runtime);
-        free(fallback);
-        return false;
-    }
-    for (unsigned i = 0; i < 240; i++) {
-        pid_t result = waitpid(pid, &status, WNOHANG);
-        if (result == pid) {
-            free(wine);
-            free(runtime);
-            free(fallback);
-            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-        }
-        if (result < 0 && errno != EINTR)
-            break;
-        usleep(500000);
-    }
-    (void)kill(pid, SIGTERM);
-    (void)waitpid(pid, &status, 0);
-    free(wine);
-    free(runtime);
-    free(fallback);
-    return false;
-}
-
 static bool migration_command_available(const char* command) {
     const char* dirs[] = {"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"};
     for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
@@ -1154,17 +1100,6 @@ static bool ensure_migration_zstd(void) {
     }
     return WIFEXITED(status) && WEXITSTATUS(status) == 0 &&
            (migration_command_available("unzstd") || migration_command_available("zstd"));
-}
-
-static void update_existing_wine_prefixes(const char* home) {
-    char* prefix = path_join(home, "prefix-steam");
-    char* gog = path_join(home, "bottles/gog-prefix/prefix");
-    if (prefix && directory_local(prefix))
-        (void)run_migration_wineboot(home, prefix);
-    if (gog && directory_local(gog) && (!prefix || strcmp(prefix, gog) != 0))
-        (void)run_migration_wineboot(home, gog);
-    free(prefix);
-    free(gog);
 }
 
 static bool stop_managed_wine_processes(const char* home) {
@@ -1381,7 +1316,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.70.0\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.71.0\"}");
     free(p);
     return out;
 }
@@ -1389,7 +1324,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.70.0\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.71.0\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;
@@ -1578,9 +1513,7 @@ static void* migration_worker(void* opaque) {
             restore_preserved_data(job->home, &preserved);
             write_migration_report(job->home, true, true);
             free_preserved_data(&preserved);
-            (void)write_migration_progress(job->home, "running", 6,
-                                           "Updating Wine prefixes and registering external Steam libraries...", NULL);
-            update_existing_wine_prefixes(job->home);
+            (void)write_migration_progress(job->home, "running", 6, "Registering external Steam libraries...", NULL);
             if (!stop_managed_wine_processes(job->home)) {
                 (void)write_migration_progress(job->home, "error", 6,
                                                "Could not stop Wine processes started while updating prefixes",
