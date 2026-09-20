@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, inject, onMounted, onUnmounted, type Ref } from "vue";
+import { computed, ref, inject, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import IconZap from "~icons/lucide/zap";
@@ -20,7 +20,7 @@ const steamApiKey = inject<Ref<string | null>>("steamApiKey", ref(null));
 
 // In mock preview mode a ?step=N query opens the wizard directly on a step.
 const mockStepParam = Number(new URLSearchParams(window.location.search).get("step") ?? "0");
-const step = ref(new URLSearchParams(window.location.search).has("mock") && Number.isFinite(mockStepParam) ? Math.min(Math.max(mockStepParam, 0), 3) : 0);
+const step = ref(new URLSearchParams(window.location.search).has("mock") && Number.isFinite(mockStepParam) ? Math.min(Math.max(mockStepParam, 0), 2) : 0);
 const deviceName = ref("");
 const installProgress = ref(0);
 const installStatus = ref("");
@@ -42,18 +42,16 @@ const steamChecking = ref(false);
 const steamInstalling = ref(false);
 const steamInstallStage = ref("idle");
 const installingSteam = ref(false);
-const steps = ["Welcome", "Runtime", "VC++", "Done"];
+const steps = ["Welcome", "Runtime", "Done"];
 const stepTitles = [
   "Welcome to MetalSharp",
   "Install Runtime",
-  "VC++ Runtimes",
   "You're All Set!",
 ];
 const stepTaglines = [
   "Your Windows games. At home on Mac.",
   "One download, everything translated.",
-  "The DLLs Windows games expect.",
-  "MetalSharp is ready.",
+    "MetalSharp is ready.",
 ];
 const showcaseCovers = [
   { appid: 1091500, name: "Cyberpunk 2077", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/library_600x900_2x.jpg" },
@@ -62,111 +60,14 @@ const showcaseCovers = [
   { appid: 1332010, name: "Stray", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1332010/library_600x900_2x.jpg" },
 ];
 
-const vcppX64Done = ref(false);
-const vcppX86Done = ref(false);
-const vcppX64Installing = ref(false);
-const vcppX86Installing = ref(false);
-const vcppWaitingForInstaller = ref(false);
-const finishing = ref(false);
-
-type VcppStatus = {
-  ok: boolean;
-  x64_installed: boolean;
-  x86_installed: boolean;
-  installing: boolean;
-  arch: string | null;
-  status: string | null;
-  error: string | null;
-};
-
-async function checkVcppStatus(): Promise<VcppStatus | null> {
-  const s = await api<VcppStatus>("GET", "/setup/vcpp-status");
-  if (!s?.ok) return null;
-  vcppX64Done.value = s.x64_installed;
-  vcppX86Done.value = s.x86_installed;
-  return s;
-}
-
 function handFocusToInstallerWindow() {
-  // Let the Wine-hosted installer (Steam setup, VC++ redistributable) take
-  // the foreground instead of quietly opening behind the wizard.
+  // Let the Wine-hosted installer (Steam setup) take the foreground
+  // instead of quietly opening behind the wizard.
   void getAPI().blurMainWindow?.();
 }
 
 function reclaimFocusFromInstaller() {
   void getAPI().focusMainWindow?.();
-}
-
-async function pollVcppInstall(arch: "x64" | "x86") {
-  const installingRef = arch === "x64" ? vcppX64Installing : vcppX86Installing;
-  const archInstalled = (s: VcppStatus) => (arch === "x64" ? s.x64_installed : s.x86_installed);
-  const session = ++vcppPollSession;
-  handFocusToInstallerWindow();
-  const startedAt = Date.now();
-  for (;;) {
-    if (session !== vcppPollSession) return; // wizard closed or superseded
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    if (session !== vcppPollSession) return;
-    // Wall-clock cap must be evaluated even when the status endpoint is
-    // unreachable (backend restarting), or the wizard wedges forever.
-    if (Date.now() - startedAt > 15 * 60_000) {
-      installingRef.value = false;
-      reclaimFocusFromInstaller();
-      toast.show("The VC++ installer is taking a long time — finish it in its own window, then recheck", "error");
-      return;
-    }
-    const s = await checkVcppStatus();
-    if (!s) continue;
-    if (s.installing && s.arch && s.arch !== arch) {
-      installingRef.value = false;
-      reclaimFocusFromInstaller();
-      toast.show("Another VC++ installer is already running — finish it first", "error");
-      return;
-    }
-    if (s.status === "error") {
-      installingRef.value = false;
-      reclaimFocusFromInstaller();
-      toast.show(s.error ?? "VC++ installation failed", "error");
-      return;
-    }
-    if (archInstalled(s) && !s.installing) {
-      installingRef.value = false;
-      reclaimFocusFromInstaller();
-      toast.show(arch === "x64" ? "VC++ 2015-2022 x64 installed" : "VC++ 2015-2022 x86 installed", "success");
-      return;
-    }
-  }
-}
-
-async function beginVcppInstall(arch: "x64" | "x86") {
-  const installingRef = arch === "x64" ? vcppX64Installing : vcppX86Installing;
-  const label = arch === "x64" ? "VC++ x64" : "VC++ x86";
-  try {
-    const result = await api<{
-      ok: boolean;
-      error?: string;
-      already_installed?: boolean;
-      started?: boolean;
-      installing?: boolean;
-    }>("POST", arch === "x64" ? "/setup/install-vcpp-x64" : "/setup/install-vcpp-x86", undefined, 30_000);
-    if (!result?.ok) {
-      toast.show(result?.error ?? `Failed to install ${label}`, "error");
-      return;
-    }
-    if (result.already_installed) {
-      if (arch === "x64") vcppX64Done.value = true;
-      else vcppX86Done.value = true;
-      toast.show(`${label} is already installed`, "success");
-      return;
-    }
-    vcppWaitingForInstaller.value = true;
-    await pollVcppInstall(arch);
-  } catch {
-    toast.show(`Failed to install ${label}`, "error");
-  } finally {
-    installingRef.value = false;
-    vcppWaitingForInstaller.value = false;
-  }
 }
 
 function goToRuntimeStep() {
@@ -303,11 +204,6 @@ async function installSteam() {
   }, 1000);
 }
 
-async function goToVcppStep() {
-  await checkVcppStatus();
-  step.value = 2;
-}
-
 async function goToDoneStep() {
   step.value = 3;
   const gen = await api<{ name: string }>("GET", "/setup/device-name");
@@ -355,29 +251,8 @@ async function finish() {
   }
 }
 
-onMounted(() => {
-  void checkVcppStatus();
-});
 
-/* Session token for the VC++ status poll loop: bumped on unmount or when a
- * newer poll starts, so a dismissed wizard never keeps polling in the
- * background and two installs can never poll concurrently. */
-let vcppPollSession = 0;
-onUnmounted(() => {
-  vcppPollSession++;
-});
 
-async function installVcppX64() {
-  if (vcppX64Installing.value || vcppX64Done.value) return;
-  vcppX64Installing.value = true;
-  await beginVcppInstall("x64");
-}
-
-async function installVcppX86() {
-  if (vcppX86Installing.value || vcppX86Done.value) return;
-  vcppX86Installing.value = true;
-  await beginVcppInstall("x86");
-}
 </script>
 
 <template>
@@ -502,39 +377,6 @@ async function installVcppX86() {
           </div>
 
           <div v-if="step === 2" class="setup-body">
-            <p class="setup-lede">
-              Many Windows games depend on the Microsoft Visual C++ Redistributable. Install both into the
-              standard MetalSharp Wine prefix so games can find the DLLs they need at launch.
-            </p>
-            <div class="setup-vcpp-section">
-              <div class="setup-vcpp-card">
-                <div class="setup-vcpp-info">
-                  <div class="setup-vcpp-name">VC++ 2015-2022 <strong>x64</strong></div>
-                  <div class="setup-vcpp-desc">Required for 64-bit games (Portal 2, Elden Ring, most modern titles)</div>
-                </div>
-                <span v-if="vcppX64Done" class="badge badge-ok">Done</span>
-                <button v-else class="setup-btn primary sm" :disabled="vcppX64Installing" @click="installVcppX64">
-                  {{ vcppX64Installing ? "Waiting for installer…" : "Install x64" }}
-                </button>
-              </div>
-              <div class="setup-vcpp-card">
-                <div class="setup-vcpp-info">
-                  <div class="setup-vcpp-name">VC++ 2015-2022 <strong>x86</strong></div>
-                  <div class="setup-vcpp-desc">Required for 32-bit games and WoW64 compatibility</div>
-                </div>
-                <span v-if="vcppX86Done" class="badge badge-ok">Done</span>
-                <button v-else class="setup-btn primary sm" :disabled="vcppX86Installing" @click="installVcppX86">
-                  {{ vcppX86Installing ? "Waiting for installer…" : "Install x86" }}
-                </button>
-              </div>
-              <div v-if="vcppWaitingForInstaller" class="setup-vcpp-waiting-hint">
-                The installer window has opened — complete it there. MetalSharp detects the install automatically; no
-                need to run it twice.
-              </div>
-            </div>
-          </div>
-
-          <div v-if="step === 3" class="setup-body">
             <div class="setup-complete-icon"><IconCheck width="30" height="30" /></div>
             <div class="setup-form">
               <div class="setup-form-group">
@@ -559,20 +401,13 @@ async function installVcppX86() {
         </div>
 
         <div class="setup-actions">
-          <button v-if="step > 0 && step < 3" class="setup-btn ghost" @click="step = step - 1">Back</button>
+          <button v-if="step > 0 && step < 2" class="setup-btn ghost" @click="step = step - 1">Back</button>
           <button v-if="step === 0" class="setup-btn primary" @click="step = 1">
             <IconPlay width="16" height="16" fill="currentColor" /> Get Started
           </button>
           <template v-else-if="step === 1">
-            <button
-              class="setup-btn primary"
-              :disabled="installStatus !== 'complete'"
-              @click="goToVcppStep"
-            >
-              Next: Install VC++
-            </button>
+            <button class="setup-btn primary" type="button" @click="goToDoneStep">Next Step</button>
           </template>
-          <button v-else-if="step === 2" class="setup-btn primary" @click="goToDoneStep">Continue</button>
           <button v-else class="setup-btn primary" :disabled="finishing" @click="finish">
             {{ finishing ? "Preparing Steam..." : "Launch MetalSharp" }}
           </button>
@@ -977,48 +812,6 @@ async function installVcppX86() {
   margin-top: 10px;
   color: #ffb84d;
   font-size: 12.5px;
-}
-
-/* vcpp */
-.setup-vcpp-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.setup-vcpp-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.025);
-}
-.setup-vcpp-name {
-  color: #eceae3;
-  font-size: 14px;
-  font-weight: 650;
-}
-.setup-vcpp-desc {
-  margin-top: 3px;
-  color: #9aa09e;
-  font-size: 12px;
-}
-.setup-vcpp-waiting-hint {
-  padding: 10px 14px;
-  border: 1px solid rgba(239, 230, 211, 0.22);
-  border-radius: 10px;
-  color: #d8d5cc;
-  background: rgba(239, 230, 211, 0.05);
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-.setup-steam-hint {
-  margin-top: 2px;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 11.5px;
-  text-align: center;
 }
 
 /* done */
