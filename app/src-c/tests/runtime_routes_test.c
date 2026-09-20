@@ -33,9 +33,15 @@ int main(int argc, char** argv) {
     fixture(home, "configs/config.json", "{\"msync\":true}");
     set_wine_msync(home);
     assert(!strcmp(getenv("WINEMSYNC"), "1"));
+    /* Retina now defaults to DISABLED when the key is absent. */
     seed_steam_registry(home);
     char* steam_reg_path = join(home, "prefix-steam/drive_c/metalsharp-steam.reg");
     char* steam_reg = read_bounded_file(steam_reg_path);
+    assert(steam_reg && strstr(steam_reg, "\"RetinaMode\"=\"N\"") && strstr(steam_reg, "\"LogPixels\"=dword:00000060"));
+    free(steam_reg);
+    fixture(home, "configs/config.json", "{\"retinaMode\":true}");
+    seed_steam_registry(home);
+    steam_reg = read_bounded_file(steam_reg_path);
     assert(steam_reg && strstr(steam_reg, "\"RetinaMode\"=\"Y\"") && strstr(steam_reg, "\"LogPixels\"=dword:000000c0"));
     free(steam_reg);
     fixture(home, "configs/config.json", "{\"retinaMode\":false}");

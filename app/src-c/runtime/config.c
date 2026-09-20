@@ -201,7 +201,7 @@ bool ms_config_msync_enabled(const char* metalsharp_home) {
 bool ms_config_retina_enabled(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
-    bool enabled = config_bool(config, "retinaMode", true);
+    bool enabled = config_bool(config, "retinaMode", false);
     free(path);
     ms_json_free(config);
     return enabled;
@@ -215,7 +215,7 @@ char* ms_config_get_json(const char* metalsharp_home) {
                     ? truthy(env_logs)
                     : config_bool(config, "graphicsRuntimeLogs", config_bool(config, "graphics_runtime_logs", false));
     bool msync = config_bool(config, "msync", true);
-    bool retina = config_bool(config, "retinaMode", true);
+    bool retina = config_bool(config, "retinaMode", false);
     char* controller = controller_input(config);
     ms_json_writer writer;
     char* result;
