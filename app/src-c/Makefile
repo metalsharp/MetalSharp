@@ -60,6 +60,7 @@ SOURCES := \
 	runtime/integration.c \
 	runtime/d3dmetal.c \
 	runtime/migration.c \
+	runtime/streaming.c \
 	runtime/http_server.c \
 	runtime/json.c \
 	runtime/json_writer.c \
