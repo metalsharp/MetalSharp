@@ -193,6 +193,9 @@ static bool streaming_write_creds(const char* home, const char* user, const char
     }
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd >= 0) {
+        /* open's mode only applies to freshly created files: force 0600 so a
+         * pre-existing world-readable creds file is tightened too. */
+        (void)fchmod(fd, 0600);
         file = fdopen(fd, "w");
         if (file) {
             fprintf(file, "{\"username\":%s,\"password\":%s}\n", quoted_user, quoted_pass);
@@ -257,8 +260,8 @@ static bool streaming_web_up(void) {
 /* Authenticated request against the Sunshine web API. json_body may be NULL.
  * The response body is captured in body (bounded) and the HTTP status code in
  * code (via curl's -w, split from the captured stdout). */
-static bool streaming_api(const char* user, const char* pass, bool post, const char* endpoint, const char* json_body,
-                          char* body, size_t body_size, char* code, size_t code_size) {
+static bool streaming_api(const char* user, const char* pass, bool post, const char* max_time, const char* endpoint,
+                          const char* json_body, char* body, size_t body_size, char* code, size_t code_size) {
     char auth_header[256];
     char code_format[32];
     char* args[20];
@@ -276,7 +279,7 @@ static bool streaming_api(const char* user, const char* pass, bool post, const c
     args[n++] = (char*)"-H";
     args[n++] = (char*)"Content-Type: application/json";
     args[n++] = (char*)"--max-time";
-    args[n++] = (char*)(post ? "60" : "6");
+    args[n++] = (char*)max_time;
     if (json_body) {
         args[n++] = (char*)"--data";
         args[n++] = (char*)json_body;
@@ -381,7 +384,11 @@ static bool streaming_progress_terminal(const char* home, bool* stale) {
              * only come from a worker that died without writing a state. */
             *stale = !terminal && time(NULL) - st.st_mtime > 1800;
             free(text);
+        } else {
+            *stale = true; /* unreadable: arbitrate as stale, never wedge */
         }
+    } else {
+        *stale = true; /* no progress file while an install is believed active */
     }
     free(path);
     return terminal;
@@ -393,17 +400,26 @@ static void streaming_refresh_install(const char* home) {
     if (g_install_pid > 0 && reaped == g_install_pid) {
         g_install_pid = 0;
         g_install_active = false;
-    } else if (g_install_pid > 0 && reaped < 0 && errno == ECHILD) {
-        /* The SIGCHLD reaper stole a possibly-still-running worker. The
-         * worker writes its terminal state before exiting, so trust the
-         * progress file (plus a staleness cap for silent deaths). */
+        return;
+    }
+    if (g_install_pid > 0 && reaped < 0 && errno == ECHILD)
+        g_install_pid = 0; /* The reaper stole a possibly-still-running worker. */
+    if (!g_install_active)
+        return;
+    /* While an install is believed active, re-arbitrate from the progress
+     * file on EVERY poll: terminal state clears it; a missing or stale file
+     * (worker SIGKILLed, crashed before its final write, or reaped mid-run)
+     * bounds the wedge at the staleness cap instead of forever. */
+    {
         bool stale = false;
         bool terminal = streaming_progress_terminal(home, &stale);
-        g_install_pid = 0;
-        g_install_active = !terminal && !stale;
-        if (stale)
+        if (terminal) {
+            g_install_active = false;
+        } else if (stale) {
+            g_install_active = false;
             streaming_write_progress(home, "error",
                                      "Sunshine install stalled — MetalSharp restarted or the worker was stopped");
+        }
     }
 }
 
@@ -542,7 +558,10 @@ char* ms_streaming_install_json(const char* home, int* status) {
         /* The worker forks without exec, so FD_CLOEXEC on the listening and
          * client sockets never applies — close every inherited descriptor or
          * the worker keeps the backend's ports bound after a backend restart. */
-        for (fd = 3; fd < 256; fd++)
+        long fd_max = sysconf(_SC_OPEN_MAX);
+        if (fd_max < 3 || fd_max > 16384)
+            fd_max = 16384;
+        for (fd = 3; fd < (int)fd_max; fd++)
             close(fd);
         fd = open("/dev/null", O_WRONLY);
         if (fd >= 0) {
@@ -617,8 +636,8 @@ char* ms_streaming_status_json(const char* home) {
 
     if (running && have_creds) {
         char body[2048] = {0}, code[16] = {0};
-        if (streaming_api(creds_user, creds_pass, false, SUNSHINE_WEB_BASE "/api/pin", NULL, body, sizeof(body), code,
-                          sizeof(code)) &&
+        if (streaming_api(creds_user, creds_pass, false, "6", SUNSHINE_WEB_BASE "/api/pin", NULL, body, sizeof(body),
+                          code, sizeof(code)) &&
             strcmp(code, "200") == 0) {
             ms_json* parsed = ms_json_parse(body, strlen(body), parse_error, sizeof(parse_error));
             creds_valid = parsed != NULL;
@@ -752,7 +771,7 @@ char* ms_streaming_launch_json(const char* home, int* status) {
      * credentials yet). */
     {
         char probe_body[256] = {0}, probe_code[16] = {0};
-        if (streaming_api(creds_user, creds_pass, false, SUNSHINE_WEB_BASE "/api/pin", NULL, probe_body,
+        if (streaming_api(creds_user, creds_pass, false, "6", SUNSHINE_WEB_BASE "/api/pin", NULL, probe_body,
                           sizeof(probe_body), probe_code, sizeof(probe_code)) &&
             strcmp(probe_code, "200") == 0) {
             creds_recognized = true;
@@ -760,8 +779,8 @@ char* ms_streaming_launch_json(const char* home, int* status) {
             snprintf(json_body, sizeof(json_body),
                      "{\"newUsername\":\"%s\",\"newPassword\":\"%s\",\"confirmNewPassword\":\"%s\"}", creds_user,
                      creds_pass, creds_pass);
-            if (streaming_api("", "", true, SUNSHINE_WEB_BASE "/api/password", json_body, body, sizeof(body), code,
-                              sizeof(code)) &&
+            if (streaming_api("", "", true, "25", SUNSHINE_WEB_BASE "/api/password", json_body, body, sizeof(body),
+                              code, sizeof(code)) &&
                 strstr(body, "\"status\":true") != NULL)
                 creds_recognized = true;
         }
@@ -791,7 +810,8 @@ char* ms_streaming_stop_json(const char* home, int* status) {
     if (!streaming_web_up())
         return strdup("{\"ok\":true,\"running\":false}");
     {
-        char* quit_args[] = {(char*)"/usr/bin/osascript", (char*)"-e", (char*)"tell application \"Sunshine\" to quit",
+        char* quit_args[] = {(char*)"/usr/bin/osascript", (char*)"-e",
+                             (char*)"with timeout of 10 seconds\ntell application \"Sunshine\" to quit\nend timeout",
                              NULL};
         (void)streaming_exec_capture(quit_args, out, sizeof(out));
     }
@@ -866,7 +886,7 @@ char* ms_streaming_pin_json(const char* home, const unsigned char* body_bytes, s
             return streaming_error("The PIN must contain exactly 4 numeric digits");
         }
     }
-    if (!streaming_api(creds_user, creds_pass, false, SUNSHINE_WEB_BASE "/api/pin", NULL, body, sizeof(body), code,
+    if (!streaming_api(creds_user, creds_pass, false, "6", SUNSHINE_WEB_BASE "/api/pin", NULL, body, sizeof(body), code,
                        sizeof(code))) {
         if (status)
             *status = 502;
@@ -902,8 +922,8 @@ char* ms_streaming_pin_json(const char* home, const unsigned char* body_bytes, s
     snprintf(request_body, sizeof(request_body), "{\"pairing_id\":\"%s\",\"pin\":\"%s\",\"name\":\"%s\"}", pairing_id,
              pin, STREAMING_PIN_NAME);
     request_body_ptr = request_body;
-    if (!streaming_api(creds_user, creds_pass, true, SUNSHINE_WEB_BASE "/api/pin", request_body_ptr, body, sizeof(body),
-                       code, sizeof(code))) {
+    if (!streaming_api(creds_user, creds_pass, true, "60", SUNSHINE_WEB_BASE "/api/pin", request_body_ptr, body,
+                       sizeof(body), code, sizeof(code))) {
         if (status)
             *status = 502;
         return streaming_error("Pairing request to Sunshine failed");
@@ -946,7 +966,7 @@ char* ms_streaming_unpair_all_json(const char* home, int* status) {
             *status = 400;
         return streaming_error("Sunshine credentials are not set up yet — launch streaming first");
     }
-    if (!streaming_api(creds_user, creds_pass, true, SUNSHINE_WEB_BASE "/api/clients/unpair-all", "{}", body,
+    if (!streaming_api(creds_user, creds_pass, true, "25", SUNSHINE_WEB_BASE "/api/clients/unpair-all", "{}", body,
                        sizeof(body), code, sizeof(code)) ||
         strcmp(code, "200") != 0) {
         if (status)
