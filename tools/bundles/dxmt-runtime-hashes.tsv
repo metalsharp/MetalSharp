@@ -1,5 +1,6 @@
 # Regenerated 2026-09-17 from the DXMT v0.80 macOS 15 lane.
 # Paths are relative to Graphics/dll/dxmt.
+# migration-skip: x86_64-unix/winemetal.so — the installer ad-hoc re-signs this member after extraction (codesign --force --sign -) and ad-hoc signatures are non-deterministic, so migration.c pins signature validity (codesign --verify --strict) instead of this archive hash.
 path	sha256
 i386-windows/d3d10core.dll	aa5139ecc9af95b01b23d403212fad12eff6f4e5453137c49f2996b2a0f7ec4c
 i386-windows/d3d11.dll	0f3f340b1ccf56dfa87207d97998280e23c00ed948227c7f1770d95e38957582

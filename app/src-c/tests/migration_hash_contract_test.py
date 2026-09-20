@@ -31,6 +31,24 @@ def read_manifest(path: Path) -> dict[str, str]:
     return rows
 
 
+def read_migration_skips(path: Path) -> dict[str, str]:
+    """Parse '# migration-skip: <path> <reason>' comments.
+
+    Marks members whose installed bytes legitimately differ from the archive
+    (e.g. the DXMT bridge is ad-hoc re-signed by the installer with
+    non-deterministic signatures), so migration.c pins a different property
+    (signature validity) instead of the archive hash. The test enforces that
+    the C table really omits exactly these paths — no more, no less."""
+    skips: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        if line.startswith("# migration-skip:"):
+            fields = line[len("# migration-skip:") :].strip().split(None, 1)
+            if len(fields) != 2:
+                raise AssertionError(f"invalid migration-skip marker in {path}: {line}")
+            skips[fields[0]] = fields[1]
+    return skips
+
+
 def read_c_table(source: str, name: str) -> dict[str, str]:
     match = re.search(
         rf"static const char\* const {re.escape(name)}\[\]\[2\] = \{{(.*?)\}};",
@@ -48,8 +66,24 @@ def read_c_table(source: str, name: str) -> dict[str, str]:
 def main() -> int:
     source = MIGRATION_SOURCE.read_text()
     for table, manifest_path in CONTRACTS.items():
-        expected = read_manifest(manifest_path)
+        manifest = read_manifest(manifest_path)
+        skips = read_migration_skips(manifest_path)
+        unknown_skips = sorted(skips.keys() - manifest.keys())
+        if unknown_skips:
+            print(
+                f"migration-skip markers reference unknown paths in {manifest_path}: {unknown_skips}",
+                file=sys.stderr,
+            )
+            return 1
+        expected = {p: h for p, h in manifest.items() if p not in skips}
         actual = read_c_table(source, table)
+        pinned_skips = sorted(set(skips.keys()) & set(actual.keys()))
+        if pinned_skips:
+            print(
+                f"migration table {table} must not pin migration-skip paths (installer mutates them): {pinned_skips}",
+                file=sys.stderr,
+            )
+            return 1
         if actual != expected:
             missing = sorted(expected.keys() - actual.keys())
             extra = sorted(actual.keys() - expected.keys())
