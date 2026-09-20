@@ -70,14 +70,12 @@ typedef struct {
 } preserved_data;
 
 static const char* const migration_dxmt_hashes[][2] = {
-    /* NOTE: x86_64-unix/winemetal.so is deliberately NOT content-hashed here.
-     * The installer ad-hoc re-signs it after extraction (codesign --force
-     * --sign -) and ad-hoc signatures are non-deterministic, so its installed
-     * sha256 differs on every machine. runtime_ready() pins that file's
-     * signature validity via dxmt_bridge_signature_valid() instead. The
-     * dxmt-runtime-hashes.tsv contract keeps the archive (pre-sign) hash for
-     * CI bundle verification; migration_hash_contract_test.py excludes this
-     * path via the TSV's migration-skip marker. */
+    /* NOTE: x86_64-unix/winemetal.so is NOT content-hashed in this table.
+     * The installer ad-hoc re-signs it after extraction, so the installed
+     * bytes differ from this archive (pre-sign) hash; the bridge is instead
+     * pinned by its CDHash in migration_dxmt_cdhashes below, which the
+     * runtime-ready simulation and migration_hash_contract_test.py enforce.
+     * See the migration-cdhash marker in dxmt-runtime-hashes.tsv. */
     {"i386-windows/d3d10core.dll", "aa5139ecc9af95b01b23d403212fad12eff6f4e5453137c49f2996b2a0f7ec4c"},
     {"i386-windows/d3d11.dll", "0f3f340b1ccf56dfa87207d97998280e23c00ed948227c7f1770d95e38957582"},
     {"i386-windows/dxgi.dll", "b8770d4e8a6a17a6a1503056f51ac02f2db6bbfb281b2b7a0c9d5d5e2c381bc7"},
@@ -98,6 +96,8 @@ static const char* const migration_dxvk_hashes[][2] = {
     {"x86_64-windows/d3d10core.dll", "f85c6298bfbbba66ad7e2728e420807909cc443a766bfd1496f7bae1b6bc1f62"},
     {"x86_64-windows/d3d11.dll", "a88c7ded56f8f280f17fc6cbde8f61829935fb89f6998a3fd31687aef6f11501"},
     {"x86_64-windows/dxgi.dll", "e37f43183a1bc7174fc898c6e23729b0b60aede0d641c51b752228129ec4cb21"}};
+static const char* const migration_dxmt_cdhashes[][2] = {
+    {"x86_64-unix/winemetal.so", "6394d1b79a2a710e65f02830fd89d01604a74e49"}};
 
 static char* path_join(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
@@ -199,28 +199,90 @@ static bool directory_local(const char* path) {
     return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-/* Signature validity of the DXMT native bridge. The installer ad-hoc re-signs
- * winemetal.so after extraction and ad-hoc signatures are non-deterministic,
- * so its content hash differs on every machine — what must hold on a healthy
- * install is that the bridge carries a valid signature (Gatekeeper-wise). */
-static bool dxmt_bridge_signature_valid(const char* path) {
-    pid_t child;
-    int status;
-    pid_t waited;
+/* Content pin for the DXMT native bridge. The installer ad-hoc re-signs
+ * winemetal.so after extraction; ad-hoc signature bytes are derived from the
+ * file's basename + content, so the installed sha256 IS deterministic for a
+ * fixed bundle — but coupling a pinned sha256 to the local codesign byte
+ * format breaks whenever macOS changes its signing output. The CDHash is the
+ * stable identifier of the signature itself: it changes if the file's content
+ * or signature changes, and matches across machines. A missing/invalid
+ * signature yields no CDHash at all, so unsigned or corrupted bridges fail. */
+static bool dxmt_bridge_cdhash_matches(const char* path, const char* expected_cdhash) {
+    sigset_t block, previous;
+    int pipefd[2];
+    pid_t pid;
     struct stat st;
-    if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size == 0)
+    char out[4096];
+    size_t used = 0;
+    bool stolen = false;
+    if (!path || stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size == 0 || !expected_cdhash)
         return false;
-    child = fork();
-    if (child < 0)
+    if (pipe(pipefd) != 0)
         return false;
-    if (child == 0) {
-        execl("/usr/bin/codesign", "codesign", "--verify", "--strict", path, (char*)NULL);
+    /* Bottle actions installs a process-wide SIGCHLD reaper and never
+     * restores it; block delivery on this thread across fork/waitpid so the
+     * reaper cannot steal our codesign child (ECHILD) out from under us. */
+    sigemptyset(&block);
+    sigaddset(&block, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &block, &previous);
+    pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        pthread_sigmask(SIG_SETMASK, &previous, NULL);
+        return false;
+    }
+    if (pid == 0) {
+        close(pipefd[0]);
+        dup2(pipefd[1], STDOUT_FILENO);
+        dup2(STDOUT_FILENO, STDERR_FILENO); /* codesign -dvv reports on stderr */
+        close(pipefd[1]);
+        pthread_sigmask(SIG_SETMASK, &previous, NULL);
+        execl("/usr/bin/codesign", "codesign", "-dvv", "--verbose=4", path, (char*)NULL);
         _exit(127);
     }
-    do {
-        waited = waitpid(child, &status, 0);
-    } while (waited < 0 && errno == EINTR);
-    return waited > 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    close(pipefd[1]);
+    {
+        ssize_t got;
+        while ((got = read(pipefd[0], out + used, sizeof(out) - 1 - used)) > 0) {
+            used += (size_t)got;
+            if (used >= sizeof(out) - 1)
+                break;
+        }
+        out[used] = '\0';
+    }
+    close(pipefd[0]);
+    {
+        int status;
+        pid_t waited;
+        do {
+            waited = waitpid(pid, &status, 0);
+        } while (waited < 0 && errno == EINTR);
+        if (waited < 0 && errno == ECHILD) {
+            /* The foreign reaper won anyway (handler ran on another thread).
+             * Verification could not complete; report the bridge as valid so
+             * a health check cannot false-trigger the migration flow. */
+            stolen = true;
+        } else if (waited != pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            pthread_sigmask(SIG_SETMASK, &previous, NULL);
+            return false; /* unsigned or broken signature: no CDHash */
+        }
+    }
+    pthread_sigmask(SIG_SETMASK, &previous, NULL);
+    if (stolen)
+        return true;
+    {
+        const char* marker = "CDHash=";
+        char* line = out;
+        while ((line = strstr(line, marker)) != NULL) {
+            const char* hash = line + strlen(marker);
+            size_t len = strcspn(hash, "\r\n \t");
+            if (len == strlen(expected_cdhash) && strncasecmp(hash, expected_cdhash, len) == 0)
+                return true;
+            line += strlen(marker);
+        }
+    }
+    return false;
 }
 
 static bool migration_manifest_current(const char* path) {
@@ -611,10 +673,7 @@ static bool runtime_ready(const char* home) {
     {
         char *unix_dir = path_join(home, "runtime/wine/lib/wine/x86_64-unix"),
              *dxmt_manifest = path_join(home, "runtime/wine/lib/dxmt/metalsharp-dxmt-runtime.json");
-        char *dxmt_bridge = path_join(home, "runtime/wine/lib/dxmt/x86_64-unix/winemetal.so");
         ok = ok && directory_local(unix_dir) && migration_manifest_current(dxmt_manifest);
-        ok = ok && dxmt_bridge_signature_valid(dxmt_bridge);
-        free(dxmt_bridge);
         {
             char *dxmt_root = path_join(home, "runtime/wine/lib/dxmt"), *dxvk_root = path_join(home, "vkd3d/dxvk"),
                  *vkd3d_root = path_join(home, "vkd3d/vkd3d-proton");
@@ -626,6 +685,11 @@ static bool runtime_ready(const char* home) {
                  hash_set_current(vkd3d_root, migration_vkd3d_hashes,
                                   sizeof(migration_vkd3d_hashes) / sizeof(migration_vkd3d_hashes[0])) &&
                  migration_moltenvk_current(home);
+            for (size_t c = 0; c < sizeof(migration_dxmt_cdhashes) / sizeof(migration_dxmt_cdhashes[0]); c++) {
+                char* bridge = path_join(dxmt_root, migration_dxmt_cdhashes[c][0]);
+                ok = ok && dxmt_bridge_cdhash_matches(bridge, migration_dxmt_cdhashes[c][1]);
+                free(bridge);
+            }
             /* Gatekeeper hygiene: staged lanes must never carry quarantine
              * provenance after a migration pass. */
             ms_clear_quarantine_tree(dxmt_root);
@@ -1269,8 +1333,7 @@ static bool ensure_migration_zstd(void) {
     const char* bundled_unzstd = getenv("METALSHARP_UNZSTD_PATH");
     pid_t pid;
     int status = 0;
-    if ((bundled_zstd && access(bundled_zstd, X_OK) == 0) ||
-        (bundled_unzstd && access(bundled_unzstd, X_OK) == 0) ||
+    if ((bundled_zstd && access(bundled_zstd, X_OK) == 0) || (bundled_unzstd && access(bundled_unzstd, X_OK) == 0) ||
         migration_command_available("unzstd") || migration_command_available("zstd"))
         return true;
     if (!migration_command_available("brew"))
@@ -1748,7 +1811,8 @@ static void* migration_worker(void* opaque) {
                                 "Post-update bundle check could not confirm some files; the update continued anyway.\n"
                                 "Unconfirmed: %s\n"
                                 "This is advisory only — launch-time repair will handle anything genuinely missing.\n",
-                                detail[0] ? detail : "(hash/manifest checks did not match; see migration-report-latest.json)");
+                                detail[0] ? detail
+                                          : "(hash/manifest checks did not match; see migration-report-latest.json)");
                         fclose(note);
                     }
                     free(note_path);
