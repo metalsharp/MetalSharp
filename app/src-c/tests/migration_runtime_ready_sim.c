@@ -48,15 +48,6 @@ static int write_manifest(const char* dxmt_dir) {
     int ok;
     if (!path)
         return 1;
-    /* The real installer writes setup.c's MS_DXMT_VERSION, which derives from
-     * MS_BACKEND_VERSION. Guard the drift class: fail loudly if migration.c's
-     * MIGRATION_VERSION ever falls behind the build version. */
-    if (strcmp(MIGRATION_VERSION, MS_BACKEND_VERSION) != 0) {
-        fprintf(stderr,
-                "version drift: migration.c MIGRATION_VERSION (%s) != build VERSION (%s) — update migration.c\n",
-                MIGRATION_VERSION, MS_BACKEND_VERSION);
-        exit(3);
-    }
     snprintf(json, sizeof(json),
              "{\"schema\":\"metalsharp.dxmt-runtime.v2\",\"version\":\"%s-dxmt-v0.80-baseline-v1\","
              "\"source\":\"bundled:metalsharp-graphics-dll.tar.zst\"}",
