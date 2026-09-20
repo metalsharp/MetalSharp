@@ -46,7 +46,7 @@ const shaderCache = ref<CacheSummary | null>(null);
 const pipelineCache = ref<CacheSummary | null>(null);
 const apiKeyInput = ref("");
 const graphicsRuntimeLogs = ref(false);
-const retinaMode = ref(true);
+const retinaMode = ref(false);
 const retinaModeBusy = ref(false);
 
 onMounted(async () => {
@@ -69,7 +69,7 @@ async function refreshConfig() {
   if (result?.ok) {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
-    retinaMode.value = result.retinaMode !== false;
+    retinaMode.value = result.retinaMode === true;
   }
 }
 
@@ -335,7 +335,7 @@ async function toggleRetinaMode(enabled: boolean) {
   const result = await api<AppConfig>("POST", "/config", { retinaMode: enabled });
   if (result?.ok) {
     config.value = result;
-    retinaMode.value = result.retinaMode !== false;
+    retinaMode.value = result.retinaMode === true;
     toast.show(`Retina rendering ${enabled ? "enabled" : "disabled"} — restart Wine Steam to apply`, "success");
   } else {
     retinaMode.value = previous;

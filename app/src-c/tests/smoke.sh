@@ -44,7 +44,7 @@ v = json.load(sys.stdin)
 assert v["ok"] is True
 assert v["controllerInput"] == "off"
 assert v["msync"] is True
-assert v["retinaMode"] is True
+assert v["retinaMode"] is False
 '
 
 curl --silent --fail --request POST --header 'Content-Type: application/json' \
