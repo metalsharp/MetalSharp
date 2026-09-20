@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, ref } from "vue";
+import { computed, inject, onMounted, onUnmounted, ref, type Ref } from "vue";
 import { api } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import IconX from "~icons/lucide/x";
@@ -104,7 +104,7 @@ async function launch() {
     "POST",
     "/streaming/launch",
     undefined,
-    90_000,
+    75_000,
   );
   launching.value = false;
   if (!result?.ok) {

@@ -3,6 +3,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 
+#include <CommonCrypto/CommonDigest.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -13,6 +14,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 /* Game streaming host integration (LizardByte Sunshine). MetalSharp installs,
@@ -86,15 +88,24 @@ static bool streaming_exec_capture(char* const args[], char* out, size_t out_siz
     int pipefd[2];
     pid_t pid;
     bool exited_ok = false;
+    sigset_t block, previous;
     if (pipe(pipefd) != 0)
         return false;
+    /* Bottle actions installs a process-wide SIGCHLD reaper (waitpid(-1)) and
+     * never restores it; block delivery on this thread across fork/waitpid so
+     * it cannot reap (and misreport) our short-lived children. */
+    sigemptyset(&block);
+    sigaddset(&block, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &block, &previous);
     pid = fork();
     if (pid < 0) {
         close(pipefd[0]);
         close(pipefd[1]);
+        pthread_sigmask(SIG_SETMASK, &previous, NULL);
         return false;
     }
     if (pid == 0) {
+        pthread_sigmask(SIG_SETMASK, &previous, NULL);
         close(pipefd[0]);
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[1]);
@@ -121,8 +132,16 @@ static bool streaming_exec_capture(char* const args[], char* out, size_t out_siz
         do {
             waited = waitpid(pid, &status, 0);
         } while (waited < 0 && errno == EINTR);
-        exited_ok = waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (waited < 0 && errno == ECHILD) {
+            /* Reaper stole the child despite the mask (delivered on another
+             * thread). Exit status unknowable — fail open rather than report
+             * a spurious failure for a command that ran. */
+            exited_ok = true;
+        } else {
+            exited_ok = waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        }
     }
+    pthread_sigmask(SIG_SETMASK, &previous, NULL);
     return exited_ok;
 }
 
@@ -172,10 +191,15 @@ static bool streaming_write_creds(const char* home, const char* user, const char
         free(quoted_pass);
         return false;
     }
-    file = fopen(path, "w");
-    if (file) {
-        fprintf(file, "{\"username\":%s,\"password\":%s}\n", quoted_user, quoted_pass);
-        ok = fclose(file) == 0;
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd >= 0) {
+        file = fdopen(fd, "w");
+        if (file) {
+            fprintf(file, "{\"username\":%s,\"password\":%s}\n", quoted_user, quoted_pass);
+            ok = fclose(file) == 0;
+        } else {
+            close(fd);
+        }
     }
     free(path);
     free(quoted_user);
@@ -211,13 +235,23 @@ static bool streaming_installed(void) {
 }
 
 /* The web server answers any request (even 401) once it is up. */
-static bool streaming_web_up(void) {
+static bool streaming_web_up_timeout(const char* max_time) {
     char out[64] = {0};
-    char* args[] = {(char*)"curl", (char*)"-sk",          (char*)"--max-time",
-                    (char*)"3",    (char*)"-o",           (char*)"/dev/null",
-                    (char*)"-w",   (char*)"%{http_code}", (char*)SUNSHINE_WEB_BASE "/api/pin",
+    char* args[] = {(char*)"curl",
+                    (char*)"-sk",
+                    (char*)"--max-time",
+                    (char*)max_time,
+                    (char*)"-o",
+                    (char*)"/dev/null",
+                    (char*)"-w",
+                    (char*)"%{http_code}",
+                    (char*)SUNSHINE_WEB_BASE "/api/pin",
                     NULL};
     return streaming_exec_capture(args, out, sizeof(out)) && out[0] != '\0' && strcmp(out, "000") != 0;
+}
+
+static bool streaming_web_up(void) {
+    return streaming_web_up_timeout("3");
 }
 
 /* Authenticated request against the Sunshine web API. json_body may be NULL.
@@ -242,7 +276,7 @@ static bool streaming_api(const char* user, const char* pass, bool post, const c
     args[n++] = (char*)"-H";
     args[n++] = (char*)"Content-Type: application/json";
     args[n++] = (char*)"--max-time";
-    args[n++] = (char*)(post ? "75" : "10");
+    args[n++] = (char*)(post ? "60" : "6");
     if (json_body) {
         args[n++] = (char*)"--data";
         args[n++] = (char*)json_body;
@@ -270,15 +304,106 @@ static bool streaming_api(const char* user, const char* pass, bool post, const c
 /* install worker                                                      */
 /* ------------------------------------------------------------------ */
 
+static bool streaming_sha256_file(const char* path, char* out_hex, size_t out_size) {
+    FILE* file = fopen(path, "rb");
+    CC_SHA256_CTX context;
+    unsigned char buffer[8192], digest[CC_SHA256_DIGEST_LENGTH];
+    size_t got;
+    if (!file || out_size < CC_SHA256_DIGEST_LENGTH * 2 + 1 || CC_SHA256_Init(&context) != 1) {
+        if (file)
+            fclose(file);
+        return false;
+    }
+    while ((got = fread(buffer, 1, sizeof(buffer), file)) > 0)
+        CC_SHA256_Update(&context, buffer, (CC_LONG)got);
+    if (ferror(file) || CC_SHA256_Final(digest, &context) != 1) {
+        fclose(file);
+        return false;
+    }
+    fclose(file);
+    for (size_t i = 0; i < CC_SHA256_DIGEST_LENGTH; i++)
+        snprintf(out_hex + i * 2, 3, "%02x", digest[i]);
+    out_hex[CC_SHA256_DIGEST_LENGTH * 2] = '\0';
+    return true;
+}
+
+/* Fetch the expected sha256 for the Sunshine DMG from GitHub's release API
+ * (assets[].digest), so a hijacked or mistagged upstream release is caught
+ * before anything is installed. */
+static bool streaming_expected_dmg_sha256(char* out_hex, size_t out_size) {
+    char* response = malloc(512 * 1024);
+    char* args[] = {(char*)"curl",
+                    (char*)"-sk",
+                    (char*)"--max-time",
+                    (char*)"20",
+                    (char*)"https://api.github.com/repos/LizardByte/Sunshine/releases/latest",
+                    NULL};
+    char* asset;
+    char* digest_field;
+    bool ok = false;
+    if (!response)
+        return false;
+    if (!streaming_exec_capture(args, response, 512 * 1024)) {
+        free(response);
+        return false;
+    }
+    asset = strstr(response, "\"name\": \"Sunshine-macOS-arm64.dmg\"");
+    if (!asset) {
+        free(response);
+        return false;
+    }
+    digest_field = strstr(asset, "\"digest\": \"sha256:");
+    if (digest_field && digest_field < asset + 4096) {
+        char* hex = digest_field + strlen("\"digest\": \"sha256:");
+        if (strlen(hex) >= 64 && strspn(hex, "0123456789abcdef") >= 64) {
+            snprintf(out_hex, out_size, "%.*s", 64, hex);
+            ok = true;
+        }
+    }
+    free(response);
+    return ok;
+}
+
 static pid_t g_install_pid = 0;
 static bool g_install_active = false;
 
-static void streaming_refresh_install(void) {
+static void streaming_write_progress(const char* home, const char* state, const char* detail);
+static bool streaming_progress_terminal(const char* home, bool* stale) {
+    char* path = stream_path_join(home, STREAMING_PROGRESS_FILE);
+    struct stat st;
+    bool terminal = false;
+    *stale = false;
+    if (path && stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
+        char* text = stream_read_file(path, 4096);
+        if (text) {
+            terminal = strstr(text, "\"status\":\"complete\"") != NULL || strstr(text, "\"status\":\"error\"") != NULL;
+            /* A non-terminal progress older than the download cap (20 min) can
+             * only come from a worker that died without writing a state. */
+            *stale = !terminal && time(NULL) - st.st_mtime > 1800;
+            free(text);
+        }
+    }
+    free(path);
+    return terminal;
+}
+
+static void streaming_refresh_install(const char* home) {
     int wait_status;
     pid_t reaped = g_install_pid > 0 ? waitpid(g_install_pid, &wait_status, WNOHANG) : 0;
-    if (g_install_pid > 0 && (reaped == g_install_pid || (reaped < 0 && errno == ECHILD))) {
+    if (g_install_pid > 0 && reaped == g_install_pid) {
         g_install_pid = 0;
         g_install_active = false;
+    } else if (g_install_pid > 0 && reaped < 0 && errno == ECHILD) {
+        /* The SIGCHLD reaper stole a possibly-still-running worker. The
+         * worker writes its terminal state before exiting, so trust the
+         * progress file (plus a staleness cap for silent deaths). */
+        bool stale = false;
+        bool terminal = streaming_progress_terminal(home, &stale);
+        g_install_pid = 0;
+        g_install_active = !terminal && !stale;
+        if (stale)
+            streaming_write_progress(home, "error",
+                                     "Sunshine install stalled — MetalSharp restarted or the worker was stopped");
     }
 }
 
@@ -324,6 +449,24 @@ static void streaming_install_worker(const char* home) {
         if (!streaming_exec_capture(curl_args, out, sizeof(out)) || !stream_file_nonempty(dmg)) {
             (void)unlink(dmg);
             streaming_write_progress(home, "error", "Could not download Sunshine — check your internet connection");
+            _exit(1);
+        }
+    }
+    /* Supply-chain check: the DMG must match the digest GitHub publishes for
+     * the release asset we downloaded. */
+    {
+        char actual[CC_SHA256_DIGEST_LENGTH * 2 + 1];
+        char expected[CC_SHA256_DIGEST_LENGTH * 2 + 1];
+        if (!streaming_expected_dmg_sha256(expected, sizeof(expected))) {
+            (void)unlink(dmg);
+            streaming_write_progress(home, "error",
+                                     "Could not verify the Sunshine download (GitHub API unreachable) — try again");
+            _exit(1);
+        }
+        if (!streaming_sha256_file(dmg, actual, sizeof(actual)) || strcmp(actual, expected) != 0) {
+            (void)unlink(dmg);
+            streaming_write_progress(
+                home, "error", "The downloaded Sunshine image failed its integrity check — nothing was installed");
             _exit(1);
         }
     }
@@ -382,7 +525,7 @@ char* ms_streaming_install_json(const char* home, int* status) {
             *status = 500;
         return streaming_error("hdiutil was not found — Sunshine cannot be installed automatically");
     }
-    streaming_refresh_install();
+    streaming_refresh_install(home);
     if (g_install_active) {
         return strdup("{\"ok\":true,\"started\":true,\"installing\":true}");
     }
@@ -395,7 +538,13 @@ char* ms_streaming_install_json(const char* home, int* status) {
         return streaming_error("could not start the Sunshine installer");
     }
     if (pid == 0) {
-        int fd = open("/dev/null", O_WRONLY);
+        int fd;
+        /* The worker forks without exec, so FD_CLOEXEC on the listening and
+         * client sockets never applies — close every inherited descriptor or
+         * the worker keeps the backend's ports bound after a backend restart. */
+        for (fd = 3; fd < 256; fd++)
+            close(fd);
+        fd = open("/dev/null", O_WRONLY);
         if (fd >= 0) {
             dup2(fd, STDIN_FILENO);
             close(fd);
@@ -431,7 +580,7 @@ char* ms_streaming_status_json(const char* home) {
     char* defaults_args[] = {(char*)"/usr/bin/defaults", (char*)"read", (char*)SUNSHINE_APP_PATH "/Contents/Info",
                              (char*)"CFBundleShortVersionString", NULL};
 
-    streaming_refresh_install();
+    streaming_refresh_install(home);
     if (installed) {
         char raw_version[128] = {0};
         if (streaming_exec_capture(defaults_args, raw_version, sizeof(raw_version))) {
@@ -586,9 +735,9 @@ char* ms_streaming_launch_json(const char* home, int* status) {
             *status = 500;
         return streaming_error("could not launch Sunshine");
     }
-    for (unsigned i = 0; i < 30; i++) {
+    for (unsigned i = 0; i < 15; i++) {
         sleep(1);
-        if (streaming_web_up())
+        if (streaming_web_up_timeout("1"))
             break;
     }
     if (!streaming_web_up()) {
@@ -637,18 +786,24 @@ char* ms_streaming_stop_json(const char* home, int* status) {
     (void)home;
     if (status)
         *status = 200;
+    /* osascript auto-launches a non-running app to deliver the quit event, so
+     * only quit when the web service says Sunshine is actually up. */
+    if (!streaming_web_up())
+        return strdup("{\"ok\":true,\"running\":false}");
     {
         char* quit_args[] = {(char*)"/usr/bin/osascript", (char*)"-e", (char*)"tell application \"Sunshine\" to quit",
                              NULL};
         (void)streaming_exec_capture(quit_args, out, sizeof(out));
     }
+    sleep(2);
     if (streaming_web_up()) {
-        sleep(2);
-        if (streaming_web_up()) {
-            char* pkill_args[] = {(char*)"/usr/bin/pkill", (char*)"-f", (char*)SUNSHINE_BIN_PATH, NULL};
-            (void)streaming_exec_capture(pkill_args, out, sizeof(out));
-        }
+        char* pkill_args[] = {(char*)"/usr/bin/pkill", (char*)"-f", (char*)SUNSHINE_BIN_PATH, NULL};
+        (void)streaming_exec_capture(pkill_args, out, sizeof(out));
+        sleep(1);
     }
+    /* Report the truth: the host may take a moment to shut down. */
+    if (streaming_web_up_timeout("1"))
+        return streaming_error("Sunshine is still shutting down — try again in a moment");
     return strdup("{\"ok\":true,\"running\":false}");
 }
 
