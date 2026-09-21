@@ -46,7 +46,8 @@ brew install --cask metalsharp/tap/metalsharp
 
 Homebrew installs MetalSharp.app in /Applications. Open it and the setup wizard handles the remaining runtime dependencies.
 
-If Steam no longer runs after an update / breaks, see here: [Fix Steam Wrapper](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20Steam.md).
+
+For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
 
 ## Graphics Routes
 
