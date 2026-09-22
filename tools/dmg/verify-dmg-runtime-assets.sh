@@ -61,6 +61,7 @@ if [ ! -s "$HOST/libmetalsharp_host_runtime.dylib" ] \
 fi
 
 cp "$BUNDLES"/*.tar.zst "$LIST_DIR"/
-"$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$LIST_DIR" --require mac
+METALSHARP_REQUIRE_X87SIDECAR=1 "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$LIST_DIR" --require mac
+"$PROJECT_ROOT/tools/bundles/verify-developer-sdk.sh" "$BUNDLES/metalsharp-d3d12-developer-sdk.tar.zst"
 
 echo "DMG runtime assets verified: $DMG"
