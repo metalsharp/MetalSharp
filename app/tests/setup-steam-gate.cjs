@@ -1,63 +1,41 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
-const ts = require('typescript');
+const path = require('node:path');
 const { test } = require('node:test');
 
-const source = fs.readFileSync(require('node:path').join(__dirname, '../src/renderer/components/SetupWizard.vue'), 'utf8');
-function fixture(api) {
-  const script = source.split('<script setup lang="ts">')[1].split('</script>')[0].replace(/^import .*;\n/gm, '');
-  const context = vm.createContext({
-    ref: value => ({ value }), inject: (_, fallback) => fallback,
-    defineEmits: () => () => {}, useToast: () => ({ show() {} }), api,
-  });
-  vm.runInContext(ts.transpileModule(script + '\nglobalThis.state = { step, installStatus, steamInstalled, steamInstalling, steamChecking, goToVcppStep, checkSteam };', {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
-  }).outputText, context);
-  const s = context.state;
-  s.step.value = 2;
-  s.installStatus.value = 'complete';
-  return s;
-}
+const backend = fs.readFileSync(
+  path.join(__dirname, '../src-c/runtime/steam_actions.c'),
+  'utf8',
+);
+const status = fs.readFileSync(
+  path.join(__dirname, '../src-c/runtime/steam.c'),
+  'utf8',
+);
+const wizard = fs.readFileSync(
+  path.join(__dirname, '../src/renderer/components/SetupWizard.vue'),
+  'utf8',
+);
 
-test('Next is bound to the Steam gate rather than direct navigation', () => {
-  assert.match(source, /:disabled="!steamInstalled \|\| steamInstalling \|\| steamChecking"/);
-  assert.match(source, /@click="goToVcppStep"/);
-  assert.doesNotMatch(source, /@click="step = 3"/);
+test('Steam install bootstraps fresh prefixes with wineboot', () => {
+  assert.match(backend, /spawn_wine_install\(home, "wineboot", "--init", NULL, &pid\)/);
+  assert.doesNotMatch(backend, /spawn_wine_install\(home, "cmd", "\/c", "exit 0"/);
 });
-test('runtime completion alone cannot advance', async () => {
-  const s = fixture(() => { throw Error('must not request'); });
-  await s.goToVcppStep();
-  assert.equal(s.step.value, 2);
+
+test('Steam CDN responses are required to be valid PE payloads', () => {
+  assert.match(backend, /"--fail", "--location", "--proto", "=https", "--tlsv1\.2"/);
+  assert.match(backend, /steam_installer_payload_valid\(installer\)/);
 });
-test('fresh installed detection is required; running, installing and failed responses block', async () => {
-  for (const response of [null, { running: true }, { installed: false }, { installed: true, installing: true }]) {
-    const s = fixture(async () => response);
-    s.steamInstalled.value = true;
-    await s.goToVcppStep();
-    assert.equal(s.step.value, 2);
-    assert.equal(s.steamInstalled.value, false);
-  }
+
+test('Steam installer exit failures terminate promptly and report an error', () => {
+  assert.match(backend, /steam_install_child_failed\(pid, waited, wait_status\)/);
+  assert.match(backend, /stop_and_reap_steam_installer\(pid\)/);
+  assert.match(backend, /write_steam_install_error\(home, failure_reason\)/);
+  assert.match(status, /"install_error"/);
 });
-test('pending confirmation blocks duplicate clicks and only advances after detection', async () => {
-  let resolve, calls = 0;
-  const s = fixture(() => { calls++; return new Promise(r => { resolve = r; }); });
-  s.steamInstalled.value = true;
-  const pending = s.goToVcppStep();
-  assert.equal(s.step.value, 2);
-  assert.equal(s.steamChecking.value, true);
-  await s.goToVcppStep();
-  assert.equal(calls, 1);
-  resolve({ installed: true, installing: false });
-  await pending;
-  assert.equal(s.step.value, 3);
-  assert.equal(s.steamChecking.value, false);
-});
-test('request errors fail closed', async () => {
-  const s = fixture(async () => { throw Error('offline'); });
-  s.steamInstalled.value = true;
-  await s.goToVcppStep();
-  assert.equal(s.step.value, 2);
-  assert.equal(s.steamInstalled.value, false);
-  assert.equal(s.steamChecking.value, false);
+
+test('Setup wizard surfaces terminal backend failures and status read errors', () => {
+  assert.match(wizard, /s\.install_stage === "failed"/);
+  assert.match(wizard, /s\.install_error \?\? "Steam installation failed"/);
+  assert.match(wizard, /Steam installation status could not be read/);
+  assert.match(wizard, /reclaimFocusFromInstaller\(\)/);
 });

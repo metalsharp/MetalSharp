@@ -15,6 +15,19 @@ static void fixture(const char* home, const char* relative, const char* bytes) {
     free(path);
 }
 
+static void binary_fixture(const char* home, const char* relative, const unsigned char* bytes, size_t length) {
+    char* path = join(home, relative);
+    char* parent = strdup(path);
+    *strrchr(parent, '/') = '\0';
+    assert(ensure_directory(parent));
+    FILE* f = fopen(path, "wb");
+    assert(f);
+    assert(fwrite(bytes, 1, length, f) == length);
+    assert(fclose(f) == 0);
+    free(parent);
+    free(path);
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* home = argv[1];
@@ -64,6 +77,49 @@ int main(int argc, char** argv) {
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));
     assert(!getenv("VK_DRIVER_FILES"));
+    {
+        static const unsigned char invalid_installer[] = "<html>not SteamSetup.exe</html>";
+        unsigned char valid_installer[128] = {0};
+        char* invalid_path;
+        char* valid_path;
+        char* steam_dir_path;
+        valid_installer[0] = 'M';
+        valid_installer[1] = 'Z';
+        valid_installer[0x3c] = 64;
+        valid_installer[64] = 'P';
+        valid_installer[65] = 'E';
+        binary_fixture(home, "invalid-steam-installer.exe", invalid_installer, sizeof(invalid_installer) - 1);
+        binary_fixture(home, "valid-steam-installer.exe", valid_installer, sizeof(valid_installer));
+        invalid_path = join(home, "invalid-steam-installer.exe");
+        valid_path = join(home, "valid-steam-installer.exe");
+        assert(!steam_installer_payload_valid(invalid_path));
+        assert(steam_installer_payload_valid(valid_path));
+        free(invalid_path);
+        free(valid_path);
+        assert(!steam_install_child_failed(42, 41, 7 << 8));
+        assert(!steam_install_child_failed(42, 42, 0));
+        assert(steam_install_child_failed(42, 42, 7 << 8));
+        {
+            pid_t child = fork();
+            assert(child >= 0);
+            if (child == 0) {
+                sleep(60);
+                _exit(0);
+            }
+            stop_and_reap_steam_installer(child);
+            errno = 0;
+            assert(waitpid(child, NULL, WNOHANG) == -1 && errno == ECHILD);
+        }
+        fixture(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe", "stub");
+        fixture(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll", "stub");
+        steam_dir_path = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+        assert(!steam_install_complete(steam_dir_path));
+        fixture(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamclient64.dll", "stub");
+        fixture(home, "prefix-steam/drive_c/Program Files (x86)/Steam/package/steam_client_win64.installed",
+                "complete");
+        assert(steam_install_complete(steam_dir_path));
+        free(steam_dir_path);
+    }
     fixture(home, "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows/nvngx-on-metalfx.dll", "known");
     fixture(home, "game/nvngx-on-metalfx.dll", "known");
     fixture(home, "game/d3d11.dll", "user DLL");

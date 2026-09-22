@@ -2672,6 +2672,56 @@ static bool steam_install_lock_active(const char* path) {
     return active;
 }
 
+static bool steam_installer_payload_valid(const char* path) {
+    unsigned char dos_header[64];
+    unsigned char pe_signature[4];
+    unsigned long pe_offset;
+    long size;
+    FILE* file;
+    if (!path)
+        return false;
+    file = fopen(path, "rb");
+    if (!file)
+        return false;
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return false;
+    }
+    size = ftell(file);
+    if (size < (long)sizeof(dos_header) || fseek(file, 0, SEEK_SET) != 0 ||
+        fread(dos_header, 1, sizeof(dos_header), file) != sizeof(dos_header)) {
+        fclose(file);
+        return false;
+    }
+    if (dos_header[0] != 'M' || dos_header[1] != 'Z') {
+        fclose(file);
+        return false;
+    }
+    pe_offset = (unsigned long)dos_header[0x3c] | ((unsigned long)dos_header[0x3d] << 8) |
+                ((unsigned long)dos_header[0x3e] << 16) | ((unsigned long)dos_header[0x3f] << 24);
+    if (pe_offset < sizeof(dos_header) || pe_offset > (unsigned long)(size - sizeof(pe_signature)) ||
+        fseek(file, (long)pe_offset, SEEK_SET) != 0 ||
+        fread(pe_signature, 1, sizeof(pe_signature), file) != sizeof(pe_signature)) {
+        fclose(file);
+        return false;
+    }
+    fclose(file);
+    return pe_signature[0] == 'P' && pe_signature[1] == 'E' && pe_signature[2] == 0 && pe_signature[3] == 0;
+}
+
+static bool steam_install_child_failed(pid_t expected_pid, pid_t waited, int wait_status) {
+    return waited == expected_pid && (!WIFEXITED(wait_status) || WEXITSTATUS(wait_status) != 0);
+}
+
+static void stop_and_reap_steam_installer(pid_t pid) {
+    if (pid <= 0)
+        return;
+    if (kill(pid, SIGKILL) != 0 && errno != ESRCH)
+        return;
+    while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+        ;
+}
+
 static bool steam_install_complete(const char* steam_dir) {
     char* steam_exe = steam_dir ? join(steam_dir, "Steam.exe") : NULL;
     char* steam_x64 = steam_dir ? join(steam_dir, "steamclient64.dll") : NULL;
@@ -2848,7 +2898,8 @@ static char* download_steam_bundle_archive(const char* home) {
     if (pid < 0)
         goto fail;
     if (pid == 0) {
-        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "3", "-o",
+        execl("/usr/bin/curl", "curl", "--fail", "--location", "--proto", "=https", "--tlsv1.2", "--silent",
+              "--show-error", "--retry", "3", "-o",
               temporary, "https://github.com/metalsharp/MetalSharp/releases/download/bundles/metalsharp-steam.tar.zst",
               (char*)NULL);
         _exit(127);
@@ -3192,11 +3243,24 @@ static void write_steam_install_stage(const char* home, const char* stage) {
     free(path);
 }
 
+static void write_steam_install_error(const char* home, const char* message) {
+    char* path = join(home, ".steam-install-error");
+    FILE* file = path ? fopen(path, "wb") : NULL;
+    if (file) {
+        fprintf(file, "%s\n", message ? message : "Steam installation failed");
+        fclose(file);
+    }
+    free(path);
+}
+
 static void steam_install_worker(const char* home, const char* lock_path, const char* installer) {
     FILE* owner = fopen(lock_path, "wb");
     bool completed = false;
     pid_t pid;
     int wait_status = 0;
+    bool installer_exited = false;
+    bool steam_setup_started = false;
+    char failure_reason[256] = "Steam installation failed";
     char* wine_error;
     char* prefix = join(home, "prefix-steam");
     char* windows_dir = prefix ? join(prefix, "drive_c/windows/system32") : NULL;
@@ -3209,61 +3273,106 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
     }
     if (prefix)
         (void)remove_tree(prefix);
+    {
+        char* error_path = join(home, ".steam-install-error");
+        if (error_path)
+            (void)unlink(error_path);
+        free(error_path);
+    }
     write_steam_install_stage(home, "downloading");
     unlink(installer);
     pid = fork();
-    if (pid < 0)
+    if (pid < 0) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", "Could not start the SteamSetup download");
         goto done;
+    }
     if (pid == 0) {
-        execl("/usr/bin/curl", "curl", "-sL", "-o", installer,
-              "https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe", (char*)NULL);
+        execl("/usr/bin/curl", "curl", "--fail", "--location", "--proto", "=https", "--tlsv1.2", "--silent",
+              "--show-error", "--retry", "3", "-o",
+              installer, "https://steamcdn-a.akamaihd.net/client/installer/SteamSetup.exe", (char*)NULL);
         _exit(127);
     }
-    if (!wait_child_success(pid) && !copy_bundled_steam_installer(home, installer))
+    if (!wait_child_success(pid) && !copy_bundled_steam_installer(home, installer)) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", "Could not download SteamSetup.exe from Steam CDN");
         goto done;
-    if (access(installer, F_OK) != 0)
+    }
+    if (!steam_installer_payload_valid(installer)) {
+        (void)unlink(installer);
+        if (!copy_bundled_steam_installer(home, installer) || !steam_installer_payload_valid(installer)) {
+            snprintf(failure_reason, sizeof(failure_reason), "%s",
+                     "SteamSetup.exe was missing or not a valid Windows executable");
+            goto done;
+        }
+    }
+    if (access(installer, F_OK) != 0) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", "SteamSetup.exe was not created");
         goto done;
-    /* A first Wine invocation initializes a fresh prefix automatically. Running
-     * wineboot --init here also explicitly starts a second service manager. */
+    }
     write_steam_install_stage(home, "creating-steam-prefix");
-    wine_error = spawn_wine_install(home, "cmd", "/c", "exit 0", &pid);
+    wine_error = spawn_wine_install(home, "wineboot", "--init", NULL, &pid);
     if (wine_error) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", wine_error);
         free(wine_error);
         goto done;
     }
-    if (!wait_child_success(pid))
+    if (!wait_child_success(pid)) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", "Wine could not initialize the Steam prefix");
         goto done;
-    if (!windows_dir)
+    }
+    if (!windows_dir) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", "Could not determine the Steam prefix path");
         goto done;
+    }
     for (int i = 0; i < 30 && access(windows_dir, F_OK) != 0; i++)
         sleep(2);
-    if (access(windows_dir, F_OK) != 0)
+    if (access(windows_dir, F_OK) != 0) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", "Wine did not create the Steam prefix");
         goto done;
+    }
     write_steam_install_stage(home, "installing-steam");
     wine_error = spawn_wine_install(home, installer, NULL, NULL, &pid);
     if (wine_error) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s", wine_error);
         free(wine_error);
         goto done;
     }
+    steam_setup_started = true;
     /* SteamSetup creates Steam.exe before it finishes downloading and committing
      * the real x64 client. Do not release the install lock or report success
      * until steamclient64.dll and steam_client_win64.installed exist. */
     for (int i = 0; i < 300; i++) {
-        pid_t waited = waitpid(pid, &wait_status, WNOHANG);
-        if (waited < 0 && errno != EINTR && errno != ECHILD)
-            break;
+        pid_t waited = installer_exited ? 0 : waitpid(pid, &wait_status, WNOHANG);
+        if (waited == pid) {
+            installer_exited = true;
+            if (steam_install_child_failed(pid, waited, wait_status)) {
+                snprintf(failure_reason, sizeof(failure_reason), "%s",
+                         "SteamSetup.exe exited before completing installation");
+                goto done;
+            }
+        } else if (waited < 0 && errno != EINTR) {
+            snprintf(failure_reason, sizeof(failure_reason), "%s", "Could not monitor SteamSetup.exe");
+            goto done;
+        }
         if (steam_install_complete(steam_dir))
             break;
         sleep(1);
     }
-    if (!steam_install_complete(steam_dir))
+    if (!steam_install_complete(steam_dir)) {
+        snprintf(failure_reason, sizeof(failure_reason), "%s",
+                 installer_exited ? "SteamSetup.exe exited without installing the complete Steam client"
+                                  : "SteamSetup.exe timed out before installing the complete Steam client");
         goto done;
+    }
     completed = true;
     write_steam_install_stage(home, "complete");
     terminate_wine_steam_session(home);
 done:
-    if (!completed)
+    if (steam_setup_started && !installer_exited)
+        stop_and_reap_steam_installer(pid);
+    if (!completed) {
+        write_steam_install_error(home, failure_reason);
         write_steam_install_stage(home, "failed");
+    }
     free(prefix);
     free(windows_dir);
     free(steam_dir);
@@ -3276,10 +3385,11 @@ done:
 char* ms_steam_install_json(const char* home, int* status) {
     char *steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe"),
          *ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll"),
+         *steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam"),
          *lock = join(home, ".steam-installing"), *installer = join(home, "SteamSetup.exe");
     FILE* lock_file = NULL;
     pid_t pid;
-    bool installed = steam && ui && access(steam, F_OK) == 0 && access(ui, F_OK) == 0;
+    bool installed = steam_dir != NULL && steam_install_complete(steam_dir);
     if (status)
         *status = 200;
     if (installed) {
@@ -3292,6 +3402,7 @@ char* ms_steam_install_json(const char* home, int* status) {
         ms_json_writer_object_end(&w);
         free(steam);
         free(ui);
+        free(steam_dir);
         free(lock);
         free(installer);
         return ms_json_writer_take(&w);
@@ -3299,6 +3410,7 @@ char* ms_steam_install_json(const char* home, int* status) {
     if (!lock || !installer) {
         free(steam);
         free(ui);
+        free(steam_dir);
         free(lock);
         free(installer);
         if (status)
@@ -3314,6 +3426,7 @@ char* ms_steam_install_json(const char* home, int* status) {
         if (errno == EEXIST) {
             free(steam);
             free(ui);
+            free(steam_dir);
             free(installer);
             if (status)
                 *status = 200;
@@ -3331,6 +3444,7 @@ char* ms_steam_install_json(const char* home, int* status) {
         }
         free(steam);
         free(ui);
+        free(steam_dir);
         free(lock);
         free(installer);
         if (status)
@@ -3344,6 +3458,7 @@ char* ms_steam_install_json(const char* home, int* status) {
         unlink(lock);
         free(steam);
         free(ui);
+        free(steam_dir);
         free(lock);
         free(installer);
         if (status)
@@ -3354,6 +3469,7 @@ char* ms_steam_install_json(const char* home, int* status) {
         steam_install_worker(home, lock, installer);
     free(steam);
     free(ui);
+    free(steam_dir);
     free(lock);
     free(installer);
     {

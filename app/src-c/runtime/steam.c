@@ -1200,6 +1200,8 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     char* wine_wrapper = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
     char* install_lock = join_path(metalsharp_home, ".steam-installing");
     char* install_stage_path = join_path(metalsharp_home, ".steam-install-stage");
+    char* install_error_path = join_path(metalsharp_home, ".steam-install-error");
+    char* install_error = install_error_path ? read_file(install_error_path, NULL) : NULL;
     char install_stage[64] = "idle";
     char* mac_app = home == NULL ? NULL : join_path(home, "Applications/Steam.app");
     char* mac_bundle =
@@ -1276,6 +1278,11 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, installing);
     ms_json_writer_key(&writer, "install_stage");
     ms_json_writer_string(&writer, install_stage);
+    ms_json_writer_key(&writer, "install_error");
+    if (install_error != NULL)
+        ms_json_writer_string(&writer, install_error);
+    else
+        ms_json_writer_null(&writer);
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(wine_prefix);
@@ -1286,6 +1293,8 @@ char* ms_steam_status_json(const char* metalsharp_home) {
     free(wine_wrapper);
     free(install_lock);
     free(install_stage_path);
+    free(install_error_path);
+    free(install_error);
     free(mac_app);
     free(mac_bundle);
     return result;
