@@ -1,265 +1,78 @@
-# SharpEmu Environment
+# SharpEmu Managed Environment
+**Updated:** 2026-09-22
 
-MetalSharp exposes SharpEmu as an **experimental PlayStation 5 research environment** in the Sharp Library. Most games do not run. Windows remains SharpEmu's primary development target, and macOS support is experimental.
+MetalSharp runs SharpEmu as an experimental PlayStation 5 research environment in the Sharp Library. Most games do not run; macOS support is experimental. SharpEmu is GPL-2.0-or-later and runs out of process.
 
-MetalSharp and SharpEmu are unaffiliated with Sony. MetalSharp does not download, bundle, import, decrypt, patch, upload, or provide acquisition instructions for Sony firmware, games, keys, licenses, modules, fonts, updates, DLC, or decryption material.
-
-## Managed layout
+## Managed Layout
 
 ```text
 ~/.metalsharp/emulators/sharpemu/
 ├── current -> versions/<release-tag>
 ├── previous -> versions/<release-tag>
-├── versions/<release-tag>/
-│   ├── SharpEmu
-│   ├── libMoltenVK.dylib
-│   ├── libvulkan.1.dylib
-│   ├── plugins/
-│   ├── licenses/
-│   ├── LICENSE.txt
-│   ├── source-manifest.json
-│   ├── activation-manifest.json
-│   └── capabilities.json
-├── home/
-├── state/
-│   ├── saves/
-│   ├── custom-configs/
-│   └── roots.json
-├── cache/
-│   ├── dotnet-bundle/
-│   ├── ampr-index/
-│   └── vulkan/
+├── versions/<release-tag>/     # read-only: SharpEmu, libMoltenVK.dylib, libvulkan.1.dylib,
+│                               # plugins/, licenses/, LICENSE.txt, manifests
+├── home/                       # isolated HOME
+├── state/saves/  state/custom-configs/  state/roots.json
+├── cache/dotnet-bundle/  cache/ampr-index/  cache/vulkan/
 ├── writable/
-├── downloads/
-├── staging/
-├── sessions/
-├── logs/
-├── environment.json
-├── update-policy.json
-└── library-cache.json
+├── downloads/  staging/  sessions/  logs/
+├── environment.json  update-policy.json  library-cache.json
 ```
 
-Runtime versions are separate from mutable state. Activated version trees are read-only. Updates, rollback, repair, and runtime removal preserve saves, settings, roots, caches, logs, sessions, and external games.
+Activated version trees are read-only. Updates, rollback, repair, and runtime removal preserve saves, settings, roots, caches, logs, sessions, and external games.
 
-## Host requirements
+## Host Requirements
 
-The current official macOS release is x86-64.
+- The official macOS release is x86-64; Apple Silicon uses Rosetta 2, Intel runs it directly.
+- macOS 26+ (bundled FFmpeg dylibs declare `minos 26.0`).
+- `lsar` and `unar`; at least 1 GiB of transaction space.
+- Vulkan uses the bundled MoltenVK.
 
-- Apple Silicon requires Rosetta 2.
-- Intel Macs run x86-64 directly.
-- The effective full-payload minimum is macOS 26 because bundled FFmpeg dylibs declare `minos 26.0`.
-- `lsar` and `unar` are required.
-- Installation requires at least 1 GiB of available transaction space.
-- Vulkan uses the bundled MoltenVK; the experimental upstream native Metal backend is disabled.
+## Installation and Updates
 
-Status reports architecture, macOS, Rosetta, archive tools, free disk, network containment, runtime integrity, and MoltenVK readiness separately.
+MetalSharp downloads only the exact official stable macOS x64 asset from `sharpemu/sharpemu` after user confirmation. The frozen research baseline: release `v0.0.3-release.3`, source commit `d9b599a1`, asset `sharpemu-0.0.3-release.3-osx-x64.tar.gz` (71,999,495 bytes, SHA-256 `cf54f8f5…d05b681a`, 31 entries, 111,974,175 extracted bytes, self-contained .NET 10).
 
-## Secure stable installation
+GitHub reports the asset as mutable, so MetalSharp binds release ID, asset ID, tag, name, URL, size, digest, and timestamps; changed metadata for an observed tag/asset is quarantined rather than treated as an update.
 
-MetalSharp downloads only the exact official stable macOS x64 asset from `sharpemu/sharpemu` after user confirmation.
+Transaction: bounded release JSON → non-draft stable `v...` tag → exactly one `sharpemu-<version>-osx-x64.tar.gz` → `.part` download with HTTPS-only redirects → exact bytes/SHA-256 → `lsar` preflight (rejects traversal, links, devices, sparse entries, duplicates, case collisions, bounds) → `unar` extract into same-volume staging → require executable, Vulkan loaders, plugins, licenses → inspect every Mach-O → record pre-sign hashes in `source-manifest.json` → ad-hoc sign locally (the upstream archive is unsigned; Gatekeeper rejects it as-is) → verify signatures and MoltenVK loading plus the nonexistent-eboot CLI probe → record post-sign hashes in `activation-manifest.json` → read-only version tree → atomic `current` switch with `previous` retained.
 
-1. Fetch bounded GitHub release JSON over HTTPS.
-2. Require a non-draft, non-prerelease stable `v...` tag.
-3. Require exactly `sharpemu-<version>-osx-x64.tar.gz`.
-4. Bind release ID, asset ID, tag, URL, name, size, digest, and timestamps.
-5. Quarantine changed metadata for an already observed tag/asset.
-6. Download to a new `.part` file with HTTPS-only redirects.
-7. Verify exact bytes and SHA-256.
-8. Preflight with `lsar`; reject traversal, links, devices, sparse entries, duplicates, case collisions, and bounds violations.
-9. Extract with `unar` into same-volume staging.
-10. Require the executable, Vulkan loaders, plugins, and license payload.
-11. Inspect every Mach-O architecture, dependency, and deployment target.
-12. Record pre-sign hashes in `source-manifest.json`.
-13. Ad-hoc sign each native dependency and the main executable locally.
-14. Verify signatures, MoltenVK loading, and the no-window nonexistent-eboot CLI probe.
-15. Record post-sign hashes in `activation-manifest.json`.
-16. Make the version tree read-only.
-17. Atomically switch `current`, retaining `previous` for rollback.
+Users can check/refresh metadata, install/update, pin, unpin, skip, clear skip, roll back, and remove runtime versions. Download may run during play; activation waits for sessions to exit.
 
-The upstream macOS archive is not Developer ID signed or notarized. MetalSharp's local ad-hoc signature is not represented as upstream signing or Apple notarization.
+## Game Discovery
 
-## Update policy and rollback
+Roots are picked with the native directory picker; symlinked, missing, system, and MetalSharp-managed roots are rejected, along with duplicates/overlaps and more than 32 roots. Scanning finds exact regular `eboot.bin` files (depth 8, 20,000 entries, 512 games), validates bounded ELF/fSELF structure, reads at most 1 MiB of `param.json` for title, PPSA title ID, and versions, and validates local PNG artwork. Launch reopens the executable no-follow and compares size to the scan identity; changed files require a rescan. Removing a root never deletes external content.
 
-Users can:
+## Launch
 
-- check or refresh stable release metadata;
-- install/update;
-- pin the current version;
-- unpin;
-- skip the latest version;
-- clear a skipped version;
-- roll back to `previous`;
-- remove managed runtime versions.
-
-Download may occur while a game runs, but activation waits for all SharpEmu sessions to exit. Rollback and runtime removal are rejected while SharpEmu runs. Runtime removal is also rejected during an update transaction.
-
-## Game discovery
-
-Roots are selected with a native directory picker. MetalSharp rejects:
-
-- symlinked and missing roots;
-- `/`, system, library, applications, home, and MetalSharp-managed roots;
-- duplicate or overlapping ancestor/descendant roots;
-- more than 32 roots.
-
-Scanning:
-
-- searches for exact regular `eboot.bin` files;
-- never follows symlinked directories;
-- stops after depth 8, 20,000 entries, or 512 games;
-- validates bounded ELF/fSELF leading structure;
-- reads at most 1 MiB of `sce_sys/param.json` or adjacent `param.json`;
-- reads title, PPSA title ID, content/master version, and localized title;
-- validates local PNG artwork and never fetches PlayStation Store images;
-- persists a launch index containing canonical path and executable size.
-
-Launch reopens the indexed executable with no-follow semantics and compares current size to the saved scan identity. Replaced files fail with a “changed” error and require a rescan.
-
-External roots are references. Removing a root changes only `state/roots.json` and `library-cache.json`; it never deletes external content.
-
-## CLI-only launch
-
-MetalSharp never launches SharpEmu's no-argument GUI or updater. It launches the exact active `SharpEmu` executable with reviewed arguments:
+CLI-only, no upstream GUI or updater:
 
 ```text
---cpu-engine=native
---log-level=info
---log-file <isolated-log>
---window-mode=windowed
---scaling=fit
---vsync=on
-<canonical-eboot.bin>
+--cpu-engine=native --log-level=info --log-file <isolated-log> \
+--window-mode=windowed --scaling=fit --vsync=on <canonical-eboot.bin>
 ```
 
-Fullscreen currently maps to SharpEmu's exclusive window mode but is not enabled by default in the UI.
+The child environment redirects `HOME`, .NET extraction, saves, AMPR indexes, the Vulkan pipeline cache, guest mounts, `TMPDIR`, and logs into the managed tree, and clears inherited debugger/profiler/proxy/RenderDoc/diagnostic variables.
 
-The child environment redirects:
+Executable content: a decrypted ELF or a recognized fake-signed SELF; MetalSharp validates bounded leading structure only. Valid PS5 compatibility IDs match `PPSA` plus five digits. Local artwork uses `sce_sys/icon0.png`, then `pic0.png`, `pic1.png` after PNG checks.
 
-- `HOME`;
-- .NET single-file extraction;
-- saves;
-- AMPR indexes;
-- Vulkan pipeline cache;
-- guest temporary/download/devlog/hostapp mounts;
-- `TMPDIR`;
-- SharpEmu logs.
+## Guest Networking
 
-MetalSharp removes inherited SharpEmu diagnostics, debugger/profiler, dynamic-loader, proxy, RenderDoc, native-Metal, writable-app0, and network-redirection variables before launch.
+SharpEmu guest networking maps to real host sockets. Default launches run through `sandbox-exec` with all network operations denied; readiness verifies the sandbox blocks a loopback connection, and launches fail closed when containment is unavailable. An explicit "Allow unrestricted guest networking" checkbox with a persistent danger state and per-launch second confirmation enables networking; session records store `networkEnabled`.
 
-## Guest networking
+## Process Supervision
 
-SharpEmu guest networking can create real host sockets.
+Each launch gets a session ID, PID/process group, exact executable identity, canonical game path, log path, start timestamp, and network policy. Backend restart recovery validates command path and start time. Stop sends SIGINT → bounded wait → SIGTERM → SIGKILL. Exit status and the latest log stay on the game card.
 
-Default behavior:
-
-- MetalSharp runs SharpEmu through `sandbox-exec` with all network operations denied.
-- Host readiness verifies that the sandbox starts and cannot connect to a MetalSharp-owned loopback listener.
-- If containment is unavailable, a default launch fails closed.
-
-Explicit opt-in:
-
-- The Sharp Library has an “Allow unrestricted guest networking” checkbox.
-- Enabling it shows a persistent danger state.
-- Every network-enabled launch requires a second confirmation.
-- The launch runs without the network-denial profile.
-- The session record stores `networkEnabled: true`.
-
-No mode uploads MetalSharp telemetry, diagnostics, game metadata, or compatibility reports automatically.
-
-## Process supervision
-
-Every launch receives:
-
-- a stable session ID and game ID;
-- PID and process group;
-- exact executable and runtime tag;
-- canonical game path;
-- MetalSharp log path;
-- start timestamp;
-- network-policy value.
-
-MetalSharp waits until the child has executed the exact managed executable before reporting success. Backend restart recovery validates command path and process start time before accepting a PID.
-
-Stop behavior:
-
-1. SIGINT to the validated process group;
-2. bounded graceful wait;
-3. SIGTERM;
-4. final SIGKILL fallback.
-
-Exit code/signal and the latest log remain visible on the game card. Logs remain local and may contain title IDs, game paths, module names, and crash details.
-
-## Backend API
-
-Read endpoints:
+## API
 
 ```text
-GET /emulators
-GET /sharp-library/sharpemu/status
-GET /sharp-library/sharpemu/games
-GET /sharp-library/sharpemu/cover?id=<stable-id>
-GET /sharp-library/sharpemu/sessions
-GET /sharp-library/sharpemu/update/check
-GET /sharp-library/sharpemu/update/progress
+GET  /emulators, /sharp-library/sharpemu/{status,games,cover,sessions,update/check,update/progress}
+POST /sharp-library/sharpemu/{scan,add-root,remove-root,launch,stop,update/refresh,update/install,
+     update/rollback,pin-current,unpin,skip-update,clear-skip,remove-runtime}
 ```
 
-Mutation endpoints:
+The preload exposes bounded backend requests, the game-root picker, contained path reveals, and the exact official FAQ/compatibility URLs.
 
-```text
-POST /sharp-library/sharpemu/scan
-POST /sharp-library/sharpemu/add-root
-POST /sharp-library/sharpemu/remove-root
-POST /sharp-library/sharpemu/launch
-POST /sharp-library/sharpemu/stop
-POST /sharp-library/sharpemu/update/refresh
-POST /sharp-library/sharpemu/update/install
-POST /sharp-library/sharpemu/update/rollback
-POST /sharp-library/sharpemu/pin-current
-POST /sharp-library/sharpemu/unpin
-POST /sharp-library/sharpemu/skip-update
-POST /sharp-library/sharpemu/clear-skip
-POST /sharp-library/sharpemu/remove-runtime
-```
+## Maintenance Procedure
 
-There are no firmware, key, module, package, decryption, debugger, upstream-GUI, or compatibility-submission endpoints. Request objects reject unknown fields and wrong primitive types.
-
-## Electron boundary
-
-The preload exposes only:
-
-- bounded backend requests;
-- a SharpEmu game-root picker;
-- path reveal restricted to the SharpEmu environment and registered roots;
-- exact official FAQ and compatibility URLs.
-
-The renderer cannot open arbitrary SharpEmu paths or URLs. A per-game URL is created only from a validated `PPSA` plus five digits.
-
-## Testing and evidence
-
-`app/src-c/tests/sharpemu_update_test.py` covers:
-
-- provider/status/update contracts;
-- synthetic real Mach-O transaction installation;
-- archive digest and path safety;
-- local signing and read-only activation;
-- source and activation manifests;
-- discovery, metadata, artwork, and PPSA parsing;
-- symlinked-root rejection;
-- request schema rejection;
-- denied-network and explicit-network session records;
-- process supervision, sessions, stop, and runtime-removal blocking;
-- changed launch target rejection;
-- replaced artwork symlink rejection;
-- mutable upstream asset quarantine;
-- state and external-game preservation;
-- malicious symlink archive rejection.
-
-The test-only probe bypass works only when:
-
-- the backend path is under `src-c/build/` or `src-c/build-asan/`;
-- both release and download fixtures are present;
-- the explicit test variable is set.
-
-Packaged binaries reject that bypass.
-
-See [SHARPEMU-UPSTREAM-CONTRACT.md](SHARPEMU-UPSTREAM-CONTRACT.md) for frozen upstream evidence and the production contract.
+Before allowlisting a new stable release: freeze tag and source commit; record release/asset IDs, URL, size, digest, timestamps, mutability; audit archive paths and byte bounds; record Mach-O architectures, deployment targets, install names, dependencies; confirm CLI parsing and nonexistent-path exit behavior; re-audit writable env vars, diagnostic/network toggles, and sandbox behavior; run the full test suites; update this contract, `THIRD_PARTY_LICENSES`, and the capability manifest. Keep the release unavailable if any contract changed without a fail-closed adaptation.

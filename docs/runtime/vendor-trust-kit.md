@@ -1,14 +1,9 @@
-# MetalSharp Vendor Trust Kit
-**Updated:** 2026-07-08
+# Vendor Trust Kit
+**Updated:** 2026-09-22
 
-
-Status: Phase 9 foundation
-
-The anti-cheat path is cooperative vendor trust, not bypass. A vendor or game developer should be able to inspect MetalSharp's runtime identity, launch model, logs, and non-evasion policy without reverse-engineering the repository.
+The anti-cheat path is cooperative vendor trust: a vendor or game developer can inspect MetalSharp's runtime identity, launch model, logs, and non-evasion policy without reverse-engineering the repository.
 
 ## Kit Contents
-
-The vendor kit should include:
 
 - runtime identity and version
 - host ABI manifest
@@ -24,13 +19,7 @@ The vendor kit should include:
 
 ## Generator
 
-`tools/package/create-vendor-trust-kit.sh` creates a local bundle under:
-
-```text
-dist/vendor-trust-kit/
-```
-
-The generator copies the core policy/runtime docs and writes a `manifest.json` that records the current git commit, version files, and included documents. It does not claim a game is supported; it prepares the evidence package for a vendor conversation.
+`tools/package/create-vendor-trust-kit.sh` creates a local bundle under `dist/vendor-trust-kit/`, copies the core policy/runtime docs, and writes a `manifest.json` recording the current git commit, version files, and included documents. The kit prepares evidence for a vendor conversation.
 
 ## Required Before External Use
 
@@ -38,4 +27,3 @@ The generator copies the core policy/runtime docs and writes a `manifest.json` t
 - Attach real launch logs from a target game.
 - Attach real anti-cheat classification JSON from Launch Doctor.
 - Add explicit vendor/game contact context.
-- Remove any stale "bypass" terminology from shipped UX and docs.

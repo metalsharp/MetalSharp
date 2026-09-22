@@ -53,11 +53,11 @@ For Direct Access to What is Installed During Setup, See Here: [Dependency Bundl
 
 | Route | Engine | Notes |
 |---|---|---|
-| **_VKD3D_** | D3D12/D3D11/D3D10/D3D9 through Vulkan -> Metal | D3D12 Still In Development |
+| **_D3DMetal_** | D3D12/11/10 through the latest D3DMetal framework | |
+| **_VKD3D_** | D3D12/D3D11/D3D10/D3D9 through Vulkan -> Metal | D3D12 still in development |
 | **_DXMT_** | D3D11, D3D10 to Metal | |
-| **_DXMT(32)_** | D3D11, D3D10 32Bit to Metal | |
+| **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal | |
 | **_Mono/FNA_** | Windows XNA/FNA via native Mono | |
-| **_D3DMetal_** | D3D12/11/10 through the latest D3DFramework |
 
 ## Features
 
@@ -69,8 +69,9 @@ For Direct Access to What is Installed During Setup, See Here: [Dependency Bundl
 | **_GameJolt Library_** | Download, Manage, and Play GameJolt games through the Sharp Library |
 | **_Emulation Support_** |  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu |
 | **_Runtime Bottles_** | Select your launch method, repair missing assets, and switch between bottle runtimes |
-| **_MTSP Routing_** | Automatic pipeline selection based on game compatibility data and developer testing |
+| **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
 | **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
+| **_Game Streaming_** | Streams games to a phone or tablet with Sunshine + Moonlight |
 
 ## Requirements
 
