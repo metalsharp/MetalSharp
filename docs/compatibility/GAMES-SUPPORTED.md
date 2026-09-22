@@ -1,12 +1,12 @@
 # Games Supported
 
-Updated: 2026-09-10 (D3DMetal online-play status)
+Updated: 2026-09-22
 
-Tested and working games organized by pipeline. Only games confirmed playable are listed.
+Tested and working games organized by launch route. Only games confirmed playable are listed.
 
 ## Sharp Library Sources
 
-| Source | Tested game | Launch path |
+| Source | Tested game | Route |
 |---|---|---|
 | GameJolt | The Joy of Creation: Reborn | DXMT |
 | GOG | Fall of Porcupine: Prologue | DXMT |
@@ -15,17 +15,15 @@ Tested and working games organized by pipeline. Only games confirmed playable ar
 
 Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an M4 MacBook Air with 16GB RAM.
 
-## Pipelines
+## Routes
 
-| Pipeline | Backend | Use |
-|---|---|---|
-| **D3DMetal** | Managed GPTK 4 beta 2 / Apple D3DMetal | D3D11/D3D12 through MetalSharp Wine 11.17, the shared Steam prefix, and game-local route DLLs. |
-| **VKD3D** | Vulkan | D3D12/D3D11/D3D10/D3D9 -> Vulkan -> Metal |
-| **DXMT** | DXMT | D3D11, D3D10 to Metal |
-| **DXMT (32-bit)** | DXMT | D3D11, D3D10 32 Bit to Metal |
-| **Mono/FNA** | MonoKickstart + FNA | XNA/FNA/MonoGame via native Mono runtime |
-
-Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remain backend machinery and are not shown in bottle selectors.
+| Route | Use |
+|---|---|
+| **D3DMetal** | D3D12/D3D11/D3D10 through the managed D3DMetal framework and MetalSharp Wine 11.17 |
+| **VKD3D** | D3D12/D3D11/D3D10/D3D9 -> Vulkan -> Metal |
+| **DXMT** | D3D11, D3D10 to Metal |
+| **DXMT (32-bit)** | D3D11, D3D10 32-bit to Metal |
+| **Mono/FNA** | XNA/FNA/MonoGame via native Mono |
 
 ---
 
@@ -83,7 +81,7 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 | Subnautica: Below Zero | 848450 | |
 | Rain World | 312520 | |
 | Hollow Knight | 367520 | |
-| Party Animals | 1260320 | Save M11 bottle, launch direct with Steam. |
+| Party Animals | 1260320 | Save bottle, launch direct with Steam. |
 | Dave the Diver | 1868140 | |
 | Totally Accurate Battle Simulator | 508440 | |
 | Skul: The Hero Slayer | 1147560 | |
@@ -130,7 +128,4 @@ Internal routes (`dxmt` auto-detect, Wine Steam, macOS Steam, `wine_bare`) remai
 
 - Game cards can be tested through the route dropdown in each game's bottle workspace.
 - Shader caches are per-appid and can be cleared from Settings.
-- Wine Steam remains the background Steam client for installed Windows Steam games.
-- Installed Wine Steam games create `steam_<appid>` bottle records for runtime asset/component preflight before launch.
-- Env-dependent Steam routes keep Wine Steam alive as the background client, then launch the game executable directly with the selected pipeline, bottle prefix, route env, and Steam identity variables.
-- D3DMetal uses the managed Wine runtime and shared Steam prefix too. Its graphics payload is separate from DXMT/VKD3D; see [Wine Architecture](../runtime/wine-architecture.md#d3dmetal).
+- Wine Steam stays alive as the background client; installed Wine Steam games create `steam_<appid>` bottle records for runtime preflight, and env-dependent launches run the game executable directly with the selected route, bottle prefix, route env, and Steam identity variables.
