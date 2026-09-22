@@ -1,28 +1,28 @@
 # Launch Architecture
-**Updated:** 2026-09-08
+**Updated:** 2026-09-22
 
-
-MetalSharp launches games through the C backend and the current MTSP pipeline resolver.
+MetalSharp launches games through the C backend. The backend resolves the route, prepares the runtime, and starts the game.
 
 ## Flow
 
 ```text
 Play clicked
-  -> renderer calls backend
-  -> backend resolves a pipeline
-  -> backend syncs/preflights the runtime bottle when one applies
+  -> renderer calls the backend
+  -> backend resolves the route
+  -> backend syncs and preflights the runtime bottle
   -> backend builds a LaunchRecipe
-  -> backend preflights runtime assets
-  -> backend prepares DLLs/env/cache beside the selected executable
-  -> selected MTSP route starts the game; internal Steam/Wine/macOS handoffs are used only when the backend selects them
+  -> backend prepares DLLs, env, and cache paths beside the game executable
+  -> the route starts the game
 ```
 
-## Current Pipelines
+## Routes
 
-| Public route | Backend | Launch path |
+| Route | Backend | Launch path |
 |---|---|---|
-| VKD3D | Vulkan->Metal | Direct Wine launch with `dxvk/vkd3d-proton` D3D12/11/10/9/DXGI Dll's with updated MoltenVK 1.4.3 dylib/icd |
-| **DXMT** | Metal | Direct Wine launch with `dxmt` D3D11/D3D10/DXGI DLLs |
-| **DXMT(32)** | Metal | Direct Wine launch with i386 `dxmt` D3D10/D3D10core/DXGI DLLs |
-| **Mono/FNA** | Native Mono | Native FNA/XNA/Mono runtime with FNA/XNA assemblies, native dylib staging, FMOD/FAudio/FNA3D shims, and Steamworks shim support |
-| **D3DMetal** | Managed GPTK 4 beta 2 | Steam-aware direct launch through MetalSharp Wine 11.17, with game-local D3DMetal DLLs and `prefix-steam` |
+| D3DMetal | Managed GPTK payload | Steam-aware direct launch through MetalSharp Wine 11.17 with game-local D3DMetal DLLs |
+| DXMT | Metal | Direct Wine launch with DXMT D3D11/D3D10/DXGI DLLs |
+| DXMT(32) | Metal | Direct Wine launch with i386 DXMT DLLs |
+| Mono/FNA | Native Mono | Native FNA/XNA runtime with staged assemblies and shims |
+| VKD3D | Vulkan -> Metal | Direct Wine launch with DXVK / vkd3d-proton DLLs and MoltenVK |
+
+See [Graphics Routes](graphics-routes.md) for per-route DLL sets and cache paths.
