@@ -24,9 +24,13 @@ SDK_ROOT = "developer-sdk/d3d12"
 
 RUNTIME_ASSET = "metalsharp-runtime.tar.zst"
 GRAPHICS_ASSET = "metalsharp-graphics-dll.tar.zst"
+X87SIDECAR_SHA256 = "30c151a7f5b583ca2a2b51f57b1b52d5ad3a3ede7b87d782c27c950486e9a10f"
+
 
 CRITICAL_FILES = [
     "runtime/wine/bin/wine",
+    "runtime/wine/bin/x87sidecar",
+    "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
     "runtime/dxmt/x86_64-windows/d3d10core.dll",
     "runtime/dxmt/x86_64-windows/d3d11.dll",
     "runtime/dxmt/x86_64-windows/dxgi.dll",
@@ -128,6 +132,21 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def require_x87sidecar(path: Path) -> None:
+    if path.is_symlink() or not path.is_file() or not (path.stat().st_mode & stat.S_IXUSR):
+        raise ValueError(f"invalid x87sidecar executable: {path}")
+    if sha256(path) != X87SIDECAR_SHA256:
+        raise ValueError(f"x87sidecar SHA-256 mismatch: {path}")
+    file_result = subprocess.run(["file", str(path)], capture_output=True, text=True, check=True)
+    if "Mach-O" not in file_result.stdout or "arm64" not in file_result.stdout:
+        raise ValueError(f"x87sidecar is not an arm64 Mach-O: {path}")
+
+
+def require_patched_ntdll(path: Path) -> None:
+    if not path.is_file() or b"ROSETTA_X87_PATH" not in path.read_bytes():
+        raise ValueError(f"ntdll.so is missing the x87sidecar loader hook: {path}")
+
+
 def sdk_ignore(rel: Path, is_dir: bool) -> bool:
     ignored_roots = {"cache", "external", "out"}
     if rel.parts[:1] and rel.parts[0] in ignored_roots:
@@ -208,6 +227,8 @@ def build_sdk(bundle_dir: Path, out_dir: Path, release_manifest: Path | None) ->
         sdk_root = tmp / "sdk-root"
         extract_zst(runtime_asset, runtime_src)
         extract_zst(graphics_asset, graphics_src)
+        require_x87sidecar(runtime_src / "runtime" / "wine" / "bin" / "x87sidecar")
+        require_patched_ntdll(runtime_src / "runtime" / "wine" / "lib" / "wine" / "x86_64-unix" / "ntdll.so")
 
         copy_tree(SDK_SOURCE, sdk_root, ignore=sdk_ignore)
         copy_tree(runtime_src / "runtime" / "wine", sdk_root / "runtime" / "wine")
