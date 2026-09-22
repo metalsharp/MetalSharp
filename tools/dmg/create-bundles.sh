@@ -122,15 +122,23 @@ done < "$MANIFEST"
 if [ "$REPAIR_BUNDLES" = "1" ]; then
   repair_assets_fnalibs_bundle
 
-  "$PROJECT_ROOT/tools/dmg/repair-runtime-bundle.py" \
-    --archive "$BUNDLE_DIR/metalsharp-runtime.tar.zst" \
-    --host-dir "$PROJECT_ROOT/app/native/host" \
+  REPAIR_ARGS=(
+    --archive "$BUNDLE_DIR/metalsharp-runtime.tar.zst"
+    --host-dir "$PROJECT_ROOT/app/native/host"
     --backend "$PROJECT_ROOT/app/src-c/build/metalsharp-backend"
+  )
+  if [ -n "${METALSHARP_X87SIDECAR_PATH:-}" ]; then
+    REPAIR_ARGS+=(--x87sidecar "$METALSHARP_X87SIDECAR_PATH")
+  fi
+  python3 "$PROJECT_ROOT/tools/dmg/repair-runtime-bundle.py" "${REPAIR_ARGS[@]}"
 else
   echo "bundle repair disabled; using verified release bundles as downloaded"
 fi
 
 VERIFY_ARGS=(--bundle-dir "$BUNDLE_DIR" --require mac)
+if [ -n "${METALSHARP_X87SIDECAR_PATH:-}" ]; then
+  export METALSHARP_REQUIRE_X87SIDECAR=1
+fi
 if [ "$SKIP_DEVELOPER_SDK" = "1" ]; then
   while IFS=$'\t' read -r asset _root _platforms _notes; do
     case "$asset" in

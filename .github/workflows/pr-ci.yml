@@ -147,6 +147,9 @@ jobs:
       - name: C backend tests
         run: make -C app/src-c test
 
+      - name: x87sidecar integration contracts
+        run: node --test app/tests/x87sidecar-gate.cjs
+
       - name: D3D12 Metal SDK contracts
         run: |
           prepare_d3d12_mini_probe_runtime() {

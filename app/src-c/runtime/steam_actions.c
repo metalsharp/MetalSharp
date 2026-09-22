@@ -438,12 +438,23 @@ static void set_route_paths(const char* home, const char* pipeline) {
     }
     if (!strcmp(pipeline, "vkd3d")) {
         char icd[PATH_MAX];
+        char x87sidecar[PATH_MAX];
         snprintf(icd, sizeof(icd), "%s/runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", home);
         setenv("VK_ICD_FILENAMES", icd, 1);
         setenv("VK_DRIVER_FILES", icd, 1);
+        /* x87sidecar is optional until the runtime asset is rebuilt with the
+         * matching Wine loader handshake. Keep every other route isolated from
+         * the hook so launchers and DXMT/D3DMetal do not inherit it. */
+        struct stat sidecar_stat;
+        snprintf(x87sidecar, sizeof(x87sidecar), "%s/runtime/wine/bin/x87sidecar", home);
+        if (lstat(x87sidecar, &sidecar_stat) == 0 && S_ISREG(sidecar_stat.st_mode) && access(x87sidecar, X_OK) == 0)
+            setenv("ROSETTA_X87_PATH", x87sidecar, 1);
+        else
+            unsetenv("ROSETTA_X87_PATH");
     } else {
         unsetenv("VK_ICD_FILENAMES");
         unsetenv("VK_DRIVER_FILES");
+        unsetenv("ROSETTA_X87_PATH");
     }
 }
 

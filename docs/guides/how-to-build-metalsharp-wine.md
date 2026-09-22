@@ -20,6 +20,13 @@ The source directory must contain `configure.ac`, `dlls/`, `include/`, `server/`
 and `tools/`. Keep the source snapshot's checksum/revision with your build logs.
 Do not substitute a different runtime solely because it reports Wine 11.17.
 
+This repository carries the reproducible Wine-side x87sidecar integration at
+`tools/bundles/wine/0001-x87sidecar-cooperative.patch`. Apply it once to the
+prepared source checkout before configuring. The patch adds the cooperative Mach
+handshake and re-execs only i386 Windows images through `x87sidecar`; it does not
+enable the sidecar globally. Keep the source patch and the sidecar binary at the
+same version when producing a runtime bundle.
+
 ## What makes this MetalSharp Wine
 
 MetalSharp Wine is a maintained Wine fork carrying **WineForge-derived
@@ -39,6 +46,7 @@ attribution or a claim that every feature originated in WineForge.
 | PE/Unix graphics bridge compatibility | The `msdxcompat_loader` components and Unix-library loading adjustments support the matching PE DLL/native bridge arrangement. Windows module paths and host library paths are not interchangeable. |
 | macOS synchronization | MSYNC is compiled into both `server/msync.c` and `dlls/ntdll/unix/msync.c`. Client and server must agree on this implementation; both read `WINEMSYNC`. Do not mix a server from another build with this client. |
 | WoW64 host and startup compatibility | The x86_64 host includes both PE architectures, corresponding loader/virtual-memory integration, and prefix bootstrap fixes. Fresh-prefix Wineboot and service startup are part of validation, not optional packaging details. |
+| Cooperative x87 acceleration | `dlls/ntdll/unix/loader.c` hands i386 Windows images to the bundled arm64 `x87sidecar` through its cooperative Mach-port protocol. The hook is enabled only when the launcher sets `ROSETTA_X87_PATH`; do not enable it for other graphics routes. |
 | Launcher compatibility | WineForge-derived launcher/security integration touches `kernelbase`, `advapi32`, process loading, and related service handling. Preserve these patches together rather than copying isolated DLLs from another Wine installation. |
 | macOS driver integration | Window, event, keyboard, and driver interface changes accompany the loader and presentation work. Native modules must be built against the same source headers and server protocol. |
 
@@ -77,12 +85,13 @@ provided these graphics payloads or configured per-game routing.
 
 ## Necessary tools
 
-- An Apple Silicon Mac with Rosetta 2, or a compatible Intel Mac.
+- An Apple Silicon Mac with Rosetta 2.
 - Xcode Command Line Tools and a macOS SDK.
 - Git, GNU Make, Autoconf, Automake, Bison, Flex, pkg-config, and Python 3.
 - LLVM/Clang for x86_64 Mach-O host code.
 - MinGW-w64 compilers for both i686 and x86_64 Windows PE code.
 - Apple's `codesign`, `file`, `otool`, and `lipo` for validation.
+- The pinned arm64 cooperative `x87sidecar` release asset.
 
 Install the host tools with Homebrew:
 
@@ -153,6 +162,7 @@ export SRC="$ROOT/sources/wine-11.17-metalsharp"
 export DEPS="$ROOT/deps/x86_64"
 export BUILD="$ROOT/build/wine-x86_64"
 export PREFIX="$ROOT/install/wine"
+export X87_WINE_PATCH="/path/to/MetalSharp/tools/bundles/wine/0001-x87sidecar-cooperative.patch"
 export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
 
 export PATH="$(brew --prefix bison)/bin:$(brew --prefix flex)/bin:$(brew --prefix llvm)/bin:$DEPS/bin:$PATH"
@@ -180,6 +190,10 @@ test -f "$DEPS/lib/libnetapi.dylib"
 test -x "$DEPS/bin/ntlm_auth"
 mkdir -p "$BUILD" "$PREFIX" "$ROOT/logs"
 
+test -f "$X87_WINE_PATCH"
+git -C "$SRC" apply --check "$X87_WINE_PATCH"
+git -C "$SRC" apply "$X87_WINE_PATCH"
+(cd "$SRC" && git diff --check)
 (cd "$SRC" && autoreconf -fiv)
 cd "$BUILD"
 set -o pipefail
@@ -200,6 +214,24 @@ set -o pipefail
 
 make -j"$(sysctl -n hw.ncpu)" 2>&1 | tee "$ROOT/logs/build.log"
 make install 2>&1 | tee "$ROOT/logs/install.log"
+
+export X87SIDECAR_VERSION="v1.7.0"
+export X87SIDECAR_SHA256="b768336e0ad556807156cecd533423285c8ec654f4fdb9c0623124d8b12c0865"
+export X87SIDECAR_ARCHIVE="$ROOT/downloads/x87sidecar-$X87SIDECAR_VERSION.tar.xz"
+mkdir -p "$(dirname "$X87SIDECAR_ARCHIVE")"
+curl --fail --location --proto '=https' --tlsv1.2 \
+  "https://github.com/athei/x87sidecar/releases/download/$X87SIDECAR_VERSION/x87sidecar.tar.xz" \
+  --output "$X87SIDECAR_ARCHIVE"
+printf '%s  %s\n' "$X87SIDECAR_SHA256" "$X87SIDECAR_ARCHIVE" | shasum -a 256 -c -
+X87SIDECAR_EXTRACT="$ROOT/downloads/x87sidecar-$X87SIDECAR_VERSION"
+rm -rf "$X87SIDECAR_EXTRACT"
+mkdir -p "$X87SIDECAR_EXTRACT"
+tar -xJf "$X87SIDECAR_ARCHIVE" -C "$X87SIDECAR_EXTRACT"
+test -x "$X87SIDECAR_EXTRACT/x87sidecar"
+xattr -d com.apple.quarantine "$X87SIDECAR_EXTRACT/x87sidecar" 2>/dev/null || true
+file "$X87SIDECAR_EXTRACT/x87sidecar" | grep -E 'Mach-O.*arm64'
+install -m 0755 "$X87SIDECAR_EXTRACT/x87sidecar" "$PREFIX/bin/x87sidecar"
+"$PREFIX/bin/x87sidecar" --probe
 ```
 
 Stop if configure or make fails. Inspect `config.log` and the configure summary
@@ -215,6 +247,7 @@ source snapshots, architecture, or dependency versions.
 
 ```bash
 export DYLD_FALLBACK_LIBRARY_PATH="$DEPS/lib:$PREFIX/lib:$PREFIX/lib/wine/x86_64-unix"
+"$PREFIX/bin/x87sidecar" --probe
 "$PREFIX/bin/wine" --version
 file "$PREFIX/bin/wine" "$PREFIX/bin/wineserver"
 file "$PREFIX/lib/wine/x86_64-windows/ntdll.dll"

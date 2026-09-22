@@ -15,6 +15,8 @@ APP_DIR = PROJECT_ROOT / "app"
 SOURCE_BUNDLES = APP_DIR / "bundles"
 OUT_DIR = PROJECT_ROOT / "dist" / "bundles"
 
+X87SIDECAR_SHA256 = "30c151a7f5b583ca2a2b51f57b1b52d5ad3a3ede7b87d782c27c950486e9a10f"
+
 SPLIT_BUNDLES = {
     "electron": "metalsharp-electron.tar.zst",
     "graphics": "metalsharp-graphics-dll.tar.zst",
@@ -136,8 +138,25 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def require_x87sidecar(path: Path) -> None:
+    if path.is_symlink() or not path.is_file() or not (path.stat().st_mode & stat.S_IXUSR):
+        raise ValueError(f"invalid x87sidecar executable: {path}")
+    if sha256(path) != X87SIDECAR_SHA256:
+        raise ValueError(f"x87sidecar SHA-256 mismatch: {path}")
+    result = subprocess.run(["file", str(path)], capture_output=True, text=True, check=True)
+    if "Mach-O" not in result.stdout or "arm64" not in result.stdout:
+        raise ValueError(f"x87sidecar must be an arm64 Mach-O executable: {path}")
+
+
+def require_patched_ntdll(path: Path) -> None:
+    if not path.is_file() or b"ROSETTA_X87_PATH" not in path.read_bytes():
+        raise ValueError(f"ntdll.so is missing the x87sidecar loader hook: {path}")
+
+
 SDK_CRITICAL_FILES = [
     "runtime/wine/bin/wine",
+    "runtime/wine/bin/x87sidecar",
+    "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
     "runtime/host/manifest.json",
     "runtime/host/HostRuntimeABI.h",
     "runtime/host/libmetalsharp_host_runtime.dylib",
@@ -217,6 +236,13 @@ def build_staging(tmp: Path) -> dict[str, Path]:
 
     wine_src = source1 / "wine-11.5"
     copy_tree(wine_src, roots["runtime"] / "wine")
+    sidecar_env = os.environ.get("METALSHARP_X87SIDECAR_PATH")
+    if sidecar_env:
+        sidecar = Path(sidecar_env).expanduser()
+        require_x87sidecar(sidecar)
+        copy_file(sidecar, roots["runtime"] / "wine" / "bin" / "x87sidecar")
+    require_x87sidecar(roots["runtime"] / "wine" / "bin" / "x87sidecar")
+    require_patched_ntdll(roots["runtime"] / "wine" / "lib" / "wine" / "x86_64-unix" / "ntdll.so")
     copy_tree(source2 / "wine" / "etc", roots["runtime"] / "wine" / "etc")
     backend = APP_DIR / "build" / "c-backend" / "metalsharp-backend"
     require_file(backend, "runtime backend")
