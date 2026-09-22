@@ -42,9 +42,9 @@ cd app && npm install && npm run build && cd ..
 
 ## Fetch Runtime Bundles
 
-Downloads MetalSharp-owned runtime assets from the GitHub release: Wine, DXMT/M12 graphics DLLs, Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
+Downloads MetalSharp-owned runtime assets from the GitHub release: Wine, DXMT graphics DLLs, Steam setup files, Mono/FNA support files, Goldberg assets, and other bundled runtime material.
 
-The managed runtime includes Wine 11.17 and the GPTK 4 beta 2 D3DMetal payload. D3DMetal uses MetalSharp Wine and the shared Steam prefix; saving a bottle does not install a separate Homebrew GPTK app. See [Wine Architecture](../runtime/wine-architecture.md#d3dmetal).
+The managed runtime includes Wine 11.17 and the managed D3DMetal payload. D3DMetal uses MetalSharp Wine and the shared Steam prefix. See [Wine Architecture](../runtime/wine-architecture.md#d3dmetal).
 
 Building the app does not compile Wine. To rebuild the patched Wine runtime itself, follow [How to Build MetalSharp Wine](how-to-build-metalsharp-wine.md); a prepared source tree and matching x86_64 dependencies are required.
 
@@ -78,5 +78,5 @@ cd app && npm run dmg
 
 - **`cmake` fails**: Ensure Xcode CLI tools are installed (`xcode-select -p` should return a path)
 - **`npm install` fails**: Make sure Node 18+ is installed (`brew install node`)
-- **Missing bundles**: Run `./tools/dmg/create-bundles.sh` — this downloads MetalSharp-owned runtime assets from GitHub. Use the matched managed D3DMetal payload rather than mixing DLLs with a separate GPTK installation.
+- **Missing bundles**: Run `./tools/dmg/create-bundles.sh` — this downloads MetalSharp-owned runtime assets from GitHub. Use the matched managed D3DMetal payload with the matching runtime.
 - **App won't open**: If you see a Gatekeeper warning, run `xattr -cr /path/to/MetalSharp.app`

@@ -17,11 +17,11 @@ Click **Play** from the Library page. Use the launch mode dropdown when you want
 
 | Mode | Use |
 |---|---|
-| D3DMetal | D3D12/11/10 Through The Latest Available D3DMetal Framework | 
+| D3DMetal | D3D12/11/10 through the managed D3DMetal framework |
 | VKD3D | D3D12/11/10/9 via Vulkan -> Metal |
 | DXMT | D3D11 / D3D10 to Metal |
-| DXMT (32) | D3D11 / D3D10 32 Bit to Metal |
-| Mono/FNA | Windows XNA/FNA games through MetalSharp's native Mono runtime, staged FNA/XNA assemblies, native dylibs, FMOD/FAudio/FNA3D shims, and Steamworks shim support |
+| DXMT (32) | D3D11 / D3D10 32-bit to Metal |
+| Mono/FNA | Windows XNA/FNA games through MetalSharp's native Mono runtime |
 
 ### Goldberg Steam Emulator
 
@@ -59,12 +59,7 @@ Settings includes a **Danger Zone** section at the bottom with an **Uninstall Me
 
 - [Current MetalSharp README](../../README.md)
 - [Launch Architecture](../architecture/launch-architecture.md)
-- [Compatdata Architecture](../runtime/compatdata-architecture.md)
-- [Launcher Runtime](../runtime/launcher-runtime.md)
-- [Redistributable Runtime](../runtime/redistributable-runtime.md)
-- [Darwin Sync Map](../runtime/darwin-sync-map.md)
-- [Steam Compatibility Tool Surface](../runtime/steam-compatibility-tool-surface.md)
-- [Vendor Trust Kit](../runtime/vendor-trust-kit.md)
-- [Proof Targets](../compatibility/proof-targets.md)
+- [Graphics Routes](../architecture/graphics-routes.md)
 - [Supported Games](../compatibility/GAMES-SUPPORTED.md)
 - [Wine Architecture](../runtime/wine-architecture.md)
+- [Docs Map](../README.md)

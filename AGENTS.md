@@ -27,7 +27,7 @@ src/                            Native D3D/Metal, audio, input, runtime, Wine, a
 include/                        Native public headers
 tests/                          Native C/C++ tests
 tools/                          Packaging, runtime, CI, and D3D12 SDK tooling
-configs/                        MTSP rules and runtime configuration
+configs/                        Route rules and runtime configuration
 docs/                           Architecture, runtime, emulator, and compatibility docs
 CMakeLists.txt                  Native engine build
 ```
@@ -36,16 +36,17 @@ The C backend is the only backend. Electron builds it from `app/src-c` and packa
 
 ## Runtime and Routing
 
-Steam games use `steam_<appid>` bottles. Wine Steam remains the background client; routes that need per-game environment variables spawn the game through the selected MTSP pipeline.
+Steam games use `steam_<appid>` bottles. Wine Steam stays the background client; game launches run through the selected route with the shared prefix, route env, cache paths, and Steam identity variables.
 
 | Route | Purpose |
 |---|---|
-| `M9` | D3D9 and compatible 32-bit titles |
-| `M10` / `M10(32)` | D3D10 translation |
-| `M11` / `M11(32)` | D3D11 translation |
-| `VKD3D` | D3D12 through vkd3d-proton and MoltenVK |
-| `D3DMetal` | Apple Game Porting Toolkit runtime |
+| `D3DMetal` | D3D12/11/10 through the managed D3DMetal framework |
+| `DXMT` | D3D11/D3D10 translation |
+| `DXMT(32)` | 32-bit D3D11/D3D10 translation |
+| `VKD3D` | D3D12/11/10/9 through vkd3d-proton/DXVK and MoltenVK |
 | `Mono/FNA` | XNA/FNA through Mono and native shims |
+
+Internal lane names (`m9`, `m10`, `m11`, `m12`) map to the DXMT family in configs, cache paths, and route IDs; see [Graphics Routes](docs/architecture/graphics-routes.md).
 
 Important runtime paths:
 
