@@ -143,11 +143,20 @@ async function startInstall() {
   }, 500);
 }
 
-async function checkSteam() {
-  const s = await api<{ installed: boolean; running: boolean; installing?: boolean; install_stage?: string }>(
+type SteamStatus = {
+  installed: boolean;
+  running: boolean;
+  installing?: boolean;
+  install_stage?: string;
+  install_error?: string | null;
+};
+
+async function checkSteam(): Promise<SteamStatus | null> {
+  const s = await api<SteamStatus>(
     "GET",
     "/steam/status",
   );
+  if (!s) return null;
   steamInstalled.value = s?.installed === true && s?.installing !== true;
   steamInstalling.value = s?.installing === true;
   if (s?.install_stage) steamInstallStage.value = s.install_stage;
@@ -186,7 +195,29 @@ async function installSteam() {
 
   const startedAt = Date.now();
   const poll = setInterval(async () => {
-    const s = await checkSteam();
+    let s: SteamStatus | null;
+    try {
+      s = await checkSteam();
+    } catch {
+      s = null;
+    }
+    if (!s) {
+      clearInterval(poll);
+      steamInstalling.value = false;
+      steamFailed.value = true;
+      steamInstallStage.value = "failed";
+      reclaimFocusFromInstaller();
+      toast.show("Steam installation status could not be read", "error");
+      return;
+    }
+    if (s.install_stage === "failed" && !s.installing) {
+      clearInterval(poll);
+      steamInstalling.value = false;
+      steamFailed.value = true;
+      reclaimFocusFromInstaller();
+      toast.show(s.install_error ?? "Steam installation failed", "error");
+      return;
+    }
     if (s?.installed && !s.installing) {
       clearInterval(poll);
       steamInstalled.value = true;
