@@ -2,9 +2,9 @@ MetalSharp bundles and stages third-party software. This file is the top-level
 notice surface; component license files are kept in `LICENSES/`, vendored
 source folders, or the referenced upstream/runtime packages.
 
-## MetalSharp
+## MetalSharp - Source Code
 
-- License: MIT
+- License: PolyForm NonCommercial
 - Files: `LICENSE`
 
 ## DXMT — Metal-based D3D11/D3D10 translation layer
