@@ -28,6 +28,14 @@ static void binary_fixture(const char* home, const char* relative, const unsigne
     free(path);
 }
 
+static void executable_fixture(const char* home, const char* relative) {
+    char* path;
+    fixture(home, relative, "x87sidecar");
+    path = join(home, relative);
+    assert(chmod(path, 0700) == 0);
+    free(path);
+}
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* home = argv[1];
@@ -63,8 +71,24 @@ int main(int argc, char** argv) {
     assert(steam_reg && strstr(steam_reg, "\"RetinaMode\"=\"N\"") && strstr(steam_reg, "\"LogPixels\"=dword:00000060"));
     free(steam_reg);
     free(steam_reg_path);
+    unsetenv("ROSETTA_X87_PATH");
+    set_route_paths(home, "vkd3d");
+    assert(!getenv("ROSETTA_X87_PATH"));
+    {
+        char* sidecar;
+        executable_fixture(home, "runtime/wine/bin/x87sidecar");
+        sidecar = join(home, "runtime/wine/bin/x87sidecar");
+        assert(unlink(sidecar) == 0);
+        assert(symlink("/bin/sh", sidecar) == 0);
+        set_route_paths(home, "vkd3d");
+        assert(!getenv("ROSETTA_X87_PATH"));
+        assert(unlink(sidecar) == 0);
+        free(sidecar);
+    }
+    executable_fixture(home, "runtime/wine/bin/x87sidecar");
     set_route_paths(home, "vkd3d");
     assert(strstr(getenv("VK_DRIVER_FILES"), "lib/moltenvk-vkmt/MoltenVK_icd.json"));
+    assert(getenv("ROSETTA_X87_PATH") && strstr(getenv("ROSETTA_X87_PATH"), "/runtime/wine/bin/x87sidecar"));
     assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
     assert(!strcmp(canonical_pipeline("dxmt"), "dxmt"));
     assert(!strcmp(canonical_pipeline("dxvk"), "vkd3d"));
@@ -77,6 +101,7 @@ int main(int argc, char** argv) {
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));
     assert(!getenv("VK_DRIVER_FILES"));
+    assert(!getenv("ROSETTA_X87_PATH"));
     {
         static const unsigned char invalid_installer[] = "<html>not SteamSetup.exe</html>";
         unsigned char valid_installer[128] = {0};
