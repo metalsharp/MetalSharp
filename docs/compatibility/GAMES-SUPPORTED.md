@@ -2,7 +2,7 @@
 
 Updated: 2026-09-22
 
-Tested and working games organized by launch route. Only games confirmed playable are listed.
+Tested and working games organized by launch route. Only games confirmed playable are listed, either by users who use MetalSharp or by the Developer. Many more games likely work beyond this default list.
 
 ## Sharp Library Sources
 
