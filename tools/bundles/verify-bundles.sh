@@ -10,6 +10,7 @@ TAG="${METALSHARP_BUNDLE_TAG:-bundles}"
 CHECK_RELEASE=0
 REQUIRE_PLATFORM=""
 ASSETS=()
+X87SIDECAR_SHA256="30c151a7f5b583ca2a2b51f57b1b52d5ad3a3ede7b87d782c27c950486e9a10f"
 
 usage() {
   cat <<'USAGE'
@@ -145,7 +146,44 @@ verify_required_files() {
   return "$failed"
 }
 
+verify_x87sidecar() {
+  local path="$1"
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-x87sidecar.XXXXXX")"
+  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" \
+      runtime/wine/bin/x87sidecar runtime/wine/lib/wine/x86_64-unix/ntdll.so >/dev/null 2>&1; then
+    echo "RUNTIME x87sidecar INVALID: $path is missing the sidecar or patched ntdll" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  if [ -L "$tmp/runtime/wine/bin/x87sidecar" ] ||
+     [ ! -f "$tmp/runtime/wine/bin/x87sidecar" ] ||
+     [ ! -x "$tmp/runtime/wine/bin/x87sidecar" ] ||
+     ! file "$tmp/runtime/wine/bin/x87sidecar" | grep -Eq 'Mach-O.*arm64'; then
+    echo "RUNTIME x87sidecar INVALID: expected a regular executable arm64 Mach-O" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  local actual_sidecar_hash
+  actual_sidecar_hash="$(shasum -a 256 "$tmp/runtime/wine/bin/x87sidecar" | awk '{print $1}')"
+  if [ "$actual_sidecar_hash" != "$X87SIDECAR_SHA256" ]; then
+    echo "RUNTIME x87sidecar INVALID: SHA-256 mismatch expected=$X87SIDECAR_SHA256 actual=$actual_sidecar_hash" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  if ! strings "$tmp/runtime/wine/lib/wine/x86_64-unix/ntdll.so" |
+       grep -F 'ROSETTA_X87_PATH' >/dev/null; then
+    echo "RUNTIME x87sidecar INVALID: ntdll.so has no ROSETTA_X87_PATH loader hook" >&2
+    rm -rf "$tmp"
+    return 1
+  fi
+  rm -rf "$tmp"
+}
+
 verify_runtime_core() {
+  if [ "${METALSHARP_REQUIRE_X87SIDECAR:-0}" = "1" ] && ! verify_x87sidecar "$1"; then
+    return 1
+  fi
   verify_required_files "$1" "RUNTIME" \
     runtime/wine/bin/metalsharp-wine \
     runtime/metalsharp-backend \
