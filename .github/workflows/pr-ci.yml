@@ -127,6 +127,9 @@ jobs:
       - name: Verify DMG workflow contract
         run: python3 tools/ci/verify-dmg-workflow.py
 
+      - name: Test DMG signing pipeline
+        run: python3 -m unittest tools.dmg.tests.test_sign_notarize_dmg -v
+
   native:
     name: C/C++/Obj-C CI
     runs-on: macos-14

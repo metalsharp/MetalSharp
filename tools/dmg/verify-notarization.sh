@@ -42,12 +42,12 @@ verify_developer_id_app() {
   fi
   rm -f "$signature_info"
 
-  xcrun stapler validate "$app"
   spctl -a -vvv --type execute "$app"
 }
 
 verify_developer_id_dmg() {
   local dmg="$1"
+  local signature_info
 
   if [ ! -f "$dmg" ]; then
     echo "Notarization DMG target is not a file: $dmg" >&2
@@ -59,6 +59,14 @@ verify_developer_id_dmg() {
   fi
 
   hdiutil verify "$dmg"
+  codesign --verify --verbose=4 "$dmg"
+  signature_info="$(codesign --display --verbose=4 "$dmg" 2>&1)"
+  if ! printf '%s\n' "$signature_info" | grep -q "Authority=Developer ID Application"; then
+    echo "DMG is not signed with a Developer ID Application identity: $dmg" >&2
+    printf '%s\n' "$signature_info" >&2
+    exit 1
+  fi
+  xcrun stapler validate "$dmg"
   spctl -a -vvv --type open --context context:primary-signature "$dmg"
 }
 
