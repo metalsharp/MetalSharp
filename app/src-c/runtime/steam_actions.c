@@ -3634,7 +3634,7 @@ static size_t steamapps_candidates(const char* home, char** candidates, size_t m
                 const char* first = strchr(path_key + 6, '"');
                 const char* close = first ? strchr(first + 1, '"') : NULL;
                 if (first && close && close > first + 1) {
-                    char* root = strndup(first + 1, (size_t)(close - first - 1));
+                    char* root = ms_steam_library_host_path(candidates[i], first + 1, (size_t)(close - first - 1));
                     char* steamapps = root ? join(root, "steamapps") : NULL;
                     add_steamapps_candidate(candidates, &count, max, steamapps);
                     free(root);
