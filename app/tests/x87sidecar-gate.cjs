@@ -44,7 +44,8 @@ test('sidecar remains scoped to the VKD3D route and verified asset', () => {
   assert.match(sdkBuilder, /require_x87sidecar/);
   assert.match(sdkBuilder, /require_patched_ntdll/);
   assert.match(dmgVerifier, /METALSHARP_REQUIRE_X87SIDECAR=1/);
-  assert.match(dmgVerifier, /verify-developer-sdk\.sh/);
+  assert.equal(dmgVerifier.includes('verify-developer-sdk.sh'), false);
+  assert.equal(dmgVerifier.includes('metalsharp-d3d12-developer-sdk.tar.zst'), false);
 });
 
 test('runtime verifier uses file-backed extraction for selective sidecar checks', () => {

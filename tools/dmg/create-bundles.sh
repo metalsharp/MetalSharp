@@ -48,7 +48,8 @@ download_asset() {
     return 1
   fi
   if [ -s "$dest" ] && asset_matches_release_manifest "$asset" "$dest"; then
-    if "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$BUNDLE_DIR" "$asset" >/dev/null 2>&1; then
+    if [ "$asset" = "metalsharp-d3d12-developer-sdk.tar.zst" ] ||
+       "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$BUNDLE_DIR" "$asset" >/dev/null 2>&1; then
       echo "SKIP bundle: $asset (matches release manifest)"
       return 0
     fi
@@ -139,14 +140,12 @@ VERIFY_ARGS=(--bundle-dir "$BUNDLE_DIR" --require mac)
 if [ -n "${METALSHARP_X87SIDECAR_PATH:-}" ]; then
   export METALSHARP_REQUIRE_X87SIDECAR=1
 fi
-if [ "$SKIP_DEVELOPER_SDK" = "1" ]; then
-  while IFS=$'\t' read -r asset _root _platforms _notes; do
-    case "$asset" in
-      ""|\#*|metalsharp-d3d12-developer-sdk.tar.zst) continue ;;
-    esac
-    VERIFY_ARGS+=("$asset")
-  done < "$MANIFEST"
-fi
+while IFS=$'\t' read -r asset _root _platforms _notes; do
+  case "$asset" in
+    ""|\#*|metalsharp-d3d12-developer-sdk.tar.zst) continue ;;
+  esac
+  VERIFY_ARGS+=("$asset")
+done < "$MANIFEST"
 "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" "${VERIFY_ARGS[@]}"
 
 rm -f "$OUT_DIR"/metalsharp-*.tar.zst

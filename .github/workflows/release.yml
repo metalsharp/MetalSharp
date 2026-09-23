@@ -154,8 +154,7 @@ jobs:
             metalsharp-runtime.tar.zst \
             metalsharp-assets.tar.zst \
             metalsharp-scripts-tools.tar.zst \
-            metalsharp-steam.tar.zst \
-            metalsharp-d3d12-developer-sdk.tar.zst
+            metalsharp-steam.tar.zst
           do
             test -s "app/bundles/$required"
           done
