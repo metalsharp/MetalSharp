@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 # Load only the helper, not the verifier's command-line entry point.
-eval "$(sed -n '/^verify_hash_manifest() {/,/^}/p' "$ROOT/tools/bundles/verify-bundles.sh")"
+eval "$(sed -n '/^extract_bundle_members() {/,/^}/p; /^verify_hash_manifest() {/,/^}/p' "$ROOT/tools/bundles/verify-bundles.sh")"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/input/assets"

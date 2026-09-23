@@ -146,13 +146,37 @@ verify_required_files() {
   return "$failed"
 }
 
+extract_bundle_members() {
+  local archive="$1"
+  local destination="$2"
+  local members="$3"
+  local label="$4"
+  local expanded_archive="$destination/archive.tar"
+
+  # Decompress to a regular tar file first. BSD tar can stop reading a
+  # selected-file list early, which closes its unzstd pipe and reports EPIPE.
+  if ! unzstd -q -c "$archive" >"$expanded_archive" 2>"$destination/decompress.log"; then
+    echo "$label INVALID: unable to decompress $archive for verification" >&2
+    cat "$destination/decompress.log" >&2
+    return 1
+  fi
+  if ! tar -xf "$expanded_archive" -C "$destination" -T "$members" >"$destination/extract.log" 2>&1; then
+    echo "$label INVALID: unable to extract $archive for verification" >&2
+    cat "$destination/extract.log" >&2
+    df -h "$destination" >&2 || true
+    return 1
+  fi
+}
+
 verify_x87sidecar() {
   local path="$1"
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-x87sidecar.XXXXXX")"
-  if ! tar --use-compress-program=unzstd -xf "$path" -C "$tmp" \
-      runtime/wine/bin/x87sidecar runtime/wine/lib/wine/x86_64-unix/ntdll.so >/dev/null 2>&1; then
-    echo "RUNTIME x87sidecar INVALID: $path is missing the sidecar or patched ntdll" >&2
+  local members="$tmp/members.txt"
+  printf '%s\n' \
+    runtime/wine/bin/x87sidecar \
+    runtime/wine/lib/wine/x86_64-unix/ntdll.so >"$members"
+  if ! extract_bundle_members "$path" "$tmp" "$members" "RUNTIME x87sidecar"; then
     rm -rf "$tmp"
     return 1
   fi
@@ -269,19 +293,7 @@ verify_hash_manifest() {
     rm -rf "$hash_tmp"
     return 1
   fi
-  # Decompress to a regular tar file first. BSD tar can stop reading a
-  # selected-file list early, which closes its unzstd pipe and reports EPIPE.
-  local expanded_archive="$hash_tmp/archive.tar"
-  if ! unzstd -q -c "$archive" >"$expanded_archive" 2>"$hash_tmp/decompress.log"; then
-    echo "$label INVALID: unable to decompress $archive for hash verification" >&2
-    cat "$hash_tmp/decompress.log" >&2
-    rm -rf "$hash_tmp"
-    return 1
-  fi
-  if ! tar -xf "$expanded_archive" -C "$hash_tmp" -T "$members" >"$hash_tmp/extract.log" 2>&1; then
-    echo "$label INVALID: unable to extract $archive for hash verification" >&2
-    cat "$hash_tmp/extract.log" >&2
-    df -h "$hash_tmp" >&2 || true
+  if ! extract_bundle_members "$archive" "$hash_tmp" "$members" "$label"; then
     rm -rf "$hash_tmp"
     return 1
   fi
