@@ -104,7 +104,7 @@ static char* conf_path(const char* home) {
 }
 
 static metalfx_state read_state(const char* home) {
-    metalfx_state state = {true, 1.5, 0};
+    metalfx_state state = {true, 2.0, 0};
     char* path = state_path(home);
     size_t length;
     char* text;
@@ -130,7 +130,17 @@ static metalfx_state read_state(const char* home) {
     if (ms_json_as_i64(ms_json_object_get(json, "ts"), &timestamp) && timestamp >= 0)
         state.timestamp = (unsigned long long)timestamp;
     ms_json_free(json);
+    if (fabs(state.factor - 1.75) > 0.01 && fabs(state.factor - 2.0) > 0.01)
+        state.factor = 2.0;
     return state;
+}
+
+void ms_metalfx_state(const char* metalsharp_home, bool* enabled, double* factor) {
+    metalfx_state state = read_state(metalsharp_home);
+    if (enabled)
+        *enabled = state.enabled;
+    if (factor)
+        *factor = state.factor;
 }
 
 static bool write_state(const char* home, metalfx_state state) {
@@ -184,7 +194,7 @@ static double read_conf_factor(const char* home) {
     char* path = conf_path(home);
     char* text;
     char* line;
-    double result = 1.5;
+    double result = 2.0;
     if (path == NULL)
         return result;
     text = read_file(path, NULL);
@@ -202,10 +212,12 @@ static double read_conf_factor(const char* home) {
         errno = 0;
         result = strtod(equals + (equals[0] == '=' ? 1 : 0), &end);
         if (errno != 0 || end == equals || !isfinite(result))
-            result = 1.5;
+            result = 2.0;
         break;
     }
     free(text);
+    if (fabs(result - 1.75) > 0.01 && fabs(result - 2.0) > 0.01)
+        result = 2.0;
     return result;
 }
 
@@ -338,13 +350,9 @@ char* ms_metalfx_set_json(const char* metalsharp_home, const unsigned char* body
     if (request != NULL) {
         if (ms_json_as_bool(ms_json_object_get(request, "enabled"), &enabled)) {
             state.enabled = enabled;
-            /* MetalFX off is represented by the neutral 2.00x DXMT factor;
-             * the overlay/hook uses enabled=false for the actual disable. */
-            if (!enabled)
-                state.factor = 2.0;
         }
         if (state.enabled && ms_json_as_number(ms_json_object_get(request, "factor"), &factor) && isfinite(factor) &&
-            factor >= 1.0 && factor <= 3.0)
+            (fabs(factor - 1.75) <= 0.01 || fabs(factor - 2.0) <= 0.01))
             state.factor = factor;
     }
     ms_json_free(request);

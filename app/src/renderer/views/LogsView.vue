@@ -25,11 +25,31 @@ function showSection(section: string) {
   if (target) target.open = !target.open;
 }
 
-const pipelineOrder = ["VKD3D", "DXMT", "DXMT(32)", "FNA/Mono", "System", "Other"];
+const pipelineOrder = ["VKD3D", "D3D9", "DXMT", "DXMT(32)", "FNA/Mono", "D3DMetal", "M13", "System", "Other"];
+const pipelineDisplayNames: Record<string, string> = {
+  vkd3d: "VKD3D",
+  d3d9: "D3D9",
+  m9: "D3D9",
+  dxvk: "D3D9",
+  dxvk_32: "D3D9",
+  dxmt: "DXMT",
+  dxmt_32: "DXMT(32)",
+  m10: "DXMT",
+  m11: "DXMT",
+  m10_32: "DXMT(32)",
+  m11_32: "DXMT(32)",
+  fna_arm64: "FNA/Mono",
+  fna_x86: "FNA/Mono",
+  d3dmetal: "D3DMetal",
+  m13: "M13",
+  system: "System",
+  wine_bare: "Other",
+};
 const crashByPipeline = computed(() => {
   const groups: Record<string, typeof crashReports.value> = {};
   for (const r of crashReports.value) {
-    const key = r.pipeline || "Other";
+    const raw = r.pipeline?.trim().toLowerCase() || "";
+    const key = pipelineDisplayNames[raw] || "Other";
     (groups[key] ??= []).push(r);
   }
   return pipelineOrder

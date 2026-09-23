@@ -321,7 +321,9 @@ printf '%s' "$crashes" | python3 -c 'import json, sys; assert json.load(sys.stdi
 scan=$(curl --silent --fail "http://127.0.0.1:$port/scan")
 printf '%s' "$scan" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and isinstance(v["data"]["games"], list) and "steam" in v["data"]'
 pipelines=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/pipelines?appid=620")
-printf '%s' "$pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 5 and v["recommended"] == "vkd3d"'
+printf '%s' "$pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and len(v["pipelines"]) == 6 and v["recommended"] == "vkd3d"'
+dxmt_pipelines=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/pipelines?appid=440")
+printf '%s' "$dxmt_pipelines" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["recommended"] == "dxmt" and v["recommended_name"] == "DXMT"'
 shape=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/launch-shape?appid=620")
 printf '%s' "$shape" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["appid"] == 620 and v["pipeline"] == "vkd3d"'
 rules=$(curl --silent --fail "http://127.0.0.1:$port/mtsp/default-rules")
@@ -335,6 +337,31 @@ assert "installed" in v and "running" in v and "login_state" in v
 '
 steam_library=$(curl --silent --fail "http://127.0.0.1:$port/steam/library")
 printf '%s' "$steam_library" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] is True and v["total"] == 0 and v["games"] == []'
+steamapps="$home/prefix-steam/drive_c/Program Files (x86)/Steam/steamapps"
+mkdir -p "$steamapps/common/Wolfenstein 3D"
+cat > "$steamapps/appmanifest_2270.acf" <<'EOF'
+"AppState"
+{
+    "appid"       "2270"
+    "name"        "Wolfenstein 3D"
+    "installdir"  "Wolfenstein 3D"
+}
+EOF
+printf 'game' > "$steamapps/common/Wolfenstein 3D/WOLF3D.EXE"
+mkdir -p "$steamapps/common/Team Fortress 2"
+cat > "$steamapps/appmanifest_440.acf" <<'EOF'
+"AppState"
+{
+    "appid"       "440"
+    "name"        "Team Fortress 2"
+    "installdir"  "Team Fortress 2"
+}
+EOF
+printf 'game' > "$steamapps/common/Team Fortress 2/tf.exe"
+steam_library_default=$(curl --silent --fail "http://127.0.0.1:$port/steam/library")
+printf '%s' "$steam_library_default" | python3 -c 'import json, sys; v=json.load(sys.stdin); games={g["appid"]:g for g in v["games"]}; assert games[2270]["preferred_pipeline"] == "d3d9" and games[2270]["launch_method"] == "d3d9" and games[2270]["launch_method_name"] == "D3D9"; assert games[440]["preferred_pipeline"] == "dxmt" and games[440]["launch_method"] == "dxmt" and games[440]["launch_method_name"] == "DXMT"'
+python3 -c 'import json, os; p=os.environ["METALSHARP_HOME"] + "/bottles/steam_2270/bottle.json"; v=json.load(open(p)); assert v["preferred_pipeline"] == "d3d9" and v["runtime_profile"] == "d3d9"'
+python3 -c 'import json, os; p=os.environ["METALSHARP_HOME"] + "/bottles/steam_440/bottle.json"; v=json.load(open(p)); assert v["preferred_pipeline"] == "dxmt" and v["runtime_profile"] == "dxmt"'
 api=$(curl --silent --fail "http://127.0.0.1:$port/steam/api-key")
 printf '%s' "$api" | python3 -c 'import json, sys; assert json.load(sys.stdin)["key"] == ""'
 curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"key":"test-key"}' "http://127.0.0.1:$port/steam/save-api-key" >/dev/null
@@ -355,8 +382,11 @@ import json, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
 assert v["enabled"] is True
-assert v["factor"] == 1.5
+assert v["factor"] == 2.0
 '
+curl --silent --fail --request POST --header 'Content-Type: application/json' \
+    --data '{"enabled":true,"factor":1.75}' \
+    "http://127.0.0.1:$port/metalfx/toggle" >/dev/null
 curl --silent --fail --request POST --header 'Content-Type: application/json' \
     --data '{"enabled":false,"factor":1.75}' \
     "http://127.0.0.1:$port/metalfx/toggle" >/dev/null
@@ -365,8 +395,8 @@ printf '%s' "$fx_after" | python3 -c '
 import json, sys
 v = json.load(sys.stdin)
 assert v["enabled"] is False
-assert v["factor"] == 2.0
-assert v["conf_factor"] == 2.0
+assert v["factor"] == 1.75
+assert v["conf_factor"] == 1.75
 '
 
 handle_created=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"pid":4242,"object_type":"File","name":"\\\\Device\\\\test"}' "http://127.0.0.1:$port/kernel-translation/handle/create")

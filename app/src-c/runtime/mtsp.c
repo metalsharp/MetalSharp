@@ -25,6 +25,7 @@ struct pipeline {
 static const struct pipeline pipelines[] = {
     {"d3dmetal", "D3DMetal", "D3D11/D3D12 via Apple D3DMetal 4.0 (GPTK Wine)", "d3dmetal", "d3dmetal", true, false},
     {"vkd3d", "VKD3D", "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver", "vulkan", "vulkan", false, true},
+    {"d3d9", "D3D9", "D3D9 -> Metal via the legacy DXMT launch family", "dxmt", "dxmt", false, true},
     {"dxmt", "DXMT", "D3D10/D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
     {"dxmt_32", "DXMT(32)", "32-bit D3D10/D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
     {"m13", "M13", "D3D11/D3D12 via Apple Game Porting Toolkit", "gptk", "gptk", false, true},
@@ -37,9 +38,103 @@ static const struct pipeline pipelines[] = {
 
 static const char* mtsp_pipeline_name(const char* id);
 
+static char* replace_text(const char* input, const char* needle, const char* replacement) {
+    size_t input_len = strlen(input), needle_len = strlen(needle), replacement_len = strlen(replacement);
+    size_t count = 0;
+    const char* cursor = input;
+    char* output;
+    char* write;
+    if (!needle_len)
+        return strdup(input);
+    while ((cursor = strstr(cursor, needle)) != NULL) {
+        count++;
+        cursor += needle_len;
+    }
+    if (!count)
+        return strdup(input);
+    size_t output_len = input_len;
+    if (replacement_len >= needle_len)
+        output_len += count * (replacement_len - needle_len);
+    else
+        output_len -= count * (needle_len - replacement_len);
+    output = malloc(output_len + 1);
+    if (!output)
+        return NULL;
+    write = output;
+    cursor = input;
+    for (;;) {
+        const char* match = strstr(cursor, needle);
+        size_t prefix = match ? (size_t)(match - cursor) : strlen(cursor);
+        memcpy(write, cursor, prefix);
+        write += prefix;
+        if (!match)
+            break;
+        memcpy(write, replacement, replacement_len);
+        write += replacement_len;
+        cursor = match + needle_len;
+    }
+    *write = '\0';
+    return output;
+}
+
+char* ms_mtsp_default_rules_json(void) {
+    static const char* const replacements[][2] = {
+        {"\"default_pipeline\":\"m11_32\"", "\"default_pipeline\":\"dxmt_32\""},
+        {"\"default_pipeline\":\"m10_32\"", "\"default_pipeline\":\"dxmt_32\""},
+        {"\"default_pipeline\":\"dxvk_32\"", "\"default_pipeline\":\"d3d9\""},
+        {"\"default_pipeline\":\"d3d9_32\"", "\"default_pipeline\":\"d3d9\""},
+        {"\"default_pipeline\":\"m11\"", "\"default_pipeline\":\"dxmt\""},
+        {"\"default_pipeline\":\"m10\"", "\"default_pipeline\":\"dxmt\""},
+        {"\"default_pipeline\":\"m9\"", "\"default_pipeline\":\"d3d9\""},
+        {"\"default_pipeline\":\"dxvk\"", "\"default_pipeline\":\"d3d9\""},
+        {"\"default_pipeline\":\"auto\"", "\"default_pipeline\":\"vkd3d\""},
+        {"\"default_pipeline_name\":\"M11(32)\"", "\"default_pipeline_name\":\"DXMT(32)\""},
+        {"\"default_pipeline_name\":\"M10(32)\"", "\"default_pipeline_name\":\"DXMT(32)\""},
+        {"\"default_pipeline_name\":\"M11\"", "\"default_pipeline_name\":\"DXMT\""},
+        {"\"default_pipeline_name\":\"M10\"", "\"default_pipeline_name\":\"DXMT\""},
+        {"\"default_pipeline_name\":\"M9\"", "\"default_pipeline_name\":\"D3D9\""},
+        {"\"default_pipeline_name\":\"DXVK(32)\"", "\"default_pipeline_name\":\"D3D9\""},
+        {"\"default_pipeline_name\":\"DXVK\"", "\"default_pipeline_name\":\"D3D9\""},
+        {"\"default_pipeline_name\":\"Wine\"", "\"default_pipeline_name\":\"VKD3D\""},
+    };
+    static char* cached;
+    static bool initialized;
+    char* raw;
+    if (initialized)
+        return cached ? strdup(cached) : NULL;
+    initialized = true;
+    raw = ms_mtsp_default_rules_json_raw();
+    if (!raw)
+        return NULL;
+    for (size_t i = 0; i < sizeof(replacements) / sizeof(replacements[0]); i++) {
+        char* normalized = replace_text(raw, replacements[i][0], replacements[i][1]);
+        if (!normalized) {
+            cached = raw;
+            return strdup(cached);
+        }
+        free(raw);
+        raw = normalized;
+    }
+    cached = raw;
+    return strdup(cached);
+}
+
+static const char* canonical_mtsp_pipeline(const char* id) {
+    if (!id || !id[0] || !strcmp(id, "auto"))
+        return "vkd3d";
+    if (!strcmp(id, "m10") || !strcmp(id, "m11") || !strcmp(id, "dxmt"))
+        return "dxmt";
+    if (!strcmp(id, "m10_32") || !strcmp(id, "m11_32") || !strcmp(id, "dxmt_32"))
+        return "dxmt_32";
+    if (!strcmp(id, "m9") || !strcmp(id, "dxvk") || !strcmp(id, "dxvk_32") || !strcmp(id, "d3d9") ||
+        !strcmp(id, "d3d9_32"))
+        return "d3d9";
+    return id;
+}
+
 static bool mtsp_pipeline_user_selectable(const char* id) {
-    return !strcmp(id, "d3dmetal") || !strcmp(id, "vkd3d") || !strcmp(id, "dxmt") || !strcmp(id, "dxmt_32") ||
-           !strcmp(id, "fna_arm64");
+    return !strcmp(id, "d3dmetal") || !strcmp(id, "vkd3d") || !strcmp(id, "d3d9") || !strcmp(id, "dxmt") ||
+           !strcmp(id, "dxmt_32") || !strcmp(id, "fna_arm64");
 }
 
 static unsigned long long query_appid(const char* query) {
@@ -111,7 +206,7 @@ static const char* mtsp_default_pipeline(unsigned appid) {
         }
     }
     ms_json_free(root);
-    return pipeline[0] ? pipeline : "vkd3d";
+    return canonical_mtsp_pipeline(pipeline[0] ? pipeline : "vkd3d");
 }
 
 char* ms_mtsp_pipelines_json(const char* query) {
@@ -181,6 +276,14 @@ static const char* mtsp_pipeline_name(const char* id) {
         return "Wine bare";
     if (!strcmp(id, "vkd3d"))
         return "VKD3D";
+    if (!strcmp(id, "d3d9") || !strcmp(id, "m9") || !strcmp(id, "dxvk") || !strcmp(id, "dxvk_32"))
+        return "D3D9";
+    if (!strcmp(id, "d3d9_32"))
+        return "D3D9";
+    if (!strcmp(id, "dxmt") || !strcmp(id, "m10") || !strcmp(id, "m11"))
+        return "DXMT";
+    if (!strcmp(id, "dxmt_32") || !strcmp(id, "m10_32") || !strcmp(id, "m11_32"))
+        return "DXMT(32)";
     if (!strcmp(id, "d3dmetal"))
         return "D3DMetal";
     if (!strcmp(id, "m13"))
@@ -402,10 +505,10 @@ char* ms_mtsp_launch_shape_json(const char* query) {
         id = !strcmp(requested, "auto") || !requested[0] ? default_pipeline : requested;
     } else
         id = default_pipeline;
-    if (!strcmp(id, "dxvk") || !strcmp(id, "dxvk_32") || !strcmp(id, "m9"))
-        id = "vkd3d";
+    id = canonical_mtsp_pipeline(id);
     const char* name = !strcmp(id, "d3dmetal")  ? "D3DMetal"
                        : !strcmp(id, "vkd3d")     ? "VKD3D"
+                       : !strcmp(id, "d3d9") ? "D3D9"
                        : !strcmp(id, "dxmt")      ? "DXMT"
                        : !strcmp(id, "dxmt_32")   ? "DXMT(32)"
                        : !strcmp(id, "fna_arm64") ? "Mono/FNA"

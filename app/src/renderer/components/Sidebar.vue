@@ -40,8 +40,8 @@ const controllerInputBusy = ref(false);
 // Drives the existing /metalfx/state + /metalfx/toggle overlay system
 // (metalfx.overlay.json + dxmt.conf); the launcher reconciles the DXMT env
 // from that state at launch.
-type MetalFxMode = "1.75" | "1.50" | "off";
-const metalFx = ref<MetalFxMode>("1.50");
+type MetalFxMode = "1.75" | "2.0" | "off";
+const metalFx = ref<MetalFxMode>("2.0");
 const metalFxBusy = ref(false);
 
 // Wine msync (Mach-synchronized Wine sync primitives). Applies to every
@@ -59,7 +59,7 @@ onMounted(async () => {
   }
   const state = await api<MetalFxState>("GET", "/metalfx/state");
   if (state?.ok) {
-    metalFx.value = !state.enabled ? "off" : Math.abs((state.factor ?? 1.5) - 1.75) < 0.01 ? "1.75" : "1.50";
+    metalFx.value = !state.enabled ? "off" : Math.abs((state.factor ?? 2.0) - 1.75) < 0.01 ? "1.75" : "2.0";
   }
 });
 
@@ -68,7 +68,7 @@ async function setMetalFxMode(mode: MetalFxMode) {
   const previous = metalFx.value;
   metalFxBusy.value = true;
   metalFx.value = mode; // optimistic
-  const body = mode === "off" ? { enabled: false } : { enabled: true, factor: mode === "1.75" ? 1.75 : 1.5 };
+  const body = mode === "off" ? { enabled: false } : { enabled: true, factor: mode === "1.75" ? 1.75 : 2.0 };
   const result = await api<MetalFxState>("POST", "/metalfx/toggle", body);
   if (result?.ok) {
     toast.show(
@@ -238,13 +238,13 @@ const navItems = computed<NavItem[]>(() => [
           </button>
           <button
             class="sidebar-input-option"
-            :class="{ active: metalFx === '1.50' }"
+            :class="{ active: metalFx === '2.0' }"
             :disabled="metalFxBusy"
-            :aria-pressed="metalFx === '1.50'"
-            :title="collapsed ? '1.50' : undefined"
-            @click="setMetalFxMode('1.50')"
+            :aria-pressed="metalFx === '2.0'"
+            :title="collapsed ? '2×' : undefined"
+            @click="setMetalFxMode('2.0')"
           >
-            1.50
+            2×
           </button>
           <button
             class="sidebar-input-option"
