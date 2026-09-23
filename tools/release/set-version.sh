@@ -51,16 +51,23 @@ perl -0pi -e "s{/releases/tag/v\K[0-9]+\.[0-9]+\.[0-9]+}{$VERSION}; s/filter=v\K
 node - "$VERSION" <<'NODE'
 const fs = require("fs");
 const version = process.argv[2];
+const [major, minor, patch] = version.split(".").map(Number);
+const syntheticTestVersion = `${major}.${minor}.${patch + 1}`;
 
 const replacements = [
   ["app/src-c/runtime/migration.c", /(\\"version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
   ["app/src-c/runtime/updater.c", /(\\"current_version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
-  ["app/src-c/tests/updater_test.py", /(VERSION = \")[0-9]+\.[0-9]+\.[0-9]+/g],
 ];
 for (const [path, pattern] of replacements) {
   const source = fs.readFileSync(path, "utf8");
   fs.writeFileSync(path, source.replace(pattern, `$1${version}`));
 }
+const updaterTestPath = "app/src-c/tests/updater_test.py";
+const updaterTest = fs.readFileSync(updaterTestPath, "utf8");
+fs.writeFileSync(
+  updaterTestPath,
+  updaterTest.replace(/(VERSION = ")[0-9]+\.[0-9]+\.[0-9]+/, `$1${syntheticTestVersion}`),
+);
 NODE
 
 node - "$VERSION" <<'NODE'
@@ -75,7 +82,10 @@ const migration = fs.readFileSync("app/src-c/runtime/migration.c", "utf8");
 const updater = fs.readFileSync("app/src-c/runtime/updater.c", "utf8");
 const setup = fs.readFileSync("app/src-c/runtime/setup.c", "utf8");
 const smoke = fs.readFileSync("app/src-c/tests/smoke.sh", "utf8");
+const updaterTest = fs.readFileSync("app/src-c/tests/updater_test.py", "utf8");
 const readme = fs.readFileSync("README.md", "utf8");
+const [major, minor, patch] = version.split(".").map(Number);
+const syntheticTestVersion = `${major}.${minor}.${patch + 1}`;
 
 const checks = [
   ["app/package.json version", packageJson.version === version],
@@ -89,6 +99,7 @@ const checks = [
   ["updater fallback version", updater.includes(`\\"current_version\\":\\"${version}\\"`)],
   ["setup DXMT runtime contract", setup.includes('MS_BACKEND_VERSION "-dxmt-v0.80-baseline-v1"')],
   ["C smoke expected version", smoke.includes(`assert v["version"] == "${version}"`)],
+  ["updater synthetic release remains newer than app version", updaterTest.includes(`VERSION = "${syntheticTestVersion}"`)],
   ["README release link", readme.includes(`/releases/tag/v${version}`)],
   ["README release badge", readme.includes(`filter=v${version}`)],
 ];
@@ -99,5 +110,5 @@ if (failed.length) {
   for (const name of failed) console.error(`- ${name}`);
   process.exit(1);
 }
-console.log(`Updated ${checks.length} synchronized version locations to ${version}.`);
+console.log(`Version bump verified for ${version}: ${checks.length} metadata/contract checks passed.`);
 NODE
