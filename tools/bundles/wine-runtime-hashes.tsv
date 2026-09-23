@@ -2,7 +2,7 @@
 # The archive contains the ad-hoc-signed Mach-O ntdll.so. Setup verifies the
 # archive hash before extraction and may re-sign after extraction if needed.
 path	sha256
-lib/wine/x86_64-unix/ntdll.so	e4166a0b7edab8213a7a1ead7ad87c01809c4cb7600826ed36f4ea96714e909f
+lib/wine/x86_64-unix/ntdll.so	a2b2fa460217bf826bd2f0e3aa19a49d184a5d476c5ce3eb189ffc97cc93c43c
 lib/wine/x86_64-unix/opengl32.so	a16142febf7fee10e713040eaf5951ffe956bfa8dfa67a946c38344d67bf8317
 lib/wine/x86_64-unix/winemac.so	e39ec04fbe3db971e272e13209bffc5ccb059232015b565e5082e161069df199
 lib/wine/x86_64-unix/metalsharp-opengl.dylib	c30e70d2118ea4e64dd1b0e23c987473213494abe1b67ddae43c02c2f905c21f

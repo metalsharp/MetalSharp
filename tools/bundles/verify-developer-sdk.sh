@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ARCHIVE="${1:-$PROJECT_ROOT/dist/developer-sdk/metalsharp-d3d12-developer-sdk.tar.zst}"
 ROOT="developer-sdk/d3d12"
+X87SIDECAR_SHA256="30c151a7f5b583ca2a2b51f57b1b52d5ad3a3ede7b87d782c27c950486e9a10f"
 
 if [ ! -s "$ARCHIVE" ]; then
   echo "Missing developer SDK archive: $ARCHIVE" >&2
@@ -25,6 +26,8 @@ required=(
   "$ROOT/runtime/README.md"
   "$ROOT/runtime/manifest.json"
   "$ROOT/runtime/wine/bin/wine"
+  "$ROOT/runtime/wine/bin/x87sidecar"
+  "$ROOT/runtime/wine/lib/wine/x86_64-unix/ntdll.so"
   "$ROOT/runtime/dxmt/x86_64-windows/d3d10core.dll"
   "$ROOT/runtime/dxmt/x86_64-windows/d3d11.dll"
   "$ROOT/runtime/dxmt/x86_64-windows/dxgi.dll"
@@ -44,6 +47,23 @@ for path in "${required[@]}"; do
     exit 1
   fi
 done
+
+sidecar="$TMP_DIR/$ROOT/runtime/wine/bin/x87sidecar"
+if [ -L "$sidecar" ] || [ ! -f "$sidecar" ] || [ ! -x "$sidecar" ] ||
+   ! file "$sidecar" | grep -Eq 'Mach-O.*arm64'; then
+  echo "Developer SDK x87sidecar is not a regular executable arm64 Mach-O" >&2
+  exit 1
+fi
+actual_sidecar_hash="$(shasum -a 256 "$sidecar" | awk '{print $1}')"
+if [ "$actual_sidecar_hash" != "$X87SIDECAR_SHA256" ]; then
+  echo "Developer SDK x87sidecar SHA-256 mismatch: expected=$X87SIDECAR_SHA256 actual=$actual_sidecar_hash" >&2
+  exit 1
+fi
+if ! strings "$TMP_DIR/$ROOT/runtime/wine/lib/wine/x86_64-unix/ntdll.so" |
+   grep -F 'ROSETTA_X87_PATH' >/dev/null; then
+  echo "Developer SDK ntdll.so is missing the x87sidecar loader hook" >&2
+  exit 1
+fi
 
 while IFS=$'\t' read -r rel expected; do
   case "$rel" in

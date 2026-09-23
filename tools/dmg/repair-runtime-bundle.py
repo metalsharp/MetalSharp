@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import os
 import shutil
 import stat
@@ -14,11 +15,31 @@ DEFAULT_ARCHIVE = PROJECT_ROOT / "app" / "bundles" / "metalsharp-runtime.tar.zst
 DEFAULT_HOST = PROJECT_ROOT / "app" / "native" / "host"
 DEFAULT_BACKEND = PROJECT_ROOT / "app" / "src-c" / "build" / "metalsharp-backend"
 DEFAULT_METALSHARP_LIB = PROJECT_ROOT / "lib" / "metalsharp"
+X87SIDECAR_SHA256 = "30c151a7f5b583ca2a2b51f57b1b52d5ad3a3ede7b87d782c27c950486e9a10f"
 
 
 def require_file(path: Path, description: str) -> None:
     if not path.is_file() or path.stat().st_size == 0:
         raise FileNotFoundError(f"missing required {description}: {path}")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def require_x87sidecar(path: Path) -> None:
+    require_file(path, "x87sidecar")
+    if path.is_symlink() or not (path.stat().st_mode & stat.S_IXUSR):
+        raise ValueError(f"x87sidecar must be a regular executable: {path}")
+    if sha256(path) != X87SIDECAR_SHA256:
+        raise ValueError(f"x87sidecar SHA-256 mismatch: {path}")
+    result = subprocess.run(["file", str(path)], capture_output=True, text=True, check=True)
+    if "Mach-O" not in result.stdout or "arm64" not in result.stdout:
+        raise ValueError(f"x87sidecar must be an arm64 Mach-O executable: {path}")
 
 
 def require_host_runtime(host_dir: Path) -> None:
@@ -125,7 +146,13 @@ def write_archive(source_root: Path, output: Path) -> None:
         tar_path.unlink(missing_ok=True)
 
 
-def repair_runtime_bundle(archive: Path, host_dir: Path, backend: Path, metalsharp_lib: Path) -> None:
+def repair_runtime_bundle(
+    archive: Path,
+    host_dir: Path,
+    backend: Path,
+    metalsharp_lib: Path,
+    x87sidecar: Path | None,
+) -> None:
     require_file(archive, "runtime bundle archive")
     require_host_runtime(host_dir)
     require_file(backend, "runtime backend")
@@ -140,6 +167,12 @@ def repair_runtime_bundle(archive: Path, host_dir: Path, backend: Path, metalsha
         runtime_root = extracted / "runtime"
         if not runtime_root.is_dir():
             raise FileNotFoundError(f"runtime archive does not contain runtime/: {archive}")
+
+        if x87sidecar is not None:
+            require_x87sidecar(x87sidecar)
+            destination = runtime_root / "wine" / "bin" / "x87sidecar"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(x87sidecar, destination)
 
         copy_tree(host_dir, runtime_root / "host")
         shutil.copy2(backend, runtime_root / "metalsharp-backend")
@@ -159,9 +192,17 @@ def main() -> None:
     parser.add_argument("--host-dir", type=Path, default=DEFAULT_HOST)
     parser.add_argument("--backend", type=Path, default=DEFAULT_BACKEND)
     parser.add_argument("--metalsharp-lib", type=Path, default=DEFAULT_METALSHARP_LIB)
+    parser.add_argument(
+        "--x87sidecar",
+        type=Path,
+        default=Path(os.environ["METALSHARP_X87SIDECAR_PATH"])
+        if os.environ.get("METALSHARP_X87SIDECAR_PATH")
+        else None,
+        help="copy a verified arm64 x87sidecar into runtime/wine/bin",
+    )
     args = parser.parse_args()
 
-    repair_runtime_bundle(args.archive, args.host_dir, args.backend, args.metalsharp_lib)
+    repair_runtime_bundle(args.archive, args.host_dir, args.backend, args.metalsharp_lib, args.x87sidecar)
     print(f"repaired runtime bundle: {args.archive}")
 
 
