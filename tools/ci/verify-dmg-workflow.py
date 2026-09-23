@@ -124,7 +124,6 @@ def check_workflows() -> None:
     pr = read(".github/workflows/pr-ci.yml")
     main = read(".github/workflows/ci.yml")
     release = read(".github/workflows/release.yml")
-    virustotal = read(".github/workflows/virustotal-release.yml")
 
     if "DMG Workflow CI" not in pr:
         fail("PR CI must keep a lightweight DMG Workflow CI job")
@@ -181,45 +180,13 @@ def check_workflows() -> None:
     ]:
         if required not in adhoc_sign:
             fail(f"ad-hoc deep-sign hook missing hardening contract: {required}")
-    for required in [
-        "workflow_run:",
-        "workflow_dispatch:",
-        "release_run_id:",
-        'workflows: ["Release CI"]',
-        "github.event.workflow_run.conclusion == 'success'",
-        "github.event.workflow_run.event == 'push'",
-        "github.event.workflow_run.id",
-        "github.event.workflow_run.head_sha",
-        "steps.source.outputs.release_run_id",
-        "steps.source.outputs.head_sha",
-        "gh run download",
-        "RELEASE-TAG.txt",
-        "VIRUSTOTAL_API_KEY",
-        "virustotal-release.py validate-assets",
-        "virustotal-release.py scan",
-        "virustotal-release.py merge-body",
-        "gh release edit",
-    ]:
-        if required not in virustotal:
-            fail(f"VirusTotal release workflow missing exact-release contract: {required}")
-    for forbidden in ["gh release download", "/releases/latest", "latest/download"]:
-        if forbidden in virustotal:
-            fail(f"VirusTotal release workflow may scan a stale release: {forbidden}")
-
-    scanner = read("tools/ci/virustotal-release.py")
-    for required in [
-        "650 * 1024 * 1024",
-        "part-{index}-of-{PART_COUNT}",
-        "PART_COUNT = 3",
-        "files/upload_url",
-        'header = "x-apikey:',
-        '"--config"',
-        "/api/v3/analyses/",
-        "partial-file scans",
-        "not a complete mountable DMG",
-    ]:
-        if required not in scanner:
-            fail(f"VirusTotal scanner missing required behavior: {required}")
+    if (ROOT / ".github/workflows/virustotal-release.yml").exists():
+        fail("VirusTotal release workflow must be removed")
+    if (ROOT / "tools/ci/virustotal-release.py").exists():
+        fail("VirusTotal release scanner must be removed")
+    for workflow_name, workflow in [("PR CI", pr), ("main CI", main)]:
+        if "virustotal" in workflow.lower():
+            fail(f"{workflow_name} must not run VirusTotal checks")
 
     notarization = read("tools/dmg/verify-notarization.sh")
     for required in [
