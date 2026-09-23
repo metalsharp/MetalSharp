@@ -1,5 +1,5 @@
 # Wine Architecture
-**Updated:** 2026-09-22
+**Updated:** 2026-09-23
 
 MetalSharp ships a self-contained Wine runtime at:
 
@@ -107,6 +107,7 @@ High Resolution (Retina) is on by default for the shared prefix: each managed la
 | Variable | Purpose |
 |---|---|
 | `WINEPREFIX` | Prefix location |
+| `ROSETTA_ADVERTISE_AVX` | MetalSharp sets this for Wine launches on Apple Silicon so Rosetta reports translated AVX/AVX2 CPU features; it does not add AVX emulation to Wine or guarantee game compatibility |
 | `WINEDLLPATH` | Wine PE DLL lookup |
 | `DYLD_FALLBACK_LIBRARY_PATH` | Unix library lookup for Wine and DXMT |
 | `WINEDLLOVERRIDES` | Injected/native DLL behavior |
