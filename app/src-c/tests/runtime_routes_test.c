@@ -60,6 +60,15 @@ int main(int argc, char** argv) {
     assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
     assert(strstr(pipeline_overrides("dxmt"), "d3d10core"));
     assert(strstr(pipeline_overrides("vkd3d"), "d3d9"));
+    /* Isaac is OpenGL-based: WineMetalGL breaks GL_VERSION on the 32-bit route. */
+    setenv("WINEMETALGL", "1", 1);
+    set_game_opengl_env(250900, "dxmt_32");
+    assert(!strcmp(getenv("WINEMETALGL"), "0"));
+    setenv("WINEMETALGL", "1", 1);
+    set_game_opengl_env(250900, "dxmt");
+    assert(!strcmp(getenv("WINEMETALGL"), "1"));
+    set_game_opengl_env(42, "dxmt_32");
+    assert(!strcmp(getenv("WINEMETALGL"), "1"));
     set_route_paths(home, "d3dmetal");
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));
