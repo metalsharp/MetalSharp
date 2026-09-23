@@ -508,6 +508,13 @@ static void set_route_default_env(const char* pipeline) {
     }
 }
 
+static void set_game_opengl_env(unsigned id, const char* pipeline) {
+    /* Isaac: Rebirth uses OpenGL, not Direct3D. WineMetalGL currently reports
+     * an empty GL_VERSION under WoW64, which breaks GLFW context creation. */
+    if (id == 250900 && !strcmp(pipeline, "dxmt_32"))
+        setenv("WINEMETALGL", "0", 1);
+}
+
 static bool append_launch_arg(char** argv, size_t* count, size_t max, const char* arg) {
     if (*count + 1 >= max)
         return false;
@@ -3744,6 +3751,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         setenv("METALSHARP_PIPELINE", pipeline, 1);
         set_route_paths(home, pipeline);
         set_route_default_env(pipeline);
+        set_game_opengl_env(id, pipeline);
         set_launch_cache_env(home, id, pipeline);
         if (id == 312520 || id == 2357570) {
             char diagnostic_path[PATH_MAX];

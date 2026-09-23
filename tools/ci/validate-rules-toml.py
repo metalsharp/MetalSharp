@@ -82,6 +82,12 @@ def main() -> int:
 
     overrides = data.get("overrides", {})
 
+    # Isaac Rebirth has a confirmed working DXMT 32-bit route. Keep its
+    # recommended launch rule aligned with that route.
+    isaac_rule = overrides.get("250900", {})
+    if not isinstance(isaac_rule, dict) or isaac_rule.get("pipeline") != "dxmt_32":
+        errors.append("[overrides.250900] must keep pipeline = 'dxmt_32'")
+
     # 2. No duplicate `[overrides.APPID]` top-level sections.
     #    The `toml` parser already raises on duplicates, but we also do a
     #    line-scan so the error message is clear if a future parser silently
