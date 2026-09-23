@@ -21,7 +21,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 // factor writes to dxmt.conf and applies on relaunch (Config is a cached singleton).
 const metalfx = ref<MetalFxState | null>(null);
 const metalfxBusy = ref(false);
-const metalfxFactors = [1.5, 1.75, 2.0];
+const metalfxFactors = [1.75, 2.0];
 
 async function refreshMetalfx(): Promise<void> {
   try {
@@ -54,7 +54,7 @@ async function setMetalfxFactor(factor: number): Promise<void> {
     const res = await api<MetalFxState>("POST", "/metalfx/toggle", { enabled, factor });
     if (res) metalfx.value = res;
     status.value = res?.ok
-      ? `MetalFX factor ${factor.toFixed(2)}× saved — applies on relaunch (DXMT Config reloads at launch)`
+      ? `MetalFX factor ${factor === 2 ? "2×" : "1.75×"} saved — applies on relaunch (DXMT Config reloads at launch)`
       : `MetalFX factor failed: ${res?.error ?? "unknown"}`;
   } finally {
     metalfxBusy.value = false;
@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
               :disabled="metalfxBusy"
               @change="setMetalfxFactor(parseFloat(($event.target as HTMLSelectElement).value))"
             >
-              <option v-for="f in metalfxFactors" :key="f" :value="f">{{ f.toFixed(2) }}×</option>
+              <option v-for="f in metalfxFactors" :key="f" :value="f">{{ f === 2 ? "2×" : "1.75×" }}</option>
             </select>
           </div>
           <small class="pm-metalfx-note">on/off: next swapchain recreate · factor: relaunch</small>

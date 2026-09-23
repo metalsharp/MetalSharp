@@ -204,11 +204,12 @@ static bool save_matrix_record(const char* home, const ms_json* request, const c
     return ok;
 }
 static const char* profile_arch(const char* profile) {
-    if (!strcmp(profile, "dxmt_32") || !strcmp(profile, "dxvk_32") || !strcmp(profile, "m10_32") ||
+    if (!strcmp(profile, "dxmt_32") || !strcmp(profile, "dxvk_32") || !strcmp(profile, "d3d9_32") ||
+        !strcmp(profile, "m10_32") ||
         !strcmp(profile, "m11_32") || !strcmp(profile, "win32_dotnet"))
         return "win32";
-    if (!strcmp(profile, "dxmt") || !strcmp(profile, "dxvk") || !strcmp(profile, "m10") || !strcmp(profile, "m11") ||
-        !strcmp(profile, "vkd3d") ||
+    if (!strcmp(profile, "dxmt") || !strcmp(profile, "m10") ||
+        !strcmp(profile, "m11") || !strcmp(profile, "vkd3d") ||
         !strcmp(profile, "m13") ||
         !strcmp(profile, "d3dmetal") || !strcmp(profile, "dotnet") || !strcmp(profile, "fna_arm64") ||
         !strcmp(profile, "fna_x86"))
@@ -216,14 +217,14 @@ static const char* profile_arch(const char* profile) {
     return "wow64";
 }
 static const char* pipeline_profile(const char* pipeline) {
-    if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
-        return "vkd3d";
+    if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "d3d9"))
+        return "d3d9";
+    if (!strcmp(pipeline, "dxvk_32") || !strcmp(pipeline, "d3d9_32"))
+        return "d3d9";
     if (!strcmp(pipeline, "m10") || !strcmp(pipeline, "m11") || !strcmp(pipeline, "dxmt"))
         return "dxmt";
     if (!strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32") || !strcmp(pipeline, "dxmt_32"))
         return "dxmt_32";
-    if (!strcmp(pipeline, "dxvk_32"))
-        return "dxvk_32";
     if (!strcmp(pipeline, "vkd3d"))
         return "vkd3d";
     if (!strcmp(pipeline, "m13"))
@@ -238,14 +239,16 @@ static const char* profile_pipeline(const char* profile) {
     if (!strcmp(profile, "plain") || !strcmp(profile, "launcher") || !strcmp(profile, "game_install") ||
         !strcmp(profile, "dotnet") || !strcmp(profile, "webview") || !strcmp(profile, "java_launcher"))
         return "wine_bare";
-    if (!strcmp(profile, "m9") || !strcmp(profile, "dxvk") || !strcmp(profile, "dxvk_32"))
-        return "vkd3d";
+    if (!strcmp(profile, "m9") || !strcmp(profile, "dxvk") || !strcmp(profile, "d3d9"))
+        return "d3d9";
+    if (!strcmp(profile, "dxvk_32") || !strcmp(profile, "d3d9_32"))
+        return "d3d9";
     if (!strcmp(profile, "m10") || !strcmp(profile, "m11") || !strcmp(profile, "dxmt"))
         return "dxmt";
     if (!strcmp(profile, "m10_32") || !strcmp(profile, "m11_32") || !strcmp(profile, "dxmt_32"))
         return "dxmt_32";
-    if (!strcmp(profile, "dxvk_32") || !strcmp(profile, "win32_dotnet"))
-        return "dxvk_32";
+    if (!strcmp(profile, "win32_dotnet"))
+        return "dxmt_32";
     if (!strcmp(profile, "m13"))
         return "m13";
     if (!strcmp(profile, "d3dmetal"))
@@ -1042,7 +1045,8 @@ static char* merge_synced_manifest(const char* path, const ms_json* game, const 
 }
 static bool write_synced_manifest(const char* home, const ms_json* game) {
     long long appid;
-    char *name = NULL, *game_dir = NULL, *root, *dir, *path, *raw;
+    char *name = NULL, *game_dir = NULL, *pipeline = NULL, *root, *dir, *path, *raw;
+    const char* selected_pipeline;
     FILE* f;
     ms_json_writer w;
     bool ok = false;
@@ -1050,11 +1054,14 @@ static bool write_synced_manifest(const char* home, const ms_json* game) {
         return false;
     ms_json_as_string(ms_json_object_get(game, "name"), &name);
     ms_json_as_string(ms_json_object_get(game, "wine_game_path"), &game_dir);
+    ms_json_as_string(ms_json_object_get(game, "launch_method"), &pipeline);
+    selected_pipeline = pipeline && pipeline[0] ? pipeline : "vkd3d";
     root = join(home, "bottles");
     if (!root || !mkdir_p(root)) {
         free(root);
         free(name);
         free(game_dir);
+        free(pipeline);
         return false;
     }
     char id[64];
@@ -1067,6 +1074,7 @@ static bool write_synced_manifest(const char* home, const ms_json* game) {
         free(path);
         free(name);
         free(game_dir);
+        free(pipeline);
         return false;
     }
     if (access(path, F_OK) == 0) {
@@ -1081,6 +1089,7 @@ static bool write_synced_manifest(const char* home, const ms_json* game) {
         free(path);
         free(name);
         free(game_dir);
+        free(pipeline);
         return merged_ok;
     }
     ms_json_writer_init(&w);
@@ -1096,8 +1105,8 @@ static bool write_synced_manifest(const char* home, const ms_json* game) {
     obj_string(&w, "prefix_path", prefix ? prefix : "");
     free(prefix);
     obj_string(&w, "arch", "wow64");
-    obj_string(&w, "runtime_profile", "vkd3d");
-    obj_string(&w, "preferred_pipeline", "vkd3d");
+    obj_string(&w, "runtime_profile", selected_pipeline);
+    obj_string(&w, "preferred_pipeline", selected_pipeline);
     ms_json_writer_key(&w, "installed_components");
     ms_json_writer_array_begin(&w);
     ms_json_writer_array_end(&w);
@@ -1143,6 +1152,7 @@ static bool write_synced_manifest(const char* home, const ms_json* game) {
     free(path);
     free(name);
     free(game_dir);
+    free(pipeline);
     return ok;
 }
 static char* sync_steam_result(const char* home) {
@@ -2081,7 +2091,8 @@ char* ms_bottle_action_json(const char* home, const char* action, const unsigned
             }
             if (strcmp(profile, "plain") && strcmp(profile, "launcher") && strcmp(profile, "game_install") &&
                 strcmp(profile, "dxmt") && strcmp(profile, "dxmt_32") && strcmp(profile, "dxvk") &&
-                strcmp(profile, "dxvk_32") && strcmp(profile, "m9") && strcmp(profile, "m10") &&
+                strcmp(profile, "dxvk_32") && strcmp(profile, "d3d9") && strcmp(profile, "d3d9_32") &&
+                strcmp(profile, "m9") && strcmp(profile, "m10") &&
                 strcmp(profile, "m10_32") && strcmp(profile, "m11") && strcmp(profile, "m11_32") &&
                 strcmp(profile, "vkd3d") && strcmp(profile, "m13") && strcmp(profile, "d3dmetal") &&
                 strcmp(profile, "dotnet") && strcmp(profile, "win32_dotnet") && strcmp(profile, "webview") &&
