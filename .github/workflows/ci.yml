@@ -202,6 +202,3 @@ jobs:
 
       - name: Verify DMG workflow contract
         run: python3 tools/ci/verify-dmg-workflow.py
-
-      - name: Test VirusTotal release scanner
-        run: python3 tools/ci/test_virustotal_release.py

@@ -36,7 +36,7 @@ MetalSharp Is An Application Designed To Run Windows Applications and Windows St
 
 Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
 
-If Gatekeeper cannot verify the app, open **_System Settings → Privacy & Security_** and choose **_Open Anyway_** for MetalSharp. VirusTotal scans are included with release notes when available.
+If Gatekeeper cannot verify the app, open **_System Settings → Privacy & Security_** and choose **_Open Anyway_** for MetalSharp.
 
 Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 
