@@ -47,7 +47,7 @@ mkdir -p "$STAGE_DIR"
 
 while IFS=$'\t' read -r asset root platforms _notes; do
   case "$asset" in
-    ""|\#*) continue ;;
+    ""|\#*|metalsharp-d3d12-developer-sdk.tar.zst) continue ;;
   esac
 
   case ",$platforms," in

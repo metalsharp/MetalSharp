@@ -69,6 +69,8 @@ def check_package_resources(assets: list[str]) -> None:
 
 def check_dmg_verifier(assets: list[str]) -> None:
     verifier = read("tools/dmg/verify-dmg-runtime-assets.sh")
+    if "verify-developer-sdk.sh" in verifier:
+        fail("DMG verifier must not run D3D12 developer SDK validation")
     for needle in [
         "Contents/Resources",
         "runtime/metalsharp-backend",
@@ -81,6 +83,8 @@ def check_dmg_verifier(assets: list[str]) -> None:
             fail(f"DMG verifier no longer checks {needle}")
 
     for asset in assets:
+        if asset == "metalsharp-d3d12-developer-sdk.tar.zst":
+            continue
         if asset not in verifier:
             fail(f"DMG verifier no longer checks bundle asset {asset}")
 
