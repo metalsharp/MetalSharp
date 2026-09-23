@@ -114,6 +114,39 @@ int main(int argc, char** argv) {
     free(exe);
     free(stale);
     free(custom);
+
+    /* Steam libraries on external drives are stored as Wine drive paths in libraryfolders.vdf. */
+    char* host_path = ms_steam_library_host_path(NULL, "Z:\\\\Volumes\\\\SSD\\\\SteamLibrary", 30);
+    assert(host_path && !strcmp(host_path, "/Volumes/SSD/SteamLibrary"));
+    free(host_path);
+    host_path = ms_steam_library_host_path(NULL, "/Volumes/SSD/SteamLibrary", 25);
+    assert(host_path && !strcmp(host_path, "/Volumes/SSD/SteamLibrary"));
+    free(host_path);
+    setenv("HOME", home, 1);
+    fixture(home, "external/SteamLibrary/steamapps/appmanifest_812140.acf",
+            "\"AppState\"\n{\n\t\"appid\"\t\t\"812140\"\n\t\"name\"\t\t\"External Game\"\n"
+            "\t\"installdir\"\t\t\"External Game\"\n}\n");
+    fixture(home, "external/SteamLibrary/steamapps/common/External Game/game.exe", "game executable");
+    fixture(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps/libraryfolders.vdf",
+            "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"C:\\\\Program Files (x86)\\\\Steam\"\n\t}\n"
+            "\t\"1\"\n\t{\n\t\t\"path\"\t\t\"E:\\\\SteamLibrary\"\n\t}\n}\n");
+    char* dosdevices = join(home, "prefix-steam/dosdevices");
+    char* drive_c_link = join(dosdevices, "c:");
+    char* drive_e_link = join(dosdevices, "e:");
+    char* external = join(home, "external");
+    assert(ensure_directory(dosdevices));
+    assert(symlink("../drive_c", drive_c_link) == 0);
+    assert(symlink(external, drive_e_link) == 0);
+    char* external_dir = ms_steam_game_dir(home, 812140);
+    assert(external_dir && strstr(external_dir, "/dosdevices/e:/SteamLibrary/steamapps/common/External Game"));
+    char* external_exe = find_steam_game_executable(home, 812140, "dxmt");
+    assert(external_exe && strstr(external_exe, "/External Game/game.exe"));
+    free(external_exe);
+    free(external_dir);
+    free(external);
+    free(drive_e_link);
+    free(drive_c_link);
+    free(dosdevices);
     puts("runtime routing regressions passed");
     return 0;
 }

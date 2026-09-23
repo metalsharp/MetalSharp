@@ -433,11 +433,48 @@ static void collect_steam_games(const char* steamapps, steam_game** games, size_
     closedir(dir);
 }
 
-static char* vdf_path_value(const char* line) {
+char* ms_steam_library_host_path(const char* steamapps, const char* value, size_t length) {
+    char* path = malloc(length + 1);
+    char *drive_c, *prefix, *drive_link, *result;
+    size_t used = 0;
+    if (path == NULL)
+        return NULL;
+    /* VDF escapes backslashes, so Z:\\Volumes arrives doubled; collapse each run to one separator. */
+    for (size_t i = 0; i < length; i++) {
+        if (value[i] == '\\') {
+            if (used == 0 || path[used - 1] != '/')
+                path[used++] = '/';
+        } else {
+            path[used++] = value[i];
+        }
+    }
+    path[used] = '\0';
+    if (!isalpha((unsigned char)path[0]) || path[1] != ':' || (path[2] != '\0' && path[2] != '/'))
+        return path;
+    /* Wine drive letters live in <prefix>/dosdevices, next to the drive_c that holds steamapps. */
+    drive_c = steamapps ? strstr(steamapps, "/drive_c/") : NULL;
+    prefix = drive_c ? strndup(steamapps, (size_t)(drive_c - steamapps)) : NULL;
+    if (prefix != NULL) {
+        char device[4] = {(char)tolower((unsigned char)path[0]), ':', '\0', '\0'};
+        char* dosdevices = join_path(prefix, "dosdevices");
+        drive_link = dosdevices ? join_path(dosdevices, device) : NULL;
+        free(dosdevices);
+        free(prefix);
+    } else if (tolower((unsigned char)path[0]) == 'z') {
+        drive_link = strdup("/");
+    } else {
+        drive_link = NULL;
+    }
+    result = drive_link && path[2] == '/' ? join_path(drive_link, path + 3) : drive_link;
+    if (result != drive_link)
+        free(drive_link);
+    free(path);
+    return result;
+}
+
+static char* vdf_path_value(const char* steamapps, const char* line) {
     const char* value;
     const char* end;
-    char* result;
-    size_t length;
     while (*line != '\0' && isspace((unsigned char)*line))
         line++;
     if (strncmp(line, "\"path\"", 6) != 0)
@@ -453,14 +490,7 @@ static char* vdf_path_value(const char* line) {
         end++;
     if (*end != '\"')
         return NULL;
-    length = (size_t)(end - value);
-    result = strndup(value, length);
-    if (result == NULL)
-        return NULL;
-    for (size_t i = 0; i < length; i++)
-        if (result[i] == '\\')
-            result[i] = '/';
-    return result;
+    return ms_steam_library_host_path(steamapps, value, (size_t)(end - value));
 }
 
 static void collect_steam_library_tree(const char* steamapps, steam_game** games, size_t* count, size_t* capacity) {
@@ -479,7 +509,7 @@ static void collect_steam_library_tree(const char* steamapps, steam_game** games
         const char* next = strchr(line, '\n');
         size_t line_length = next == NULL ? strlen(line) : (size_t)(next - line);
         char* line_copy = strndup(line, line_length);
-        char* library_path = line_copy == NULL ? NULL : vdf_path_value(line_copy);
+        char* library_path = line_copy == NULL ? NULL : vdf_path_value(steamapps, line_copy);
         char* library_steamapps = library_path == NULL ? NULL : join_path(library_path, "steamapps");
         if (library_steamapps != NULL && strcmp(library_steamapps, steamapps) != 0 &&
             access(library_steamapps, F_OK) == 0)
