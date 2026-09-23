@@ -269,7 +269,16 @@ verify_hash_manifest() {
     rm -rf "$hash_tmp"
     return 1
   fi
-  if ! tar --use-compress-program=unzstd -xf "$archive" -C "$hash_tmp" -T "$members" >"$hash_tmp/extract.log" 2>&1; then
+  # Decompress to a regular tar file first. BSD tar can stop reading a
+  # selected-file list early, which closes its unzstd pipe and reports EPIPE.
+  local expanded_archive="$hash_tmp/archive.tar"
+  if ! unzstd -q -c "$archive" >"$expanded_archive" 2>"$hash_tmp/decompress.log"; then
+    echo "$label INVALID: unable to decompress $archive for hash verification" >&2
+    cat "$hash_tmp/decompress.log" >&2
+    rm -rf "$hash_tmp"
+    return 1
+  fi
+  if ! tar -xf "$expanded_archive" -C "$hash_tmp" -T "$members" >"$hash_tmp/extract.log" 2>&1; then
     echo "$label INVALID: unable to extract $archive for hash verification" >&2
     cat "$hash_tmp/extract.log" >&2
     df -h "$hash_tmp" >&2 || true
