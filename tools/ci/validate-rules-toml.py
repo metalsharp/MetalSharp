@@ -38,6 +38,8 @@ VALID_PIPELINES = {
     "dxmt",
     "dxmt_32",
     "vkd3d",
+    "d3d9",
+    "d3d9_32",
     "d3dmetal",
     "m13",
     "fna_arm64",

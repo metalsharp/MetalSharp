@@ -646,6 +646,7 @@ const gogProgress = ref<Record<string, number>>({});
 const engineOptions = [
   { id: "d3dmetal", name: "D3DMetal" },
   { id: "vkd3d", name: "VKD3D" },
+  { id: "d3d9", name: "D3D9" },
   { id: "dxmt", name: "DXMT" },
   { id: "dxmt_32", name: "DXMT(32)" },
   { id: "fna_arm64", name: "Mono/FNA" },
@@ -709,8 +710,8 @@ function d3dmetalActionReady(action: D3DMetalGptkAction): boolean {
 function isFnaProfile(profile: string): boolean {
   return profile === "fna_arm64" || profile === "fna_x86";
 }
-const selectableRuntimeProfileIds = new Set(["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "fna_arm64"]);
-const selectableRuntimeProfileOrder = ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "fna_arm64"];
+const selectableRuntimeProfileIds = new Set(["d3dmetal", "vkd3d", "d3d9", "dxmt", "dxmt_32", "fna_arm64"]);
+const selectableRuntimeProfileOrder = ["d3dmetal", "vkd3d", "d3d9", "dxmt", "dxmt_32", "fna_arm64"];
 const visibleRuntimeProfiles = computed(() => {
   const profiles = runtimeProfiles.value.some((profile) => profile.id === "d3dmetal")
     ? runtimeProfiles.value
