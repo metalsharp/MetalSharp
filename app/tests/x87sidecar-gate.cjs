@@ -46,3 +46,7 @@ test('sidecar remains scoped to the VKD3D route and verified asset', () => {
   assert.match(dmgVerifier, /METALSHARP_REQUIRE_X87SIDECAR=1/);
   assert.match(dmgVerifier, /verify-developer-sdk\.sh/);
 });
+
+test('runtime verifier uses file-backed extraction for selective sidecar checks', () => {
+  assert.ok(verifier.includes('extract_bundle_members "$path" "$tmp" "$members" "RUNTIME x87sidecar"'));
+});
