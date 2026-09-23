@@ -68,7 +68,14 @@ while IFS= read -r keychain; do
 done < <(security list-keychains -d user)
 security list-keychains -d user -s "$KEYCHAIN_PATH" "${existing_keychains[@]}"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+identity_listing="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH")"
+printf '%s\n' "$identity_listing"
+APPLE_SIGNING_IDENTITY="$(printf '%s\n' "$identity_listing" | awk -F '"' '/Developer ID Application:/ {print $2; exit}')"
+if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+  echo "Imported keychain has no Developer ID Application identity." >&2
+  exit 1
+fi
+echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >>"$GITHUB_ENV"
 
 if [ "$api_notary_ready" -eq 1 ]; then
   API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"

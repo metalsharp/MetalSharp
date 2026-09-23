@@ -134,6 +134,9 @@ def check_workflows() -> None:
     for required in ["Shell CI", "Metal CI", "Vue CI", "Electron CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
         if required not in main:
             fail(f"main CI missing validation job: {required}")
+    for workflow_name, workflow in [("PR CI", pr), ("main CI", main)]:
+        if "python3 -m unittest tools.dmg.tests.test_sign_notarize_dmg -v" not in workflow:
+            fail(f"{workflow_name} must run the offline DMG signing pipeline tests")
     for forbidden in [
         "Verify Developer SDK Bundle",
         "Build DMG",
@@ -151,6 +154,7 @@ def check_workflows() -> None:
         "Publish developer SDK package",
         "Publish developer SDK bundle",
         "Build DMG",
+        "Sign and notarize distributable DMG",
         "Check Apple signing credentials",
         "Verify Apple notarization",
         "Mark unsigned DMG",
@@ -170,6 +174,30 @@ def check_workflows() -> None:
             fail(f"release workflow missing signing fallback contract: {required}")
     if "CSC_IDENTITY_AUTO_DISCOVERY=false" not in read("tools/dmg/check-apple-signing-readiness.sh"):
         fail("unsigned DMG fallback must disable Electron Builder certificate discovery")
+    signing_preparation = read("tools/dmg/prepare-apple-signing.sh")
+    if "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" not in signing_preparation:
+        fail("Apple signing preparation must export the Developer ID identity for DMG signing")
+    notarization_hook = read("app/build/notarize.cjs")
+    if 'METALSHARP_DEFER_NOTARIZATION_TO_DMG === "1"' not in notarization_hook:
+        fail("release packaging must defer notarization to the outermost DMG")
+    if "METALSHARP_DEFER_NOTARIZATION_TO_DMG:" not in release:
+        fail("release packaging must defer app notarization until the final DMG is built")
+    signing_script = read("tools/dmg/sign-notarize-dmg.sh")
+    for required in [
+        "codesign --force --sign",
+        "-i com.metalsharp.app.dmg",
+        "notarytool submit",
+        "--wait",
+        "--output-format json",
+        'notary_status" != "Accepted"',
+        "xcrun notarytool log",
+        "xcrun stapler staple",
+        "xcrun stapler validate",
+    ]:
+        if required not in signing_script:
+            fail(f"DMG signing pipeline missing required operation: {required}")
+    if release.index("Sign and notarize distributable DMG") > release.index("Verify Apple notarization"):
+        fail("the completed DMG must be signed and notarized before notarization verification")
     adhoc_sign = read("app/build/adhoc-deep-sign.cjs")
     for required in [
         "METALSHARP_UNSIGNED_DMG",
@@ -191,7 +219,8 @@ def check_workflows() -> None:
     notarization = read("tools/dmg/verify-notarization.sh")
     for required in [
         "Authority=Developer ID Application",
-        "xcrun stapler validate",
+        'xcrun stapler validate "$dmg"',
+        'codesign --verify --verbose=4 "$dmg"',
         "hdiutil verify",
         "spctl -a -vvv --type open",
     ]:

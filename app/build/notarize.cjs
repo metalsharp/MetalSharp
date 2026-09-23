@@ -14,6 +14,11 @@ exports.default = async function notarizeMetalSharp(context) {
     return;
   }
 
+  if (process.env.METALSHARP_DEFER_NOTARIZATION_TO_DMG === "1") {
+    console.log("Apple notarization deferred to the signed outermost DMG.");
+    return;
+  }
+
   const requireNotarization = process.env.METALSHARP_REQUIRE_NOTARIZATION === "1";
   if (!hasPasswordCredentials() && !hasApiKeyCredentials()) {
     const message =
