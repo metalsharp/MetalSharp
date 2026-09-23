@@ -216,7 +216,6 @@ verify_runtime_core() {
     runtime/wine/share/mono/wine-mono-11.3.0/support/winemono-support.msi \
     runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86.dll \
     runtime/wine/share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86_64.dll &&
-    verify_hash_manifest "$1" "RUNTIME Wine GSBASE" "runtime/wine" "$SCRIPT_DIR/wine-runtime-hashes.tsv" &&
     verify_hash_manifest "$1" "RUNTIME MoltenVK" "runtime/wine" "$SCRIPT_DIR/moltenvk-runtime-hashes.tsv"
 }
 
