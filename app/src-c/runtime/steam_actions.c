@@ -2117,6 +2117,8 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "FallGuys_client_game.exe";
     else if (id == 4704690)
         preferred[count++] = "Chameleon/Binaries/Win64/PenguinHotel-Win64-Shipping.exe";
+    else if (id == 4126040)
+        preferred[count++] = "Aniimo.exe";
     else if (id == 1145360 && pipeline && !strcmp(pipeline, "dxmt_32"))
         preferred[count++] = "x86/Hades.exe";
     else if (id == 1145360)

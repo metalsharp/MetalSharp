@@ -67,6 +67,15 @@ int main(int argc, char** argv) {
     free(cs2_exe);
     free(cs2_dir);
 
+    fixture(home, "aniimo/repair.exe", "repair helper");
+    fixture(home, "aniimo/KernelDumpAnalyzer.exe", "dump helper");
+    fixture(home, "aniimo/Aniimo.exe", "game executable");
+    char* aniimo_dir = join(home, "aniimo");
+    char* aniimo_exe = preferred_steam_game_executable(aniimo_dir, 4126040, "d3dmetal");
+    assert(aniimo_exe && strstr(aniimo_exe, "/aniimo/Aniimo.exe"));
+    free(aniimo_exe);
+    free(aniimo_dir);
+
     fixture(home, "configs/config.json", "{\"msync\":false}");
     set_wine_msync(home);
     assert(!strcmp(getenv("WINEMSYNC"), "0"));
