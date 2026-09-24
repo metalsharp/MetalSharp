@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, inject, onMounted, onUnmounted, type Ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import type { AppConfig, UpdateStatus } from "../api-types";
@@ -43,6 +44,7 @@ const reopenSetup = inject<(() => void) | null>("reopenSetup", null);;
 const lowPerformanceMode = inject<Ref<boolean>>("lowPerformanceMode")!;
 
 const toast = useToast();
+const { t } = useI18n();
 const shaderCache = ref<CacheSummary | null>(null);
 const pipelineCache = ref<CacheSummary | null>(null);
 const apiKeyInput = ref("");
@@ -356,7 +358,7 @@ function uninstallMetalsharp() {
       <header class="so-header">
         <div class="so-header-title">
           <span class="so-eyebrow">METALSHARP</span>
-          <h2>Settings</h2>
+          <h2>{{ t("settings.title") }}</h2>
         </div>
         <div class="so-header-actions">
           <LanguagePicker compact />
@@ -368,7 +370,7 @@ function uninstallMetalsharp() {
 
       <div class="so-body">
         <section class="so-card">
-          <h3>Steam Integration</h3>
+          <h3>{{ t("settings.steamIntegration") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">Steam Web API Key</div>
@@ -399,7 +401,7 @@ function uninstallMetalsharp() {
         </section>
 
         <section class="so-card">
-          <h3>Steam</h3>
+          <h3>{{ t("settings.steam") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">Wine Steam (MetalSharp)</div>
@@ -456,7 +458,7 @@ function uninstallMetalsharp() {
         </section>
 
         <section class="so-card">
-          <h3>Backend</h3>
+          <h3>{{ t("settings.backend") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">Game Runtime Backend</div>
@@ -553,7 +555,7 @@ function uninstallMetalsharp() {
         </section>
 
         <section class="so-card">
-          <h3>Data &amp; Permissions</h3>
+          <h3>{{ t("settings.dataPermissions") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">MetalSharp Data Folder</div>
@@ -580,7 +582,7 @@ function uninstallMetalsharp() {
         </section>
 
         <section class="so-card">
-          <h3>Cache</h3>
+          <h3>{{ t("settings.cache") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">Shader Cache</div>
@@ -607,7 +609,7 @@ function uninstallMetalsharp() {
         </section>
 
         <section class="so-card">
-          <h3>Updates</h3>
+          <h3>{{ t("settings.updates") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">Version</div>
@@ -664,7 +666,7 @@ function uninstallMetalsharp() {
         </section>
 
         <section class="so-card danger">
-          <h3><IconTrash2 width="14" height="14" /> Danger Zone</h3>
+          <h3><IconTrash2 width="14" height="14" /> {{ t("settings.dangerZone") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">Uninstall MetalSharp</div>
