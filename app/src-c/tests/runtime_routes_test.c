@@ -76,6 +76,13 @@ int main(int argc, char** argv) {
     free(aniimo_exe);
     free(aniimo_dir);
 
+    fixture(home, "ubisoft/odyssey/uplay_r1_loader64.dll", "Ubisoft Connect marker");
+    char* ubisoft_game_dir = join(home, "ubisoft/odyssey");
+    assert(steam_game_uses_ubisoft_connect(812140, NULL));
+    assert(steam_game_uses_ubisoft_connect(999999, ubisoft_game_dir));
+    assert(!steam_game_uses_ubisoft_connect(999999, home));
+    free(ubisoft_game_dir);
+
     fixture(home, "configs/config.json", "{\"msync\":false}");
     set_wine_msync(home);
     assert(!strcmp(getenv("WINEMSYNC"), "0"));

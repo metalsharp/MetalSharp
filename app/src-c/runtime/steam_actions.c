@@ -4065,6 +4065,114 @@ static char* launch_game_via_steam_json(const char* home, unsigned id, int* stat
     return pid_result(pid, "pid", id, true);
 }
 
+static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
+    static const char* const marker_files[] = {"uplay_r1_loader64.dll", "uplay_r1_loader.dll",
+                                               "UbisoftConnect.exe", "UbisoftGameLauncher.exe"};
+    if (id == 812140) /* Assassin's Creed Odyssey (Steam). */
+        return true;
+    for (size_t i = 0; game_dir && i < sizeof(marker_files) / sizeof(marker_files[0]); i++) {
+        char* path = join(game_dir, marker_files[i]);
+        bool exists = path && access(path, R_OK) == 0;
+        free(path);
+        if (exists)
+            return true;
+    }
+    return false;
+}
+
+static bool ubisoft_connect_running(const char* home) {
+    char prefix[PATH_MAX], runtime[PATH_MAX];
+    FILE* pipe;
+    char line[4096];
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe)
+        return false;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX)
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if ((contains_ci(end, "ubisoftconnect.exe") || contains_ci(end, "ubisoftgamelauncher.exe")) &&
+            wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
+            pclose(pipe);
+            return true;
+        }
+    }
+    pclose(pipe);
+    return false;
+}
+
+static char* launch_ubisoft_connect_steam_mode(const char* home, unsigned appid, pid_t* pid) {
+    static const char* const client_relative =
+        "prefix-steam/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe";
+    char app_id[32];
+    char library_env[4096];
+    char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    char* prefix = join(home, "prefix-steam");
+    char* executable = join(home, client_relative);
+    char* cwd = executable ? strdup(executable) : NULL;
+    char* slash;
+    pid_t child;
+    if (!wine || access(wine, X_OK) != 0 || !prefix || !executable || access(executable, R_OK) != 0 || !cwd) {
+        free(wine);
+        free(prefix);
+        free(executable);
+        free(cwd);
+        return strdup("Ubisoft Connect was not found in the Steam prefix");
+    }
+    slash = strrchr(cwd, '/');
+    if (slash)
+        *slash = '\0';
+    child = fork();
+    if (child < 0) {
+        char* error = strdup(strerror(errno));
+        free(wine);
+        free(prefix);
+        free(executable);
+        free(cwd);
+        return error;
+    }
+    if (child == 0) {
+        char* argv[] = {wine, executable, (char*)"-uplay_steam_mode", NULL};
+        snprintf(app_id, sizeof(app_id), "%u", appid);
+        setenv("WINEPREFIX", prefix, 1);
+        setenv("METALSHARP_HOME", home, 1);
+        setenv("WINEDEBUG", "-all", 1);
+        setenv("WINEDEBUGGER", "none", 1);
+        setenv("STEAM_RUNTIME", "0", 1);
+        setenv("SteamAppId", app_id, 1);
+        setenv("SteamGameId", app_id, 1);
+        setenv("SteamOverlayGameId", app_id, 1);
+        set_route_paths(home, "vkd3d");
+        set_route_default_env(home, "vkd3d");
+        snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
+                 home);
+#ifdef __APPLE__
+        setenv("DYLD_FALLBACK_LIBRARY_PATH", library_env, 1);
+#else
+        setenv("LD_LIBRARY_PATH", library_env, 1);
+#endif
+        (void)chdir(cwd);
+        execv(wine, argv);
+        _exit(127);
+    }
+    free(wine);
+    free(prefix);
+    free(executable);
+    free(cwd);
+    *pid = child;
+    return NULL;
+}
+
 static char* ms_steam_launch_game_json_internal(const char* home, const char* body, size_t len, int* status,
                                                 bool default_to_steam) {
     unsigned id;
@@ -4172,6 +4280,27 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         if (status)
             *status = 500;
         return err("required graphics runtime DLLs are missing");
+    }
+    if (steam_game_uses_ubisoft_connect(id, game_dir) && !ubisoft_connect_running(home)) {
+        e = launch_ubisoft_connect_steam_mode(home, id, &pid);
+        if (e) {
+            char* result = err(e);
+            free(e);
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            return result;
+        }
+        for (int i = 0; i < 50 && !ubisoft_connect_running(home); i++)
+            usleep(100000);
+        if (!ubisoft_connect_running(home)) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            return err("Ubisoft Connect did not start in Steam mode");
+        }
     }
     free(game_dir);
     if (!strcmp(pipeline, "m13"))
