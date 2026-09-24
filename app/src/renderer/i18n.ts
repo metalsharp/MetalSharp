@@ -3173,6 +3173,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   hi: {
+    settings: {
+      retina: "उच्च रिज़ॉल्यूशन (Retina)",
+      fullEffects: "पूर्ण प्रभाव",
+      reducedEffects: "कम प्रभाव",
+      dataAccess: "डेटा एक्सेस जाँच",
+      repairVerify: "मरम्मत और सत्यापन",
+      shaderCache: "शेडर कैश",
+      pipelineCache: "पाइपलाइन कैश",
+      clear: "साफ़ करें",
+      version: "संस्करण",
+      upToDate: "अप-टू-डेट",
+      dangerZone: "खतरनाक क्षेत्र",
+    },
     logs: {
       eyebrow: "METALSHARP · निदान",
       title: "लॉग",
@@ -3200,6 +3213,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   ar: {
+    settings: {
+      retina: "دقة عالية (Retina)",
+      fullEffects: "تأثيرات كاملة",
+      reducedEffects: "تأثيرات مخفّضة",
+      dataAccess: "فحص الوصول إلى البيانات",
+      repairVerify: "إصلاح وتحقق",
+      shaderCache: "ذاكرة تظليل",
+      pipelineCache: "ذاكرة خط الأنابيب",
+      clear: "مسح",
+      version: "الإصدار",
+      upToDate: "محدّث",
+      dangerZone: "منطقة الخطر",
+    },
     logs: {
       eyebrow: "METALSHARP · التشخيص",
       title: "السجلات",
@@ -3227,6 +3253,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   "pt-BR": {
+    settings: {
+      retina: "Alta resolução (Retina)",
+      fullEffects: "Efeitos completos",
+      reducedEffects: "Efeitos reduzidos",
+      dataAccess: "Verificação de acesso aos dados",
+      repairVerify: "Reparar e verificar",
+      shaderCache: "Cache de shaders",
+      pipelineCache: "Cache de pipeline",
+      clear: "Limpar",
+      version: "Versão",
+      upToDate: "Atualizado",
+      dangerZone: "Zona de perigo",
+    },
     logs: {
       eyebrow: "METALSHARP · DIAGNÓSTICO",
       title: "Registros",
@@ -3254,6 +3293,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   bn: {
+    settings: {
+      retina: "উচ্চ রেজোলিউশন (Retina)",
+      fullEffects: "সম্পূর্ণ প্রভাব",
+      reducedEffects: "কম প্রভাব",
+      dataAccess: "ডেটা অ্যাক্সেস পরীক্ষা",
+      repairVerify: "মেরামত ও যাচাই",
+      shaderCache: "শেডার ক্যাশ",
+      pipelineCache: "পাইপলাইন ক্যাশ",
+      clear: "পরিষ্কার",
+      version: "সংস্করণ",
+      upToDate: "আপডেটেড",
+      dangerZone: "বিপদ অঞ্চল",
+    },
     logs: {
       eyebrow: "METALSHARP · ডায়াগনস্টিক্স",
       title: "লগ",
@@ -3281,6 +3333,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   ru: {
+    settings: {
+      retina: "Высокое разрешение (Retina)",
+      fullEffects: "Полные эффекты",
+      reducedEffects: "Уменьшенные эффекты",
+      dataAccess: "Проверка доступа к данным",
+      repairVerify: "Исправить и проверить",
+      shaderCache: "Кэш шейдеров",
+      pipelineCache: "Кэш конвейера",
+      clear: "Очистить",
+      version: "Версия",
+      upToDate: "Обновлено",
+      dangerZone: "Опасная зона",
+    },
     logs: {
       eyebrow: "METALSHARP · ДИАГНОСТИКА",
       title: "Журналы",
@@ -3308,6 +3373,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   ja: {
+    settings: {
+      retina: "高解像度 (Retina)",
+      fullEffects: "完全な効果",
+      reducedEffects: "効果を軽減",
+      dataAccess: "データアクセス確認",
+      repairVerify: "修復して確認",
+      shaderCache: "シェーダーキャッシュ",
+      pipelineCache: "パイプラインキャッシュ",
+      clear: "クリア",
+      version: "バージョン",
+      upToDate: "最新です",
+      dangerZone: "危険区域",
+    },
     logs: {
       eyebrow: "METALSHARP · 診断",
       title: "ログ",
@@ -3335,6 +3413,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   pa: {
+    settings: {
+      retina: "ਉੱਚ ਰੈਜ਼ੋਲਿਊਸ਼ਨ (Retina)",
+      fullEffects: "ਪੂਰੇ ਪ੍ਰਭਾਵ",
+      reducedEffects: "ਘੱਟ ਪ੍ਰਭਾਵ",
+      dataAccess: "ਡਾਟਾ ਪਹੁੰਚ ਜਾਂਚ",
+      repairVerify: "ਮੁਰੰਮਤ ਅਤੇ ਜਾਂਚ",
+      shaderCache: "ਸ਼ੇਡਰ ਕੈਸ਼",
+      pipelineCache: "ਪਾਈਪਲਾਈਨ ਕੈਸ਼",
+      clear: "ਸਾਫ਼ ਕਰੋ",
+      version: "ਵਰਜਨ",
+      upToDate: "ਅੱਪ-ਟੂ-ਡੇਟ",
+      dangerZone: "ਖਤਰੇ ਵਾਲਾ ਖੇਤਰ",
+    },
     logs: {
       eyebrow: "METALSHARP · ਡਾਇਗਨੋਸਟਿਕਸ",
       title: "ਲੌਗ",
@@ -3362,6 +3453,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   de: {
+    settings: {
+      retina: "Hohe Auflösung (Retina)",
+      fullEffects: "Volle Effekte",
+      reducedEffects: "Reduzierte Effekte",
+      dataAccess: "Datenzugriff prüfen",
+      repairVerify: "Reparieren und prüfen",
+      shaderCache: "Shader-Cache",
+      pipelineCache: "Pipeline-Cache",
+      clear: "Leeren",
+      version: "Version",
+      upToDate: "Aktuell",
+      dangerZone: "Gefahrenzone",
+    },
     logs: {
       eyebrow: "METALSHARP · DIAGNOSE",
       title: "Protokolle",
@@ -3389,6 +3493,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   jv: {
+    settings: {
+      retina: "Resolusi dhuwur (Retina)",
+      fullEffects: "Efek lengkap",
+      reducedEffects: "Efek dikurangi",
+      dataAccess: "Priksa akses data",
+      repairVerify: "Ndandani lan verifikasi",
+      shaderCache: "Cache shader",
+      pipelineCache: "Cache pipeline",
+      clear: "Resiki",
+      version: "Versi",
+      upToDate: "Wis paling anyar",
+      dangerZone: "Zona bebaya",
+    },
     logs: {
       eyebrow: "METALSHARP · DIAGNOSTIK",
       title: "Log",
@@ -3416,6 +3533,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   ko: {
+    settings: {
+      retina: "고해상도 (Retina)",
+      fullEffects: "전체 효과",
+      reducedEffects: "효과 줄이기",
+      dataAccess: "데이터 접근 확인",
+      repairVerify: "복구 및 확인",
+      shaderCache: "셰이더 캐시",
+      pipelineCache: "파이프라인 캐시",
+      clear: "지우기",
+      version: "버전",
+      upToDate: "최신 상태",
+      dangerZone: "위험 영역",
+    },
     logs: {
       eyebrow: "METALSHARP · 진단",
       title: "로그",
@@ -3443,6 +3573,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   fr: {
+    settings: {
+      retina: "Haute résolution (Retina)",
+      fullEffects: "Effets complets",
+      reducedEffects: "Effets réduits",
+      dataAccess: "Vérifier l’accès aux données",
+      repairVerify: "Réparer et vérifier",
+      shaderCache: "Cache des shaders",
+      pipelineCache: "Cache du pipeline",
+      clear: "Effacer",
+      version: "Version",
+      upToDate: "À jour",
+      dangerZone: "Zone dangereuse",
+    },
     logs: {
       eyebrow: "METALSHARP · DIAGNOSTIC",
       title: "Journaux",
@@ -3470,6 +3613,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   te: {
+    settings: {
+      retina: "అధిక రిజల్యూషన్ (Retina)",
+      fullEffects: "పూర్తి ప్రభావాలు",
+      reducedEffects: "తగ్గించిన ప్రభావాలు",
+      dataAccess: "డేటా యాక్సెస్ తనిఖీ",
+      repairVerify: "రిపేర్ చేసి ధృవీకరించండి",
+      shaderCache: "షేడర్ క్యాష్",
+      pipelineCache: "పైప్‌లైన్ క్యాష్",
+      clear: "క్లియర్",
+      version: "వెర్షన్",
+      upToDate: "తాజాగా ఉంది",
+      dangerZone: "ప్రమాద ప్రాంతం",
+    },
     logs: {
       eyebrow: "METALSHARP · డయాగ్నస్టిక్స్",
       title: "లాగ్‌లు",
@@ -3497,6 +3653,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   vi: {
+    settings: {
+      retina: "Độ phân giải cao (Retina)",
+      fullEffects: "Hiệu ứng đầy đủ",
+      reducedEffects: "Giảm hiệu ứng",
+      dataAccess: "Kiểm tra quyền truy cập dữ liệu",
+      repairVerify: "Sửa và xác minh",
+      shaderCache: "Bộ nhớ đệm shader",
+      pipelineCache: "Bộ nhớ đệm pipeline",
+      clear: "Xóa",
+      version: "Phiên bản",
+      upToDate: "Đã cập nhật",
+      dangerZone: "Vùng nguy hiểm",
+    },
     logs: {
       eyebrow: "METALSHARP · CHẨN ĐOÁN",
       title: "Nhật ký",
@@ -3524,6 +3693,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   tr: {
+    settings: {
+      retina: "Yüksek çözünürlük (Retina)",
+      fullEffects: "Tam efektler",
+      reducedEffects: "Azaltılmış efektler",
+      dataAccess: "Veri erişim kontrolü",
+      repairVerify: "Onar ve doğrula",
+      shaderCache: "Gölgelendirici önbelleği",
+      pipelineCache: "İşlem hattı önbelleği",
+      clear: "Temizle",
+      version: "Sürüm",
+      upToDate: "Güncel",
+      dangerZone: "Tehlikeli bölge",
+    },
     logs: {
       eyebrow: "METALSHARP · TANILAMA",
       title: "Günlükler",
@@ -3551,6 +3733,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   ur: {
+    settings: {
+      retina: "اعلی ریزولوشن (Retina)",
+      fullEffects: "مکمل اثرات",
+      reducedEffects: "کم اثرات",
+      dataAccess: "ڈیٹا رسائی کی جانچ",
+      repairVerify: "مرمت اور تصدیق",
+      shaderCache: "شیڈر کیش",
+      pipelineCache: "پائپ لائن کیش",
+      clear: "صاف کریں",
+      version: "ورژن",
+      upToDate: "تازہ ترین",
+      dangerZone: "خطرے کا علاقہ",
+    },
     logs: {
       eyebrow: "METALSHARP · تشخیص",
       title: "لاگز",
@@ -3578,6 +3773,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   it: {
+    settings: {
+      retina: "Alta risoluzione (Retina)",
+      fullEffects: "Effetti completi",
+      reducedEffects: "Effetti ridotti",
+      dataAccess: "Controllo accesso dati",
+      repairVerify: "Ripara e verifica",
+      shaderCache: "Cache shader",
+      pipelineCache: "Cache pipeline",
+      clear: "Svuota",
+      version: "Versione",
+      upToDate: "Aggiornato",
+      dangerZone: "Zona pericolosa",
+    },
     logs: {
       eyebrow: "METALSHARP · DIAGNOSTICA",
       title: "Log",
@@ -3605,6 +3813,19 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
     },
   },
   mr: {
+    settings: {
+      retina: "उच्च रिझोल्यूशन (Retina)",
+      fullEffects: "पूर्ण प्रभाव",
+      reducedEffects: "कमी प्रभाव",
+      dataAccess: "डेटा प्रवेश तपासणी",
+      repairVerify: "दुरुस्ती आणि पडताळणी",
+      shaderCache: "शेडर कॅशे",
+      pipelineCache: "पाइपलाइन कॅशे",
+      clear: "साफ करा",
+      version: "आवृत्ती",
+      upToDate: "अद्ययावत",
+      dangerZone: "धोक्याचा विभाग",
+    },
     logs: {
       eyebrow: "METALSHARP · निदान",
       title: "लॉग",
