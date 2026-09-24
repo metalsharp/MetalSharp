@@ -705,7 +705,7 @@ onMounted(async () => {
   background: rgba(6, 10, 16, 0.68);
 }
 .update-confirm-backdrop {
-  z-index: 100;
+  z-index: 200;
 }
 .update-confirm-modal {
   width: 420px;
