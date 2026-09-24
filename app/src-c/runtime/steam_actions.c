@@ -1390,16 +1390,14 @@ done:
     return ok;
 }
 
-static const char* default_pipeline_for_appid(unsigned appid) {
+static const char* default_pipeline_for_appid(const char* home, unsigned appid) {
     static char pipeline[64];
     char* raw = ms_mtsp_default_rules_json();
     char error[96];
     ms_json* root;
     const ms_json* rules;
     pipeline[0] = '\0';
-    if (!raw)
-        return "vkd3d";
-    root = ms_json_parse(raw, strlen(raw), error, sizeof(error));
+    root = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
     free(raw);
     rules = root ? ms_json_object_get(root, "rules") : NULL;
     if (rules && ms_json_type_of(rules) == MS_JSON_ARRAY) {
@@ -1418,7 +1416,13 @@ static const char* default_pipeline_for_appid(unsigned appid) {
         }
     }
     ms_json_free(root);
-    return pipeline[0] ? pipeline : "vkd3d";
+    if (!pipeline[0]) {
+        char* game_dir = ms_steam_game_dir(home, appid);
+        const char* detected = ms_steam_detect_graphics_pipeline(game_dir);
+        snprintf(pipeline, sizeof(pipeline), "%s", detected ? detected : "vkd3d");
+        free(game_dir);
+    }
+    return pipeline;
 }
 
 static bool bottle_pipeline_value(const char* home, unsigned appid, char* out, size_t out_size) {
@@ -1644,7 +1648,7 @@ bool ms_steam_ensure_bottle_manifest(const char* home, unsigned id, const char* 
     char* serialized = NULL;
     bool ok = false;
     if (!pipeline || !pipeline[0] || !strcmp(pipeline, "auto"))
-        pipeline = default_pipeline_for_appid(id);
+        pipeline = default_pipeline_for_appid(home, id);
     {
         const char* canonical = canonical_pipeline(pipeline);
         pipeline = canonical && strcmp(canonical, "auto") ? canonical : "vkd3d";
@@ -1751,7 +1755,7 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
             goto done;
     canonical = canonical_pipeline(pipeline);
     if (!canonical || !strcmp(canonical, "auto") || !strcmp(canonical, "dxmt"))
-        canonical = canonical_pipeline(default_pipeline_for_appid((unsigned)appid));
+        canonical = canonical_pipeline(default_pipeline_for_appid(home, (unsigned)appid));
     if (!canonical)
         goto done;
     if (!strcmp(canonical, "fna_arm64")) {
@@ -2113,6 +2117,8 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "FallGuys_client_game.exe";
     else if (id == 4704690)
         preferred[count++] = "Chameleon/Binaries/Win64/PenguinHotel-Win64-Shipping.exe";
+    else if (id == 4126040)
+        preferred[count++] = "Aniimo.exe";
     else if (id == 1145360 && pipeline && !strcmp(pipeline, "dxmt_32"))
         preferred[count++] = "x86/Hades.exe";
     else if (id == 1145360)
@@ -4059,6 +4065,114 @@ static char* launch_game_via_steam_json(const char* home, unsigned id, int* stat
     return pid_result(pid, "pid", id, true);
 }
 
+static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
+    static const char* const marker_files[] = {"uplay_r1_loader64.dll", "uplay_r1_loader.dll",
+                                               "UbisoftConnect.exe", "UbisoftGameLauncher.exe"};
+    if (id == 812140) /* Assassin's Creed Odyssey (Steam). */
+        return true;
+    for (size_t i = 0; game_dir && i < sizeof(marker_files) / sizeof(marker_files[0]); i++) {
+        char* path = join(game_dir, marker_files[i]);
+        bool exists = path && access(path, R_OK) == 0;
+        free(path);
+        if (exists)
+            return true;
+    }
+    return false;
+}
+
+static bool ubisoft_connect_running(const char* home) {
+    char prefix[PATH_MAX], runtime[PATH_MAX];
+    FILE* pipe;
+    char line[4096];
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe)
+        return false;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX)
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if ((contains_ci(end, "ubisoftconnect.exe") || contains_ci(end, "ubisoftgamelauncher.exe")) &&
+            wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
+            pclose(pipe);
+            return true;
+        }
+    }
+    pclose(pipe);
+    return false;
+}
+
+static char* launch_ubisoft_connect_steam_mode(const char* home, unsigned appid, pid_t* pid) {
+    static const char* const client_relative =
+        "prefix-steam/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe";
+    char app_id[32];
+    char library_env[4096];
+    char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    char* prefix = join(home, "prefix-steam");
+    char* executable = join(home, client_relative);
+    char* cwd = executable ? strdup(executable) : NULL;
+    char* slash;
+    pid_t child;
+    if (!wine || access(wine, X_OK) != 0 || !prefix || !executable || access(executable, R_OK) != 0 || !cwd) {
+        free(wine);
+        free(prefix);
+        free(executable);
+        free(cwd);
+        return strdup("Ubisoft Connect was not found in the Steam prefix");
+    }
+    slash = strrchr(cwd, '/');
+    if (slash)
+        *slash = '\0';
+    child = fork();
+    if (child < 0) {
+        char* error = strdup(strerror(errno));
+        free(wine);
+        free(prefix);
+        free(executable);
+        free(cwd);
+        return error;
+    }
+    if (child == 0) {
+        char* argv[] = {wine, executable, (char*)"-uplay_steam_mode", NULL};
+        snprintf(app_id, sizeof(app_id), "%u", appid);
+        setenv("WINEPREFIX", prefix, 1);
+        setenv("METALSHARP_HOME", home, 1);
+        setenv("WINEDEBUG", "-all", 1);
+        setenv("WINEDEBUGGER", "none", 1);
+        setenv("STEAM_RUNTIME", "0", 1);
+        setenv("SteamAppId", app_id, 1);
+        setenv("SteamGameId", app_id, 1);
+        setenv("SteamOverlayGameId", app_id, 1);
+        set_route_paths(home, "vkd3d");
+        set_route_default_env(home, "vkd3d");
+        snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
+                 home);
+#ifdef __APPLE__
+        setenv("DYLD_FALLBACK_LIBRARY_PATH", library_env, 1);
+#else
+        setenv("LD_LIBRARY_PATH", library_env, 1);
+#endif
+        (void)chdir(cwd);
+        execv(wine, argv);
+        _exit(127);
+    }
+    free(wine);
+    free(prefix);
+    free(executable);
+    free(cwd);
+    *pid = child;
+    return NULL;
+}
+
 static char* ms_steam_launch_game_json_internal(const char* home, const char* body, size_t len, int* status,
                                                 bool default_to_steam) {
     unsigned id;
@@ -4107,8 +4221,8 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                 canonical_pipeline(saved_pipeline))
                 snprintf(pipeline, sizeof(pipeline), "%s", canonical_pipeline(saved_pipeline));
             else {
-                const char* resolved = canonical_pipeline(default_pipeline_for_appid(id));
-                if (!resolved || !strcmp(resolved, "auto") || !strcmp(resolved, "dxmt"))
+                const char* resolved = canonical_pipeline(default_pipeline_for_appid(home, id));
+                if (!resolved || !strcmp(resolved, "auto"))
                     resolved = "vkd3d";
                 snprintf(pipeline, sizeof(pipeline), "%s", resolved);
             }
@@ -4166,6 +4280,27 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         if (status)
             *status = 500;
         return err("required graphics runtime DLLs are missing");
+    }
+    if (steam_game_uses_ubisoft_connect(id, game_dir) && !ubisoft_connect_running(home)) {
+        e = launch_ubisoft_connect_steam_mode(home, id, &pid);
+        if (e) {
+            char* result = err(e);
+            free(e);
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            return result;
+        }
+        for (int i = 0; i < 50 && !ubisoft_connect_running(home); i++)
+            usleep(100000);
+        if (!ubisoft_connect_running(home)) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            return err("Ubisoft Connect did not start in Steam mode");
+        }
     }
     free(game_dir);
     if (!strcmp(pipeline, "m13"))
@@ -4315,7 +4450,7 @@ char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, si
         if (!strcmp(requested_canonical, "auto") || !strcmp(requested_canonical, "dxmt")) {
             const char* saved_canonical =
                 bottle_pipeline_value(home, id, saved, sizeof(saved)) ? canonical_pipeline(saved) : NULL;
-            const char* default_canonical = canonical_pipeline(default_pipeline_for_appid(id));
+            const char* default_canonical = canonical_pipeline(default_pipeline_for_appid(home, id));
             snprintf(pipeline, sizeof(pipeline), "%s",
                      saved_canonical && saved_canonical[0] ? saved_canonical
                                                            : (default_canonical ? default_canonical : "vkd3d"));
@@ -4833,7 +4968,7 @@ char* ms_steam_misc_json(const char* action, const unsigned char* body, size_t l
             if (has_saved_pipeline)
                 snprintf(pipeline, sizeof(pipeline), "%s", saved_pipeline);
             else
-                snprintf(pipeline, sizeof(pipeline), "%s", default_pipeline_for_appid(id));
+                snprintf(pipeline, sizeof(pipeline), "%s", default_pipeline_for_appid(home, id));
         }
         (void)ms_steam_ensure_bottle_manifest(home, id, pipeline);
         snprintf(bottle_id, sizeof(bottle_id), "steam_%u", id);

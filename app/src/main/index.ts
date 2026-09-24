@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn } from "child_process";
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, screen, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, net, screen, session, shell } from "electron";
 import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
@@ -1293,6 +1293,51 @@ function registerIpc() {
       return requestBackend(method, url, body, timeoutMs);
     },
   );
+
+  ipcMain.handle("steam:store-artwork", async (_e, appid: unknown) => {
+    if (typeof appid !== "number" || !Number.isSafeInteger(appid) || appid <= 0) return null;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await net.fetch(`https://store.steampowered.com/api/appdetails?appids=${appid}&l=english`, {
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as Record<
+        string,
+        {
+          success?: boolean;
+          data?: {
+            header_image?: unknown;
+            background_raw?: unknown;
+            screenshots?: Array<{ path_full?: unknown }>;
+          };
+        }
+      >;
+      const data = payload[String(appid)]?.success ? payload[String(appid)]?.data : undefined;
+      if (!data) return null;
+      const safeSteamUrl = (value: unknown): string | undefined => {
+        if (typeof value !== "string") return undefined;
+        try {
+          const url = new URL(value);
+          return url.protocol === "https:" && url.hostname.endsWith(".steamstatic.com") ? value : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      const header = safeSteamUrl(data.header_image);
+      const screenshot = safeSteamUrl(data.screenshots?.find((item) => item.path_full)?.path_full);
+      return {
+        hero: safeSteamUrl(data.background_raw) || screenshot || header,
+        card: header || screenshot,
+        shot: screenshot,
+      };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
 
   ipcMain.handle("app:blur-main-window", () => {
     // Resign key so freshly spawned Wine installer windows (Steam setup, VC++

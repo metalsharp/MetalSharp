@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, watch, type Ref } from "vue";
+import { computed, inject, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import IconChevronRight from "~icons/lucide/chevron-right";
 import IconDownload from "~icons/lucide/download";
 import IconLibrary from "~icons/lucide/library";
 import IconPlay from "~icons/lucide/play";
 import IconSettings from "~icons/lucide/settings";
+import IconSquare from "~icons/lucide/square";
 import IconChevronLeft from "~icons/lucide/chevron-left";
 import sharpLogoUrl from "../icon.png";
-import { api } from "../composables/useApi";
+import { api, getAPI } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { useTheme, type ThemeName } from "../composables/useTheme";
 import LibraryTopbar from "../components/LibraryTopbar.vue";
@@ -74,6 +75,9 @@ const search = ref("");
 const filter = ref<"all" | "installed" | "not_installed">("installed");
 const selectedGameId = ref<number | null>(null);
 const launchingAppId = ref<number | null>(null);
+const runningGames = ref<Record<number, number>>({});
+let runningPollTimer: number | null = null;
+let runningPollInFlight = false;
 const carouselOffset = ref(0);
 const showFullLibrary = ref(false);
 const gameSettingsOpen = ref(false);
@@ -223,35 +227,40 @@ type SteamArtEnrichment = { hero?: string; card?: string; shot?: string };
 const artworkEnrichmentCache = new Map<number, SteamArtEnrichment | null>();
 
 // Some games (e.g. new releases) only expose artwork under per-asset hashed
-// CDN paths that cannot be constructed offline. Steam's store API returns the
-// real URLs (the same images steamdb.info renders); the Vite dev proxy serves
-// it same-origin since the store API sends no CORS headers.
-// Note: background/background_raw is Steam's pre-graded store backdrop, so
-// colorful key art (header_image) and screenshots are preferred instead.
+// CDN paths that cannot be constructed offline. The Electron main process
+// fetches Steam's appdetails API because Steam does not enable browser CORS;
+// the Vite proxy remains available for browser-only development previews.
 async function enrichArtwork(appid: number): Promise<SteamArtEnrichment | null> {
   if (artworkEnrichmentCache.has(appid)) return artworkEnrichmentCache.get(appid) ?? null;
   try {
-    const response = await fetch(`/steam-store-api/api/appdetails?appids=${appid}&l=english`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = (await response.json()) as Record<
-      string,
-      {
-        success?: boolean;
-        data?: {
-          header_image?: string;
-          background_raw?: string;
-          background?: string;
-          screenshots?: Array<{ path_full?: string }>;
-        };
-      }
-    >;
-    const data = payload[appid]?.success ? payload[appid]?.data : undefined;
-    const enrichment: SteamArtEnrichment = {
-      hero: data?.header_image || data?.background_raw || data?.background,
-      card: data?.header_image,
-      shot: data?.screenshots?.find((screenshot) => screenshot.path_full)?.path_full,
-    };
-    const useful = Boolean(enrichment.hero || enrichment.card || enrichment.shot);
+    let enrichment: SteamArtEnrichment | null = null;
+    const storeArtwork = getAPI().steamStoreArtwork;
+    if (storeArtwork) {
+      enrichment = await storeArtwork(appid);
+    } else {
+      const response = await fetch(`/steam-store-api/api/appdetails?appids=${appid}&l=english`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = (await response.json()) as Record<
+        string,
+        {
+          success?: boolean;
+          data?: {
+            header_image?: string;
+            background_raw?: string;
+            background?: string;
+            screenshots?: Array<{ path_full?: string }>;
+          };
+        }
+      >;
+      const data = payload[appid]?.success ? payload[appid]?.data : undefined;
+      const screenshot = data?.screenshots?.find((item) => item.path_full)?.path_full;
+      enrichment = {
+        hero: data?.background_raw || screenshot || data?.header_image || data?.background,
+        card: data?.header_image || screenshot,
+        shot: screenshot,
+      };
+    }
+    const useful = Boolean(enrichment?.hero || enrichment?.card || enrichment?.shot);
     artworkEnrichmentCache.set(appid, useful ? enrichment : null);
     return useful ? enrichment : null;
   } catch {
@@ -554,7 +563,46 @@ function isWineSteamRouteId(launchMethod: string) {
   return ["d3dmetal", "vkd3d", "d3d9", "dxmt", "dxmt_32", "steam", "wine_steam"].includes(launchMethod.toLowerCase());
 }
 
+function isGameRunning(appid: number) {
+  return runningGames.value[appid] !== undefined;
+}
+
+async function refreshRunningGames() {
+  if (runningPollInFlight) return;
+  runningPollInFlight = true;
+  try {
+    const result = await api<{ ok: boolean; running: { appid: number; pid: number }[] }>("GET", "/game/running");
+    if (!result?.ok || !Array.isArray(result.running)) return;
+    const next: Record<number, number> = {};
+    for (const game of result.running ?? []) {
+      if (game.appid > 0 && game.pid > 0) next[game.appid] = game.pid;
+    }
+    const stopped = Object.keys(runningGames.value).some((appid) => next[Number(appid)] === undefined);
+    runningGames.value = next;
+    if (stopped) void reloadLibrary();
+  } finally {
+    runningPollInFlight = false;
+  }
+}
+
+async function stopGame(game: ShowcaseGame) {
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/kill", { appid: game.appid });
+  if (!result?.ok) {
+    toast.show(result?.error || `Failed to stop ${game.name}`, "error");
+    return;
+  }
+  const next = { ...runningGames.value };
+  delete next[game.appid];
+  runningGames.value = next;
+  toast.show(`Stopped ${game.name}`, "success");
+  void reloadLibrary();
+}
+
 async function launchGame(game: ShowcaseGame) {
+  if (isGameRunning(game.appid)) {
+    await stopGame(game);
+    return;
+  }
   if (!game.isLive) {
     toast.show("Connect your library to launch this game", "info");
     return;
@@ -570,6 +618,7 @@ async function launchGame(game: ShowcaseGame) {
   );
   launchingAppId.value = null;
   if (result?.ok) {
+    if (result.pid) runningGames.value = { ...runningGames.value, [game.appid]: result.pid };
     rememberPlayed(game.appid);
     toast.show(`Launched ${game.name}`, "success");
     // Remind the player about the Cmd+Opt+Q escape hatch once the game has
@@ -807,6 +856,15 @@ onMounted(() => {
     fallbackArtApps.value = new Set<number>();
     if (featuredGame.value) probeHeroArt(featuredGame.value);
   });
+  void refreshRunningGames();
+  runningPollTimer = window.setInterval(() => void refreshRunningGames(), 2000);
+});
+
+onUnmounted(() => {
+  if (runningPollTimer !== null) {
+    window.clearInterval(runningPollTimer);
+    runningPollTimer = null;
+  }
 });
 
 function handleImageError(event: Event, game: ShowcaseGame) {
@@ -916,14 +974,17 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                 </select>
                 <button
                   type="button"
+                  :disabled="launchingAppId === game.appid"
+                  :class="{ 'collection-stop-button': isGameRunning(game.appid) }"
                   @click="
                     selectGame(game);
-                    openPlay();
+                    if (!isGameRunning(game.appid)) openPlay();
                     launchGame(game);
                   "
                 >
-                  <IconPlay width="14" height="14" fill="currentColor" />
-                  <span>{{ t("library.play") }}</span>
+                  <IconSquare v-if="isGameRunning(game.appid)" width="14" height="14" />
+                  <IconPlay v-else width="14" height="14" fill="currentColor" />
+                  <span>{{ isGameRunning(game.appid) ? t("ui.sharp.stop") : t("library.play") }}</span>
                 </button>
               </div>
             </div>
@@ -942,9 +1003,24 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
           <div class="library-hero-content">
             <h1>{{ featuredGame.name }}</h1>
             <div class="library-hero-actions">
-              <button class="library-play-button" type="button" @click="launchGame(featuredGame)">
-                <IconPlay width="18" height="18" fill="currentColor" />
-                <span>{{ launchingAppId === featuredGame.appid ? "Launching" : "Play" }}</span>
+              <button
+                class="library-play-button"
+                :class="{ 'library-stop-button': isGameRunning(featuredGame.appid) }"
+                type="button"
+                :disabled="launchingAppId === featuredGame.appid"
+                @click="launchGame(featuredGame)"
+              >
+                <IconSquare v-if="isGameRunning(featuredGame.appid)" width="18" height="18" />
+                <IconPlay v-else width="18" height="18" fill="currentColor" />
+                <span>
+                  {{
+                    launchingAppId === featuredGame.appid
+                      ? t("library.launching")
+                      : isGameRunning(featuredGame.appid)
+                        ? t("ui.sharp.stop")
+                        : t("library.play")
+                  }}
+                </span>
               </button>
             </div>
           </div>
@@ -1104,9 +1180,24 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                     @load="handleImageLoad($event, game)"
                   />
                   <div class="showcase-cover-shade"></div>
-                  <button class="showcase-play" type="button" @click.stop="launchGame(game)">
-                    <IconPlay width="16" height="16" fill="currentColor" />
-                    <span>{{ launchingAppId === game.appid ? "Launching" : "Play" }}</span>
+                  <button
+                    class="showcase-play"
+                    :class="{ 'showcase-stop': isGameRunning(game.appid) }"
+                    type="button"
+                    :disabled="launchingAppId === game.appid"
+                    @click.stop="launchGame(game)"
+                  >
+                    <IconSquare v-if="isGameRunning(game.appid)" width="16" height="16" />
+                    <IconPlay v-else width="16" height="16" fill="currentColor" />
+                    <span>
+                      {{
+                        launchingAppId === game.appid
+                          ? t("library.launching")
+                          : isGameRunning(game.appid)
+                            ? t("ui.sharp.stop")
+                            : t("library.play")
+                      }}
+                    </span>
                   </button>
                 </div>
                 <div class="showcase-card-reflection" aria-hidden="true"></div>
@@ -1373,6 +1464,22 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   filter: brightness(1.09);
   transform: translateY(-1px);
 }
+.collection-card-info button.collection-stop-button,
+.library-play-button.library-stop-button,
+.showcase-play.showcase-stop {
+  border-color: #ff817a;
+  color: #fff;
+  background: #a52d2d;
+}
+.collection-card-info button.collection-stop-button:hover,
+.library-play-button.library-stop-button:hover {
+  background: #bd3737;
+}
+.collection-card-info button:disabled,
+.showcase-play:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
 .collection-empty {
   display: flex;
   flex-direction: column;
@@ -1585,6 +1692,11 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
 .library-play-button:hover {
   background: var(--library-control-hover);
   transform: translateY(-2px);
+}
+.library-play-button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+  transform: none;
 }
 .library-ready-state {
   display: flex;
@@ -2050,6 +2162,11 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
 .showcase-card:focus-visible .showcase-play {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+.showcase-play.showcase-stop {
+  border-color: #ff817a;
+  color: #fff;
+  background: #a52d2d;
 }
 .showcase-card-reflection {
   height: 12px;
