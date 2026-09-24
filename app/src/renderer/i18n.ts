@@ -4155,7 +4155,10 @@ export const messages = Object.fromEntries(
       ];
     const streaming = (localizedUi.streaming as LocaleMessages) ?? {};
     const label = (key: string, fallback: string) => String(sharp[key] ?? fallback);
-    const sourceOverrides = uiOverrides.source as LocaleMessages | undefined;
+    const sourceOverrides: LocaleMessages = {
+      ...(noAppsLabelsByLocale[code] ?? {}),
+      ...((uiOverrides.source as LocaleMessages | undefined) ?? {}),
+    };
     const sourceMessages: LocaleMessages = {
       ...(english.ui.source as LocaleMessages),
       ...(noAppsLabelsByLocale[code] ?? {}),
@@ -4184,11 +4187,11 @@ export const messages = Object.fromEntries(
       host: String(settings.connected ?? "Host"),
       userBios: String(sharp.source ?? "BIOS"),
       library: String(sharp.source ?? "Library"),
-      importBios: String(sharp.install ?? "Import"),
-      downloadFirmware: String(sharp.install ?? "Download"),
+      importBios: String(noAppsLabelsByLocale[code]?.add ?? sharp.install ?? "Import"),
+      downloadFirmware: String(noAppsLabelsByLocale[code]?.add ?? sharp.install ?? "Download"),
       findGames: String(sharp.open ?? "Open"),
       setup: String(sharp.tools ?? "Setup"),
-      addGames: String(sharp.addAsset ?? "Add"),
+      addGames: String(noAppsLabelsByLocale[code]?.add ?? sharp.addAsset ?? "Add"),
       scanLibrary: String(sharp.refresh ?? "Refresh"),
       runtimeSupport: String(sharp.source ?? "Runtime"),
       gameLocations: String(sharp.source ?? "Library"),
@@ -4219,7 +4222,7 @@ export const messages = Object.fromEntries(
       removeRuntime: String(sharp.uninstall ?? "Remove Runtime"),
       installPackage: String(sharp.install ?? "Install package"),
       addLayouts: String(sharp.addAsset ?? sharp.tools ?? "Add layouts"),
-      addAsset: String(sharp.addAsset ?? sharp.tools ?? "Add Asset"),
+      addAsset: String(noAppsLabelsByLocale[code]?.add ?? sharp.addAsset ?? sharp.tools ?? "Add Asset"),
       add: String(noAppsLabelsByLocale[code]?.add ?? sharp.addAsset ?? sharp.tools ?? "Add"),
       guestNetworking: String(sharp.source ?? "Guest networking"),
       guestNetworkingDesc: String(sharp.source ?? "Guest networking"),
@@ -4319,23 +4322,25 @@ export const messages = Object.fromEntries(
       network: String(streamingDetailsOverrides?.network ?? streaming.title),
       unpair: String(streamingDetailsOverrides?.unpair ?? streaming.pair),
     };
-    const logsOverrides = uiOverrides.logs as LocaleMessages | undefined;
+    const logsOverrides: LocaleMessages = {
+      ...((commonLabels.logs as LocaleMessages | undefined) ?? {}),
+      ...((uiOverrides.logs as LocaleMessages | undefined) ?? {}),
+    };
     localizedUi.logs = {
       ...(english.ui.logs as LocaleMessages),
-      ...(commonLabels.logs as LocaleMessages | undefined),
-      ...(logsOverrides ?? {}),
-      eyebrow: String(logsOverrides?.eyebrow ?? nav.logs ?? "Logs"),
-      title: String(logsOverrides?.title ?? nav.logs ?? "Logs"),
-      openLogs: String(logsOverrides?.openLogs ?? settings.openLogs ?? "Open Logs"),
-      copy: String(logsOverrides?.copy ?? "Copy"),
-      clearView: String(logsOverrides?.clearView ?? "Clear"),
-      crashReports: String(logsOverrides?.crashReports ?? "Crash Reports"),
-      logFiles: String(logsOverrides?.logFiles ?? "Log Files"),
-      live: String(logsOverrides?.live ?? "Live"),
-      liveStream: String(logsOverrides?.liveStream ?? "Live"),
-      recentFiles: String(logsOverrides?.recentFiles ?? "Log Files"),
-      noCrashReports: String(logsOverrides?.noCrashReports ?? "No crash reports"),
-      lines: String(logsOverrides?.lines ?? "lines"),
+      ...logsOverrides,
+      eyebrow: String(logsOverrides.eyebrow ?? nav.logs ?? "Logs"),
+      title: String(logsOverrides.title ?? nav.logs ?? "Logs"),
+      openLogs: String(logsOverrides.openLogs ?? settings.openLogs ?? "Open Logs"),
+      copy: String(logsOverrides.copy ?? "Copy"),
+      clearView: String(logsOverrides.clearView ?? "Clear"),
+      crashReports: String(logsOverrides.crashReports ?? "Crash Reports"),
+      logFiles: String(logsOverrides.logFiles ?? "Log Files"),
+      live: String(logsOverrides.live ?? "Live"),
+      liveStream: String(logsOverrides.liveStream ?? "Live"),
+      recentFiles: String(logsOverrides.recentFiles ?? "Log Files"),
+      noCrashReports: String(logsOverrides.noCrashReports ?? "No crash reports"),
+      lines: String(logsOverrides.lines ?? "lines"),
     };
     return [
       code,
