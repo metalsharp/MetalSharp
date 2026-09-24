@@ -3059,21 +3059,143 @@ const libraryLabelsByLocale: Record<string, LocaleMessages> = {
 export const messages = Object.fromEntries(
   localeOptions.map(({ code }) => {
     if (code === "en") return [code, english];
-    const source = translations[code] ?? {};
+    const localeSource = translations[code] ?? {};
+    const uiOverrides = {
+      ...((localeSource.ui as LocaleMessages | undefined) ?? {}),
+      ...(uiLabelsByLocale[code] ?? {}),
+    };
+    const localizedUi: LocaleMessages = {
+      ...english.ui,
+      ...uiOverrides,
+    };
+    const sharp = (localizedUi.sharp as LocaleMessages) ?? {};
+    const settings = (localizedUi.settings as LocaleMessages) ?? {};
+    const streaming = (localizedUi.streaming as LocaleMessages) ?? {};
+    const hasOwn = (value: LocaleMessages | undefined, key: string) =>
+      value ? Object.prototype.hasOwnProperty.call(value, key) : false;
+    const label = (key: string, fallback: string) => String(sharp[key] ?? fallback);
+    const sourceOverrides = uiOverrides.source as LocaleMessages | undefined;
+    const sourceMessages: LocaleMessages = {
+      ...(english.ui.source as LocaleMessages),
+      ...(sourceOverrides ?? {}),
+    };
+    const sourceFallbacks: Record<string, string> = {
+      gogInit: `${label("install", "Install")} ${label("gog", "GOG")}`,
+      gogInitialize: `${label("install", "Install")} ${label("gog", "GOG")}`,
+      gogInitializeDesc: String(sharp.gogDetail ?? "GOG games library"),
+      gogLogin: `${label("open", "Open")} ${label("gog", "GOG")}`,
+      gogLoginDesc: String(sharp.gogDetail ?? "GOG games library"),
+      gogNoGames: String(sharp.gogDetail ?? "GOG games library"),
+      gogNoGamesDesc: String(sharp.gogDetail ?? "GOG games library"),
+      epicInstall: `${label("install", "Install")} ${label("epic", "Epic")}`,
+      epicInstallDesc: String(sharp.epicDetail ?? "Epic games library"),
+      epicLogin: `${label("open", "Open")} ${label("epic", "Epic")}`,
+      epicLoginDesc: String(sharp.epicDetail ?? "Epic games library"),
+      epicNoGames: String(sharp.epicDetail ?? "Epic games library"),
+      epicNoGamesDesc: String(sharp.epicDetail ?? "Epic games library"),
+      gamejoltNoGames: String(sharp.gamejoltDetail ?? "GameJolt"),
+      gamejoltNoGamesDesc: String(sharp.gamejoltDetail ?? "GameJolt"),
+      pcsx2Eyebrow: String(sharp.source ?? "Sharp"),
+      pcsx2Title: "PS2",
+      pcsx2Description: String(sharp.source ?? "PS2"),
+      stableRuntime: String(sharp.source ?? "Runtime"),
+      host: String(settings.connected ?? "Host"),
+      userBios: String(sharp.source ?? "BIOS"),
+      library: String(sharp.source ?? "Library"),
+      importBios: String(sharp.install ?? "Import"),
+      downloadFirmware: String(sharp.install ?? "Download"),
+      findGames: String(sharp.open ?? "Open"),
+      setup: String(sharp.tools ?? "Setup"),
+      addGames: String(sharp.addAsset ?? "Add"),
+      scanLibrary: String(sharp.refresh ?? "Refresh"),
+      runtimeSupport: String(sharp.source ?? "Runtime"),
+      gameLocations: String(sharp.source ?? "Library"),
+      rpcs3Eyebrow: String(sharp.source ?? "Sharp"),
+      rpcs3Title: "PS3",
+      rpcs3Description: String(sharp.source ?? "PS3"),
+      shadps4Eyebrow: String(sharp.source ?? "Sharp"),
+      shadps4Title: "PS4",
+      shadps4Description: String(sharp.source ?? "PS4"),
+      sharpemuEyebrow: String(sharp.source ?? "Sharp"),
+      sharpemuTitle: "PS5",
+      sharpemuDescription: String(sharp.source ?? "PS5"),
+    };
+    for (const [key, value] of Object.entries(sourceFallbacks)) {
+      if (!hasOwn(sourceOverrides, key)) sourceMessages[key] = value;
+    }
+    localizedUi.source = sourceMessages;
+    const settingsDescOverrides = uiOverrides.settingsDesc as LocaleMessages | undefined;
+    const settingsDescriptions: LocaleMessages = {
+      ...(english.ui.settingsDesc as LocaleMessages),
+      ...(settingsDescOverrides ?? {}),
+    };
+    const settingsFallbacks: Record<string, string> = {
+      apiKey: String(settings.apiKey ?? "Steam Web API"),
+      device: String(settings.deviceName ?? "Device Name"),
+      wineSteam: String(settings.wineSteam ?? "Wine Steam"),
+      macSteam: String(settings.steamMac ?? "Steam Mac"),
+      retina: String(settings.retina ?? "Retina"),
+      backend: String(settings.backendRuntime ?? "Backend"),
+      restart: String(settings.restartBackend ?? "Restart"),
+      forceKill: String(settings.forceKill ?? "Force Kill"),
+      lowPerformance: String(settings.lowPerformance ?? "Low Performance"),
+      developer: String(settings.developerTools ?? "Developer Tools"),
+      dataFolder: String(settings.dataFolder ?? "Data Folder"),
+      dataAccess: String(settings.dataAccess ?? "Data Access"),
+      shader: String(settings.shaderCache ?? "Shader Cache"),
+      pipeline: String(settings.pipelineCache ?? "Pipeline Cache"),
+      uninstall: String(settings.uninstall ?? "Uninstall"),
+      doNotClose: String(settings.updating ?? "Updating"),
+    };
+    for (const [key, value] of Object.entries(settingsFallbacks)) {
+      if (!hasOwn(settingsDescOverrides, key)) settingsDescriptions[key] = value;
+    }
+    localizedUi.settingsDesc = settingsDescriptions;
+    const streamingDetailsOverrides = uiOverrides.streamingDetails as LocaleMessages | undefined;
+    localizedUi.streamingDetails = {
+      ...(english.ui.streamingDetails as LocaleMessages),
+      ...(streamingDetailsOverrides ?? {}),
+      sunshineDesc: String(streamingDetailsOverrides?.sunshineDesc ?? streaming.title),
+      downloading: String(streamingDetailsOverrides?.downloading ?? streaming.starting ?? streaming.title),
+      installMoonlight: String(streamingDetailsOverrides?.installMoonlight ?? streaming.title),
+      stepPlay: String(streamingDetailsOverrides?.stepPlay ?? streaming.title),
+      stepOpen: String(streamingDetailsOverrides?.stepOpen ?? streaming.title),
+      stepEnter: String(streamingDetailsOverrides?.stepEnter ?? streaming.title),
+      worksBest: String(streamingDetailsOverrides?.worksBest ?? streaming.title),
+      pairWarning: String(streamingDetailsOverrides?.pairWarning ?? streaming.title),
+      gamepads: String(streamingDetailsOverrides?.gamepads ?? streaming.title),
+      screenRecording: String(streamingDetailsOverrides?.screenRecording ?? streaming.title),
+      network: String(streamingDetailsOverrides?.network ?? streaming.title),
+      unpair: String(streamingDetailsOverrides?.unpair ?? streaming.pair),
+    };
+    const nav = (localeSource.nav as LocaleMessages | undefined) ?? {};
+    const logsOverrides = uiOverrides.logs as LocaleMessages | undefined;
+    localizedUi.logs = {
+      ...(english.ui.logs as LocaleMessages),
+      ...(logsOverrides ?? {}),
+      eyebrow: String(logsOverrides?.eyebrow ?? nav.logs ?? "Logs"),
+      title: String(logsOverrides?.title ?? nav.logs ?? "Logs"),
+      openLogs: String(logsOverrides?.openLogs ?? settings.openLogs ?? "Open Logs"),
+      copy: String(logsOverrides?.copy ?? "Copy"),
+      clearView: String(logsOverrides?.clearView ?? "Clear"),
+      crashReports: String(logsOverrides?.crashReports ?? "Crash Reports"),
+      logFiles: String(logsOverrides?.logFiles ?? "Log Files"),
+      live: String(logsOverrides?.live ?? "Live"),
+      liveStream: String(logsOverrides?.liveStream ?? "Live"),
+      recentFiles: String(logsOverrides?.recentFiles ?? "Log Files"),
+      noCrashReports: String(logsOverrides?.noCrashReports ?? "No crash reports"),
+      lines: String(logsOverrides?.lines ?? "lines"),
+    };
     return [
       code,
       {
-        ...source,
+        ...localeSource,
         library: {
           ...english.library,
-          ...(source.library as LocaleMessages | undefined),
+          ...(localeSource.library as LocaleMessages | undefined),
           ...(libraryLabelsByLocale[code] ?? {}),
         },
-        ui: {
-          ...english.ui,
-          ...(source.ui as LocaleMessages | undefined),
-          ...(uiLabelsByLocale[code] ?? {}),
-        },
+        ui: localizedUi,
       },
     ];
   }),
