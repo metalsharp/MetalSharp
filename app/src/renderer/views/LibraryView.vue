@@ -9,7 +9,7 @@ import IconSettings from "~icons/lucide/settings";
 import IconSquare from "~icons/lucide/square";
 import IconChevronLeft from "~icons/lucide/chevron-left";
 import sharpLogoUrl from "../icon.png";
-import { api } from "../composables/useApi";
+import { api, getAPI } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { useTheme, type ThemeName } from "../composables/useTheme";
 import LibraryTopbar from "../components/LibraryTopbar.vue";
@@ -227,35 +227,40 @@ type SteamArtEnrichment = { hero?: string; card?: string; shot?: string };
 const artworkEnrichmentCache = new Map<number, SteamArtEnrichment | null>();
 
 // Some games (e.g. new releases) only expose artwork under per-asset hashed
-// CDN paths that cannot be constructed offline. Steam's store API returns the
-// real URLs (the same images steamdb.info renders); the Vite dev proxy serves
-// it same-origin since the store API sends no CORS headers.
-// Note: background/background_raw is Steam's pre-graded store backdrop, so
-// colorful key art (header_image) and screenshots are preferred instead.
+// CDN paths that cannot be constructed offline. The Electron main process
+// fetches Steam's appdetails API because Steam does not enable browser CORS;
+// the Vite proxy remains available for browser-only development previews.
 async function enrichArtwork(appid: number): Promise<SteamArtEnrichment | null> {
   if (artworkEnrichmentCache.has(appid)) return artworkEnrichmentCache.get(appid) ?? null;
   try {
-    const response = await fetch(`/steam-store-api/api/appdetails?appids=${appid}&l=english`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = (await response.json()) as Record<
-      string,
-      {
-        success?: boolean;
-        data?: {
-          header_image?: string;
-          background_raw?: string;
-          background?: string;
-          screenshots?: Array<{ path_full?: string }>;
-        };
-      }
-    >;
-    const data = payload[appid]?.success ? payload[appid]?.data : undefined;
-    const enrichment: SteamArtEnrichment = {
-      hero: data?.header_image || data?.background_raw || data?.background,
-      card: data?.header_image,
-      shot: data?.screenshots?.find((screenshot) => screenshot.path_full)?.path_full,
-    };
-    const useful = Boolean(enrichment.hero || enrichment.card || enrichment.shot);
+    let enrichment: SteamArtEnrichment | null = null;
+    const storeArtwork = getAPI().steamStoreArtwork;
+    if (storeArtwork) {
+      enrichment = await storeArtwork(appid);
+    } else {
+      const response = await fetch(`/steam-store-api/api/appdetails?appids=${appid}&l=english`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = (await response.json()) as Record<
+        string,
+        {
+          success?: boolean;
+          data?: {
+            header_image?: string;
+            background_raw?: string;
+            background?: string;
+            screenshots?: Array<{ path_full?: string }>;
+          };
+        }
+      >;
+      const data = payload[appid]?.success ? payload[appid]?.data : undefined;
+      const screenshot = data?.screenshots?.find((item) => item.path_full)?.path_full;
+      enrichment = {
+        hero: data?.background_raw || screenshot || data?.header_image || data?.background,
+        card: data?.header_image || screenshot,
+        shot: screenshot,
+      };
+    }
+    const useful = Boolean(enrichment?.hero || enrichment?.card || enrichment?.shot);
     artworkEnrichmentCache.set(appid, useful ? enrichment : null);
     return useful ? enrichment : null;
   } catch {
