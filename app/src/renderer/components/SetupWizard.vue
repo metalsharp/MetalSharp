@@ -18,12 +18,19 @@ const emit = defineEmits<{ done: []; close: [] }>();
 const props = defineProps<{ dismissible?: boolean }>();
 const toast = useToast();
 const { t, tm } = useI18n();
-const library = inject<Ref<{ ok: boolean; total: number; installed_count: number; games: unknown[] } | null>>("library", ref(null));
+const library = inject<Ref<{ ok: boolean; total: number; installed_count: number; games: unknown[] } | null>>(
+  "library",
+  ref(null),
+);
 const steamApiKey = inject<Ref<string | null>>("steamApiKey", ref(null));
 
 // In mock preview mode a ?step=N query opens the wizard directly on a step.
 const mockStepParam = Number(new URLSearchParams(window.location.search).get("step") ?? "0");
-const step = ref(new URLSearchParams(window.location.search).has("mock") && Number.isFinite(mockStepParam) ? Math.min(Math.max(mockStepParam, 0), 2) : 0);
+const step = ref(
+  new URLSearchParams(window.location.search).has("mock") && Number.isFinite(mockStepParam)
+    ? Math.min(Math.max(mockStepParam, 0), 2)
+    : 0,
+);
 const deviceName = ref("");
 const installProgress = ref(0);
 const installStatus = ref("");
@@ -50,10 +57,26 @@ const steps = computed(() => tm("setup.steps") as string[]);
 const stepTitles = computed(() => tm("setup.titles") as string[]);
 const stepTaglines = computed(() => tm("setup.taglines") as string[]);
 const showcaseCovers = [
-  { appid: 1091500, name: "Cyberpunk 2077", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/library_600x900_2x.jpg" },
-  { appid: 1245620, name: "Elden Ring", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1245620/library_600x900_2x.jpg" },
-  { appid: 1145360, name: "Hades", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1145360/library_600x900_2x.jpg" },
-  { appid: 1332010, name: "Stray", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1332010/library_600x900_2x.jpg" },
+  {
+    appid: 1091500,
+    name: "Cyberpunk 2077",
+    url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/library_600x900_2x.jpg",
+  },
+  {
+    appid: 1245620,
+    name: "Elden Ring",
+    url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1245620/library_600x900_2x.jpg",
+  },
+  {
+    appid: 1145360,
+    name: "Hades",
+    url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1145360/library_600x900_2x.jpg",
+  },
+  {
+    appid: 1332010,
+    name: "Stray",
+    url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1332010/library_600x900_2x.jpg",
+  },
 ];
 
 function handFocusToInstallerWindow() {
@@ -71,7 +94,7 @@ function goToRuntimeStep() {
 }
 const installButtonLabel = computed(() => {
   if (installStatus.value === "complete") return t("setup.installComplete");
-  if (installing.value) return installCurrent.value || "Preparing…";
+  if (installing.value) return installCurrent.value || t("setup.preparing");
   if (installFailed.value) return t("setup.installFailed");
   return t("setup.installRuntime");
 });
@@ -89,7 +112,7 @@ async function startInstall() {
     return;
   }
 
-  installLogs.value.push({ text: "Starting installation...", cls: "info" });
+  installLogs.value.push({ text: t("setup.startingInstallation"), cls: "info" });
 
   let lastStep = -1;
   let lastStatusText = "";
@@ -217,10 +240,7 @@ async function finish() {
 
     const wrappers = await api<{ ok: boolean; error?: string }>("POST", "/steam/ensure-launch-ready");
     if (!wrappers?.ok) {
-      toast.show(
-        wrappers?.error ?? t("setup.wrapperWarning"),
-        "error",
-      );
+      toast.show(wrappers?.error ?? t("setup.wrapperWarning"), "error");
     }
 
     await api("POST", "/setup/save", { step: 2, deviceName: name, completed: true });
@@ -246,9 +266,6 @@ async function finish() {
     finishing.value = false;
   }
 }
-
-
-
 </script>
 
 <template>
@@ -259,7 +276,13 @@ async function finish() {
         <div class="setup-visual-vignette" aria-hidden="true"></div>
         <img class="setup-visual-logo" src="../assets/setup-hero-logo.png" alt="MetalSharp" />
         <div class="setup-covers" aria-hidden="true">
-          <img v-for="(cover, i) in showcaseCovers" :key="cover.appid" :src="cover.url" :alt="cover.name" loading="lazy" />
+          <img
+            v-for="(cover, i) in showcaseCovers"
+            :key="cover.appid"
+            :src="cover.url"
+            :alt="cover.name"
+            loading="lazy"
+          />
         </div>
         <div class="setup-steps">
           <template v-for="(s, i) in steps" :key="i">
@@ -274,7 +297,14 @@ async function finish() {
 
       <div class="setup-pane">
         <LanguagePicker class="setup-language-picker" />
-        <button v-if="props.dismissible" class="setup-wizard-close" type="button" aria-label="Exit setup" title="Exit setup" @click="emit('close')">
+        <button
+          v-if="props.dismissible"
+          class="setup-wizard-close"
+          type="button"
+          :aria-label="t('setup.exit')"
+          :title="t('setup.exit')"
+          @click="emit('close')"
+        >
           ✕
         </button>
         <div class="setup-pane-scroll">
@@ -314,10 +344,18 @@ async function finish() {
 
             <div class="setup-tools-label">{{ t("setup.bundledTools") }}</div>
             <div class="setup-tool-list">
-              <div class="setup-tool-row"><strong>zstd / unzstd</strong><span>{{ t("setup.toolExtraction") }}</span></div>
-              <div class="setup-tool-row"><strong>unrar</strong><span>{{ t("setup.toolRar") }}</span></div>
-              <div class="setup-tool-row"><strong>wrestool / icotool</strong><span>{{ t("setup.toolIcons") }}</span></div>
-              <div class="setup-tool-row"><strong>lsar / unar</strong><span>{{ t("setup.toolArchives") }}</span></div>
+              <div class="setup-tool-row">
+                <strong>zstd / unzstd</strong><span>{{ t("setup.toolExtraction") }}</span>
+              </div>
+              <div class="setup-tool-row">
+                <strong>unrar</strong><span>{{ t("setup.toolRar") }}</span>
+              </div>
+              <div class="setup-tool-row">
+                <strong>wrestool / icotool</strong><span>{{ t("setup.toolIcons") }}</span>
+              </div>
+              <div class="setup-tool-row">
+                <strong>lsar / unar</strong><span>{{ t("setup.toolArchives") }}</span>
+              </div>
             </div>
 
             <div class="setup-install-grid">
@@ -375,26 +413,44 @@ async function finish() {
             <div class="setup-form">
               <div class="setup-form-group">
                 <label class="setup-label">{{ t("setup.deviceName") }}</label>
-                <input id="setup-device-name" type="text" :value="deviceName" :placeholder="t('setup.devicePlaceholder')" class="setup-input" />
+                <input
+                  id="setup-device-name"
+                  type="text"
+                  :value="deviceName"
+                  :placeholder="t('setup.devicePlaceholder')"
+                  class="setup-input"
+                />
                 <div class="setup-hint">{{ t("setup.deviceHint") }}</div>
               </div>
               <div class="setup-form-group">
                 <label class="setup-label">{{ t("setup.apiKey") }}</label>
-                <input id="setup-api-key" type="password" :placeholder="t('setup.apiPlaceholder')" class="setup-input" />
-                <div class="setup-hint">{{ t("setup.apiHint") }}
+                <input
+                  id="setup-api-key"
+                  type="password"
+                  :placeholder="t('setup.apiPlaceholder')"
+                  class="setup-input"
+                />
+                <div class="setup-hint">
+                  {{ t("setup.apiHint") }}
                   <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a>
                 </div>
               </div>
             </div>
             <div class="setup-tips">
-              <div class="setup-tip"><strong>{{ t("setup.startSteam") }}</strong> — {{ t("setup.startSteamText") }}</div>
-              <div class="setup-tip"><strong>{{ t("setup.firstLaunch") }}</strong> — {{ t("setup.firstLaunchText") }}</div>
+              <div class="setup-tip">
+                <strong>{{ t("setup.startSteam") }}</strong> — {{ t("setup.startSteamText") }}
+              </div>
+              <div class="setup-tip">
+                <strong>{{ t("setup.firstLaunch") }}</strong> — {{ t("setup.firstLaunchText") }}
+              </div>
             </div>
           </div>
         </div>
 
         <div class="setup-actions">
-          <button v-if="step > 0 && step < 2" class="setup-btn ghost" @click="step = step - 1">{{ t("actions.back") }}</button>
+          <button v-if="step > 0 && step < 2" class="setup-btn ghost" @click="step = step - 1">
+            {{ t("actions.back") }}
+          </button>
           <button v-if="step === 0" class="setup-btn primary" @click="step = 1">
             <IconPlay width="16" height="16" fill="currentColor" /> {{ t("setup.getStarted") }}
           </button>
@@ -496,10 +552,19 @@ async function finish() {
   box-shadow: 0 26px 55px rgba(0, 0, 0, 0.55);
   transition: transform 0.3s ease;
 }
-.setup-covers img:nth-child(1) { transform: perspective(900px) rotateY(9deg) translateY(5px); }
-.setup-covers img:nth-child(2) { transform: perspective(900px) translateY(-16px) scale(1.13); z-index: 2; }
-.setup-covers img:nth-child(3) { transform: perspective(900px) rotateY(-6deg) translateY(-5px); }
-.setup-covers img:nth-child(4) { transform: perspective(900px) rotateY(-9deg) translateY(7px); }
+.setup-covers img:nth-child(1) {
+  transform: perspective(900px) rotateY(9deg) translateY(5px);
+}
+.setup-covers img:nth-child(2) {
+  transform: perspective(900px) translateY(-16px) scale(1.13);
+  z-index: 2;
+}
+.setup-covers img:nth-child(3) {
+  transform: perspective(900px) rotateY(-6deg) translateY(-5px);
+}
+.setup-covers img:nth-child(4) {
+  transform: perspective(900px) rotateY(-9deg) translateY(7px);
+}
 
 .setup-steps {
   position: relative;
@@ -787,11 +852,21 @@ async function finish() {
   font-size: 11.5px;
   line-height: 1.7;
 }
-.setup-log-line.info { color: #c9ceca; }
-.setup-log-line.active { color: #efe6d3; }
-.setup-log-line.success { color: #7cbf6a; }
-.setup-log-line.warn { color: #ffb84d; }
-.setup-log-line.error { color: #ff5c5c; }
+.setup-log-line.info {
+  color: #c9ceca;
+}
+.setup-log-line.active {
+  color: #efe6d3;
+}
+.setup-log-line.success {
+  color: #7cbf6a;
+}
+.setup-log-line.warn {
+  color: #ffb84d;
+}
+.setup-log-line.error {
+  color: #ff5c5c;
+}
 .setup-steam-section {
   margin-top: 26px;
   padding-top: 20px;
@@ -896,7 +971,10 @@ async function finish() {
   border: 0;
   cursor: pointer;
   font: inherit;
-  transition: transform 0.16s ease, filter 0.16s ease, border-color 0.16s ease;
+  transition:
+    transform 0.16s ease,
+    filter 0.16s ease,
+    border-color 0.16s ease;
 }
 .setup-btn:disabled {
   opacity: 0.45;
