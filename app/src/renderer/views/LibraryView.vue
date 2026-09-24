@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref, watch, type Ref } from "vue";
+import { useI18n } from "vue-i18n";
 import IconChevronRight from "~icons/lucide/chevron-right";
 import IconDownload from "~icons/lucide/download";
 import IconLibrary from "~icons/lucide/library";
@@ -65,6 +66,7 @@ const pendingLibraryTab = inject<Ref<string | null>>("pendingLibraryTab");
 const updateStatus = inject<Ref<UpdateStatus | null>>("updateStatus")!;
 const updateDownloading = inject<Ref<boolean>>("updateDownloading")!;
 const toast = useToast();
+const { t } = useI18n();
 const { theme } = useTheme();
 const collectionSaving = ref<Record<number, boolean>>({});
 
@@ -877,13 +879,13 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
       <section v-if="showFullLibrary" class="collection-page">
         <div class="collection-page-header">
           <div>
-            <p class="library-hero-eyebrow">STEAM COLLECTION</p>
-            <h1>Installed games</h1>
+            <p class="library-hero-eyebrow">{{ t("library.collectionEyebrow") }}</p>
+            <h1>{{ t("library.installedGames") }}</h1>
             <p>{{ installedCount }} games installed and ready in your MetalSharp library.</p>
           </div>
           <button class="collection-back-button" type="button" @click="openPlay">
             <IconGamepad width="16" height="16" />
-            <span>Back to Play</span>
+            <span>{{ t("library.backToPlay") }}</span>
           </button>
         </div>
         <div v-if="filteredGames.length" class="collection-grid">
@@ -921,7 +923,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                   "
                 >
                   <IconPlay width="14" height="14" fill="currentColor" />
-                  <span>Play</span>
+                  <span>{{ t("library.play") }}</span>
                 </button>
               </div>
             </div>
@@ -929,8 +931,8 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
         </div>
         <div v-else class="collection-empty">
           <IconLibrary width="42" height="42" />
-          <h2>No installed games found</h2>
-          <p>Install a Steam game and refresh the library to see it here.</p>
+          <h2>{{ t("library.noInstalledGames") }}</h2>
+          <p>{{ t("library.noInstalledDescription") }}</p>
         </div>
       </section>
       <template v-else>
@@ -973,19 +975,19 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
               </svg>
             </button>
             <div class="library-bottle-control">
-              <span class="library-control-label">Bottle</span>
+              <span class="library-control-label">{{ t("library.bottle") }}</span>
               <select v-model="selectedPipeline" :disabled="pipelineSaving" @change="savePipeline">
                 <option v-for="option in pipelineOptions" :key="option.id" :value="option.id">
                   {{ option.label }}
                 </option>
               </select>
-              <span v-if="pipelineSaving" class="library-control-saving">Saving…</span>
+              <span v-if="pipelineSaving" class="library-control-saving">{{ t("library.saving") }}</span>
             </div>
             <button
               class="library-game-settings-button"
               type="button"
-              aria-label="Game settings"
-              title="Game settings"
+              :aria-label="t('library.gameSettings')"
+              :title="t('library.gameSettings')"
               @click="gameSettingsOpen = !gameSettingsOpen"
             >
               <IconSettings width="17" height="17" />
@@ -993,7 +995,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
             <div v-if="gameSettingsOpen" class="game-settings-popover" @click.stop>
               <div class="game-settings-header">
                 <div>
-                  <span>GAME SETTINGS</span>
+                  <span>{{ t("library.gameSettingsTitle") }}</span>
                   <strong>{{ featuredGame.name }}</strong>
                 </div>
                 <button type="button" aria-label="Close settings" @click="gameSettingsOpen = false">×</button>
@@ -1008,15 +1010,15 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                     2×
                   </button>
                   <button :class="{ active: metalFxMode === 'off' }" type="button" @click="setMetalFx('off')">
-                    Off
+                    {{ t("library.off") }}
                   </button>
                 </div>
               </div>
               <div class="game-setting-row">
-                <span>Controller input</span>
+                <span>{{ t("library.controllerInput") }}</span>
                 <div class="game-setting-options">
                   <button :class="{ active: controllerInput === 'off' }" type="button" @click="setController('off')">
-                    Off
+                    {{ t("library.off") }}
                   </button>
                   <button :class="{ active: controllerInput === 'x' }" type="button" @click="setController('x')">
                     XInput
@@ -1029,11 +1031,11 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
               <div class="game-setting-row game-setting-toggle">
                 <span>msync</span>
                 <button type="button" :class="{ active: msyncEnabled }" @click="setMsync(!msyncEnabled)">
-                  {{ msyncEnabled ? "On" : "Off" }}
+                  {{ msyncEnabled ? t("library.on") : t("library.off") }}
                 </button>
               </div>
               <div class="game-setting-row game-setting-toggle">
-                <span>Steam Emu</span>
+                <span>{{ t("library.steamEmu") }}</span>
                 <button
                   type="button"
                   :class="{ active: steamEmuActive }"
@@ -1041,7 +1043,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                   :title="featuredGame?.installed ? 'gbe_fork Steam emulator' : 'Requires an installed game'"
                   @click="setSteamEmu(!steamEmuActive)"
                 >
-                  {{ steamEmuActive ? "On" : "Off" }}
+                  {{ steamEmuActive ? t("library.on") : t("library.off") }}
                 </button>
               </div>
             </div>
@@ -1050,15 +1052,12 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
         <section v-else class="library-empty-hero">
           <div class="library-empty-hero-content">
             <IconLibrary width="42" height="42" />
-            <p class="library-hero-eyebrow">YOUR LIBRARY AWAITS</p>
-            <h1>No installed games</h1>
-            <p class="library-hero-description">
-              Start Steam or install a game to see your real library here. MetalSharp will use the games already
-              installed on this Mac.
-            </p>
+            <p class="library-hero-eyebrow">{{ t("library.yourLibraryAwaits") }}</p>
+            <h1>{{ t("library.noInstalledGamesShort") }}</h1>
+            <p class="library-hero-description">{{ t("library.startSteamDescription") }}</p>
             <button class="library-play-button" type="button" @click="toggleSteam">
               <IconGamepad width="18" height="18" />
-              <span>Start Steam</span>
+              <span>{{ t("library.startSteam") }}</span>
             </button>
           </div>
         </section>
@@ -1066,7 +1065,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
         <section class="jump-back-section">
           <div class="jump-back-heading">
             <button type="button" @click="openCollection">
-              <span>View all</span>
+              <span>{{ t("library.viewAll") }}</span>
               <IconChevronRight width="18" height="18" />
             </button>
           </div>
