@@ -136,17 +136,19 @@ interface ThemeOption {
   icon: Component;
 }
 
-const themeOptions: ThemeOption[] = [
-  { name: "dark", label: "Dark", icon: IconMoon },
-  { name: "light", label: "Light", icon: IconSun },
-  { name: "skeleton", label: "Skeleton", icon: IconBone },
-  { name: "forest", label: "Forest", icon: IconTreePine },
-  { name: "orange-peel", label: "Orange Peel", icon: IconCitrus },
-  { name: "dragonfruit", label: "Dragonfruit", icon: IconSparkles },
-  { name: "lava", label: "Lava", icon: IconFlame },
-];
+const themeOptions = computed<ThemeOption[]>(() => [
+  { name: "dark", label: t("ui.theme.dark"), icon: IconMoon },
+  { name: "light", label: t("ui.theme.light"), icon: IconSun },
+  { name: "skeleton", label: t("ui.theme.skeleton"), icon: IconBone },
+  { name: "forest", label: t("ui.theme.forest"), icon: IconTreePine },
+  { name: "orange-peel", label: t("ui.theme.orange"), icon: IconCitrus },
+  { name: "dragonfruit", label: t("ui.theme.dragonfruit"), icon: IconSparkles },
+  { name: "lava", label: t("ui.theme.lava"), icon: IconFlame },
+]);
 
-const currentThemeOption = computed(() => themeOptions.find((o) => o.name === props.theme) ?? themeOptions[0]);
+const currentThemeOption = computed(
+  () => themeOptions.value.find((o) => o.name === props.theme) ?? themeOptions.value[0],
+);
 const themeToggleLabel = computed(() => currentThemeOption.value.label);
 
 function chooseTheme(name: ThemeName) {
@@ -311,7 +313,7 @@ const navItems = computed<NavItem[]>(() => [
       <Teleport to="body">
         <div v-if="themePickerOpen" class="theme-picker-backdrop" @click="themePickerOpen = false"></div>
         <div v-if="themePickerOpen" class="theme-picker-popover">
-          <div class="theme-picker-header">Theme</div>
+          <div class="theme-picker-header">{{ t("ui.theme.label") }}</div>
           <div ref="themePickerRef" class="theme-picker-list">
             <button
               v-for="option in themeOptions"

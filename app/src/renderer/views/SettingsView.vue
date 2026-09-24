@@ -347,7 +347,7 @@ function uninstallMetalsharp() {
       <h2>{{ t("settings.steamIntegration") }}</h2>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Steam Web API Key</div>
+          <div class="settings-label">{{ t("ui.settings.apiKey") }}</div>
           <div class="settings-desc">
             Required to load your full game library. Get a free key at
             <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a>.
@@ -359,22 +359,22 @@ function uninstallMetalsharp() {
               v-model="apiKeyInput"
               type="password"
               class="control-input"
-              placeholder="Enter your Steam Web API key..."
+              :placeholder="t('ui.settings.apiKey')"
             />
-            <button class="btn btn-primary btn-sm" @click="saveApiKey">Save &amp; Sync</button>
+            <button class="btn btn-primary btn-sm" @click="saveApiKey">{{ t("actions.save") }} &amp; Sync</button>
           </div>
-          <span v-if="steamApiKey" class="badge badge-ok">Key saved</span>
-          <span v-else class="badge badge-warn">No key — only installed games shown</span>
+          <span v-if="steamApiKey" class="badge badge-ok">{{ t("ui.settings.keySaved") }}</span>
+          <span v-else class="badge badge-warn">{{ t("ui.settings.noKey") }}</span>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Device Name</div>
+          <div class="settings-label">{{ t("ui.settings.deviceName") }}</div>
           <div class="settings-desc">Identifies this machine to Steam for persistent login</div>
         </div>
         <div class="settings-value settings-device-controls">
-          <span>{{ setupDeviceName || "Not set" }}</span>
-          <button class="btn btn-secondary btn-sm" @click="changeDeviceName">Change</button>
+          <span>{{ setupDeviceName || t("ui.settings.notSet") }}</span>
+          <button class="btn btn-secondary btn-sm" @click="changeDeviceName">{{ t("ui.settings.change") }}</button>
           <span class="settings-value-divider" aria-hidden="true"></span>
           <LanguagePicker compact />
         </div>
@@ -385,34 +385,34 @@ function uninstallMetalsharp() {
       <h2>{{ t("settings.steam") }}</h2>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Wine Steam (MetalSharp)</div>
+          <div class="settings-label">{{ t("ui.settings.wineSteam") }}</div>
           <div class="settings-desc">Windows Steam running in MetalSharp Wine</div>
         </div>
         <div class="settings-value">
-          <span v-if="wineSteamInstalled" class="badge badge-ok">Installed</span>
-          <span v-else class="badge badge-warn">Not Installed</span>
+          <span v-if="wineSteamInstalled" class="badge badge-ok">{{ t("ui.settings.installed") }}</span>
+          <span v-else class="badge badge-warn">{{ t("ui.settings.notInstalled") }}</span>
           <button v-if="wineSteamInstalled" class="btn btn-secondary btn-sm" @click="toggleSteam">
-            {{ wineSteamRunning ? "Stop Steam" : "Start Steam" }}
+            {{ wineSteamRunning ? t("ui.settings.stopSteam") : t("ui.settings.startSteam") }}
           </button>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Steam Mac</div>
+          <div class="settings-label">{{ t("ui.settings.steamMac") }}</div>
           <div class="settings-desc">Native macOS Steam used for games with Mac builds</div>
         </div>
         <div class="settings-value">
           <span v-if="macSteamInstalled" class="badge badge-ok">Installed</span>
           <span v-else class="badge badge-warn">Not Installed</span>
           <button v-if="macSteamInstalled" class="btn btn-secondary btn-sm" @click="toggleMacSteam">
-            {{ macSteamRunning ? "Stop Steam Mac" : "Start Steam Mac" }}
+            {{ macSteamRunning ? t("ui.settings.stopSteamMac") : t("ui.settings.startSteamMac") }}
           </button>
-          <button v-else class="btn btn-primary btn-sm" @click="installMacSteam">Install macOS Steam</button>
+          <button v-else class="btn btn-primary btn-sm" @click="installMacSteam">{{ t("ui.settings.installMacSteam") }}</button>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">High Resolution (Retina)</div>
+          <div class="settings-label">{{ t("ui.settings.retina") }}</div>
           <div class="settings-desc">
             Sharp Wine windows at native display resolution; restart Wine Steam to apply
           </div>
@@ -435,48 +435,48 @@ function uninstallMetalsharp() {
       <h2>{{ t("settings.backend") }}</h2>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Game Runtime Backend</div>
+          <div class="settings-label">{{ t("ui.settings.backendRuntime") }}</div>
           <div class="settings-desc">The C backend handles game launches, Steam integration, and shader management</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="backendConnected ? 'badge-ok' : 'badge-warn'">
-            {{ backendConnected ? "Connected" : "Offline" }}
+            {{ backendConnected ? t("ui.settings.connected") : t("ui.settings.offline") }}
           </span>
           <span v-if="backendVersion" class="settings-version">v{{ backendVersion }}</span>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Restart Backend</div>
+          <div class="settings-label">{{ t("ui.settings.restartBackend") }}</div>
           <div class="settings-desc">Kill and restart the backend process</div>
         </div>
         <div class="settings-value">
           <button class="btn btn-secondary btn-sm" :disabled="backendRestarting" @click="restartBackend">
-            {{ backendRestarting ? "Restarting..." : "Restart Backend" }}
+            {{ backendRestarting ? t("ui.settings.restarting") : t("ui.settings.restartBackend") }}
           </button>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Force Kill Processes</div>
+          <div class="settings-label">{{ t("ui.settings.forceKill") }}</div>
           <div class="settings-desc">
             Destructively stops MetalSharp Wine/runtime helper processes while keeping this app and backend alive.
           </div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-danger btn-sm" @click="forceKillProcesses">Force Kill Processes</button>
+          <button class="btn btn-danger btn-sm" @click="forceKillProcesses">{{ t("ui.settings.forceKill") }}</button>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Low Performance Mode</div>
+          <div class="settings-label">{{ t("ui.settings.lowPerformance") }}</div>
           <div class="settings-desc">
             Disables blur, glass, glow, and heavy motion while preserving layout and essential progress updates.
           </div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="lowPerformanceMode ? 'badge-warn' : 'badge-ok'">
-            {{ lowPerformanceMode ? "Reduced Effects" : "Full Effects" }}
+            {{ lowPerformanceMode ? t("ui.settings.reducedEffects") : t("ui.settings.fullEffects") }}
           </span>
           <label class="settings-toggle toggle-label" aria-label="Low Performance Mode">
             <input
@@ -490,7 +490,7 @@ function uninstallMetalsharp() {
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Developer Tools</div>
+          <div class="settings-label">{{ t("ui.settings.developerTools") }}</div>
           <div class="settings-desc">Show launch routing, doctor controls, and advanced card tools</div>
         </div>
         <div class="settings-value">
@@ -506,7 +506,7 @@ function uninstallMetalsharp() {
       </div>
       <div v-if="developerMode" class="settings-row">
         <div>
-          <div class="settings-label">Graphics Runtime Logs</div>
+          <div class="settings-label">{{ t("ui.settings.graphicsLogs") }}</div>
           <div class="settings-desc">
             Opt in to DXMT graphics logs for future launches. Off by default to keep routine launches quiet
             unless requested.
@@ -532,25 +532,25 @@ function uninstallMetalsharp() {
       <h2>{{ t("settings.dataPermissions") }}</h2>
       <div class="settings-row">
         <div>
-          <div class="settings-label">MetalSharp Data Folder</div>
+          <div class="settings-label">{{ t("ui.settings.dataFolder") }}</div>
           <div class="settings-desc">
             Preserves logs, Sharp Library apps, covers, launch options, caches, and runtime state across updates.
           </div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-secondary btn-sm" @click="openMetalsharpFolder">Open Data</button>
-          <button class="btn btn-secondary btn-sm" @click="openLogsFolder">Open Logs</button>
+          <button class="btn btn-secondary btn-sm" @click="openMetalsharpFolder">{{ t("ui.settings.openData") }}</button>
+          <button class="btn btn-secondary btn-sm" @click="openLogsFolder">{{ t("ui.settings.openLogs") }}</button>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Data Access Check</div>
+          <div class="settings-label">{{ t("ui.settings.dataAccess") }}</div>
           <div class="settings-desc">
             Recreates required folders and verifies MetalSharp can write logs and library metadata after an app update.
           </div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-primary btn-sm" @click="repairDataAccess">Repair &amp; Verify</button>
+          <button class="btn btn-primary btn-sm" @click="repairDataAccess">{{ t("ui.settings.repairVerify") }}</button>
         </div>
       </div>
     </div>
@@ -559,25 +559,25 @@ function uninstallMetalsharp() {
       <h2>{{ t("settings.cache") }}</h2>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Shader Cache</div>
+          <div class="settings-label">{{ t("ui.settings.shaderCache") }}</div>
           <div class="settings-desc">Persist compiled shaders to disk for faster loading</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="cacheBadgeClass(shaderCache)">{{ cacheStatusText(shaderCache) }}</span>
           <span v-if="shaderCache?.apps" class="settings-version">{{ shaderCache.apps }} apps</span>
           <span v-if="shaderCache?.last_modified" class="settings-version">{{ shaderCache.last_modified }}</span>
-          <button class="btn btn-secondary btn-sm" @click="clearShaderCache">Clear</button>
+          <button class="btn btn-secondary btn-sm" @click="clearShaderCache">{{ t("ui.settings.clear") }}</button>
         </div>
       </div>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Pipeline Cache</div>
+          <div class="settings-label">{{ t("ui.settings.pipelineCache") }}</div>
           <div class="settings-desc">Persist compiled pipeline state objects</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="cacheBadgeClass(pipelineCache)">{{ cacheStatusText(pipelineCache) }}</span>
           <span v-if="pipelineCache?.last_modified" class="settings-version">{{ pipelineCache.last_modified }}</span>
-          <button class="btn btn-secondary btn-sm" @click="clearPipelineCache">Clear</button>
+          <button class="btn btn-secondary btn-sm" @click="clearPipelineCache">{{ t("ui.settings.clear") }}</button>
         </div>
       </div>
     </div>
@@ -586,14 +586,14 @@ function uninstallMetalsharp() {
       <h2>{{ t("settings.updates") }}</h2>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Version</div>
+          <div class="settings-label">{{ t("ui.settings.version") }}</div>
           <div class="settings-desc">
             {{
               updateStatus?.ok && updateStatus?.available
                 ? `v${updateStatus.latest_version} available (current: v${updateStatus.current_version})`
                 : updateStatus?.ok
-                  ? "You're up to date"
-                  : "Could not check for updates"
+                  ? t("ui.settings.upToDate")
+                  : t("ui.settings.couldNotCheck")
             }}
           </div>
         </div>
@@ -601,16 +601,16 @@ function uninstallMetalsharp() {
           <span class="badge" :class="updateStatus?.ok ? 'badge-ok' : 'badge-warn'">
             v{{ updateStatus?.current_version ?? "unknown" }}
           </span>
-          <button v-if="!updateDownloading" class="btn btn-secondary btn-sm" @click="checkForUpdates">Check Now</button>
+          <button v-if="!updateDownloading" class="btn btn-secondary btn-sm" @click="checkForUpdates">{{ t("ui.settings.checkNow") }}</button>
         </div>
       </div>
       <div v-if="updateStatus?.ok && updateStatus?.available && !updateDownloading" class="settings-row">
         <div>
-          <div class="settings-label">Download Update</div>
+          <div class="settings-label">{{ t("ui.settings.downloadUpdate") }}</div>
           <div class="settings-desc">v{{ updateStatus.latest_version }} is ready to download</div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-primary btn-sm" @click="startUpdateDownload()">Download &amp; Install</button>
+          <button class="btn btn-primary btn-sm" @click="startUpdateDownload()">{{ t("ui.settings.downloadInstall") }}</button>
         </div>
       </div>
       <div
@@ -618,16 +618,16 @@ function uninstallMetalsharp() {
         class="settings-row"
       >
         <div>
-          <div class="settings-label">FEX Update</div>
+          <div class="settings-label">{{ t("ui.settings.fexUpdate") }}</div>
           <div class="settings-desc">macOS 27+ only · experimental and potentially less stable than baseline</div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-secondary btn-sm" @click="startFexUpdateDownload">Update to FEX Version</button>
+          <button class="btn btn-secondary btn-sm" @click="startFexUpdateDownload">{{ t("ui.settings.updateFex") }}</button>
         </div>
       </div>
       <div v-if="updateDownloading" class="settings-row">
         <div>
-          <div class="settings-label">{{ updateMessage || "Updating..." }}</div>
+          <div class="settings-label">{{ updateMessage || t("ui.settings.updating") }}</div>
           <div class="settings-desc">Do not close MetalSharp during the update</div>
         </div>
         <div class="settings-value">
@@ -643,14 +643,14 @@ function uninstallMetalsharp() {
       <h2><IconTrash2 width="14" height="14" /> Danger Zone</h2>
       <div class="settings-row">
         <div>
-          <div class="settings-label">Uninstall MetalSharp</div>
+          <div class="settings-label">{{ t("ui.settings.uninstall") }}</div>
           <div class="settings-desc">
             Permanently deletes all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and
             settings. The app will close after cleanup.
           </div>
         </div>
         <div class="settings-value">
-          <button class="btn btn-danger btn-sm" @click="uninstallMetalsharp">Uninstall MetalSharp</button>
+          <button class="btn btn-danger btn-sm" @click="uninstallMetalsharp">{{ t("ui.settings.uninstall") }}</button>
         </div>
       </div>
     </div>

@@ -476,17 +476,19 @@ const { t } = useI18n();
 const sourceMode = ref<SharpSource>("installers");
 const sourcePickerOpen = ref(false);
 const sourcePickerList = ref<HTMLElement | null>(null);
-const sourceTabs: Array<{ id: SharpSource; label: string; detail: string; icon: Component }> = [
-  { id: "installers", label: "Installers", detail: "Windows applications", icon: IconPackage },
-  { id: "gog", label: "GOG", detail: "GOG games library", icon: IconLibrary },
-  { id: "epic", label: "Epic", detail: "Epic games library", icon: IconGamepad2 },
-  { id: "gamejolt", label: "GameJolt", detail: "Indie games library", icon: IconRocket },
+const sourceTabs = computed<Array<{ id: SharpSource; label: string; detail: string; icon: Component }>>(() => [
+  { id: "installers", label: t("ui.sharp.installers"), detail: t("ui.sharp.installersDetail"), icon: IconPackage },
+  { id: "gog", label: t("ui.sharp.gog"), detail: t("ui.sharp.gogDetail"), icon: IconLibrary },
+  { id: "epic", label: t("ui.sharp.epic"), detail: t("ui.sharp.epicDetail"), icon: IconGamepad2 },
+  { id: "gamejolt", label: t("ui.sharp.gamejolt"), detail: t("ui.sharp.gamejoltDetail"), icon: IconRocket },
   { id: "pcsx2", label: "PCSX2", detail: "PlayStation 2", icon: IconDisc3 },
   { id: "rpcs3", label: "RPCS3", detail: "PlayStation 3", icon: IconCpu },
   { id: "shadps4", label: "shadPS4", detail: "PlayStation 4", icon: IconMonitorCog },
   { id: "sharpemu", label: "SharpEmu", detail: "PlayStation 5 research", icon: IconMicroscope },
-];
-const currentSource = computed(() => sourceTabs.find((source) => source.id === sourceMode.value) ?? sourceTabs[0]);
+]);
+const currentSource = computed(
+  () => sourceTabs.value.find((source) => source.id === sourceMode.value) ?? sourceTabs.value[0],
+);
 const headerTitle = computed(() => {
   if (sourceMode.value === "gog") return "GOG Games Library";
   if (sourceMode.value === "epic") return "Epic Games Library";
@@ -3121,7 +3123,7 @@ onUnmounted(() => {
     <div class="sharp-header glass-header">
       <div class="sharp-drag-strip" aria-hidden="true"></div>
       <div class="sharp-header-title">
-        <span class="sharp-eyebrow">{{ t("nav.sharp") }} · INSTALLERS &amp; EMULATORS</span>
+        <span class="sharp-eyebrow">{{ t("ui.sharp.eyebrow") }}</span>
         <h1>{{ headerTitle }}</h1>
         <p>{{ headerSubtitle }}</p>
       </div>
@@ -3133,14 +3135,14 @@ onUnmounted(() => {
             type="button"
             aria-haspopup="listbox"
             :aria-expanded="sourcePickerOpen"
-            :aria-label="t('nav.sharp')"
+            :aria-label="t('ui.sharp.source')"
             @click="toggleSourcePicker"
           >
             <span class="sharp-source-trigger-icon">
               <component :is="currentSource.icon" width="17" height="17" />
             </span>
             <span class="sharp-source-trigger-copy">
-              <small>{{ t("nav.sharp") }}</small>
+              <small>{{ t("ui.sharp.source") }}</small>
               <strong>{{ currentSource.label }}</strong>
             </span>
             <IconChevronDown class="sharp-source-chevron" width="16" height="16" />
@@ -3148,8 +3150,8 @@ onUnmounted(() => {
           <div v-if="sourcePickerOpen" class="sharp-source-backdrop" @click="sourcePickerOpen = false"></div>
           <div v-if="sourcePickerOpen" class="sharp-source-popover">
             <div class="sharp-source-popover-header">
-              <span>{{ t("nav.sharp") }}</span>
-              <small>Choose a collection</small>
+              <span>{{ t("ui.sharp.source") }}</span>
+              <small>{{ t("ui.sharp.chooseCollection") }}</small>
             </div>
             <div ref="sourcePickerList" class="sharp-source-list" role="listbox" aria-label="Sharp Library sources">
               <button
@@ -3182,13 +3184,13 @@ onUnmounted(() => {
               @click="installOrUpdatePcsx2"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ pcsx2Loading.update ? "Installing…" : pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+              {{ pcsx2Loading.update ? t("ui.sharp.installing") : pcsx2Loading.check ? t("ui.sharp.checking") : t("ui.sharp.check") }} PCSX2
             </button>
             <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
-              <IconX width="15" height="15" /> Stop PCSX2
+              <IconX width="15" height="15" /> {{ t("ui.sharp.stop") }} PCSX2
             </button>
             <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
-              <IconExternalLink width="15" height="15" /> Open PCSX2
+              <IconExternalLink width="15" height="15" /> {{ t("ui.sharp.open") }} PCSX2
             </button>
           </div>
           <div v-else-if="sourceMode === 'rpcs3'" class="emulator-header-actions">
@@ -3198,10 +3200,10 @@ onUnmounted(() => {
               @click="installOrUpdateRpcs3"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ rpcs3Loading.update ? "Installing…" : rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
+              {{ rpcs3Loading.update ? t("ui.sharp.installing") : rpcs3Loading.check ? t("ui.sharp.checking") : t("ui.sharp.check") }} RPCS3
             </button>
             <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
-              <IconExternalLink width="14" height="14" /> Open RPCS3
+              <IconExternalLink width="14" height="14" /> {{ t("ui.sharp.open") }} RPCS3
             </button>
           </div>
           <div v-else-if="sourceMode === 'shadps4'" class="emulator-header-actions">
@@ -3211,7 +3213,7 @@ onUnmounted(() => {
               @click="installOrUpdateShadps4"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ shadps4Loading.update ? "Installing…" : shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
+              {{ shadps4Loading.update ? t("ui.sharp.installing") : shadps4Loading.check ? t("ui.sharp.checking") : t("ui.sharp.check") }} shadPS4
             </button>
           </div>
           <div v-else-if="sourceMode === 'sharpemu'" class="emulator-header-actions">
@@ -3221,12 +3223,12 @@ onUnmounted(() => {
               @click="installOrUpdateSharpemu"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ sharpemuLoading.update ? "Installing…" : sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
+              {{ sharpemuLoading.update ? t("ui.sharp.installing") : sharpemuLoading.check ? t("ui.sharp.checking") : t("ui.sharp.check") }} SharpEmu
             </button>
           </div>
           <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
             <IconUpload class="btn-icon" width="14" height="14" />
-            <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
+            <span class="btn-label-long">{{ t("ui.sharp.installWindows") }}</span><span class="btn-label-short">{{ t("ui.sharp.install") }}</span>
           </button>
           <button
             v-if="sourceMode === 'gog'"
@@ -3318,10 +3320,10 @@ onUnmounted(() => {
                     ? gamejoltLoading
                       ? "Scanning…"
                       : "Sync GameJolt"
-                    : "Refresh"
+                    : t("ui.sharp.refresh")
             }}</span
             ><span class="btn-label-short">{{
-              sourceMode === "gog" || sourceMode === "epic" || sourceMode === "gamejolt" ? "Sync" : "Refresh"
+              sourceMode === "gog" || sourceMode === "epic" || sourceMode === "gamejolt" ? t("ui.sharp.sync") : t("ui.sharp.refresh")
             }}</span>
           </button>
         </div>

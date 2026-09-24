@@ -995,13 +995,13 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
             <div v-if="gameSettingsOpen" class="game-settings-popover" @click.stop>
               <div class="game-settings-header">
                 <div>
-                  <span>{{ t("library.gameSettingsTitle") }}</span>
+                  <span>{{ t("ui.game.title") }}</span>
                   <strong>{{ featuredGame.name }}</strong>
                 </div>
                 <button type="button" aria-label="Close settings" @click="gameSettingsOpen = false">×</button>
               </div>
               <div class="game-setting-row">
-                <span>MetalFX</span>
+                <span>{{ t("ui.game.metalFx") }}</span>
                 <div class="game-setting-options">
                   <button :class="{ active: metalFxMode === '1.75' }" type="button" @click="setMetalFx('1.75')">
                     1.75×
@@ -1010,15 +1010,15 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                     2×
                   </button>
                   <button :class="{ active: metalFxMode === 'off' }" type="button" @click="setMetalFx('off')">
-                    {{ t("library.off") }}
+                    {{ t("ui.game.off") }}
                   </button>
                 </div>
               </div>
               <div class="game-setting-row">
-                <span>{{ t("library.controllerInput") }}</span>
+                <span>{{ t("ui.game.controllerInput") }}</span>
                 <div class="game-setting-options">
                   <button :class="{ active: controllerInput === 'off' }" type="button" @click="setController('off')">
-                    {{ t("library.off") }}
+                    {{ t("ui.game.off") }}
                   </button>
                   <button :class="{ active: controllerInput === 'x' }" type="button" @click="setController('x')">
                     XInput
@@ -1029,13 +1029,13 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                 </div>
               </div>
               <div class="game-setting-row game-setting-toggle">
-                <span>msync</span>
+                <span>{{ t("ui.game.msync") }}</span>
                 <button type="button" :class="{ active: msyncEnabled }" @click="setMsync(!msyncEnabled)">
-                  {{ msyncEnabled ? t("library.on") : t("library.off") }}
+                  {{ msyncEnabled ? t("ui.game.on") : t("ui.game.off") }}
                 </button>
               </div>
               <div class="game-setting-row game-setting-toggle">
-                <span>{{ t("library.steamEmu") }}</span>
+                <span>{{ t("ui.game.steamEmu") }}</span>
                 <button
                   type="button"
                   :class="{ active: steamEmuActive }"
@@ -1043,7 +1043,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                   :title="featuredGame?.installed ? 'gbe_fork Steam emulator' : 'Requires an installed game'"
                   @click="setSteamEmu(!steamEmuActive)"
                 >
-                  {{ steamEmuActive ? t("library.on") : t("library.off") }}
+                  {{ steamEmuActive ? t("ui.game.on") : t("ui.game.off") }}
                 </button>
               </div>
             </div>

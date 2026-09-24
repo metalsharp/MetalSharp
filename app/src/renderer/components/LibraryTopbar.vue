@@ -59,15 +59,15 @@ const themeIcons: Record<ThemeName, Component> = {
   dragonfruit: IconGrape,
   lava: IconFlame,
 };
-const themeLabels: Record<ThemeName, string> = {
-  dark: "Dark",
-  light: "Light",
-  skeleton: "Skeleton",
-  forest: "Forest",
-  "orange-peel": "Orange",
-  dragonfruit: "Dragonfruit",
-  lava: "Lava",
-};
+const themeLabels = computed<Record<ThemeName, string>>(() => ({
+  dark: t("ui.theme.dark"),
+  light: t("ui.theme.light"),
+  skeleton: t("ui.theme.skeleton"),
+  forest: t("ui.theme.forest"),
+  "orange-peel": t("ui.theme.orange"),
+  dragonfruit: t("ui.theme.dragonfruit"),
+  lava: t("ui.theme.lava"),
+}));
 
 const tabOptions = computed<{ id: TopbarTab; label: string; icon: Component }[]>(() => [
   { id: "play", label: t("library.play"), icon: IconGamepad },
