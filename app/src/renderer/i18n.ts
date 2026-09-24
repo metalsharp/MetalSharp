@@ -278,6 +278,8 @@ const english = {
       mouseAuto: "Mouse Auto",
       stopDownload: "Stop Download",
       noBottle: "No bottle required",
+      noApps: "No applications installed",
+      noAppsDescription: "Install a Windows program to add it to the Sharp Library.",
       missingSteam: "Missing Windows Steam?",
       missingSteamDesc: "Re-run the setup wizard to install or repair the Steam runtime",
       graphicsLogsDesc:
@@ -3112,6 +3114,29 @@ const libraryLabelsByLocale: Record<string, LocaleMessages> = {
   },
 };
 
+const checkLabelsByLocale: Record<string, string> = {
+  en: "Check",
+  "zh-CN": "检查",
+  es: "Comprobar",
+  hi: "जाँचें",
+  ar: "تحقق",
+  "pt-BR": "Verificar",
+  bn: "পরীক্ষা করুন",
+  ru: "Проверить",
+  ja: "確認",
+  pa: "ਜਾਂਚੋ",
+  de: "Prüfen",
+  jv: "Priksa",
+  ko: "확인",
+  fr: "Vérifier",
+  te: "తనిఖీ చేయండి",
+  vi: "Kiểm tra",
+  tr: "Kontrol et",
+  ur: "چیک کریں",
+  it: "Controlla",
+  mr: "तपासा",
+};
+
 const commonLabelsByLocale: Record<string, LocaleMessages> = {
   "zh-CN": {
     settings: {
@@ -3903,7 +3928,13 @@ export const messages = Object.fromEntries(
       ...(commonLabels.settings as LocaleMessages | undefined),
       ...(uiOverrides.settings as LocaleMessages | undefined),
     };
+    localizedUi.sharp = {
+      ...(english.ui.sharp as LocaleMessages),
+      ...((uiOverrides.sharp as LocaleMessages | undefined) ?? {}),
+      check: checkLabelsByLocale[code] ?? "Check",
+    };
     const sharp = (localizedUi.sharp as LocaleMessages) ?? {};
+    const topLevelSharp = (localeSource.sharp as LocaleMessages | undefined) ?? {};
     const settings = (localizedUi.settings as LocaleMessages) ?? {};
     const actions = (localeSource.actions as LocaleMessages | undefined) ?? {};
     const nav = (localeSource.nav as LocaleMessages | undefined) ?? {};
@@ -4122,6 +4153,10 @@ export const messages = Object.fromEntries(
       mouseAuto: String(sharp.source ?? "Mouse Auto"),
       stopDownload: String(sharp.stop ?? "Stop Download"),
       noBottle: String(sharp.source ?? "No bottle required"),
+      noApps: String(topLevelSharp.noApps ?? sharp.source ?? "No applications installed"),
+      noAppsDescription: String(
+        topLevelSharp.noAppsDescription ?? sharp.source ?? "Install a Windows program to add it to the Sharp Library.",
+      ),
       missingSteam: String(sharp.source ?? "Missing Windows Steam?"),
       missingSteamDesc: String(sharp.source ?? "Run the setup wizard"),
       graphicsLogsDesc: String(sharp.source ?? "Graphics logs"),
