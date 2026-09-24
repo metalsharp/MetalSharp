@@ -29,7 +29,8 @@
   },
   "dependencies": {
     "electron-store": "^10.0.0",
-    "marked": "^18.0.13"
+    "marked": "^18.0.13",
+    "vue-i18n": "^11.4.12"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.13",

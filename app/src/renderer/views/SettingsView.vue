@@ -2,6 +2,8 @@
 import { ref, inject, onMounted, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
+import LanguagePicker from "../components/LanguagePicker.vue";
+import { useI18n } from "vue-i18n";
 import type { AppConfig, UpdateStatus } from "../api-types";
 import IconTrash2 from "~icons/lucide/trash-2";
 
@@ -38,6 +40,7 @@ const developerMode = inject<Ref<boolean>>("developerMode")!;
 const lowPerformanceMode = inject<Ref<boolean>>("lowPerformanceMode")!;
 
 const toast = useToast();
+const { t } = useI18n();
 const shaderCache = ref<CacheSummary | null>(null);
 const pipelineCache = ref<CacheSummary | null>(null);
 const apiKeyInput = ref("");
@@ -338,10 +341,20 @@ function uninstallMetalsharp() {
 
 <template>
   <div class="settings-view">
-    <div class="settings-header"><h1>Settings</h1></div>
+    <div class="settings-header"><h1>{{ t("settings.title") }}</h1></div>
 
     <div class="settings-section">
-      <h2>Steam Integration</h2>
+      <div class="settings-row settings-language-row">
+        <div>
+          <div class="settings-label">{{ t("settings.language") }}</div>
+          <div class="settings-desc">{{ t("settings.languageDesc") }}</div>
+        </div>
+        <div class="settings-value"><LanguagePicker compact /></div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h2>{{ t("settings.steamIntegration") }}</h2>
       <div class="settings-row">
         <div>
           <div class="settings-label">Steam Web API Key</div>
@@ -377,7 +390,7 @@ function uninstallMetalsharp() {
     </div>
 
     <div class="settings-section">
-      <h2>Steam</h2>
+      <h2>{{ t("settings.steam") }}</h2>
       <div class="settings-row">
         <div>
           <div class="settings-label">Wine Steam (MetalSharp)</div>
@@ -427,7 +440,7 @@ function uninstallMetalsharp() {
     </div>
 
     <div class="settings-section">
-      <h2>Backend</h2>
+      <h2>{{ t("settings.backend") }}</h2>
       <div class="settings-row">
         <div>
           <div class="settings-label">Game Runtime Backend</div>
@@ -524,7 +537,7 @@ function uninstallMetalsharp() {
     </div>
 
     <div class="settings-section">
-      <h2>Data &amp; Permissions</h2>
+      <h2>{{ t("settings.dataPermissions") }}</h2>
       <div class="settings-row">
         <div>
           <div class="settings-label">MetalSharp Data Folder</div>
@@ -551,7 +564,7 @@ function uninstallMetalsharp() {
     </div>
 
     <div class="settings-section">
-      <h2>Cache</h2>
+      <h2>{{ t("settings.cache") }}</h2>
       <div class="settings-row">
         <div>
           <div class="settings-label">Shader Cache</div>
@@ -578,7 +591,7 @@ function uninstallMetalsharp() {
     </div>
 
     <div class="settings-section">
-      <h2>Updates</h2>
+      <h2>{{ t("settings.updates") }}</h2>
       <div class="settings-row">
         <div>
           <div class="settings-label">Version</div>

@@ -15,6 +15,7 @@ import IconGamepad from "~icons/lucide/gamepad-2";
 import { themedNavIcon, type ThemeName } from "../composables/useTheme";
 import { api } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{
   currentView: string;
@@ -27,6 +28,7 @@ const emit = defineEmits<{
 }>();
 
 const toast = useToast();
+const { t } = useI18n();
 
 const collapsed = ref(false);
 const themePickerOpen = ref(false);
@@ -159,9 +161,9 @@ interface NavItem {
 }
 
 const navItems = computed<NavItem[]>(() => [
-  { view: "library", label: "Library", icon: themedNavIcon("library") },
-  { view: "sharp-library", label: "Sharp", icon: themedNavIcon("sharp") },
-  { view: "logs", label: "Logs", icon: themedNavIcon("logs") },
+  { view: "library", label: t("nav.library"), icon: themedNavIcon("library") },
+  { view: "sharp-library", label: t("nav.sharp"), icon: themedNavIcon("sharp") },
+  { view: "logs", label: t("nav.logs"), icon: themedNavIcon("logs") },
 ]);
 </script>
 
@@ -328,10 +330,10 @@ const navItems = computed<NavItem[]>(() => [
         class="sidebar-nav-item"
         :class="{ active: currentView === 'settings' }"
         @click="emit('navigate', 'settings')"
-        :title="collapsed ? 'Settings' : undefined"
+        :title="collapsed ? t('nav.settings') : undefined"
       >
         <IconSettings class="sidebar-nav-icon" width="18" height="18" />
-        <span v-if="!collapsed" class="sidebar-nav-label">Settings</span>
+        <span v-if="!collapsed" class="sidebar-nav-label">{{ t("nav.settings") }}</span>
       </button>
     </div>
   </nav>
