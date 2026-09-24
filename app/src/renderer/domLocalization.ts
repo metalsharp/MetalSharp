@@ -75,6 +75,8 @@ const phraseKeys: Record<string, string> = {
   "Rollback Runtime": "ui.source.rollback",
   "Clear Skip": "ui.source.clearSkipped",
   "Clear Skipped Update": "ui.source.clearSkipped",
+  Skip: "ui.source.skip",
+  "Skip Update": "ui.source.skip",
   "Check PCSX2": "ui.sharp.check",
   "Check RPCS3": "ui.sharp.check",
   "Check shadPS4": "ui.sharp.check",
@@ -121,6 +123,9 @@ const phraseKeys: Record<string, string> = {
   "Opt in to DXMT graphics logs for future launches. Off by default to keep routine launches quiet unless requested.":
     "ui.source.graphicsLogsDesc",
   "Do not close MetalSharp during the update": "ui.settingsDesc.doNotClose",
+  "Opt in to DXMT graphics logs for future launches.": "ui.source.graphicsLogsDesc",
+  "Off by default to keep routine launches quiet unless requested.": "ui.source.graphicsLogsDesc",
+  "The upstream macOS archive is not Developer ID signed or notarized.": "ui.source.runtimeSupport",
   Controller: "ui.game.controllerInput",
   "Controller 1": "ui.source.controller1",
   "Controller 2": "ui.source.controller2",
