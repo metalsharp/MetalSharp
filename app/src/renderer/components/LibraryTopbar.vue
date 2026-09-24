@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, ref, type Component, type Ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { api, steamFix } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { themes, useTheme, type ThemeName } from "../composables/useTheme";
@@ -47,6 +48,7 @@ const steamFixMenuOpen = ref(false);
 const steamFixBusy = ref(false);
 const wineSteamRunning = inject<Ref<boolean>>("wineSteamRunning")!;
 const toast = useToast();
+const { t } = useI18n();
 
 const themeIcons: Record<ThemeName, Component> = {
   dark: IconMoon,
@@ -67,13 +69,15 @@ const themeLabels: Record<ThemeName, string> = {
   lava: "Lava",
 };
 
-const tabOptions: { id: TopbarTab; label: string; icon: Component }[] = [
-  { id: "play", label: "Play", icon: IconGamepad },
-  { id: "collection", label: "Collection", icon: IconLibrary },
-  { id: "sharp-library", label: "Sharp Library", icon: IconDownload },
-  { id: "logs", label: "Logs", icon: IconScrollText },
-];
-const activeTabOption = computed(() => tabOptions.find((option) => option.id === props.activeTab) || tabOptions[0]);
+const tabOptions = computed<{ id: TopbarTab; label: string; icon: Component }[]>(() => [
+  { id: "play", label: t("library.play"), icon: IconGamepad },
+  { id: "collection", label: t("library.collection"), icon: IconLibrary },
+  { id: "sharp-library", label: t("nav.sharp"), icon: IconDownload },
+  { id: "logs", label: t("nav.logs"), icon: IconScrollText },
+]);
+const activeTabOption = computed(
+  () => tabOptions.value.find((option) => option.id === props.activeTab) || tabOptions.value[0],
+);
 const themeMenuStyle = computed(() => {
   if (!themeMenuOpen.value || !themeButtonEl.value) return {};
   const rect = themeButtonEl.value.getBoundingClientRect();
@@ -102,11 +106,11 @@ async function runSteamFix() {
   if (steamFixBusy.value) return;
   steamFixMenuOpen.value = false;
   steamFixBusy.value = true;
-  toast.show("Fixing Steam...");
+  toast.show(t("library.fixingSteam"));
   const result = await steamFix();
   steamFixBusy.value = false;
-  if (result?.ok) toast.show("Steam Fixed", "success");
-  else toast.show(result?.error ?? "Steam fix failed", "error");
+  if (result?.ok) toast.show(t("library.fixSteam"), "success");
+  else toast.show(result?.error ?? t("library.fixSteam"), "error");
 }
 
 async function toggleSteam() {
@@ -137,12 +141,12 @@ async function toggleSteam() {
             <circle cx="6.1" cy="17.1" r="2.35"></circle>
             <path d="M8.15 15.85 13.45 9.8M3.85 17.8l-2.3-.9"></path>
           </svg>
-          <span>{{ wineSteamRunning ? "Stop Steam" : "Start Steam" }}</span>
+          <span>{{ wineSteamRunning ? t("library.stopSteam") : t("library.startSteam") }}</span>
         </button>
         <button
           class="library-steam-gear"
           type="button"
-          aria-label="Steam options"
+          :aria-label="t('library.steamOptions')"
           :disabled="steamFixBusy"
           @click.stop="steamFixMenuOpen = !steamFixMenuOpen"
         >
@@ -151,7 +155,7 @@ async function toggleSteam() {
         <div v-if="steamFixMenuOpen" class="library-steam-fix-backdrop" @click="steamFixMenuOpen = false"></div>
         <div v-if="steamFixMenuOpen" class="library-steam-fix-menu">
           <button type="button" :disabled="steamFixBusy" @click="runSteamFix">
-            {{ steamFixBusy ? "Fixing Steam..." : "Fix Steam" }}
+            {{ steamFixBusy ? t("library.fixingSteam") : t("library.fixSteam") }}
           </button>
         </div>
       </div>
@@ -160,7 +164,7 @@ async function toggleSteam() {
         <input
           :value="search"
           type="search"
-          placeholder="Search games, genres, or tags..."
+          :placeholder="t('library.searchPlaceholder')"
           @input="onSearchInput($event)"
         />
       </label>
@@ -169,13 +173,13 @@ async function toggleSteam() {
           ref="themeButtonEl"
           class="library-theme-button"
           type="button"
-          aria-label="Theme"
+          :aria-label="t('library.theme')"
           @click="themeMenuOpen = !themeMenuOpen"
         >
           <component :is="themeIcons[theme] || IconMoon" width="17" height="17" />
         </button>
       </div>
-      <nav class="library-nav" aria-label="Library navigation">
+      <nav class="library-nav" :aria-label="t('library.navigation')">
         <div class="library-tab-control">
           <button ref="tabButtonEl" class="library-tab-button" type="button" @click="tabMenuOpen = !tabMenuOpen">
             <component :is="activeTabOption.icon" width="16" height="16" />
@@ -186,8 +190,8 @@ async function toggleSteam() {
         <button
           class="library-settings-button"
           type="button"
-          aria-label="Settings"
-          title="Settings"
+          :aria-label="t('nav.settings')"
+          :title="t('nav.settings')"
           @click="openSettings"
         >
           <IconSettings width="19" height="19" />
