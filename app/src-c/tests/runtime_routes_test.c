@@ -66,32 +66,46 @@ int main(int argc, char** argv) {
         sidecar = join(home, "runtime/wine/bin/x87sidecar");
         assert(unlink(sidecar) == 0);
         assert(symlink("/bin/sh", sidecar) == 0);
-        set_route_paths(home, "vkd3d");
+        set_route_paths(home, "d3d9");
         assert(!getenv("ROSETTA_X87_PATH"));
         assert(unlink(sidecar) == 0);
         free(sidecar);
     }
     executable_fixture(home, "runtime/wine/bin/x87sidecar");
-    set_route_paths(home, "vkd3d");
-    assert(strstr(getenv("VK_DRIVER_FILES"), "lib/moltenvk-vkmt/MoltenVK_icd.json"));
+    executable_fixture(home, "runtime/wine/lib/wine/x86_64-unix/wine");
+    set_route_paths(home, "d3d9");
+    assert(!getenv("VK_DRIVER_FILES"));
     assert(getenv("ROSETTA_X87_PATH") && strstr(getenv("ROSETTA_X87_PATH"), "/runtime/wine/bin/x87sidecar"));
+    {
+        char* wow64_loader = join(home, "runtime/wine/lib/wine/i386-unix/wine");
+        assert(wow64_loader && access(wow64_loader, X_OK) == 0);
+        free(wow64_loader);
+    }
     assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
+    assert(!strcmp(pipeline_backend("d3d9"), "dxmt"));
     assert(!strcmp(canonical_pipeline("dxmt"), "dxmt"));
-    assert(!strcmp(canonical_pipeline("dxvk"), "vkd3d"));
+    assert(!strcmp(canonical_pipeline("dxvk"), "d3d9"));
     assert(!strcmp(canonical_pipeline("dxmt_32"), "dxmt_32"));
-    assert(!strcmp(canonical_pipeline("dxvk_32"), "vkd3d"));
+    assert(!strcmp(canonical_pipeline("dxvk_32"), "d3d9"));
     assert(!strcmp(pipeline_backend("vkd3d"), "vulkan"));
     assert(strstr(pipeline_overrides("dxmt"), "d3d10core"));
     assert(strstr(pipeline_overrides("vkd3d"), "d3d9"));
+    assert(strstr(pipeline_overrides("d3d9"), "d3d9,dxgi=n,b"));
     /* Isaac is OpenGL-based: WineMetalGL breaks GL_VERSION on the 32-bit route. */
     setenv("WINEMETALGL", "1", 1);
     set_game_opengl_env(250900, "dxmt_32");
     assert(!strcmp(getenv("WINEMETALGL"), "0"));
     setenv("WINEMETALGL", "1", 1);
+    set_game_opengl_env(391540, "d3d9");
+    assert(!strcmp(getenv("WINEMETALGL"), "0"));
+    setenv("WINEMETALGL", "1", 1);
     set_game_opengl_env(250900, "dxmt");
-    assert(!strcmp(getenv("WINEMETALGL"), "1"));
+    assert(!strcmp(getenv("WINEMETALGL"), "0"));
+    setenv("WINEMETALGL", "1", 1);
+    set_game_opengl_env(42, "vkd3d");
+    assert(!strcmp(getenv("WINEMETALGL"), "0"));
     set_game_opengl_env(42, "dxmt_32");
-    assert(!strcmp(getenv("WINEMETALGL"), "1"));
+    assert(!strcmp(getenv("WINEMETALGL"), "0"));
     set_route_paths(home, "d3dmetal");
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));

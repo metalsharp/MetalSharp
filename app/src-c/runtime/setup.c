@@ -1483,7 +1483,7 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
                      "Bottle-aware native host service ABI used by Wine shims and launch routes.", host_ready, true,
                      "metalsharp-setup-host-runtime");
     ms_json_writer_object_end(&writer);
-    dependency_begin(&writer, "dxmt_runtime", "DXMT M9-M11 Runtime",
+    dependency_begin(&writer, "dxmt_runtime", "DXMT D3D9-D3D11 Runtime",
                      "Bundled D3D9/D3D10/D3D11-to-Metal runtime (DXMT v0.80) staged under runtime/wine/lib/dxmt.",
                      dxmt_ready, true, "metalsharp-setup-dxmt");
     if (runtime != NULL) {

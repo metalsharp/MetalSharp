@@ -496,7 +496,7 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
 }
 
 static void write_pipeline_options(ms_json_writer* writer) {
-    static const char* const options[][2] = {{"auto", "Auto"},       {"m9", "M9"},
+    static const char* const options[][2] = {{"auto", "Auto"},       {"d3d9", "D3D9"},
                                              {"m10", "M10"},         {"m10_32", "M10 (32-bit)"},
                                              {"m11", "M11"},         {"m11_32", "M11 (32-bit)"},
                                              {"vkd3d", "VKD3D"},    {"d3dmetal", "D3DMetal"}};
@@ -722,7 +722,7 @@ char* ms_gamejolt_set_engine_json(const char* home, const unsigned char* body, s
     ms_json_writer writer;
     char* serialized;
     FILE* file;
-    bool valid = !strcmp(engine, "auto") || !strcmp(engine, "m9") || !strcmp(engine, "m10") ||
+    bool valid = !strcmp(engine, "auto") || !strcmp(engine, "m9") || !strcmp(engine, "d3d9") || !strcmp(engine, "m10") ||
                  !strcmp(engine, "m10_32") || !strcmp(engine, "m11") || !strcmp(engine, "m11_32") ||
                  !strcmp(engine, "vkd3d") || !strcmp(engine, "d3dmetal");
     bool found = false;

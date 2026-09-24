@@ -77,6 +77,8 @@ static char* manifest_pipeline(const char* home, unsigned long long id) {
 static const char* pipeline_name(const char* pipeline) {
     if (!strcmp(pipeline, "vkd3d"))
         return "VKD3D-Proton";
+    if (!strcmp(pipeline, "d3d9") || !strcmp(pipeline, "d3d9_32"))
+        return "D3D9";
     if (!strcmp(pipeline, "dxmt"))
         return "DXMT";
     if (!strcmp(pipeline, "dxmt_32"))
@@ -90,8 +92,8 @@ static const char* pipeline_name(const char* pipeline) {
 static const char* graphics_backend(const char* pipeline) {
     if (!strcmp(pipeline, "vkd3d"))
         return "vkd3d-proton";
-    if (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
-        return "dxvk";
+    if (!strcmp(pipeline, "d3d9") || !strcmp(pipeline, "d3d9_32"))
+        return "dxmt";
     if (!strcmp(pipeline, "d3dmetal"))
         return "d3dmetal";
     if (!strcmp(pipeline, "wine_bare"))
@@ -103,7 +105,8 @@ static const char* graphics_backend(const char* pipeline) {
 char* ms_game_resolve_json(const char* home, const unsigned char* body, size_t len, int* status) {
     unsigned long long id;
     ms_json* j = NULL;
-    char *preferred, *pipeline;
+    char *preferred;
+    const char* pipeline;
     ms_json_writer w;
     char* o;
     if (!parse_appid(body, len, &id, &j)) {
@@ -112,22 +115,16 @@ char* ms_game_resolve_json(const char* home, const unsigned char* body, size_t l
         return bad("appid required");
     }
     preferred = manifest_pipeline(home, id);
-    pipeline = preferred ? strdup(preferred) : strdup("vkd3d");
-    if (!pipeline) {
-        free(preferred);
-        ms_json_free(j);
-        if (status)
-            *status = 500;
-        return bad("out of memory");
-    }
+    pipeline = preferred ? preferred : "vkd3d";
     if (!strcmp(pipeline, "auto"))
-        snprintf(pipeline, 16, "vkd3d");
+        pipeline = "vkd3d";
     else if (!strcmp(pipeline, "m11") || !strcmp(pipeline, "m10"))
-        snprintf(pipeline, 16, "dxmt");
+        pipeline = "dxmt";
     else if (!strcmp(pipeline, "m11_32") || !strcmp(pipeline, "m10_32"))
-        snprintf(pipeline, 16, "dxmt_32");
-    else if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
-        snprintf(pipeline, 16, "vkd3d");
+        pipeline = "dxmt_32";
+    else if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32") ||
+             !strcmp(pipeline, "d3d9_32"))
+        pipeline = "d3d9";
     if (status)
         *status = 200;
     ms_json_writer_init(&w);
@@ -156,7 +153,6 @@ char* ms_game_resolve_json(const char* home, const unsigned char* body, size_t l
     ms_json_writer_object_end(&w);
     o = ms_json_writer_take(&w);
     free(preferred);
-    free(pipeline);
     ms_json_free(j);
     return o;
 }

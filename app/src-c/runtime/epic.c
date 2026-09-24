@@ -202,7 +202,7 @@ static char* request_string(const unsigned char* body, size_t body_length, const
 
 static bool valid_pipeline(const char* pipeline) {
     static const char* const allowed[] = {"auto", "d3dmetal", "vkd3d", "m11",      "m11_32",
-                                          "m10",  "m10_32",   "m9",    "fna_arm64"};
+                                          "m10",  "m10_32",   "m9",    "d3d9", "fna_arm64"};
     if (!pipeline)
         return false;
     for (size_t index = 0; index < sizeof(allowed) / sizeof(allowed[0]); index++)

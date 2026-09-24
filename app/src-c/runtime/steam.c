@@ -740,18 +740,37 @@ static bool bottle_string_value(const char* home, unsigned appid, const char* ke
     return true;
 }
 
+static const ms_json* steam_default_rules(void) {
+    static ms_json* root;
+    static bool initialized;
+    if (!initialized) {
+        char error[96];
+        char* raw = ms_mtsp_default_rules_json();
+        root = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+        free(raw);
+        initialized = true;
+    }
+    return root;
+}
+
+static const char* canonical_default_pipeline(const char* pipeline) {
+    if (!pipeline || !pipeline[0] || !strcmp(pipeline, "auto"))
+        return "vkd3d";
+    if (!strcmp(pipeline, "m11") || !strcmp(pipeline, "m10") || !strcmp(pipeline, "dxmt"))
+        return "dxmt";
+    if (!strcmp(pipeline, "m11_32") || !strcmp(pipeline, "m10_32") || !strcmp(pipeline, "dxmt_32"))
+        return "dxmt_32";
+    if (!strcmp(pipeline, "m9") || !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32") ||
+        !strcmp(pipeline, "d3d9") || !strcmp(pipeline, "d3d9_32"))
+        return "d3d9";
+    return pipeline;
+}
+
 static const char* default_pipeline_for_appid(unsigned appid) {
     static char pipeline[64];
-    char* raw = ms_mtsp_default_rules_json();
-    char error[96];
-    ms_json* root;
-    const ms_json* rules;
+    const ms_json* root = steam_default_rules();
+    const ms_json* rules = root ? ms_json_object_get(root, "rules") : NULL;
     pipeline[0] = '\0';
-    if (!raw)
-        return "vkd3d";
-    root = ms_json_parse(raw, strlen(raw), error, sizeof(error));
-    free(raw);
-    rules = root ? ms_json_object_get(root, "rules") : NULL;
     if (rules && ms_json_type_of(rules) == MS_JSON_ARRAY) {
         for (size_t i = 0; i < ms_json_array_length(rules); i++) {
             const ms_json* rule = ms_json_array_get(rules, i);
@@ -767,20 +786,28 @@ static const char* default_pipeline_for_appid(unsigned appid) {
             free(value);
         }
     }
-    ms_json_free(root);
-    return pipeline[0] ? pipeline : "vkd3d";
+    return canonical_default_pipeline(pipeline[0] ? pipeline : "vkd3d");
 }
 
 static const char* pipeline_display_name(const char* pipeline) {
     if (!pipeline)
         return "Auto";
+    if (!strcmp(pipeline, "auto"))
+        return "Auto";
     if (!strcmp(pipeline, "d3dmetal"))
         return "D3DMetal";
-    if (!strcmp(pipeline, "dxmt"))
+    if (!strcmp(pipeline, "d3d9") || !strcmp(pipeline, "d3d9_32") || !strcmp(pipeline, "m9") ||
+        !strcmp(pipeline, "dxvk") || !strcmp(pipeline, "dxvk_32"))
+        return "D3D9";
+    if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "m10") || !strcmp(pipeline, "m11"))
         return "DXMT";
-    if (!strcmp(pipeline, "dxmt_32"))
+    if (!strcmp(pipeline, "dxmt_32") || !strcmp(pipeline, "m10_32") || !strcmp(pipeline, "m11_32"))
         return "DXMT(32)";
-    if (!strcmp(pipeline, "fna_arm64"))
+    if (!strcmp(pipeline, "m13"))
+        return "M13";
+    if (!strcmp(pipeline, "wine_bare"))
+        return "Wine";
+    if (!strcmp(pipeline, "fna_arm64") || !strcmp(pipeline, "fna_x86"))
         return "Mono/FNA";
     return "VKD3D";
 }
@@ -818,7 +845,7 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     ms_json_writer_key(w, "available_pipelines");
     ms_json_writer_array_begin(w);
     {
-        static const char* pipeline_ids[] = {"d3dmetal", "vkd3d", "dxmt", "dxmt_32", "fna_arm64"};
+        static const char* pipeline_ids[] = {"d3dmetal", "vkd3d", "d3d9", "dxmt", "dxmt_32", "fna_arm64"};
         for (size_t i = 0; i < sizeof(pipeline_ids) / sizeof(pipeline_ids[0]); i++) {
             ms_json_writer_object_begin(w);
             ms_json_writer_key(w, "id");
@@ -886,6 +913,17 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     }
     if (api_key && steam_id)
         (void)load_owned_games(metalsharp_home, api_key, steam_id, refresh, &games, &count, &capacity);
+    /* Materialize the TOML-selected route for installed games on first
+     * discovery.  Without this, the library response can display the
+     * recommendation while the fresh bottle has no preferred_pipeline and
+     * the first launch falls back to a generic route. Existing manifests are
+     * intentionally left untouched so explicit user choices remain stable. */
+    for (i = 0; i < count; ++i) {
+        if (!games[i].installed || hidden_library_game(&games[i]))
+            continue;
+        (void)ms_steam_ensure_bottle_manifest(metalsharp_home, games[i].appid,
+                                              default_pipeline_for_appid(games[i].appid));
+    }
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");

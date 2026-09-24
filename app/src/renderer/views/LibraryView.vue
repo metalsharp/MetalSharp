@@ -77,7 +77,7 @@ const showFullLibrary = ref(false);
 const gameSettingsOpen = ref(false);
 const pipelineSaving = ref(false);
 const selectedPipeline = ref("auto");
-const metalFxMode = ref<"1.75" | "1.50" | "off">("1.50");
+const metalFxMode = ref<"1.75" | "2.0" | "off">("2.0");
 const metalFxBusy = ref(false);
 const controllerInput = ref<"off" | "x" | "d">("off");
 const controllerBusy = ref(false);
@@ -144,12 +144,16 @@ const libraryThemeStyle = computed<Record<string, string>>(() => ({
 const pipelineOptions = [
   { id: "d3dmetal", label: "D3DMetal" },
   { id: "vkd3d", label: "VKD3D" },
+  { id: "d3d9", label: "D3D9" },
   { id: "dxmt", label: "DXMT" },
   { id: "dxmt_32", label: "DXMT(32)" },
   { id: "fna_arm64", label: "Mono/FNA" },
 ];
 const pipelineNames: Record<string, string> = {
   ...Object.fromEntries(pipelineOptions.map((option) => [option.id, option.label])),
+  m9: "D3D9",
+  dxvk: "D3D9",
+  dxvk_32: "D3D9",
 };
 const pipelineLabel = (id: string | null | undefined) => (id && pipelineNames[id]) || "Auto";
 const normalizePipeline = (id: string | null | undefined) =>
@@ -545,7 +549,7 @@ function scrollDock(direction: -1 | 1) {
 }
 
 function isWineSteamRouteId(launchMethod: string) {
-  return ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "steam", "wine_steam"].includes(launchMethod.toLowerCase());
+  return ["d3dmetal", "vkd3d", "d3d9", "dxmt", "dxmt_32", "steam", "wine_steam"].includes(launchMethod.toLowerCase());
 }
 
 async function launchGame(game: ShowcaseGame) {
@@ -624,7 +628,7 @@ async function loadGameSettings() {
   }
   if (metalFx?.ok) {
     metalFxMode.value =
-      metalFx.enabled === false ? "off" : Math.abs((metalFx.factor || 1.5) - 1.75) < 0.01 ? "1.75" : "1.50";
+      metalFx.enabled === false ? "off" : Math.abs((metalFx.factor || 2.0) - 1.75) < 0.01 ? "1.75" : "2.0";
   }
 }
 
@@ -663,7 +667,7 @@ async function setSteamEmu(enabled: boolean) {
   steamEmuBusy.value = false;
 }
 
-async function setMetalFx(mode: "1.75" | "1.50" | "off") {
+async function setMetalFx(mode: "1.75" | "2.0" | "off") {
   if (metalFxBusy.value) return;
   metalFxBusy.value = true;
   const result = await api<{ ok: boolean }>(
@@ -1000,8 +1004,8 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                   <button :class="{ active: metalFxMode === '1.75' }" type="button" @click="setMetalFx('1.75')">
                     1.75×
                   </button>
-                  <button :class="{ active: metalFxMode === '1.50' }" type="button" @click="setMetalFx('1.50')">
-                    1.50×
+                  <button :class="{ active: metalFxMode === '2.0' }" type="button" @click="setMetalFx('2.0')">
+                    2×
                   </button>
                   <button :class="{ active: metalFxMode === 'off' }" type="button" @click="setMetalFx('off')">
                     Off
