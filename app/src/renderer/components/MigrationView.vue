@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from "vue";
+import { useI18n } from "vue-i18n";
 import IconArrowRight from "~icons/lucide/arrow-right";
 
+const { t, tm } = useI18n();
 const status = ref("idle");
 const step = ref(0);
 const total = ref(0);
-const message = ref("Checking migration status...");
+const message = ref(t("ui.migration.checking"));
 const error = ref<string | null>(null);
 const complete = ref(false);
 const launching = ref(false);
@@ -17,12 +19,7 @@ const percent = computed(() => {
   return Math.round((step.value / total.value) * 100);
 });
 
-const stages = [
-  { name: "Preserving Settings" },
-  { name: "Installing Update" },
-  { name: "Updating Prefix" },
-  { name: "Finishing up" },
-];
+const stages = computed(() => (tm("ui.migration.stages") as string[]).map((name) => ({ name })));
 
 const MAX_START_RETRIES = 20;
 const START_RETRY_DELAY_MS = 500;
@@ -31,31 +28,31 @@ async function startMigration(retriesLeft = MAX_START_RETRIES) {
   try {
     const res = await window.metalsharp.migrateStart();
     if (res?.ok) {
-      message.value = "Migration started...";
+      message.value = t("ui.migration.started");
       startPolling();
     } else if (res?.error?.includes("migration already in progress")) {
-      message.value = "Migration already running...";
+      message.value = t("ui.migration.alreadyRunning");
       startPolling();
     } else {
-      const errorText = res?.error ?? "Failed to start migration";
+      const errorText = res?.error ?? t("ui.migration.failedStart");
       if (retriesLeft > 0 && shouldRetryBackendError(errorText)) {
-        message.value = "Waiting for backend to start...";
+        message.value = t("ui.migration.waiting");
         await new Promise((r) => setTimeout(r, START_RETRY_DELAY_MS));
         await startMigration(retriesLeft - 1);
       } else {
         error.value = errorText;
-        message.value = `Error: ${error.value}`;
+        message.value = `${t("ui.migration.errorPrefix")}: ${error.value}`;
       }
     }
   } catch (e: unknown) {
-    const errorText = e instanceof Error ? e.message : "Network error";
+    const errorText = e instanceof Error ? e.message : t("ui.migration.networkError");
     if (retriesLeft > 0 && shouldRetryBackendError(errorText)) {
-      message.value = "Waiting for backend to start...";
+      message.value = t("ui.migration.waiting");
       await new Promise((r) => setTimeout(r, START_RETRY_DELAY_MS));
       await startMigration(retriesLeft - 1);
     } else {
       error.value = errorText;
-      message.value = `Error: ${error.value}`;
+      message.value = `${t("ui.migration.errorPrefix")}: ${error.value}`;
     }
   }
 }
@@ -103,19 +100,19 @@ function stopPolling() {
 
 async function restartApp() {
   launching.value = true;
-  message.value = "Closing old MetalSharp, stopping the backend, and launching the updated app...";
+  message.value = t("ui.migration.closing");
   const result = await window.metalsharp.restartAfterMigration();
   if (!result?.ok) {
     launching.value = false;
-    error.value = result?.error ?? "Failed to launch the updated MetalSharp app";
-    message.value = `Error: ${error.value}`;
+    error.value = result?.error ?? t("ui.migration.launchFailed");
+    message.value = `${t("ui.migration.errorPrefix")}: ${error.value}`;
   }
 }
 
 async function retryMigration() {
   error.value = null;
   status.value = "idle";
-  message.value = "Retrying migration...";
+  message.value = t("ui.migration.retrying");
   await startMigration();
 }
 
@@ -133,43 +130,50 @@ onUnmounted(() => {
     <div class="migration-card">
       <div class="migration-foil" aria-hidden="true"></div>
       <div class="migration-content">
-      <div class="migration-header">
-        <div class="loading-icon" :class="{ complete, error: !!error }" aria-hidden="true">
-          <img class="loading-icon-logo" src="../assets/metalsharp-logo.png" alt="" />
+        <div class="migration-header">
+          <div class="loading-icon" :class="{ complete, error: !!error }" aria-hidden="true">
+            <img class="loading-icon-logo" src="../assets/metalsharp-logo.png" alt="" />
+          </div>
+          <h1 class="migration-title">{{ t("ui.migration.title") }}</h1>
         </div>
-        <h1 class="migration-title">MetalSharp Update Migration</h1>
-      </div>
 
-      <div class="pipeline-vis">
-        <div v-for="(stage, i) in stages" :key="stage.name" class="pipeline-stage" :class="{ active: !complete && !error }">
-          <span class="stage-label">{{ stage.name }}</span>
-          <div v-if="i < stages.length - 1" class="pipeline-arrow">
-            <IconArrowRight width="16" height="12" />
+        <div class="pipeline-vis">
+          <div
+            v-for="(stage, i) in stages"
+            :key="stage.name"
+            class="pipeline-stage"
+            :class="{ active: !complete && !error }"
+          >
+            <span class="stage-label">{{ stage.name }}</span>
+            <div v-if="i < stages.length - 1" class="pipeline-arrow">
+              <IconArrowRight width="16" height="12" />
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="progress-section">
-        <div class="progress-bar-track">
-          <div class="progress-bar-fill" :style="{ width: percent + '%' }" :class="{ complete, error: !!error }" />
+        <div class="progress-section">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" :style="{ width: percent + '%' }" :class="{ complete, error: !!error }" />
+          </div>
+          <div class="progress-info">
+            <span class="progress-percent">{{ percent }}%</span>
+            <span v-if="total > 0" class="progress-step">{{ t("ui.migration.step", { step, total }) }}</span>
+          </div>
         </div>
-        <div class="progress-info">
-          <span class="progress-percent">{{ percent }}%</span>
-          <span v-if="total > 0" class="progress-step">Step {{ step }}/{{ total }}</span>
-        </div>
-      </div>
 
-      <p class="status-message" :class="{ error: !!error, complete }">{{ message }}</p>
+        <p class="status-message" :class="{ error: !!error, complete }">{{ message }}</p>
 
-      <button v-if="complete" class="restart-btn" :disabled="launching" @click="restartApp()">
-        {{ launching ? "Launching..." : "Launch MetalSharp" }}
-      </button>
-      <template v-if="error">
-        <div class="error-actions">
-          <button class="restart-btn" :disabled="launching" @click="retryMigration()">Try Again</button>
-        </div>
-        <p class="error-hint">Try restarting the app. If the issue persists, check the logs.</p>
-      </template>
+        <button v-if="complete" class="restart-btn" :disabled="launching" @click="restartApp()">
+          {{ launching ? t("ui.migration.launching") : t("ui.migration.launch") }}
+        </button>
+        <template v-if="error">
+          <div class="error-actions">
+            <button class="restart-btn" :disabled="launching" @click="retryMigration()">
+              {{ t("ui.migration.tryAgain") }}
+            </button>
+          </div>
+          <p class="error-hint">{{ t("ui.migration.errorHint") }}</p>
+        </template>
       </div>
     </div>
   </div>
@@ -183,9 +187,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
-    radial-gradient(ellipse 90% 70% at 50% 12%, rgba(95, 183, 232, 0.05), transparent 60%),
-    #0e1218;
+  background: radial-gradient(ellipse 90% 70% at 50% 12%, rgba(95, 183, 232, 0.05), transparent 60%), #0e1218;
 }
 
 .migration-card {
@@ -320,12 +322,19 @@ onUnmounted(() => {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .pipeline-arrow {
@@ -408,7 +417,9 @@ onUnmounted(() => {
     0 2px 6px rgba(0, 0, 0, 0.45),
     0 8px 20px rgba(0, 0, 0, 0.45),
     0 16px 38px rgba(0, 0, 0, 0.4);
-  transition: background-color 0.2s, border-color 0.2s;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
 }
 
 .restart-btn:hover:not(:disabled) {

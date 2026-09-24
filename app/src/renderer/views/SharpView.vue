@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, onMounted, onUnmounted, type Component } from "vue";
+import { useI18n } from "vue-i18n";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
@@ -33,7 +34,6 @@ import sharpLogoUrl from "../icon.png";
 
 const emit = defineEmits<{ navigate: [view: string] }>();
 const libraryThemeStyle = useLibraryThemeStyle();
-
 
 const refreshIcon = computed(() => themedNavIcon("refresh"));
 
@@ -471,43 +471,42 @@ interface Rpcs3UpdateProgress {
 type SharpSource = "installers" | "gog" | "epic" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4" | "sharpemu";
 
 const toast = useToast();
+const { t } = useI18n();
 const sourceMode = ref<SharpSource>("installers");
 const sourcePickerOpen = ref(false);
 const sourcePickerList = ref<HTMLElement | null>(null);
-const sourceTabs: Array<{ id: SharpSource; label: string; detail: string; icon: Component }> = [
-  { id: "installers", label: "Installers", detail: "Windows applications", icon: IconPackage },
-  { id: "gog", label: "GOG", detail: "GOG games library", icon: IconLibrary },
-  { id: "epic", label: "Epic", detail: "Epic games library", icon: IconGamepad2 },
-  { id: "gamejolt", label: "GameJolt", detail: "Indie games library", icon: IconRocket },
-  { id: "pcsx2", label: "PCSX2", detail: "PlayStation 2", icon: IconDisc3 },
-  { id: "rpcs3", label: "RPCS3", detail: "PlayStation 3", icon: IconCpu },
-  { id: "shadps4", label: "shadPS4", detail: "PlayStation 4", icon: IconMonitorCog },
-  { id: "sharpemu", label: "SharpEmu", detail: "PlayStation 5 research", icon: IconMicroscope },
-];
-const currentSource = computed(() => sourceTabs.find((source) => source.id === sourceMode.value) ?? sourceTabs[0]);
+const sourceTabs = computed<Array<{ id: SharpSource; label: string; detail: string; icon: Component }>>(() => [
+  { id: "installers", label: t("ui.sharp.installers"), detail: t("ui.sharp.installersDetail"), icon: IconPackage },
+  { id: "gog", label: t("ui.sharp.gog"), detail: t("ui.sharp.gogDetail"), icon: IconLibrary },
+  { id: "epic", label: t("ui.sharp.epic"), detail: t("ui.sharp.epicDetail"), icon: IconGamepad2 },
+  { id: "gamejolt", label: t("ui.sharp.gamejolt"), detail: t("ui.sharp.gamejoltDetail"), icon: IconRocket },
+  { id: "pcsx2", label: "PCSX2", detail: t("ui.source.pcsx2Title"), icon: IconDisc3 },
+  { id: "rpcs3", label: "RPCS3", detail: t("ui.source.rpcs3Title"), icon: IconCpu },
+  { id: "shadps4", label: "shadPS4", detail: t("ui.source.shadps4Title"), icon: IconMonitorCog },
+  { id: "sharpemu", label: "SharpEmu", detail: t("ui.source.sharpemuTitle"), icon: IconMicroscope },
+]);
+const currentSource = computed(
+  () => sourceTabs.value.find((source) => source.id === sourceMode.value) ?? sourceTabs.value[0],
+);
 const headerTitle = computed(() => {
-  if (sourceMode.value === "gog") return "GOG Games Library";
-  if (sourceMode.value === "epic") return "Epic Games Library";
-  if (sourceMode.value === "gamejolt") return "GameJolt Library";
-  if (sourceMode.value === "pcsx2") return "PCSX2 Library";
-  if (sourceMode.value === "rpcs3") return "RPCS3 Library";
-  if (sourceMode.value === "shadps4") return "shadPS4 Library";
-  if (sourceMode.value === "sharpemu") return "SharpEmu Research Library";
-  return "Sharp Library";
+  if (sourceMode.value === "gog") return `${t("ui.sharp.gog")} ${t("ui.source.library")}`;
+  if (sourceMode.value === "epic") return `${t("ui.sharp.epic")} ${t("ui.source.library")}`;
+  if (sourceMode.value === "gamejolt") return `${t("ui.sharp.gamejolt")} ${t("ui.source.library")}`;
+  if (sourceMode.value === "pcsx2") return `PCSX2 ${t("ui.source.library")}`;
+  if (sourceMode.value === "rpcs3") return `RPCS3 ${t("ui.source.library")}`;
+  if (sourceMode.value === "shadps4") return `shadPS4 ${t("ui.source.library")}`;
+  if (sourceMode.value === "sharpemu") return `SharpEmu ${t("ui.source.library")}`;
+  return t("nav.sharp");
 });
 const headerSubtitle = computed(() => {
-  if (sourceMode.value === "gog") return "Connect, sync, install, and play GOG games through MetalSharp.";
-  if (sourceMode.value === "epic") return "Connect, sync, install, and play owned Epic games through MetalSharp.";
-  if (sourceMode.value === "gamejolt") return "Play GameJolt games from internal or external GameJolt storage.";
-  if (sourceMode.value === "pcsx2")
-    return "Install, configure, and launch owned PlayStation 2 disc dumps through an isolated PCSX2 environment.";
-  if (sourceMode.value === "rpcs3")
-    return "Install, update, configure, and launch PlayStation 3 games in an isolated environment.";
-  if (sourceMode.value === "shadps4")
-    return "Experiment with compatible PlayStation 4 games through an isolated, verified shadPS4 environment.";
-  if (sourceMode.value === "sharpemu")
-    return "Experiment with owned PlayStation 5 layouts through an isolated, verified SharpEmu environment.";
-  return "Install and manage Windows applications outside Steam.";
+  if (sourceMode.value === "gog") return t("ui.sharp.gogDetail");
+  if (sourceMode.value === "epic") return t("ui.sharp.epicDetail");
+  if (sourceMode.value === "gamejolt") return t("ui.sharp.gamejoltDetail");
+  if (sourceMode.value === "pcsx2") return t("ui.source.pcsx2Description");
+  if (sourceMode.value === "rpcs3") return t("ui.source.rpcs3Description");
+  if (sourceMode.value === "shadps4") return t("ui.source.shadps4Description");
+  if (sourceMode.value === "sharpemu") return t("ui.source.sharpemuDescription");
+  return t("ui.source.installManage");
 });
 const apps = ref<SharpApp[]>([]);
 const cardToolsOpen = ref<Record<string, boolean>>({});
@@ -3119,7 +3118,7 @@ onUnmounted(() => {
     <div class="sharp-header glass-header">
       <div class="sharp-drag-strip" aria-hidden="true"></div>
       <div class="sharp-header-title">
-        <span class="sharp-eyebrow">METALSHARP · INSTALLERS &amp; EMULATORS</span>
+        <span class="sharp-eyebrow">{{ t("ui.sharp.eyebrow") }}</span>
         <h1>{{ headerTitle }}</h1>
         <p>{{ headerSubtitle }}</p>
       </div>
@@ -3131,14 +3130,14 @@ onUnmounted(() => {
             type="button"
             aria-haspopup="listbox"
             :aria-expanded="sourcePickerOpen"
-            aria-label="Choose Sharp Library source"
+            :aria-label="t('ui.sharp.source')"
             @click="toggleSourcePicker"
           >
             <span class="sharp-source-trigger-icon">
               <component :is="currentSource.icon" width="17" height="17" />
             </span>
             <span class="sharp-source-trigger-copy">
-              <small>Sharp Source</small>
+              <small>{{ t("ui.sharp.source") }}</small>
               <strong>{{ currentSource.label }}</strong>
             </span>
             <IconChevronDown class="sharp-source-chevron" width="16" height="16" />
@@ -3146,8 +3145,8 @@ onUnmounted(() => {
           <div v-if="sourcePickerOpen" class="sharp-source-backdrop" @click="sourcePickerOpen = false"></div>
           <div v-if="sourcePickerOpen" class="sharp-source-popover">
             <div class="sharp-source-popover-header">
-              <span>Sharp Library</span>
-              <small>Choose a collection</small>
+              <span>{{ t("ui.sharp.source") }}</span>
+              <small>{{ t("ui.sharp.chooseCollection") }}</small>
             </div>
             <div ref="sourcePickerList" class="sharp-source-list" role="listbox" aria-label="Sharp Library sources">
               <button
@@ -3180,13 +3179,20 @@ onUnmounted(() => {
               @click="installOrUpdatePcsx2"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ pcsx2Loading.update ? "Installing…" : pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+              {{
+                pcsx2Loading.update
+                  ? t("ui.sharp.installing")
+                  : pcsx2Loading.check
+                    ? t("ui.sharp.checking")
+                    : t("ui.sharp.check")
+              }}
+              PCSX2
             </button>
             <button v-if="pcsx2Status?.state === 'running'" class="btn btn-danger" @click="stopManagedPcsx2">
-              <IconX width="15" height="15" /> Stop PCSX2
+              <IconX width="15" height="15" /> {{ t("ui.sharp.stop") }} PCSX2
             </button>
             <button v-else-if="pcsx2Status?.installed" class="btn btn-secondary" @click="openPcsx2(false)">
-              <IconExternalLink width="15" height="15" /> Open PCSX2
+              <IconExternalLink width="15" height="15" /> {{ t("ui.sharp.open") }} PCSX2
             </button>
           </div>
           <div v-else-if="sourceMode === 'rpcs3'" class="emulator-header-actions">
@@ -3196,10 +3202,17 @@ onUnmounted(() => {
               @click="installOrUpdateRpcs3"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ rpcs3Loading.update ? "Installing…" : rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
+              {{
+                rpcs3Loading.update
+                  ? t("ui.sharp.installing")
+                  : rpcs3Loading.check
+                    ? t("ui.sharp.checking")
+                    : t("ui.sharp.check")
+              }}
+              RPCS3
             </button>
             <button v-if="rpcs3Status?.installed" class="btn btn-secondary" @click="openRpcs3">
-              <IconExternalLink width="14" height="14" /> Open RPCS3
+              <IconExternalLink width="14" height="14" /> {{ t("ui.sharp.open") }} RPCS3
             </button>
           </div>
           <div v-else-if="sourceMode === 'shadps4'" class="emulator-header-actions">
@@ -3209,7 +3222,14 @@ onUnmounted(() => {
               @click="installOrUpdateShadps4"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ shadps4Loading.update ? "Installing…" : shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
+              {{
+                shadps4Loading.update
+                  ? t("ui.sharp.installing")
+                  : shadps4Loading.check
+                    ? t("ui.sharp.checking")
+                    : t("ui.sharp.check")
+              }}
+              shadPS4
             </button>
           </div>
           <div v-else-if="sourceMode === 'sharpemu'" class="emulator-header-actions">
@@ -3219,12 +3239,20 @@ onUnmounted(() => {
               @click="installOrUpdateSharpemu"
             >
               <component :is="refreshIcon" width="15" height="15" />
-              {{ sharpemuLoading.update ? "Installing…" : sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
+              {{
+                sharpemuLoading.update
+                  ? t("ui.sharp.installing")
+                  : sharpemuLoading.check
+                    ? t("ui.sharp.checking")
+                    : t("ui.sharp.check")
+              }}
+              SharpEmu
             </button>
           </div>
           <button v-if="sourceMode === 'installers'" class="btn btn-primary" @click="installExe">
             <IconUpload class="btn-icon" width="14" height="14" />
-            <span class="btn-label-long">Install Windows Program</span><span class="btn-label-short">Install</span>
+            <span class="btn-label-long">{{ t("ui.sharp.installWindows") }}</span
+            ><span class="btn-label-short">{{ t("ui.sharp.install") }}</span>
           </button>
           <button
             v-if="sourceMode === 'gog'"
@@ -3239,18 +3267,18 @@ onUnmounted(() => {
           >
             <span class="btn-label-long">{{
               gogLoading.removing
-                ? "Removing…"
+                ? t("ui.sharp.uninstall")
                 : gogLoading.setup
-                  ? "Initializing…"
+                  ? t("ui.sharp.installing")
                   : gogStatus?.prefixInitialized
-                    ? "Remove Prefix"
-                    : "Initialize GOG Prefix"
+                    ? t("ui.sharp.uninstall")
+                    : `${t("ui.sharp.install")} ${t("ui.sharp.gog")}`
             }}</span
-            ><span class="btn-label-short">Prefix</span>
+            ><span class="btn-label-short">{{ t("ui.sharp.tools") }}</span>
           </button>
           <button v-if="sourceMode === 'gamejolt'" class="btn btn-secondary" @click="chooseGameJoltStorage">
-            <span class="btn-label-long">{{ gamejoltStorage ? "Change Folder" : "Choose GameJolt Folder" }}</span>
-            <span class="btn-label-short">{{ gamejoltStorage ? "Change" : "Folder" }}</span>
+            <span class="btn-label-long">{{ t("ui.sharp.open") }} {{ t("ui.sharp.gamejolt") }}</span>
+            <span class="btn-label-short">{{ t("ui.sharp.open") }}</span>
           </button>
           <button
             v-if="sourceMode === 'epic' && !epicStatus?.toolAvailable"
@@ -3259,8 +3287,10 @@ onUnmounted(() => {
             @click="installEpicSupport"
           >
             <IconDownload width="14" height="14" />
-            <span class="btn-label-long">{{ epicLoading.tool ? "Installing…" : "Install Epic Support" }}</span>
-            <span class="btn-label-short">Setup</span>
+            <span class="btn-label-long">{{
+              epicLoading.tool ? t("ui.sharp.installing") : `${t("ui.sharp.install")} ${t("ui.sharp.epic")}`
+            }}</span>
+            <span class="btn-label-short">{{ t("ui.sharp.tools") }}</span>
           </button>
           <button
             v-if="sourceMode === 'epic' && epicStatus?.toolAvailable"
@@ -3271,12 +3301,14 @@ onUnmounted(() => {
           >
             <span class="btn-label-long">{{
               epicStatus?.authenticated
-                ? epicStatus.account || "Epic Connected"
+                ? epicStatus.account || `${t("ui.sharp.epic")} ${t("ui.settings.connected")}`
                 : epicLoading.login
-                  ? "Connecting…"
-                  : "Login to Epic"
+                  ? t("ui.sharp.checking")
+                  : `${t("ui.sharp.open")} ${t("ui.sharp.epic")}`
             }}</span>
-            <span class="btn-label-short">{{ epicStatus?.authenticated ? "Connected" : "Login" }}</span>
+            <span class="btn-label-short">{{
+              epicStatus?.authenticated ? t("ui.settings.connected") : t("ui.sharp.open")
+            }}</span>
           </button>
           <button
             v-if="sourceMode === 'gog'"
@@ -3290,9 +3322,15 @@ onUnmounted(() => {
             @click="handleGogAuthButton"
           >
             <span class="btn-label-long">{{
-              gogStatus?.authenticated ? "GOG Connected" : gogLoading.login ? "Connecting…" : "Login to GOG"
+              gogStatus?.authenticated
+                ? `${t("ui.sharp.gog")} ${t("ui.settings.connected")}`
+                : gogLoading.login
+                  ? t("ui.sharp.checking")
+                  : `${t("ui.sharp.open")} ${t("ui.sharp.gog")}`
             }}</span
-            ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
+            ><span class="btn-label-short">{{
+              gogStatus?.authenticated ? t("ui.settings.connected") : t("ui.sharp.open")
+            }}</span>
           </button>
           <button
             v-if="
@@ -3306,20 +3344,22 @@ onUnmounted(() => {
             <span class="btn-label-long">{{
               sourceMode === "gog"
                 ? gogLoading.sync
-                  ? "Syncing…"
-                  : "Sync GOG"
+                  ? t("ui.sharp.sync")
+                  : `${t("ui.sharp.sync")} ${t("ui.sharp.gog")}`
                 : sourceMode === "epic"
                   ? epicLoading.sync
-                    ? "Syncing…"
-                    : "Sync Epic"
+                    ? t("ui.sharp.sync")
+                    : `${t("ui.sharp.sync")} ${t("ui.sharp.epic")}`
                   : sourceMode === "gamejolt"
                     ? gamejoltLoading
-                      ? "Scanning…"
-                      : "Sync GameJolt"
-                    : "Refresh"
+                      ? t("ui.sharp.sync")
+                      : `${t("ui.sharp.sync")} ${t("ui.sharp.gamejolt")}`
+                    : t("ui.sharp.refresh")
             }}</span
             ><span class="btn-label-short">{{
-              sourceMode === "gog" || sourceMode === "epic" || sourceMode === "gamejolt" ? "Sync" : "Refresh"
+              sourceMode === "gog" || sourceMode === "epic" || sourceMode === "gamejolt"
+                ? t("ui.sharp.sync")
+                : t("ui.sharp.refresh")
             }}</span>
           </button>
         </div>
@@ -3334,8 +3374,8 @@ onUnmounted(() => {
               <div class="empty-icon">
                 <IconMonitor width="48" height="48" />
               </div>
-              <h2>No applications installed</h2>
-              <p>Install a Windows program to add it to the Sharp Library.</p>
+              <h2>{{ t("ui.source.noApps") }}</h2>
+              <p>{{ t("ui.source.noAppsDescription") }}</p>
             </div>
 
             <div v-else class="sharp-grid">
@@ -3535,19 +3575,19 @@ onUnmounted(() => {
       <template v-else-if="sourceMode === 'gog'">
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-            <h2>Init The Prefix To Get Started</h2>
+            <h2>{{ t("ui.source.gogInit") }}</h2>
           </div>
           <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
-            <h2>Initialize GOG prefix</h2>
-            <p>Create the isolated Wine prefix before connecting games.</p>
+            <h2>{{ t("ui.source.gogInitialize") }}</h2>
+            <p>{{ t("ui.source.gogInitializeDesc") }}</p>
           </div>
           <div v-else-if="!gogStatus?.authenticated" class="empty-state compact">
-            <h2>Login to GOG to connect your games</h2>
-            <p>MetalSharp will capture the GOG login code from a controlled sign-in window.</p>
+            <h2>{{ t("ui.source.gogLogin") }}</h2>
+            <p>{{ t("ui.source.gogLoginDesc") }}</p>
           </div>
           <div v-else-if="gogGames.length === 0" class="empty-state compact">
-            <h2>No GOG games synced</h2>
-            <p>Click Sync Library after adding games to your GOG account.</p>
+            <h2>{{ t("ui.source.gogNoGames") }}</h2>
+            <p>{{ t("ui.source.gogNoGamesDesc") }}</p>
           </div>
 
           <div v-else class="sharp-grid">
@@ -3659,21 +3699,16 @@ onUnmounted(() => {
       <template v-else-if="sourceMode === 'epic'">
         <section class="gog-panel epic-panel">
           <div v-if="!epicStatus?.toolAvailable" class="empty-state compact">
-            <h2>Install Epic support</h2>
-            <p>
-              MetalSharp uses the pinned open-source Legendary client to access your owned library without running the
-              Epic Games Launcher. Downloads stay under {{ epicStatus?.gameRoot || "MetalSharp’s Epic library" }}.
-            </p>
+            <h2>{{ t("ui.source.epicInstall") }}</h2>
+            <p>{{ t("ui.source.epicInstallDesc") }} {{ epicStatus?.gameRoot || t("ui.sharp.epicDetail") }}.</p>
           </div>
           <div v-else-if="!epicStatus?.authenticated" class="empty-state compact">
-            <h2>Login to Epic Games</h2>
-            <p>Sign in through Epic’s website. MetalSharp stores Legendary account state only under ~/.metalsharp.</p>
+            <h2>{{ t("ui.source.epicLogin") }}</h2>
+            <p>{{ t("ui.source.epicLoginDesc") }}</p>
           </div>
           <div v-else-if="epicGames.length === 0" class="empty-state compact">
-            <h2>No installable Epic games found</h2>
-            <p>
-              Sync your library after adding games to your Epic account. Third-party launcher-only titles are omitted.
-            </p>
+            <h2>{{ t("ui.source.epicNoGames") }}</h2>
+            <p>{{ t("ui.source.epicNoGamesDesc") }}</p>
           </div>
 
           <div v-else class="sharp-grid">
@@ -3818,8 +3853,8 @@ onUnmounted(() => {
         >
           <div class="gamejolt-games-pane">
             <div v-if="gamejoltGames.length === 0" class="empty-state compact">
-              <h2>No GameJolt games found</h2>
-              <p>Place each game in its own folder inside the GameJolt directory, then sync.</p>
+              <h2>{{ t("ui.source.gamejoltNoGames") }}</h2>
+              <p>{{ t("ui.source.gamejoltNoGamesDesc") }}</p>
             </div>
             <div v-else class="gamejolt-grid">
               <article
@@ -3918,9 +3953,11 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Managed PlayStation 2 environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.pcsx2Eyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>PCSX2 <span class="emulator-platform-label">- PS2 Emulation</span></h2>
+                      <h2>
+                        PCSX2 <span class="emulator-platform-label">- {{ t("ui.source.pcsx2Title") }}</span>
+                      </h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -3934,10 +3971,7 @@ onUnmounted(() => {
                         <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ pcsx2StateLabel }}
                       </span>
                     </div>
-                    <p>
-                      Official stable PCSX2, isolated from your normal home folder. MetalSharp never downloads a Sony
-                      BIOS or games and preserves all mutable emulator data across updates and runtime removal.
-                    </p>
+                    <p>{{ t("ui.source.pcsx2Description") }}</p>
                     <p v-if="pcsx2Status?.warnings?.length" class="shadps4-host-warning">
                       Host advisory: {{ pcsx2Status.warnings.join(", ").replaceAll("_", " ") }}
                     </p>
@@ -3947,14 +3981,14 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconPackage width="17" height="17" />
                     <span
-                      ><small>Stable runtime</small
+                      ><small>{{ t("ui.source.stableRuntime") }}</small
                       ><strong :title="pcsx2Status?.currentTag ?? ''">{{ pcsx2BuildLabel }}</strong></span
                     >
                   </div>
                   <div class="rpcs3-stat">
                     <IconMonitor width="17" height="17" />
                     <span
-                      ><small>Host</small
+                      ><small>{{ t("ui.source.host") }}</small
                       ><strong>{{
                         pcsx2Status?.hostArchitecture === "arm64"
                           ? "Apple Silicon · Rosetta"
@@ -3967,7 +4001,7 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconShieldCheck width="17" height="17" />
                     <span
-                      ><small>User BIOS</small
+                      ><small>{{ t("ui.source.userBios") }}</small
                       ><strong>{{
                         pcsx2Status?.biosInstalled ? pcsx2Status.biosRegion || "Validated" : "Required"
                       }}</strong></span
@@ -3976,7 +4010,7 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconGamepad2 width="17" height="17" />
                     <span
-                      ><small>Library</small
+                      ><small>{{ t("ui.source.library") }}</small
                       ><strong>{{ pcsx2Games.length }} game{{ pcsx2Games.length === 1 ? "" : "s" }}</strong></span
                     >
                   </div>
@@ -3991,12 +4025,14 @@ onUnmounted(() => {
                   @click="importPcsx2Bios"
                 >
                   <IconShieldCheck width="17" height="17" /><span
-                    ><strong>Import BIOS</strong><small>Accepts a .bin BIOS file</small></span
+                    ><strong>{{ t("ui.source.importBios") }}</strong
+                    ><small>Accepts a .bin BIOS file</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openEmulatorResource('pcsx2-firmware')">
                   <IconDownload width="17" height="17" /><span
-                    ><strong>Download Firmware</strong><small>Open PCSX2 firmware page</small></span
+                    ><strong>{{ t("ui.source.downloadFirmware") }}</strong
+                    ><small>Open PCSX2 firmware page</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openEmulatorResource('archive-games')">
@@ -4058,12 +4094,14 @@ onUnmounted(() => {
                 </button>
                 <button class="rpcs3-command" @click="addPcsx2Folder">
                   <IconFolderPlus width="17" height="17" /><span
-                    ><strong>Add Games</strong><small>Disc image or folder</small></span
+                    ><strong>{{ t("ui.source.addGames") }}</strong
+                    ><small>Disc image or folder</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="refreshPcsx2(true)">
                   <component :is="refreshIcon" width="17" height="17" /><span
-                    ><strong>Scan Library</strong><small>Refresh metadata</small></span
+                    ><strong>{{ t("ui.source.scanLibrary") }}</strong
+                    ><small>Refresh metadata</small></span
                   >
                 </button>
               </div>
@@ -4088,7 +4126,7 @@ onUnmounted(() => {
                 </summary>
                 <div class="rpcs3-management-actions">
                   <button class="btn btn-secondary btn-sm" :disabled="pcsx2Loading.check" @click="checkPcsx2Update()">
-                    {{ pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+                    {{ pcsx2Loading.check ? t("ui.sharp.checking") : `${t("ui.sharp.check")} PCSX2` }}
                   </button>
                   <button
                     v-if="pcsx2Status?.installed && pcsx2Update"
@@ -4112,20 +4150,20 @@ onUnmounted(() => {
                     Clear Skipped Update
                   </button>
                   <button v-if="pcsx2Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackPcsx2">
-                    Roll Back Runtime
+                    {{ t("ui.source.rollback") }}
                   </button>
                   <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('bios')">
-                    BIOS Dump Guide
+                    {{ t("ui.source.biosGuide") }}
                   </button>
                   <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('discs')">
-                    Disc Dumping Guide
+                    {{ t("ui.source.discGuide") }}
                   </button>
                   <button
                     v-if="pcsx2Status?.environmentPath"
                     class="btn btn-secondary btn-sm"
                     @click="getAPI().openPcsx2Path(pcsx2Status.environmentPath)"
                   >
-                    Open Isolated Data
+                    {{ t("ui.source.openEnvironment") }}
                   </button>
                   <button v-if="pcsx2Status?.installed" class="btn btn-danger btn-sm" @click="removePcsx2Runtime">
                     Remove Runtime
@@ -4136,7 +4174,7 @@ onUnmounted(() => {
               <details class="emulator-roots">
                 <summary>
                   <span class="emulator-sidebar-summary-label"
-                    ><IconFolderPlus width="16" height="16" />Game locations</span
+                    ><IconFolderPlus width="16" height="16" />{{ t("ui.source.gameLocations") }}</span
                   >
                   <span class="emulator-root-count">{{ pcsx2Roots.length }}</span>
                 </summary>
@@ -4225,9 +4263,11 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Managed PlayStation 3 environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.rpcs3Eyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>RPCS3 <span class="emulator-platform-label">- PS3 Emulation</span></h2>
+                      <h2>
+                        RPCS3 <span class="emulator-platform-label">- {{ t("ui.source.rpcs3Title") }}</span>
+                      </h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4237,7 +4277,7 @@ onUnmounted(() => {
                         <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ rpcs3StateLabel }}
                       </span>
                     </div>
-                    <p>A verified, isolated emulator environment with atomic updates and protected user data.</p>
+                    <p>{{ t("ui.source.rpcs3Description") }}</p>
                   </div>
                 </div>
                 <div class="rpcs3-stats">
@@ -4265,7 +4305,7 @@ onUnmounted(() => {
                   <div v-if="rpcs3Update" class="rpcs3-stat rpcs3-stat-wide">
                     <IconShieldCheck width="16" height="16" />
                     <span
-                      ><small>Latest verified release</small
+                      ><small>{{ t("ui.source.latestVerified") }}</small
                       ><strong
                         >{{ rpcs3Update.latestVersion }} · {{ formatBytes(rpcs3Update.downloadSize) }}</strong
                       ></span
@@ -4301,7 +4341,8 @@ onUnmounted(() => {
                   @click="installRpcs3Content('package')"
                 >
                   <IconPackage width="17" height="17" /><span
-                    ><strong>Install package</strong><small>Add an owned PKG</small></span
+                    ><strong>{{ t("ui.source.installPackage") }}</strong
+                    ><small>Add an owned PKG</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="addRpcs3Folder">
@@ -4336,7 +4377,7 @@ onUnmounted(() => {
                 </summary>
                 <div class="rpcs3-management-actions">
                   <button class="btn btn-secondary btn-sm" :disabled="rpcs3Loading.check" @click="checkRpcs3Update()">
-                    {{ rpcs3Loading.check ? "Checking…" : "Check RPCS3" }}
+                    {{ rpcs3Loading.check ? t("ui.sharp.checking") : t("ui.sharp.check") }} RPCS3
                   </button>
                   <button
                     v-if="rpcs3Status?.installed && rpcs3Update"
@@ -4468,9 +4509,11 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Experimental PlayStation 4 environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.shadps4Eyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>shadPS4 <span class="emulator-platform-label">- PS4 Emulation</span></h2>
+                      <h2>
+                        shadPS4 <span class="emulator-platform-label">- {{ t("ui.source.shadps4Title") }}</span>
+                      </h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4484,10 +4527,7 @@ onUnmounted(() => {
                         <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ shadps4StateLabel }}
                       </span>
                     </div>
-                    <p>
-                      Official stable core, isolated state, atomic rollback, and protected user-owned content.
-                      Compatibility remains experimental.
-                    </p>
+                    <p>{{ t("ui.source.shadps4Description") }}</p>
                     <p v-if="shadps4Status?.warnings?.length" class="shadps4-host-warning">
                       Host advisory: {{ shadps4Status.warnings.join(", ").replaceAll("_", " ") }}
                     </p>
@@ -4520,7 +4560,7 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconShieldCheck width="16" height="16" />
                     <span
-                      ><small>Optional compatibility files</small
+                      ><small>{{ t("ui.source.compatibilityFiles") }}</small
                       ><strong
                         >{{ shadps4Status?.moduleCount ?? 0 }} modules ·
                         {{ shadps4Status?.fontFileCount ?? 0 }} fonts</strong
@@ -4582,7 +4622,7 @@ onUnmounted(() => {
                     :disabled="shadps4Loading.check"
                     @click="checkShadps4Update()"
                   >
-                    {{ shadps4Loading.check ? "Checking…" : "Check shadPS4" }}
+                    {{ shadps4Loading.check ? t("ui.sharp.checking") : t("ui.sharp.check") }} shadPS4
                   </button>
                   <button
                     v-if="shadps4Status?.installed && shadps4Update"
@@ -4684,7 +4724,7 @@ onUnmounted(() => {
                         game.running ? "Running" : game.titleId || "PS4"
                       }}</span>
                       <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
-                      <span v-if="game.hasUpdate" class="sharp-card-size">Update dump found</span>
+                      <span v-if="game.hasUpdate" class="sharp-card-size">{{ t("ui.source.updateDump") }}</span>
                     </div>
                     <div class="sharp-card-actions-row">
                       <button v-if="game.running" class="btn btn-stop" @click="stopShadps4Game(game)">Stop</button>
@@ -4722,9 +4762,11 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Experimental PlayStation 5 research environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.sharpemuEyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>SharpEmu <span class="emulator-platform-label">- PS5 Emulation</span></h2>
+                      <h2>
+                        SharpEmu <span class="emulator-platform-label">- {{ t("ui.source.sharpemuTitle") }}</span>
+                      </h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4739,8 +4781,7 @@ onUnmounted(() => {
                       </span>
                     </div>
                     <p>
-                      SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary
-                      target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.
+                      {{ t("ui.source.sharpemuDescription") }}
                     </p>
                   </div>
                 </div>
@@ -4774,8 +4815,10 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconShieldCheck width="16" height="16" />
                     <span
-                      ><small>Guest network</small
-                      ><strong>{{ sharpemuNetworkOptIn ? "Explicitly enabled" : "Denied by default" }}</strong></span
+                      ><small>{{ t("ui.source.guestNetwork") }}</small
+                      ><strong>{{
+                        sharpemuNetworkOptIn ? t("ui.source.explicitlyEnabled") : t("ui.source.deniedDefault")
+                      }}</strong></span
                     >
                   </div>
                 </div>
@@ -4785,7 +4828,8 @@ onUnmounted(() => {
               <div class="rpcs3-command-bar" aria-label="SharpEmu library actions">
                 <button class="rpcs3-command" @click="addSharpemuFolder">
                   <IconFolderPlus width="17" height="17" /><span
-                    ><strong>Add layouts</strong><small>Reference owned eboot.bin folders</small></span
+                    ><strong>{{ t("ui.source.addLayouts") }}</strong
+                    ><small>Reference owned eboot.bin folders</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="refreshSharpemu(true)">
@@ -4795,7 +4839,8 @@ onUnmounted(() => {
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openSharpemuLink('faq')">
                   <IconExternalLink width="17" height="17" /><span
-                    ><strong>Official FAQ</strong><small>Open sharpemu.app</small></span
+                    ><strong>{{ t("ui.source.officialFaq") }}</strong
+                    ><small>Open sharpemu.app</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openSharpemuLink('compatibility')">
@@ -4809,7 +4854,7 @@ onUnmounted(() => {
                 <label>
                   <input v-model="sharpemuNetworkOptIn" type="checkbox" />
                   <span>
-                    <strong>Allow unrestricted guest networking for launches</strong>
+                    <strong>{{ t("ui.source.guestNetworking") }}</strong>
                     <small>
                       Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact
                       local or internet services. Every network-enabled launch asks again.
@@ -4846,7 +4891,7 @@ onUnmounted(() => {
                     :disabled="sharpemuLoading.check"
                     @click="checkSharpemuUpdate()"
                   >
-                    {{ sharpemuLoading.check ? "Checking…" : "Check SharpEmu" }}
+                    {{ sharpemuLoading.check ? t("ui.sharp.checking") : t("ui.sharp.check") }} SharpEmu
                   </button>
                   <button
                     v-if="sharpemuStatus?.installed && sharpemuUpdate"
@@ -6993,7 +7038,11 @@ details[open] > .drawer-summary {
 .sharp-view {
   padding: 0;
   background:
-    radial-gradient(ellipse 70% 34% at 50% -6%, color-mix(in srgb, var(--library-accent) 9%, transparent), transparent 68%),
+    radial-gradient(
+      ellipse 70% 34% at 50% -6%,
+      color-mix(in srgb, var(--library-accent) 9%, transparent),
+      transparent 68%
+    ),
     linear-gradient(180deg, #171a1d 0%, #111416 46%, #111416 100%);
 }
 .sharp-view > .library-footer {
@@ -7057,7 +7106,10 @@ details[open] > .drawer-summary {
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 10px;
   background: #1b1f22;
-  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 .sharp-card:hover {
   border-color: color-mix(in srgb, var(--library-accent) 55%, transparent);

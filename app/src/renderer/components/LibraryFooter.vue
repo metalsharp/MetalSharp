@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, type Ref } from "vue";
+import { useI18n } from "vue-i18n";
 import IconArrowDown from "~icons/lucide/arrow-down-to-line";
 import IconCheckCircle from "~icons/lucide/check-circle-2";
 import IconTv from "~icons/lucide/tv";
@@ -13,19 +14,22 @@ const updateStatus = inject<Ref<UpdateStatus | null>>("updateStatus")!;
 const updateDownloading = inject<Ref<boolean>>("updateDownloading")!;
 const updateProgress = inject<Ref<number>>("updateProgress")!;
 const updateMessage = inject<Ref<string>>("updateMessage")!;
+const { t } = useI18n();
 const startUpdateDownload = inject<() => void>("startUpdateDownload")!;
 const openStreaming = inject<(() => void) | null>("openStreaming", null);
 const clampedProgress = computed(() => Math.min(100, Math.max(3, Math.round(updateProgress.value))));
 
 const gameCount = computed(() => library.value?.total ?? 0);
 const installedCount = computed(() => library.value?.installed_count ?? 0);
-const readyLabel = computed(() => (backendConnected.value ? "All games ready" : "Preview library"));
+const readyLabel = computed(() =>
+  backendConnected.value ? t("ui.footer.allGamesReady") : t("ui.settings.offline"),
+);
 const readyDetail = computed(() =>
   backendConnected.value
-    ? "You're all set to play"
+    ? t("ui.footer.allGamesReady")
     : backendVersion.value
-      ? `Backend v${backendVersion.value}`
-      : "Connect MetalSharp to play",
+      ? `${t("ui.settings.backendRuntime")} v${backendVersion.value}`
+      : t("ui.settings.offline"),
 );
 </script>
 
@@ -35,14 +39,14 @@ const readyDetail = computed(() =>
       <span class="library-footer-icon"><IconCheckCircle width="20" height="20" /></span>
       <div>
         <strong>{{ readyLabel }}</strong>
-        <span>{{ installedCount }} of {{ gameCount }} games · {{ readyDetail }}</span>
+        <span>{{ installedCount }} {{ t("ui.footer.of") }} {{ gameCount }} games · {{ readyDetail }}</span>
       </div>
     </div>
     <button
       v-if="openStreaming"
       class="library-footer-streaming"
       type="button"
-      title="Game Streaming — play on your phone or tablet with Moonlight"
+      :title="t('ui.streaming.title')"
       @click="openStreaming()"
     >
       <span class="library-footer-streaming-icon" aria-hidden="true">
@@ -50,8 +54,8 @@ const readyDetail = computed(() =>
         <span class="library-footer-streaming-wifi"><IconWifi width="9" height="9" /></span>
       </span>
       <span class="library-footer-streaming-text">
-        <strong>Stream</strong>
-        <span>To phone / tablet</span>
+        <strong>{{ t("ui.footer.stream") }}</strong>
+        <span>{{ t("ui.footer.toPhoneTablet") }}</span>
       </span>
     </button>
     <div class="library-update-status">
@@ -60,19 +64,19 @@ const readyDetail = computed(() =>
         :class="{ available: updateStatus?.ok && updateStatus.available }"
         type="button"
         :disabled="updateDownloading || !(updateStatus?.ok && updateStatus.available)"
-        aria-label="Download update"
-        title="Download update"
+        :aria-label="t('ui.footer.downloadUpdate')"
+        :title="t('ui.footer.downloadUpdate')"
         @click="startUpdateDownload()"
       >
         <IconArrowDown width="17" height="17" />
       </button>
       <div>
         <strong v-if="updateDownloading">Updating… {{ clampedProgress }}%</strong>
-        <strong v-else-if="updateStatus?.ok && updateStatus.available">Updated Ready: Download Now?</strong>
-        <strong v-else>Up To Date</strong>
-        <span v-if="updateDownloading">{{ updateMessage || updateStatus?.latest_version || "Preparing update" }}</span>
+        <strong v-else-if="updateStatus?.ok && updateStatus.available">{{ t("ui.footer.updatedReady") }}</strong>
+        <strong v-else>{{ t("ui.footer.upToDate") }}</strong>
+        <span v-if="updateDownloading">{{ updateMessage || updateStatus?.latest_version || t("ui.footer.upToDate") }}</span>
         <span v-else-if="updateStatus?.ok && updateStatus.available">v{{ updateStatus.latest_version }} ready</span>
-        <span v-else>Everything's up to date</span>
+        <span v-else>{{ t("ui.footer.upToDate") }}</span>
         <div v-if="updateDownloading" class="library-update-progress">
           <div class="library-update-progress-bar" :style="{ width: `${clampedProgress}%` }"></div>
         </div>
