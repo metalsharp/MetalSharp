@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { api, getAPI } from "../composables/useApi";
 import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
 import LibraryTopbar from "../components/LibraryTopbar.vue";
@@ -7,6 +8,7 @@ import LibraryFooter from "../components/LibraryFooter.vue";
 
 const emit = defineEmits<{ navigate: [view: string] }>();
 const libraryThemeStyle = useLibraryThemeStyle();
+const { t } = useI18n();
 
 const logs = ref<string[]>([]);
 const logFiles = ref<{ name: string; lines: string[] }[]>([]);
@@ -125,30 +127,30 @@ onUnmounted(() => {
       <div class="logs-drag-strip" aria-hidden="true"></div>
       <div class="logs-title-row">
         <div>
-          <span class="logs-eyebrow">METALSHARP · DIAGNOSTICS</span>
-          <h1>Logs</h1>
-          <p class="subtitle">Live MetalSharp runtime logs</p>
+          <span class="logs-eyebrow">{{ t("ui.logs.eyebrow") }}</span>
+          <h1>{{ t("ui.logs.title") }}</h1>
+          <p class="subtitle">{{ t("ui.logs.subtitle") }}</p>
         </div>
       </div>
       <div class="logs-controls">
         <div class="logs-sections">
-          <button class="section-btn" type="button" @click="showSection('live')">Live</button>
-          <button class="section-btn" type="button" @click="showSection('crashes')">Crash Reports</button>
-          <button class="section-btn" type="button" @click="showSection('files')">Log Files</button>
+          <button class="section-btn" type="button" @click="showSection('live')">{{ t("ui.logs.live") }}</button>
+          <button class="section-btn" type="button" @click="showSection('crashes')">{{ t("ui.logs.crashReports") }}</button>
+          <button class="section-btn" type="button" @click="showSection('files')">{{ t("ui.logs.logFiles") }}</button>
         </div>
         <div class="logs-actions">
-          <button class="btn btn-secondary btn-sm" @click="openLogFolder">Open Logs</button>
-          <button class="btn btn-secondary btn-sm" @click="copyLiveLog" :disabled="!logs.length">Copy</button>
-          <button class="btn btn-secondary btn-sm" @click="clearView">Clear View</button>
+          <button class="btn btn-secondary btn-sm" @click="openLogFolder">{{ t("ui.logs.openLogs") }}</button>
+          <button class="btn btn-secondary btn-sm" @click="copyLiveLog" :disabled="!logs.length">{{ t("ui.logs.copy") }}</button>
+          <button class="btn btn-secondary btn-sm" @click="clearView">{{ t("ui.logs.clearView") }}</button>
         </div>
       </div>
     </div>
     <details ref="liveDrawerEl" class="log-drawer live-log-drawer" @toggle="liveOpen = ($event.target as HTMLDetailsElement).open; if (liveOpen) scrollToBottom()">
       <summary>
-        Live log stream <span>{{ logs.length }} lines</span>
+        {{ t("ui.logs.liveStream") }} <span>{{ logs.length }} {{ t("ui.logs.lines") }}</span>
       </summary>
       <div class="live-toolbar">
-        <button class="btn btn-secondary btn-sm" @click="copyLiveLog" :disabled="!logs.length">Copy</button>
+        <button class="btn btn-secondary btn-sm" @click="copyLiveLog" :disabled="!logs.length">{{ t("ui.logs.copy") }}</button>
       </div>
       <div class="log-content" ref="logContentEl">
         <div v-for="(line, i) in logs" :key="i" class="log-line" :class="logClass(line)">
@@ -159,7 +161,7 @@ onUnmounted(() => {
     <div class="log-drawers">
       <details ref="crashDrawerEl" class="log-drawer">
         <summary>
-          Crash reports <span>{{ crashReports.length }}</span>
+          {{ t("ui.logs.crashReports") }} <span>{{ crashReports.length }}</span>
         </summary>
         <div v-if="crashByPipeline.length">
           <div v-for="group in crashByPipeline" :key="group.pipeline" class="crash-pipeline-section">
@@ -171,11 +173,11 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div v-else class="crash-empty">No crash reports found.</div>
+        <div v-else class="crash-empty">{{ t("ui.logs.noCrashReports") }}</div>
       </details>
       <details v-if="logFiles.length" ref="filesDrawerEl" class="log-drawer">
         <summary>
-          Recent log files <span>{{ logFiles.length }}</span>
+          {{ t("ui.logs.recentFiles") }} <span>{{ logFiles.length }}</span>
         </summary>
         <div v-for="entry in logFiles" :key="entry.name" class="file-log">
           <div class="file-log-name">{{ entry.name }}</div>
