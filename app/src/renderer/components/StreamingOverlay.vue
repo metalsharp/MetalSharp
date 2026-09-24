@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, onUnmounted, ref, type Ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { api } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import IconX from "~icons/lucide/x";
@@ -12,6 +13,7 @@ import IconSmartphone from "~icons/lucide/smartphone";
 
 const emit = defineEmits<{ close: [] }>();
 const toast = useToast();
+const { t } = useI18n();
 const config = inject<Ref<{ theme?: string } | null>>("config");
 
 type StreamingStatus = {
@@ -159,11 +161,11 @@ async function unpairAll() {
 }
 
 const stateLabel = computed(() => {
-  if (!status.value) return "Checking…";
-  if (status.value.installing) return status.value.progress_status ?? "Installing…";
-  if (status.value.running) return "Running";
-  if (status.value.installed) return "Installed — not running";
-  return "Not installed";
+  if (!status.value) return t("ui.sharp.checking");
+  if (status.value.installing) return status.value.progress_status ?? t("ui.sharp.installing");
+  if (status.value.running) return t("ui.settings.connected");
+  if (status.value.installed) return `${t("ui.settings.installed")} — ${t("ui.settings.offline")}`;
+  return t("ui.settings.notInstalled");
 });
 </script>
 
@@ -174,11 +176,11 @@ const stateLabel = computed(() => {
         <div class="streaming-header-title">
           <span class="streaming-header-icon"><IconTv width="20" height="20" /></span>
           <div>
-            <h2>Game Streaming</h2>
-            <p>Stream your MetalSharp games to a phone or tablet with Sunshine + Moonlight</p>
+            <h2>{{ t("ui.streaming.title") }}</h2>
+            <p>{{ t("ui.streaming.subtitle") }}</p>
           </div>
         </div>
-        <button class="streaming-close" type="button" aria-label="Close" @click="emit('close')">
+        <button class="streaming-close" type="button" :aria-label="t('ui.streaming.close')" @click="emit('close')">
           <IconX width="18" height="18" />
         </button>
       </header>
@@ -186,18 +188,17 @@ const stateLabel = computed(() => {
       <div class="streaming-body">
         <section class="streaming-card">
           <div class="streaming-card-head">
-            <h3>Sunshine Host (this Mac)</h3>
+            <h3>{{ t("ui.streaming.host") }}</h3>
             <span class="streaming-state" :class="{ running: status?.running, installed: status?.installed }">
               {{ stateLabel }}
             </span>
           </div>
 
           <p v-if="status && !status.installed && !status.installing" class="streaming-lede">
-            Sunshine captures this Mac's screen and streams it over your local network. Install it once — about a
-            40&nbsp;MB download from LizardByte.
+            {{ t("ui.streamingDetails.sunshineDesc") }}
           </p>
           <p v-else-if="status?.installing" class="streaming-lede">
-            {{ status.progress_detail ?? "Downloading Sunshine…" }}
+            {{ status.progress_detail ?? t("ui.streamingDetails.downloading") }}
           </p>
 
           <div class="streaming-actions">
@@ -207,7 +208,7 @@ const stateLabel = computed(() => {
               type="button"
               @click="install()"
             >
-              <IconDownload width="15" height="15" /> Install Sunshine
+              <IconDownload width="15" height="15" /> {{ t("ui.streaming.installHost") }}
             </button>
             <button
               v-if="status?.installed && !status.running"
@@ -216,10 +217,10 @@ const stateLabel = computed(() => {
               :disabled="launching"
               @click="launch()"
             >
-              <IconPlay width="15" height="15" /> {{ launching ? "Starting…" : "Start Streaming Host" }}
+              <IconPlay width="15" height="15" /> {{ launching ? t("ui.streaming.starting") : t("ui.streaming.startHost") }}
             </button>
             <button v-if="status?.running" class="streaming-btn" type="button" :disabled="stopping" @click="stop()">
-              <IconSquare width="13" height="13" /> {{ stopping ? "Stopping…" : "Stop" }}
+              <IconSquare width="13" height="13" /> {{ stopping ? t("ui.streaming.stopping") : t("ui.streaming.stop") }}
             </button>
             <a
               v-if="status?.running"
@@ -228,15 +229,15 @@ const stateLabel = computed(() => {
               target="_blank"
               rel="noreferrer"
             >
-              <IconLink width="13" height="13" /> Sunshine Web UI
+              <IconLink width="13" height="13" /> {{ t("ui.streaming.webUi") }}
             </a>
           </div>
-          <p v-if="status?.installed" class="streaming-note">Version {{ status.version }} · {{ status.web_url }}</p>
+          <p v-if="status?.installed" class="streaming-note">{{ t("ui.streaming.version") }} {{ status.version }} · {{ status.web_url }}</p>
         </section>
 
         <section class="streaming-card" :class="{ dimmed: !readyToPair }">
           <div class="streaming-card-head">
-            <h3>Pair your device</h3>
+            <h3>{{ t("ui.streaming.pairDevice") }}</h3>
             <span v-if="status?.pairing_count" class="streaming-state running">
               {{ status.pairing_count }} waiting: {{ status.pairings_summary }}
             </span>
@@ -244,7 +245,7 @@ const stateLabel = computed(() => {
 
           <ol class="streaming-steps">
             <li>
-              Install <strong>Moonlight</strong> on your phone or tablet —
+              {{ t("ui.streamingDetails.installMoonlight") }} —
               <a
                 href="https://apps.apple.com/app/moonlight-game-streaming/id1000551566"
                 target="_blank"
@@ -255,11 +256,11 @@ const stateLabel = computed(() => {
               <a href="https://play.google.com/store/apps/details?id=com.limelight" target="_blank" rel="noreferrer"
                 >Google Play</a
               >
-              (<IconSmartphone width="11" height="11" />{{ " " }}works best on the same Wi-Fi).
+              (<IconSmartphone width="11" height="11" />{{ " " }}{{ t("ui.streamingDetails.worksBest") }})
             </li>
-            <li>Start playing your game in MetalSharp on this Mac.</li>
-            <li>Open Moonlight and tap this Mac — it shows a <strong>4-digit PIN</strong>.</li>
-            <li>Enter the PIN below to pair, then tap the game in Moonlight to start streaming.</li>
+            <li>{{ t("ui.streamingDetails.stepPlay") }}</li>
+            <li>{{ t("ui.streamingDetails.stepOpen") }}</li>
+            <li>{{ t("ui.streamingDetails.stepEnter") }}</li>
           </ol>
 
           <div class="streaming-pin-row">
@@ -274,25 +275,23 @@ const stateLabel = computed(() => {
               @keyup.enter="pair()"
             />
             <button class="streaming-btn primary" type="button" :disabled="!readyToPair || pairing" @click="pair()">
-              {{ pairing ? "Pairing…" : "Pair Device" }}
+              {{ pairing ? t("ui.streaming.pairing") : t("ui.streaming.pair") }}
             </button>
           </div>
           <p v-if="status?.running && !status.creds_valid" class="streaming-warn">
-            Sunshine is running with web credentials MetalSharp doesn't know. Set them in the Sunshine Web UI, or delete
-            <code>streaming-creds.json</code> in your MetalSharp folder and relaunch streaming.
+            {{ t("ui.streamingDetails.pairWarning") }}
+            <code>streaming-creds.json</code>
           </p>
         </section>
 
         <section class="streaming-card">
           <div class="streaming-card-head">
-            <h3>Good to know</h3>
+            <h3>{{ t("ui.streaming.goodToKnow") }}</h3>
           </div>
           <ul class="streaming-notes">
-            <li>Sunshine on macOS is experimental: gamepads aren't supported yet — use touch controls in Moonlight.</li>
-            <li>
-              macOS asks for <strong>Screen Recording</strong> permission the first time you stream. Approve it once.
-            </li>
-            <li>Keep both devices on the same network; ports 47984–48010 must be reachable (firewall may prompt).</li>
+            <li>{{ t("ui.streamingDetails.gamepads") }}</li>
+            <li>{{ t("ui.streamingDetails.screenRecording") }}</li>
+            <li>{{ t("ui.streamingDetails.network") }}</li>
           </ul>
           <button
             v-if="status?.installed"
@@ -301,7 +300,7 @@ const stateLabel = computed(() => {
             title="Remove all paired devices from Sunshine"
             @click="unpairAll()"
           >
-            Unpair all devices
+            {{ t("ui.streamingDetails.unpair") }}
           </button>
         </section>
       </div>

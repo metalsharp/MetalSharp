@@ -15,6 +15,7 @@ import IconGamepad from "~icons/lucide/gamepad-2";
 import { themedNavIcon, type ThemeName } from "../composables/useTheme";
 import { api } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
+import { useI18n } from "vue-i18n";
 
 const props = defineProps<{
   currentView: string;
@@ -27,6 +28,7 @@ const emit = defineEmits<{
 }>();
 
 const toast = useToast();
+const { t } = useI18n();
 
 const collapsed = ref(false);
 const themePickerOpen = ref(false);
@@ -134,17 +136,19 @@ interface ThemeOption {
   icon: Component;
 }
 
-const themeOptions: ThemeOption[] = [
-  { name: "dark", label: "Dark", icon: IconMoon },
-  { name: "light", label: "Light", icon: IconSun },
-  { name: "skeleton", label: "Skeleton", icon: IconBone },
-  { name: "forest", label: "Forest", icon: IconTreePine },
-  { name: "orange-peel", label: "Orange Peel", icon: IconCitrus },
-  { name: "dragonfruit", label: "Dragonfruit", icon: IconSparkles },
-  { name: "lava", label: "Lava", icon: IconFlame },
-];
+const themeOptions = computed<ThemeOption[]>(() => [
+  { name: "dark", label: t("ui.theme.dark"), icon: IconMoon },
+  { name: "light", label: t("ui.theme.light"), icon: IconSun },
+  { name: "skeleton", label: t("ui.theme.skeleton"), icon: IconBone },
+  { name: "forest", label: t("ui.theme.forest"), icon: IconTreePine },
+  { name: "orange-peel", label: t("ui.theme.orange"), icon: IconCitrus },
+  { name: "dragonfruit", label: t("ui.theme.dragonfruit"), icon: IconSparkles },
+  { name: "lava", label: t("ui.theme.lava"), icon: IconFlame },
+]);
 
-const currentThemeOption = computed(() => themeOptions.find((o) => o.name === props.theme) ?? themeOptions[0]);
+const currentThemeOption = computed(
+  () => themeOptions.value.find((o) => o.name === props.theme) ?? themeOptions.value[0],
+);
 const themeToggleLabel = computed(() => currentThemeOption.value.label);
 
 function chooseTheme(name: ThemeName) {
@@ -159,9 +163,9 @@ interface NavItem {
 }
 
 const navItems = computed<NavItem[]>(() => [
-  { view: "library", label: "Library", icon: themedNavIcon("library") },
-  { view: "sharp-library", label: "Sharp", icon: themedNavIcon("sharp") },
-  { view: "logs", label: "Logs", icon: themedNavIcon("logs") },
+  { view: "library", label: t("nav.library"), icon: themedNavIcon("library") },
+  { view: "sharp-library", label: t("nav.sharp"), icon: themedNavIcon("sharp") },
+  { view: "logs", label: t("nav.logs"), icon: themedNavIcon("logs") },
 ]);
 </script>
 
@@ -309,7 +313,7 @@ const navItems = computed<NavItem[]>(() => [
       <Teleport to="body">
         <div v-if="themePickerOpen" class="theme-picker-backdrop" @click="themePickerOpen = false"></div>
         <div v-if="themePickerOpen" class="theme-picker-popover">
-          <div class="theme-picker-header">Theme</div>
+          <div class="theme-picker-header">{{ t("ui.theme.label") }}</div>
           <div ref="themePickerRef" class="theme-picker-list">
             <button
               v-for="option in themeOptions"
@@ -328,10 +332,10 @@ const navItems = computed<NavItem[]>(() => [
         class="sidebar-nav-item"
         :class="{ active: currentView === 'settings' }"
         @click="emit('navigate', 'settings')"
-        :title="collapsed ? 'Settings' : undefined"
+        :title="collapsed ? t('nav.settings') : undefined"
       >
         <IconSettings class="sidebar-nav-icon" width="18" height="18" />
-        <span v-if="!collapsed" class="sidebar-nav-label">Settings</span>
+        <span v-if="!collapsed" class="sidebar-nav-label">{{ t("nav.settings") }}</span>
       </button>
     </div>
   </nav>
