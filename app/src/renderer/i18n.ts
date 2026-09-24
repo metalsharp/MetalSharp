@@ -270,6 +270,15 @@ const english = {
       mouseAuto: "Mouse Auto",
       stopDownload: "Stop Download",
       noBottle: "No bottle required",
+      missingSteam: "Missing Windows Steam?",
+      missingSteamDesc: "Re-run the setup wizard to install or repair the Steam runtime",
+      graphicsLogsDesc:
+        "Opt in to DXMT graphics logs for future launches. Off by default to keep routine launches quiet unless requested.",
+      controller1: "Controller 1",
+      controller2: "Controller 2",
+      renderer: "Renderer",
+      appleSilicon: "Apple Silicon · Rosetta",
+      intel: "Intel · SSE4.1",
       sourceLicense: "Source & GPL License",
       officialReleases: "Official Releases",
     },
@@ -3748,6 +3757,14 @@ export const messages = Object.fromEntries(
       mouseAuto: String(sharp.source ?? "Mouse Auto"),
       stopDownload: String(sharp.stop ?? "Stop Download"),
       noBottle: String(sharp.source ?? "No bottle required"),
+      missingSteam: String(sharp.source ?? "Missing Windows Steam?"),
+      missingSteamDesc: String(sharp.source ?? "Run the setup wizard"),
+      graphicsLogsDesc: String(sharp.source ?? "Graphics logs"),
+      controller1: String(sharp.source ?? "Controller 1"),
+      controller2: String(sharp.source ?? "Controller 2"),
+      renderer: String(sharp.source ?? "Renderer"),
+      appleSilicon: String(sharp.source ?? "Apple Silicon"),
+      intel: String(sharp.source ?? "Intel"),
     };
     for (const [key, value] of Object.entries(sourceFallbacks)) {
       if (!hasOwn(sourceOverrides, key)) sourceMessages[key] = value;
