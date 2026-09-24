@@ -207,6 +207,7 @@ const english = {
       uninstall: "Uninstall",
       tools: "Tools",
       addAsset: "Add Asset",
+      add: "Add",
     },
     source: {
       gogInit: "Initialize Prefix To Get Started",
@@ -280,6 +281,7 @@ const english = {
       noBottle: "No bottle required",
       noApps: "No applications installed",
       noAppsDescription: "Install a Windows program to add it to the Sharp Library.",
+      add: "Add",
       missingSteam: "Missing Windows Steam?",
       missingSteamDesc: "Re-run the setup wizard to install or repair the Steam runtime",
       graphicsLogsDesc:
