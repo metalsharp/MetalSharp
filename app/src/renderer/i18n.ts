@@ -68,6 +68,7 @@ const english = {
     firstLaunchText:
       "MetalSharp auto-configures the runtime for each game. Optionally, configure a different setting using the bottle selection dropdown.",
     preparing: "Preparing Steam...",
+    startingInstallation: "Starting installation...",
     getStarted: "Get Started",
     launch: "Launch MetalSharp",
     exit: "Exit setup",
@@ -373,6 +374,25 @@ const english = {
       on: "On",
       msync: "msync",
       steamEmu: "Steam Emu",
+    },
+    migration: {
+      title: "MetalSharp Update Migration",
+      stages: ["Preserving Settings", "Installing Update", "Updating Prefix", "Finishing up"],
+      checking: "Checking migration status...",
+      started: "Migration started...",
+      alreadyRunning: "Migration already running...",
+      failedStart: "Failed to start migration",
+      waiting: "Waiting for backend to start...",
+      networkError: "Network error",
+      closing: "Closing old MetalSharp, stopping the backend, and launching the updated app...",
+      launchFailed: "Failed to launch the updated MetalSharp app",
+      retrying: "Retrying migration...",
+      launching: "Launching...",
+      launch: "Launch MetalSharp",
+      tryAgain: "Try Again",
+      errorHint: "Try restarting the app. If the issue persists, check the logs.",
+      errorPrefix: "Error",
+      step: "Step {step}/{total}",
     },
     streaming: {
       title: "Game Streaming",
@@ -3884,9 +3904,103 @@ export const messages = Object.fromEntries(
     };
     const sharp = (localizedUi.sharp as LocaleMessages) ?? {};
     const settings = (localizedUi.settings as LocaleMessages) ?? {};
-    const streaming = (localizedUi.streaming as LocaleMessages) ?? {};
+    const actions = (localeSource.actions as LocaleMessages | undefined) ?? {};
+    const nav = (localeSource.nav as LocaleMessages | undefined) ?? {};
+    const migration = (english.ui.migration as LocaleMessages) ?? {};
+    localizedUi.migration = {
+      ...migration,
+      ...((commonLabels.migration as LocaleMessages | undefined) ?? {}),
+      stages: [
+        String(settings.dataFolder ?? "Data"),
+        String(settings.downloadUpdate ?? "Update"),
+        String(settings.backendRuntime ?? "Runtime"),
+        String(settings.upToDate ?? "Done"),
+      ],
+      title: String(settings.version ?? "Migration"),
+      checking: String((localizedUi.logs as LocaleMessages).title ?? "Checking"),
+      started: String(settings.connected ?? "Started"),
+      alreadyRunning: String(settings.connected ?? "Running"),
+      failedStart: String(settings.offline ?? "Failed"),
+      waiting: String(settings.offline ?? "Waiting"),
+      networkError: String(settings.offline ?? "Network error"),
+      closing: String(settings.restartBackend ?? "Restarting"),
+      launchFailed: String(settings.offline ?? "Failed"),
+      retrying: String(settings.restartBackend ?? "Retrying"),
+      launching: String(settings.restartBackend ?? "Launching"),
+      launch: String(sharp.open ?? "Launch"),
+      tryAgain: String(sharp.refresh ?? "Retry"),
+      errorHint: String((localizedUi.logs as LocaleMessages).openLogs ?? "Check logs"),
+      errorPrefix: String(settings.offline ?? "Error"),
+      step: String((localizedUi.logs as LocaleMessages).lines ?? "Step") + " {step}/{total}",
+    };
     const hasOwn = (value: LocaleMessages | undefined, key: string) =>
       value ? Object.prototype.hasOwnProperty.call(value, key) : false;
+    const setupOverrides = localeSource.setup as LocaleMessages | undefined;
+    const localizedSetup: LocaleMessages = {
+      ...(english.setup as LocaleMessages),
+      ...(setupOverrides ?? {}),
+      features: {
+        ...(english.setup.features as LocaleMessages),
+        ...((setupOverrides?.features as LocaleMessages | undefined) ?? {}),
+      },
+    };
+    const setupFallbacks: Record<string, unknown> = {
+      installRuntime: settings.backendRuntime ?? nav.library,
+      installComplete: settings.connected ?? actions.done,
+      installFailed: settings.offline ?? actions.cancel,
+      installLog: (localizedUi.logs as LocaleMessages).title ?? nav.logs,
+      installSteam: settings.startSteam ?? actions.next,
+      steamInstalled: settings.installed ?? settings.connected,
+      steamFailed: settings.offline ?? actions.cancel,
+      startSteamHint: settings.startSteam ?? nav.library,
+      deviceName: settings.deviceName,
+      devicePlaceholder: settings.deviceName,
+      deviceHint: (localizedUi.settingsDesc as LocaleMessages).device ?? settings.deviceName,
+      apiKey: settings.apiKey,
+      apiPlaceholder: settings.apiKey,
+      apiHint: (localizedUi.settingsDesc as LocaleMessages).apiKey ?? settings.apiKey,
+      startSteam: settings.startSteam,
+      firstLaunch: settings.version ?? nav.library,
+      firstLaunchText: localizedSetup.lede,
+      preparing: localizedUi.streaming && (localizedUi.streaming as LocaleMessages).starting,
+      getStarted: actions.next,
+      launch: nav.library,
+      exit: actions.close,
+      stepOf: `${nav.logs ?? "Step"} {step}/{total}`,
+      downloadingSteam: localizedUi.streaming && (localizedUi.streaming as LocaleMessages).starting,
+      creatingSteamPrefix: settings.backendRuntime,
+      installingSteam: settings.startSteam,
+      retrySteam: actions.next,
+      preparingSteam: localizedUi.streaming && (localizedUi.streaming as LocaleMessages).starting,
+      steamInstallFailed: settings.offline,
+      steamInstallTimedOut: settings.offline,
+      wrapperWarning: (localizedUi.settingsDesc as LocaleMessages).backend ?? settings.backendRuntime,
+      apiKeySaveFailed: settings.offline,
+      apiKeySteamIdMissing: settings.offline,
+      startingInstallation: localizedUi.streaming && (localizedUi.streaming as LocaleMessages).starting,
+    };
+    for (const [key, value] of Object.entries(setupFallbacks)) {
+      if (!hasOwn(setupOverrides, key) && value !== undefined) localizedSetup[key] = value;
+    }
+    if (!hasOwn(setupOverrides, "steps"))
+      localizedSetup.steps = [
+        String(nav.logs ?? "Setup"),
+        String(settings.backendRuntime ?? "Runtime"),
+        String(actions.done ?? "Done"),
+      ];
+    if (!hasOwn(setupOverrides, "titles"))
+      localizedSetup.titles = [
+        String(nav.library ?? "MetalSharp"),
+        String(settings.backendRuntime ?? "Runtime"),
+        String(actions.done ?? "Done"),
+      ];
+    if (!hasOwn(setupOverrides, "taglines"))
+      localizedSetup.taglines = [
+        String(localizedSetup.lede),
+        String(localizedSetup.runtimeLede),
+        String(nav.library ?? "MetalSharp"),
+      ];
+    const streaming = (localizedUi.streaming as LocaleMessages) ?? {};
     const label = (key: string, fallback: string) => String(sharp[key] ?? fallback);
     const sourceOverrides = uiOverrides.source as LocaleMessages | undefined;
     const sourceMessages: LocaleMessages = {
@@ -4045,7 +4159,6 @@ export const messages = Object.fromEntries(
       network: String(streamingDetailsOverrides?.network ?? streaming.title),
       unpair: String(streamingDetailsOverrides?.unpair ?? streaming.pair),
     };
-    const nav = (localeSource.nav as LocaleMessages | undefined) ?? {};
     const logsOverrides = uiOverrides.logs as LocaleMessages | undefined;
     localizedUi.logs = {
       ...(english.ui.logs as LocaleMessages),
@@ -4068,6 +4181,7 @@ export const messages = Object.fromEntries(
       code,
       {
         ...localeSource,
+        setup: localizedSetup,
         library: {
           ...english.library,
           ...(localeSource.library as LocaleMessages | undefined),
