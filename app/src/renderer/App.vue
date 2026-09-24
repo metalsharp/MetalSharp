@@ -77,6 +77,8 @@ const updateDownloading = ref(false);
 const updateProgress = ref(0);
 const updateMessage = ref("");
 const showUpdateChangelog = ref(false);
+const showUpdateConfirmation = ref(false);
+const pendingUpdateVariant = ref<"regular" | "fex">("regular");
 const updateDismissed = ref(false);
 let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let installPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -220,6 +222,17 @@ async function checkForUpdates() {
   }
 }
 
+function startUpdateDownload(variant: "regular" | "fex" = "regular") {
+  if (updateDownloading.value) return;
+  pendingUpdateVariant.value = variant;
+  showUpdateConfirmation.value = true;
+}
+
+function confirmUpdateDownload() {
+  showUpdateConfirmation.value = false;
+  void beginUpdateDownload(pendingUpdateVariant.value);
+}
+
 async function startFexUpdateDownload() {
   if (!window.confirm(fexNotice)) return;
   if (!updateStatus.value?.fex_supported) {
@@ -230,10 +243,10 @@ async function startFexUpdateDownload() {
     );
     return;
   }
-  await startUpdateDownload("fex");
+  startUpdateDownload("fex");
 }
 
-async function startUpdateDownload(variant: "regular" | "fex" = "regular") {
+async function beginUpdateDownload(variant: "regular" | "fex" = "regular") {
   if (updateDownloading.value) return;
   const backend = getAPI();
   const ready = await backend.updaterEnsureReady();
@@ -552,6 +565,21 @@ onMounted(async () => {
   </template>
   <StreamingOverlay v-if="showStreaming" @close="showStreaming = false" />
   <Teleport to="body">
+    <div
+      v-if="showUpdateConfirmation"
+      class="modal-backdrop update-confirm-backdrop"
+      role="presentation"
+      @click.self="showUpdateConfirmation = false"
+    >
+      <section class="update-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="update-confirm-title">
+        <h2 id="update-confirm-title">Confirm Update</h2>
+        <p>MetalSharp will now close and re-open on it's own to update. Proceed?</p>
+        <div class="update-confirm-actions">
+          <button class="update-confirm-cancel" type="button" @click="showUpdateConfirmation = false">Cancel</button>
+          <button class="update-confirm-ok" type="button" @click="confirmUpdateDownload">Ok</button>
+        </div>
+      </section>
+    </div>
     <div v-if="showUpdateChangelog" class="modal-backdrop" @click="showUpdateChangelog = false">
       <section class="update-changelog-modal" @click.stop>
         <header class="update-changelog-modal-header">
@@ -675,6 +703,51 @@ onMounted(async () => {
   justify-content: center;
   padding: 32px;
   background: rgba(6, 10, 16, 0.68);
+}
+.update-confirm-backdrop {
+  z-index: 200;
+}
+.update-confirm-modal {
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  padding: 24px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+}
+.update-confirm-modal h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.update-confirm-modal p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.update-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+.update-confirm-actions button {
+  min-width: 80px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  font: inherit;
+  cursor: pointer;
+}
+.update-confirm-actions .update-confirm-ok {
+  color: var(--bg-deep);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
 }
 .update-changelog-modal {
   width: 640px;

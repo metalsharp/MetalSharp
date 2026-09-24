@@ -3,6 +3,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/steam.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -182,14 +183,10 @@ static const char* mtsp_default_pipeline(unsigned appid) {
     static char pipeline[64];
     char* raw = ms_mtsp_default_rules_json();
     char error[96];
-    ms_json* root;
-    const ms_json* rules;
+    ms_json* root = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    const ms_json* rules = root ? ms_json_object_get(root, "rules") : NULL;
     pipeline[0] = '\0';
-    if (!raw)
-        return "vkd3d";
-    root = ms_json_parse(raw, strlen(raw), error, sizeof(error));
     free(raw);
-    rules = root ? ms_json_object_get(root, "rules") : NULL;
     if (rules && ms_json_type_of(rules) == MS_JSON_ARRAY) {
         for (size_t i = 0; i < ms_json_array_length(rules); i++) {
             const ms_json* rule = ms_json_array_get(rules, i);
@@ -206,7 +203,14 @@ static const char* mtsp_default_pipeline(unsigned appid) {
         }
     }
     ms_json_free(root);
-    return canonical_mtsp_pipeline(pipeline[0] ? pipeline : "vkd3d");
+    if (!pipeline[0]) {
+        const char* home = getenv("METALSHARP_HOME");
+        char* game_dir = home ? ms_steam_game_dir(home, appid) : NULL;
+        const char* detected = ms_steam_detect_graphics_pipeline(game_dir);
+        snprintf(pipeline, sizeof(pipeline), "%s", detected ? detected : "vkd3d");
+        free(game_dir);
+    }
+    return canonical_mtsp_pipeline(pipeline);
 }
 
 char* ms_mtsp_pipelines_json(const char* query) {

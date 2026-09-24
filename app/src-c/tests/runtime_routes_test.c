@@ -1,5 +1,8 @@
 /* Exercise routing helpers without launching Wine or touching a real prefix. */
 #include "../runtime/steam_actions.c"
+#define main metalsharp_backend_main_for_test
+#include "../runtime/main.c"
+#undef main
 #include <assert.h>
 
 static void fixture(const char* home, const char* relative, const char* bytes) {
@@ -25,6 +28,57 @@ static void executable_fixture(const char* home, const char* relative) {
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* home = argv[1];
+    assert(setenv("WINEPREFIX", "/tmp/foreign-wine-prefix", 1) == 0);
+    assert(setenv("WINEARCH", "win32", 1) == 0);
+    assert(setenv("PROTON_LOG", "1", 1) == 0);
+    assert(setenv("STEAM_COMPAT_DATA_PATH", "/tmp/foreign-proton-prefix", 1) == 0);
+    assert(setenv("DXVK_HUD", "fps", 1) == 0);
+    assert(setenv("VK_ICD_FILENAMES", "/tmp/foreign-vulkan/icd.json", 1) == 0);
+    assert(setenv("DYLD_FALLBACK_LIBRARY_PATH", "/tmp/foreign-wine/lib", 1) == 0);
+    assert(setenv("SteamAppId", "999", 1) == 0);
+    assert(setenv("GRAPHICS_BACKEND", "foreign", 1) == 0);
+    assert(setenv("METALSHARP_PORT", "9123", 1) == 0);
+    sanitize_inherited_runtime_environment();
+    assert(getenv("WINEPREFIX") == NULL && getenv("WINEARCH") == NULL);
+    assert(getenv("PROTON_LOG") == NULL && getenv("STEAM_COMPAT_DATA_PATH") == NULL);
+    assert(getenv("DXVK_HUD") == NULL && getenv("VK_ICD_FILENAMES") == NULL);
+    assert(getenv("DYLD_FALLBACK_LIBRARY_PATH") == NULL && getenv("SteamAppId") == NULL);
+    assert(getenv("GRAPHICS_BACKEND") == NULL);
+    assert(getenv("METALSHARP_PORT") && !strcmp(getenv("METALSHARP_PORT"), "9123"));
+    unsetenv("METALSHARP_PORT");
+    fixture(home, "graphics-scan/d3d12/Binaries/Win64/D3D12Core.DLL", "d3d12");
+    fixture(home, "graphics-scan/dxmt/d3d11.dll", "d3d11");
+    fixture(home, "graphics-scan/dxmt10/d3d10core.dll", "d3d10");
+    fixture(home, "graphics-scan/dxmt32/i386-windows/D3D10.DLL", "i386 d3d10");
+    fixture(home, "graphics-scan/dxmt32_11/i386-windows/D3D11.DLL", "i386 d3d11");
+    fixture(home, "graphics-scan/d3d9/D3D9.DLL", "d3d9");
+    fixture(home, "graphics-scan/priority/i386/d3d11.dll", "i386 d3d11");
+    fixture(home, "graphics-scan/priority/d3d12.dll", "d3d12");
+    char* graphics_path = join(home, "graphics-scan/d3d12");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "d3dmetal"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt10");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt32");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt_32"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt32_11");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt_32"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/d3d9");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "d3d9"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/priority");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "d3dmetal"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/none");
+    assert(ms_steam_detect_graphics_pipeline(graphics_path) == NULL);
+    free(graphics_path);
+
     fixture(home, "cs2/game/bin/win64/vconsole2.exe", "console helper");
     fixture(home, "cs2/game/bin/win64/cs2.exe", "game executable");
     char* cs2_dir = join(home, "cs2");
@@ -33,6 +87,22 @@ int main(int argc, char** argv) {
     assert(executable_helper_name("vconsole2.exe"));
     free(cs2_exe);
     free(cs2_dir);
+
+    fixture(home, "aniimo/repair.exe", "repair helper");
+    fixture(home, "aniimo/KernelDumpAnalyzer.exe", "dump helper");
+    fixture(home, "aniimo/Aniimo.exe", "game executable");
+    char* aniimo_dir = join(home, "aniimo");
+    char* aniimo_exe = preferred_steam_game_executable(aniimo_dir, 4126040, "d3dmetal");
+    assert(aniimo_exe && strstr(aniimo_exe, "/aniimo/Aniimo.exe"));
+    free(aniimo_exe);
+    free(aniimo_dir);
+
+    fixture(home, "ubisoft/odyssey/uplay_r1_loader64.dll", "Ubisoft Connect marker");
+    char* ubisoft_game_dir = join(home, "ubisoft/odyssey");
+    assert(steam_game_uses_ubisoft_connect(812140, NULL));
+    assert(steam_game_uses_ubisoft_connect(999999, ubisoft_game_dir));
+    assert(!steam_game_uses_ubisoft_connect(999999, home));
+    free(ubisoft_game_dir);
 
     fixture(home, "configs/config.json", "{\"msync\":false}");
     set_wine_msync(home);
@@ -158,6 +228,31 @@ int main(int argc, char** argv) {
     free(external_exe);
     free(external_dir);
     free(external);
+    fixture(home, "Library/Application Support/Steam/steamapps/appmanifest_3900000001.acf",
+            "\"AppState\"\n{\n\t\"appid\"\t\"3900000001\"\n\t\"name\"\t\"Detected D3D12 Game\"\n"
+            "\t\"installdir\"\t\"Detected D3D12 Game\"\n}\n");
+    fixture(home, "Library/Application Support/Steam/steamapps/common/Detected D3D12 Game/d3d12.dll", "d3d12");
+    {
+        char* library_json = ms_steam_library_json(home);
+        char error[96];
+        ms_json* library = library_json ? ms_json_parse(library_json, strlen(library_json), error, sizeof(error)) : NULL;
+        const ms_json* games = library ? ms_json_object_get(library, "games") : NULL;
+        bool detected_route = false;
+        for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
+            const ms_json* game = ms_json_array_get(games, i);
+            long long appid;
+            char* pipeline = NULL;
+            if (!ms_json_as_i64(ms_json_object_get(game, "appid"), &appid) || appid != 3900000001LL)
+                continue;
+            if (ms_json_as_string(ms_json_object_get(game, "launch_method"), &pipeline) && pipeline &&
+                !strcmp(pipeline, "d3dmetal"))
+                detected_route = true;
+            free(pipeline);
+        }
+        assert(detected_route);
+        ms_json_free(library);
+        free(library_json);
+    }
     free(drive_e_link);
     free(drive_c_link);
     free(dosdevices);

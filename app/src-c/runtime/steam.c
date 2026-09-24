@@ -10,6 +10,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -766,7 +767,7 @@ static const char* canonical_default_pipeline(const char* pipeline) {
     return pipeline;
 }
 
-static const char* default_pipeline_for_appid(unsigned appid) {
+static const char* default_pipeline_for_appid(unsigned appid, const char* game_dir) {
     static char pipeline[64];
     const ms_json* root = steam_default_rules();
     const ms_json* rules = root ? ms_json_object_get(root, "rules") : NULL;
@@ -786,7 +787,11 @@ static const char* default_pipeline_for_appid(unsigned appid) {
             free(value);
         }
     }
-    return canonical_default_pipeline(pipeline[0] ? pipeline : "vkd3d");
+    if (!pipeline[0]) {
+        const char* detected = ms_steam_detect_graphics_pipeline(game_dir);
+        snprintf(pipeline, sizeof(pipeline), "%s", detected ? detected : "vkd3d");
+    }
+    return canonical_default_pipeline(pipeline);
 }
 
 static const char* pipeline_display_name(const char* pipeline) {
@@ -816,7 +821,7 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     char cover[256], header[256];
     char* embedded_icon = game->installed && game->game_dir ? steam_embedded_icon(game->game_dir, refresh) : NULL;
     char preferred[64] = "";
-    const char* recommended = default_pipeline_for_appid(game->appid);
+    const char* recommended = default_pipeline_for_appid(game->appid, game->game_dir);
     const char* effective = bottle_string_value(home, game->appid, "preferred_pipeline", preferred, sizeof(preferred))
                                 ? preferred
                                 : recommended;
@@ -921,8 +926,8 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     for (i = 0; i < count; ++i) {
         if (!games[i].installed || hidden_library_game(&games[i]))
             continue;
-        (void)ms_steam_ensure_bottle_manifest(metalsharp_home, games[i].appid,
-                                              default_pipeline_for_appid(games[i].appid));
+        (void)ms_steam_ensure_bottle_manifest(
+            metalsharp_home, games[i].appid, default_pipeline_for_appid(games[i].appid, games[i].game_dir));
     }
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
@@ -1028,6 +1033,139 @@ static bool contains_ci(const char* text, const char* needle) {
         if (strncasecmp(text, needle, n) == 0)
             return true;
     return false;
+}
+
+typedef struct {
+    bool d3d12;
+    bool d3d11;
+    bool d3d10;
+    bool d3d9;
+    bool i386_d3d11;
+    bool i386_d3d10;
+} graphics_dll_scan;
+
+typedef struct graphics_pipeline_cache_entry {
+    char* game_dir;
+    char pipeline[16];
+    time_t scanned_at;
+    struct graphics_pipeline_cache_entry* next;
+} graphics_pipeline_cache_entry;
+
+static graphics_pipeline_cache_entry* graphics_pipeline_cache;
+static pthread_mutex_t graphics_pipeline_cache_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static bool directory_is_i386(const char* name) {
+    return !strncasecmp(name, "i386", 4);
+}
+
+static const char* graphics_pipeline_id(const char* pipeline) {
+    if (!strcmp(pipeline, "d3dmetal"))
+        return "d3dmetal";
+    if (!strcmp(pipeline, "dxmt_32"))
+        return "dxmt_32";
+    if (!strcmp(pipeline, "dxmt"))
+        return "dxmt";
+    if (!strcmp(pipeline, "d3d9"))
+        return "d3d9";
+    return NULL;
+}
+
+static void scan_game_graphics_dlls(const char* directory, bool i386_path, unsigned depth, graphics_dll_scan* scan) {
+    DIR* dir;
+    struct dirent* entry;
+    if (!directory || depth > 12 || !(dir = opendir(directory)))
+        return;
+    while ((entry = readdir(dir)) != NULL) {
+        char* path;
+        struct stat info;
+        bool entry_i386;
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+            continue;
+        path = join_path(directory, entry->d_name);
+        if (!path)
+            continue;
+        if (lstat(path, &info) != 0) {
+            free(path);
+            continue;
+        }
+        entry_i386 = i386_path || directory_is_i386(entry->d_name);
+        if (S_ISDIR(info.st_mode)) {
+            scan_game_graphics_dlls(path, entry_i386, depth + 1, scan);
+        } else if (S_ISREG(info.st_mode)) {
+            const char* name = entry->d_name;
+            bool file_i386 = entry_i386 || contains_ci(name, "i386");
+            if (!strcasecmp(name, "d3d12.dll") || !strcasecmp(name, "d3d12core.dll"))
+                scan->d3d12 = true;
+            else if (!strcasecmp(name, "d3d11.dll")) {
+                if (file_i386)
+                    scan->i386_d3d11 = true;
+                else
+                    scan->d3d11 = true;
+            } else if (!strcasecmp(name, "d3d10.dll") || !strcasecmp(name, "d3d10core.dll")) {
+                if (file_i386)
+                    scan->i386_d3d10 = true;
+                else
+                    scan->d3d10 = true;
+            } else if (!strcasecmp(name, "d3d9.dll"))
+                scan->d3d9 = true;
+        }
+        free(path);
+    }
+    closedir(dir);
+}
+
+const char* ms_steam_detect_graphics_pipeline(const char* game_dir) {
+    graphics_dll_scan scan = {0};
+    graphics_pipeline_cache_entry* cached;
+    char pipeline[16] = "";
+    time_t now;
+    if (!game_dir || !game_dir[0])
+        return NULL;
+    now = time(NULL);
+    pthread_mutex_lock(&graphics_pipeline_cache_mutex);
+    for (cached = graphics_pipeline_cache; cached; cached = cached->next) {
+        if (strcmp(cached->game_dir, game_dir) == 0 && now >= cached->scanned_at && now - cached->scanned_at < 300) {
+            snprintf(pipeline, sizeof(pipeline), "%s", cached->pipeline);
+            pthread_mutex_unlock(&graphics_pipeline_cache_mutex);
+            return graphics_pipeline_id(pipeline);
+        }
+    }
+    pthread_mutex_unlock(&graphics_pipeline_cache_mutex);
+    scan_game_graphics_dlls(game_dir, false, 0, &scan);
+    /* Prefer the more specific/newer API; within D3D10/11, an i386 DLL
+     * identifies the 32-bit DXMT route even if the folder also has x64 files. */
+    if (scan.d3d12)
+        snprintf(pipeline, sizeof(pipeline), "%s", "d3dmetal");
+    else if (scan.i386_d3d11 || scan.i386_d3d10)
+        snprintf(pipeline, sizeof(pipeline), "%s", "dxmt_32");
+    else if (scan.d3d11 || scan.d3d10)
+        snprintf(pipeline, sizeof(pipeline), "%s", "dxmt");
+    else if (scan.d3d9)
+        snprintf(pipeline, sizeof(pipeline), "%s", "d3d9");
+
+    pthread_mutex_lock(&graphics_pipeline_cache_mutex);
+    for (cached = graphics_pipeline_cache; cached; cached = cached->next)
+        if (strcmp(cached->game_dir, game_dir) == 0)
+            break;
+    if (!cached) {
+        cached = calloc(1, sizeof(*cached));
+        if (cached) {
+            cached->game_dir = strdup(game_dir);
+            if (cached->game_dir) {
+                cached->next = graphics_pipeline_cache;
+                graphics_pipeline_cache = cached;
+            } else {
+                free(cached);
+                cached = NULL;
+            }
+        }
+    }
+    if (cached) {
+        snprintf(cached->pipeline, sizeof(cached->pipeline), "%s", pipeline);
+        cached->scanned_at = now;
+    }
+    pthread_mutex_unlock(&graphics_pipeline_cache_mutex);
+    return graphics_pipeline_id(pipeline);
 }
 
 char* ms_steam_is_running_json(const char* metalsharp_home) {
