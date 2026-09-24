@@ -3912,7 +3912,7 @@ export const messages = Object.fromEntries(
       ...((commonLabels.migration as LocaleMessages | undefined) ?? {}),
       stages: [
         String(settings.dataFolder ?? "Data"),
-        String(settings.downloadUpdate ?? "Update"),
+        String(settings.checkNow ?? "Update"),
         String(settings.backendRuntime ?? "Runtime"),
         String(settings.upToDate ?? "Done"),
       ],
@@ -3944,7 +3944,15 @@ export const messages = Object.fromEntries(
         ...((setupOverrides?.features as LocaleMessages | undefined) ?? {}),
       },
     };
+    if (!hasOwn(setupOverrides, "lede"))
+      localizedSetup.lede = `${String(nav.library ?? "MetalSharp")} ${String(settings.backendRuntime ?? "Runtime")}`;
     const setupFallbacks: Record<string, unknown> = {
+      runtimeLede: localizedSetup.lede,
+      bundledTools: String(settings.developerTools ?? settings.backendRuntime ?? "Tools"),
+      toolExtraction: String(settings.backendRuntime ?? "Runtime"),
+      toolRar: String(settings.backendRuntime ?? "Runtime"),
+      toolIcons: String(settings.backendRuntime ?? "Runtime"),
+      toolArchives: String(settings.backendRuntime ?? "Runtime"),
       installRuntime: settings.backendRuntime ?? nav.library,
       installComplete: settings.connected ?? actions.done,
       installFailed: settings.offline ?? actions.cancel,
@@ -3960,6 +3968,7 @@ export const messages = Object.fromEntries(
       apiPlaceholder: settings.apiKey,
       apiHint: (localizedUi.settingsDesc as LocaleMessages).apiKey ?? settings.apiKey,
       startSteam: settings.startSteam,
+      startSteamText: String(settings.startSteam ?? nav.library),
       firstLaunch: settings.version ?? nav.library,
       firstLaunchText: localizedSetup.lede,
       preparing: localizedUi.streaming && (localizedUi.streaming as LocaleMessages).starting,
@@ -3979,6 +3988,15 @@ export const messages = Object.fromEntries(
       apiKeySteamIdMissing: settings.offline,
       startingInstallation: localizedUi.streaming && (localizedUi.streaming as LocaleMessages).starting,
     };
+    const featureFallback = String(localizedSetup.lede);
+    const setupFeatures = (localizedSetup.features as LocaleMessages) ?? {};
+    setupFeatures.directx ??= String(sharp.source ?? featureFallback);
+    setupFeatures.directxDesc ??= featureFallback;
+    setupFeatures.fna ??= String(sharp.source ?? featureFallback);
+    setupFeatures.fnaDesc ??= featureFallback;
+    setupFeatures.steam ??= String(settings.steam ?? featureFallback);
+    setupFeatures.steamDesc ??= featureFallback;
+    localizedSetup.features = setupFeatures;
     for (const [key, value] of Object.entries(setupFallbacks)) {
       if (!hasOwn(setupOverrides, key) && value !== undefined) localizedSetup[key] = value;
     }
