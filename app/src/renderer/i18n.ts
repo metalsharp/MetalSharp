@@ -253,6 +253,12 @@ const english = {
       sharpemuTitle: "PS5 Emulation",
       sharpemuDescription:
         "SharpEmu is early-stage research software. Most games do not run, Windows is upstream’s primary target, and macOS support is experimental.",
+      guestNetworking: "Guest networking",
+      guestNetworkingDesc:
+        "Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact local or internet services. Every network-enabled launch asks again.",
+      lastExit: "Last exit",
+      lastSignal: "Last signal",
+      hostAdvisory: "Host advisory",
       lastLaunchFailed: "Last launch failed",
       launchDoctor: "Launch Doctor",
       checkingPrereq: "Checking launch prerequisites...",
@@ -3726,6 +3732,10 @@ export const messages = Object.fromEntries(
       addLayouts: String(sharp.addAsset ?? sharp.tools ?? "Add layouts"),
       addAsset: String(sharp.addAsset ?? sharp.tools ?? "Add Asset"),
       guestNetworking: String(sharp.source ?? "Guest networking"),
+      guestNetworkingDesc: String(sharp.source ?? "Guest networking"),
+      lastExit: String(sharp.source ?? "Last exit"),
+      lastSignal: String(sharp.source ?? "Last signal"),
+      hostAdvisory: String(sharp.source ?? "Host advisory"),
       officialFaq: String(sharp.open ?? "Official FAQ"),
       sourceLicense: String(sharp.source ?? "Source & GPL License"),
       officialReleases: String(sharp.source ?? "Official Releases"),
