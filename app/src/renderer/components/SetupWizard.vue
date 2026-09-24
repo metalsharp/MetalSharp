@@ -2,6 +2,8 @@
 import { computed, ref, inject, type Ref } from "vue";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
+import { useI18n } from "vue-i18n";
+import LanguagePicker from "./LanguagePicker.vue";
 import IconZap from "~icons/lucide/zap";
 import IconBattery from "~icons/lucide/battery";
 import IconLock from "~icons/lucide/lock";
@@ -15,6 +17,7 @@ import IconPlay from "~icons/lucide/play";
 const emit = defineEmits<{ done: []; close: [] }>();
 const props = defineProps<{ dismissible?: boolean }>();
 const toast = useToast();
+const { t, tm } = useI18n();
 const library = inject<Ref<{ ok: boolean; total: number; installed_count: number; games: unknown[] } | null>>("library", ref(null));
 const steamApiKey = inject<Ref<string | null>>("steamApiKey", ref(null));
 
@@ -33,27 +36,19 @@ const steamFailed = ref(false);
 const finishing = ref(false);
 const runtimeReady = computed(() => installStatus.value === "complete");
 const steamButtonLabel = computed(() => {
-  if (steamInstalled.value) return "Steam Installed";
+  if (steamInstalled.value) return t("setup.steamInstalled");
   if (steamInstalling.value) return steamInstallLabel();
-  if (steamFailed.value) return "Steam Install Failed";
-  return "Install Steam";
+  if (steamFailed.value) return t("setup.steamFailed");
+  return t("setup.installSteam");
 });
 const steamInstalled = ref(false);
 const steamChecking = ref(false);
 const steamInstalling = ref(false);
 const steamInstallStage = ref("idle");
 const installingSteam = ref(false);
-const steps = ["Welcome", "Runtime", "Done"];
-const stepTitles = [
-  "Welcome to MetalSharp",
-  "Install Runtime",
-  "You're All Set!",
-];
-const stepTaglines = [
-  "Your Windows games. At home on Mac.",
-  "One download, everything translated.",
-    "MetalSharp is ready.",
-];
+const steps = computed(() => tm("setup.steps") as string[]);
+const stepTitles = computed(() => tm("setup.titles") as string[]);
+const stepTaglines = computed(() => tm("setup.taglines") as string[]);
 const showcaseCovers = [
   { appid: 1091500, name: "Cyberpunk 2077", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1091500/library_600x900_2x.jpg" },
   { appid: 1245620, name: "Elden Ring", url: "https://cdn.cloudflare.steamstatic.com/steam/apps/1245620/library_600x900_2x.jpg" },
@@ -75,10 +70,10 @@ function goToRuntimeStep() {
   step.value = 1;
 }
 const installButtonLabel = computed(() => {
-  if (installStatus.value === "complete") return "Install Complete";
+  if (installStatus.value === "complete") return t("setup.installComplete");
   if (installing.value) return installCurrent.value || "Preparing…";
-  if (installFailed.value) return "Install Failed";
-  return "Install Runtime";
+  if (installFailed.value) return t("setup.installFailed");
+  return t("setup.installRuntime");
 });
 async function startInstall() {
   installing.value = true;
@@ -89,7 +84,7 @@ async function startInstall() {
 
   const started = await api<{ ok: boolean; error?: string }>("POST", "/setup/install-all");
   if (!started?.ok) {
-    toast.show(started?.error ?? "Failed to start installation", "error");
+    toast.show(started?.error ?? t("setup.installFailed"), "error");
     installing.value = false;
     return;
   }
@@ -128,12 +123,12 @@ async function startInstall() {
       } else if (progress.status === "installing" && progress.step !== lastStep) {
         installLogs.value.push({ text: progress.log, cls: "active" });
       } else if (progress.status === "complete") {
-        installLogs.value.push({ text: "Runtime installed!", cls: "success" });
+        installLogs.value.push({ text: t("setup.installComplete"), cls: "success" });
         clearInterval(poll);
         installProgress.value = 100;
         installing.value = false;
         installStatus.value = "complete";
-        toast.show("Runtime installed!", "success");
+        toast.show(t("setup.installComplete"), "success");
         checkSteam();
       }
     }
@@ -157,15 +152,15 @@ async function checkSteam() {
 function steamInstallLabel() {
   switch (steamInstallStage.value) {
     case "downloading":
-      return "Downloading Steam...";
+      return t("setup.downloadingSteam");
     case "creating-steam-prefix":
-      return "Creating Steam prefix...";
+      return t("setup.creatingSteamPrefix");
     case "installing-steam":
-      return "Installing Steam...";
+      return t("setup.installingSteam");
     case "failed":
-      return "Retry Steam installation";
+      return t("setup.retrySteam");
     default:
-      return steamInstalling.value ? "Preparing Steam..." : "Install Steam";
+      return steamInstalling.value ? t("setup.preparingSteam") : t("setup.installSteam");
   }
 }
 
@@ -179,7 +174,7 @@ async function installSteam() {
     steamInstalling.value = false;
     steamFailed.value = true;
     steamInstallStage.value = "failed";
-    toast.show(result?.error ?? "Failed to install Steam", "error");
+    toast.show(result?.error ?? t("setup.steamInstallFailed"), "error");
     return;
   }
   handFocusToInstallerWindow();
@@ -193,20 +188,20 @@ async function installSteam() {
       steamInstalling.value = false;
       steamInstallStage.value = "complete";
       reclaimFocusFromInstaller();
-      toast.show("Steam installed", "success");
+      toast.show(t("setup.steamInstalled"), "success");
     } else if (Date.now() - startedAt > 300000) {
       clearInterval(poll);
       steamInstalling.value = false;
       steamFailed.value = true;
       steamInstallStage.value = "failed";
       reclaimFocusFromInstaller();
-      toast.show("Steam installation timed out", "error");
+      toast.show(t("setup.steamInstallTimedOut"), "error");
     }
   }, 1000);
 }
 
 async function goToDoneStep() {
-  step.value = steps.length - 1; /* Done page: last page, whatever the count */
+  step.value = steps.value.length - 1; /* Done page: last page, whatever the count */
   const gen = await api<{ name: string }>("GET", "/setup/device-name");
   if (gen?.name) deviceName.value = gen.name;
 }
@@ -223,7 +218,7 @@ async function finish() {
     const wrappers = await api<{ ok: boolean; error?: string }>("POST", "/steam/ensure-launch-ready");
     if (!wrappers?.ok) {
       toast.show(
-        wrappers?.error ?? "Steam wrapper shims could not be verified; MetalSharp will retry before Steam launch.",
+        wrappers?.error ?? t("setup.wrapperWarning"),
         "error",
       );
     }
@@ -237,13 +232,13 @@ async function finish() {
         sync?: { steam_id_detected: boolean };
       }>("POST", "/steam/save-api-key", { key });
       if (!result?.ok) {
-        toast.show(result?.error ?? "Failed to save Steam API key", "error");
+        toast.show(result?.error ?? t("setup.apiKeySaveFailed"), "error");
         return;
       }
       steamApiKey.value = key;
       if (result.library) library.value = result.library;
       if (result.sync && !result.sync.steam_id_detected) {
-        toast.show("API key saved, but SteamID was not detected yet", "error");
+        toast.show(t("setup.apiKeySteamIdMissing"), "error");
       }
     }
     emit("done");
@@ -278,53 +273,51 @@ async function finish() {
       </div>
 
       <div class="setup-pane">
+        <LanguagePicker class="setup-language-picker" />
         <button v-if="props.dismissible" class="setup-wizard-close" type="button" aria-label="Exit setup" title="Exit setup" @click="emit('close')">
           ✕
         </button>
         <div class="setup-pane-scroll">
-          <div class="setup-eyebrow">STEP {{ step + 1 }} OF {{ steps.length }}</div>
+          <div class="setup-eyebrow">{{ t("setup.stepOf", { step: step + 1, total: steps.length }) }}</div>
           <h1 class="setup-title">{{ stepTitles[step] }}</h1>
           <p class="setup-tagline">{{ stepTaglines[step] }}</p>
 
           <div v-if="step === 0" class="setup-body">
-            <p class="setup-lede">Play Windows Steam games on Apple Silicon.</p>
+            <p class="setup-lede">{{ t("setup.lede") }}</p>
             <div class="setup-features">
               <div class="setup-feature">
                 <div class="setup-feature-icon"><IconZap width="20" height="20" /></div>
                 <div>
-                  <div class="setup-feature-title">DirectX 9/10/11/12 Support</div>
-                  <div class="setup-feature-desc">Windows graphics, translated for Metal.</div>
+                  <div class="setup-feature-title">{{ t("setup.features.directx") }}</div>
+                  <div class="setup-feature-desc">{{ t("setup.features.directxDesc") }}</div>
                 </div>
               </div>
               <div class="setup-feature">
                 <div class="setup-feature-icon"><IconMonitor width="20" height="20" /></div>
                 <div>
-                  <div class="setup-feature-title">FNA &amp; XNA</div>
-                  <div class="setup-feature-desc">Native Mono support for your games.</div>
+                  <div class="setup-feature-title">{{ t("setup.features.fna") }}</div>
+                  <div class="setup-feature-desc">{{ t("setup.features.fnaDesc") }}</div>
                 </div>
               </div>
               <div class="setup-feature">
                 <div class="setup-feature-icon"><IconGamepad2 width="20" height="20" /></div>
                 <div>
-                  <div class="setup-feature-title">Steam integration</div>
-                  <div class="setup-feature-desc">Browse, install, and launch your library.</div>
+                  <div class="setup-feature-title">{{ t("setup.features.steam") }}</div>
+                  <div class="setup-feature-desc">{{ t("setup.features.steamDesc") }}</div>
                 </div>
               </div>
             </div>
           </div>
 
           <div v-if="step === 1" class="setup-body">
-            <p class="setup-lede">
-              Installs the Wine runtime, graphics runtimes, Steam support files, and Mono/FNA support.
-              GPTK is not installed during first-time setup.
-            </p>
+            <p class="setup-lede">{{ t("setup.runtimeLede") }}</p>
 
-            <div class="setup-tools-label">Bundled tools — no Homebrew required</div>
+            <div class="setup-tools-label">{{ t("setup.bundledTools") }}</div>
             <div class="setup-tool-list">
-              <div class="setup-tool-row"><strong>zstd / unzstd</strong><span>Runtime bundle extraction</span></div>
-              <div class="setup-tool-row"><strong>unrar</strong><span>RAR archive extraction</span></div>
-              <div class="setup-tool-row"><strong>wrestool / icotool</strong><span>Windows icon extraction</span></div>
-              <div class="setup-tool-row"><strong>lsar / unar</strong><span>Safe archive inspection and extraction</span></div>
+              <div class="setup-tool-row"><strong>zstd / unzstd</strong><span>{{ t("setup.toolExtraction") }}</span></div>
+              <div class="setup-tool-row"><strong>unrar</strong><span>{{ t("setup.toolRar") }}</span></div>
+              <div class="setup-tool-row"><strong>wrestool / icotool</strong><span>{{ t("setup.toolIcons") }}</span></div>
+              <div class="setup-tool-row"><strong>lsar / unar</strong><span>{{ t("setup.toolArchives") }}</span></div>
             </div>
 
             <div class="setup-install-grid">
@@ -350,7 +343,7 @@ async function finish() {
                   @click="logOpen = !logOpen"
                 >
                   <IconScrollText width="14" height="14" />
-                  Install Log
+                  {{ t("setup.installLog") }}
                 </button>
               </div>
               <div class="setup-install-col">
@@ -367,7 +360,7 @@ async function finish() {
                     {{ steamButtonLabel }}
                   </span>
                 </button>
-                <div v-if="!steamInstalled" class="setup-steam-hint">Please run “Start Steam” after installing</div>
+                <div v-if="!steamInstalled" class="setup-steam-hint">{{ t("setup.startSteamHint") }}</div>
               </div>
             </div>
             <div v-if="logOpen && installLogs.length" class="setup-log">
@@ -381,36 +374,35 @@ async function finish() {
             <div class="setup-complete-icon"><IconCheck width="30" height="30" /></div>
             <div class="setup-form">
               <div class="setup-form-group">
-                <label class="setup-label">Device Name</label>
-                <input id="setup-device-name" type="text" :value="deviceName" placeholder="e.g. Swift-Falcon" class="setup-input" />
-                <div class="setup-hint">Identifies your machine to Steam for persistent login.</div>
+                <label class="setup-label">{{ t("setup.deviceName") }}</label>
+                <input id="setup-device-name" type="text" :value="deviceName" :placeholder="t('setup.devicePlaceholder')" class="setup-input" />
+                <div class="setup-hint">{{ t("setup.deviceHint") }}</div>
               </div>
               <div class="setup-form-group">
-                <label class="setup-label">Steam Web API Key (optional)</label>
-                <input id="setup-api-key" type="password" placeholder="Enter your Steam Web API key..." class="setup-input" />
-                <div class="setup-hint">
-                  Loads your full game library. Get a free key at
+                <label class="setup-label">{{ t("setup.apiKey") }}</label>
+                <input id="setup-api-key" type="password" :placeholder="t('setup.apiPlaceholder')" class="setup-input" />
+                <div class="setup-hint">{{ t("setup.apiHint") }}
                   <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a>
                 </div>
               </div>
             </div>
             <div class="setup-tips">
-              <div class="setup-tip"><strong>Start Steam</strong> — Click "Start Steam" in your Library, then log in through the Steam window.</div>
-              <div class="setup-tip"><strong>First launch</strong> — MetalSharp auto-configures the runtime for each game. Optionally, configure a different setting using the bottle selection dropdown.</div>
+              <div class="setup-tip"><strong>{{ t("setup.startSteam") }}</strong> — {{ t("setup.startSteamText") }}</div>
+              <div class="setup-tip"><strong>{{ t("setup.firstLaunch") }}</strong> — {{ t("setup.firstLaunchText") }}</div>
             </div>
           </div>
         </div>
 
         <div class="setup-actions">
-          <button v-if="step > 0 && step < 2" class="setup-btn ghost" @click="step = step - 1">Back</button>
+          <button v-if="step > 0 && step < 2" class="setup-btn ghost" @click="step = step - 1">{{ t("actions.back") }}</button>
           <button v-if="step === 0" class="setup-btn primary" @click="step = 1">
-            <IconPlay width="16" height="16" fill="currentColor" /> Get Started
+            <IconPlay width="16" height="16" fill="currentColor" /> {{ t("setup.getStarted") }}
           </button>
           <template v-else-if="step === 1">
-            <button class="setup-btn primary" type="button" @click="goToDoneStep">Next Step</button>
+            <button class="setup-btn primary" type="button" @click="goToDoneStep">{{ t("actions.next") }}</button>
           </template>
           <button v-else class="setup-btn primary" :disabled="finishing" @click="finish">
-            {{ finishing ? "Preparing Steam..." : "Launch MetalSharp" }}
+            {{ finishing ? t("setup.preparingSteam") : t("setup.launch") }}
           </button>
         </div>
       </div>
@@ -559,6 +551,12 @@ async function finish() {
 }
 
 /* ---- right pane ---- */
+.setup-language-picker {
+  position: absolute;
+  top: 18px;
+  left: clamp(26px, 4vw, 68px);
+  z-index: 2;
+}
 .setup-pane {
   position: relative;
   flex: 1 1 48%;
