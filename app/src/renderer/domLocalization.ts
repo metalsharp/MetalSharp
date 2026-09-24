@@ -98,6 +98,7 @@ const phraseKeys: Record<string, string> = {
   Version: "ui.settings.version",
   "You're up to date": "ui.settings.upToDate",
   "Danger Zone": "ui.settings.dangerZone",
+  "Updating…": "ui.settings.updating",
   "Game Streaming": "ui.streaming.title",
   "Sunshine Host (this Mac)": "ui.streaming.host",
   "Pair your device": "ui.streaming.pairDevice",
