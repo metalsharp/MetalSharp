@@ -28,8 +28,8 @@ test('Wine sidecar selection uses Wine-resolved machine metadata', () => {
   assert.ok(winePatch.indexOf('--cooperative') < winePatch.indexOf('#ifdef HAVE_WINE_PRELOADER'));
 });
 
-test('sidecar remains scoped to the VKD3D route and verified asset', () => {
-  assert.match(routes, /if \(!strcmp\(pipeline, "vkd3d"\)\)/);
+test('sidecar remains scoped to the restored D3D9 route and verified asset', () => {
+  assert.match(routes, /pipeline_is_d3d9\(pipeline\)/);
   assert.match(routes, /ROSETTA_X87_PATH/);
   assert.match(verifier, /X87SIDECAR_SHA256=/);
   assert.match(verifier, /METALSHARP_REQUIRE_X87SIDECAR/);
