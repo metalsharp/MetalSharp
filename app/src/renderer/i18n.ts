@@ -3900,6 +3900,109 @@ const commonLabelsByLocale: Record<string, LocaleMessages> = {
   },
 };
 
+const noAppsLabelsByLocale: Record<string, LocaleMessages> = {
+  en: {
+    noApps: "No applications installed",
+    noAppsDescription: "Install a Windows program to add it to the Sharp Library.",
+    add: "Add",
+  },
+  "zh-CN": {
+    noApps: "没有已安装的应用程序",
+    noAppsDescription: "安装 Windows 程序，将其添加到 Sharp 游戏库。",
+    add: "添加",
+  },
+  es: {
+    noApps: "No hay aplicaciones instaladas",
+    noAppsDescription: "Instala un programa de Windows para añadirlo a la Biblioteca Sharp.",
+    add: "Añadir",
+  },
+  hi: {
+    noApps: "कोई एप्लिकेशन इंस्टॉल नहीं है",
+    noAppsDescription: "Sharp लाइब्रेरी में जोड़ने के लिए Windows प्रोग्राम इंस्टॉल करें।",
+    add: "जोड़ें",
+  },
+  ar: {
+    noApps: "لا توجد تطبيقات مثبتة",
+    noAppsDescription: "ثبّت برنامج Windows لإضافته إلى مكتبة Sharp.",
+    add: "إضافة",
+  },
+  "pt-BR": {
+    noApps: "Nenhum aplicativo instalado",
+    noAppsDescription: "Instale um programa Windows para adicioná-lo à Biblioteca Sharp.",
+    add: "Adicionar",
+  },
+  bn: {
+    noApps: "কোনো অ্যাপ্লিকেশন ইনস্টল করা নেই",
+    noAppsDescription: "Sharp লাইব্রেরিতে যোগ করতে একটি Windows প্রোগ্রাম ইনস্টল করুন।",
+    add: "যোগ করুন",
+  },
+  ru: {
+    noApps: "Нет установленных приложений",
+    noAppsDescription: "Установите программу Windows, чтобы добавить её в библиотеку Sharp.",
+    add: "Добавить",
+  },
+  ja: {
+    noApps: "インストール済みのアプリケーションはありません",
+    noAppsDescription: "Windows プログラムをインストールして Sharp ライブラリに追加します。",
+    add: "追加",
+  },
+  pa: {
+    noApps: "ਕੋਈ ਐਪਲੀਕੇਸ਼ਨ ਇੰਸਟਾਲ ਨਹੀਂ",
+    noAppsDescription: "Sharp ਲਾਇਬ੍ਰੇਰੀ ਵਿੱਚ ਜੋੜਨ ਲਈ Windows ਪ੍ਰੋਗਰਾਮ ਇੰਸਟਾਲ ਕਰੋ।",
+    add: "ਜੋੜੋ",
+  },
+  de: {
+    noApps: "Keine Anwendungen installiert",
+    noAppsDescription: "Installiere ein Windows-Programm, um es zur Sharp-Bibliothek hinzuzufügen.",
+    add: "Hinzufügen",
+  },
+  jv: {
+    noApps: "Ora ana aplikasi sing diinstal",
+    noAppsDescription: "Instal program Windows kanggo nambahake menyang Pustaka Sharp.",
+    add: "Tambah",
+  },
+  ko: {
+    noApps: "설치된 애플리케이션 없음",
+    noAppsDescription: "Windows 프로그램을 설치해 Sharp 라이브러리에 추가하세요.",
+    add: "추가",
+  },
+  fr: {
+    noApps: "Aucune application installée",
+    noAppsDescription: "Installez un programme Windows pour l’ajouter à la bibliothèque Sharp.",
+    add: "Ajouter",
+  },
+  te: {
+    noApps: "ఇన్‌స్టాల్ చేసిన అప్లికేషన్లు లేవు",
+    noAppsDescription: "Sharp లైబ్రరీకి జోడించడానికి Windows ప్రోగ్రామ్‌ను ఇన్‌స్టాల్ చేయండి.",
+    add: "జోడించండి",
+  },
+  vi: {
+    noApps: "Chưa cài ứng dụng nào",
+    noAppsDescription: "Cài một chương trình Windows để thêm vào Thư viện Sharp.",
+    add: "Thêm",
+  },
+  tr: {
+    noApps: "Yüklü uygulama yok",
+    noAppsDescription: "Sharp Kütüphanesine eklemek için bir Windows programı yükleyin.",
+    add: "Ekle",
+  },
+  ur: {
+    noApps: "کوئی ایپلی کیشن انسٹال نہیں",
+    noAppsDescription: "Sharp لائبریری میں شامل کرنے کے لیے Windows پروگرام انسٹال کریں۔",
+    add: "شامل کریں",
+  },
+  it: {
+    noApps: "Nessuna applicazione installata",
+    noAppsDescription: "Installa un programma Windows per aggiungerlo alla Libreria Sharp.",
+    add: "Aggiungi",
+  },
+  mr: {
+    noApps: "कोणतेही अॅप्लिकेशन इन्स्टॉल केलेले नाही",
+    noAppsDescription: "Sharp लायब्ररीमध्ये जोडण्यासाठी Windows प्रोग्राम इन्स्टॉल करा.",
+    add: "जोडा",
+  },
+};
+
 export const messages = Object.fromEntries(
   localeOptions.map(({ code }) => {
     if (code === "en") return [code, english];
@@ -4055,6 +4158,7 @@ export const messages = Object.fromEntries(
     const sourceOverrides = uiOverrides.source as LocaleMessages | undefined;
     const sourceMessages: LocaleMessages = {
       ...(english.ui.source as LocaleMessages),
+      ...(noAppsLabelsByLocale[code] ?? {}),
       ...(sourceOverrides ?? {}),
     };
     const sourceFallbacks: Record<string, string> = {
@@ -4116,6 +4220,7 @@ export const messages = Object.fromEntries(
       installPackage: String(sharp.install ?? "Install package"),
       addLayouts: String(sharp.addAsset ?? sharp.tools ?? "Add layouts"),
       addAsset: String(sharp.addAsset ?? sharp.tools ?? "Add Asset"),
+      add: String(noAppsLabelsByLocale[code]?.add ?? sharp.addAsset ?? sharp.tools ?? "Add"),
       guestNetworking: String(sharp.source ?? "Guest networking"),
       guestNetworkingDesc: String(sharp.source ?? "Guest networking"),
       lastExit: String(sharp.source ?? "Last exit"),
