@@ -1299,10 +1299,9 @@ function registerIpc() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await net.fetch(
-        `https://store.steampowered.com/api/appdetails?appids=${appid}&l=english`,
-        { signal: controller.signal },
-      );
+      const response = await net.fetch(`https://store.steampowered.com/api/appdetails?appids=${appid}&l=english`, {
+        signal: controller.signal,
+      });
       if (!response.ok) return null;
       const payload = (await response.json()) as Record<
         string,
