@@ -126,6 +126,8 @@ const phraseKeys: Record<string, string> = {
   "Opt in to DXMT graphics logs for future launches.": "ui.source.graphicsLogsDesc",
   "Off by default to keep routine launches quiet unless requested.": "ui.source.graphicsLogsDesc",
   "The upstream macOS archive is not Developer ID signed or notarized.": "ui.source.runtimeSupport",
+  "SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.":
+    "ui.source.sharpemuDescription",
   Controller: "ui.game.controllerInput",
   "Controller 1": "ui.source.controller1",
   "Controller 2": "ui.source.controller2",
@@ -206,7 +208,8 @@ export function installDomLocalization(app: App): void {
       originalText.set(node, current);
     }
     const source = originalText.get(node) ?? current;
-    const key = phraseKeys[source.trim()];
+    const normalizedSource = source.trim().replace(/\s+/g, " ");
+    const key = phraseKeys[normalizedSource] ?? phraseKeys[source.trim()];
     if (!key) return;
     const translated = String(i18n.global.t(key));
     const leading = source.match(/^\s*/)?.[0] ?? "";
