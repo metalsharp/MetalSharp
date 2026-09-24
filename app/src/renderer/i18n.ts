@@ -252,6 +252,7 @@ const english = {
         "Official stable core, isolated state, atomic rollback, and protected user-owned content. Compatibility remains experimental.",
       sharpemuEyebrow: "Experimental PlayStation 5 research environment",
       sharpemuTitle: "PS5 Emulation",
+      installManage: "Install and manage Windows applications outside Steam.",
       sharpemuDescription:
         "SharpEmu is early-stage research software. Most games do not run, Windows is upstream’s primary target, and macOS support is experimental.",
       guestNetworking: "Guest networking",
@@ -4103,6 +4104,7 @@ export const messages = Object.fromEntries(
       sharpemuEyebrow: String(sharp.source ?? "Sharp"),
       sharpemuTitle: "PS5",
       sharpemuDescription: String(sharp.source ?? "PS5"),
+      installManage: String(sharp.source ?? "Install and manage applications"),
       lastLaunchFailed: String(sharp.source ?? "Last launch failed"),
       launchDoctor: String(sharp.tools ?? "Launch Doctor"),
       checkingPrereq: String(sharp.checking ?? "Checking launch prerequisites..."),
