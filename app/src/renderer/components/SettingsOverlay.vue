@@ -361,7 +361,6 @@ function uninstallMetalsharp() {
           <h2>{{ t("settings.title") }}</h2>
         </div>
         <div class="so-header-actions">
-          <LanguagePicker compact />
           <button class="so-close" type="button" aria-label="Close settings" @click="emit('close')">
             <IconX width="18" height="18" />
           </button>
@@ -396,6 +395,8 @@ function uninstallMetalsharp() {
             <div class="so-row-control">
               <span class="so-value-text">{{ setupDeviceName || "Not set" }}</span>
               <button class="so-btn" type="button" @click="changeDeviceName">Change</button>
+              <span class="so-row-divider" aria-hidden="true"></span>
+              <LanguagePicker compact />
             </div>
           </div>
         </section>
@@ -757,10 +758,17 @@ function uninstallMetalsharp() {
   align-items: center;
   gap: 12px;
 }
-.so-header-actions :deep(.language-picker) {
+.so-row-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 28px;
+  margin: 0 6px;
+  background: var(--library-control-border);
+}
+.so-row-control :deep(.language-picker) {
   color: var(--library-control-text);
 }
-.so-header-actions :deep(.language-picker select) {
+.so-row-control :deep(.language-picker select) {
   border-color: var(--library-control-border);
   background: var(--library-control-bg);
   color: var(--library-control-text);

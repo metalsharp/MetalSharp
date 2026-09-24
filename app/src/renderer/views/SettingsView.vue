@@ -344,16 +344,6 @@ function uninstallMetalsharp() {
     <div class="settings-header"><h1>{{ t("settings.title") }}</h1></div>
 
     <div class="settings-section">
-      <div class="settings-row settings-language-row">
-        <div>
-          <div class="settings-label">{{ t("settings.language") }}</div>
-          <div class="settings-desc">{{ t("settings.languageDesc") }}</div>
-        </div>
-        <div class="settings-value"><LanguagePicker compact /></div>
-      </div>
-    </div>
-
-    <div class="settings-section">
       <h2>{{ t("settings.steamIntegration") }}</h2>
       <div class="settings-row">
         <div>
@@ -382,9 +372,11 @@ function uninstallMetalsharp() {
           <div class="settings-label">Device Name</div>
           <div class="settings-desc">Identifies this machine to Steam for persistent login</div>
         </div>
-        <div class="settings-value">
+        <div class="settings-value settings-device-controls">
           <span>{{ setupDeviceName || "Not set" }}</span>
           <button class="btn btn-secondary btn-sm" @click="changeDeviceName">Change</button>
+          <span class="settings-value-divider" aria-hidden="true"></span>
+          <LanguagePicker compact />
         </div>
       </div>
     </div>
@@ -731,6 +723,13 @@ function uninstallMetalsharp() {
 }
 .settings-input-row input {
   width: 280px;
+}
+.settings-value-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 28px;
+  margin: 0 6px;
+  background: var(--border);
 }
 .settings-version {
   font-size: 12px;
