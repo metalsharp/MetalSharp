@@ -5,6 +5,7 @@ import { api, getAPI } from "../composables/useApi";
 import type { AppConfig, UpdateStatus } from "../api-types";
 import IconX from "~icons/lucide/x";
 import IconTrash2 from "~icons/lucide/trash-2";
+import LanguagePicker from "./LanguagePicker.vue";
 
 interface CacheSummary {
   bytes: number;
@@ -357,9 +358,12 @@ function uninstallMetalsharp() {
           <span class="so-eyebrow">METALSHARP</span>
           <h2>Settings</h2>
         </div>
-        <button class="so-close" type="button" aria-label="Close settings" @click="emit('close')">
-          <IconX width="18" height="18" />
-        </button>
+        <div class="so-header-actions">
+          <LanguagePicker compact />
+          <button class="so-close" type="button" aria-label="Close settings" @click="emit('close')">
+            <IconX width="18" height="18" />
+          </button>
+        </div>
       </header>
 
       <div class="so-body">
@@ -745,6 +749,19 @@ function uninstallMetalsharp() {
   font-size: 26px;
   font-weight: 500;
   line-height: 1;
+}
+.so-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.so-header-actions :deep(.language-picker) {
+  color: var(--library-control-text);
+}
+.so-header-actions :deep(.language-picker select) {
+  border-color: var(--library-control-border);
+  background: var(--library-control-bg);
+  color: var(--library-control-text);
 }
 .so-close {
   display: inline-flex;
