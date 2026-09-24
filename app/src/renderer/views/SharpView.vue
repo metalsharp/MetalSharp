@@ -3539,19 +3539,19 @@ onUnmounted(() => {
       <template v-else-if="sourceMode === 'gog'">
         <section class="gog-panel">
           <div v-if="!gogStatus?.gogdlAvailable" class="empty-state compact">
-            <h2>Init The Prefix To Get Started</h2>
+            <h2>{{ t("ui.source.gogInit") }}</h2>
           </div>
           <div v-else-if="!gogStatus?.prefixInitialized" class="empty-state compact">
-            <h2>Initialize GOG prefix</h2>
-            <p>Create the isolated Wine prefix before connecting games.</p>
+            <h2>{{ t("ui.source.gogInitialize") }}</h2>
+            <p>{{ t("ui.source.gogInitializeDesc") }}</p>
           </div>
           <div v-else-if="!gogStatus?.authenticated" class="empty-state compact">
-            <h2>Login to GOG to connect your games</h2>
-            <p>MetalSharp will capture the GOG login code from a controlled sign-in window.</p>
+            <h2>{{ t("ui.source.gogLogin") }}</h2>
+            <p>{{ t("ui.source.gogLoginDesc") }}</p>
           </div>
           <div v-else-if="gogGames.length === 0" class="empty-state compact">
-            <h2>No GOG games synced</h2>
-            <p>Click Sync Library after adding games to your GOG account.</p>
+            <h2>{{ t("ui.source.gogNoGames") }}</h2>
+            <p>{{ t("ui.source.gogNoGamesDesc") }}</p>
           </div>
 
           <div v-else class="sharp-grid">
@@ -3663,21 +3663,16 @@ onUnmounted(() => {
       <template v-else-if="sourceMode === 'epic'">
         <section class="gog-panel epic-panel">
           <div v-if="!epicStatus?.toolAvailable" class="empty-state compact">
-            <h2>Install Epic support</h2>
-            <p>
-              MetalSharp uses the pinned open-source Legendary client to access your owned library without running the
-              Epic Games Launcher. Downloads stay under {{ epicStatus?.gameRoot || "MetalSharp’s Epic library" }}.
-            </p>
+            <h2>{{ t("ui.source.epicInstall") }}</h2>
+            <p>{{ t("ui.source.epicInstallDesc") }} {{ epicStatus?.gameRoot || t("ui.sharp.epicDetail") }}.</p>
           </div>
           <div v-else-if="!epicStatus?.authenticated" class="empty-state compact">
-            <h2>Login to Epic Games</h2>
-            <p>Sign in through Epic’s website. MetalSharp stores Legendary account state only under ~/.metalsharp.</p>
+            <h2>{{ t("ui.source.epicLogin") }}</h2>
+            <p>{{ t("ui.source.epicLoginDesc") }}</p>
           </div>
           <div v-else-if="epicGames.length === 0" class="empty-state compact">
-            <h2>No installable Epic games found</h2>
-            <p>
-              Sync your library after adding games to your Epic account. Third-party launcher-only titles are omitted.
-            </p>
+            <h2>{{ t("ui.source.epicNoGames") }}</h2>
+            <p>{{ t("ui.source.epicNoGamesDesc") }}</p>
           </div>
 
           <div v-else class="sharp-grid">
@@ -3822,8 +3817,8 @@ onUnmounted(() => {
         >
           <div class="gamejolt-games-pane">
             <div v-if="gamejoltGames.length === 0" class="empty-state compact">
-              <h2>No GameJolt games found</h2>
-              <p>Place each game in its own folder inside the GameJolt directory, then sync.</p>
+              <h2>{{ t("ui.source.gamejoltNoGames") }}</h2>
+              <p>{{ t("ui.source.gamejoltNoGamesDesc") }}</p>
             </div>
             <div v-else class="gamejolt-grid">
               <article
@@ -3922,9 +3917,9 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Managed PlayStation 2 environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.pcsx2Eyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>PCSX2 <span class="emulator-platform-label">- PS2 Emulation</span></h2>
+                      <h2>PCSX2 <span class="emulator-platform-label">- {{ t("ui.source.pcsx2Title") }}</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -3938,10 +3933,7 @@ onUnmounted(() => {
                         <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ pcsx2StateLabel }}
                       </span>
                     </div>
-                    <p>
-                      Official stable PCSX2, isolated from your normal home folder. MetalSharp never downloads a Sony
-                      BIOS or games and preserves all mutable emulator data across updates and runtime removal.
-                    </p>
+                    <p>{{ t("ui.source.pcsx2Description") }}</p>
                     <p v-if="pcsx2Status?.warnings?.length" class="shadps4-host-warning">
                       Host advisory: {{ pcsx2Status.warnings.join(", ").replaceAll("_", " ") }}
                     </p>
@@ -3951,14 +3943,14 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconPackage width="17" height="17" />
                     <span
-                      ><small>Stable runtime</small
+                      ><small>{{ t("ui.source.stableRuntime") }}</small
                       ><strong :title="pcsx2Status?.currentTag ?? ''">{{ pcsx2BuildLabel }}</strong></span
                     >
                   </div>
                   <div class="rpcs3-stat">
                     <IconMonitor width="17" height="17" />
                     <span
-                      ><small>Host</small
+                      ><small>{{ t("ui.source.host") }}</small
                       ><strong>{{
                         pcsx2Status?.hostArchitecture === "arm64"
                           ? "Apple Silicon · Rosetta"
@@ -3971,7 +3963,7 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconShieldCheck width="17" height="17" />
                     <span
-                      ><small>User BIOS</small
+                      ><small>{{ t("ui.source.userBios") }}</small
                       ><strong>{{
                         pcsx2Status?.biosInstalled ? pcsx2Status.biosRegion || "Validated" : "Required"
                       }}</strong></span
@@ -3980,7 +3972,7 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconGamepad2 width="17" height="17" />
                     <span
-                      ><small>Library</small
+                      ><small>{{ t("ui.source.library") }}</small
                       ><strong>{{ pcsx2Games.length }} game{{ pcsx2Games.length === 1 ? "" : "s" }}</strong></span
                     >
                   </div>
@@ -3995,12 +3987,12 @@ onUnmounted(() => {
                   @click="importPcsx2Bios"
                 >
                   <IconShieldCheck width="17" height="17" /><span
-                    ><strong>Import BIOS</strong><small>Accepts a .bin BIOS file</small></span
+                    ><strong>{{ t("ui.source.importBios") }}</strong><small>Accepts a .bin BIOS file</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openEmulatorResource('pcsx2-firmware')">
                   <IconDownload width="17" height="17" /><span
-                    ><strong>Download Firmware</strong><small>Open PCSX2 firmware page</small></span
+                    ><strong>{{ t("ui.source.downloadFirmware") }}</strong><small>Open PCSX2 firmware page</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openEmulatorResource('archive-games')">
@@ -4229,9 +4221,9 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Managed PlayStation 3 environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.rpcs3Eyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>RPCS3 <span class="emulator-platform-label">- PS3 Emulation</span></h2>
+                      <h2>RPCS3 <span class="emulator-platform-label">- {{ t("ui.source.rpcs3Title") }}</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4241,7 +4233,7 @@ onUnmounted(() => {
                         <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ rpcs3StateLabel }}
                       </span>
                     </div>
-                    <p>A verified, isolated emulator environment with atomic updates and protected user data.</p>
+                    <p>{{ t("ui.source.rpcs3Description") }}</p>
                   </div>
                 </div>
                 <div class="rpcs3-stats">
@@ -4472,9 +4464,9 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Experimental PlayStation 4 environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.shadps4Eyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>shadPS4 <span class="emulator-platform-label">- PS4 Emulation</span></h2>
+                      <h2>shadPS4 <span class="emulator-platform-label">- {{ t("ui.source.shadps4Title") }}</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4488,10 +4480,7 @@ onUnmounted(() => {
                         <span class="rpcs3-state-dot" aria-hidden="true"></span>{{ shadps4StateLabel }}
                       </span>
                     </div>
-                    <p>
-                      Official stable core, isolated state, atomic rollback, and protected user-owned content.
-                      Compatibility remains experimental.
-                    </p>
+                    <p>{{ t("ui.source.shadps4Description") }}</p>
                     <p v-if="shadps4Status?.warnings?.length" class="shadps4-host-warning">
                       Host advisory: {{ shadps4Status.warnings.join(", ").replaceAll("_", " ") }}
                     </p>
@@ -4726,9 +4715,9 @@ onUnmounted(() => {
                 <div class="rpcs3-overview-main">
                   <div class="rpcs3-brand-mark" aria-hidden="true"><IconGamepad2 width="26" height="26" /></div>
                   <div class="rpcs3-overview-copy">
-                    <div class="rpcs3-eyebrow">Experimental PlayStation 5 research environment</div>
+                    <div class="rpcs3-eyebrow">{{ t("ui.source.sharpemuEyebrow") }}</div>
                     <div class="rpcs3-title-row">
-                      <h2>SharpEmu <span class="emulator-platform-label">- PS5 Emulation</span></h2>
+                      <h2>SharpEmu <span class="emulator-platform-label">- {{ t("ui.source.sharpemuTitle") }}</span></h2>
                       <span
                         class="rpcs3-state-pill"
                         :class="
@@ -4743,8 +4732,7 @@ onUnmounted(() => {
                       </span>
                     </div>
                     <p>
-                      SharpEmu is early-stage research software. Most games do not run, Windows is upstream's primary
-                      target, and macOS support is experimental. MetalSharp is not affiliated with Sony or SharpEmu.
+                      {{ t("ui.source.sharpemuDescription") }}
                     </p>
                   </div>
                 </div>

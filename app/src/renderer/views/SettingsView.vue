@@ -349,7 +349,7 @@ function uninstallMetalsharp() {
         <div>
           <div class="settings-label">{{ t("ui.settings.apiKey") }}</div>
           <div class="settings-desc">
-            Required to load your full game library. Get a free key at
+            {{ t("ui.settingsDesc.apiKey") }}
             <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a>.
           </div>
         </div>
@@ -370,7 +370,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.deviceName") }}</div>
-          <div class="settings-desc">Identifies this machine to Steam for persistent login</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.device") }}</div>
         </div>
         <div class="settings-value settings-device-controls">
           <span>{{ setupDeviceName || t("ui.settings.notSet") }}</span>
@@ -386,7 +386,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.wineSteam") }}</div>
-          <div class="settings-desc">Windows Steam running in MetalSharp Wine</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.wineSteam") }}</div>
         </div>
         <div class="settings-value">
           <span v-if="wineSteamInstalled" class="badge badge-ok">{{ t("ui.settings.installed") }}</span>
@@ -399,7 +399,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.steamMac") }}</div>
-          <div class="settings-desc">Native macOS Steam used for games with Mac builds</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.macSteam") }}</div>
         </div>
         <div class="settings-value">
           <span v-if="macSteamInstalled" class="badge badge-ok">Installed</span>
@@ -413,9 +413,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.retina") }}</div>
-          <div class="settings-desc">
-            Sharp Wine windows at native display resolution; restart Wine Steam to apply
-          </div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.retina") }}</div>
         </div>
         <div class="settings-value">
           <label class="settings-toggle toggle-label" aria-label="High Resolution Retina">
@@ -436,7 +434,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.backendRuntime") }}</div>
-          <div class="settings-desc">The C backend handles game launches, Steam integration, and shader management</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.backend") }}</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="backendConnected ? 'badge-ok' : 'badge-warn'">
@@ -448,7 +446,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.restartBackend") }}</div>
-          <div class="settings-desc">Kill and restart the backend process</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.restart") }}</div>
         </div>
         <div class="settings-value">
           <button class="btn btn-secondary btn-sm" :disabled="backendRestarting" @click="restartBackend">
@@ -459,9 +457,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.forceKill") }}</div>
-          <div class="settings-desc">
-            Destructively stops MetalSharp Wine/runtime helper processes while keeping this app and backend alive.
-          </div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.forceKill") }}</div>
         </div>
         <div class="settings-value">
           <button class="btn btn-danger btn-sm" @click="forceKillProcesses">{{ t("ui.settings.forceKill") }}</button>
@@ -470,9 +466,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.lowPerformance") }}</div>
-          <div class="settings-desc">
-            Disables blur, glass, glow, and heavy motion while preserving layout and essential progress updates.
-          </div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.lowPerformance") }}</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="lowPerformanceMode ? 'badge-warn' : 'badge-ok'">
@@ -491,7 +485,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.developerTools") }}</div>
-          <div class="settings-desc">Show launch routing, doctor controls, and advanced card tools</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.developer") }}</div>
         </div>
         <div class="settings-value">
           <label class="settings-toggle toggle-label" aria-label="Developer Tools">
@@ -533,9 +527,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.dataFolder") }}</div>
-          <div class="settings-desc">
-            Preserves logs, Sharp Library apps, covers, launch options, caches, and runtime state across updates.
-          </div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.dataFolder") }}</div>
         </div>
         <div class="settings-value">
           <button class="btn btn-secondary btn-sm" @click="openMetalsharpFolder">{{ t("ui.settings.openData") }}</button>
@@ -545,9 +537,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.dataAccess") }}</div>
-          <div class="settings-desc">
-            Recreates required folders and verifies MetalSharp can write logs and library metadata after an app update.
-          </div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.dataAccess") }}</div>
         </div>
         <div class="settings-value">
           <button class="btn btn-primary btn-sm" @click="repairDataAccess">{{ t("ui.settings.repairVerify") }}</button>
@@ -560,7 +550,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.shaderCache") }}</div>
-          <div class="settings-desc">Persist compiled shaders to disk for faster loading</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.shader") }}</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="cacheBadgeClass(shaderCache)">{{ cacheStatusText(shaderCache) }}</span>
@@ -572,7 +562,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.pipelineCache") }}</div>
-          <div class="settings-desc">Persist compiled pipeline state objects</div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.pipeline") }}</div>
         </div>
         <div class="settings-value">
           <span class="badge" :class="cacheBadgeClass(pipelineCache)">{{ cacheStatusText(pipelineCache) }}</span>
@@ -644,10 +634,7 @@ function uninstallMetalsharp() {
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.uninstall") }}</div>
-          <div class="settings-desc">
-            Permanently deletes all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and
-            settings. The app will close after cleanup.
-          </div>
+          <div class="settings-desc">{{ t("ui.settingsDesc.uninstall") }}</div>
         </div>
         <div class="settings-value">
           <button class="btn btn-danger btn-sm" @click="uninstallMetalsharp">{{ t("ui.settings.uninstall") }}</button>

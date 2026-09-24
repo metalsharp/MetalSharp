@@ -195,11 +195,10 @@ const stateLabel = computed(() => {
           </div>
 
           <p v-if="status && !status.installed && !status.installing" class="streaming-lede">
-            Sunshine captures this Mac's screen and streams it over your local network. Install it once — about a
-            40&nbsp;MB download from LizardByte.
+            {{ t("ui.streamingDetails.sunshineDesc") }}
           </p>
           <p v-else-if="status?.installing" class="streaming-lede">
-            {{ status.progress_detail ?? "Downloading Sunshine…" }}
+            {{ status.progress_detail ?? t("ui.streamingDetails.downloading") }}
           </p>
 
           <div class="streaming-actions">
@@ -246,7 +245,7 @@ const stateLabel = computed(() => {
 
           <ol class="streaming-steps">
             <li>
-              Install <strong>Moonlight</strong> on your phone or tablet —
+              {{ t("ui.streamingDetails.installMoonlight") }} —
               <a
                 href="https://apps.apple.com/app/moonlight-game-streaming/id1000551566"
                 target="_blank"
@@ -257,11 +256,11 @@ const stateLabel = computed(() => {
               <a href="https://play.google.com/store/apps/details?id=com.limelight" target="_blank" rel="noreferrer"
                 >Google Play</a
               >
-              (<IconSmartphone width="11" height="11" />{{ " " }}works best on the same Wi-Fi).
+              (<IconSmartphone width="11" height="11" />{{ " " }}{{ t("ui.streamingDetails.worksBest") }})
             </li>
-            <li>Start playing your game in MetalSharp on this Mac.</li>
-            <li>Open Moonlight and tap this Mac — it shows a <strong>4-digit PIN</strong>.</li>
-            <li>Enter the PIN below to pair, then tap the game in Moonlight to start streaming.</li>
+            <li>{{ t("ui.streamingDetails.stepPlay") }}</li>
+            <li>{{ t("ui.streamingDetails.stepOpen") }}</li>
+            <li>{{ t("ui.streamingDetails.stepEnter") }}</li>
           </ol>
 
           <div class="streaming-pin-row">
@@ -280,8 +279,8 @@ const stateLabel = computed(() => {
             </button>
           </div>
           <p v-if="status?.running && !status.creds_valid" class="streaming-warn">
-            Sunshine is running with web credentials MetalSharp doesn't know. Set them in the Sunshine Web UI, or delete
-            <code>streaming-creds.json</code> in your MetalSharp folder and relaunch streaming.
+            {{ t("ui.streamingDetails.pairWarning") }}
+            <code>streaming-creds.json</code>
           </p>
         </section>
 
@@ -290,11 +289,9 @@ const stateLabel = computed(() => {
             <h3>{{ t("ui.streaming.goodToKnow") }}</h3>
           </div>
           <ul class="streaming-notes">
-            <li>Sunshine on macOS is experimental: gamepads aren't supported yet — use touch controls in Moonlight.</li>
-            <li>
-              macOS asks for <strong>Screen Recording</strong> permission the first time you stream. Approve it once.
-            </li>
-            <li>Keep both devices on the same network; ports 47984–48010 must be reachable (firewall may prompt).</li>
+            <li>{{ t("ui.streamingDetails.gamepads") }}</li>
+            <li>{{ t("ui.streamingDetails.screenRecording") }}</li>
+            <li>{{ t("ui.streamingDetails.network") }}</li>
           </ul>
           <button
             v-if="status?.installed"
@@ -303,7 +300,7 @@ const stateLabel = computed(() => {
             title="Remove all paired devices from Sunshine"
             @click="unpairAll()"
           >
-            Unpair all devices
+            {{ t("ui.streamingDetails.unpair") }}
           </button>
         </section>
       </div>

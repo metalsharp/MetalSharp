@@ -22,14 +22,14 @@ const clampedProgress = computed(() => Math.min(100, Math.max(3, Math.round(upda
 const gameCount = computed(() => library.value?.total ?? 0);
 const installedCount = computed(() => library.value?.installed_count ?? 0);
 const readyLabel = computed(() =>
-  backendConnected.value ? t("ui.footer.allGamesReady") : t("ui.footer.previewLibrary"),
+  backendConnected.value ? t("ui.footer.allGamesReady") : t("ui.settings.offline"),
 );
 const readyDetail = computed(() =>
   backendConnected.value
-    ? t("ui.footer.allSet")
+    ? t("ui.footer.allGamesReady")
     : backendVersion.value
-      ? `Backend v${backendVersion.value}`
-      : t("ui.footer.connectToPlay"),
+      ? `${t("ui.settings.backendRuntime")} v${backendVersion.value}`
+      : t("ui.settings.offline"),
 );
 </script>
 
@@ -74,9 +74,9 @@ const readyDetail = computed(() =>
         <strong v-if="updateDownloading">Updating… {{ clampedProgress }}%</strong>
         <strong v-else-if="updateStatus?.ok && updateStatus.available">{{ t("ui.footer.updatedReady") }}</strong>
         <strong v-else>{{ t("ui.footer.upToDate") }}</strong>
-        <span v-if="updateDownloading">{{ updateMessage || updateStatus?.latest_version || t("ui.footer.preparingUpdate") }}</span>
+        <span v-if="updateDownloading">{{ updateMessage || updateStatus?.latest_version || t("ui.footer.upToDate") }}</span>
         <span v-else-if="updateStatus?.ok && updateStatus.available">v{{ updateStatus.latest_version }} ready</span>
-        <span v-else>{{ t("ui.footer.everythingUpToDate") }}</span>
+        <span v-else>{{ t("ui.footer.upToDate") }}</span>
         <div v-if="updateDownloading" class="library-update-progress">
           <div class="library-update-progress-bar" :style="{ width: `${clampedProgress}%` }"></div>
         </div>

@@ -881,7 +881,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
           <div>
             <p class="library-hero-eyebrow">{{ t("library.collectionEyebrow") }}</p>
             <h1>{{ t("library.installedGames") }}</h1>
-            <p>{{ installedCount }} games installed and ready in your MetalSharp library.</p>
+            <p>{{ t("library.installedSummary", { count: installedCount }) }}</p>
           </div>
           <button class="collection-back-button" type="button" @click="openPlay">
             <IconGamepad width="16" height="16" />
