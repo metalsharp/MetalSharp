@@ -4054,12 +4054,12 @@ onUnmounted(() => {
                 </button>
                 <button class="rpcs3-command" @click="addPcsx2Folder">
                   <IconFolderPlus width="17" height="17" /><span
-                    ><strong>Add Games</strong><small>Disc image or folder</small></span
+                    ><strong>{{ t("ui.source.addGames") }}</strong><small>Disc image or folder</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="refreshPcsx2(true)">
                   <component :is="refreshIcon" width="17" height="17" /><span
-                    ><strong>Scan Library</strong><small>Refresh metadata</small></span
+                    ><strong>{{ t("ui.source.scanLibrary") }}</strong><small>Refresh metadata</small></span
                   >
                 </button>
               </div>
@@ -4084,7 +4084,7 @@ onUnmounted(() => {
                 </summary>
                 <div class="rpcs3-management-actions">
                   <button class="btn btn-secondary btn-sm" :disabled="pcsx2Loading.check" @click="checkPcsx2Update()">
-                    {{ pcsx2Loading.check ? "Checking…" : "Check PCSX2" }}
+                    {{ pcsx2Loading.check ? t("ui.sharp.checking") : `${t("ui.sharp.check")} PCSX2` }}
                   </button>
                   <button
                     v-if="pcsx2Status?.installed && pcsx2Update"
@@ -4108,20 +4108,20 @@ onUnmounted(() => {
                     Clear Skipped Update
                   </button>
                   <button v-if="pcsx2Status?.rollbackAvailable" class="btn btn-secondary btn-sm" @click="rollbackPcsx2">
-                    Roll Back Runtime
+                    {{ t("ui.source.rollback") }}
                   </button>
                   <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('bios')">
-                    BIOS Dump Guide
+                    {{ t("ui.source.biosGuide") }}
                   </button>
                   <button class="btn btn-secondary btn-sm" @click="getAPI().openPcsx2Guide('discs')">
-                    Disc Dumping Guide
+                    {{ t("ui.source.discGuide") }}
                   </button>
                   <button
                     v-if="pcsx2Status?.environmentPath"
                     class="btn btn-secondary btn-sm"
                     @click="getAPI().openPcsx2Path(pcsx2Status.environmentPath)"
                   >
-                    Open Isolated Data
+                    {{ t("ui.source.openEnvironment") }}
                   </button>
                   <button v-if="pcsx2Status?.installed" class="btn btn-danger btn-sm" @click="removePcsx2Runtime">
                     Remove Runtime
@@ -4132,7 +4132,7 @@ onUnmounted(() => {
               <details class="emulator-roots">
                 <summary>
                   <span class="emulator-sidebar-summary-label"
-                    ><IconFolderPlus width="16" height="16" />Game locations</span
+                    ><IconFolderPlus width="16" height="16" />{{ t("ui.source.gameLocations") }}</span
                   >
                   <span class="emulator-root-count">{{ pcsx2Roots.length }}</span>
                 </summary>
@@ -4261,7 +4261,7 @@ onUnmounted(() => {
                   <div v-if="rpcs3Update" class="rpcs3-stat rpcs3-stat-wide">
                     <IconShieldCheck width="16" height="16" />
                     <span
-                      ><small>Latest verified release</small
+                      ><small>{{ t("ui.source.latestVerified") }}</small
                       ><strong
                         >{{ rpcs3Update.latestVersion }} · {{ formatBytes(rpcs3Update.downloadSize) }}</strong
                       ></span
@@ -4297,7 +4297,7 @@ onUnmounted(() => {
                   @click="installRpcs3Content('package')"
                 >
                   <IconPackage width="17" height="17" /><span
-                    ><strong>Install package</strong><small>Add an owned PKG</small></span
+                    ><strong>{{ t("ui.source.installPackage") }}</strong><small>Add an owned PKG</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="addRpcs3Folder">
@@ -4513,7 +4513,7 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconShieldCheck width="16" height="16" />
                     <span
-                      ><small>Optional compatibility files</small
+                      ><small>{{ t("ui.source.compatibilityFiles") }}</small
                       ><strong
                         >{{ shadps4Status?.moduleCount ?? 0 }} modules ·
                         {{ shadps4Status?.fontFileCount ?? 0 }} fonts</strong
@@ -4677,7 +4677,7 @@ onUnmounted(() => {
                         game.running ? "Running" : game.titleId || "PS4"
                       }}</span>
                       <span v-if="game.version" class="sharp-card-size">v{{ game.version }}</span>
-                      <span v-if="game.hasUpdate" class="sharp-card-size">Update dump found</span>
+                      <span v-if="game.hasUpdate" class="sharp-card-size">{{ t("ui.source.updateDump") }}</span>
                     </div>
                     <div class="sharp-card-actions-row">
                       <button v-if="game.running" class="btn btn-stop" @click="stopShadps4Game(game)">Stop</button>
@@ -4766,8 +4766,8 @@ onUnmounted(() => {
                   <div class="rpcs3-stat">
                     <IconShieldCheck width="16" height="16" />
                     <span
-                      ><small>Guest network</small
-                      ><strong>{{ sharpemuNetworkOptIn ? "Explicitly enabled" : "Denied by default" }}</strong></span
+                      ><small>{{ t("ui.source.guestNetwork") }}</small
+                      ><strong>{{ sharpemuNetworkOptIn ? t("ui.source.explicitlyEnabled") : t("ui.source.deniedDefault") }}</strong></span
                     >
                   </div>
                 </div>
@@ -4777,7 +4777,7 @@ onUnmounted(() => {
               <div class="rpcs3-command-bar" aria-label="SharpEmu library actions">
                 <button class="rpcs3-command" @click="addSharpemuFolder">
                   <IconFolderPlus width="17" height="17" /><span
-                    ><strong>Add layouts</strong><small>Reference owned eboot.bin folders</small></span
+                    ><strong>{{ t("ui.source.addLayouts") }}</strong><small>Reference owned eboot.bin folders</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="refreshSharpemu(true)">
@@ -4787,7 +4787,7 @@ onUnmounted(() => {
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openSharpemuLink('faq')">
                   <IconExternalLink width="17" height="17" /><span
-                    ><strong>Official FAQ</strong><small>Open sharpemu.app</small></span
+                    ><strong>{{ t("ui.source.officialFaq") }}</strong><small>Open sharpemu.app</small></span
                   >
                 </button>
                 <button class="rpcs3-command" @click="getAPI().openSharpemuLink('compatibility')">
@@ -4801,7 +4801,7 @@ onUnmounted(() => {
                 <label>
                   <input v-model="sharpemuNetworkOptIn" type="checkbox" />
                   <span>
-                    <strong>Allow unrestricted guest networking for launches</strong>
+                    <strong>{{ t("ui.source.guestNetworking") }}</strong>
                     <small>
                       Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact
                       local or internet services. Every network-enabled launch asks again.
