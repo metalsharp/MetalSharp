@@ -173,7 +173,7 @@ const phraseKeys: Record<string, string> = {
   "Off by default. When enabled, emulated game code may create host sockets, use DNS, and contact local or internet services. Every network-enabled launch asks again.":
     "ui.source.guestNetworkingDesc",
   "Remove reference": "ui.source.remove",
-  Add: "ui.source.addGames",
+  Add: "ui.source.add",
   "Stable runtime": "ui.source.stableRuntime",
   "Latest verified release": "ui.source.latestVerified",
   "Optional compatibility files": "ui.source.compatibilityFiles",
