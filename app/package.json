@@ -38,7 +38,7 @@
     "@iconify-json/lucide": "^1.2.135",
     "@types/node": "^26.5.1",
     "@vitejs/plugin-vue": "^6.0.8",
-    "electron": "^44.2.0",
+    "electron": "^44.4.3",
     "electron-builder": "^26.15.3",
     "prettier": "^3.9.8",
     "typescript": "^5.7.0",
