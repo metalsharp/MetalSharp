@@ -3243,18 +3243,18 @@ onUnmounted(() => {
           >
             <span class="btn-label-long">{{
               gogLoading.removing
-                ? "Removing…"
+                ? t("ui.sharp.uninstall")
                 : gogLoading.setup
-                  ? "Initializing…"
+                  ? t("ui.sharp.installing")
                   : gogStatus?.prefixInitialized
-                    ? "Remove Prefix"
-                    : "Initialize GOG Prefix"
+                    ? t("ui.sharp.uninstall")
+                    : `${t("ui.sharp.install")} ${t("ui.sharp.gog")}`
             }}</span
-            ><span class="btn-label-short">Prefix</span>
+            ><span class="btn-label-short">{{ t("ui.sharp.tools") }}</span>
           </button>
           <button v-if="sourceMode === 'gamejolt'" class="btn btn-secondary" @click="chooseGameJoltStorage">
-            <span class="btn-label-long">{{ gamejoltStorage ? "Change Folder" : "Choose GameJolt Folder" }}</span>
-            <span class="btn-label-short">{{ gamejoltStorage ? "Change" : "Folder" }}</span>
+            <span class="btn-label-long">{{ t("ui.sharp.open") }} {{ t("ui.sharp.gamejolt") }}</span>
+            <span class="btn-label-short">{{ t("ui.sharp.open") }}</span>
           </button>
           <button
             v-if="sourceMode === 'epic' && !epicStatus?.toolAvailable"
@@ -3263,8 +3263,8 @@ onUnmounted(() => {
             @click="installEpicSupport"
           >
             <IconDownload width="14" height="14" />
-            <span class="btn-label-long">{{ epicLoading.tool ? "Installing…" : "Install Epic Support" }}</span>
-            <span class="btn-label-short">Setup</span>
+            <span class="btn-label-long">{{ epicLoading.tool ? t("ui.sharp.installing") : `${t("ui.sharp.install")} ${t("ui.sharp.epic")}` }}</span>
+            <span class="btn-label-short">{{ t("ui.sharp.tools") }}</span>
           </button>
           <button
             v-if="sourceMode === 'epic' && epicStatus?.toolAvailable"
@@ -3275,12 +3275,12 @@ onUnmounted(() => {
           >
             <span class="btn-label-long">{{
               epicStatus?.authenticated
-                ? epicStatus.account || "Epic Connected"
+                ? epicStatus.account || `${t("ui.sharp.epic")} ${t("ui.settings.connected")}`
                 : epicLoading.login
-                  ? "Connecting…"
-                  : "Login to Epic"
+                  ? t("ui.sharp.checking")
+                  : `${t("ui.sharp.open")} ${t("ui.sharp.epic")}`
             }}</span>
-            <span class="btn-label-short">{{ epicStatus?.authenticated ? "Connected" : "Login" }}</span>
+            <span class="btn-label-short">{{ epicStatus?.authenticated ? t("ui.settings.connected") : t("ui.sharp.open") }}</span>
           </button>
           <button
             v-if="sourceMode === 'gog'"
@@ -3294,9 +3294,9 @@ onUnmounted(() => {
             @click="handleGogAuthButton"
           >
             <span class="btn-label-long">{{
-              gogStatus?.authenticated ? "GOG Connected" : gogLoading.login ? "Connecting…" : "Login to GOG"
+              gogStatus?.authenticated ? `${t("ui.sharp.gog")} ${t("ui.settings.connected")}` : gogLoading.login ? t("ui.sharp.checking") : `${t("ui.sharp.open")} ${t("ui.sharp.gog")}`
             }}</span
-            ><span class="btn-label-short">{{ gogStatus?.authenticated ? "Connected" : "Login" }}</span>
+            ><span class="btn-label-short">{{ gogStatus?.authenticated ? t("ui.settings.connected") : t("ui.sharp.open") }}</span>
           </button>
           <button
             v-if="
@@ -3310,16 +3310,16 @@ onUnmounted(() => {
             <span class="btn-label-long">{{
               sourceMode === "gog"
                 ? gogLoading.sync
-                  ? "Syncing…"
-                  : "Sync GOG"
+                  ? t("ui.sharp.sync")
+                  : `${t("ui.sharp.sync")} ${t("ui.sharp.gog")}`
                 : sourceMode === "epic"
                   ? epicLoading.sync
-                    ? "Syncing…"
-                    : "Sync Epic"
+                    ? t("ui.sharp.sync")
+                    : `${t("ui.sharp.sync")} ${t("ui.sharp.epic")}`
                   : sourceMode === "gamejolt"
                     ? gamejoltLoading
-                      ? "Scanning…"
-                      : "Sync GameJolt"
+                      ? t("ui.sharp.sync")
+                      : `${t("ui.sharp.sync")} ${t("ui.sharp.gamejolt")}`
                     : t("ui.sharp.refresh")
             }}</span
             ><span class="btn-label-short">{{

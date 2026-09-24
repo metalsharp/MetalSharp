@@ -659,7 +659,7 @@ function uninstallMetalsharp() {
         </section>
 
         <section class="so-card danger">
-          <h3><IconTrash2 width="14" height="14" /> {{ t("settings.dangerZone") }}</h3>
+          <h3><IconTrash2 width="14" height="14" /> {{ t("ui.settings.dangerZone") }}</h3>
           <div class="so-row">
             <div class="so-row-info">
               <div class="so-label">{{ t("ui.settings.uninstall") }}</div>

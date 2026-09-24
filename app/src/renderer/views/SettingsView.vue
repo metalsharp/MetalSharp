@@ -416,7 +416,7 @@ function uninstallMetalsharp() {
           <div class="settings-desc">{{ t("ui.settingsDesc.retina") }}</div>
         </div>
         <div class="settings-value">
-          <label class="settings-toggle toggle-label" aria-label="High Resolution Retina">
+          <label class="settings-toggle toggle-label" :aria-label="t('ui.settings.retina')">
             <input
               type="checkbox"
               :checked="retinaMode"
@@ -630,7 +630,7 @@ function uninstallMetalsharp() {
     </div>
 
     <div class="settings-section danger-zone">
-      <h2><IconTrash2 width="14" height="14" /> Danger Zone</h2>
+      <h2><IconTrash2 width="14" height="14" /> {{ t("ui.settings.dangerZone") }}</h2>
       <div class="settings-row">
         <div>
           <div class="settings-label">{{ t("ui.settings.uninstall") }}</div>
