@@ -3374,8 +3374,8 @@ onUnmounted(() => {
               <div class="empty-icon">
                 <IconMonitor width="48" height="48" />
               </div>
-              <h2>{{ t("sharp.noApps") }}</h2>
-              <p>{{ t("sharp.noAppsDescription") }}</p>
+              <h2>{{ t("ui.source.noApps") }}</h2>
+              <p>{{ t("ui.source.noAppsDescription") }}</p>
             </div>
 
             <div v-else class="sharp-grid">
