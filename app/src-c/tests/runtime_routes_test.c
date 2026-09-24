@@ -25,6 +25,39 @@ static void executable_fixture(const char* home, const char* relative) {
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* home = argv[1];
+    fixture(home, "graphics-scan/d3d12/Binaries/Win64/D3D12Core.DLL", "d3d12");
+    fixture(home, "graphics-scan/dxmt/d3d11.dll", "d3d11");
+    fixture(home, "graphics-scan/dxmt10/d3d10core.dll", "d3d10");
+    fixture(home, "graphics-scan/dxmt32/i386-windows/D3D10.DLL", "i386 d3d10");
+    fixture(home, "graphics-scan/dxmt32_11/i386-windows/D3D11.DLL", "i386 d3d11");
+    fixture(home, "graphics-scan/d3d9/D3D9.DLL", "d3d9");
+    fixture(home, "graphics-scan/priority/i386/d3d11.dll", "i386 d3d11");
+    fixture(home, "graphics-scan/priority/d3d12.dll", "d3d12");
+    char* graphics_path = join(home, "graphics-scan/d3d12");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "d3dmetal"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt10");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt32");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt_32"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/dxmt32_11");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "dxmt_32"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/d3d9");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "d3d9"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/priority");
+    assert(!strcmp(ms_steam_detect_graphics_pipeline(graphics_path), "d3dmetal"));
+    free(graphics_path);
+    graphics_path = join(home, "graphics-scan/none");
+    assert(ms_steam_detect_graphics_pipeline(graphics_path) == NULL);
+    free(graphics_path);
+
     fixture(home, "cs2/game/bin/win64/vconsole2.exe", "console helper");
     fixture(home, "cs2/game/bin/win64/cs2.exe", "game executable");
     char* cs2_dir = join(home, "cs2");
@@ -158,6 +191,31 @@ int main(int argc, char** argv) {
     free(external_exe);
     free(external_dir);
     free(external);
+    fixture(home, "Library/Application Support/Steam/steamapps/appmanifest_3900000001.acf",
+            "\"AppState\"\n{\n\t\"appid\"\t\"3900000001\"\n\t\"name\"\t\"Detected D3D12 Game\"\n"
+            "\t\"installdir\"\t\"Detected D3D12 Game\"\n}\n");
+    fixture(home, "Library/Application Support/Steam/steamapps/common/Detected D3D12 Game/d3d12.dll", "d3d12");
+    {
+        char* library_json = ms_steam_library_json(home);
+        char error[96];
+        ms_json* library = library_json ? ms_json_parse(library_json, strlen(library_json), error, sizeof(error)) : NULL;
+        const ms_json* games = library ? ms_json_object_get(library, "games") : NULL;
+        bool detected_route = false;
+        for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
+            const ms_json* game = ms_json_array_get(games, i);
+            long long appid;
+            char* pipeline = NULL;
+            if (!ms_json_as_i64(ms_json_object_get(game, "appid"), &appid) || appid != 3900000001LL)
+                continue;
+            if (ms_json_as_string(ms_json_object_get(game, "launch_method"), &pipeline) && pipeline &&
+                !strcmp(pipeline, "d3dmetal"))
+                detected_route = true;
+            free(pipeline);
+        }
+        assert(detected_route);
+        ms_json_free(library);
+        free(library_json);
+    }
     free(drive_e_link);
     free(drive_c_link);
     free(dosdevices);

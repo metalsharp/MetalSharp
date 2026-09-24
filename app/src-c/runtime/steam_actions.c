@@ -1390,16 +1390,14 @@ done:
     return ok;
 }
 
-static const char* default_pipeline_for_appid(unsigned appid) {
+static const char* default_pipeline_for_appid(const char* home, unsigned appid) {
     static char pipeline[64];
     char* raw = ms_mtsp_default_rules_json();
     char error[96];
     ms_json* root;
     const ms_json* rules;
     pipeline[0] = '\0';
-    if (!raw)
-        return "vkd3d";
-    root = ms_json_parse(raw, strlen(raw), error, sizeof(error));
+    root = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
     free(raw);
     rules = root ? ms_json_object_get(root, "rules") : NULL;
     if (rules && ms_json_type_of(rules) == MS_JSON_ARRAY) {
@@ -1418,7 +1416,13 @@ static const char* default_pipeline_for_appid(unsigned appid) {
         }
     }
     ms_json_free(root);
-    return pipeline[0] ? pipeline : "vkd3d";
+    if (!pipeline[0]) {
+        char* game_dir = ms_steam_game_dir(home, appid);
+        const char* detected = ms_steam_detect_graphics_pipeline(game_dir);
+        snprintf(pipeline, sizeof(pipeline), "%s", detected ? detected : "vkd3d");
+        free(game_dir);
+    }
+    return pipeline;
 }
 
 static bool bottle_pipeline_value(const char* home, unsigned appid, char* out, size_t out_size) {
@@ -1644,7 +1648,7 @@ bool ms_steam_ensure_bottle_manifest(const char* home, unsigned id, const char* 
     char* serialized = NULL;
     bool ok = false;
     if (!pipeline || !pipeline[0] || !strcmp(pipeline, "auto"))
-        pipeline = default_pipeline_for_appid(id);
+        pipeline = default_pipeline_for_appid(home, id);
     {
         const char* canonical = canonical_pipeline(pipeline);
         pipeline = canonical && strcmp(canonical, "auto") ? canonical : "vkd3d";
@@ -1751,7 +1755,7 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
             goto done;
     canonical = canonical_pipeline(pipeline);
     if (!canonical || !strcmp(canonical, "auto") || !strcmp(canonical, "dxmt"))
-        canonical = canonical_pipeline(default_pipeline_for_appid((unsigned)appid));
+        canonical = canonical_pipeline(default_pipeline_for_appid(home, (unsigned)appid));
     if (!canonical)
         goto done;
     if (!strcmp(canonical, "fna_arm64")) {
@@ -4107,8 +4111,8 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                 canonical_pipeline(saved_pipeline))
                 snprintf(pipeline, sizeof(pipeline), "%s", canonical_pipeline(saved_pipeline));
             else {
-                const char* resolved = canonical_pipeline(default_pipeline_for_appid(id));
-                if (!resolved || !strcmp(resolved, "auto") || !strcmp(resolved, "dxmt"))
+                const char* resolved = canonical_pipeline(default_pipeline_for_appid(home, id));
+                if (!resolved || !strcmp(resolved, "auto"))
                     resolved = "vkd3d";
                 snprintf(pipeline, sizeof(pipeline), "%s", resolved);
             }
@@ -4315,7 +4319,7 @@ char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, si
         if (!strcmp(requested_canonical, "auto") || !strcmp(requested_canonical, "dxmt")) {
             const char* saved_canonical =
                 bottle_pipeline_value(home, id, saved, sizeof(saved)) ? canonical_pipeline(saved) : NULL;
-            const char* default_canonical = canonical_pipeline(default_pipeline_for_appid(id));
+            const char* default_canonical = canonical_pipeline(default_pipeline_for_appid(home, id));
             snprintf(pipeline, sizeof(pipeline), "%s",
                      saved_canonical && saved_canonical[0] ? saved_canonical
                                                            : (default_canonical ? default_canonical : "vkd3d"));
@@ -4833,7 +4837,7 @@ char* ms_steam_misc_json(const char* action, const unsigned char* body, size_t l
             if (has_saved_pipeline)
                 snprintf(pipeline, sizeof(pipeline), "%s", saved_pipeline);
             else
-                snprintf(pipeline, sizeof(pipeline), "%s", default_pipeline_for_appid(id));
+                snprintf(pipeline, sizeof(pipeline), "%s", default_pipeline_for_appid(home, id));
         }
         (void)ms_steam_ensure_bottle_manifest(home, id, pipeline);
         snprintf(bottle_id, sizeof(bottle_id), "steam_%u", id);
