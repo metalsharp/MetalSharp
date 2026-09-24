@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, onMounted, onUnmounted, type Component } from "vue";
+import { useI18n } from "vue-i18n";
 import { useToast } from "../composables/useToast";
 import { api, getAPI } from "../composables/useApi";
 import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
@@ -471,6 +472,7 @@ interface Rpcs3UpdateProgress {
 type SharpSource = "installers" | "gog" | "epic" | "gamejolt" | "pcsx2" | "rpcs3" | "shadps4" | "sharpemu";
 
 const toast = useToast();
+const { t } = useI18n();
 const sourceMode = ref<SharpSource>("installers");
 const sourcePickerOpen = ref(false);
 const sourcePickerList = ref<HTMLElement | null>(null);
@@ -493,7 +495,7 @@ const headerTitle = computed(() => {
   if (sourceMode.value === "rpcs3") return "RPCS3 Library";
   if (sourceMode.value === "shadps4") return "shadPS4 Library";
   if (sourceMode.value === "sharpemu") return "SharpEmu Research Library";
-  return "Sharp Library";
+  return t("nav.sharp");
 });
 const headerSubtitle = computed(() => {
   if (sourceMode.value === "gog") return "Connect, sync, install, and play GOG games through MetalSharp.";
@@ -3119,7 +3121,7 @@ onUnmounted(() => {
     <div class="sharp-header glass-header">
       <div class="sharp-drag-strip" aria-hidden="true"></div>
       <div class="sharp-header-title">
-        <span class="sharp-eyebrow">METALSHARP · INSTALLERS &amp; EMULATORS</span>
+        <span class="sharp-eyebrow">{{ t("nav.sharp") }} · INSTALLERS &amp; EMULATORS</span>
         <h1>{{ headerTitle }}</h1>
         <p>{{ headerSubtitle }}</p>
       </div>
@@ -3131,14 +3133,14 @@ onUnmounted(() => {
             type="button"
             aria-haspopup="listbox"
             :aria-expanded="sourcePickerOpen"
-            aria-label="Choose Sharp Library source"
+            :aria-label="t('nav.sharp')"
             @click="toggleSourcePicker"
           >
             <span class="sharp-source-trigger-icon">
               <component :is="currentSource.icon" width="17" height="17" />
             </span>
             <span class="sharp-source-trigger-copy">
-              <small>Sharp Source</small>
+              <small>{{ t("nav.sharp") }}</small>
               <strong>{{ currentSource.label }}</strong>
             </span>
             <IconChevronDown class="sharp-source-chevron" width="16" height="16" />
@@ -3146,7 +3148,7 @@ onUnmounted(() => {
           <div v-if="sourcePickerOpen" class="sharp-source-backdrop" @click="sourcePickerOpen = false"></div>
           <div v-if="sourcePickerOpen" class="sharp-source-popover">
             <div class="sharp-source-popover-header">
-              <span>Sharp Library</span>
+              <span>{{ t("nav.sharp") }}</span>
               <small>Choose a collection</small>
             </div>
             <div ref="sourcePickerList" class="sharp-source-list" role="listbox" aria-label="Sharp Library sources">
@@ -3334,8 +3336,8 @@ onUnmounted(() => {
               <div class="empty-icon">
                 <IconMonitor width="48" height="48" />
               </div>
-              <h2>No applications installed</h2>
-              <p>Install a Windows program to add it to the Sharp Library.</p>
+              <h2>{{ t("sharp.noApps") }}</h2>
+              <p>{{ t("sharp.noAppsDescription") }}</p>
             </div>
 
             <div v-else class="sharp-grid">
