@@ -1,5 +1,8 @@
 /* Exercise routing helpers without launching Wine or touching a real prefix. */
 #include "../runtime/steam_actions.c"
+#define main metalsharp_backend_main_for_test
+#include "../runtime/main.c"
+#undef main
 #include <assert.h>
 
 static void fixture(const char* home, const char* relative, const char* bytes) {
@@ -25,6 +28,24 @@ static void executable_fixture(const char* home, const char* relative) {
 int main(int argc, char** argv) {
     assert(argc == 2);
     const char* home = argv[1];
+    assert(setenv("WINEPREFIX", "/tmp/foreign-wine-prefix", 1) == 0);
+    assert(setenv("WINEARCH", "win32", 1) == 0);
+    assert(setenv("PROTON_LOG", "1", 1) == 0);
+    assert(setenv("STEAM_COMPAT_DATA_PATH", "/tmp/foreign-proton-prefix", 1) == 0);
+    assert(setenv("DXVK_HUD", "fps", 1) == 0);
+    assert(setenv("VK_ICD_FILENAMES", "/tmp/foreign-vulkan/icd.json", 1) == 0);
+    assert(setenv("DYLD_FALLBACK_LIBRARY_PATH", "/tmp/foreign-wine/lib", 1) == 0);
+    assert(setenv("SteamAppId", "999", 1) == 0);
+    assert(setenv("GRAPHICS_BACKEND", "foreign", 1) == 0);
+    assert(setenv("METALSHARP_PORT", "9123", 1) == 0);
+    sanitize_inherited_runtime_environment();
+    assert(getenv("WINEPREFIX") == NULL && getenv("WINEARCH") == NULL);
+    assert(getenv("PROTON_LOG") == NULL && getenv("STEAM_COMPAT_DATA_PATH") == NULL);
+    assert(getenv("DXVK_HUD") == NULL && getenv("VK_ICD_FILENAMES") == NULL);
+    assert(getenv("DYLD_FALLBACK_LIBRARY_PATH") == NULL && getenv("SteamAppId") == NULL);
+    assert(getenv("GRAPHICS_BACKEND") == NULL);
+    assert(getenv("METALSHARP_PORT") && !strcmp(getenv("METALSHARP_PORT"), "9123"));
+    unsetenv("METALSHARP_PORT");
     fixture(home, "graphics-scan/d3d12/Binaries/Win64/D3D12Core.DLL", "d3d12");
     fixture(home, "graphics-scan/dxmt/d3d11.dll", "d3d11");
     fixture(home, "graphics-scan/dxmt10/d3d10core.dll", "d3d10");

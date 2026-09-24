@@ -7,10 +7,57 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <unistd.h>
 
+extern char** environ;
+
 static volatile sig_atomic_t stop_requested = 0;
+
+static bool inherited_runtime_variable(const char* name, size_t name_length) {
+    static const char* const prefixes[] = {"WINE", "PROTON_", "STEAM_COMPAT_", "DXVK_", "VKD3D_", "DXMT_",
+                                           "DYLD_", "VK_"};
+    static const char* const exact_names[] = {"STEAM_RUNTIME",   "SteamAppId", "SteamGameId",
+                                              "SteamOverlayGameId", "SteamPath",  "GRAPHICS_BACKEND",
+                                              "MS_GRAPHICS_BACKEND", "LD_LIBRARY_PATH", "LD_PRELOAD"};
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+        size_t prefix_length = strlen(prefixes[i]);
+        if (name_length >= prefix_length && strncasecmp(name, prefixes[i], prefix_length) == 0)
+            return true;
+    }
+    for (size_t i = 0; i < sizeof(exact_names) / sizeof(exact_names[0]); i++)
+        if (strlen(exact_names[i]) == name_length && strncasecmp(name, exact_names[i], name_length) == 0)
+            return true;
+    return false;
+}
+
+static void sanitize_inherited_runtime_environment(void) {
+    /* MetalSharp always selects its own Wine, graphics runtime, and prefix.
+     * Another Wine/Proton app may leave these variables in launchd or in the
+     * environment inherited by Electron; prevent those settings from
+     * changing Steam setup and game launches. */
+    for (;;) {
+        bool removed = false;
+        for (char** entry = environ; entry && *entry; entry++) {
+            char* separator = strchr(*entry, '=');
+            size_t name_length;
+            char name[256];
+            if (!separator)
+                continue;
+            name_length = (size_t)(separator - *entry);
+            if (name_length >= sizeof(name) || !inherited_runtime_variable(*entry, name_length))
+                continue;
+            memcpy(name, *entry, name_length);
+            name[name_length] = '\0';
+            (void)unsetenv(name);
+            removed = true;
+            break; /* unsetenv may move the environ array */
+        }
+        if (!removed)
+            break;
+    }
+}
 
 static void request_stop(int signal_number) {
     (void)signal_number;
@@ -39,10 +86,12 @@ static void sleep_half_second(void) {
 }
 
 int main(void) {
-    const unsigned short port = configured_port();
+    unsigned short port;
     ms_backend_context context;
     unsigned attempt;
 
+    sanitize_inherited_runtime_environment();
+    port = configured_port();
     (void)signal(SIGINT, request_stop);
     (void)signal(SIGTERM, request_stop);
     (void)signal(SIGPIPE, SIG_IGN);
