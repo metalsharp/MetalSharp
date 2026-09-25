@@ -99,6 +99,9 @@ force_stop_old_runtime() {
         elif [ "$timeout_seconds" -gt 30 ]; then
             timeout_seconds=30
         fi
+        # Bash treats leading-zero arithmetic operands as octal; normalize
+        # validated environment values such as "08" before the loop below.
+        timeout_seconds=$((10#$timeout_seconds))
 
         # Apple Events can hang indefinitely when macOS is waiting on user
         # approval or the app doesn't reply. Keep this installer independent

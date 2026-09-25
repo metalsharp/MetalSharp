@@ -13,7 +13,9 @@ unset METALSHARP_UPDATE_TEST_SOURCE_ONLY
 
 STATUS_FILE="$(mktemp)"
 OSASCRIPT_PID_FILE="$(mktemp)"
-trap 'rm -f "$STATUS_FILE" "$OSASCRIPT_PID_FILE"' EXIT
+export OSASCRIPT_PID_FILE
+OSASCRIPT_STUB_DIR="$(mktemp -d)"
+trap 'rm -f "$STATUS_FILE" "$OSASCRIPT_PID_FILE"; rm -rf "$OSASCRIPT_STUB_DIR"' EXIT
 APP_PID=424242
 BACKEND_PID=424243
 TARGET_VERSION=0.74.0
@@ -38,21 +40,27 @@ pkill() { return 0; }
 force_kill_process_names() { :; }
 unmount_stale_metalsharp_images() { UNMOUNT_REACHED=1; }
 
-# Simulate an Apple Event sender that never gets a reply.
-osascript() {
-    printf '%s\n' "$BASHPID" > "$OSASCRIPT_PID_FILE"
-    exec /bin/sleep 30
-}
+# Use an external executable so its PID is exactly the background PID tracked
+# by update.sh. This also works with the stock macOS Bash 3.2 (no $BASHPID).
+cat > "$OSASCRIPT_STUB_DIR/osascript" <<'SH'
+#!/bin/sh
+printf '%s\n' "$$" > "$OSASCRIPT_PID_FILE"
+exec /bin/sleep 30
+SH
+chmod +x "$OSASCRIPT_STUB_DIR/osascript"
 
 started=$SECONDS
-METALSHARP_APP_QUIT_TIMEOUT_SECONDS=1 force_stop_old_runtime
+PATH="$OSASCRIPT_STUB_DIR:$PATH" METALSHARP_APP_QUIT_TIMEOUT_SECONDS=1 force_stop_old_runtime
 elapsed=$((SECONDS - started))
 
+[ -s "$OSASCRIPT_PID_FILE" ] || { echo "hung osascript stub was never started" >&2; exit 1; }
+quit_pid="$(cat "$OSASCRIPT_PID_FILE")"
+case "$quit_pid" in
+    ''|*[!0-9]*) echo "invalid osascript PID: $quit_pid" >&2; exit 1 ;;
+esac
 [ "$APP_IS_ALIVE" -eq 0 ] || { echo "app termination fallback did not run" >&2; exit 1; }
 [ "$UNMOUNT_REACHED" -eq 1 ] || { echo "installer did not continue after the quit timeout" >&2; exit 1; }
 [ "$elapsed" -lt 5 ] || { echo "quit request was not bounded (${elapsed}s)" >&2; exit 1; }
-
-quit_pid="$(cat "$OSASCRIPT_PID_FILE")"
 if builtin kill -0 "$quit_pid" 2>/dev/null; then
     echo "timed-out osascript process was left running: $quit_pid" >&2
     exit 1
@@ -67,13 +75,26 @@ assert status["phase"] == "unmounting_old_runtime", status
 PY
 
 # A responsive Apple Event should not pay the full timeout before TERM fallback.
+cat > "$OSASCRIPT_STUB_DIR/osascript" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod +x "$OSASCRIPT_STUB_DIR/osascript"
 APP_IS_ALIVE=1
 UNMOUNT_REACHED=0
-osascript() { return 0; }
 started=$SECONDS
-METALSHARP_APP_QUIT_TIMEOUT_SECONDS=10 force_stop_old_runtime
+PATH="$OSASCRIPT_STUB_DIR:$PATH" METALSHARP_APP_QUIT_TIMEOUT_SECONDS=10 force_stop_old_runtime
 elapsed=$((SECONDS - started))
 [ "$UNMOUNT_REACHED" -eq 1 ] || { echo "responsive quit did not continue to unmount" >&2; exit 1; }
 [ "$elapsed" -lt 5 ] || { echo "responsive osascript was treated as hung (${elapsed}s)" >&2; exit 1; }
 
-echo "legacy updater shutdown timeout test passed"
+# Leading-zero values must be normalized as decimal, not rejected as octal.
+APP_IS_ALIVE=1
+UNMOUNT_REACHED=0
+started=$SECONDS
+PATH="$OSASCRIPT_STUB_DIR:$PATH" METALSHARP_APP_QUIT_TIMEOUT_SECONDS=08 force_stop_old_runtime
+elapsed=$((SECONDS - started))
+[ "$UNMOUNT_REACHED" -eq 1 ] || { echo "leading-zero timeout prevented installer progress" >&2; exit 1; }
+[ "$elapsed" -lt 5 ] || { echo "responsive quit with leading-zero timeout waited too long (${elapsed}s)" >&2; exit 1; }
+
+echo "legacy updater shutdown timeout tests passed"
