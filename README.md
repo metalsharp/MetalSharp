@@ -52,6 +52,7 @@ For Direct Access to What is Installed During Setup, See Here: [Dependency Bundl
 | Route | Engine | Notes |
 |---|---|---|
 | **_D3DMetal_** | D3D12/11/10 through the latest D3DMetal framework | |
+| **_D3D9_** | Wine D3D9 with x87 Acceleration for Older Titles | |
 | **_VKD3D_** | D3D12/D3D11/D3D10/D3D9 through Vulkan -> Metal | D3D12 still in development |
 | **_DXMT_** | D3D11, D3D10 to Metal | |
 | **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal | |
