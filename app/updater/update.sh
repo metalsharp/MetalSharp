@@ -132,6 +132,150 @@ if [ "${METALSHARP_UPDATE_TEST_SOURCE_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
+run_recovery_update() {
+    local repository="metalsharp/MetalSharp"
+    local latest_url=""
+    local release_tag=""
+    local recovery_version=""
+    local dmg_name=""
+    local installed_app="/Applications/MetalSharp.app"
+    local ms_dir="${METALSHARP_HOME:-$HOME/.metalsharp}"
+    local existing_dmg=""
+    local recovery_dir="$ms_dir/cache/recovery"
+    local recovery_dmg=""
+    local dmg_path=""
+    local partial_path=""
+    local download_url=""
+    local mount_path=""
+    local app_source=""
+    local target_version=""
+    local current_version=""
+    local target_team=""
+    local installed_team=""
+    local details=""
+    local script_path=""
+    local app_pid="0"
+    local backend_pid="0"
+
+    recovery_fail() {
+        if [ -n "$mount_path" ] && [ -d "$mount_path" ]; then
+            hdiutil detach "$mount_path" -quiet 2>/dev/null || true
+            rmdir "$mount_path" 2>/dev/null || true
+        fi
+        echo "MetalSharp recovery: $*" >&2
+        exit 1
+    }
+
+    if [ ! -d "$installed_app" ]; then
+        recovery_fail "MetalSharp is not installed at $installed_app"
+    fi
+    latest_url="$(curl --fail --location --silent --show-error --output /dev/null --write-out '%{url_effective}' \
+        "https://github.com/$repository/releases/latest")" || recovery_fail "could not discover the latest stable release"
+    case "$latest_url" in
+        "https://github.com/$repository/releases/tag/v"*) ;;
+        *) recovery_fail "latest-release lookup returned an unexpected URL" ;;
+    esac
+    release_tag="${latest_url##*/}"
+    recovery_version="${release_tag#v}"
+    case "$recovery_version" in
+        ''|*[!0-9.]*|.*|*.) recovery_fail "latest stable release has an invalid version: $release_tag" ;;
+    esac
+    dmg_name="MetalSharp-$recovery_version-arm64.dmg"
+    existing_dmg="$ms_dir/cache/updates/MetalSharp-$recovery_version.dmg"
+    recovery_dmg="$recovery_dir/$dmg_name"
+    download_url="https://github.com/$repository/releases/download/$release_tag/$dmg_name"
+    mkdir -p "$recovery_dir"
+
+    # Reuse the DMG left by the in-app updater when it is intact. Otherwise
+    # fetch the latest official stable release. At the time this rescue script
+    # is published that is 0.73.0; once 0.74.0 is released, the same script
+    # will repair/install 0.74.0 directly.
+    if [ -s "$existing_dmg" ] && hdiutil verify "$existing_dmg" >/dev/null 2>&1; then
+        dmg_path="$existing_dmg"
+    elif [ -s "$recovery_dmg" ] && hdiutil verify "$recovery_dmg" >/dev/null 2>&1; then
+        dmg_path="$recovery_dmg"
+    else
+        partial_path="$recovery_dmg.part"
+        echo "Downloading the official MetalSharp $recovery_version update..."
+        if [ -s "$partial_path" ]; then
+            if ! curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 --continue-at - \
+                --output "$partial_path" "$download_url"; then
+                rm -f "$partial_path"
+                curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 \
+                    --output "$partial_path" "$download_url"
+            fi
+        else
+            curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 \
+                --output "$partial_path" "$download_url"
+        fi
+        mv "$partial_path" "$recovery_dmg"
+        hdiutil verify "$recovery_dmg" >/dev/null || recovery_fail "downloaded update image failed verification"
+        dmg_path="$recovery_dmg"
+    fi
+
+    echo "Verifying the official MetalSharp $recovery_version app signature..."
+    mount_path="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-recovery.XXXXXX")"
+    hdiutil attach -readonly -nobrowse -mountpoint "$mount_path" "$dmg_path" >/dev/null || \
+        recovery_fail "could not mount the update image"
+    app_source="$mount_path/MetalSharp.app"
+    if [ ! -d "$app_source" ]; then
+        for candidate in "$mount_path"/*/MetalSharp.app; do
+            if [ -d "$candidate" ]; then app_source="$candidate"; break; fi
+        done
+    fi
+    [ -d "$app_source" ] || recovery_fail "MetalSharp.app not found in the update image"
+    target_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_source/Contents/Info.plist" 2>/dev/null || true)"
+    [ "$target_version" = "$recovery_version" ] || recovery_fail "expected v$recovery_version, found ${target_version:-unknown}"
+    /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_source/Contents/Info.plist" 2>/dev/null | grep -qx 'com.metalsharp.app' || \
+        recovery_fail "update image is not the MetalSharp app"
+    codesign --verify --deep --strict "$app_source" >/dev/null 2>&1 || recovery_fail "update app signature is invalid"
+    codesign --verify --deep --strict "$installed_app" >/dev/null 2>&1 || recovery_fail "installed app signature is invalid"
+    details="$(codesign -dv --verbose=4 "$app_source" 2>&1)" || recovery_fail "could not read update signature"
+    target_team="$(printf '%s\n' "$details" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
+    details="$(codesign -dv --verbose=4 "$installed_app" 2>&1)" || recovery_fail "could not read installed app signature"
+    installed_team="$(printf '%s\n' "$details" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
+    [ -n "$target_team" ] && [ "$target_team" = "$installed_team" ] || \
+        recovery_fail "update app is not signed by the installed app's Developer ID team"
+    current_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$installed_app/Contents/Info.plist" 2>/dev/null || true)"
+    [ -n "$current_version" ] || recovery_fail "could not read installed app version"
+    if ! awk -v left="$recovery_version" -v right="$current_version" 'BEGIN {
+        nl = split(left, l, "."); nr = split(right, r, "."); n = nl > nr ? nl : nr;
+        for (i = 1; i <= n; i++) {
+            a = l[i] == "" ? 0 : l[i] + 0; b = r[i] == "" ? 0 : r[i] + 0;
+            if (a > b) exit 0; if (a < b) exit 1;
+        }
+        exit 1;
+    }'; then
+        recovery_fail "v$recovery_version is not newer than the installed v$current_version"
+    fi
+
+    hdiutil detach "$mount_path" -quiet || recovery_fail "could not detach validation mount"
+    rmdir "$mount_path" 2>/dev/null || true
+    mount_path=""
+    script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    app_pid="$(pgrep -x MetalSharp | head -n 1 || true)"
+    backend_pid="$(pgrep -x metalsharp-backend | head -n 1 || true)"
+    app_pid="${app_pid:-0}"
+    backend_pid="${backend_pid:-0}"
+
+    /usr/bin/osascript -e "display dialog \"Install MetalSharp $recovery_version over v$current_version? This will close MetalSharp and stop Steam/Wine processes. Save work in running games first.\" buttons {\"Cancel\", \"Install Update\"} default button \"Cancel\" cancel button \"Cancel\" with icon caution" >/dev/null
+    echo "Installing MetalSharp $recovery_version over v$current_version; the normal migration handoff will run after relaunch."
+    exec /bin/bash "$script_path" \
+        --dmg "$dmg_path" \
+        --backend-pid "$backend_pid" \
+        --target-version "$recovery_version" \
+        --status-file "$ms_dir/update_install_status.json" \
+        --metalsharp-home "$ms_dir" \
+        --app-pid "$app_pid"
+}
+
+if [ "${1:-}" = "--recover" ]; then
+    shift
+    [ "$#" -eq 0 ] || { echo "usage: $0 --recover" >&2; exit 2; }
+    run_recovery_update
+    exit $?
+fi
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --dmg) shift; DMG_PATH="${1:-}"; shift ;;
