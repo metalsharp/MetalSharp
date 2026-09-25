@@ -23,6 +23,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | **VKD3D** | D3D12/D3D11/D3D10/D3D9 -> Vulkan -> Metal |
 | **DXMT** | D3D11, D3D10 to Metal |
 | **DXMT (32-bit)** | D3D11, D3D10 32-bit to Metal |
+| **D3D9** | Wine i386 D3D9 With x87 Acceleration |
 | **Mono/FNA** | XNA/FNA/MonoGame via native Mono |
 
 ---
@@ -120,6 +121,16 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Balatro | 2379780 | | 
 
 ---
+
+## D3D9 - Wine i386 D3D9 W/ x87 Acceleration
+
+| Game | AppID | Notes | 
+|---|---|---|
+| Portal 2 | 620 | Steam-Emu Required |
+| Half Life 2 | 220 | |
+| Undertale | 391540 | | 
+
+___
 
 ## Mono/FNA — XNA/FNA/MonoGame
 
