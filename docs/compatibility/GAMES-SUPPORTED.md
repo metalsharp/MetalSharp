@@ -66,6 +66,8 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Mirror's Edge | 17410 | Sync-loading mitigation active. |
 | Half-Life 2 | 220 | |
 | Among Us | 945360 | Steam online play. |
+| Dwarf Fortress | 975370 | | 
+| Caves Of Qud | 333640 | |
 
 ---
 
@@ -73,6 +75,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 
 | Game | AppID | Notes |
 |---|---:|---|
+| Dark Souls 3 | 374320 | |
 | Repo | 3241660 | |
 | Cult of the Lamb | 1313140 | |
 | The Wilds | 1028590 | |
