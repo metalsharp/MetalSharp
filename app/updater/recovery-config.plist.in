@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>RecoveryVersion</key>
+    <string>@RECOVERY_VERSION@</string>
+    <key>Repository</key>
+    <string>metalsharp/MetalSharp</string>
+    <key>DmgName</key>
+    <string>MetalSharp-@RECOVERY_VERSION@-arm64.dmg</string>
+</dict>
+</plist>

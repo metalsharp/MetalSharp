@@ -1,0 +1,92 @@
+name: Publish 0.73.0 Update Recovery Assistant
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: "Type v0.73.0 to upload the recovery assistant to that published release"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Confirm target release
+        env:
+          CONFIRM_RELEASE: ${{ inputs.confirm_release }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM_RELEASE" = "v0.73.0" || {
+            echo 'This one-time recovery publisher only targets v0.73.0.' >&2
+            exit 2
+          }
+
+      - name: Check Apple signing credentials
+        id: apple-signing
+        run: tools/dmg/check-apple-signing-readiness.sh
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Require signing and notarization
+        if: steps.apple-signing.outputs.ready != 'true'
+        run: |
+          echo 'Refusing to publish an unsigned or unnotarized recovery assistant.' >&2
+          exit 1
+
+      - name: Prepare Apple Developer ID signing
+        run: tools/dmg/prepare-apple-signing.sh
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Build signed recovery assistant
+        run: |
+          mkdir -p dist/recovery
+          tools/dmg/package-update-recovery-assistant.sh \
+            0.73.0 \
+            dist/recovery/MetalSharp-Update-Assistant-0.73.0.dmg
+
+      - name: Sign and notarize recovery assistant disk image
+        run: tools/dmg/sign-notarize-dmg.sh dist/recovery/MetalSharp-Update-Assistant-0.73.0.dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Verify notarization
+        run: tools/dmg/verify-notarization.sh dist/recovery/MetalSharp-Update-Assistant-0.73.0.dmg
+
+      - name: Upload recovery assistant to the existing 0.73.0 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view v0.73.0 --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload v0.73.0 \
+            dist/recovery/MetalSharp-Update-Assistant-0.73.0.dmg \
+            --clobber --repo "$GITHUB_REPOSITORY"
+          shasum -a 256 dist/recovery/MetalSharp-Update-Assistant-0.73.0.dmg
