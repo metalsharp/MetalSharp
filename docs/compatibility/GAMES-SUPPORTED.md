@@ -115,6 +115,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | The Binding Of Isaac: Rebirth | 250900 | | 
 | Ori and the Blind Forest: Definitive Edition | 387290 | |
 | Nidhogg 2 | 535520 | |
+| Balatro | 2379780 | | 
 
 ---
 
