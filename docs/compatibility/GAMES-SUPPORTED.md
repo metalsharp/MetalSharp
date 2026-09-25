@@ -104,6 +104,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Octopath Traveler II | 	1971650 | |
 | Mind Scanners | 1389550 | | 
 | Dredge | 1562430 | |
+| Blasphemous 2 | 2114740 | |
 
 ---
 
