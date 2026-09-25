@@ -89,7 +89,33 @@ force_stop_old_runtime() {
     # still alive, or an update applied while MetalSharp is closed can open an
     # old registered bundle and accidentally enter its startup flow.
     if pid_alive "$APP_PID"; then
-        osascript -e 'tell application id "com.metalsharp.app" to quit' >/dev/null 2>&1 || true
+        local quit_pid timeout_seconds attempt
+        timeout_seconds="${METALSHARP_APP_QUIT_TIMEOUT_SECONDS:-10}"
+        case "$timeout_seconds" in
+            ''|*[!0-9]*|0) timeout_seconds=10 ;;
+        esac
+        if [ "${#timeout_seconds}" -gt 2 ]; then
+            timeout_seconds=30
+        elif [ "$timeout_seconds" -gt 30 ]; then
+            timeout_seconds=30
+        fi
+
+        # Apple Events can hang indefinitely when macOS is waiting on user
+        # approval or the app doesn't reply. Keep this installer independent
+        # of the app it is replacing: bound the quit request, then continue to
+        # the explicit TERM/KILL fallback below.
+        osascript -e 'tell application id "com.metalsharp.app" to quit' >/dev/null 2>&1 &
+        quit_pid=$!
+        for ((attempt = 0; attempt < timeout_seconds * 5; attempt++)); do
+            if ! pid_alive "$APP_PID" || ! pid_alive "$quit_pid"; then
+                break
+            fi
+            sleep 0.2
+        done
+        if pid_alive "$quit_pid"; then
+            kill "$quit_pid" 2>/dev/null || true
+        fi
+        wait "$quit_pid" 2>/dev/null || true
     fi
     kill_pid "$APP_PID" 5 || true
     force_kill_process_names 2 "MetalSharp" "MetalSharp Helper" "MetalSharp Helper (GPU)" "MetalSharp Helper (Renderer)" "MetalSharp Helper (Plugin)"
@@ -97,6 +123,11 @@ force_stop_old_runtime() {
     write_status "unmounting_old_runtime" 28 "Unmounting stale MetalSharp disk images..."
     unmount_stale_metalsharp_images
 }
+
+# Let tests source the updater functions without running the installer.
+if [ "${METALSHARP_UPDATE_TEST_SOURCE_ONLY:-0}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
