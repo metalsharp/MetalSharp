@@ -651,8 +651,7 @@ function registerProcessManagerShortcut(): void {
   }
 }
 
-function forceQuitRunningGames(): void {
-  const port = bridge ? bridge.getPort() : 9274;
+function forceQuitAllRunningGames(port: number): void {
   const req = http.request(
     { hostname: "127.0.0.1", port, path: "/games/force-quit", method: "POST", headers: { "Content-Length": 0 } },
     (res) => res.resume(),
@@ -674,7 +673,66 @@ function forceQuitRunningGames(): void {
   epicReq.end();
 }
 
-// Cmd+Opt+Q force-quits all running games but leaves the Wine Steam client up.
+function forceQuitRunningGames(): void {
+  const port = bridge ? bridge.getPort() : 9274;
+  const fallback = () => forceQuitAllRunningGames(port);
+  const req = http.request({ hostname: "127.0.0.1", port, path: "/game/running", method: "GET" }, (res) => {
+    if (res.statusCode !== 200) {
+      res.resume();
+      fallback();
+      return;
+    }
+    let body = "";
+    res.setEncoding("utf8");
+    res.on("data", (chunk: string) => {
+      body += chunk;
+      if (body.length > 65536) req.destroy();
+    });
+    res.on("end", () => {
+      let odysseyRunning = false;
+      try {
+        const parsed = JSON.parse(body) as { ok?: boolean; running?: { appid?: number }[] };
+        odysseyRunning =
+          parsed.ok === true && Array.isArray(parsed.running) && parsed.running.some((game) => game?.appid === 812140);
+      } catch {
+        // Fall back to the original global escape hatch if the status is unavailable.
+      }
+      if (!odysseyRunning) {
+        fallback();
+        return;
+      }
+      const stopBody = JSON.stringify({ appid: 812140 });
+      const stop = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/kill",
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(stopBody) },
+        },
+        (stopResponse) => {
+          stopResponse.resume();
+          stopResponse.on("end", fallback);
+        },
+      );
+      stop.setTimeout(5000, () => stop.destroy());
+      stop.on("error", (error) => {
+        console.warn("Stop Odyssey request failed:", error);
+        fallback();
+      });
+      stop.end(stopBody);
+    });
+  });
+  req.setTimeout(2000, () => req.destroy());
+  req.on("error", (error) => {
+    console.warn("Running-games query failed for Cmd+Opt+Q:", error);
+    fallback();
+  });
+  req.end();
+}
+
+// Cmd+Opt+Q uses Odyssey's per-game stop path when it is active (also closing
+// Ubisoft Connect), and otherwise force-quits all running games as before.
 function registerForceQuitGamesShortcut(): void {
   if (process.platform !== "darwin") return;
   for (const accelerator of ["Command+Option+Q", "Command+Alt+Q"]) {
