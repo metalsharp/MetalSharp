@@ -1,5 +1,6 @@
 #include "metalsharp_backend/steam.h"
 
+#include "metalsharp_backend/config.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/mtsp.h"
@@ -36,6 +37,36 @@ static bool contains_ci(const char* text, const char* needle);
 static bool steam_regular_file(const char* path) {
     struct stat st;
     return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static bool has_app_extension(const char* name) {
+    size_t length = name ? strlen(name) : 0;
+    return length > 4 && strcasecmp(name + length - 4, ".app") == 0;
+}
+
+static char* steam_native_app_bundle(const char* game_directory) {
+    struct stat st;
+    if (!game_directory || stat(game_directory, &st) != 0 || !S_ISDIR(st.st_mode))
+        return NULL;
+    if (has_app_extension(game_directory))
+        return strdup(game_directory);
+    DIR* directory = opendir(game_directory);
+    struct dirent* entry;
+    if (!directory)
+        return NULL;
+    char* result = NULL;
+    while ((entry = readdir(directory)) != NULL) {
+        if (!has_app_extension(entry->d_name))
+            continue;
+        char* candidate = join_path(game_directory, entry->d_name);
+        if (candidate && stat(candidate, &st) == 0 && S_ISDIR(st.st_mode)) {
+            result = candidate;
+            break;
+        }
+        free(candidate);
+    }
+    closedir(directory);
+    return result;
 }
 
 static bool steam_exe_name_allowed(const char* name) {
@@ -90,8 +121,8 @@ static void find_steam_executable(const char* directory, unsigned depth, char** 
 static const char* steam_icon_tool(const char* name) {
     static const char* prefixes[] = {"/opt/homebrew/bin/", "/usr/local/bin/", "/usr/bin/"};
     static char paths[2][PATH_MAX];
-    const char* bundled = !strcmp(name, "icotool") ? getenv("METALSHARP_ICOTOOL_PATH")
-                                                   : getenv("METALSHARP_WRESTOOL_PATH");
+    const char* bundled =
+        !strcmp(name, "icotool") ? getenv("METALSHARP_ICOTOOL_PATH") : getenv("METALSHARP_WRESTOOL_PATH");
     size_t slot = !strcmp(name, "icotool");
     if (bundled && access(bundled, X_OK) == 0)
         return bundled;
@@ -345,6 +376,7 @@ typedef struct {
     unsigned appid;
     char* name;
     char* game_dir;
+    char* native_app_path;
     bool installed;
 } steam_game;
 
@@ -426,6 +458,7 @@ static void collect_steam_games(const char* steamapps, steam_game** games, size_
         (*games)[*count].appid = (unsigned)id;
         (*games)[*count].name = name;
         (*games)[*count].game_dir = game_dir;
+        (*games)[*count].native_app_path = steam_native_app_bundle(game_dir);
         (*games)[*count].installed = true;
         (*count)++;
         free(install);
@@ -540,6 +573,7 @@ static bool append_owned_game(steam_game** games, size_t* count, size_t* capacit
     (*games)[*count].appid = appid;
     (*games)[*count].name = strdup(name);
     (*games)[*count].game_dir = NULL;
+    (*games)[*count].native_app_path = NULL;
     (*games)[*count].installed = false;
     if (!(*games)[*count].name)
         return false;
@@ -706,9 +740,10 @@ static bool load_owned_games(const char* home, const char* key, const char* stea
     return true;
 }
 
-static bool hidden_library_game(const steam_game* game) {
+static bool hidden_library_game(const steam_game* game, bool exclude_native_mac_games) {
     return game->appid == 228980 ||
-           (game->name != NULL && strcasecmp(game->name, "Steamworks Common Redistributables") == 0);
+           (game->name != NULL && strcasecmp(game->name, "Steamworks Common Redistributables") == 0) ||
+           (exclude_native_mac_games && game->native_app_path != NULL);
 }
 
 static bool bottle_string_value(const char* home, unsigned appid, const char* key, char* out, size_t out_size) {
@@ -814,17 +849,23 @@ static const char* pipeline_display_name(const char* pipeline) {
         return "Wine";
     if (!strcmp(pipeline, "fna_arm64") || !strcmp(pipeline, "fna_x86"))
         return "Mono/FNA";
+    if (!strcmp(pipeline, "mac_steam"))
+        return "Native macOS";
     return "VKD3D";
 }
 
 static void write_library_game(ms_json_writer* w, const char* home, const steam_game* game, bool refresh) {
     char cover[256], header[256];
-    char* embedded_icon = game->installed && game->game_dir ? steam_embedded_icon(game->game_dir, refresh) : NULL;
+    char* embedded_icon = game->installed && game->game_dir && !game->native_app_path
+                              ? steam_embedded_icon(game->game_dir, refresh)
+                              : NULL;
     char preferred[64] = "";
-    const char* recommended = default_pipeline_for_appid(game->appid, game->game_dir);
-    const char* effective = bottle_string_value(home, game->appid, "preferred_pipeline", preferred, sizeof(preferred))
-                                ? preferred
-                                : recommended;
+    bool native_build = game->native_app_path != NULL;
+    const char* recommended = native_build ? "mac_steam" : default_pipeline_for_appid(game->appid, game->game_dir);
+    const char* effective =
+        !native_build && bottle_string_value(home, game->appid, "preferred_pipeline", preferred, sizeof(preferred))
+            ? preferred
+            : recommended;
     snprintf(cover, sizeof(cover), "https://steamcdn-a.akamaihd.net/steam/apps/%u/library_600x900.jpg", game->appid);
     snprintf(header, sizeof(header), "https://steamcdn-a.akamaihd.net/steam/apps/%u/header.jpg", game->appid);
     ms_json_writer_object_begin(w);
@@ -849,7 +890,7 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
         ms_json_writer_null(w);
     ms_json_writer_key(w, "available_pipelines");
     ms_json_writer_array_begin(w);
-    {
+    if (!native_build) {
         static const char* pipeline_ids[] = {"d3dmetal", "vkd3d", "d3d9", "dxmt", "dxmt_32", "fna_arm64"};
         for (size_t i = 0; i < sizeof(pipeline_ids) / sizeof(pipeline_ids[0]); i++) {
             ms_json_writer_object_begin(w);
@@ -864,11 +905,14 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     }
     ms_json_writer_array_end(w);
     ms_json_writer_key(w, "has_native_build");
-    ms_json_writer_bool(w, false);
+    ms_json_writer_bool(w, native_build);
     ms_json_writer_key(w, "native_app_path");
-    ms_json_writer_null(w);
+    if (game->native_app_path)
+        ms_json_writer_string(w, game->native_app_path);
+    else
+        ms_json_writer_null(w);
     ms_json_writer_key(w, "wine_game_path");
-    if (game->game_dir == NULL)
+    if (game->game_dir == NULL || native_build)
         ms_json_writer_null(w);
     else
         ms_json_writer_string(w, game->game_dir);
@@ -900,6 +944,7 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     ms_json_writer w;
     char* steam_id = detected_steam_id(metalsharp_home);
     char* result;
+    bool exclude_native_mac_games = ms_config_exclude_native_mac_steam_games(metalsharp_home);
     if (home != NULL) {
         const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
                                   ".local/share/Steam/steamapps"};
@@ -924,10 +969,10 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
      * the first launch falls back to a generic route. Existing manifests are
      * intentionally left untouched so explicit user choices remain stable. */
     for (i = 0; i < count; ++i) {
-        if (!games[i].installed || hidden_library_game(&games[i]))
+        if (!games[i].installed || games[i].native_app_path || hidden_library_game(&games[i], exclude_native_mac_games))
             continue;
-        (void)ms_steam_ensure_bottle_manifest(
-            metalsharp_home, games[i].appid, default_pipeline_for_appid(games[i].appid, games[i].game_dir));
+        (void)ms_steam_ensure_bottle_manifest(metalsharp_home, games[i].appid,
+                                              default_pipeline_for_appid(games[i].appid, games[i].game_dir));
     }
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
@@ -935,7 +980,7 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     ms_json_writer_bool(&w, true);
     size_t visible_count = 0;
     for (i = 0; i < count; ++i)
-        if (!hidden_library_game(&games[i]))
+        if (!hidden_library_game(&games[i], exclude_native_mac_games))
             visible_count++;
     ms_json_writer_key(&w, "total");
     ms_json_writer_u64(&w, visible_count);
@@ -943,7 +988,7 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     {
         size_t installed_count = 0;
         for (i = 0; i < count; ++i)
-            if (!hidden_library_game(&games[i]) && games[i].installed)
+            if (!hidden_library_game(&games[i], exclude_native_mac_games) && games[i].installed)
                 installed_count++;
         ms_json_writer_u64(&w, installed_count);
     }
@@ -967,7 +1012,7 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     ms_json_writer_key(&w, "games");
     ms_json_writer_array_begin(&w);
     for (i = 0; i < count; ++i)
-        if (!hidden_library_game(&games[i]))
+        if (!hidden_library_game(&games[i], exclude_native_mac_games))
             write_library_game(&w, metalsharp_home, &games[i], refresh);
     ms_json_writer_array_end(&w);
     ms_json_writer_object_end(&w);
@@ -975,6 +1020,7 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     for (i = 0; i < count; ++i) {
         free(games[i].name);
         free(games[i].game_dir);
+        free(games[i].native_app_path);
     }
     free(games);
     return result;
@@ -1020,6 +1066,45 @@ char* ms_steam_game_dir(const char* metalsharp_home, unsigned appid) {
     for (size_t i = 0; i < count; i++) {
         free(games[i].name);
         free(games[i].game_dir);
+        free(games[i].native_app_path);
+    }
+    free(games);
+    return result;
+}
+
+char* ms_steam_native_app_path(const char* metalsharp_home, unsigned appid) {
+    const char* home = getenv("HOME");
+    steam_game* games = NULL;
+    size_t count = 0, capacity = 0;
+    char* result = NULL;
+    if (home != NULL) {
+        const char* suffixes[] = {"Library/Application Support/Steam/steamapps", ".steam/steam/steamapps",
+                                  ".local/share/Steam/steamapps"};
+        for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
+            char* path = join_path(home, suffixes[i]);
+            if (path) {
+                collect_steam_library_tree(path, &games, &count, &capacity);
+                free(path);
+            }
+        }
+    }
+    {
+        char* path = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps");
+        if (path) {
+            collect_steam_library_tree(path, &games, &count, &capacity);
+            free(path);
+        }
+    }
+    for (size_t i = 0; i < count; i++) {
+        if (games[i].appid == appid && games[i].native_app_path) {
+            result = strdup(games[i].native_app_path);
+            break;
+        }
+    }
+    for (size_t i = 0; i < count; i++) {
+        free(games[i].name);
+        free(games[i].game_dir);
+        free(games[i].native_app_path);
     }
     free(games);
     return result;
@@ -1302,6 +1387,7 @@ char* ms_steam_watch_json(const char* metalsharp_home) {
     for (i = 0; i < count; i++) {
         free(games[i].name);
         free(games[i].game_dir);
+        free(games[i].native_app_path);
     }
     free(games);
     return result;

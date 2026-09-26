@@ -2743,38 +2743,6 @@ static char* macos_steam_app(void) {
     return NULL;
 }
 
-static bool macos_steam_running(void) {
-    FILE* pipe = popen("/bin/ps axo command=", "r");
-    char line[2048];
-    bool running = false;
-    if (!pipe)
-        return false;
-    while (fgets(line, sizeof(line), pipe)) {
-        if (strstr(line, "Steam.app/Contents/MacOS") && strstr(line, "steam")) {
-            running = true;
-            break;
-        }
-    }
-    pclose(pipe);
-    return running;
-}
-
-static bool macos_game_installed(unsigned id) {
-    const char* home = getenv("HOME");
-    char path[PATH_MAX];
-    if (access("/Applications/Steam.app/Contents/MacOS/steamapps", F_OK) == 0) {
-        snprintf(path, sizeof(path), "/Applications/Steam.app/Contents/MacOS/steamapps/appmanifest_%u.acf", id);
-        if (access(path, F_OK) == 0)
-            return true;
-    }
-    if (home) {
-        snprintf(path, sizeof(path), "%s/Library/Application Support/Steam/steamapps/appmanifest_%u.acf", home, id);
-        if (access(path, F_OK) == 0)
-            return true;
-    }
-    return false;
-}
-
 char* ms_steam_mac_launch_json(const char* home, int* status) {
     pid_t pid;
     char* e;
@@ -5190,7 +5158,7 @@ char* ms_steam_launch_offline_json(const char* home, const char* body, size_t le
 
 char* ms_steam_mac_launch_game_json(const char* home, const char* body, size_t len, int* status) {
     unsigned id;
-    char url[64], *e;
+    char *native_app_path, *e;
     pid_t pid;
     unsigned long long started_at = monotonic_millis();
     if (status)
@@ -5199,19 +5167,11 @@ char* ms_steam_mac_launch_game_json(const char* home, const char* body, size_t l
         return err("appid required");
     if (status)
         *status = 500;
-    if (ms_steam_process_running(home))
-        return err("Wine Steam is running. Stop Wine Steam before launching through MacOS Steam.");
-    if (!macos_game_installed(id))
-        return err("This game is not installed in macOS Steam. Download it through macOS Steam before using the MacOS "
-                   "Steam engine.");
-    if (!macos_steam_running()) {
-        char* launch_error;
-        launch_error = spawn_open("-a", "Steam", "steam://open/library", &pid);
-        if (launch_error)
-            free(launch_error);
-    }
-    snprintf(url, sizeof(url), "steam://run/%u", id);
-    e = spawn_open(url, NULL, NULL, &pid);
+    native_app_path = ms_steam_native_app_path(home, id);
+    if (!native_app_path)
+        return err("This game is not installed with a native macOS app bundle");
+    e = spawn_open(native_app_path, NULL, NULL, &pid);
+    free(native_app_path);
     if (e) {
         char* o = err(e);
         free(e);

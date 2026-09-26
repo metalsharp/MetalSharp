@@ -36,6 +36,7 @@ interface AppConfig {
   controllerInput?: "off" | "x" | "d";
   msync?: boolean;
   retinaMode?: boolean;
+  excludeNativeMacSteamGames?: boolean;
 }
 
 interface UpdateStatus {
