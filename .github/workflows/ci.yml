@@ -90,6 +90,9 @@ jobs:
       - name: Prettier
         run: npx prettier --check 'src/renderer/**/*.{ts,js,html,css,json}'
 
+      - name: GOG installed Play button contract
+        run: node --test tests/gog-installed-play-button.cjs
+
       - name: Build renderer
         run: npx vite build
 
