@@ -4,6 +4,7 @@
 #include "metalsharp_backend/steam_actions.h"
 #include <dirent.h>
 #include <errno.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -20,6 +21,55 @@ typedef struct running_game {
     struct running_game* next;
 } running_game;
 static running_game* g_running;
+static pthread_mutex_t g_running_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_background_task_mutex = PTHREAD_MUTEX_INITIALIZER;
+static unsigned long g_background_task_generation;
+static volatile sig_atomic_t g_background_shutdown_requested;
+
+unsigned long ms_process_background_task_generation(void) {
+    unsigned long generation;
+    pthread_mutex_lock(&g_background_task_mutex);
+    generation = g_background_task_generation;
+    pthread_mutex_unlock(&g_background_task_mutex);
+    return generation;
+}
+
+bool ms_process_background_task_cancelled(unsigned long generation) {
+    bool cancelled;
+    if (g_background_shutdown_requested)
+        return true;
+    pthread_mutex_lock(&g_background_task_mutex);
+    cancelled = generation != g_background_task_generation;
+    pthread_mutex_unlock(&g_background_task_mutex);
+    return cancelled;
+}
+
+bool ms_process_background_task_begin(unsigned long generation) {
+    pthread_mutex_lock(&g_background_task_mutex);
+    if (g_background_shutdown_requested || generation != g_background_task_generation) {
+        pthread_mutex_unlock(&g_background_task_mutex);
+        return false;
+    }
+    return true;
+}
+
+void ms_process_background_task_end(void) {
+    pthread_mutex_unlock(&g_background_task_mutex);
+}
+
+bool ms_process_background_shutdown_requested(void) {
+    return g_background_shutdown_requested != 0;
+}
+
+void ms_process_cancel_background_tasks(void) {
+    pthread_mutex_lock(&g_background_task_mutex);
+    g_background_task_generation++;
+    pthread_mutex_unlock(&g_background_task_mutex);
+}
+
+void ms_process_request_background_shutdown(void) {
+    g_background_shutdown_requested = 1;
+}
 
 static char* join_path(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
@@ -110,8 +160,11 @@ static void remember(unsigned appid, pid_t pid) {
 }
 
 void ms_process_register_game(unsigned appid, pid_t pid) {
-    if (appid > 0 && pid > 0)
+    if (appid > 0 && pid > 0) {
+        pthread_mutex_lock(&g_running_mutex);
         remember(appid, pid);
+        pthread_mutex_unlock(&g_running_mutex);
+    }
 }
 static void forget(unsigned appid) {
     running_game** p = &g_running;
@@ -269,7 +322,7 @@ char* ms_process_launch_json(const char* home, const char* body, size_t len, int
         return error_json(msg);
     }
     if (aid > 0)
-        remember((unsigned)aid, pid);
+        ms_process_register_game((unsigned)aid, pid);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -291,11 +344,21 @@ char* ms_process_launch_auto_json(const char* home, const char* body, size_t len
     return ms_steam_launch_auto_json(home, body, len, status);
 }
 
-char* ms_process_running_json(void) {
+char* ms_process_running_json(const char* home) {
     running_game* g;
     ms_json_writer w;
     char* out;
+    bool odyssey_registered = false;
+    pid_t odyssey_pid = 0;
+    pthread_mutex_lock(&g_running_mutex);
     prune();
+    for (g = g_running; g; g = g->next)
+        if (g->appid == 812140) {
+            odyssey_registered = true;
+            break;
+        }
+    if (!odyssey_registered)
+        odyssey_pid = ms_steam_odyssey_activity_pid(home);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -310,13 +373,22 @@ char* ms_process_running_json(void) {
         ms_json_writer_u64(&w, (unsigned)g->pid);
         ms_json_writer_object_end(&w);
     }
+    if (!odyssey_registered && odyssey_pid > 0) {
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "appid");
+        ms_json_writer_u64(&w, 812140);
+        ms_json_writer_key(&w, "pid");
+        ms_json_writer_u64(&w, (unsigned)odyssey_pid);
+        ms_json_writer_object_end(&w);
+    }
     ms_json_writer_array_end(&w);
     ms_json_writer_object_end(&w);
     out = ms_json_writer_take(&w);
+    pthread_mutex_unlock(&g_running_mutex);
     return out;
 }
 
-char* ms_process_kill_json(const char* body, size_t len, int* status) {
+char* ms_process_kill_json(const char* home, const char* body, size_t len, int* status) {
     ms_json* r = parse_root(body, len);
     unsigned long long pid64 = 0, aid = 0;
     pid_t pid = 0;
@@ -329,16 +401,53 @@ char* ms_process_kill_json(const char* body, size_t len, int* status) {
         return error_json("invalid JSON object");
     (void)u64(r, "pid", &pid64);
     (void)u64(r, "appid", &aid);
-    if (aid) {
+    if (aid == 812140) {
+        bool stop_ok;
+        pid_t activity_pid = ms_steam_odyssey_activity_pid(home);
+        ms_steam_cancel_background_tasks();
+        pthread_mutex_lock(&g_running_mutex);
         for (g = g_running; g; g = g->next)
             if (g->appid == (unsigned)aid) {
                 pid = g->pid;
                 break;
             }
+        forget((unsigned)aid);
+        pthread_mutex_unlock(&g_running_mutex);
+        if (pid > 1 && active(pid))
+            (void)kill(pid, SIGKILL);
+        stop_ok = ms_steam_stop_odyssey_processes(home);
+        ms_json_free(r);
+        if (!stop_ok) {
+            if (status)
+                *status = 500;
+            return error_json("failed to stop Assassin's Creed Odyssey and Ubisoft Connect processes");
+        }
+        ms_json_writer_init(&w);
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "ok");
+        ms_json_writer_bool(&w, true);
+        ms_json_writer_key(&w, "pid");
+        ms_json_writer_u64(&w, (unsigned)(pid > 0 ? pid : activity_pid));
+        ms_json_writer_object_end(&w);
+        out = ms_json_writer_take(&w);
+        if (status)
+            *status = 200;
+        return out;
+    }
+    if (aid) {
+        pthread_mutex_lock(&g_running_mutex);
+        for (g = g_running; g; g = g->next)
+            if (g->appid == (unsigned)aid) {
+                pid = g->pid;
+                break;
+            }
+    } else {
+        pthread_mutex_lock(&g_running_mutex);
     }
     if (pid == 0 && pid64 > 0)
         pid = (pid_t)pid64;
     if (pid <= 0) {
+        pthread_mutex_unlock(&g_running_mutex);
         ms_json_free(r);
         return error_json("pid required");
     }
@@ -347,11 +456,13 @@ char* ms_process_kill_json(const char* body, size_t len, int* status) {
     if (kill(pid, SIGKILL) != 0 && errno != ESRCH) {
         char msg[128];
         snprintf(msg, sizeof(msg), "failed to kill pid %d: %s", (int)pid, strerror(errno));
+        pthread_mutex_unlock(&g_running_mutex);
         ms_json_free(r);
         return error_json(msg);
     }
     if (aid)
         forget((unsigned)aid);
+    pthread_mutex_unlock(&g_running_mutex);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -371,6 +482,8 @@ char* ms_process_force_quit_json(int* status) {
     ms_json_writer w;
     char* out;
     size_t count = 0;
+    ms_steam_cancel_background_tasks();
+    pthread_mutex_lock(&g_running_mutex);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -392,6 +505,7 @@ char* ms_process_force_quit_json(int* status) {
         g = next;
     }
     g_running = NULL;
+    pthread_mutex_unlock(&g_running_mutex);
     ms_json_writer_array_end(&w);
     ms_json_writer_key(&w, "errors");
     ms_json_writer_array_begin(&w);

@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-09-22
+Updated: 2026-09-26
 
 Tested and working games organized by launch route. Only games confirmed playable are listed, either by users who use MetalSharp or by the Developer. Many more games likely work beyond this default list.
 
@@ -52,6 +52,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
 | Palworld | 1623730 | Online Play| 
 | Hogwarts Legacy | 990080 | Online Play |
+| Assassin's Creed Odyssey | 812140 | Steam-first launch with automatic direct D3DMetal retry after Ubisoft Connect first-run; verified playable. |
 
 ---
 
@@ -69,7 +70,6 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Among Us | 945360 | Steam online play. |
 | Dwarf Fortress | 975370 | | 
 | Caves Of Qud | 333640 | |
-| Assasins Creed Odyssey | 812140 | Save as VKD3D, Launch Through Steam. Poor Performance, But Runs |
 
 ---
 

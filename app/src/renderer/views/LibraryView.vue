@@ -610,7 +610,7 @@ async function launchGame(game: ShowcaseGame) {
   launchingAppId.value = game.appid;
   const launchMethod = game.launch_method || "auto";
   const endpoint = isWineSteamRouteId(launchMethod) ? "/steam/launch-game" : "/game/launch-auto";
-  const result = await api<{ ok: boolean; pid?: number; error?: string }>(
+  const result = await api<{ ok: boolean; pid?: number; error?: string; launch_mode?: string }>(
     "POST",
     endpoint,
     { appid: game.appid, launchMethod },
@@ -620,7 +620,11 @@ async function launchGame(game: ShowcaseGame) {
   if (result?.ok) {
     if (result.pid) runningGames.value = { ...runningGames.value, [game.appid]: result.pid };
     rememberPlayed(game.appid);
-    toast.show(`Launched ${game.name}`, "success");
+    if (result.launch_mode?.startsWith("ubisoft_first_run")) {
+      toast.show("Launching Through Steam with D3DMetal", "success");
+    } else {
+      toast.show(`Launched ${game.name}`, "success");
+    }
     // Remind the player about the Cmd+Opt+Q escape hatch once the game has
     // had a moment to take over the screen.
     setTimeout(() => {
