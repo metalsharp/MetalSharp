@@ -3677,7 +3677,7 @@ onUnmounted(() => {
                       Stop
                     </button>
                     <button
-                      v-else-if="game.installed && game.bottleInitialized"
+                      v-else-if="game.installed"
                       class="btn btn-play"
                       :disabled="gogLoading[`${game.productId}:play`]"
                       @click="playGogGame(game)"

@@ -1,6 +1,8 @@
 #include "metalsharp_backend/gog.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/setup.h"
+#include "metalsharp_backend/steam_actions.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -633,6 +635,8 @@ static bool spawn_gogdl_launch(const char* home, const char* product_id, const c
         return false;
     }
     snprintf(log_path, sizeof(log_path), "%s/launch-%s-%llu.log", log_dir, product_id, (unsigned long long)time(NULL));
+    if (!ms_setup_wine_wrapper_ensure(home))
+        fprintf(stderr, "warning: could not update MetalSharp Wine wrapper before GOG launch\n");
     pid = fork();
     if (pid < 0) {
         free(binary);
@@ -655,7 +659,7 @@ static bool spawn_gogdl_launch(const char* home, const char* product_id, const c
             setenv("GOGDL_CONFIG_PATH", config, 1);
         if (support)
             setenv("GOGDL_SUPPORT_PATH", support, 1);
-        setenv("MS_GRAPHICS_BACKEND", engine && *engine ? engine : "auto", 1);
+        ms_steam_apply_graphics_route(home, engine && *engine ? engine : "auto");
         char* args[] = {binary,       "--auth-config-path", auth ? auth : (char*)"",
                         "launch",     (char*)folder,        (char*)product_id,
                         "--platform", (char*)platform,      "--wine",
