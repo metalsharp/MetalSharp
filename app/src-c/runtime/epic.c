@@ -11,6 +11,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -762,6 +763,157 @@ static char* epic_thegamesdb_cache_path(const char* home, const char* app_name) 
     return path;
 }
 
+#define EPIC_ARTWORK_MAX_BYTES (10U * 1024U * 1024U)
+
+static char* epic_thegamesdb_image_path(const char* home, const char* app_name, const char* url) {
+    char* directory = epic_join(home, "epic/artwork");
+    const char* extension = ".jpg";
+    const char* filename_start = url ? strrchr(url, '/') : NULL;
+    const char* dot = filename_start ? strrchr(filename_start, '.') : NULL;
+    if (dot && strcasecmp(dot, ".png") == 0)
+        extension = ".png";
+    else if (dot && strcasecmp(dot, ".webp") == 0)
+        extension = ".webp";
+    char filename[160];
+    snprintf(filename, sizeof(filename), "%s%s", app_name, extension);
+    char* path = directory ? epic_join(directory, filename) : NULL;
+    free(directory);
+    return path;
+}
+
+static bool epic_artwork_signature(const unsigned char* bytes, size_t length) {
+    static const unsigned char png_signature[] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+    return length >= 12 && ((bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff) ||
+                            memcmp(bytes, png_signature, sizeof(png_signature)) == 0 ||
+                            (memcmp(bytes, "RIFF", 4) == 0 && memcmp(bytes + 8, "WEBP", 4) == 0));
+}
+
+static bool epic_artwork_file_valid(const char* path) {
+    unsigned char signature[12];
+    struct stat metadata;
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0)
+        return false;
+    bool valid = fstat(fd, &metadata) == 0 && S_ISREG(metadata.st_mode) && metadata.st_size >= 12 &&
+                 (uint64_t)metadata.st_size <= EPIC_ARTWORK_MAX_BYTES &&
+                 read(fd, signature, sizeof(signature)) == (ssize_t)sizeof(signature) &&
+                 epic_artwork_signature(signature, sizeof(signature));
+    close(fd);
+    return valid;
+}
+
+static bool epic_copy_artwork_fixture(const char* source, const char* destination) {
+    int input = -1, output = -1;
+    struct stat metadata;
+    unsigned char buffer[16384];
+    bool ok = false;
+    input = open(source, O_RDONLY | O_CLOEXEC);
+    if (input < 0 || fstat(input, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_size < 12 ||
+        (uint64_t)metadata.st_size > EPIC_ARTWORK_MAX_BYTES)
+        goto done;
+    output = open(destination, O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC, 0600);
+    if (output < 0)
+        goto done;
+    for (;;) {
+        ssize_t count = read(input, buffer, sizeof(buffer));
+        if (count < 0) {
+            if (errno == EINTR)
+                continue;
+            goto done;
+        }
+        if (count == 0)
+            break;
+        size_t written = 0;
+        while (written < (size_t)count) {
+            ssize_t amount = write(output, buffer + written, (size_t)count - written);
+            if (amount < 0) {
+                if (errno == EINTR)
+                    continue;
+                goto done;
+            }
+            written += (size_t)amount;
+        }
+    }
+    if (fsync(output) != 0)
+        goto done;
+    ok = true;
+done:
+    if (input >= 0)
+        close(input);
+    if (output >= 0 && close(output) != 0)
+        ok = false;
+    return ok;
+}
+
+static bool epic_download_thegamesdb_artwork(const char* home, const char* app_name, const char* url) {
+    char *path = epic_thegamesdb_image_path(home, app_name, url), *temporary = NULL,
+         *directory = epic_join(home, "epic/artwork");
+    const char* fixture = getenv("METALSHARP_THEGAMESDB_IMAGE_FIXTURE");
+    bool saved = false;
+    if (!path || !directory || !epic_mkdir_p(directory))
+        goto done;
+    if (epic_artwork_file_valid(path)) {
+        saved = true;
+        goto done;
+    }
+    temporary = malloc(strlen(path) + 40);
+    if (!temporary)
+        goto done;
+    snprintf(temporary, strlen(path) + 40, "%s.tmp.%ld", path, (long)getpid());
+    (void)unlink(temporary);
+    if (fixture && fixture[0]) {
+        if (!epic_copy_artwork_fixture(fixture, temporary))
+            goto done;
+    } else {
+        char max_size[24];
+        snprintf(max_size, sizeof(max_size), "%u", EPIC_ARTWORK_MAX_BYTES);
+        char* const argv[] = {"/usr/bin/curl",
+                              "--fail",
+                              "--location",
+                              "--silent",
+                              "--show-error",
+                              "--proto",
+                              "=https",
+                              "--proto-redir",
+                              "=https",
+                              "--max-redirs",
+                              "3",
+                              "--connect-timeout",
+                              "5",
+                              "--max-time",
+                              "15",
+                              "--max-filesize",
+                              max_size,
+                              "-A",
+                              "MetalSharp/" MS_BACKEND_VERSION,
+                              "--output",
+                              temporary,
+                              (char*)url,
+                              NULL};
+        if (!url || strncmp(url, "https://cdn.thegamesdb.net/images/", 34) != 0 ||
+            epic_run_capture_external(home, argv, NULL, "thegamesdb-artwork.log") != 0)
+            goto done;
+    }
+    if (epic_artwork_file_valid(temporary) && rename(temporary, path) == 0)
+        saved = true;
+done:
+    if (temporary)
+        (void)unlink(temporary);
+    free(temporary);
+    free(directory);
+    free(path);
+    return saved;
+}
+
+static char* epic_thegamesdb_cached_artwork(const char* home, const char* app_name, const char* url) {
+    char* path = epic_thegamesdb_image_path(home, app_name, url);
+    if (!path || !epic_download_thegamesdb_artwork(home, app_name, url)) {
+        free(path);
+        return NULL;
+    }
+    return path;
+}
+
 static char* epic_thegamesdb_image_url(const ms_json* response, const char* title) {
     const ms_json *code_value = ms_json_object_get(response, "code"),
                   *games = ms_json_object_get(ms_json_object_get(response, "data"), "games"),
@@ -847,8 +999,14 @@ static char* epic_thegamesdb_artwork_url(const char* home, const char* app_name,
     ms_json_free(cached);
     free(raw);
     raw = NULL;
-    if (cache_hit)
+    if (cache_hit) {
+        if (result) {
+            char* image_path = epic_thegamesdb_cached_artwork(home, app_name, result);
+            free(result);
+            result = image_path;
+        }
         goto done;
+    }
     api_key = epic_thegamesdb_api_key(home);
     if (!api_key || !api_key[0])
         goto done;
@@ -904,7 +1062,7 @@ static char* epic_thegamesdb_artwork_url(const char* home, const char* app_name,
     if (response && ms_json_type_of(response) == MS_JSON_OBJECT) {
         long long code = 0;
         if (ms_json_as_i64(ms_json_object_get(response, "code"), &code) && code == 200) {
-            result = epic_thegamesdb_image_url(response, title);
+            char* remote_url = epic_thegamesdb_image_url(response, title);
             ms_json_writer writer;
             char* cache_raw;
             char* cache_directory = epic_join(home, "epic/artwork");
@@ -913,8 +1071,8 @@ static char* epic_thegamesdb_artwork_url(const char* home, const char* app_name,
             ms_json_writer_key(&writer, "title");
             ms_json_writer_string(&writer, title);
             ms_json_writer_key(&writer, "url");
-            if (result)
-                ms_json_writer_string(&writer, result);
+            if (remote_url)
+                ms_json_writer_string(&writer, remote_url);
             else
                 ms_json_writer_null(&writer);
             ms_json_writer_object_end(&writer);
@@ -923,6 +1081,9 @@ static char* epic_thegamesdb_artwork_url(const char* home, const char* app_name,
                 (void)epic_write_text_atomic(cache_path, cache_raw, 0600);
             free(cache_directory);
             free(cache_raw);
+            if (remote_url)
+                result = epic_thegamesdb_cached_artwork(home, app_name, remote_url);
+            free(remote_url);
         }
     }
     ms_json_free(response);
