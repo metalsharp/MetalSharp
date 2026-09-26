@@ -234,9 +234,11 @@ async function finish() {
   finishing.value = true;
   try {
     const keyInput = document.getElementById("setup-api-key") as HTMLInputElement;
+    const theGamesDbKeyInput = document.getElementById("setup-thegamesdb-api-key") as HTMLInputElement;
     const nameInput = document.getElementById("setup-device-name") as HTMLInputElement;
     const name = nameInput?.value?.trim() || deviceName.value;
     const key = keyInput?.value?.trim();
+    const theGamesDbKey = theGamesDbKeyInput?.value?.trim();
 
     const wrappers = await api<{ ok: boolean; error?: string }>("POST", "/steam/ensure-launch-ready");
     if (!wrappers?.ok) {
@@ -259,6 +261,15 @@ async function finish() {
       if (result.library) library.value = result.library;
       if (result.sync && !result.sync.steam_id_detected) {
         toast.show(t("setup.apiKeySteamIdMissing"), "error");
+      }
+    }
+    if (theGamesDbKey) {
+      const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/epic/thegamesdb-api-key", {
+        key: theGamesDbKey,
+      });
+      if (!result?.ok) {
+        toast.show(result?.error ?? t("setup.theGamesDbApiKeySaveFailed"), "error");
+        return;
       }
     }
     emit("done");
@@ -433,6 +444,20 @@ async function finish() {
                 <div class="setup-hint">
                   {{ t("setup.apiHint") }}
                   <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a>
+                </div>
+              </div>
+              <div class="setup-form-group">
+                <label class="setup-label">{{ t("setup.theGamesDbApiKey") }}</label>
+                <input
+                  id="setup-thegamesdb-api-key"
+                  type="password"
+                  autocomplete="new-password"
+                  :placeholder="t('setup.theGamesDbApiPlaceholder')"
+                  class="setup-input"
+                />
+                <div class="setup-hint">
+                  {{ t("setup.theGamesDbApiHint") }}
+                  <a href="https://api.thegamesdb.net/key.php" target="_blank" rel="noreferrer">TheGamesDB</a>
                 </div>
               </div>
             </div>

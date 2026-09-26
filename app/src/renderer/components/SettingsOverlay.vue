@@ -48,6 +48,8 @@ const { t } = useI18n();
 const shaderCache = ref<CacheSummary | null>(null);
 const pipelineCache = ref<CacheSummary | null>(null);
 const apiKeyInput = ref("");
+const theGamesDbApiKeyInput = ref("");
+const theGamesDbApiKeyConfigured = ref(false);
 const graphicsRuntimeLogs = ref(false);
 const retinaMode = ref(false);
 const retinaModeBusy = ref(false);
@@ -56,10 +58,16 @@ const nativeMacSteamFilterBusy = ref(false);
 
 onMounted(async () => {
   apiKeyInput.value = steamApiKey.value ?? "";
+  await refreshTheGamesDbApiKeyStatus();
   await refreshConfig();
   await refreshCacheSizes();
   window.addEventListener("keydown", handleKeydown);
 });
+
+async function refreshTheGamesDbApiKeyStatus() {
+  const result = await api<{ configured: boolean }>("GET", "/sharp-library/epic/thegamesdb-api-key");
+  theGamesDbApiKeyConfigured.value = result?.configured === true;
+}
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
@@ -122,6 +130,26 @@ async function saveApiKey() {
   } else {
     toast.show(`API key saved — synced ${result.library?.total ?? 0} games`, "success");
   }
+}
+
+async function saveTheGamesDbApiKey() {
+  const key = theGamesDbApiKeyInput.value.trim();
+  if (!key) {
+    toast.show(t("ui.settings.theGamesDbKeyRequired"), "error");
+    return;
+  }
+  const result = await api<{ ok: boolean; configured?: boolean; error?: string }>(
+    "POST",
+    "/sharp-library/epic/thegamesdb-api-key",
+    { key },
+  );
+  if (!result?.ok) {
+    toast.show(result?.error ?? t("ui.settings.theGamesDbSaveFailed"), "error");
+    return;
+  }
+  theGamesDbApiKeyConfigured.value = result.configured === true;
+  theGamesDbApiKeyInput.value = "";
+  toast.show(t("ui.settings.theGamesDbKeySavedToast"), "success");
 }
 
 async function changeDeviceName() {
@@ -417,6 +445,37 @@ function uninstallMetalsharp() {
               <button class="so-btn" type="button" @click="changeDeviceName">{{ t("ui.settings.change") }}</button>
               <span class="so-row-divider" aria-hidden="true"></span>
               <LanguagePicker compact />
+            </div>
+          </div>
+        </section>
+
+        <section class="so-card">
+          <h3>{{ t("settings.epicIntegration") }}</h3>
+          <div class="so-row">
+            <div class="so-row-info">
+              <div class="so-label">{{ t("ui.settings.theGamesDbApiKey") }}</div>
+              <div class="so-desc">
+                {{ t("ui.settingsDesc.theGamesDbApiKey") }}
+                <a href="https://api.thegamesdb.net/key.php" target="_blank" rel="noreferrer">TheGamesDB</a>.
+              </div>
+            </div>
+            <div class="so-row-control">
+              <div class="so-input-row">
+                <input
+                  v-model="theGamesDbApiKeyInput"
+                  type="password"
+                  autocomplete="new-password"
+                  class="so-input"
+                  :placeholder="t('setup.theGamesDbApiPlaceholder')"
+                />
+                <button class="so-btn primary" type="button" @click="saveTheGamesDbApiKey">
+                  {{ t("actions.save") }}
+                </button>
+              </div>
+              <span v-if="theGamesDbApiKeyConfigured" class="badge badge-ok">
+                {{ t("ui.settings.theGamesDbKeySaved") }}
+              </span>
+              <span v-else class="badge badge-warn">{{ t("ui.settings.theGamesDbNoKey") }}</span>
             </div>
           </div>
         </section>

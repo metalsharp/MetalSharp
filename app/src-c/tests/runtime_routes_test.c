@@ -111,6 +111,56 @@ int main(int argc, char** argv) {
         free(wineserver_path);
         free(launch_pid_path);
     }
+    {
+        const char* key_body = "{\"key\":\"test-api-key\"}";
+        const char* gamesdb_response =
+            "{\"code\":200,\"data\":{\"games\":[{\"id\":42,\"game_title\":\"Example Game\"}]},"
+            "\"include\":{\"boxart\":{\"base_url\":{\"medium\":\"https://cdn.thegamesdb.net/images/medium/\"},"
+            "\"data\":{\"42\":[{\"type\":\"boxart\",\"side\":\"front\","
+            "\"filename\":\"boxart/front/42-1.jpg\"}]}}}}";
+        const char* game_without_art = "{\"metadata\":{\"keyImages\":[]}}";
+        const char* game_with_art = "{\"metadata\":{\"keyImages\":[{\"type\":\"DieselGameBoxTall\","
+                                    "\"url\":\"https://cdn.epicgames.com/front.jpg\"}]}}";
+        char *artwork_home = join(home, "thegamesdb-test"), *fixture_path = join(home, "thegamesdb-response.json");
+        char *response, *artwork;
+        ms_json *missing_art = NULL, *epic_art = NULL;
+        struct stat key_metadata;
+        bool from_thegamesdb = false;
+        int status = 0;
+        fixture(home, "thegamesdb-response.json", gamesdb_response);
+        response = ms_epic_save_thegamesdb_api_key_json(artwork_home, (const unsigned char*)key_body, strlen(key_body),
+                                                        &status);
+        assert(response && status == 200 && strstr(response, "\"configured\":true"));
+        free(response);
+        char* key_path = epic_thegamesdb_key_path(artwork_home);
+        assert(key_path && stat(key_path, &key_metadata) == 0 && (key_metadata.st_mode & 0077) == 0);
+        free(key_path);
+        assert(setenv("METALSHARP_THEGAMESDB_FIXTURE", fixture_path, 1) == 0);
+        char parse_error[128];
+        missing_art = ms_json_parse(game_without_art, strlen(game_without_art), parse_error, sizeof(parse_error));
+        assert(missing_art);
+        artwork = epic_artwork_url(artwork_home, "example_game", "Example Game", missing_art, &from_thegamesdb);
+        assert(artwork && !strcmp(artwork, "https://cdn.thegamesdb.net/images/medium/boxart/front/42-1.jpg"));
+        assert(from_thegamesdb);
+        free(artwork);
+        assert(unlink(fixture_path) == 0);
+        unsetenv("METALSHARP_THEGAMESDB_FIXTURE");
+        from_thegamesdb = false;
+        artwork = epic_artwork_url(artwork_home, "example_game", "Example Game", missing_art, &from_thegamesdb);
+        assert(artwork && !strcmp(artwork, "https://cdn.thegamesdb.net/images/medium/boxart/front/42-1.jpg"));
+        assert(from_thegamesdb);
+        free(artwork);
+        epic_art = ms_json_parse(game_with_art, strlen(game_with_art), parse_error, sizeof(parse_error));
+        assert(epic_art);
+        from_thegamesdb = true;
+        artwork = epic_artwork_url(artwork_home, "epic_owned_art", "Example Game", epic_art, &from_thegamesdb);
+        assert(artwork && !strcmp(artwork, "https://cdn.epicgames.com/front.jpg") && !from_thegamesdb);
+        free(artwork);
+        ms_json_free(missing_art);
+        ms_json_free(epic_art);
+        free(artwork_home);
+        free(fixture_path);
+    }
     unsetenv("METALSHARP_PORT");
 #ifdef __APPLE__
     unsetenv("ROSETTA_ADVERTISE_AVX");

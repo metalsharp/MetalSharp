@@ -215,6 +215,7 @@ interface EpicGame {
   title: string;
   version?: string | null;
   artworkUrl?: string | null;
+  artworkSource?: string | null;
   installed: boolean;
   installPath?: string | null;
   executable?: string | null;
@@ -3746,7 +3747,12 @@ onUnmounted(() => {
               :class="{ running: game.running }"
             >
               <div class="sharp-card-banner">
-                <img v-if="game.artworkUrl" :src="game.artworkUrl" :alt="game.title" />
+                <img
+                  v-if="game.artworkUrl"
+                  :src="game.artworkUrl"
+                  :alt="game.title"
+                  :title="game.artworkSource ? `Artwork from ${game.artworkSource}` : undefined"
+                />
                 <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
                 <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopEpicGame(game)">
                   <IconX width="14" height="14" />

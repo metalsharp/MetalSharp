@@ -132,6 +132,12 @@ launcher_status_code=$(curl --silent --output /dev/null --write-out '%{http_code
 test "$launcher_status_code" = "404"
 epic_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/epic/status")
 printf '%s' "$epic_status" | python3 -c 'import json, os, sys; v=json.load(sys.stdin); assert v["ok"] and not v["toolAvailable"] and not v["authenticated"] and v["toolVersion"] == "0.21.0" and v["configPath"] == os.environ["METALSHARP_HOME"] + "/epic/legendary"'
+thegamesdb_key_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/epic/thegamesdb-api-key")
+printf '%s' "$thegamesdb_key_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and not v["configured"]'
+thegamesdb_key_save=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"key":"smoke-api-key"}' "http://127.0.0.1:$port/sharp-library/epic/thegamesdb-api-key")
+printf '%s' "$thegamesdb_key_save" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["configured"]'
+thegamesdb_key_status=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/epic/thegamesdb-api-key")
+printf '%s' "$thegamesdb_key_status" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["configured"]'
 epic_auth_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"code":"short"}' "http://127.0.0.1:$port/sharp-library/epic/auth")
 printf '%s' "$epic_auth_invalid" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert not v["ok"] and "authorization code" in v["error"]'
 epic_progress_invalid=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"appName":"../../escape"}' "http://127.0.0.1:$port/sharp-library/epic/progress")
