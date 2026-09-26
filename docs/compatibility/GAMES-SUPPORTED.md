@@ -52,7 +52,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
 | Palworld | 1623730 | Online Play| 
 | Hogwarts Legacy | 990080 | Online Play |
-| HELLDIVERS 2 | 553850 | D3DMetal launch verified from external SSD; game data resolves relative to the install root. |
+| HELLDIVERS 2 | 553850 | Online Play, Medium Settings |
 | Assassin's Creed Odyssey | 812140 | Steam-first launch with automatic direct D3DMetal retry after Ubisoft Connect first-run; verified playable. |
 
 ---
