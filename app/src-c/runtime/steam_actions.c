@@ -585,6 +585,11 @@ static bool append_launch_arg(char** argv, size_t* count, size_t max, const char
 }
 
 static void build_launch_args(unsigned id, const char* pipeline, char** argv, size_t* count, size_t max) {
+    if (id == 553850) {
+        append_launch_arg(argv, count, max, "--bundle-dir");
+        append_launch_arg(argv, count, max, "data");
+        append_launch_arg(argv, count, max, "--release");
+    }
     if (id == 379720 || id == 275850 || id == 892970 || id == 252490 || id == 570 || id == 548430 || id == 526870 ||
         id == 1272080)
         append_launch_arg(argv, count, max, "-vulkan");
@@ -2167,6 +2172,8 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "re8.exe";
     else if (id == 1245620)
         preferred[count++] = "eldenring.exe";
+    else if (id == 553850)
+        preferred[count++] = "bin/helldivers2.exe";
     else if (id == 1888160)
         preferred[count++] = "armoredcore6.exe";
     else if (id == 1962700)
@@ -2473,6 +2480,10 @@ static char* spawn_wine(const char* home, const char* first, const char* second,
         char library_env[4096];
         if (prefix)
             setenv("WINEPREFIX", prefix, 1);
+        /* Steam launches games from its own Wine process tree, so advertise
+         * Rosetta's AVX support before bootstrapping Steam, not just for
+         * MetalSharp's direct game-launch path. */
+        set_rosetta_avx_env();
         setenv("WINEDEBUG", "+vulkan,+d3d,+d3d11,+dxgi,+wined3d,+opengl", 1);
         setenv("WINEDEBUGGER", "none", 1);
         setenv("STEAM_RUNTIME", "0", 1);
@@ -3827,13 +3838,38 @@ done:
     return executable;
 }
 
+static bool direct_game_launch_paths(const char* executable, unsigned id, char* cwd, size_t cwd_size, char* program,
+                                     size_t program_size) {
+    char* slash;
+    char* exe_name;
+    int written = snprintf(cwd, cwd_size, "%s", executable);
+    if (written < 0 || (size_t)written >= cwd_size)
+        return false;
+    slash = strrchr(cwd, '/');
+    if (!slash)
+        return false;
+    exe_name = slash + 1;
+    *slash = '\0';
+    if (id == 553850) {
+        char* directory = strrchr(cwd, '/');
+        if (!strcmp(directory ? directory + 1 : cwd, "bin")) {
+            if (directory)
+                *directory = '\0';
+            written = snprintf(program, program_size, "bin/%s", exe_name);
+            return written >= 0 && (size_t)written < program_size;
+        }
+    }
+    written = snprintf(program, program_size, "%s", exe_name);
+    return written >= 0 && (size_t)written < program_size;
+}
+
 static char* spawn_direct_game(const char* home, const char* executable, unsigned id, const char* pipeline,
                                pid_t* pid) {
     char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
     char* prefix = join(home, "prefix-steam");
-    char* cwd = strdup(executable);
-    char* exe_name;
-    char* slash;
+    char* cwd = malloc(PATH_MAX);
+    char executable_relative[PATH_MAX];
+    char* exe_name = executable_relative;
     pid_t child;
     int exec_pipe[2];
     if (!wine || access(wine, X_OK) != 0) {
@@ -3846,10 +3882,13 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         free(cwd);
         return strdup("MetalSharp Wine not found");
     }
-    slash = cwd ? strrchr(cwd, '/') : NULL;
-    exe_name = slash ? slash + 1 : cwd;
-    if (slash)
-        *slash = '\0';
+    if (!cwd ||
+        !direct_game_launch_paths(executable, id, cwd, PATH_MAX, executable_relative, sizeof(executable_relative))) {
+        free(wine);
+        free(prefix);
+        free(cwd);
+        return strdup("Game executable path is too long or invalid");
+    }
     if (pipe(exec_pipe) != 0) {
         char* error = strdup(strerror(errno));
         free(wine);
