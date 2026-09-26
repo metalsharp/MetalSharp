@@ -436,6 +436,64 @@ int main(int argc, char** argv) {
         ms_json_free(library);
         free(library_json);
     }
+    fixture(home, "Library/Application Support/Steam/steamapps/appmanifest_3900000002.acf",
+            "\"AppState\"\n{\n\t\"appid\"\t\"3900000002\"\n\t\"name\"\t\"Native Test Game\"\n"
+            "\t\"installdir\"\t\"Native Test Game\"\n}\n");
+    fixture(
+        home,
+        "Library/Application Support/Steam/steamapps/common/Native Test Game/Native Test Game.app/Contents/Info.plist",
+        "native app bundle");
+    {
+        char* resolved_native_app = ms_steam_native_app_path(home, 3900000002U);
+        assert(resolved_native_app && strstr(resolved_native_app, "Native Test Game.app"));
+        free(resolved_native_app);
+        char* library_json = ms_steam_library_json(home);
+        char error[96];
+        ms_json* library =
+            library_json ? ms_json_parse(library_json, strlen(library_json), error, sizeof(error)) : NULL;
+        const ms_json* games = library ? ms_json_object_get(library, "games") : NULL;
+        bool found_native = false;
+        for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
+            const ms_json* game = ms_json_array_get(games, i);
+            long long appid;
+            bool native_build = false;
+            char *launch_method = NULL, *native_app_path = NULL;
+            if (!ms_json_as_i64(ms_json_object_get(game, "appid"), &appid) || appid != 3900000002LL)
+                continue;
+            native_build = ms_json_as_bool(ms_json_object_get(game, "has_native_build"), &native_build) && native_build;
+            assert(native_build);
+            assert(ms_json_as_string(ms_json_object_get(game, "launch_method"), &launch_method));
+            assert(!strcmp(launch_method, "mac_steam"));
+            assert(ms_json_as_string(ms_json_object_get(game, "native_app_path"), &native_app_path));
+            assert(strstr(native_app_path, "Native Test Game.app"));
+            assert(ms_json_array_length(ms_json_object_get(game, "available_pipelines")) == 0);
+            found_native = true;
+            free(launch_method);
+            free(native_app_path);
+        }
+        assert(found_native);
+        ms_json_free(library);
+        free(library_json);
+    }
+    {
+        const char* request = "{\"excludeNativeMacSteamGames\":true}";
+        int status = 0;
+        char* config_json = ms_config_set_json(home, (const unsigned char*)request, strlen(request), &status);
+        assert(status == 200 && config_json);
+        free(config_json);
+        char* library_json = ms_steam_library_json(home);
+        char error[96];
+        ms_json* library =
+            library_json ? ms_json_parse(library_json, strlen(library_json), error, sizeof(error)) : NULL;
+        const ms_json* games = library ? ms_json_object_get(library, "games") : NULL;
+        for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
+            const ms_json* game = ms_json_array_get(games, i);
+            long long appid;
+            assert(!ms_json_as_i64(ms_json_object_get(game, "appid"), &appid) || appid != 3900000002LL);
+        }
+        ms_json_free(library);
+        free(library_json);
+    }
     free(drive_e_link);
     free(drive_c_link);
     free(dosdevices);
