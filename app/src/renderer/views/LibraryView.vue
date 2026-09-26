@@ -31,6 +31,8 @@ interface SteamGame {
   wine_game_path?: string | null;
   bottle_id?: string | null;
   embedded_icon_path?: string | null;
+  has_native_build?: boolean;
+  native_app_path?: string | null;
   last_played_at?: string | null;
   last_played?: string | null;
   playtime_2weeks?: number;
@@ -506,7 +508,7 @@ async function saveCollectionPipeline(game: ShowcaseGame, event: Event) {
   const select = event.target as HTMLSelectElement;
   const pipeline = select.value;
   const previous = game.preferred_pipeline || game.launch_method || "";
-  if (!pipeline || pipeline === previous) return;
+  if (game.has_native_build || !pipeline || pipeline === previous) return;
   collectionSaving.value = { ...collectionSaving.value, [game.appid]: true };
   game.preferred_pipeline = pipeline;
   game.launch_method = pipeline;
@@ -609,7 +611,11 @@ async function launchGame(game: ShowcaseGame) {
   }
   launchingAppId.value = game.appid;
   const launchMethod = game.launch_method || "auto";
-  const endpoint = isWineSteamRouteId(launchMethod) ? "/steam/launch-game" : "/game/launch-auto";
+  const endpoint = game.has_native_build
+    ? "/steam/mac-launch-game"
+    : isWineSteamRouteId(launchMethod)
+      ? "/steam/launch-game"
+      : "/game/launch-auto";
   const result = await api<{ ok: boolean; pid?: number; error?: string; launch_mode?: string }>(
     "POST",
     endpoint,
@@ -963,8 +969,10 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
             <div class="collection-card-shade"></div>
             <div class="collection-card-info">
               <strong>{{ game.name }}</strong>
+              <span v-if="game.has_native_build" class="native-game-badge">Native macOS</span>
               <div class="collection-card-actions">
                 <select
+                  v-if="!game.has_native_build"
                   class="collection-bottle-select"
                   :value="collectionPipelineValue(game)"
                   :disabled="collectionSaving[game.appid]"
@@ -1006,6 +1014,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
           <div class="library-hero-wash"></div>
           <div class="library-hero-content">
             <h1>{{ featuredGame.name }}</h1>
+            <span v-if="featuredGame.has_native_build" class="native-game-badge">Native macOS</span>
             <div class="library-hero-actions">
               <button
                 class="library-play-button"
@@ -1054,7 +1063,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                 />
               </svg>
             </button>
-            <div class="library-bottle-control">
+            <div v-if="!featuredGame.has_native_build" class="library-bottle-control">
               <span class="library-control-label">{{ t("library.bottle") }}</span>
               <select v-model="selectedPipeline" :disabled="pipelineSaving" @change="savePipeline">
                 <option v-for="option in pipelineOptions" :key="option.id" :value="option.id">
@@ -1184,6 +1193,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                     @load="handleImageLoad($event, game)"
                   />
                   <div class="showcase-cover-shade"></div>
+                  <span v-if="game.has_native_build" class="native-game-badge showcase-native-badge">Native macOS</span>
                   <button
                     class="showcase-play"
                     :class="{ 'showcase-stop': isGameRunning(game.appid) }"
@@ -1231,6 +1241,31 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
   width: 0;
   height: 0;
   pointer-events: none;
+}
+.native-game-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(10, 12, 14, 0.72);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.collection-card-info > .native-game-badge {
+  color: #fff;
+  font-size: 10px;
+}
+.showcase-native-badge {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  z-index: 2;
 }
 .library-view {
   --library-accent: #e8d6b7;

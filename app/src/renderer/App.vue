@@ -26,6 +26,8 @@ interface SteamGame {
   launch_method?: string;
   launch_method_name?: string;
   preferred_pipeline?: string | null;
+  has_native_build?: boolean;
+  native_app_path?: string | null;
 }
 
 interface SteamLibrary {
