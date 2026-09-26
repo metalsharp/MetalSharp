@@ -35,7 +35,7 @@ The Sharp Library **Epic** tab downloads Epic games through upstream [Legendary]
 - Installed games require **Initialize Bottle** before first launch; each title owns `~/.metalsharp/bottles/epic_<appName>/prefix` plus a manifest with its selected pipeline and mouse mode (**No Recenter** default; **Mouse Auto** restores cursor warping). Available pipelines include D3DMetal, VKD3D, D3D9, DXMT, DXMT (32-bit), and Mono/FNA; launch applies each graphics route's DLL search paths and environment to that game's isolated Wine process.
 - Stop, closing the card, and **Cmd+Opt+Q** terminate the isolated Epic Wineserver. Epic running state refreshes through a lightweight PID-only endpoint while the Epic tab is active. Uninstall removes Legendary's registered game files and the title's bottle. Runtime migration preserves Epic account data, the cached catalog, game location, bottle manifests, and registry/user settings.
 
-Backend routes: `GET /sharp-library/epic/status`, `GET /sharp-library/epic/games`, and POST actions for `install-tool`, `auth`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, `uninstall`.
+Backend routes: `GET /sharp-library/epic/status`, `GET /sharp-library/epic/games`, `GET /sharp-library/epic/running`, and POST actions for `install-tool`, `auth`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, `uninstall`.
 
 ## CEF Compatibility
 
