@@ -31,12 +31,12 @@
 #include "metalsharp_backend/rpcs3.h"
 #include "metalsharp_backend/scan.h"
 #include "metalsharp_backend/setup.h"
-#include "metalsharp_backend/streaming.h"
 #include "metalsharp_backend/shadps4.h"
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/sharpemu.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/streaming.h"
 #include "metalsharp_backend/thread.h"
 #include "metalsharp_backend/updater.h"
 
@@ -167,7 +167,8 @@ static unsigned char* read_binary(const char* path, size_t* length) {
     if (!path || !length)
         return NULL;
     int fd = open(path, O_RDONLY | O_NOFOLLOW);
-    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > (off_t)MS_HTTP_MAX_BODY_BYTES) {
+    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 ||
+        st.st_size > (off_t)MS_HTTP_MAX_BODY_BYTES) {
         if (fd >= 0)
             close(fd);
         return NULL;
@@ -243,8 +244,8 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
         snprintf(filename, sizeof(filename), names[i], appid);
         char pattern[PATH_MAX];
         snprintf(pattern, sizeof(pattern),
-                 "%s/prefix-steam/drive_c/Program Files (x86)/Steam/userdata/*/config/grid/%s",
-                 metalsharp_home, filename);
+                 "%s/prefix-steam/drive_c/Program Files (x86)/Steam/userdata/*/config/grid/%s", metalsharp_home,
+                 filename);
         glob_t results;
         memset(&results, 0, sizeof(results));
         if (glob(pattern, GLOB_NOSORT, NULL, &results) != 0)
@@ -1802,6 +1803,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/epic/games") == 0) {
         body = ms_epic_games_json(context->metalsharp_home, 0);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/epic/running") == 0) {
+        body = ms_epic_running_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

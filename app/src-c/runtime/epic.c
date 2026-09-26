@@ -1,6 +1,7 @@
 #include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/steam_actions.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -201,8 +202,8 @@ static char* request_string(const unsigned char* body, size_t body_length, const
 }
 
 static bool valid_pipeline(const char* pipeline) {
-    static const char* const allowed[] = {"auto", "d3dmetal", "vkd3d", "m11",      "m11_32",
-                                          "m10",  "m10_32",   "m9",    "d3d9", "fna_arm64"};
+    static const char* const allowed[] = {"auto",   "d3dmetal", "vkd3d",  "dxmt", "dxmt_32", "m11",
+                                          "m11_32", "m10",      "m10_32", "m9",   "d3d9",    "fna_arm64"};
     if (!pipeline)
         return false;
     for (size_t index = 0; index < sizeof(allowed) / sizeof(allowed[0]); index++)
@@ -966,6 +967,42 @@ static bool process_running(pid_t pid) {
     return pid > 1 && (kill(pid, 0) == 0 || errno == EPERM);
 }
 
+char* ms_epic_running_json(const char* home) {
+    static const char suffix[] = ".launch.pid";
+    char* processes_path = epic_join(home, "epic/processes");
+    DIR* processes = processes_path ? opendir(processes_path) : NULL;
+    ms_json_writer writer;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "running");
+    ms_json_writer_array_begin(&writer);
+    if (processes) {
+        struct dirent* entry;
+        while ((entry = readdir(processes)) != NULL) {
+            size_t name_length = strlen(entry->d_name);
+            size_t suffix_length = sizeof(suffix) - 1;
+            char app_name[129];
+            size_t app_length;
+            if (name_length <= suffix_length || strcmp(entry->d_name + name_length - suffix_length, suffix))
+                continue;
+            app_length = name_length - suffix_length;
+            if (app_length >= sizeof(app_name))
+                continue;
+            memcpy(app_name, entry->d_name, app_length);
+            app_name[app_length] = '\0';
+            if (valid_app_name(app_name) && process_running(read_process_pid_suffix(home, app_name, "launch.pid")))
+                ms_json_writer_string(&writer, app_name);
+        }
+        closedir(processes);
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_object_end(&writer);
+    free(processes_path);
+    return ms_json_writer_take(&writer);
+}
+
 static pid_t spawn_detached(const char* home, char* const argv[], const char* prefix, const char* graphics_backend,
                             const char* working_directory, const char* log_path) {
     int pid_pipe[2];
@@ -991,7 +1028,7 @@ static pid_t spawn_detached(const char* home, char* const argv[], const char* pr
         if (prefix)
             setenv("WINEPREFIX", prefix, 1);
         if (graphics_backend)
-            setenv("MS_GRAPHICS_BACKEND", graphics_backend, 1);
+            ms_steam_apply_graphics_route(home, graphics_backend);
         if (working_directory)
             chdir(working_directory);
         int log_fd = open(log_path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
@@ -1278,6 +1315,7 @@ done:
 char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t body_length) {
     char* app_name = request_app_name(body, body_length);
     char *tool = NULL, *wine = NULL, *wineserver = NULL, *prefix = NULL, *logs = NULL, *log_path = NULL;
+    char* launch_pid_path = NULL;
     char *pipeline = NULL, *mouse_mode = NULL;
     char* result = NULL;
     if (!app_name)
@@ -1288,8 +1326,9 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     prefix = epic_prefix_path(home, app_name);
     logs = epic_logs_path(home);
     log_path = epic_process_path(home, app_name, "launch.log");
-    if (!tool || !wine || !wineserver || !prefix || !logs || !legendary_available(home) || access(wine, X_OK) != 0 ||
-        access(wineserver, X_OK) != 0 || !epic_mkdir_p(logs)) {
+    launch_pid_path = epic_process_path(home, app_name, "launch.pid");
+    if (!tool || !wine || !wineserver || !prefix || !logs || !log_path || !launch_pid_path ||
+        !legendary_available(home) || access(wine, X_OK) != 0 || access(wineserver, X_OK) != 0 || !epic_mkdir_p(logs)) {
         result = epic_failure("could not initialize the isolated Epic game bottle");
         goto done;
     }
@@ -1308,22 +1347,40 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
         goto done;
     }
     static const char* supervisor_script =
+        "pid_marker=$6; supervisor_pid=$$; "
+        "cleanup_pid_marker() { if [ -r \"$pid_marker\" ]; then IFS= read -r stored_pid < \"$pid_marker\"; "
+        "if [ \"$stored_pid\" = \"$supervisor_pid\" ]; then IFS= read -r confirmed_pid < \"$pid_marker\"; "
+        "if [ \"$confirmed_pid\" = \"$supervisor_pid\" ]; then /bin/rm -f \"$pid_marker\"; fi; fi; fi; }; "
+        "trap cleanup_pid_marker EXIT; "
         "\"$1\" launch \"$2\" --skip-version-check --wine \"$3\" --wine-prefix \"$4\"; "
         "launch_status=$?; WINEPREFIX=\"$4\" \"$5\" -w; exit $launch_status";
-    char* const argv[] = {
-        "/bin/sh",  "-c", (char*)supervisor_script, "metalsharp-epic-supervisor", tool, app_name, wine, prefix,
-        wineserver, NULL};
+    char* const argv[] = {"/bin/sh",
+                          "-c",
+                          (char*)supervisor_script,
+                          "metalsharp-epic-supervisor",
+                          tool,
+                          app_name,
+                          wine,
+                          prefix,
+                          wineserver,
+                          launch_pid_path,
+                          NULL};
     pid_t pid = spawn_detached(home, argv, prefix, pipeline, NULL, log_path);
     if (pid <= 1) {
         result = epic_failure("could not launch Epic game");
         goto done;
     }
-    char* launch_pid_path = epic_process_path(home, app_name, "launch.pid");
     char pid_text[32];
     snprintf(pid_text, sizeof(pid_text), "%ld\n", (long)pid);
-    if (launch_pid_path)
-        epic_write_text_atomic(launch_pid_path, pid_text, 0600);
-    free(launch_pid_path);
+    if (launch_pid_path) {
+        (void)epic_write_text_atomic(launch_pid_path, pid_text, 0600);
+        if (!process_running(pid)) {
+            char* recorded_pid = epic_read_text(launch_pid_path, 64);
+            if (recorded_pid && strtol(recorded_pid, NULL, 10) == (long)pid)
+                unlink(launch_pid_path);
+            free(recorded_pid);
+        }
+    }
     ms_json_writer writer;
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
@@ -1347,6 +1404,7 @@ done:
     free(prefix);
     free(logs);
     free(log_path);
+    free(launch_pid_path);
     free(pipeline);
     free(mouse_mode);
     return result;
@@ -1368,7 +1426,7 @@ char* ms_epic_stop_json(const char* home, const unsigned char* body, size_t body
     int status = epic_run_capture(home, argv, prefix, &output, "legendary-launch.log");
     free(output);
     char* pid_path = epic_process_path(home, app_name, "launch.pid");
-    if (pid_path)
+    if (status == 0 && pid_path)
         unlink(pid_path);
     free(pid_path);
     free(app_name);

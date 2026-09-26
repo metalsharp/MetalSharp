@@ -219,7 +219,10 @@ interface EpicGame {
   installPath?: string | null;
   executable?: string | null;
   installSize: number;
-  running?: boolean;
+  bottleInitialized: boolean;
+  pipeline: string;
+  mouseMode: "no-recenter" | "auto";
+  running: boolean;
   downloading?: boolean;
 }
 
@@ -530,6 +533,7 @@ const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
 const epicStatus = ref<EpicStatus | null>(null);
 const epicGames = ref<EpicGame[]>([]);
+let epicRunningPollInFlight = false;
 const epicLoading = ref<Record<string, boolean>>({});
 const epicProgress = ref<Record<string, number>>({});
 const epicBottleOpen = ref<Record<string, boolean>>({});
@@ -548,6 +552,7 @@ const gamejoltPanel = ref<HTMLElement | null>(null);
 let gamejoltDragPointerId: number | null = null;
 const gamejoltDownloadToastIds = new Map<string, number>();
 let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let epicProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 const pcsx2Status = ref<Pcsx2Status | null>(null);
 const pcsx2Games = ref<Pcsx2Game[]>([]);
 const pcsx2Roots = ref<string[]>([]);
@@ -1828,8 +1833,10 @@ async function removeSharpemuRuntime() {
 
 async function refreshEpic(forceSync = false) {
   const statusResult = await api<EpicStatus>("GET", "/sharp-library/epic/status");
-  if (statusResult?.ok) epicStatus.value = statusResult;
-  if (!statusResult?.ok || !statusResult.authenticated) {
+  if (!statusResult) return;
+  if (statusResult.ok) epicStatus.value = statusResult;
+  if (!statusResult.ok) return;
+  if (!statusResult.authenticated) {
     epicGames.value = [];
     return;
   }
@@ -1857,6 +1864,19 @@ async function refreshEpic(forceSync = false) {
       }
     }
   } else if (forceSync) toast.show(gamesResult?.error ?? "Epic library sync failed", "error");
+}
+
+async function refreshEpicRunning() {
+  if (epicRunningPollInFlight || !epicGames.value.length) return;
+  epicRunningPollInFlight = true;
+  try {
+    const result = await api<{ ok: boolean; running: string[] }>("GET", "/sharp-library/epic/running");
+    if (!result?.ok || !Array.isArray(result.running)) return;
+    const running = new Set(result.running);
+    for (const game of epicGames.value) game.running = running.has(game.appName);
+  } finally {
+    epicRunningPollInFlight = false;
+  }
 }
 
 async function installEpicSupport() {
@@ -2006,6 +2026,7 @@ async function playEpicGame(game: EpicGame) {
     game.running = true;
     toast.show(`${game.title} launched`, "success");
   } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+  await refreshEpicRunning();
 }
 
 async function stopEpicGame(game: EpicGame) {
@@ -2014,6 +2035,7 @@ async function stopEpicGame(game: EpicGame) {
   });
   if (result?.ok) game.running = false;
   else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+  await refreshEpicRunning();
 }
 
 async function uninstallEpicGame(game: EpicGame) {
@@ -3071,6 +3093,9 @@ onMounted(() => {
   void load();
   void refreshGameJoltProcessState();
   gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  epicProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "epic" && epicGames.value.some((game) => game.running)) void refreshEpicRunning();
+  }, 2000);
   pcsx2ProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "pcsx2" && pcsx2Status.value?.installed) void refreshPcsx2();
   }, 3000);
@@ -3088,6 +3113,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
   gamejoltProcessPollTimer = null;
+  if (epicProcessPollTimer) clearInterval(epicProcessPollTimer);
+  epicProcessPollTimer = null;
   if (pcsx2ProcessPollTimer) clearInterval(pcsx2ProcessPollTimer);
   pcsx2ProcessPollTimer = null;
   stopPcsx2UpdatePolling();
