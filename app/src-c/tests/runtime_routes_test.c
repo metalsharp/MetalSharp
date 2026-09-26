@@ -46,6 +46,12 @@ int main(int argc, char** argv) {
     assert(getenv("GRAPHICS_BACKEND") == NULL);
     assert(getenv("METALSHARP_PORT") && !strcmp(getenv("METALSHARP_PORT"), "9123"));
     unsetenv("METALSHARP_PORT");
+#ifdef __APPLE__
+    unsetenv("ROSETTA_ADVERTISE_AVX");
+    set_rosetta_avx_env();
+    assert(getenv("ROSETTA_ADVERTISE_AVX") && !strcmp(getenv("ROSETTA_ADVERTISE_AVX"), "1"));
+    unsetenv("ROSETTA_ADVERTISE_AVX");
+#endif
     fixture(home, "graphics-scan/d3d12/Binaries/Win64/D3D12Core.DLL", "d3d12");
     fixture(home, "graphics-scan/dxmt/d3d11.dll", "d3d11");
     fixture(home, "graphics-scan/dxmt10/d3d10core.dll", "d3d10");
@@ -96,6 +102,31 @@ int main(int argc, char** argv) {
     assert(aniimo_exe && strstr(aniimo_exe, "/aniimo/Aniimo.exe"));
     free(aniimo_exe);
     free(aniimo_dir);
+
+    fixture(home, "helldivers/tools/gguninst.exe", "GameGuard uninstaller");
+    fixture(home, "helldivers/bin/helldivers2.exe", "game executable");
+    char* helldivers_dir = join(home, "helldivers");
+    char* helldivers_exe = preferred_steam_game_executable(helldivers_dir, 553850, "dxmt");
+    assert(helldivers_exe && strstr(helldivers_exe, "/helldivers/bin/helldivers2.exe"));
+    {
+        char launch_cwd[PATH_MAX];
+        char launch_program[PATH_MAX];
+        assert(direct_game_launch_paths(helldivers_exe, 553850, launch_cwd, sizeof(launch_cwd), launch_program,
+                                        sizeof(launch_program)));
+        assert(!strcmp(launch_cwd, helldivers_dir));
+        assert(!strcmp(launch_program, "bin/helldivers2.exe"));
+    }
+    free(helldivers_exe);
+    free(helldivers_dir);
+    {
+        char* args[8] = {0};
+        size_t count = 0;
+        build_launch_args(553850, "d3dmetal", args, &count, sizeof(args) / sizeof(args[0]));
+        assert(count == 3);
+        assert(!strcmp(args[0], "--bundle-dir"));
+        assert(!strcmp(args[1], "data"));
+        assert(!strcmp(args[2], "--release"));
+    }
 
     fixture(home, "ubisoft/odyssey/uplay_r1_loader64.dll", "Ubisoft Connect marker");
     char* ubisoft_game_dir = join(home, "ubisoft/odyssey");
