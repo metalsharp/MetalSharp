@@ -577,6 +577,28 @@ static void set_game_opengl_env(unsigned id, const char* pipeline) {
     setenv("WINEMETALGL", "0", 1);
 }
 
+void ms_steam_apply_graphics_route(const char* home, const char* pipeline) {
+    const char* canonical = canonical_pipeline(pipeline);
+    const char* overrides;
+    if (!home)
+        return;
+    if (!canonical || !strcmp(canonical, "auto"))
+        canonical = "dxmt";
+    set_route_paths(home, canonical);
+    set_route_default_env(home, canonical);
+    set_game_opengl_env(0, canonical);
+    if (!strcmp(canonical, "fna_arm64")) {
+        setenv("GRAPHICS_BACKEND", canonical, 1);
+        setenv("MS_GRAPHICS_BACKEND", canonical, 1);
+    }
+    setenv("METALSHARP_PIPELINE", canonical, 1);
+    overrides = pipeline_overrides(canonical);
+    if (overrides)
+        setenv("WINEDLLOVERRIDES", overrides, 1);
+    else
+        unsetenv("WINEDLLOVERRIDES");
+}
+
 static bool append_launch_arg(char** argv, size_t* count, size_t max, const char* arg) {
     if (*count + 1 >= max)
         return false;
