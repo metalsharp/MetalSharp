@@ -819,6 +819,134 @@ static char* read_file(const char* path, size_t* length_out) {
     return data;
 }
 
+static char* replace_text(const char* text, const char* needle, const char* replacement) {
+    const char* match = strstr(text, needle);
+    size_t prefix, old_length, new_length, suffix;
+    char* result;
+    if (!match)
+        return NULL;
+    prefix = (size_t)(match - text);
+    old_length = strlen(needle);
+    new_length = strlen(replacement);
+    suffix = strlen(match + old_length);
+    result = malloc(prefix + new_length + suffix + 1);
+    if (!result)
+        return NULL;
+    memcpy(result, text, prefix);
+    memcpy(result + prefix, replacement, new_length);
+    memcpy(result + prefix + new_length, match + old_length, suffix + 1);
+    return result;
+}
+
+bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
+    static const char marker[] = "# METALSHARP_ROUTE_ENV_V1";
+    static const char old_dll[] = "export WINEDLLPATH=\"$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows\"";
+    static const char new_dll[] = "if [ -z \"${METALSHARP_PIPELINE:-}\" ] || [ -z \"${WINEDLLPATH:-}\" ]; then\n"
+                                  "  export WINEDLLPATH=\"$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows\"\n"
+                                  "fi";
+    static const char old_dyld[] =
+        "export DYLD_FALLBACK_LIBRARY_PATH=\"$MS_LIB:$MS_LIB/wine/x86_64-unix:${DYLD_FALLBACK_LIBRARY_PATH}\"";
+    static const char new_dyld[] =
+        "if [ -n \"${METALSHARP_PIPELINE:-}\" ]; then\n"
+        "  export "
+        "DYLD_FALLBACK_LIBRARY_PATH=\"${DYLD_FALLBACK_LIBRARY_PATH:+$DYLD_FALLBACK_LIBRARY_PATH:}$MS_LIB:$MS_LIB/wine/"
+        "x86_64-unix\"\n"
+        "else\n"
+        "  export DYLD_FALLBACK_LIBRARY_PATH=\"$MS_LIB:$MS_LIB/wine/x86_64-unix:${DYLD_FALLBACK_LIBRARY_PATH}\"\n"
+        "fi";
+    static const char old_vk[] = "export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"";
+    static const char new_vk[] = "if [ -z \"${METALSHARP_PIPELINE:-}\" ]; then\n"
+                                 "  export VK_ICD_FILENAMES=\"/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json\"\n"
+                                 "elif [ \"$METALSHARP_PIPELINE\" != \"vkd3d\" ]; then\n"
+                                 "  unset VK_ICD_FILENAMES\n"
+                                 "fi";
+    char *path = NULL, *text = NULL, *patched_dll = NULL, *patched_dyld = NULL, *patched_vk = NULL, *final = NULL;
+    struct stat st;
+    char temporary[PATH_MAX];
+    int fd = -1;
+    FILE* output = NULL;
+    bool ok = false;
+    if (!metalsharp_home)
+        return false;
+    path = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
+    if (!path)
+        goto done;
+    if (lstat(path, &st) != 0) {
+        ok = errno == ENOENT;
+        goto done;
+    }
+    if (!S_ISREG(st.st_mode) || st.st_size <= 0 || st.st_size > 1024 * 1024)
+        goto done;
+    text = read_file(path, NULL);
+    if (!text)
+        goto done;
+    if (strstr(text, marker) || (strstr(text, "METALSHARP_PIPELINE") && strstr(text, "${WINEDLLPATH:-") &&
+                                 strstr(text, "DYLD_FALLBACK_LIBRARY_PATH:+") && strstr(text, "VK_ICD_FILENAMES"))) {
+        ok = true;
+        goto done;
+    }
+    patched_dll = replace_text(text, old_dll, new_dll);
+    if (!patched_dll)
+        goto done;
+    patched_dyld = replace_text(patched_dll, old_dyld, new_dyld);
+    if (!patched_dyld)
+        goto done;
+    patched_vk = replace_text(patched_dyld, old_vk, new_vk);
+    if (!patched_vk)
+        goto done;
+    final = replace_text(patched_vk, "#!/bin/bash\n", "#!/bin/bash\n# METALSHARP_ROUTE_ENV_V1\n");
+    if (!final)
+        goto done;
+    if (snprintf(temporary, sizeof(temporary), "%s.route-XXXXXX", path) >= (int)sizeof(temporary))
+        goto done;
+    fd = mkstemp(temporary);
+    if (fd < 0 || fchmod(fd, st.st_mode & 0777) != 0) {
+        if (fd >= 0)
+            close(fd);
+        unlink(temporary);
+        fd = -1;
+        goto done;
+    }
+    output = fdopen(fd, "wb");
+    if (!output) {
+        close(fd);
+        fd = -1;
+        unlink(temporary);
+        goto done;
+    }
+    fd = -1;
+    if (fwrite(final, 1, strlen(final), output) != strlen(final) || fflush(output) != 0 || fsync(fileno(output)) != 0 ||
+        fchmod(fileno(output), st.st_mode & 0777) != 0) {
+        fclose(output);
+        output = NULL;
+        unlink(temporary);
+        goto done;
+    }
+    if (fclose(output) != 0) {
+        output = NULL;
+        unlink(temporary);
+        goto done;
+    }
+    output = NULL;
+    if (rename(temporary, path) != 0) {
+        unlink(temporary);
+        goto done;
+    }
+    ok = true;
+done:
+    if (output)
+        fclose(output);
+    if (fd >= 0)
+        close(fd);
+    free(path);
+    free(text);
+    free(patched_dll);
+    free(patched_dyld);
+    free(patched_vk);
+    free(final);
+    return ok;
+}
+
 static ms_json* read_json(const char* path) {
     size_t length;
     char error[128];
@@ -1736,6 +1864,8 @@ static void run_install_all_worker(const char* home) {
                 _exit(0);
             }
             free(archive);
+            if (!ms_setup_wine_wrapper_ensure(home))
+                fprintf(stderr, "warning: could not update MetalSharp Wine wrapper after runtime extraction\n");
             write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done", "Runtime bundle extracted",
                                    NULL);
         } else if (already_ready) {
