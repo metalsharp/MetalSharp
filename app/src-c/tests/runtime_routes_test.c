@@ -1,5 +1,8 @@
 /* Exercise routing helpers without launching Wine or touching a real prefix. */
+// clang-format off
 #include "../runtime/steam_actions.c"
+#include "../runtime/epic.c"
+// clang-format on
 #define main metalsharp_backend_main_for_test
 #include "../runtime/main.c"
 #undef main
@@ -45,6 +48,52 @@ int main(int argc, char** argv) {
     assert(getenv("DYLD_FALLBACK_LIBRARY_PATH") == NULL && getenv("SteamAppId") == NULL);
     assert(getenv("GRAPHICS_BACKEND") == NULL);
     assert(getenv("METALSHARP_PORT") && !strcmp(getenv("METALSHARP_PORT"), "9123"));
+    assert(valid_pipeline("d3dmetal"));
+    assert(valid_pipeline("dxmt"));
+    assert(valid_pipeline("dxmt_32"));
+    assert(valid_pipeline("d3d9"));
+    assert(valid_pipeline("vkd3d"));
+    assert(valid_pipeline("fna_arm64"));
+    assert(!valid_pipeline("unknown"));
+    ms_steam_apply_graphics_route(home, "d3dmetal");
+    assert(strstr(getenv("WINEDLLPATH"), "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows"));
+    assert(getenv("D3DMETAL_FRAMEWORK_PATH"));
+    ms_steam_apply_graphics_route(home, "dxmt");
+    assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/x86_64-windows"));
+    assert(strstr(getenv("WINEDLLOVERRIDES"), "winemetal,dxgi,d3d11"));
+    ms_steam_apply_graphics_route(home, "dxmt_32");
+    assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/i386-windows"));
+    ms_steam_apply_graphics_route(home, "d3d9");
+    assert(strstr(getenv("WINEDLLOVERRIDES"), "d3d9,dxgi"));
+    ms_steam_apply_graphics_route(home, "fna_arm64");
+    assert(!strcmp(getenv("MS_GRAPHICS_BACKEND"), "fna_arm64"));
+    {
+        const char* stop_body = "{\"appName\":\"SmokeEpic\"}";
+        char* epic_home = join(home, "epic-stop");
+        char* wineserver_path = join(home, "epic-stop/runtime/wine/bin/wineserver");
+        char* launch_pid_path = join(home, "epic-stop/epic/processes/SmokeEpic.launch.pid");
+        char* response;
+        int fd;
+        fixture(home, "epic-stop/runtime/wine/bin/wineserver", "#!/bin/sh\nexit 1\n");
+        assert(chmod(wineserver_path, 0700) == 0);
+        fixture(home, "epic-stop/epic/processes/SmokeEpic.launch.pid", "999999\n");
+        response = ms_epic_stop_json(epic_home, (const unsigned char*)stop_body, strlen(stop_body));
+        assert(response && strstr(response, "could not stop Epic game bottle"));
+        assert(access(launch_pid_path, F_OK) == 0);
+        free(response);
+        fd = open(wineserver_path, O_WRONLY | O_TRUNC);
+        assert(fd >= 0);
+        assert(write(fd, "#!/bin/sh\nexit 0\n", 17) == 17);
+        assert(close(fd) == 0);
+        assert(chmod(wineserver_path, 0700) == 0);
+        response = ms_epic_stop_json(epic_home, (const unsigned char*)stop_body, strlen(stop_body));
+        assert(response && strstr(response, "\"ok\":true"));
+        assert(access(launch_pid_path, F_OK) != 0);
+        free(response);
+        free(epic_home);
+        free(wineserver_path);
+        free(launch_pid_path);
+    }
     unsetenv("METALSHARP_PORT");
 #ifdef __APPLE__
     unsetenv("ROSETTA_ADVERTISE_AVX");

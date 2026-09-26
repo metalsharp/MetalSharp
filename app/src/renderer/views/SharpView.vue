@@ -219,7 +219,10 @@ interface EpicGame {
   installPath?: string | null;
   executable?: string | null;
   installSize: number;
-  running?: boolean;
+  bottleInitialized: boolean;
+  pipeline: string;
+  mouseMode: "no-recenter" | "auto";
+  running: boolean;
   downloading?: boolean;
 }
 
@@ -548,6 +551,7 @@ const gamejoltPanel = ref<HTMLElement | null>(null);
 let gamejoltDragPointerId: number | null = null;
 const gamejoltDownloadToastIds = new Map<string, number>();
 let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let epicProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 const pcsx2Status = ref<Pcsx2Status | null>(null);
 const pcsx2Games = ref<Pcsx2Game[]>([]);
 const pcsx2Roots = ref<string[]>([]);
@@ -2006,6 +2010,7 @@ async function playEpicGame(game: EpicGame) {
     game.running = true;
     toast.show(`${game.title} launched`, "success");
   } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
+  await refreshEpic(false);
 }
 
 async function stopEpicGame(game: EpicGame) {
@@ -2014,6 +2019,7 @@ async function stopEpicGame(game: EpicGame) {
   });
   if (result?.ok) game.running = false;
   else toast.show(result?.error ?? `Could not stop ${game.title}`, "error");
+  await refreshEpic(false);
 }
 
 async function uninstallEpicGame(game: EpicGame) {
@@ -3071,6 +3077,9 @@ onMounted(() => {
   void load();
   void refreshGameJoltProcessState();
   gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  epicProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "epic" && epicGames.value.some((game) => game.running)) void refreshEpic(false);
+  }, 2000);
   pcsx2ProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "pcsx2" && pcsx2Status.value?.installed) void refreshPcsx2();
   }, 3000);
@@ -3088,6 +3097,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
   gamejoltProcessPollTimer = null;
+  if (epicProcessPollTimer) clearInterval(epicProcessPollTimer);
+  epicProcessPollTimer = null;
   if (pcsx2ProcessPollTimer) clearInterval(pcsx2ProcessPollTimer);
   pcsx2ProcessPollTimer = null;
   stopPcsx2UpdatePolling();

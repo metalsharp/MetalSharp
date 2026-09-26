@@ -1,6 +1,7 @@
 #include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/steam_actions.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -201,8 +202,8 @@ static char* request_string(const unsigned char* body, size_t body_length, const
 }
 
 static bool valid_pipeline(const char* pipeline) {
-    static const char* const allowed[] = {"auto", "d3dmetal", "vkd3d", "m11",      "m11_32",
-                                          "m10",  "m10_32",   "m9",    "d3d9", "fna_arm64"};
+    static const char* const allowed[] = {"auto",   "d3dmetal", "vkd3d",  "dxmt", "dxmt_32", "m11",
+                                          "m11_32", "m10",      "m10_32", "m9",   "d3d9",    "fna_arm64"};
     if (!pipeline)
         return false;
     for (size_t index = 0; index < sizeof(allowed) / sizeof(allowed[0]); index++)
@@ -991,7 +992,7 @@ static pid_t spawn_detached(const char* home, char* const argv[], const char* pr
         if (prefix)
             setenv("WINEPREFIX", prefix, 1);
         if (graphics_backend)
-            setenv("MS_GRAPHICS_BACKEND", graphics_backend, 1);
+            ms_steam_apply_graphics_route(home, graphics_backend);
         if (working_directory)
             chdir(working_directory);
         int log_fd = open(log_path, O_CREAT | O_TRUNC | O_WRONLY, 0600);
@@ -1368,7 +1369,7 @@ char* ms_epic_stop_json(const char* home, const unsigned char* body, size_t body
     int status = epic_run_capture(home, argv, prefix, &output, "legendary-launch.log");
     free(output);
     char* pid_path = epic_process_path(home, app_name, "launch.pid");
-    if (pid_path)
+    if (status == 0 && pid_path)
         unlink(pid_path);
     free(pid_path);
     free(app_name);
