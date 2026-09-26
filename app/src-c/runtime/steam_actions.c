@@ -308,14 +308,26 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
     char* etc = join(home, "runtime/wine/etc");
     char* path = join(home, "runtime/wine/etc/dxmt.conf");
     char* existing;
-    FILE* file;
+    char temp[PATH_MAX] = {0};
+    FILE* file = NULL;
+    int fd = -1;
     if (!etc || !path || !ensure_directory(etc)) {
         free(etc);
         free(path);
         return;
     }
     existing = read_bounded_file(path);
-    file = fopen(path, "wb");
+    if (snprintf(temp, sizeof(temp), "%s.tmp.XXXXXX", path) < (int)sizeof(temp)) {
+        fd = mkstemp(temp);
+        if (fd >= 0) {
+            file = fdopen(fd, "wb");
+            if (!file) {
+                close(fd);
+                unlink(temp);
+                temp[0] = '\0';
+            }
+        }
+    }
     if (file) {
         bool wrote_feature_level = false, wrote_shader_version = false;
         char* cursor = existing;
@@ -346,7 +358,11 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
             fputs("d3d11.maxFeatureLevel = 12_1\n", file);
         if (!wrote_shader_version)
             fputs("dxmt.shaderMetalVersion = 310\n", file);
-        fclose(file);
+        if (fclose(file) == 0) {
+            if (rename(temp, path) != 0)
+                unlink(temp);
+        } else
+            unlink(temp);
     }
     free(existing);
     free(etc);
@@ -575,6 +591,28 @@ static void set_game_opengl_env(unsigned id, const char* pipeline) {
     (void)id;
     (void)pipeline;
     setenv("WINEMETALGL", "0", 1);
+}
+
+void ms_steam_apply_graphics_route(const char* home, const char* pipeline) {
+    const char* canonical = canonical_pipeline(pipeline);
+    const char* overrides;
+    if (!home)
+        return;
+    if (!canonical || !strcmp(canonical, "auto"))
+        canonical = "dxmt";
+    set_route_paths(home, canonical);
+    set_route_default_env(home, canonical);
+    set_game_opengl_env(0, canonical);
+    if (!strcmp(canonical, "fna_arm64")) {
+        setenv("GRAPHICS_BACKEND", canonical, 1);
+        setenv("MS_GRAPHICS_BACKEND", canonical, 1);
+    }
+    setenv("METALSHARP_PIPELINE", canonical, 1);
+    overrides = pipeline_overrides(canonical);
+    if (overrides)
+        setenv("WINEDLLOVERRIDES", overrides, 1);
+    else
+        unsetenv("WINEDLLOVERRIDES");
 }
 
 static bool append_launch_arg(char** argv, size_t* count, size_t max, const char* arg) {
