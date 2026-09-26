@@ -8,6 +8,9 @@ void ms_epic_sync_on_startup(const char* home);
 char* ms_epic_install_tool_json(const char* home);
 char* ms_epic_auth_json(const char* home, const unsigned char* body, size_t body_length);
 char* ms_epic_logout_json(const char* home);
+char* ms_epic_thegamesdb_api_key_status_json(const char* home);
+char* ms_epic_save_thegamesdb_api_key_json(const char* home, const unsigned char* body, size_t body_length,
+                                           int* status);
 char* ms_epic_games_json(const char* home, int force_refresh);
 char* ms_epic_running_json(const char* home);
 char* ms_epic_install_json(const char* home, const unsigned char* body, size_t body_length);
