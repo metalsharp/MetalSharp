@@ -1315,6 +1315,7 @@ done:
 char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t body_length) {
     char* app_name = request_app_name(body, body_length);
     char *tool = NULL, *wine = NULL, *wineserver = NULL, *prefix = NULL, *logs = NULL, *log_path = NULL;
+    char* launch_pid_path = NULL;
     char *pipeline = NULL, *mouse_mode = NULL;
     char* result = NULL;
     if (!app_name)
@@ -1325,8 +1326,9 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     prefix = epic_prefix_path(home, app_name);
     logs = epic_logs_path(home);
     log_path = epic_process_path(home, app_name, "launch.log");
-    if (!tool || !wine || !wineserver || !prefix || !logs || !legendary_available(home) || access(wine, X_OK) != 0 ||
-        access(wineserver, X_OK) != 0 || !epic_mkdir_p(logs)) {
+    launch_pid_path = epic_process_path(home, app_name, "launch.pid");
+    if (!tool || !wine || !wineserver || !prefix || !logs || !log_path || !launch_pid_path ||
+        !legendary_available(home) || access(wine, X_OK) != 0 || access(wineserver, X_OK) != 0 || !epic_mkdir_p(logs)) {
         result = epic_failure("could not initialize the isolated Epic game bottle");
         goto done;
     }
@@ -1345,22 +1347,39 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
         goto done;
     }
     static const char* supervisor_script =
+        "pid_marker=$6; supervisor_pid=$$; "
+        "cleanup_pid_marker() { if [ -r \"$pid_marker\" ]; then IFS= read -r stored_pid < \"$pid_marker\"; "
+        "if [ \"$stored_pid\" = \"$supervisor_pid\" ]; then /bin/rm -f \"$pid_marker\"; fi; fi; }; "
+        "trap cleanup_pid_marker EXIT; "
         "\"$1\" launch \"$2\" --skip-version-check --wine \"$3\" --wine-prefix \"$4\"; "
         "launch_status=$?; WINEPREFIX=\"$4\" \"$5\" -w; exit $launch_status";
-    char* const argv[] = {
-        "/bin/sh",  "-c", (char*)supervisor_script, "metalsharp-epic-supervisor", tool, app_name, wine, prefix,
-        wineserver, NULL};
+    char* const argv[] = {"/bin/sh",
+                          "-c",
+                          (char*)supervisor_script,
+                          "metalsharp-epic-supervisor",
+                          tool,
+                          app_name,
+                          wine,
+                          prefix,
+                          wineserver,
+                          launch_pid_path,
+                          NULL};
     pid_t pid = spawn_detached(home, argv, prefix, pipeline, NULL, log_path);
     if (pid <= 1) {
         result = epic_failure("could not launch Epic game");
         goto done;
     }
-    char* launch_pid_path = epic_process_path(home, app_name, "launch.pid");
     char pid_text[32];
     snprintf(pid_text, sizeof(pid_text), "%ld\n", (long)pid);
-    if (launch_pid_path)
-        epic_write_text_atomic(launch_pid_path, pid_text, 0600);
-    free(launch_pid_path);
+    if (launch_pid_path) {
+        (void)epic_write_text_atomic(launch_pid_path, pid_text, 0600);
+        if (!process_running(pid)) {
+            char* recorded_pid = epic_read_text(launch_pid_path, 64);
+            if (recorded_pid && strtol(recorded_pid, NULL, 10) == (long)pid)
+                unlink(launch_pid_path);
+            free(recorded_pid);
+        }
+    }
     ms_json_writer writer;
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
@@ -1384,6 +1403,7 @@ done:
     free(prefix);
     free(logs);
     free(log_path);
+    free(launch_pid_path);
     free(pipeline);
     free(mouse_mode);
     return result;
