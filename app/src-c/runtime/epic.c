@@ -967,6 +967,42 @@ static bool process_running(pid_t pid) {
     return pid > 1 && (kill(pid, 0) == 0 || errno == EPERM);
 }
 
+char* ms_epic_running_json(const char* home) {
+    static const char suffix[] = ".launch.pid";
+    char* processes_path = epic_join(home, "epic/processes");
+    DIR* processes = processes_path ? opendir(processes_path) : NULL;
+    ms_json_writer writer;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "running");
+    ms_json_writer_array_begin(&writer);
+    if (processes) {
+        struct dirent* entry;
+        while ((entry = readdir(processes)) != NULL) {
+            size_t name_length = strlen(entry->d_name);
+            size_t suffix_length = sizeof(suffix) - 1;
+            char app_name[129];
+            size_t app_length;
+            if (name_length <= suffix_length || strcmp(entry->d_name + name_length - suffix_length, suffix))
+                continue;
+            app_length = name_length - suffix_length;
+            if (app_length >= sizeof(app_name))
+                continue;
+            memcpy(app_name, entry->d_name, app_length);
+            app_name[app_length] = '\0';
+            if (valid_app_name(app_name) && process_running(read_process_pid_suffix(home, app_name, "launch.pid")))
+                ms_json_writer_string(&writer, app_name);
+        }
+        closedir(processes);
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_object_end(&writer);
+    free(processes_path);
+    return ms_json_writer_take(&writer);
+}
+
 static pid_t spawn_detached(const char* home, char* const argv[], const char* prefix, const char* graphics_backend,
                             const char* working_directory, const char* log_path) {
     int pid_pipe[2];
