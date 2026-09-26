@@ -31,7 +31,7 @@ The Goldberg toggle enables offline play for supported games without Wine Steam 
 
 Sharp Library is for Windows apps, demos, launchers, installers, and non-Steam programs.
 
-Use **Install Windows Program** to select an `.exe` or `.msi`. MetalSharp may import it directly, or create an installer bottle, classify the installer, apply a known launcher recipe when one matches, launch it with the right profile, then scan for installed app candidates.
+Use **Install Windows Program** to select an `.exe` or `.msi`. MetalSharp may import it directly, or create an installer bottle, classify the installer, apply a known launcher recipe when one matches, launch it with the right profile, then scan for installed app candidates. Imported executables launch from their containing folder, and their selected graphics engine is applied to the Wine launch.
 
 Optionally you can manage / login / install / launch Epic / Gog / GameJolt Games here. As well as ps2/ps3/ps4/ps5 emulators. 
 

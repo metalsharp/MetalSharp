@@ -1,6 +1,7 @@
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/steam_actions.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -36,6 +37,16 @@ static char* join(const char* a, const char* b) {
     if (p)
         snprintf(p, x + y + slash + 1, "%s%s%s", a, slash ? "/" : "", b);
     return p;
+}
+static char* parent_dir(const char* path) {
+    const char* slash = path ? strrchr(path, '/') : NULL;
+    if (!path || !path[0])
+        return NULL;
+    if (!slash)
+        return strdup(".");
+    if (slash == path)
+        return strdup("/");
+    return strndup(path, (size_t)(slash - path));
 }
 static bool mkdir_p(const char* path) {
     char* p = strdup(path);
@@ -628,8 +639,13 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         id = new_id();
         if (!name)
             name = field(j, "name", exe);
-        if (!dir)
-            dir = field(j, "installDir", exe);
+        if (!dir) {
+            dir = field(j, "installDir", "");
+            if (!dir[0]) {
+                free(dir);
+                dir = parent_dir(exe);
+            }
+        }
         raw = app_json(id, name, exe, dir, bottle_id);
         if (!raw || !append_raw(home, raw)) {
             free(id);
@@ -774,7 +790,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
         }
         if (!strcmp(action, "launch") || !strcmp(action, "relaunch")) {
             const ms_json* app = NULL;
-            char *exe_path = NULL, *work_dir = NULL, *bottle_id = NULL, *prefix = NULL;
+            char *exe_path = NULL, *work_dir = NULL, *bottle_id = NULL, *prefix = NULL, *engine = NULL;
             for (size_t i = 0; i < ms_json_array_length(a); i++) {
                 char* item_id = field(ms_json_array_get(a, i), "id", "");
                 if (!strcmp(item_id, id)) {
@@ -788,6 +804,11 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 exe_path = field(app, "exe_path", "");
                 work_dir = field(app, "install_dir", "");
                 bottle_id = field(app, "bottle_id", "");
+                engine = field(j, "engine", "");
+                if (!engine[0]) {
+                    free(engine);
+                    engine = field(app, "engine", "auto");
+                }
                 if (bottle_id[0])
                     prefix = bottle_prefix(home, bottle_id);
             }
@@ -796,6 +817,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 free(work_dir);
                 free(bottle_id);
                 free(prefix);
+                free(engine);
                 ms_json_free(a);
                 free(id);
                 ms_json_free(j);
@@ -806,6 +828,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 free(work_dir);
                 free(bottle_id);
                 free(prefix);
+                free(engine);
                 ms_json_free(a);
                 free(id);
                 ms_json_free(j);
@@ -818,6 +841,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 free(work_dir);
                 free(bottle_id);
                 free(prefix);
+                free(engine);
                 ms_json_free(a);
                 free(id);
                 ms_json_free(j);
@@ -830,6 +854,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 free(work_dir);
                 free(bottle_id);
                 free(prefix);
+                free(engine);
                 ms_json_free(a);
                 free(id);
                 ms_json_free(j);
@@ -838,11 +863,22 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             if (pid == 0) {
                 if (prefix)
                     setenv("WINEPREFIX", prefix, 1);
+                struct stat work_stat;
+                if (!work_dir || !work_dir[0] || stat(work_dir, &work_stat) != 0 || !S_ISDIR(work_stat.st_mode)) {
+                    char* executable_dir = parent_dir(exe_path);
+                    free(work_dir);
+                    work_dir = executable_dir;
+                }
                 if (work_dir && work_dir[0])
                     (void)chdir(work_dir);
+                if (engine && strcmp(engine, "wine_bare") && strcmp(engine, "auto"))
+                    ms_steam_apply_graphics_route(home, engine);
                 execl(wine, wine, exe_path, (char*)NULL);
                 _exit(127);
             }
+            const char* reported_pipeline = engine && engine[0] ? engine : "auto";
+            if (!strcmp(reported_pipeline, "auto"))
+                reported_pipeline = "wine_bare";
             free(wine);
             free(exe_path);
             free(work_dir);
@@ -865,10 +901,11 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 ms_json_writer_key(&w, "gameType");
                 ms_json_writer_string(&w, "native");
                 ms_json_writer_key(&w, "pipeline");
-                ms_json_writer_string(&w, "wine_bare");
+                ms_json_writer_string(&w, reported_pipeline);
             }
             ms_json_writer_object_end(&w);
             o = ms_json_writer_take(&w);
+            free(engine);
             free(id);
             return o;
         }

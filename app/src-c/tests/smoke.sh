@@ -111,8 +111,17 @@ mkdir -p "$home/smoke-input"
 printf 'smoke' > "$home/smoke-input/Game.exe"
 printf 'cover' > "$home/smoke-input/cover.png"
 sharp_install=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"srcPath\":\"$home/smoke-input/Game.exe\",\"name\":\"Smoke Game\"}" "http://127.0.0.1:$port/sharp-library/install")
-printf '%s' "$sharp_install" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["app"]["name"] == "Smoke Game"'
+printf '%s' "$sharp_install" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["app"]["name"] == "Smoke Game" and v["app"]["install_dir"].endswith("/smoke-input")'
 sharp_id=$(printf '%s' "$sharp_install" | python3 -c 'import json, sys; print(json.load(sys.stdin)["app"]["id"])')
+mkdir -p "$home/runtime/wine/bin"
+printf '#!/bin/sh\nprintf "%%s|%%s|%%s\\n" "$METALSHARP_PIPELINE" "$PWD" "$1" > "$METALSHARP_HOME/sharp-launch-check"\n' > "$home/runtime/wine/bin/metalsharp-wine"
+chmod +x "$home/runtime/wine/bin/metalsharp-wine"
+sharp_launch=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$sharp_id\",\"engine\":\"d3dmetal\"}" "http://127.0.0.1:$port/sharp-library/launch")
+printf '%s' "$sharp_launch" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["pipeline"] == "d3dmetal"'
+for _ in $(seq 1 50); do test -f "$home/sharp-launch-check" && break; sleep 0.02; done
+test -f "$home/sharp-launch-check"
+expected_sharp_work_dir=$(cd "$home/smoke-input" && pwd -P)
+grep -F "d3dmetal|$expected_sharp_work_dir|$home/smoke-input/Game.exe" "$home/sharp-launch-check"
 cover_set=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$sharp_id\",\"coverPath\":\"$home/smoke-input/cover.png\"}" "http://127.0.0.1:$port/sharp-library/set-cover")
 printf '%s' "$cover_set" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
 curl --silent --fail "http://127.0.0.1:$port/sharp-library/cover?id=$sharp_id" -o "$home/smoke-cover.png"
