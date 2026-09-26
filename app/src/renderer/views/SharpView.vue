@@ -1832,6 +1832,11 @@ async function removeSharpemuRuntime() {
   } else toast.show(result?.error ?? "Could not remove SharpEmu runtime", "error");
 }
 
+function epicArtworkSrc(game: EpicGame): string {
+  if (!game.artworkUrl) return "";
+  return game.artworkSource === "TheGamesDB" ? `file://${encodeURI(game.artworkUrl)}` : game.artworkUrl;
+}
+
 async function refreshEpic(forceSync = false) {
   const statusResult = await api<EpicStatus>("GET", "/sharp-library/epic/status");
   if (!statusResult) return;
@@ -3749,7 +3754,7 @@ onUnmounted(() => {
               <div class="sharp-card-banner">
                 <img
                   v-if="game.artworkUrl"
-                  :src="game.artworkUrl"
+                  :src="epicArtworkSrc(game)"
                   :alt="game.title"
                   :title="game.artworkSource ? `Artwork from ${game.artworkSource}` : undefined"
                 />
