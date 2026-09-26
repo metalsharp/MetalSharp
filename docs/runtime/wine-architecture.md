@@ -1,5 +1,5 @@
 # Wine Architecture
-**Updated:** 2026-09-23
+**Updated:** 2026-09-26
 
 MetalSharp ships a self-contained Wine runtime at:
 
@@ -119,6 +119,8 @@ High Resolution (Retina) is on by default for the shared prefix: each managed la
 | `WINEMSYNC` | MSYNC selection, from MetalSharp's `msync` setting |
 
 Wine 11.17 includes MSYNC client/server support. The Wine server keeps its synchronization selection for its lifetime, so apply setting changes after a normal shutdown of managed Wine processes.
+
+The shared `metalsharp-wine` wrapper preserves route-specific `WINEDLLPATH`, `DYLD_FALLBACK_LIBRARY_PATH`, and Vulkan ICD settings supplied by the backend. GOG and Epic launches use the same route configuration as other managed games; an app update upgrades older installed wrappers so their generic defaults do not mask the selected graphics pipeline.
 
 ## Steam Wrapper
 

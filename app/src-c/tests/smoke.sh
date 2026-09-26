@@ -145,8 +145,20 @@ printf '{}' > "$home/gog-play/Game/goggame-424242.info"
 cat > "$home/tools/gogdl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" > "$METALSHARP_HOME/gog-launch-args"
+printf 'pipeline=%s\ndllpath=%s\ndyld=%s\noverrides=%s\nvkicd=%s\n' \
+  "$METALSHARP_PIPELINE" "$WINEDLLPATH" "$DYLD_FALLBACK_LIBRARY_PATH" "$WINEDLLOVERRIDES" "$VK_ICD_FILENAMES" \
+  > "$METALSHARP_HOME/gog-launch-env"
 EOF
 chmod +x "$home/tools/gogdl"
+mkdir -p "$home/runtime/wine/bin"
+cat > "$home/runtime/wine/bin/metalsharp-wine" <<'EOF'
+#!/bin/bash
+export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows"
+export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix:${DYLD_FALLBACK_LIBRARY_PATH}"
+export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+printf 'dll=%s\ndyld=%s\nvkicd=%s\n' "$WINEDLLPATH" "${DYLD_FALLBACK_LIBRARY_PATH:-}" "${VK_ICD_FILENAMES:-}" > "$METALSHARP_HOME/wrapper-env"
+EOF
+chmod +x "$home/runtime/wine/bin/metalsharp-wine"
 python3 - <<'PY'
 import json
 import os
@@ -196,17 +208,70 @@ home = Path(os.environ["METALSHARP_HOME"])
 args = (home / "gog-launch-args").read_text().splitlines()
 assert args[:3] == ["--auth-config-path", str(home / "gog_store" / "auth.json"), "launch"]
 assert args[3:5] == [str(home / "gog-play" / "Game"), "424242"]
+assert args[args.index("--wine") + 1] == str(home / "runtime" / "wine" / "bin" / "metalsharp-wine")
+env = dict(line.split("=", 1) for line in (home / "gog-launch-env").read_text().splitlines())
+assert env["pipeline"] == "dxmt"
+assert str(home / "runtime/wine/lib/dxmt/x86_64-windows") in env["dllpath"]
+assert "d3d11" in env["overrides"] and "=n,b" in env["overrides"]
+wrapper = (home / "runtime/wine/bin/metalsharp-wine").read_text()
+assert "METALSHARP_ROUTE_ENV_V1" in wrapper
+assert 'if [ -z "${METALSHARP_PIPELINE:-}" ] || [ -z "${WINEDLLPATH:-}" ]; then' in wrapper
+assert 'elif [ "$METALSHARP_PIPELINE" != "vkd3d" ]; then' in wrapper
+stat = (home / "runtime/wine/bin/metalsharp-wine").stat()
+(home / "wine-wrapper-inode").write_text(f"{stat.st_dev}:{stat.st_ino}")
 game = json.loads((home / "gog" / "library.json").read_text())["games"][0]
 assert game["slug"] == "gog_launch_regression"
 assert game["primaryExe"] == "Game.exe"
 assert game["primaryTaskName"] == "Play"
 assert game["downloadSizeBytes"] == 12 and game["diskSizeBytes"] == 34
 PY
+/bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; METALSHARP_PIPELINE=dxmt; WINEDLLPATH=/route/dxmt; DYLD_FALLBACK_LIBRARY_PATH=/route/dyld; VK_ICD_FILENAMES=/wrong; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
+cp "$home/wrapper-env" "$home/dxmt-wrapper-env"
+/bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; unset METALSHARP_PIPELINE; WINEDLLPATH=/stale; DYLD_FALLBACK_LIBRARY_PATH=/custom; VK_ICD_FILENAMES=/custom; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
+cp "$home/wrapper-env" "$home/default-wrapper-env"
+/bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; METALSHARP_PIPELINE=vkd3d; WINEDLLPATH=/route/vkd3d; DYLD_FALLBACK_LIBRARY_PATH=/route/vkd3d-dyld; VK_ICD_FILENAMES=/route/vkd3d-icd; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
+cp "$home/wrapper-env" "$home/vkd3d-wrapper-env"
+python3 - <<'PY'
+import os
+from pathlib import Path
+home = Path(os.environ["METALSHARP_HOME"])
+read = lambda name: dict(line.split("=", 1) for line in (home / name).read_text().splitlines())
+dxmt = read("dxmt-wrapper-env")
+assert dxmt["dll"] == "/route/dxmt" and dxmt["dyld"].startswith("/route/dyld:") and not dxmt["vkicd"]
+default = read("default-wrapper-env")
+assert default["dll"] == str(home / "runtime/wine/lib/wine/x86_64-windows") + ":" + str(home / "runtime/wine/lib/wine/i386-windows")
+assert default["vkicd"] == "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+vkd3d = read("vkd3d-wrapper-env")
+assert vkd3d["dll"] == "/route/vkd3d" and vkd3d["vkicd"] == "/route/vkd3d-icd"
+PY
 gog_stop=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242"}' "http://127.0.0.1:$port/sharp-library/gog/stop")
 printf '%s' "$gog_stop" | python3 -c 'import json, sys; v=json.load(sys.stdin); g=v["game"]; assert v["ok"] and g["installed"] and not g["running"] and g["status"] == "installed" and g["installRoot"].endswith("/gog-play") and g["gameFolder"].endswith("/gog-play/Game")'
 gog_after_stop=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/gog/games")
 printf '%s' "$gog_after_stop" | python3 -c 'import json, sys; g=json.load(sys.stdin)["games"][0]; assert g["installed"] and not g["running"] and g["status"] == "installed" and g["slug"] == "gog_launch_regression" and g["primaryExe"] == "Game.exe"'
-gog_launch_log=$(printf '%s' "$gog_play" | python3 -c 'import json, sys; print(json.load(sys.stdin)["logPath"])')
+rm -f "$home/gog-launch-args" "$home/gog-launch-env"
+gog_vkd3d=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242","engine":"vkd3d"}' "http://127.0.0.1:$port/sharp-library/gog/play")
+printf '%s' "$gog_vkd3d" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["title"] == "GOG Launch Regression"'
+i=0
+while [ ! -f "$home/gog-launch-env" ] && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.02
+done
+python3 - <<'PY'
+import os
+from pathlib import Path
+home = Path(os.environ["METALSHARP_HOME"])
+env = dict(line.split("=", 1) for line in (home / "gog-launch-env").read_text().splitlines())
+assert env["pipeline"] == "vkd3d"
+assert str(home / "vkd3d/vkd3d-proton/x86_64-windows") in env["dllpath"]
+assert env["vkicd"] == str(home / "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json")
+wrapper_path = home / "runtime/wine/bin/metalsharp-wine"
+assert "METALSHARP_ROUTE_ENV_V1" in wrapper_path.read_text()
+stat = wrapper_path.stat()
+assert f"{stat.st_dev}:{stat.st_ino}" == (home / "wine-wrapper-inode").read_text()
+PY
+gog_vkd3d_stop=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242"}' "http://127.0.0.1:$port/sharp-library/gog/stop")
+printf '%s' "$gog_vkd3d_stop" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
+gog_launch_log=$(printf '%s' "$gog_vkd3d" | python3 -c 'import json, sys; print(json.load(sys.stdin)["logPath"])')
 i=0
 while ! grep -q 'gogdl exited' "$gog_launch_log" 2>/dev/null && [ "$i" -lt 50 ]; do
     i=$((i + 1))
