@@ -1349,7 +1349,8 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     static const char* supervisor_script =
         "pid_marker=$6; supervisor_pid=$$; "
         "cleanup_pid_marker() { if [ -r \"$pid_marker\" ]; then IFS= read -r stored_pid < \"$pid_marker\"; "
-        "if [ \"$stored_pid\" = \"$supervisor_pid\" ]; then /bin/rm -f \"$pid_marker\"; fi; fi; }; "
+        "if [ \"$stored_pid\" = \"$supervisor_pid\" ]; then IFS= read -r confirmed_pid < \"$pid_marker\"; "
+        "if [ \"$confirmed_pid\" = \"$supervisor_pid\" ]; then /bin/rm -f \"$pid_marker\"; fi; fi; fi; }; "
         "trap cleanup_pid_marker EXIT; "
         "\"$1\" launch \"$2\" --skip-version-check --wine \"$3\" --wine-prefix \"$4\"; "
         "launch_status=$?; WINEPREFIX=\"$4\" \"$5\" -w; exit $launch_status";
