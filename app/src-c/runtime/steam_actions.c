@@ -7,19 +7,21 @@
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include <ctype.h>
-#include <sys/xattr.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <sys/resource.h>
 #include <sys/types.h>
+#include <sys/xattr.h>
 #ifdef __APPLE__
 #include <libproc.h>
 #endif
@@ -213,13 +215,12 @@ static const char* canonical_pipeline(const char* requested) {
         !strcasecmp(requested, "dx10") || !strcasecmp(requested, "steam_d3dmetal_perf") ||
         !strcasecmp(requested, "steam_metalfx"))
         return "dxmt";
-    if (!strcasecmp(requested, "dxmt_32") || !strcasecmp(requested, "m11_32") ||
-        !strcasecmp(requested, "m10_32") || !strcasecmp(requested, "d3d11_32") ||
-        !strcasecmp(requested, "d3d10_32") || !strcasecmp(requested, "dx10_32"))
+    if (!strcasecmp(requested, "dxmt_32") || !strcasecmp(requested, "m11_32") || !strcasecmp(requested, "m10_32") ||
+        !strcasecmp(requested, "d3d11_32") || !strcasecmp(requested, "d3d10_32") || !strcasecmp(requested, "dx10_32"))
         return "dxmt_32";
     if (!strcasecmp(requested, "dxvk") || !strcasecmp(requested, "m9") || !strcasecmp(requested, "d3d9") ||
-        !strcasecmp(requested, "dx9") || !strcasecmp(requested, "dxvk_32") ||
-        !strcasecmp(requested, "d3d9_32") || !strcasecmp(requested, "dx9_32"))
+        !strcasecmp(requested, "dx9") || !strcasecmp(requested, "dxvk_32") || !strcasecmp(requested, "d3d9_32") ||
+        !strcasecmp(requested, "dx9_32"))
         return "d3d9";
     if (!strcasecmp(requested, "m13") || !strcasecmp(requested, "gptk") || !strcasecmp(requested, "steam_d3dmetal"))
         return "m13";
@@ -386,7 +387,8 @@ static void set_route_paths(const char* home, const char* pipeline) {
                  home, home, home);
     } else if (!strcmp(pipeline, "d3d9")) {
         snprintf(dllpath, sizeof(dllpath),
-                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/wine/i386-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows",
+                 "%s/runtime/wine/lib/dxmt/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows:%s/runtime/wine/lib/"
+                 "wine/i386-windows:%s/runtime/wine/lib/metalsharp/x86_64-windows",
                  home, home, home, home);
         snprintf(unixpath, sizeof(unixpath),
                  "%s/runtime/wine/lib/dxmt/x86_64-unix:%s/runtime/wine/lib/wine/x86_64-unix", home, home);
@@ -526,13 +528,15 @@ static void set_route_default_env(const char* home, const char* pipeline) {
         }
         setenv("DXMT_ASYNC_PIPELINE_COMPILE", "1", 1);
         if (metalfx_enabled)
-            snprintf(dxmt_config, sizeof(dxmt_config), "d3d11.metalSpatialUpscaleFactor=%.2f;"
-                                                       "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
-                                                       "dxmt.shaderMetalVersion=310",
+            snprintf(dxmt_config, sizeof(dxmt_config),
+                     "d3d11.metalSpatialUpscaleFactor=%.2f;"
+                     "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
+                     "dxmt.shaderMetalVersion=310",
                      metalfx_factor);
         else
-            snprintf(dxmt_config, sizeof(dxmt_config), "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
-                                                       "dxmt.shaderMetalVersion=310");
+            snprintf(dxmt_config, sizeof(dxmt_config),
+                     "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
+                     "dxmt.shaderMetalVersion=310");
         setenv("DXMT_CONFIG", dxmt_config, 1);
     } else {
         unsetenv("DXMT_METALFX_SPATIAL_SWAPCHAIN");
@@ -1269,13 +1273,16 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                                         "dxgi_dxmt.dll", "nvapi64.dll",
                                         "nvngx.dll",     "nvngx-on-metalfx.dll",
                                         "winemetal.dll", "metalsharp_ntdll_hook.dll"};
-    const char* source_subpaths[] = {
-        "runtime/wine/lib/dxmt/x86_64-windows",     "runtime/wine/lib/dxmt/i386-windows",
-        "runtime/wine/lib/metalsharp/x86_64-windows",
-        "runtime/wine/lib/metalsharp/i386-windows", "runtime/wine/lib/wine/x86_64-windows",
-        "runtime/wine/lib/wine/i386-windows",       "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows",
-        "vkd3d/vkd3d-proton/x86_64-windows",        "vkd3d/dxvk/x86_64-windows",
-        "vkd3d/dxvk/i386-windows"};
+    const char* source_subpaths[] = {"runtime/wine/lib/dxmt/x86_64-windows",
+                                     "runtime/wine/lib/dxmt/i386-windows",
+                                     "runtime/wine/lib/metalsharp/x86_64-windows",
+                                     "runtime/wine/lib/metalsharp/i386-windows",
+                                     "runtime/wine/lib/wine/x86_64-windows",
+                                     "runtime/wine/lib/wine/i386-windows",
+                                     "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows",
+                                     "vkd3d/vkd3d-proton/x86_64-windows",
+                                     "vkd3d/dxvk/x86_64-windows",
+                                     "vkd3d/dxvk/i386-windows"};
     char* exe_dir = executable ? strdup(executable) : NULL;
     char* slash = exe_dir ? strrchr(exe_dir, '/') : NULL;
     (void)pipeline;
@@ -1804,6 +1811,7 @@ static bool mark_steam_bottle_launch(const char* home, unsigned id, pid_t pid) {
     char bottle_id[64];
     char* dir = join(home, "bottles");
     char* path;
+    char* temp_path = NULL;
     FILE* file;
     long size;
     char* raw = NULL;
@@ -1873,15 +1881,41 @@ static bool mark_steam_bottle_launch(const char* home, unsigned id, pid_t pid) {
     ms_json_writer_object_end(&writer);
     serialized = ms_json_writer_take(&writer);
     ms_json_free(manifest);
-    file = fopen(dir, "wb");
-    if (file && serialized && fputs(serialized, file) >= 0)
-        ok = true;
+    if (serialized) {
+        size_t temp_length = strlen(dir) + sizeof(".tmp.XXXXXX");
+        int fd;
+        temp_path = malloc(temp_length);
+        if (!temp_path)
+            goto done;
+        snprintf(temp_path, temp_length, "%s.tmp.XXXXXX", dir);
+        fd = mkstemp(temp_path);
+        if (fd < 0)
+            goto done;
+        (void)fchmod(fd, 0644);
+        file = fdopen(fd, "wb");
+        if (!file) {
+            close(fd);
+            goto done;
+        }
+        if (fputs(serialized, file) < 0 || fflush(file) != 0 || fsync(fileno(file)) != 0)
+            goto close_done;
+        if (fclose(file) != 0) {
+            file = NULL;
+            goto done;
+        }
+        file = NULL;
+        if (rename(temp_path, dir) == 0)
+            ok = true;
+    }
 close_done:
     if (file)
         fclose(file);
 done:
+    if (!ok && temp_path)
+        unlink(temp_path);
     free(raw);
     free(serialized);
+    free(temp_path);
     free(dir);
     return ok;
 }
@@ -2236,9 +2270,10 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
                  !strcmp(pipeline, "dxmt_32") ? "i386" : "x86_64");
         setenv("WINEDLLPATH", winedllpath, 1);
     } else if (!strcmp(pipeline, "vkd3d")) {
-        snprintf(winedllpath, sizeof(winedllpath),
-                 "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
-                 home, home, home);
+        snprintf(
+            winedllpath, sizeof(winedllpath),
+            "%s/vkd3d/vkd3d-proton/x86_64-windows:%s/vkd3d/dxvk/x86_64-windows:%s/runtime/wine/lib/wine/x86_64-windows",
+            home, home, home);
         setenv("WINEDLLPATH", winedllpath, 1);
         snprintf(vulkan_icd, sizeof(vulkan_icd), "%s/runtime/wine/etc/vulkan/icd.d/MoltenVK_icd.json", home);
         setenv("VK_ICD_FILENAMES", vulkan_icd, 1);
@@ -2539,6 +2574,37 @@ static char* pid_result(pid_t pid, const char* key, unsigned id, bool include_id
     o = ms_json_writer_take(&w);
     return o;
 }
+
+static char* launch_mode_pid_result(pid_t pid, unsigned id, const char* launch_mode) {
+    ms_json_writer w;
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, true);
+    ms_json_writer_key(&w, "pid");
+    ms_json_writer_u64(&w, (unsigned)pid);
+    ms_json_writer_key(&w, "appid");
+    ms_json_writer_u64(&w, id);
+    ms_json_writer_key(&w, "launch_mode");
+    ms_json_writer_string(&w, launch_mode);
+    ms_json_writer_object_end(&w);
+    return ms_json_writer_take(&w);
+}
+
+static char* launch_mode_waiting_result(unsigned id) {
+    ms_json_writer w;
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, true);
+    ms_json_writer_key(&w, "appid");
+    ms_json_writer_u64(&w, id);
+    ms_json_writer_key(&w, "launch_mode");
+    ms_json_writer_string(&w, "ubisoft_first_run_waiting");
+    ms_json_writer_object_end(&w);
+    return ms_json_writer_take(&w);
+}
+
 char* ms_steam_launch_json(const char* home, int* status) {
     char* steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
     char* ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
@@ -3179,8 +3245,7 @@ bool ms_steam_wrappers_ensure(const char* home) {
         for (size_t i = 0; i < sizeof(payloads) / sizeof(payloads[0]); ++i) {
             char* runtime_copy = join(home, payloads[i][0]);
             char* assets_copy = join(home, payloads[i][1]);
-            if (runtime_copy && assets_copy && access(runtime_copy, R_OK) != 0 &&
-                access(assets_copy, R_OK) == 0) {
+            if (runtime_copy && assets_copy && access(runtime_copy, R_OK) != 0 && access(assets_copy, R_OK) == 0) {
                 char* parent = strdup(runtime_copy);
                 char* slash = parent ? strrchr(parent, '/') : NULL;
                 if (slash) {
@@ -4030,7 +4095,7 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
     return ms_json_writer_take(&writer);
 }
 
-static char* launch_game_via_steam_json(const char* home, unsigned id, int* status) {
+static char* launch_game_via_steam_json(const char* home, unsigned id, int* status, pid_t* launched_pid) {
     char url[64];
     char *steam_result, *error_text;
     pid_t pid;
@@ -4060,14 +4125,16 @@ static char* launch_game_via_steam_json(const char* home, unsigned id, int* stat
             *status = 500;
         return result;
     }
+    if (launched_pid)
+        *launched_pid = pid;
     if (status)
         *status = 200;
     return pid_result(pid, "pid", id, true);
 }
 
 static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
-    static const char* const marker_files[] = {"uplay_r1_loader64.dll", "uplay_r1_loader.dll",
-                                               "UbisoftConnect.exe", "UbisoftGameLauncher.exe"};
+    static const char* const marker_files[] = {"uplay_r1_loader64.dll", "uplay_r1_loader.dll", "UbisoftConnect.exe",
+                                               "UbisoftGameLauncher.exe"};
     if (id == 812140) /* Assassin's Creed Odyssey (Steam). */
         return true;
     for (size_t i = 0; game_dir && i < sizeof(marker_files) / sizeof(marker_files[0]); i++) {
@@ -4080,7 +4147,32 @@ static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
     return false;
 }
 
-static bool ubisoft_connect_running(const char* home) {
+static bool ubisoft_connect_installed(const char* home) {
+    char path[PATH_MAX];
+    int length = snprintf(path, sizeof(path),
+                          "%s/prefix-steam/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/"
+                          "UbisoftConnect.exe",
+                          home);
+    return length > 0 && (size_t)length < sizeof(path) && access(path, R_OK) == 0;
+}
+
+static bool odyssey_uses_steam_bootstrap(unsigned id, const char* pipeline) {
+    /* Odyssey must always enter through Steam first. Ubisoft Connect's
+     * presence must not route later attempts into the legacy direct launcher. */
+    return id == 812140 && pipeline && !strcmp(pipeline, "d3dmetal");
+}
+
+static bool ubisoft_connect_command(const char* command) {
+    return contains_ci(command, "ubisoftconnect.exe") || contains_ci(command, "ubisoftgamelauncher.exe") ||
+           contains_ci(command, "upc.exe");
+}
+
+static bool ubisoft_crash_reporter_command(const char* command) {
+    return contains_ci(command, "uplaycrashreporter.exe") || contains_ci(command, "ubisoftcrashreporter.exe") ||
+           contains_ci(command, "uplaycrashreport.exe");
+}
+
+static pid_t ubisoft_owned_process_pid(const char* home, bool crash_reporter) {
     char prefix[PATH_MAX], runtime[PATH_MAX];
     FILE* pipe;
     char line[4096];
@@ -4088,7 +4180,7 @@ static bool ubisoft_connect_running(const char* home) {
     snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
-        return false;
+        return 0;
     while (fgets(line, sizeof(line), pipe)) {
         char* command = line;
         char* end;
@@ -4101,14 +4193,292 @@ static bool ubisoft_connect_running(const char* home) {
             continue;
         while (*end == ' ' || *end == '\t')
             end++;
-        if ((contains_ci(end, "ubisoftconnect.exe") || contains_ci(end, "ubisoftgamelauncher.exe")) &&
+        if ((crash_reporter ? ubisoft_crash_reporter_command(end) : ubisoft_connect_command(end)) &&
             wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
             pclose(pipe);
-            return true;
+            return (pid_t)raw_pid;
         }
     }
     pclose(pipe);
-    return false;
+    return 0;
+}
+
+static bool ubisoft_connect_running(const char* home) {
+    return ubisoft_owned_process_pid(home, false) > 0;
+}
+
+static bool ubisoft_crash_reporter_running(const char* home) {
+    return ubisoft_owned_process_pid(home, true) > 0;
+}
+
+static pid_t ubisoft_game_process_pid(const char* home, const char* executable) {
+    char prefix[PATH_MAX], runtime[PATH_MAX];
+    const char* exe_name = strrchr(executable, '/');
+    FILE* pipe;
+    char line[4096];
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    exe_name = exe_name ? exe_name + 1 : executable;
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe)
+        return 0;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX)
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if (contains_ci(end, exe_name) && wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
+            pclose(pipe);
+            return (pid_t)raw_pid;
+        }
+    }
+    pclose(pipe);
+    return 0;
+}
+
+static bool ubisoft_game_process_running(const char* home, const char* executable) {
+    return ubisoft_game_process_pid(home, executable) > 0;
+}
+
+typedef struct {
+    char* home;
+    char* executable;
+    char pipeline[32];
+    unsigned appid;
+    unsigned long task_generation;
+    unsigned long reservation_id;
+} ubisoft_first_run_job;
+
+static pthread_mutex_t ubisoft_first_run_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool ubisoft_first_run_active;
+static unsigned long ubisoft_first_run_next_reservation;
+static unsigned long ubisoft_first_run_active_reservation;
+
+pid_t ms_steam_odyssey_activity_pid(const char* home) {
+    char* executable = find_steam_game_executable(home, 812140, "d3dmetal");
+    pid_t pid = executable ? ubisoft_game_process_pid(home, executable) : 0;
+    bool monitor_active;
+    free(executable);
+    if (pid <= 0)
+        pid = ubisoft_owned_process_pid(home, false);
+    if (pid <= 0)
+        pid = ubisoft_owned_process_pid(home, true);
+    pthread_mutex_lock(&ubisoft_first_run_mutex);
+    monitor_active = ubisoft_first_run_active;
+    pthread_mutex_unlock(&ubisoft_first_run_mutex);
+    /* Keep Stop available during the brief Steam-to-Ubisoft process handoff.
+     * The kill route treats this as an activity marker, not a signal target. */
+    return pid > 0 ? pid : (monitor_active ? getpid() : 0);
+}
+
+static bool odyssey_process_command(const char* command, const char* executable) {
+    const char* exe_name = executable ? strrchr(executable, '/') : NULL;
+    exe_name = exe_name ? exe_name + 1 : executable;
+    return ubisoft_connect_command(command) || ubisoft_crash_reporter_command(command) ||
+           (exe_name && contains_ci(command, exe_name));
+}
+
+static bool signal_odyssey_processes(const char* home, const char* executable, int signal_number, bool* failed) {
+    char prefix[PATH_MAX], runtime[PATH_MAX];
+    char line[4096];
+    FILE* pipe;
+    bool found = false;
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe) {
+        if (failed)
+            *failed = true;
+        return false;
+    }
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX || raw_pid == (long)getpid())
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if (odyssey_process_command(end, executable) && wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
+            found = true;
+            if (kill((pid_t)raw_pid, signal_number) != 0 && errno != ESRCH && failed)
+                *failed = true;
+        }
+    }
+    if (pclose(pipe) != 0 && failed)
+        *failed = true;
+    return found;
+}
+
+bool ms_steam_stop_odyssey_processes(const char* home) {
+    char* executable;
+    bool failed = false;
+    /* Invalidate the first-run worker before killing processes, so a pending
+     * crash-reporter retry cannot respawn the game after the user stops it. */
+    ms_steam_cancel_background_tasks();
+    executable = find_steam_game_executable(home, 812140, "d3dmetal");
+    (void)signal_odyssey_processes(home, executable, SIGTERM, &failed);
+    usleep(400000);
+    (void)signal_odyssey_processes(home, executable, SIGKILL, &failed);
+    free(executable);
+    return !failed;
+}
+
+static bool reserve_ubisoft_first_run(unsigned long* task_generation, unsigned long* reservation_id) {
+    bool reserved = false;
+    pthread_mutex_lock(&ubisoft_first_run_mutex);
+    if (!ubisoft_first_run_active && !ms_process_background_shutdown_requested()) {
+        ubisoft_first_run_active = true;
+        ubisoft_first_run_active_reservation = ++ubisoft_first_run_next_reservation;
+        *task_generation = ms_process_background_task_generation();
+        *reservation_id = ubisoft_first_run_active_reservation;
+        reserved = true;
+    }
+    pthread_mutex_unlock(&ubisoft_first_run_mutex);
+    return reserved;
+}
+
+static void release_ubisoft_first_run(unsigned long reservation_id) {
+    pthread_mutex_lock(&ubisoft_first_run_mutex);
+    if (ubisoft_first_run_active && reservation_id == ubisoft_first_run_active_reservation)
+        ubisoft_first_run_active = false;
+    pthread_mutex_unlock(&ubisoft_first_run_mutex);
+}
+
+void ms_steam_cancel_background_tasks(void) {
+    ms_process_cancel_background_tasks();
+    pthread_mutex_lock(&ubisoft_first_run_mutex);
+    ubisoft_first_run_active = false;
+    pthread_mutex_unlock(&ubisoft_first_run_mutex);
+}
+
+static void* ubisoft_first_run_retry_worker(void* opaque) {
+    ubisoft_first_run_job* job = opaque;
+    bool retry_triggered = false;
+    bool monitor_finished = false;
+    bool game_seen = false;
+    unsigned long reservation_id = job->reservation_id;
+    unsigned exited_without_reporter = 0;
+    const unsigned timeout_seconds = 5 * 60;
+    ms_log_event(job->home,
+                 "Assassin's Creed Odyssey first-run: waiting for Ubisoft Connect and its crash reporter before "
+                 "retrying directly with D3DMetal.");
+    for (unsigned waited = 0; waited < timeout_seconds; waited++) {
+        if (ms_process_background_task_cancelled(job->task_generation)) {
+            monitor_finished = true;
+            ms_log_event(job->home, "Assassin's Creed Odyssey first-run retry monitor canceled.");
+            break;
+        }
+        if (ubisoft_connect_installed(job->home) && ubisoft_crash_reporter_running(job->home)) {
+            char* error;
+            pid_t pid;
+            unsigned long long retry_started_at = monotonic_millis();
+            retry_triggered = true;
+            monitor_finished = true;
+            ms_log_event(job->home,
+                         "Ubisoft crash reporter detected for Assassin's Creed Odyssey; retrying directly with "
+                         "D3DMetal.");
+            /* The first Steam-launched game should have exited before we start
+             * another copy. Give Wine a short grace period after the reporter
+             * appears rather than racing the original process teardown. */
+            for (unsigned exit_wait = 0; exit_wait < 60; exit_wait++) {
+                if (ms_process_background_task_cancelled(job->task_generation))
+                    break;
+                if (!ubisoft_game_process_running(job->home, job->executable))
+                    break;
+                sleep(1);
+            }
+            if (ms_process_background_task_cancelled(job->task_generation))
+                break;
+            if (ubisoft_game_process_running(job->home, job->executable)) {
+                ms_log_event(job->home,
+                             "Ubisoft crash reporter appeared, but Assassin's Creed Odyssey is still running; "
+                             "automatic D3DMetal retry was skipped.");
+                break;
+            }
+            if (!ms_process_background_task_begin(job->task_generation))
+                break;
+            error = spawn_direct_game(job->home, job->executable, job->appid, job->pipeline, &pid);
+            if (!error) {
+                ms_process_register_game(job->appid, pid);
+                /* SIGTERM can arrive while the spawn critical section is in
+                 * progress. In that case don't leave an untracked Wine child. */
+                if (ms_process_background_shutdown_requested())
+                    (void)kill(pid, SIGKILL);
+            }
+            ms_process_background_task_end();
+            if (error) {
+                char message[512];
+                snprintf(message, sizeof(message), "Assassin's Creed Odyssey D3DMetal retry failed: %.430s", error);
+                ms_log_event(job->home, message);
+                free(error);
+                break;
+            }
+            (void)mark_steam_bottle_launch(job->home, job->appid, pid);
+            record_launch_timing(job->home, job->appid, retry_started_at, job->pipeline);
+            ms_log_event(job->home,
+                         "Assassin's Creed Odyssey relaunched directly with D3DMetal after Ubisoft Connect first-run.");
+            break;
+        }
+        if (ubisoft_connect_installed(job->home)) {
+            if (ubisoft_game_process_running(job->home, job->executable)) {
+                game_seen = true;
+                exited_without_reporter = 0;
+            } else if (game_seen && ++exited_without_reporter >= 30) {
+                monitor_finished = true;
+                ms_log_event(job->home,
+                             "Assassin's Creed Odyssey exited after Ubisoft Connect setup without a crash reporter; "
+                             "automatic retry is no longer needed.");
+                break;
+            }
+        }
+        sleep(1);
+    }
+    if (!monitor_finished && !retry_triggered)
+        ms_log_event(job->home,
+                     "Assassin's Creed Odyssey first-run retry monitor timed out before Ubisoft's crash reporter "
+                     "appeared.");
+    free(job->home);
+    free(job->executable);
+    free(job);
+    release_ubisoft_first_run(reservation_id);
+    return NULL;
+}
+
+static bool start_ubisoft_first_run_retry(const char* home, unsigned id, const char* pipeline, const char* executable,
+                                          unsigned long task_generation, unsigned long reservation_id) {
+    ubisoft_first_run_job* job = calloc(1, sizeof(*job));
+    pthread_t thread;
+    if (!job) {
+        release_ubisoft_first_run(reservation_id);
+        return false;
+    }
+    job->home = strdup(home);
+    job->executable = strdup(executable);
+    job->appid = id;
+    job->task_generation = task_generation;
+    job->reservation_id = reservation_id;
+    snprintf(job->pipeline, sizeof(job->pipeline), "%s", pipeline);
+    if (!job->home || !job->executable || pthread_create(&thread, NULL, ubisoft_first_run_retry_worker, job) != 0) {
+        free(job->home);
+        free(job->executable);
+        free(job);
+        release_ubisoft_first_run(reservation_id);
+        return false;
+    }
+    pthread_detach(thread);
+    return true;
 }
 
 static char* launch_ubisoft_connect_steam_mode(const char* home, unsigned appid, pid_t* pid) {
@@ -4202,12 +4572,12 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         ms_json_free(request);
     }
     if (!has_route && default_to_steam)
-        return launch_game_via_steam_json(home, id, status);
+        return launch_game_via_steam_json(home, id, status, NULL);
     if (has_route && (!strcasecmp(pipeline, "steam") || !strcasecmp(pipeline, "mac_steam") ||
                       !strcasecmp(pipeline, "macos_steam"))) {
         /* An explicit Steam route is a Steam URL
          * handoff; it does not resolve a local executable for that route. */
-        return launch_game_via_steam_json(home, id, status);
+        return launch_game_via_steam_json(home, id, status, NULL);
     }
     {
         const char* canonical = canonical_pipeline(pipeline);
@@ -4280,6 +4650,45 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         if (status)
             *status = 500;
         return err("required graphics runtime DLLs are missing");
+    }
+    if (odyssey_uses_steam_bootstrap(id, pipeline)) {
+        pid_t steam_pid = 0;
+        unsigned long task_generation = 0;
+        unsigned long reservation_id = 0;
+        int steam_status = 500;
+        char* result;
+        if (!reserve_ubisoft_first_run(&task_generation, &reservation_id)) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 200;
+            return launch_mode_waiting_result(id);
+        }
+        result = launch_game_via_steam_json(home, id, &steam_status, &steam_pid);
+        if (!result || steam_status >= 400) {
+            release_ubisoft_first_run(reservation_id);
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = steam_status;
+            return result ? result : err("Steam first-run launch failed");
+        }
+        if (status)
+            *status = 200;
+        if (!start_ubisoft_first_run_retry(home, id, pipeline, executable, task_generation, reservation_id)) {
+            ms_log_event(home, "Assassin's Creed Odyssey was launched through Steam, but the automatic Ubisoft crash "
+                               "reporter retry monitor could not start.");
+            free(result);
+            result = launch_mode_pid_result(steam_pid, id, "ubisoft_first_run_monitor_failed");
+        } else {
+            ms_log_event(home, "Assassin's Creed Odyssey launched through Steam for Ubisoft Connect first-run; "
+                               "MetalSharp will retry directly with D3DMetal after the crash reporter appears.");
+            free(result);
+            result = launch_mode_pid_result(steam_pid, id, "ubisoft_first_run");
+        }
+        free(game_dir);
+        free(executable);
+        return result;
     }
     if (steam_game_uses_ubisoft_connect(id, game_dir) && !ubisoft_connect_running(home)) {
         e = launch_ubisoft_connect_steam_mode(home, id, &pid);

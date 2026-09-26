@@ -1,6 +1,8 @@
 #include "metalsharp_backend/backend.h"
 #include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/logs.h"
+#include "metalsharp_backend/process.h"
+#include "metalsharp_backend/steam_actions.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -62,6 +64,7 @@ static void sanitize_inherited_runtime_environment(void) {
 static void request_stop(int signal_number) {
     (void)signal_number;
     stop_requested = 1;
+    ms_process_request_background_shutdown();
 }
 
 static unsigned short configured_port(void) {
@@ -123,6 +126,7 @@ int main(void) {
                 strerror(errno));
         sleep_half_second();
     }
+    ms_steam_cancel_background_tasks();
     free((void*)context.metalsharp_home);
     return EXIT_SUCCESS;
 }

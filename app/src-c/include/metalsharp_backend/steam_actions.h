@@ -2,7 +2,11 @@
 #define METALSHARP_BACKEND_STEAM_ACTIONS_H
 #include <stdbool.h>
 #include <stddef.h>
+#include <sys/types.h>
 bool ms_steam_process_running(const char*);
+pid_t ms_steam_odyssey_activity_pid(const char*);
+bool ms_steam_stop_odyssey_processes(const char*);
+void ms_steam_cancel_background_tasks(void);
 char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
 /* Migration-time guarantee: verify/restore steamwebhelper wrapper, bridge shim and Goldberg payloads. */
