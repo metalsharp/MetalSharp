@@ -2,6 +2,7 @@
 #include "metalsharp_backend/epic.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
 
 #include <errno.h>
@@ -22,7 +23,8 @@ static bool inherited_runtime_variable(const char* name, size_t name_length) {
                                            "DYLD_", "VK_"};
     static const char* const exact_names[] = {"STEAM_RUNTIME",   "SteamAppId", "SteamGameId",
                                               "SteamOverlayGameId", "SteamPath",  "GRAPHICS_BACKEND",
-                                              "MS_GRAPHICS_BACKEND", "LD_LIBRARY_PATH", "LD_PRELOAD"};
+                                              "MS_GRAPHICS_BACKEND", "METALSHARP_PIPELINE", "LD_LIBRARY_PATH",
+                                              "LD_PRELOAD"};
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
         size_t prefix_length = strlen(prefixes[i]);
         if (name_length >= prefix_length && strncasecmp(name, prefixes[i], prefix_length) == 0)
@@ -103,6 +105,8 @@ int main(void) {
         fprintf(stderr, "failed to resolve MetalSharp home\n");
         return EXIT_FAILURE;
     }
+    if (!ms_setup_wine_wrapper_ensure(context.metalsharp_home))
+        fprintf(stderr, "warning: could not update MetalSharp Wine wrapper for graphics routes\n");
     fprintf(stderr, "metalsharp-backend listening on 127.0.0.1:%u\n", (unsigned)port);
     fprintf(stderr, "MetalSharp v%s backend started on 127.0.0.1:%u\n", context.version, (unsigned)port);
     {
