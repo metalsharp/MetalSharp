@@ -2203,7 +2203,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/game/running") == 0) {
-        body = ms_process_running_json();
+        body = ms_process_running_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
@@ -2211,7 +2211,8 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/kill") == 0) {
         int status = 500;
-        body = ms_process_kill_json((const char*)request->body, request->body_length, &status);
+        body =
+            ms_process_kill_json(context->metalsharp_home, (const char*)request->body, request->body_length, &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);
