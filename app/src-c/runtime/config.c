@@ -207,6 +207,15 @@ bool ms_config_retina_enabled(const char* metalsharp_home) {
     return enabled;
 }
 
+bool ms_config_exclude_native_mac_steam_games(const char* metalsharp_home) {
+    char* path = config_path(metalsharp_home);
+    ms_json* config = path == NULL ? NULL : read_json_file(path);
+    bool enabled = config_bool(config, "excludeNativeMacSteamGames", false);
+    free(path);
+    ms_json_free(config);
+    return enabled;
+}
+
 char* ms_config_get_json(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
@@ -216,6 +225,7 @@ char* ms_config_get_json(const char* metalsharp_home) {
                     : config_bool(config, "graphicsRuntimeLogs", config_bool(config, "graphics_runtime_logs", false));
     bool msync = config_bool(config, "msync", true);
     bool retina = config_bool(config, "retinaMode", false);
+    bool exclude_native_mac_steam_games = config_bool(config, "excludeNativeMacSteamGames", false);
     char* controller = controller_input(config);
     ms_json_writer writer;
     char* result;
@@ -242,6 +252,8 @@ char* ms_config_get_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, msync);
     ms_json_writer_key(&writer, "retinaMode");
     ms_json_writer_bool(&writer, retina);
+    ms_json_writer_key(&writer, "excludeNativeMacSteamGames");
+    ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(controller);
@@ -273,7 +285,8 @@ static void write_member(ms_json_writer* writer, const char* key, const ms_json*
 }
 
 static bool write_config(const char* path, const ms_json* existing, bool set_logs, bool logs, bool set_controller,
-                         const char* controller, bool set_msync, bool msync, bool set_retina, bool retina) {
+                         const char* controller, bool set_msync, bool msync, bool set_retina, bool retina,
+                         bool set_exclude_native_mac_steam_games, bool exclude_native_mac_steam_games) {
     char* parent;
     char* slash;
     ms_json_writer writer;
@@ -283,6 +296,7 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     bool emitted_controller = false;
     bool emitted_msync = false;
     bool emitted_retina = false;
+    bool emitted_exclude_native_mac_steam_games = false;
     parent = strdup(path);
     if (parent == NULL)
         return false;
@@ -320,6 +334,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
             ms_json_writer_key(&writer, key);
             ms_json_writer_bool(&writer, retina);
             emitted_retina = true;
+        } else if (set_exclude_native_mac_steam_games && strcmp(key, "excludeNativeMacSteamGames") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
+            emitted_exclude_native_mac_steam_games = true;
         } else {
             write_member(&writer, key, value);
         }
@@ -343,6 +361,10 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     if (set_retina && !emitted_retina) {
         ms_json_writer_key(&writer, "retinaMode");
         ms_json_writer_bool(&writer, retina);
+    }
+    if (set_exclude_native_mac_steam_games && !emitted_exclude_native_mac_steam_games) {
+        ms_json_writer_key(&writer, "excludeNativeMacSteamGames");
+        ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
     }
     ms_json_writer_object_end(&writer);
     {
@@ -369,7 +391,7 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
     ms_json* request = NULL;
     char error[128];
     bool set_logs = false, logs = false, set_msync = false, msync = false, set_retina = false, retina = false,
-         set_controller = false;
+         set_exclude_native_mac_steam_games = false, exclude_native_mac_steam_games = false, set_controller = false;
     char* controller = NULL;
     char* result;
     if (status != NULL)
@@ -400,8 +422,11 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
         set_msync = value != NULL && ms_json_as_bool(value, &msync);
         value = ms_json_object_get(request, "retinaMode");
         set_retina = value != NULL && ms_json_as_bool(value, &retina);
+        value = ms_json_object_get(request, "excludeNativeMacSteamGames");
+        set_exclude_native_mac_steam_games = value != NULL && ms_json_as_bool(value, &exclude_native_mac_steam_games);
     }
-    if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync, set_retina, retina))
+    if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync, set_retina, retina,
+                      set_exclude_native_mac_steam_games, exclude_native_mac_steam_games))
         goto fail;
     result = ms_config_get_json(metalsharp_home);
     if (status != NULL)

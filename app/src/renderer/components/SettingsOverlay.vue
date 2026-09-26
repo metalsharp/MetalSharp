@@ -51,6 +51,8 @@ const apiKeyInput = ref("");
 const graphicsRuntimeLogs = ref(false);
 const retinaMode = ref(false);
 const retinaModeBusy = ref(false);
+const excludeNativeMacSteamGames = ref(false);
+const nativeMacSteamFilterBusy = ref(false);
 
 onMounted(async () => {
   apiKeyInput.value = steamApiKey.value ?? "";
@@ -73,6 +75,7 @@ async function refreshConfig() {
     config.value = result;
     graphicsRuntimeLogs.value = Boolean(result.graphicsRuntimeLogs ?? result.graphics_runtime_logs);
     retinaMode.value = result.retinaMode === true;
+    excludeNativeMacSteamGames.value = result.excludeNativeMacSteamGames === true;
   }
 }
 
@@ -347,6 +350,23 @@ async function toggleRetinaMode(enabled: boolean) {
   retinaModeBusy.value = false;
 }
 
+async function toggleNativeMacSteamExclusion(enabled: boolean) {
+  if (nativeMacSteamFilterBusy.value || enabled === excludeNativeMacSteamGames.value) return;
+  const previous = excludeNativeMacSteamGames.value;
+  nativeMacSteamFilterBusy.value = true;
+  excludeNativeMacSteamGames.value = enabled;
+  const result = await api<AppConfig>("POST", "/config", { excludeNativeMacSteamGames: enabled });
+  if (result?.ok) {
+    config.value = result;
+    excludeNativeMacSteamGames.value = result.excludeNativeMacSteamGames === true;
+    await reloadLibrary();
+  } else {
+    excludeNativeMacSteamGames.value = previous;
+    toast.show("Failed to update native Steam game visibility", "error");
+  }
+  nativeMacSteamFilterBusy.value = false;
+}
+
 function uninstallMetalsharp() {
   getAPI().uninstallApp();
 }
@@ -437,6 +457,17 @@ function uninstallMetalsharp() {
                 {{ macSteamRunning ? t("ui.settings.stopSteamMac") : t("ui.settings.startSteamMac") }}
               </button>
               <button v-else class="so-btn primary" type="button" @click="installMacSteam">{{ t("ui.settings.installMacSteam") }}</button>
+              <span v-if="macSteamInstalled" class="so-value-text">Exclude native</span>
+              <label v-if="macSteamInstalled" class="so-toggle" title="Exclude native macOS Steam games from the library">
+                <input
+                  type="checkbox"
+                  :checked="excludeNativeMacSteamGames"
+                  :disabled="nativeMacSteamFilterBusy"
+                  aria-label="Exclude native macOS Steam games from the library"
+                  @change="toggleNativeMacSteamExclusion(($event.target as HTMLInputElement).checked)"
+                />
+                <span class="so-switch"></span>
+              </label>
             </div>
           </div>
           <div class="so-row">
