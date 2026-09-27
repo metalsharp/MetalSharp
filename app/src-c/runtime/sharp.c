@@ -2,6 +2,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -592,7 +593,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
     char *id = NULL, *src = NULL, *exe = NULL, *name = NULL, *dir = NULL, *raw = NULL;
     ms_json_writer w;
     char* o;
-    bool needs_id = !strcmp(action, "uninstall") || !strcmp(action, "set-cover") ||
+    bool needs_id = !strcmp(action, "uninstall") || !strcmp(action, "rename") || !strcmp(action, "set-cover") ||
                     !strcmp(action, "set-cover-position") || !strcmp(action, "set-launch-args") ||
                     !strcmp(action, "set-engine") || !strcmp(action, "launch") || !strcmp(action, "doctor") ||
                     !strcmp(action, "relaunch");
@@ -725,11 +726,31 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
             free(serial);
             ms_json_free(newa);
         }
-        if (!strcmp(action, "set-cover") || !strcmp(action, "set-engine") || !strcmp(action, "set-launch-args") ||
-            !strcmp(action, "set-cover-position")) {
+        if (!strcmp(action, "rename") || !strcmp(action, "set-cover") || !strcmp(action, "set-engine") ||
+            !strcmp(action, "set-launch-args") || !strcmp(action, "set-cover-position")) {
             char* value = NULL;
             const char* key = NULL;
-            if (!strcmp(action, "set-cover")) {
+            if (!strcmp(action, "rename")) {
+                char* requested_name = field(j, "name", "");
+                char* start = requested_name;
+                char* end;
+                while (*start && isspace((unsigned char)*start))
+                    start++;
+                end = start + strlen(start);
+                while (end > start && isspace((unsigned char)end[-1]))
+                    *--end = '\0';
+                if (!start[0] || strlen(start) > 512) {
+                    bool empty = !start[0];
+                    free(requested_name);
+                    ms_json_free(a);
+                    free(id);
+                    ms_json_free(j);
+                    return failure(empty ? "name is required" : "name must be 512 bytes or fewer");
+                }
+                value = ms_json_quote(start);
+                key = "name";
+                free(requested_name);
+            } else if (!strcmp(action, "set-cover")) {
                 char* cover = field(j, "coverPath", "");
                 char filename[256];
                 if (!cover[0] || !copy_cover(home, id, cover, filename, sizeof(filename))) {

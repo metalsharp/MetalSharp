@@ -467,7 +467,7 @@ async function openArtManager() {
   if (artManagerOpening.value) return;
   artManagerOpening.value = true;
   try {
-    const result = await window.metalsharp.openSteamArtManager();
+    const result = await getAPI().openSteamArtManager();
     if (!result?.ok) console.warn("Steam Art Manager could not be launched:", result?.error);
   } finally {
     artManagerOpening.value = false;
@@ -634,7 +634,9 @@ async function launchGame(game: ShowcaseGame) {
     // Remind the player about the Cmd+Opt+Q escape hatch once the game has
     // had a moment to take over the screen.
     setTimeout(() => {
-      void window.metalsharp.showLaunchOverlay(game.name).catch(() => {});
+      void getAPI()
+        .showLaunchOverlay(game.name)
+        .catch(() => {});
     }, 5000);
   } else toast.show(result?.error || `Failed to launch ${game.name}`, "error");
 }
@@ -850,7 +852,7 @@ onMounted(() => {
     openPlay();
   }
   void loadGameSettings();
-  window.metalsharp
+  getAPI()
     .backendBaseUrl()
     .then((base) => {
       backendBase.value = base;
@@ -859,7 +861,7 @@ onMounted(() => {
   // Fired when the Steam Art Manager save button (or Steam's "Set Custom
   // Image") writes grid artwork. Bust the per-game artwork caches so every
   // app card and the hero re-probe against the new images.
-  window.metalsharp.onGridArtChanged?.(() => {
+  getAPI().onGridArtChanged?.(() => {
     artVersion.value = Date.now();
     artworkSources.value = {};
     heroArtSources.value = {};

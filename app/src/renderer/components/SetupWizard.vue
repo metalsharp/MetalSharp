@@ -307,7 +307,10 @@ async function finish() {
       </div>
 
       <div class="setup-pane">
-        <LanguagePicker class="setup-language-picker" />
+        <LanguagePicker
+          class="setup-language-picker"
+          :class="{ 'setup-language-picker-with-close': props.dismissible }"
+        />
         <button
           v-if="props.dismissible"
           class="setup-wizard-close"
@@ -644,8 +647,12 @@ async function finish() {
 .setup-language-picker {
   position: absolute;
   top: 18px;
-  left: clamp(26px, 4vw, 68px);
+  right: 18px;
+  left: auto;
   z-index: 2;
+}
+.setup-language-picker-with-close {
+  right: 58px;
 }
 .setup-pane {
   position: relative;

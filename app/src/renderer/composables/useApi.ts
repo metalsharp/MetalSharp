@@ -44,6 +44,8 @@ const browserAPI = {
       return false;
     }
   },
+  backendBaseUrl: async () => BROWSER_BACKEND_URL,
+  openSteamArtManager: async () => ({ ok: false, error: "Steam Art Manager requires the MetalSharp desktop app." }),
   onGameJoltDownload: () => () => {},
   onSteamappsChanged: () => () => {},
   onGridArtChanged: () => () => {},
@@ -114,6 +116,7 @@ const mockSetupAPI = {
   isFirstLaunch: async () => true,
   isMigrationMode: async () => false,
   isBackendAlive: async () => true,
+  backendBaseUrl: async () => BROWSER_BACKEND_URL,
   blurMainWindow: async () => {},
   focusMainWindow: async () => {},
   runSteamFix: async () => {
