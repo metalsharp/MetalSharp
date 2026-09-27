@@ -435,8 +435,18 @@ static void set_route_paths(const char* home, const char* pipeline) {
 #ifdef __APPLE__
         setenv("DYLD_LIBRARY_PATH", unixpath, 1);
         setenv("DYLD_FALLBACK_LIBRARY_PATH", unixpath, 1);
+        /* SIP strips DYLD_* variables when a protected shell (for example
+         * gogdl's /bin/sh wrapper) starts. The Wine wrapper restores these
+         * values from non-DYLD bridge variables after its shell starts. */
+        setenv("METALSHARP_DYLD_LIBRARY_PATH", unixpath, 1);
+        setenv("METALSHARP_DYLD_FALLBACK_LIBRARY_PATH", unixpath, 1);
 #else
         setenv("LD_LIBRARY_PATH", unixpath, 1);
+#endif
+    } else {
+#ifdef __APPLE__
+        unsetenv("METALSHARP_DYLD_LIBRARY_PATH");
+        unsetenv("METALSHARP_DYLD_FALLBACK_LIBRARY_PATH");
 #endif
     }
     if (pipeline_is_dxmt(pipeline)) {
