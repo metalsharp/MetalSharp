@@ -15,6 +15,6 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
 char* ms_gamejolt_running_json(void);
 char* ms_gamejolt_stop_json(const unsigned char* body, size_t length, int* status);
 char* ms_gamejolt_stop_all_json(int* status);
-void ms_gamejolt_register_game_process(const char* id, pid_t pid);
+void ms_gamejolt_register_game_process(const char* home, const char* id, pid_t pid, const char* executable);
 
 #endif

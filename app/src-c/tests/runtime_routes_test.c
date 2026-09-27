@@ -10,6 +10,8 @@
 #undef main
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -48,6 +50,10 @@ static void executable_fixture(const char* home, const char* relative) {
     free(path);
 }
 int main(int argc, char** argv) {
+    if (argc == 2 && !strcmp(argv[1], "--gamejolt-detached-child")) {
+        for (;;)
+            pause();
+    }
     assert(argc == 2);
     const char* home = argv[1];
     assert(setenv("WINEPREFIX", "/tmp/foreign-wine-prefix", 1) == 0);
@@ -171,7 +177,7 @@ int main(int argc, char** argv) {
                     pause();
             }
             assert(setpgid(child, child) == 0 || errno == EACCES);
-            ms_gamejolt_register_game_process("gamejolt-smoke", child);
+            ms_gamejolt_register_game_process("/tmp", "gamejolt-smoke", child, "/tmp/game.exe");
             response = ms_gamejolt_running_json();
             assert(response && strstr(response, "gamejolt-smoke"));
             free(response);
@@ -181,6 +187,60 @@ int main(int argc, char** argv) {
             response = ms_gamejolt_running_json();
             assert(response && !strstr(response, "gamejolt-smoke"));
             free(response);
+        }
+        {
+            char source[PATH_MAX];
+            char* runtime_dir = join(home, "runtime/wine");
+            char* detached_dir = join(home, "gamejolt-detached");
+            char* helper = runtime_dir ? join(runtime_dir, "wine-helper") : NULL;
+            char* game_exe = detached_dir ? join(detached_dir, "Game.exe") : NULL;
+            const char* gamejolt_body = "{\"id\":\"gamejolt-detached\"}";
+            int stop_status = 0;
+            assert(runtime_dir && detached_dir && helper && game_exe);
+            assert(realpath(argv[0], source) != NULL);
+            assert(ensure_directory(runtime_dir) && ensure_directory(detached_dir));
+            int input = open(source, O_RDONLY);
+            int output = open(helper, O_WRONLY | O_CREAT | O_EXCL, 0700);
+            assert(input >= 0 && output >= 0);
+            char buffer[16384];
+            ssize_t bytes;
+            while ((bytes = read(input, buffer, sizeof(buffer))) > 0) {
+                ssize_t written = 0;
+                while (written < bytes) {
+                    ssize_t count = write(output, buffer + written, (size_t)(bytes - written));
+                    assert(count > 0);
+                    written += count;
+                }
+            }
+            assert(bytes == 0 && close(input) == 0 && close(output) == 0);
+            pid_t leader = fork();
+            assert(leader >= 0);
+            if (leader == 0) {
+                (void)setpgid(0, 0);
+                pid_t detached = fork();
+                if (detached == 0) {
+                    (void)setpgid(0, 0);
+                    (void)chdir(detached_dir);
+                    execl(helper, helper, "--gamejolt-detached-child", (char*)NULL);
+                    _exit(127);
+                }
+                _exit(detached < 0 ? 1 : 0);
+            }
+            assert(setpgid(leader, leader) == 0 || errno == EACCES);
+            assert(waitpid(leader, NULL, 0) == leader);
+            struct timespec detached_startup_delay = {0, 100000000L};
+            (void)nanosleep(&detached_startup_delay, NULL);
+            ms_gamejolt_register_game_process(home, "gamejolt-detached", leader, game_exe);
+            response = ms_gamejolt_running_json();
+            assert(response && strstr(response, "gamejolt-detached"));
+            free(response);
+            response = ms_gamejolt_stop_json((const unsigned char*)gamejolt_body, strlen(gamejolt_body), &stop_status);
+            assert(response && stop_status == 200 && strstr(response, "\"ok\":true"));
+            free(response);
+            free(runtime_dir);
+            free(detached_dir);
+            free(helper);
+            free(game_exe);
         }
         {
             pid_t leader = fork();
