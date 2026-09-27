@@ -665,7 +665,7 @@ function stopSharpLibraryApplications(port: number, onComplete?: () => void): vo
       res.on("end", () => onComplete?.());
     },
   );
-  req.setTimeout(2000, () => req.destroy());
+  req.setTimeout(10_000, () => req.destroy());
   req.on("error", (e) => {
     console.warn("Force-quit Sharp Library applications request failed:", e);
     onComplete?.();

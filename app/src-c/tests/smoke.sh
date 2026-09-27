@@ -45,10 +45,12 @@ assert v["ok"] is True
 assert v["controllerInput"] == "off"
 assert v["msync"] is True
 assert v["retinaMode"] is False
+assert v["windowMode"] == "default"
+assert v["gameResolution"] == "default"
 '
 
 curl --silent --fail --request POST --header 'Content-Type: application/json' \
-    --data '{"graphicsRuntimeLogs":true,"controllerInput":"X","msync":false,"retinaMode":false}' \
+    --data '{"graphicsRuntimeLogs":true,"controllerInput":"X","msync":false,"retinaMode":false,"windowMode":"windowed","gameResolution":"1920x1080"}' \
     "http://127.0.0.1:$port/config" >/dev/null
 config_after=$(curl --silent --fail "http://127.0.0.1:$port/config")
 printf '%s' "$config_after" | python3 -c '
@@ -59,6 +61,8 @@ assert v["graphics_runtime_logs"] is True
 assert v["controllerInput"] == "x"
 assert v["msync"] is False
 assert v["retinaMode"] is False
+assert v["windowMode"] == "windowed"
+assert v["gameResolution"] == "1920x1080"
 '
 
 progress=$(curl --silent --fail "http://127.0.0.1:$port/update/progress")
@@ -121,7 +125,7 @@ printf '%s' "$sharp_launch" | python3 -c 'import json, sys; v=json.load(sys.stdi
 for _ in $(seq 1 50); do test -f "$home/sharp-launch-check" && break; sleep 0.02; done
 test -f "$home/sharp-launch-check"
 expected_sharp_work_dir=$(cd "$home/smoke-input" && pwd -P)
-grep -F "d3dmetal|$expected_sharp_work_dir|$home/smoke-input/Game.exe" "$home/sharp-launch-check"
+grep -F "d3dmetal|$expected_sharp_work_dir|explorer" "$home/sharp-launch-check"
 cover_set=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data "{\"id\":\"$sharp_id\",\"coverPath\":\"$home/smoke-input/cover.png\"}" "http://127.0.0.1:$port/sharp-library/set-cover")
 printf '%s' "$cover_set" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
 curl --silent --fail "http://127.0.0.1:$port/sharp-library/cover?id=$sharp_id" -o "$home/smoke-cover.png"
@@ -160,9 +164,9 @@ printf '{}' > "$home/gog-play/Game/goggame-424242.info"
 cat > "$home/tools/gogdl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" > "$METALSHARP_HOME/gog-launch-args"
-printf 'pipeline=%s\ndllpath=%s\ndyld=%s\noverrides=%s\nvkicd=%s\n' \
+printf 'pipeline=%s\ndllpath=%s\ndyld=%s\noverrides=%s\nvkicd=%s\nwindow=%s\nresolution=%s\nmsync=%s\n' \
   "$METALSHARP_PIPELINE" "$WINEDLLPATH" "$DYLD_FALLBACK_LIBRARY_PATH" "$WINEDLLOVERRIDES" "$VK_ICD_FILENAMES" \
-  > "$METALSHARP_HOME/gog-launch-env"
+  "$METALSHARP_GAME_WINDOW_MODE" "$METALSHARP_GAME_RESOLUTION" "$WINEMSYNC" > "$METALSHARP_HOME/gog-launch-env"
 EOF
 chmod +x "$home/tools/gogdl"
 mkdir -p "$home/runtime/wine/bin"
@@ -230,8 +234,9 @@ home = Path(os.environ["METALSHARP_HOME"])
 args = (home / "gog-launch-args").read_text().splitlines()
 assert args[:3] == ["--auth-config-path", str(home / "gog_store" / "auth.json"), "launch"]
 assert args[3:5] == [str(home / "gog-play" / "Game"), "424242"]
-assert args[args.index("--wine") + 1] == str(home / "runtime" / "wine" / "bin" / "metalsharp-wine")
+assert args[args.index("--wine") + 1] == str(home / "cache" / "metalsharp-wine-game-launcher")
 env = dict(line.split("=", 1) for line in (home / "gog-launch-env").read_text().splitlines())
+assert env["window"] == "windowed" and env["resolution"] == "1920x1080" and env["msync"] == "0"
 assert env["pipeline"] == "dxmt"
 assert str(home / "runtime/wine/lib/dxmt/x86_64-windows") in env["dllpath"]
 assert "d3d11" in env["overrides"] and "=n,b" in env["overrides"]

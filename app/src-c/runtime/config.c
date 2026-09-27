@@ -184,6 +184,27 @@ static char* controller_input(const ms_json* config) {
     return string;
 }
 
+static char* display_preference(const ms_json* config, const char* key, const char* const* allowed, size_t count) {
+    char* value = NULL;
+    if (ms_json_as_string(ms_json_object_get(config, key), &value)) {
+        for (size_t i = 0; i < count; ++i)
+            if (!strcmp(value, allowed[i]))
+                return value;
+        free(value);
+    }
+    return strdup("default");
+}
+
+static char* window_mode(const ms_json* config) {
+    static const char* const allowed[] = {"default", "windowed", "fullscreen"};
+    return display_preference(config, "windowMode", allowed, sizeof(allowed) / sizeof(allowed[0]));
+}
+
+static char* game_resolution(const ms_json* config) {
+    static const char* const allowed[] = {"default", "1280x720", "1920x1080", "2560x1440", "3840x2160"};
+    return display_preference(config, "gameResolution", allowed, sizeof(allowed) / sizeof(allowed[0]));
+}
+
 static bool config_bool(const ms_json* config, const char* key, bool fallback) {
     bool value;
     return json_boolish(ms_json_object_get(config, key), &value) ? value : fallback;
@@ -227,11 +248,16 @@ char* ms_config_get_json(const char* metalsharp_home) {
     bool retina = config_bool(config, "retinaMode", false);
     bool exclude_native_mac_steam_games = config_bool(config, "excludeNativeMacSteamGames", false);
     char* controller = controller_input(config);
+    char* display = window_mode(config);
+    char* resolution = game_resolution(config);
     ms_json_writer writer;
     char* result;
-    if (controller == NULL) {
+    if (controller == NULL || display == NULL || resolution == NULL) {
         free(path);
         ms_json_free(config);
+        free(controller);
+        free(display);
+        free(resolution);
         return NULL;
     }
     ms_json_writer_init(&writer);
@@ -248,6 +274,10 @@ char* ms_config_get_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, logs);
     ms_json_writer_key(&writer, "controllerInput");
     ms_json_writer_string(&writer, controller);
+    ms_json_writer_key(&writer, "windowMode");
+    ms_json_writer_string(&writer, display);
+    ms_json_writer_key(&writer, "gameResolution");
+    ms_json_writer_string(&writer, resolution);
     ms_json_writer_key(&writer, "msync");
     ms_json_writer_bool(&writer, msync);
     ms_json_writer_key(&writer, "retinaMode");
@@ -257,6 +287,8 @@ char* ms_config_get_json(const char* metalsharp_home) {
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     free(controller);
+    free(display);
+    free(resolution);
     free(path);
     ms_json_free(config);
     return result;
@@ -277,6 +309,21 @@ static bool valid_controller(const ms_json* value, char** normalized) {
     return true;
 }
 
+static bool valid_display_preference(const ms_json* value, const char* const* allowed, size_t count,
+                                     char** normalized) {
+    char* string = NULL;
+    if (!ms_json_as_string(value, &string))
+        return false;
+    for (size_t i = 0; i < count; ++i) {
+        if (!strcmp(string, allowed[i])) {
+            *normalized = string;
+            return true;
+        }
+    }
+    free(string);
+    return false;
+}
+
 static void write_member(ms_json_writer* writer, const char* key, const ms_json* value) {
     char* serialized = ms_json_stringify(value);
     ms_json_writer_key(writer, key);
@@ -286,7 +333,9 @@ static void write_member(ms_json_writer* writer, const char* key, const ms_json*
 
 static bool write_config(const char* path, const ms_json* existing, bool set_logs, bool logs, bool set_controller,
                          const char* controller, bool set_msync, bool msync, bool set_retina, bool retina,
-                         bool set_exclude_native_mac_steam_games, bool exclude_native_mac_steam_games) {
+                         bool set_exclude_native_mac_steam_games, bool exclude_native_mac_steam_games,
+                         bool set_window_mode, const char* window_mode_value, bool set_game_resolution,
+                         const char* game_resolution_value) {
     char* parent;
     char* slash;
     ms_json_writer writer;
@@ -297,6 +346,8 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     bool emitted_msync = false;
     bool emitted_retina = false;
     bool emitted_exclude_native_mac_steam_games = false;
+    bool emitted_window_mode = false;
+    bool emitted_game_resolution = false;
     parent = strdup(path);
     if (parent == NULL)
         return false;
@@ -338,6 +389,14 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
             ms_json_writer_key(&writer, key);
             ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
             emitted_exclude_native_mac_steam_games = true;
+        } else if (set_window_mode && strcmp(key, "windowMode") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_string(&writer, window_mode_value);
+            emitted_window_mode = true;
+        } else if (set_game_resolution && strcmp(key, "gameResolution") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_string(&writer, game_resolution_value);
+            emitted_game_resolution = true;
         } else {
             write_member(&writer, key, value);
         }
@@ -366,6 +425,14 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
         ms_json_writer_key(&writer, "excludeNativeMacSteamGames");
         ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
     }
+    if (set_window_mode && !emitted_window_mode) {
+        ms_json_writer_key(&writer, "windowMode");
+        ms_json_writer_string(&writer, window_mode_value);
+    }
+    if (set_game_resolution && !emitted_game_resolution) {
+        ms_json_writer_key(&writer, "gameResolution");
+        ms_json_writer_string(&writer, game_resolution_value);
+    }
     ms_json_writer_object_end(&writer);
     {
         char* serialized = ms_json_writer_take(&writer);
@@ -392,7 +459,10 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
     char error[128];
     bool set_logs = false, logs = false, set_msync = false, msync = false, set_retina = false, retina = false,
          set_exclude_native_mac_steam_games = false, exclude_native_mac_steam_games = false, set_controller = false;
-    char* controller = NULL;
+    bool set_window_mode = false, set_game_resolution = false;
+    static const char* const window_modes[] = {"default", "windowed", "fullscreen"};
+    static const char* const resolutions[] = {"default", "1280x720", "1920x1080", "2560x1440", "3840x2160"};
+    char *controller = NULL, *window_mode_value = NULL, *game_resolution_value = NULL;
     char* result;
     if (status != NULL)
         *status = 500;
@@ -418,6 +488,11 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
         if (value != NULL)
             set_logs = json_boolish(value, &logs);
         set_controller = valid_controller(ms_json_object_get(request, "controllerInput"), &controller);
+        set_window_mode = valid_display_preference(ms_json_object_get(request, "windowMode"), window_modes,
+                                                   sizeof(window_modes) / sizeof(window_modes[0]), &window_mode_value);
+        set_game_resolution =
+            valid_display_preference(ms_json_object_get(request, "gameResolution"), resolutions,
+                                     sizeof(resolutions) / sizeof(resolutions[0]), &game_resolution_value);
         value = ms_json_object_get(request, "msync");
         set_msync = value != NULL && ms_json_as_bool(value, &msync);
         value = ms_json_object_get(request, "retinaMode");
@@ -426,18 +501,23 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
         set_exclude_native_mac_steam_games = value != NULL && ms_json_as_bool(value, &exclude_native_mac_steam_games);
     }
     if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync, set_retina, retina,
-                      set_exclude_native_mac_steam_games, exclude_native_mac_steam_games))
+                      set_exclude_native_mac_steam_games, exclude_native_mac_steam_games, set_window_mode,
+                      window_mode_value, set_game_resolution, game_resolution_value))
         goto fail;
     result = ms_config_get_json(metalsharp_home);
     if (status != NULL)
         *status = result == NULL ? 500 : 200;
     free(controller);
+    free(window_mode_value);
+    free(game_resolution_value);
     ms_json_free(existing);
     ms_json_free(request);
     free(path);
     return result;
 fail:
     free(controller);
+    free(window_mode_value);
+    free(game_resolution_value);
     ms_json_free(existing);
     ms_json_free(request);
     free(path);

@@ -652,8 +652,9 @@ static bool spawn_gogdl_download(const char* home, const char* product_id, const
 
 static bool spawn_gogdl_launch(const char* home, const char* product_id, const char* platform, const char* folder,
                                const char* engine, pid_t* pid_out, char** log_out) {
-    char *binary = gogdl_path(home), *log_dir = join(home, "logs/gog"),
-         *wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    char *binary = gogdl_path(home), *log_dir = join(home, "logs/gog"), *wine = ms_steam_wine_launch_wrapper_path(home);
+    if (!wine)
+        wine = join(home, "runtime/wine/bin/metalsharp-wine");
     char* prefix = join(home, "bottles/gog-prefix/prefix");
     char log_path[2048];
     pid_t pid;
@@ -2027,6 +2028,8 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 return err("platform must be windows, osx, or linux");
             }
             char* prefix = join(home, "bottles/gog-prefix/prefix");
+            if (!strcmp(platform, "windows"))
+                ms_steam_deploy_controller_input_shims(home, folder);
             bool started = prefix && mkdir_p(prefix) &&
                            spawn_gogdl_launch(home, s, platform, folder, engine, &launch_pid, &log_path);
             if (!started) {

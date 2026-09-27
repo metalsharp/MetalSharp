@@ -49,6 +49,39 @@ static void executable_fixture(const char* home, const char* relative) {
     assert(chmod(path, 0700) == 0);
     free(path);
 }
+
+#ifdef __APPLE__
+static pid_t spawn_sharp_detached_fixture(const char* game_dir, const char* helper, pid_t* detached_pid) {
+    int pid_pipe[2];
+    pid_t launcher;
+    assert(pipe(pid_pipe) == 0);
+    launcher = fork();
+    assert(launcher >= 0);
+    if (launcher == 0) {
+        close(pid_pipe[0]);
+        (void)setpgid(0, 0);
+        pid_t child = fork();
+        if (child == 0) {
+            (void)setsid();
+            (void)chdir(game_dir);
+            char* const args[] = {(char*)helper, "--gamejolt-detached-child", NULL};
+            execv(helper, args);
+            _exit(127);
+        }
+        if (child < 0 || write(pid_pipe[1], &child, sizeof(child)) != (ssize_t)sizeof(child))
+            _exit(1);
+        close(pid_pipe[1]);
+        for (;;)
+            pause();
+    }
+    close(pid_pipe[1]);
+    assert(setpgid(launcher, launcher) == 0 || errno == EACCES);
+    assert(read(pid_pipe[0], detached_pid, sizeof(*detached_pid)) == (ssize_t)sizeof(*detached_pid));
+    close(pid_pipe[0]);
+    return launcher;
+}
+#endif
+
 int main(int argc, char** argv) {
     if (argc == 2 && !strcmp(argv[1], "--gamejolt-detached-child")) {
         for (;;)
@@ -310,6 +343,54 @@ int main(int argc, char** argv) {
         free(wine_path);
         free(exe_path);
     }
+#ifdef __APPLE__
+    {
+        char *sharp_home = join(home, "sharp-detached"), *game_dir = join(home, "sharp-detached-game"),
+             *runtime_bin = join(home, "sharp-detached/runtime/wine/bin"),
+             *helper = join(home, "sharp-detached/runtime/wine/bin/sharp-child");
+        char source[PATH_MAX], library[PATH_MAX], body[256];
+        const char* stop_body = "{\"id\":\"sharp-detached-test\"}";
+        int status = 0;
+        char* response;
+        assert(sharp_home && game_dir && runtime_bin && helper);
+        assert(realpath(argv[0], source) && ensure_directory(game_dir) && ensure_directory(runtime_bin));
+        assert(copy_file_path(source, helper) && chmod(helper, 0700) == 0);
+        snprintf(library, sizeof(library), "[{\"id\":\"sharp-detached-test\",\"install_dir\":\"%s\"}]", game_dir);
+        fixture(home, "sharp-detached/sharp-library/library.json", library);
+        for (int iteration = 0; iteration < 2; ++iteration) {
+            pid_t detached_pid = 0;
+            pid_t launcher = spawn_sharp_detached_fixture(game_dir, helper, &detached_pid);
+            snprintf(body, sizeof(body), "{\"id\":\"sharp-detached-test\",\"pid\":%ld}", (long)launcher);
+            response = ms_sharp_track_running_json(sharp_home, (const unsigned char*)body, strlen(body));
+            assert(response && strstr(response, "\"ok\":true"));
+            free(response);
+            struct timespec startup_delay = {0, 100000000L};
+            (void)nanosleep(&startup_delay, NULL);
+            response = ms_sharp_running_json();
+            assert(response && strstr(response, "sharp-detached-test"));
+            free(response);
+            if (iteration == 0) {
+                response = ms_sharp_stop_json((const unsigned char*)stop_body, strlen(stop_body), &status);
+                assert(response && status == 200 && strstr(response, "\"ok\":true"));
+                free(response);
+            } else {
+                response = ms_sharp_stop_all_json(&status);
+                assert(response && status == 200 && strstr(response, "\"stopped\":1"));
+                free(response);
+            }
+            for (int retry = 0; retry < 20 && (kill(detached_pid, 0) == 0 || errno == EPERM); ++retry)
+                (void)nanosleep(&startup_delay, NULL);
+            assert(kill(detached_pid, 0) != 0 && errno == ESRCH);
+            response = ms_sharp_running_json();
+            assert(response && !strstr(response, "sharp-detached-test"));
+            free(response);
+        }
+        free(sharp_home);
+        free(game_dir);
+        free(runtime_bin);
+        free(helper);
+    }
+#endif
     {
         const char* stop_body = "{\"appName\":\"SmokeEpic\"}";
         char* epic_home = join(home, "epic-stop");
@@ -630,6 +711,92 @@ int main(int argc, char** argv) {
     fixture(home, "configs/config.json", "{\"msync\":true}");
     set_wine_msync(home);
     assert(!strcmp(getenv("WINEMSYNC"), "1"));
+    fixture(home, "configs/config.json",
+            "{\"msync\":false,\"windowMode\":\"fullscreen\",\"gameResolution\":\"3840x2160\"}");
+    ms_steam_apply_launch_preferences(home);
+    assert(!strcmp(getenv("WINEMSYNC"), "0"));
+    assert(!strcmp(getenv("METALSHARP_GAME_WINDOW_MODE"), "fullscreen"));
+    assert(!strcmp(getenv("METALSHARP_GAME_RESOLUTION"), "3840x2160"));
+    fixture(home, "configs/config.json", "{}");
+    ms_steam_apply_launch_preferences(home);
+    assert(!getenv("METALSHARP_GAME_WINDOW_MODE"));
+    assert(!getenv("METALSHARP_GAME_RESOLUTION"));
+    {
+        char* wrapper = ms_steam_wine_launch_wrapper_path(home);
+        char* fake_wine = join(home, "fake-wine");
+        char* wine_log = join(home, "fake-wine-args.log");
+        char* game_exe = join(home, "Windowed Game.exe");
+        fixture(home, "fake-wine", "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$METALSHARP_TEST_WINE_LOG\"\n");
+        assert(chmod(fake_wine, 0700) == 0 && wrapper && access(wrapper, X_OK) == 0);
+        assert(setenv("METALSHARP_WINE_BINARY", fake_wine, 1) == 0);
+        assert(setenv("METALSHARP_TEST_WINE_LOG", wine_log, 1) == 0);
+        assert(setenv("METALSHARP_GAME_WINDOW_MODE", "windowed", 1) == 0);
+        assert(setenv("METALSHARP_GAME_RESOLUTION", "1920x1080", 1) == 0);
+        pid_t wrapper_child = fork();
+        assert(wrapper_child >= 0);
+        if (wrapper_child == 0) {
+            execl(wrapper, wrapper, game_exe, (char*)NULL);
+            _exit(127);
+        }
+        int wrapper_status = 0;
+        assert(waitpid(wrapper_child, &wrapper_status, 0) == wrapper_child);
+        assert(WIFEXITED(wrapper_status) && WEXITSTATUS(wrapper_status) == 0);
+        char* args = read_bounded_file(wine_log);
+        assert(args && strstr(args, "explorer\n") && strstr(args, "/desktop=MetalSharp,1920x1080\n") &&
+               strstr(args, "Windowed Game.exe\n"));
+        free(args);
+        assert(setenv("METALSHARP_GAME_WINDOW_MODE", "fullscreen", 1) == 0);
+        wrapper_child = fork();
+        assert(wrapper_child >= 0);
+        if (wrapper_child == 0) {
+            execl(wrapper, wrapper, game_exe, (char*)NULL);
+            _exit(127);
+        }
+        assert(waitpid(wrapper_child, &wrapper_status, 0) == wrapper_child);
+        assert(WIFEXITED(wrapper_status) && WEXITSTATUS(wrapper_status) == 0);
+        args = read_bounded_file(wine_log);
+        assert(args && !strstr(args, "explorer\n") && strstr(args, "Windowed Game.exe\n"));
+        free(args);
+        unsetenv("METALSHARP_GAME_WINDOW_MODE");
+        unsetenv("METALSHARP_GAME_RESOLUTION");
+        unsetenv("METALSHARP_WINE_BINARY");
+        unsetenv("METALSHARP_TEST_WINE_LOG");
+        free(wrapper);
+        free(fake_wine);
+        free(wine_log);
+        free(game_exe);
+    }
+    {
+        char *vendor_dll, *managed_xinput, *managed_dinput, *shim_manifest, *game_dir;
+        fixture(home, "runtime/wine/lib/metalsharp/x86_64-windows/xinput1_1.dll", "managed-xinput");
+        fixture(home, "runtime/wine/lib/metalsharp/x86_64-windows/dinput8.dll", "managed-dinput");
+        fixture(home, "controller-game/xinput1_3.dll", "game-owned-xinput");
+        vendor_dll = join(home, "controller-game/xinput1_3.dll");
+        managed_xinput = join(home, "controller-game/xinput1_1.dll");
+        managed_dinput = join(home, "controller-game/dinput8.dll");
+        shim_manifest = join(home, "controller-game/.metalsharp/input-shims.json");
+        game_dir = join(home, "controller-game");
+        fixture(home, "configs/config.json", "{\"controllerInput\":\"x\"}");
+        ms_steam_deploy_controller_input_shims(home, game_dir);
+        char* contents = read_bounded_file(managed_xinput);
+        assert(contents && !strcmp(contents, "managed-xinput"));
+        free(contents);
+        contents = read_bounded_file(vendor_dll);
+        assert(contents && !strcmp(contents, "game-owned-xinput"));
+        free(contents);
+        assert(access(shim_manifest, F_OK) == 0 && access(managed_dinput, F_OK) != 0);
+        fixture(home, "configs/config.json", "{\"controllerInput\":\"d\"}");
+        ms_steam_deploy_controller_input_shims(home, game_dir);
+        assert(access(managed_xinput, F_OK) != 0 && access(managed_dinput, F_OK) == 0);
+        fixture(home, "configs/config.json", "{\"controllerInput\":\"off\"}");
+        ms_steam_deploy_controller_input_shims(home, game_dir);
+        assert(access(managed_dinput, F_OK) != 0 && access(vendor_dll, F_OK) == 0);
+        free(vendor_dll);
+        free(managed_xinput);
+        free(managed_dinput);
+        free(shim_manifest);
+        free(game_dir);
+    }
     /* Retina now defaults to DISABLED when the key is absent. */
     seed_steam_registry(home);
     char* steam_reg_path = join(home, "prefix-steam/drive_c/metalsharp-steam.reg");
@@ -831,6 +998,22 @@ int main(int argc, char** argv) {
         }
         ms_json_free(library);
         free(library_json);
+    }
+    {
+        const char* request = "{\"windowMode\":\"windowed\",\"gameResolution\":\"2560x1440\",\"msync\":false}";
+        int status = 0;
+        char error[96];
+        char* config_json = ms_config_set_json(home, (const unsigned char*)request, strlen(request), &status);
+        ms_json* config = config_json ? ms_json_parse(config_json, strlen(config_json), error, sizeof(error)) : NULL;
+        char *mode = NULL, *resolution = NULL;
+        assert(status == 200 && config_json && config);
+        assert(ms_json_as_string(ms_json_object_get(config, "windowMode"), &mode) && !strcmp(mode, "windowed"));
+        assert(ms_json_as_string(ms_json_object_get(config, "gameResolution"), &resolution) &&
+               !strcmp(resolution, "2560x1440"));
+        free(mode);
+        free(resolution);
+        ms_json_free(config);
+        free(config_json);
     }
     free(drive_e_link);
     free(drive_c_link);
