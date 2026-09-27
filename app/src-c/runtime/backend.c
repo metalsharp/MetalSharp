@@ -1589,6 +1589,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/stop-all") == 0) {
+        body = ms_gog_action_json(context->metalsharp_home, "stop-all", request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/uninstall") == 0) {
         body = ms_gog_action_json(context->metalsharp_home, "uninstall", request->body, request->body_length);
         if (body == NULL)
@@ -1650,6 +1657,29 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt/running") == 0) {
+        body = ms_gamejolt_running_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/stop") == 0) {
+        int status = 500;
+        body = ms_gamejolt_stop_json(request->body, request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/stop-all") == 0) {
+        int status = 500;
+        body = ms_gamejolt_stop_all_json(&status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
         return true;
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/status") == 0) {
@@ -1913,6 +1943,36 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/running") == 0) {
+        body = ms_sharp_running_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/track-running") == 0) {
+        body = ms_sharp_track_running_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/stop") == 0) {
+        int status = 500;
+        body = ms_sharp_stop_json(request->body, request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/stop-all") == 0) {
+        int status = 500;
+        body = ms_sharp_stop_all_json(&status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
         return true;
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/import-bottle-app") == 0) {

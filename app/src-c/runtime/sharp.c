@@ -1,3 +1,8 @@
+#ifdef __APPLE__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
+#endif
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
@@ -7,6 +12,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -17,6 +23,21 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <libproc.h>
+#endif
+
+typedef struct sharp_running_app {
+    char* id;
+    pid_t pid;
+    bool process_group;
+    char* working_dir;
+    char* runtime_dir;
+    struct sharp_running_app* next;
+} sharp_running_app;
+
+static sharp_running_app* g_sharp_running;
+static pthread_mutex_t g_sharp_running_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static char* failure(const char* s) {
     ms_json_writer w;
@@ -208,6 +229,330 @@ static char* app_json(const char* id, const char* name, const char* exe, const c
     ms_json_writer_object_end(&w);
     o = ms_json_writer_take(&w);
     return o;
+}
+
+static void sharp_forget_locked(const char* id) {
+    sharp_running_app** current = &g_sharp_running;
+    while (*current) {
+        if (!strcmp((*current)->id, id)) {
+            sharp_running_app* old = *current;
+            *current = old->next;
+            free(old->id);
+            free(old->working_dir);
+            free(old->runtime_dir);
+            free(old);
+            return;
+        }
+        current = &(*current)->next;
+    }
+}
+
+static char* sharp_resolve_path(const char* path) {
+    char* resolved = path && path[0] ? realpath(path, NULL) : NULL;
+    return resolved ? resolved : (path && path[0] ? strdup(path) : NULL);
+}
+
+static void sharp_remember(const char* id, pid_t pid, bool process_group, const char* working_dir, const char* home) {
+    sharp_running_app* entry;
+    if (!id || !id[0] || pid <= 1)
+        return;
+    char* resolved_working_dir = sharp_resolve_path(working_dir);
+    char* runtime_dir = join(home, "runtime/wine");
+    char* resolved_runtime_dir = runtime_dir ? sharp_resolve_path(runtime_dir) : NULL;
+    free(runtime_dir);
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    sharp_forget_locked(id);
+    entry = calloc(1, sizeof(*entry));
+    if (entry) {
+        entry->id = strdup(id);
+        if (entry->id) {
+            entry->pid = pid;
+            entry->process_group = process_group;
+            entry->working_dir = resolved_working_dir;
+            entry->runtime_dir = resolved_runtime_dir;
+            entry->next = g_sharp_running;
+            g_sharp_running = entry;
+            resolved_working_dir = NULL;
+            resolved_runtime_dir = NULL;
+        } else
+            free(entry);
+    }
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+    free(resolved_working_dir);
+    free(resolved_runtime_dir);
+}
+
+static bool sharp_process_active(pid_t pid) {
+    int status;
+    pid_t waited = waitpid(pid, &status, WNOHANG);
+    if (waited == pid)
+        return false;
+    if (waited == 0)
+        return true;
+    if (waited < 0 && errno != ECHILD)
+        return errno == EINTR || errno == EPERM;
+    return kill(pid, 0) == 0 || errno == EPERM;
+}
+
+static bool sharp_group_active(pid_t pid) {
+    if (kill(-pid, 0) == 0)
+        return true;
+    return errno != ESRCH;
+}
+
+static bool sharp_path_within(const char* path, const char* root) {
+    size_t length = root ? strlen(root) : 0;
+    return path && root && length > 0 && strncmp(path, root, length) == 0 &&
+           (path[length] == '\0' || path[length] == '/');
+}
+
+static bool sharp_process_cwd_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    struct proc_vnodepathinfo info;
+    int bytes = proc_pidinfo((int)pid, PROC_PIDVNODEPATHINFO, 0, &info, (int)sizeof(info));
+    return bytes == (int)sizeof(info) && sharp_path_within(info.pvi_cdir.vip_path, root);
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool sharp_process_executable_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    char executable[PROC_PIDPATHINFO_MAXSIZE];
+    int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
+    return bytes > 0 && sharp_path_within(executable, root);
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool sharp_detached_process_matches(const sharp_running_app* entry, pid_t pid) {
+    return entry && pid > 1 && pid != getpid() && pid != entry->pid && entry->working_dir && entry->runtime_dir &&
+           ((sharp_process_cwd_within(pid, entry->working_dir) &&
+             sharp_process_executable_within(pid, entry->runtime_dir)) ||
+            sharp_process_executable_within(pid, entry->working_dir));
+}
+
+static bool sharp_signal_detached_processes(const sharp_running_app* entry, int signal_number, bool* found) {
+#ifdef __APPLE__
+    FILE* pipe = popen("/bin/ps axo pid=", "r");
+    char line[64];
+    bool ok = true;
+    *found = false;
+    if (!pipe)
+        return false;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* end;
+        errno = 0;
+        long value = strtol(line, &end, 10);
+        if (errno || end == line || value <= 1 || value > INT_MAX)
+            continue;
+        pid_t pid = (pid_t)value;
+        if (!sharp_detached_process_matches(entry, pid))
+            continue;
+        *found = true;
+        if (signal_number != 0 && kill(pid, signal_number) != 0 && errno != ESRCH)
+            ok = false;
+    }
+    if (pclose(pipe) != 0)
+        ok = false;
+    return ok;
+#else
+    (void)entry;
+    (void)signal_number;
+    *found = false;
+    return true;
+#endif
+}
+
+static bool sharp_entry_active(const sharp_running_app* entry) {
+    bool detached_active = false;
+    bool leader_active = sharp_process_active(entry->pid);
+    bool group_active = entry->process_group && sharp_group_active(entry->pid);
+    bool scan_ok = sharp_signal_detached_processes(entry, 0, &detached_active);
+    return leader_active || group_active || detached_active || !scan_ok;
+}
+
+static bool sharp_signal_entry(const sharp_running_app* entry, int signal_number) {
+    pid_t pid = entry->pid;
+    int result = kill(entry->process_group ? -pid : pid, signal_number);
+    if (entry->process_group && result != 0 && errno == ESRCH)
+        result = kill(pid, signal_number);
+    bool sent = result == 0 || errno == ESRCH;
+    bool detached_found = false;
+    bool detached_ok = sharp_signal_detached_processes(entry, signal_number, &detached_found);
+    return sent && detached_ok;
+}
+
+static void sharp_prune_locked(void) {
+    sharp_running_app** current = &g_sharp_running;
+    while (*current) {
+        if (!sharp_entry_active(*current)) {
+            sharp_running_app* old = *current;
+            *current = old->next;
+            free(old->id);
+            free(old->working_dir);
+            free(old->runtime_dir);
+            free(old);
+        } else
+            current = &(*current)->next;
+    }
+}
+
+static bool sharp_terminate_locked(sharp_running_app* entry) {
+    bool sent = sharp_signal_entry(entry, SIGTERM);
+    struct timespec delay = {.tv_sec = 0, .tv_nsec = 50000000};
+    for (int i = 0; i < 20; i++) {
+        if (!sharp_entry_active(entry))
+            break;
+        nanosleep(&delay, NULL);
+    }
+    if (sharp_entry_active(entry) && !sharp_signal_entry(entry, SIGKILL))
+        sent = false;
+    int status;
+    for (int i = 0; i < 20; i++) {
+        pid_t waited = waitpid(entry->pid, &status, WNOHANG);
+        if (waited == entry->pid || (waited < 0 && errno == ECHILD))
+            break;
+        nanosleep(&delay, NULL);
+    }
+    if (sharp_entry_active(entry))
+        sent = false;
+    return sent;
+}
+
+char* ms_sharp_running_json(void) {
+    ms_json_writer writer;
+    char* result;
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    sharp_prune_locked();
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "running");
+    ms_json_writer_array_begin(&writer);
+    for (sharp_running_app* entry = g_sharp_running; entry; entry = entry->next) {
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "id");
+        ms_json_writer_string(&writer, entry->id);
+        ms_json_writer_key(&writer, "pid");
+        ms_json_writer_u64(&writer, (unsigned long long)entry->pid);
+        ms_json_writer_object_end(&writer);
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+    return result;
+}
+
+char* ms_sharp_track_running_json(const char* home, const unsigned char* body, size_t length) {
+    char error[96];
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
+    char* id = field(request, "id", "");
+    long long pid_value = 0;
+    ms_json* apps = load_array(home);
+    char* working_dir = NULL;
+    bool found = false;
+    for (size_t i = 0; apps && i < ms_json_array_length(apps); i++) {
+        const ms_json* app = ms_json_array_get(apps, i);
+        char* app_id = field(app, "id", "");
+        found = !strcmp(app_id, id);
+        free(app_id);
+        if (found) {
+            working_dir = field(app, "install_dir", "");
+            break;
+        }
+    }
+    bool valid = request && id[0] && found && working_dir && working_dir[0] &&
+                 ms_json_as_i64(ms_json_object_get(request, "pid"), &pid_value) && pid_value > 1 &&
+                 pid_value <= INT_MAX && (kill((pid_t)pid_value, 0) == 0 || errno == EPERM);
+    if (valid)
+        sharp_remember(id, (pid_t)pid_value, false, working_dir, home);
+    free(id);
+    free(working_dir);
+    ms_json_free(apps);
+    ms_json_free(request);
+    if (!valid)
+        return failure("Sharp Library application or running process not found");
+    return strdup("{\"ok\":true}");
+}
+
+char* ms_sharp_stop_json(const unsigned char* body, size_t length, int* status) {
+    char error[96];
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
+    char* id = field(request, "id", "");
+    bool stopped = false;
+    if (status)
+        *status = 400;
+    if (!request || !id[0]) {
+        free(id);
+        ms_json_free(request);
+        return failure("Sharp Library application id required");
+    }
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    sharp_prune_locked();
+    for (sharp_running_app* entry = g_sharp_running; entry; entry = entry->next) {
+        if (!strcmp(entry->id, id)) {
+            stopped = sharp_terminate_locked(entry);
+            if (stopped)
+                sharp_forget_locked(id);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+    free(id);
+    ms_json_free(request);
+    if (!stopped)
+        return failure("Sharp Library application is not running or could not be stopped");
+    if (status)
+        *status = 200;
+    return strdup("{\"ok\":true}");
+}
+
+char* ms_sharp_stop_all_json(int* status) {
+    size_t stopped = 0;
+    bool failed = false;
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    sharp_running_app** current = &g_sharp_running;
+    while (*current) {
+        sharp_running_app* entry = *current;
+        if (sharp_terminate_locked(entry))
+            stopped++;
+        else {
+            failed = true;
+            current = &entry->next;
+            continue;
+        }
+        *current = entry->next;
+        free(entry->id);
+        free(entry->working_dir);
+        free(entry->runtime_dir);
+        free(entry);
+    }
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+    ms_json_writer writer;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, !failed);
+    ms_json_writer_key(&writer, "stopped");
+    ms_json_writer_u64(&writer, stopped);
+    if (failed) {
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, "one or more Sharp Library applications could not be stopped");
+    }
+    ms_json_writer_object_end(&writer);
+    if (status)
+        *status = failed ? 500 : 200;
+    return ms_json_writer_take(&writer);
 }
 
 static bool contains_ci(const char* text, const char* needle) {
@@ -882,6 +1227,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 return failure("failed to launch application");
             }
             if (pid == 0) {
+                (void)setpgid(0, 0);
                 if (prefix)
                     setenv("WINEPREFIX", prefix, 1);
                 struct stat work_stat;
@@ -890,13 +1236,23 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                     free(work_dir);
                     work_dir = executable_dir;
                 }
-                if (work_dir && work_dir[0])
+                if (work_dir && work_dir[0]) {
+                    ms_steam_deploy_controller_input_shims(home, work_dir);
                     (void)chdir(work_dir);
+                }
+                ms_steam_apply_launch_preferences(home);
                 if (engine && strcmp(engine, "wine_bare") && strcmp(engine, "auto"))
                     ms_steam_apply_graphics_route(home, engine);
-                execl(wine, wine, exe_path, (char*)NULL);
+                const char* launch_wrapper = getenv("METALSHARP_WINE_LAUNCH_WRAPPER");
+                char* launch_argv[] = {
+                    (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine), exe_path,
+                    NULL};
+                execv(launch_argv[0], launch_argv);
                 _exit(127);
             }
+            (void)setpgid(pid, pid);
+            if (!strcmp(action, "launch"))
+                sharp_remember(id, pid, true, work_dir, home);
             const char* reported_pipeline = engine && engine[0] ? engine : "auto";
             if (!strcmp(reported_pipeline, "auto"))
                 reported_pipeline = "wine_bare";

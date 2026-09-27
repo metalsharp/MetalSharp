@@ -665,6 +665,19 @@ static const ms_json* installed_for_app(const ms_json* installed, const char* ap
     return NULL;
 }
 
+static char* epic_installed_game_path(const char* home, const char* app_name) {
+    char* path = epic_legendary_installed_path(home);
+    char* raw = path ? epic_read_text(path, LEGENDARY_MAX_OUTPUT) : NULL;
+    char error[160];
+    ms_json* installed = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    const ms_json* record = installed_for_app(installed, app_name);
+    char* install_path = json_string_field(record, "install_path");
+    free(path);
+    free(raw);
+    ms_json_free(installed);
+    return install_path;
+}
+
 static char* epic_thegamesdb_key_path(const char* home) {
     return epic_join(home, "cache/thegamesdb_config.json");
 }
@@ -1774,21 +1787,26 @@ done:
 
 char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t body_length) {
     char* app_name = request_app_name(body, body_length);
-    char *tool = NULL, *wine = NULL, *wineserver = NULL, *prefix = NULL, *logs = NULL, *log_path = NULL;
+    char *tool = NULL, *wine = NULL, *real_wine = NULL, *wineserver = NULL, *prefix = NULL, *logs = NULL,
+         *log_path = NULL;
     char* launch_pid_path = NULL;
-    char *pipeline = NULL, *mouse_mode = NULL;
+    char *pipeline = NULL, *mouse_mode = NULL, *install_path = NULL;
     char* result = NULL;
     if (!app_name)
         return epic_failure("invalid Epic app name");
     tool = epic_tool_path(home);
-    wine = epic_join(home, "runtime/wine/bin/metalsharp-wine");
+    real_wine = epic_join(home, "runtime/wine/bin/metalsharp-wine");
+    wine = ms_steam_wine_launch_wrapper_path(home);
+    if (!wine)
+        wine = real_wine ? strdup(real_wine) : NULL;
     wineserver = epic_join(home, "runtime/wine/bin/wineserver");
     prefix = epic_prefix_path(home, app_name);
     logs = epic_logs_path(home);
     log_path = epic_process_path(home, app_name, "launch.log");
     launch_pid_path = epic_process_path(home, app_name, "launch.pid");
     if (!tool || !wine || !wineserver || !prefix || !logs || !log_path || !launch_pid_path ||
-        !legendary_available(home) || access(wine, X_OK) != 0 || access(wineserver, X_OK) != 0 || !epic_mkdir_p(logs)) {
+        !legendary_available(home) || !real_wine || access(real_wine, X_OK) != 0 || access(wineserver, X_OK) != 0 ||
+        !epic_mkdir_p(logs)) {
         result = epic_failure("could not initialize the isolated Epic game bottle");
         goto done;
     }
@@ -1802,6 +1820,9 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
         result = epic_failure("initialize this Epic game bottle before launching");
         goto done;
     }
+    install_path = epic_installed_game_path(home, app_name);
+    if (install_path)
+        ms_steam_deploy_controller_input_shims(home, install_path);
     if (configure_epic_mouse(home, prefix, mouse_mode) != 0) {
         result = epic_failure("could not apply Epic game mouse settings");
         goto done;
@@ -1860,6 +1881,7 @@ done:
     free(app_name);
     free(tool);
     free(wine);
+    free(real_wine);
     free(wineserver);
     free(prefix);
     free(logs);
@@ -1867,6 +1889,7 @@ done:
     free(launch_pid_path);
     free(pipeline);
     free(mouse_mode);
+    free(install_path);
     return result;
 }
 

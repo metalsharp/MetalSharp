@@ -1,5 +1,5 @@
 # Launcher Runtime
-**Updated:** 2026-09-22
+**Updated:** 2026-09-27
 
 MetalSharp treats launcher installers as bottle-managed Windows programs: launchers keep their login/session state, child games install into the same bottle, and logs explain why a launcher or child game failed.
 
@@ -37,6 +37,16 @@ The Sharp Library **Epic** tab downloads Epic games through upstream [Legendary]
 - Stop, closing the card, and **Cmd+Opt+Q** terminate the isolated Epic Wineserver. Epic running state refreshes through a lightweight PID-only endpoint while the Epic tab is active. Uninstall removes Legendary's registered game files and the title's bottle. Runtime migration preserves Epic account data, the cached catalog, game location, bottle manifests, and registry/user settings.
 
 Backend routes: `GET /sharp-library/epic/status`, `GET /sharp-library/epic/games`, `GET /sharp-library/epic/running`, `GET /sharp-library/epic/thegamesdb-api-key` (configured status only), and POST actions for `install-tool`, `auth`, `thegamesdb-api-key`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, `uninstall`.
+
+## GOG Library Prefix
+
+GOG games share `~/.metalsharp/bottles/gog-prefix/prefix`. Runtime migration preserves the prefix's regular files, then runs `wineboot -u` against the restored prefix and verifies its `dosdevices/c:` and `dosdevices/z:` mappings; prefix symlinks are intentionally omitted from the migration copy. A failed Wineboot or missing mapping leaves migration in an explicit error state rather than silently treating the prefix as usable. The per-game Stop action terminates its launch process group and targets `wineserver -k` at this GOG prefix; because the prefix is shared, stopping one GOG game also stops any other Wine games using it. **Cmd+Opt+Q** invokes the GOG stop-all action as part of its global game-stop fallback.
+
+## Sharp Library App Process Controls
+
+Sharp Library app launches are tracked by app ID and process ID in the backend. The Stop button terminates the app's isolated process group; the library polls process state so an app that exits on its own returns to Play. **Cmd+Opt+Q** sends Sharp Library's stop-all request immediately, before launcher-state checks, and successful launches show the shared delayed quit reminder. D3DMetal launches are tracked by their returned PID because their launch lifecycle is owned by the graphics-route backend.
+
+GameJolt Windows launches use isolated process groups. The library checks group state (not only the Wine leader PID), so the card can stay on Stop while child processes remain; Stop and Cmd+Opt+Q terminate the registered group. Successful GameJolt launches also show the shared quit reminder. GameJolt Windows games expose only D3DMetal, VKD3D, DXMT, DXMT (32-bit), and D3D9. Existing saved M10/M11 selections normalize to the matching DXMT route; the persisted option values no longer use the legacy names.
 
 ## CEF Compatibility
 
