@@ -63,6 +63,10 @@ const english = {
     apiKey: "Steam Web API Key (optional)",
     apiPlaceholder: "Enter your Steam Web API key...",
     apiHint: "Loads your full game library. Get a free key at",
+    theGamesDbApiKey: "TheGamesDB API Key (optional)",
+    theGamesDbApiPlaceholder: "Enter your TheGamesDB API key...",
+    theGamesDbApiHint: "Used only to find artwork when Epic has none. Get a key at",
+    theGamesDbApiKeySaveFailed: "Failed to save TheGamesDB API key",
     startSteam: "Start Steam",
     firstLaunch: "First launch",
     firstLaunchText:
@@ -90,6 +94,7 @@ const english = {
     language: "Language",
     languageDesc: "Choose the language used throughout MetalSharp.",
     steamIntegration: "Steam Integration",
+    epicIntegration: "Epic Integration",
     steam: "Steam",
     backend: "Backend",
     dataPermissions: "Data & Permissions",
@@ -136,6 +141,12 @@ const english = {
   ui: {
     settings: {
       apiKey: "Steam Web API Key",
+      theGamesDbApiKey: "TheGamesDB API Key",
+      theGamesDbKeyRequired: "Please enter a TheGamesDB API key",
+      theGamesDbKeySaved: "Key saved",
+      theGamesDbNoKey: "No key configured",
+      theGamesDbSaveFailed: "Failed to save TheGamesDB API key",
+      theGamesDbKeySavedToast: "TheGamesDB API key saved",
       deviceName: "Device Name",
       change: "Change",
       notSet: "Not set",
@@ -296,6 +307,7 @@ const english = {
     },
     settingsDesc: {
       apiKey: "Required to load your full game library. Get a free key at",
+      theGamesDbApiKey: "Used as a fallback for Epic game artwork. Get a free key at",
       device: "Identifies this machine to Steam for persistent login",
       wineSteam: "Windows Steam running in MetalSharp Wine",
       macSteam: "Native macOS Steam used for games with Mac builds",
