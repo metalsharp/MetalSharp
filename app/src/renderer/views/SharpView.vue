@@ -2,11 +2,12 @@
 import { computed, nextTick, ref, onMounted, onUnmounted, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import { useToast } from "../composables/useToast";
-import { api, getAPI } from "../composables/useApi";
+import { api, getAPI, showLaunchQuitHint } from "../composables/useApi";
 import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
 import type { SharpApp } from "../api-types";
 import LibraryTopbar from "../components/LibraryTopbar.vue";
 import LibraryFooter from "../components/LibraryFooter.vue";
+import GameLaunchSettingsPopover from "../components/GameLaunchSettingsPopover.vue";
 import { themedNavIcon } from "../composables/useTheme";
 import IconChevronLeft from "~icons/lucide/chevron-left";
 import IconUpload from "~icons/lucide/upload";
@@ -534,11 +535,13 @@ const diagnosticsOpen = ref<Record<string, boolean>>({});
 const diagnosticsLoading = ref<Record<string, boolean>>({});
 const launchErrors = ref<Record<string, string>>({});
 const runningSharpPids = ref<Record<string, number>>({});
+let sharpProcessPollInFlight = false;
 const recentLogLines = ref<Record<string, string[]>>({});
 const recentCrashReports = ref<Record<string, CrashReport[]>>({});
 const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
 const gogBottleOpen = ref<Record<string, boolean>>({});
+let gogRunningPollInFlight = false;
 const epicStatus = ref<EpicStatus | null>(null);
 const epicGames = ref<EpicGame[]>([]);
 let epicRunningPollInFlight = false;
@@ -560,6 +563,8 @@ const gamejoltPanel = ref<HTMLElement | null>(null);
 let gamejoltDragPointerId: number | null = null;
 const gamejoltDownloadToastIds = new Map<string, number>();
 let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let sharpProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let gogProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let epicProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 const pcsx2Status = ref<Pcsx2Status | null>(null);
 const pcsx2Games = ref<Pcsx2Game[]>([]);
@@ -832,6 +837,7 @@ async function launchGameJolt(game: GameJoltGame) {
   });
   if (result?.ok && result.pid) {
     gamejoltRunningPids.value[game.id] = result.pid;
+    showLaunchQuitHint(game.name);
     toast.show(`Launched ${game.name}`, "success");
   } else {
     toast.show(result?.error ?? `Failed to launch ${game.name}`, "error");
@@ -839,10 +845,12 @@ async function launchGameJolt(game: GameJoltGame) {
 }
 
 async function stopGameJolt(game: GameJoltGame) {
-  const pid = gamejoltRunningPids.value[game.id];
-  if (!pid) return;
-  await api("POST", "/kill", { pid });
-  delete gamejoltRunningPids.value[game.id];
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/gamejolt/stop", { id: game.id });
+  if (result?.ok) delete gamejoltRunningPids.value[game.id];
+  else {
+    toast.show(result?.error ?? `Could not stop ${game.name}`, "error");
+    await refreshGameJoltProcessState();
+  }
 }
 
 async function uninstallGameJolt(game: GameJoltGame) {
@@ -862,13 +870,11 @@ async function uninstallGameJolt(game: GameJoltGame) {
 }
 
 async function refreshGameJoltProcessState() {
-  const entries = Object.entries(gamejoltRunningPids.value);
-  await Promise.all(
-    entries.map(async ([id, pid]) => {
-      const result = await api<{ ok: boolean; running: boolean }>("POST", "/gamejolt/status", { pid });
-      if (!result?.running) delete gamejoltRunningPids.value[id];
-    }),
-  );
+  const result = await api<{ ok: boolean; running?: { id: string; pid: number }[] }>("GET", "/gamejolt/running");
+  if (!result?.ok || !Array.isArray(result.running)) return;
+  const next: Record<string, number> = {};
+  for (const game of result.running) next[game.id] = game.pid;
+  gamejoltRunningPids.value = next;
 }
 
 async function updateGameJoltEngine(game: GameJoltGame, engine: string) {
@@ -2037,6 +2043,7 @@ async function playEpicGame(game: EpicGame) {
   epicLoading.value[`${game.appName}:play`] = false;
   if (result?.ok) {
     game.running = true;
+    showLaunchQuitHint(game.title);
     toast.show(`${game.title} launched`, "success");
   } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
   await refreshEpicRunning();
@@ -2115,6 +2122,20 @@ function setGogGames(games: GogGame[]) {
   gogGames.value = [...unique.values()].sort((a, b) =>
     a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
   );
+}
+
+async function refreshGogRunning() {
+  if (gogRunningPollInFlight || !gogGames.value.length) return;
+  gogRunningPollInFlight = true;
+  try {
+    const result = await api<{ ok: boolean; games: GogGame[]; status: GogStatus }>("GET", "/sharp-library/gog/games");
+    if (result?.ok) {
+      setGogGames(result.games ?? []);
+      gogStatus.value = result.status;
+    }
+  } finally {
+    gogRunningPollInFlight = false;
+  }
 }
 
 async function refreshGog() {
@@ -2338,6 +2359,7 @@ async function playGogGame(game: GogGame) {
   gogLoading.value[`${game.productId}:play`] = false;
   if (result?.ok && result.game) {
     upsertGogGame(result.game);
+    showLaunchQuitHint(game.title);
     toast.show(`${game.title} launched`, "success");
   } else {
     toast.show(result?.error ?? `Failed to launch ${game.title}`, "error");
@@ -2832,6 +2854,21 @@ async function openBottleLaunchLog(bottle: BottleManifest) {
   }
 }
 
+async function refreshSharpRunning() {
+  if (sharpProcessPollInFlight) return;
+  sharpProcessPollInFlight = true;
+  try {
+    const result = await api<{ ok: boolean; running: { id: string; pid: number }[] }>("GET", "/sharp-library/running");
+    if (result?.ok) {
+      const next: Record<string, number> = {};
+      for (const entry of result.running ?? []) next[entry.id] = entry.pid;
+      runningSharpPids.value = next;
+    }
+  } finally {
+    sharpProcessPollInFlight = false;
+  }
+}
+
 async function launchApp(id: string, engine: string) {
   const app = apps.value.find((a) => a.id === id);
   if (!app) return;
@@ -2852,9 +2889,15 @@ async function launchApp(id: string, engine: string) {
       }
       const pid = await runD3DMetalAction(bottle, playAction, app);
       if (pid) {
-        runningSharpPids.value[id] = pid;
-        launchErrors.value[id] = "";
-        diagnosticsOpen.value[id] = false;
+        const tracked = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/track-running", { id, pid });
+        if (tracked?.ok) {
+          runningSharpPids.value[id] = pid;
+          launchErrors.value[id] = "";
+          diagnosticsOpen.value[id] = false;
+          showLaunchQuitHint(app.name);
+        } else {
+          toast.show(tracked?.error ?? `Could not track ${app.name} for Stop`, "error");
+        }
       }
       return;
     }
@@ -2870,6 +2913,7 @@ async function launchApp(id: string, engine: string) {
     runningSharpPids.value[id] = result.pid;
     launchErrors.value[id] = "";
     diagnosticsOpen.value[id] = false;
+    showLaunchQuitHint(app.name);
     toast.show(warning ? `Launched ${app.name}: ${warning}` : `Launched ${app.name}`, "success");
   } else {
     const error = result?.error ?? `Failed to launch ${app.name}`;
@@ -2880,11 +2924,15 @@ async function launchApp(id: string, engine: string) {
 }
 
 async function stopSharpApp(app: SharpApp) {
-  const pid = runningSharpPids.value[app.id];
-  if (!pid) return;
-  await api("POST", "/kill", { pid });
-  delete runningSharpPids.value[app.id];
-  toast.show(`Closed ${app.name}`);
+  if (!runningSharpPids.value[app.id]) return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/stop", { id: app.id });
+  if (result?.ok) {
+    delete runningSharpPids.value[app.id];
+    toast.show(`Closed ${app.name}`);
+  } else {
+    toast.show(result?.error ?? `Could not close ${app.name}`, "error");
+    await refreshSharpRunning();
+  }
 }
 
 async function updateEngine(id: string, engine: string) {
@@ -3179,6 +3227,11 @@ onMounted(() => {
   void load();
   void refreshGameJoltProcessState();
   gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  void refreshSharpRunning();
+  sharpProcessPollTimer = setInterval(() => void refreshSharpRunning(), 1500);
+  gogProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "gog" && gogGames.value.some((game) => game.running)) void refreshGogRunning();
+  }, 2000);
   epicProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "epic" && epicGames.value.some((game) => game.running)) void refreshEpicRunning();
   }, 2000);
@@ -3199,6 +3252,10 @@ onMounted(() => {
 onUnmounted(() => {
   if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
   gamejoltProcessPollTimer = null;
+  if (sharpProcessPollTimer) clearInterval(sharpProcessPollTimer);
+  sharpProcessPollTimer = null;
+  if (gogProcessPollTimer) clearInterval(gogProcessPollTimer);
+  gogProcessPollTimer = null;
   if (epicProcessPollTimer) clearInterval(epicProcessPollTimer);
   epicProcessPollTimer = null;
   if (pcsx2ProcessPollTimer) clearInterval(pcsx2ProcessPollTimer);
@@ -3236,7 +3293,11 @@ onUnmounted(() => {
         <p>{{ headerSubtitle }}</p>
       </div>
       <div class="sharp-header-controls">
-        <div class="sharp-source-picker" @keydown.esc="sourcePickerOpen = false">
+        <div class="sharp-header-source-controls">
+          <GameLaunchSettingsPopover
+            v-if="sourceMode === 'installers' || sourceMode === 'gog' || sourceMode === 'epic' || sourceMode === 'gamejolt'"
+          />
+          <div class="sharp-source-picker" @keydown.esc="sourcePickerOpen = false">
           <button
             class="sharp-source-trigger"
             :class="{ open: sourcePickerOpen }"
@@ -3282,6 +3343,7 @@ onUnmounted(() => {
                 <IconCheck v-if="sourceMode === source.id" class="sharp-source-check" width="15" height="15" />
               </button>
             </div>
+          </div>
           </div>
         </div>
         <div class="sharp-header-actions">
@@ -7508,10 +7570,21 @@ details[open] > .drawer-summary {
   min-height: 40px;
   border-radius: 9px;
 }
+.sharp-header-source-controls {
+  order: 99;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  margin-left: auto;
+}
+.sharp-header-source-controls .sharp-source-picker {
+  order: 0;
+  margin-left: 0;
+}
 .sharp-source-picker {
   z-index: 60;
-  order: 99;
-  margin-left: auto;
 }
 .sharp-source-trigger {
   width: 226px;
@@ -7673,9 +7746,17 @@ details[open] > .drawer-summary {
     flex-direction: column;
     align-items: stretch;
   }
-  .sharp-source-picker,
+  .sharp-header-source-controls {
+    width: 100%;
+    margin-left: 0;
+  }
+  .sharp-header-source-controls .sharp-source-picker,
   .sharp-source-trigger {
     width: 100%;
+  }
+  .sharp-header-source-controls .sharp-source-picker {
+    flex: 1 1 auto;
+    width: auto;
   }
   .sharp-source-popover {
     right: auto;

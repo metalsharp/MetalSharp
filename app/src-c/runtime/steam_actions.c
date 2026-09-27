@@ -64,6 +64,77 @@ static char* find_steam_game_executable(const char* home, unsigned id, const cha
 static bool executable_is_32bit(const char* executable);
 static bool body_id(const char* body, size_t len, unsigned* id);
 static void string_field(ms_json_writer* writer, const char* key, const char* value);
+static bool copy_file_path_new(const char* source, const char* destination);
+
+char* ms_steam_wine_launch_wrapper_path(const char* home) {
+    static const char wrapper[] =
+        "#!/bin/sh\n"
+        "wine=\"${METALSHARP_WINE_BINARY:?MetalSharp Wine binary is not configured}\"\n"
+        "case \"${1-}\" in *.exe|*.EXE) ;; *) exec \"$wine\" \"$@\" ;; esac\n"
+        "mode=${METALSHARP_GAME_WINDOW_MODE:-default}\n"
+        "resolution=${METALSHARP_GAME_RESOLUTION:-default}\n"
+        "if [ \"$mode\" != fullscreen ] && { [ \"$mode\" = windowed ] || [ \"$resolution\" != default ]; }; then\n"
+        "  desktop=MetalSharp\n"
+        "  [ \"$resolution\" = default ] || desktop=MetalSharp,\"$resolution\"\n"
+        "  exec \"$wine\" explorer \"/desktop=$desktop\" \"$@\"\n"
+        "fi\n"
+        "exec \"$wine\" \"$@\"\n";
+    if (!home)
+        return NULL;
+    char* cache = join(home, "cache");
+    char* path = cache ? join(cache, "metalsharp-wine-game-launcher") : NULL;
+    if (!cache || !path || !ensure_directory(cache)) {
+        free(cache);
+        free(path);
+        return NULL;
+    }
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0700);
+    if (fd >= 0) {
+        size_t length = sizeof(wrapper) - 1;
+        size_t offset = 0;
+        while (offset < length) {
+            ssize_t written = write(fd, wrapper + offset, length - offset);
+            if (written < 0 && errno == EINTR)
+                continue;
+            if (written <= 0)
+                break;
+            offset += (size_t)written;
+        }
+        bool saved = offset == length && fchmod(fd, 0700) == 0;
+        if (close(fd) != 0)
+            saved = false;
+        if (!saved) {
+            (void)unlink(path);
+            free(cache);
+            free(path);
+            return NULL;
+        }
+    } else if (errno == EEXIST) {
+        char* existing = read_bounded_file(path);
+        bool matches = existing && !strcmp(existing, wrapper) && access(path, X_OK) == 0;
+        free(existing);
+        if (!matches) {
+            free(cache);
+            free(path);
+            return NULL;
+        }
+    } else {
+        free(cache);
+        free(path);
+        return NULL;
+    }
+    free(cache);
+    return path;
+}
+
+static bool controller_input_shim_name(const char* name) {
+    static const char* const names[] = {"xinput1_1.dll",   "xinput1_2.dll", "xinput1_3.dll", "xinput1_4.dll",
+                                        "xinput9_1_0.dll", "dinput.dll",    "dinput8.dll"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
+        if (name && !strcmp(name, names[i]))
+            return true;
+    return false;
+}
 
 static const char* controller_input_mode_for_home(const char* home) {
     char* configs = join(home, "configs");
@@ -97,7 +168,7 @@ static void remove_input_shim_manifest(const char* game_dir) {
     if (dlls && ms_json_type_of(dlls) == MS_JSON_ARRAY) {
         for (size_t i = 0; i < ms_json_array_length(dlls); i++) {
             char* name = NULL;
-            if (ms_json_as_string(ms_json_array_get(dlls, i), &name)) {
+            if (ms_json_as_string(ms_json_array_get(dlls, i), &name) && controller_input_shim_name(name)) {
                 char* path = join(game_dir, name);
                 if (path)
                     (void)unlink(path);
@@ -114,13 +185,17 @@ static void remove_input_shim_manifest(const char* game_dir) {
     ms_json_free(json);
 }
 
-static void deploy_controller_input_shims(const char* home, const char* game_dir) {
+void ms_steam_deploy_controller_input_shims(const char* home, const char* game_dir) {
     static const char* const xinput[] = {"xinput1_1.dll", "xinput1_2.dll", "xinput1_3.dll", "xinput1_4.dll",
                                          "xinput9_1_0.dll"};
     static const char* const dinput[] = {"dinput.dll", "dinput8.dll"};
     const char* mode;
     const char* const* names;
     size_t count;
+    size_t installed_count = 0;
+    const char* all_shims[] = {"xinput1_1.dll",   "xinput1_2.dll", "xinput1_3.dll", "xinput1_4.dll",
+                               "xinput9_1_0.dll", "dinput.dll",    "dinput8.dll"};
+    const char* created[sizeof(all_shims) / sizeof(all_shims[0])];
     char* bundled;
     char* fallback;
     char* meta;
@@ -130,22 +205,6 @@ static void deploy_controller_input_shims(const char* home, const char* game_dir
         return;
     mode = controller_input_mode_for_home(home);
     remove_input_shim_manifest(game_dir);
-    {
-        static const char* const all_shims[] = {"xinput1_1.dll",   "xinput1_2.dll", "xinput1_3.dll", "xinput1_4.dll",
-                                                "xinput9_1_0.dll", "dinput.dll",    "dinput8.dll"};
-        const bool remove_all = !strcmp(mode, "off");
-        const bool remove_x = remove_all || !strcmp(mode, "d");
-        const bool remove_d = remove_all || !strcmp(mode, "x");
-        for (size_t i = 0; i < sizeof(all_shims) / sizeof(all_shims[0]); i++) {
-            bool is_dinput = !strncmp(all_shims[i], "dinput", 6);
-            if ((is_dinput && remove_d) || (!is_dinput && remove_x)) {
-                char* path = join(game_dir, all_shims[i]);
-                if (path)
-                    (void)unlink(path);
-                free(path);
-            }
-        }
-    }
     if (!strcmp(mode, "off")) {
         free((void*)mode);
         return;
@@ -168,8 +227,10 @@ static void deploy_controller_input_shims(const char* home, const char* game_dir
         char* fallback_source = fallback ? join(fallback, names[i]) : NULL;
         char* target = join(game_dir, names[i]);
         const char* selected = source && access(source, R_OK) == 0 ? source : fallback_source;
-        if (selected && target && access(selected, R_OK) == 0 && copy_file_path(selected, target))
+        if (selected && target && access(selected, R_OK) == 0 && copy_file_path_new(selected, target)) {
             ms_json_writer_string(&writer, names[i]);
+            created[installed_count++] = names[i];
+        }
         free(source);
         free(fallback_source);
         free(target);
@@ -179,11 +240,19 @@ static void deploy_controller_input_shims(const char* home, const char* game_dir
     if (marker) {
         char* payload = ms_json_writer_take(&writer);
         FILE* file = fopen(marker, "wb");
-        if (file && payload) {
-            fputs(payload, file);
+        bool saved = false;
+        if (file && payload)
+            saved = fputs(payload, file) >= 0 && fclose(file) == 0;
+        else if (file)
             fclose(file);
-        } else if (file)
-            fclose(file);
+        if (!saved) {
+            for (size_t i = 0; i < installed_count; ++i) {
+                char* target = join(game_dir, created[i]);
+                if (target)
+                    (void)unlink(target);
+                free(target);
+            }
+        }
         free(payload);
     } else {
         char* payload = ms_json_writer_take(&writer);
@@ -250,6 +319,44 @@ static bool pipeline_needs_legacy_game_args(const char* pipeline) {
 
 static void set_wine_msync(const char* home) {
     setenv("WINEMSYNC", ms_config_msync_enabled(home) ? "1" : "0", 1);
+}
+
+void ms_steam_apply_launch_preferences(const char* home) {
+    if (!home)
+        return;
+    char* raw = ms_config_get_json(home);
+    char error[96];
+    ms_json* config = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    char *mode = NULL, *resolution = NULL, *wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    char* wrapper = ms_steam_wine_launch_wrapper_path(home);
+    if (!wine || access(wine, X_OK) != 0) {
+        free(wine);
+        wine = join(home, "runtime/wine/bin/wine");
+    }
+    if (wine && access(wine, X_OK) == 0)
+        setenv("METALSHARP_WINE_BINARY", wine, 1);
+    else
+        unsetenv("METALSHARP_WINE_BINARY");
+    if (wrapper)
+        setenv("METALSHARP_WINE_LAUNCH_WRAPPER", wrapper, 1);
+    else
+        unsetenv("METALSHARP_WINE_LAUNCH_WRAPPER");
+    set_wine_msync(home);
+    unsetenv("METALSHARP_GAME_WINDOW_MODE");
+    unsetenv("METALSHARP_GAME_RESOLUTION");
+    if (config && ms_json_as_string(ms_json_object_get(config, "windowMode"), &mode) &&
+        (!strcmp(mode, "windowed") || !strcmp(mode, "fullscreen")))
+        setenv("METALSHARP_GAME_WINDOW_MODE", mode, 1);
+    if (config && ms_json_as_string(ms_json_object_get(config, "gameResolution"), &resolution) &&
+        (!strcmp(resolution, "1280x720") || !strcmp(resolution, "1920x1080") || !strcmp(resolution, "2560x1440") ||
+         !strcmp(resolution, "3840x2160")))
+        setenv("METALSHARP_GAME_RESOLUTION", resolution, 1);
+    free(mode);
+    free(resolution);
+    free(wine);
+    free(wrapper);
+    free(raw);
+    ms_json_free(config);
 }
 
 static const char* pipeline_backend(const char* pipeline) {
@@ -465,7 +572,7 @@ static void set_route_paths(const char* home, const char* pipeline) {
         setenv("GRAPHICS_BACKEND", backend, 1);
     }
     setenv("MS_GRAPHICS_BACKEND", backend, 1);
-    set_wine_msync(home);
+    ms_steam_apply_launch_preferences(home);
     if (!strcmp(pipeline, "d3dmetal")) {
         char framework[PATH_MAX];
         char runtime[PATH_MAX];
@@ -2357,7 +2464,7 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
         setenv("GRAPHICS_BACKEND", backend, 1);
     }
     setenv("MS_GRAPHICS_BACKEND", backend, 1);
-    set_wine_msync(home);
+    ms_steam_apply_launch_preferences(home);
 }
 
 static bool process_cwd_within(pid_t pid, const char* root) {
@@ -2919,6 +3026,51 @@ static bool copy_file_path(const char* source, const char* destination) {
         _exit(127);
     }
     return wait_child_success(pid);
+}
+
+static bool copy_file_path_new(const char* source, const char* destination) {
+    char buffer[16384];
+    int input = open(source, O_RDONLY);
+    int output;
+    bool ok = true;
+    if (input < 0)
+        return false;
+    output = open(destination, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    if (output < 0) {
+        close(input);
+        return false;
+    }
+    for (;;) {
+        ssize_t bytes = read(input, buffer, sizeof(buffer));
+        if (bytes == 0)
+            break;
+        if (bytes < 0) {
+            if (errno == EINTR)
+                continue;
+            ok = false;
+            break;
+        }
+        ssize_t written = 0;
+        while (written < bytes) {
+            ssize_t count = write(output, buffer + written, (size_t)(bytes - written));
+            if (count < 0 && errno == EINTR)
+                continue;
+            if (count <= 0) {
+                ok = false;
+                break;
+            }
+            written += count;
+        }
+        if (!ok)
+            break;
+    }
+    if (close(input) != 0)
+        ok = false;
+    if (close(output) != 0)
+        ok = false;
+    if (!ok)
+        (void)unlink(destination);
+    return ok;
 }
 
 static bool select_wine_ntdll(const char* home, const char* pipeline) {
@@ -3925,6 +4077,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
     }
     if (child == 0) {
         char app_id[32];
+        (void)setpgid(0, 0);
         close(exec_pipe[0]);
         char library_env[4096];
         char* argv[32];
@@ -3940,6 +4093,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         setenv("METALSHARP_PIPELINE", pipeline, 1);
         set_route_paths(home, pipeline);
         set_route_default_env(home, pipeline);
+        ms_steam_apply_launch_preferences(home);
         set_game_opengl_env(id, pipeline);
         set_launch_cache_env(home, id, pipeline);
         if (id == 312520 || id == 2357570) {
@@ -3972,7 +4126,8 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
                  home);
         if (cwd)
             (void)chdir(cwd);
-        argv[argc++] = wine;
+        const char* launch_wrapper = getenv("METALSHARP_WINE_LAUNCH_WRAPPER");
+        argv[argc++] = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
         argv[argc++] = exe_name;
         build_launch_args(id, pipeline, argv, &argc, sizeof(argv) / sizeof(argv[0]));
         if (id == 312520 || id == 2357570) {
@@ -3982,13 +4137,14 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             dprintf(STDERR_FILENO, "\\n");
         }
         argv[argc] = NULL;
-        execv(wine, argv);
+        execv(argv[0], argv);
         {
             int error = errno;
             (void)write(exec_pipe[1], &error, sizeof(error));
         }
         _exit(127);
     }
+    (void)setpgid(child, child);
     close(exec_pipe[1]);
     {
         int error = 0;
@@ -4068,7 +4224,8 @@ static char* spawn_gptk_game(const char* home, const char* executable, unsigned 
         setenv("WINEPREFIX", prefix, 1);
         setenv("WINEARCH", "wow64", 1);
         setenv("WINEDEBUG", "-all", 1);
-        set_wine_msync(home);
+        ms_steam_apply_launch_preferences(home);
+        setenv("METALSHARP_WINE_BINARY", wine, 1);
         setenv("WINEDLOVERRIDES",
                "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d", 1);
         if (!strcmp(pipeline, "d3dmetal"))
@@ -4081,10 +4238,11 @@ static char* spawn_gptk_game(const char* home, const char* executable, unsigned 
         setenv("MS_GRAPHICS_BACKEND", !strcmp(pipeline, "d3dmetal") ? "d3dmetal" : "gptk", 1);
         setenv("DYLD_FALLBACK_LIBRARY_PATH", dyld, 1);
         (void)chdir(cwd);
-        argv[argc++] = (char*)wine;
+        const char* launch_wrapper = getenv("METALSHARP_WINE_LAUNCH_WRAPPER");
+        argv[argc++] = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
         argv[argc++] = exe_name;
         argv[argc] = NULL;
-        execv(wine, argv);
+        execv(argv[0], argv);
         _exit(127);
     }
     free(prefix);
@@ -4110,7 +4268,7 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
     /* D3DMetal uses its own bottle play endpoint, so reconcile controller
      * shims here as well as in the generic Steam launch path. */
     game_dir = ms_steam_game_dir(home, id);
-    deploy_controller_input_shims(home, game_dir);
+    ms_steam_deploy_controller_input_shims(home, game_dir);
     free(game_dir);
     error_text = spawn_direct_game(home, executable, id, "d3dmetal", &pid);
     if (error_text) {
@@ -4654,7 +4812,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     }
     if (!strcmp(pipeline, "fna_arm64")) {
         game_dir = ms_steam_game_dir(home, id);
-        deploy_controller_input_shims(home, game_dir);
+        ms_steam_deploy_controller_input_shims(home, game_dir);
         free(game_dir);
         e = spawn_fna_game(home, id, &pid);
         if (e) {
@@ -4688,7 +4846,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         }
     }
     game_dir = ms_steam_game_dir(home, id);
-    deploy_controller_input_shims(home, game_dir);
+    ms_steam_deploy_controller_input_shims(home, game_dir);
     prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
     remove_stale_route_dlls(home, pipeline, game_dir, executable);
     if (!stage_route_dlls(home, id, pipeline, executable)) {
@@ -4835,6 +4993,7 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
             *status = 500;
         return err("game directory is missing");
     }
+    ms_steam_deploy_controller_input_shims(home, game_dir);
     prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
     remove_stale_route_dlls(home, pipeline, game_dir, executable);
     if (!stage_route_dlls(home, id, pipeline, executable)) {

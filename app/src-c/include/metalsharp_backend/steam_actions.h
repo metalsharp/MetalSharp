@@ -7,8 +7,13 @@ bool ms_steam_process_running(const char*);
 pid_t ms_steam_odyssey_activity_pid(const char*);
 bool ms_steam_stop_odyssey_processes(const char*);
 void ms_steam_cancel_background_tasks(void);
-/* Apply a registered graphics route to a child process environment. */
+/* Apply registered graphics and global launch preferences to a child process. */
 void ms_steam_apply_graphics_route(const char* home, const char* pipeline);
+void ms_steam_apply_launch_preferences(const char* home);
+/* Apply configured controller shims without overwriting unowned game DLLs. */
+void ms_steam_deploy_controller_input_shims(const char* home, const char* game_dir);
+/* Return the app-managed Wine shim that opens requested Wine virtual desktops. */
+char* ms_steam_wine_launch_wrapper_path(const char* home);
 char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
 /* Migration-time guarantee: verify/restore steamwebhelper wrapper, bridge shim and Goldberg payloads. */

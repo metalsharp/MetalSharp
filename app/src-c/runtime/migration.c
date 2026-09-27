@@ -17,6 +17,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -719,6 +720,9 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
                 name_prefix = path_join(bottles, entry->d_name);
                 src_prefix = name_prefix ? path_join(name_prefix, "prefix") : NULL;
                 destination = path_join(out->temp, "bottles/gog-prefix/prefix");
+                /* Preserve all GOG prefix files. copy_tree_filtered deliberately
+                 * omits symlinks; migration re-runs wineboot after restore so
+                 * Wine can rebuild drive mappings in the installed prefix. */
                 if (src_prefix && destination && directory_local(src_prefix) &&
                     !copy_tree_filtered(src_prefix, destination, 0))
                     goto fail;
@@ -1102,6 +1106,73 @@ static bool ensure_migration_zstd(void) {
            (migration_command_available("unzstd") || migration_command_available("zstd"));
 }
 
+static bool run_migration_wineboot(const char* home, const char* prefix) {
+    char *wine = path_join(home, "runtime/wine/bin/metalsharp-wine"), *runtime = path_join(home, "runtime/wine"),
+         *fallback = NULL;
+    struct timespec delay = {0, 500000000};
+    pid_t pid;
+    int status = 0;
+    if (!wine || access(wine, X_OK) != 0) {
+        free(wine);
+        free(runtime);
+        return false;
+    }
+    fallback = runtime ? path_join(runtime, "lib/wine/x86_64-unix") : NULL;
+    pid = fork();
+    if (pid == 0) {
+        char* args[] = {wine, "wineboot", "-u", NULL};
+        setenv("WINEPREFIX", prefix, 1);
+        setenv("WINEDEBUG", "-all", 1);
+        setenv("WINEDEBUGGER", "/usr/bin/true", 1);
+        setenv("WINEDLOVERRIDES", "winedbg=d", 1);
+        if (fallback)
+            setenv("DYLD_FALLBACK_LIBRARY_PATH", fallback, 1);
+        execv(wine, args);
+        _exit(127);
+    }
+    if (pid < 0) {
+        free(wine);
+        free(runtime);
+        free(fallback);
+        return false;
+    }
+    for (unsigned attempt = 0; attempt < 240; attempt++) {
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            free(wine);
+            free(runtime);
+            free(fallback);
+            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        }
+        if (waited < 0 && errno != EINTR)
+            break;
+        (void)nanosleep(&delay, NULL);
+    }
+    (void)kill(pid, SIGTERM);
+    (void)waitpid(pid, &status, 0);
+    free(wine);
+    free(runtime);
+    free(fallback);
+    return false;
+}
+
+static bool rebuild_gog_prefix_after_migration(const char* home) {
+    char* prefix = path_join(home, "bottles/gog-prefix/prefix");
+    bool ok = true;
+    if (prefix && directory_local(prefix)) {
+        char *c_drive = path_join(prefix, "dosdevices/c:"), *z_drive = path_join(prefix, "dosdevices/z:");
+        struct stat c_link, z_link, target;
+        ok = run_migration_wineboot(home, prefix) && c_drive && z_drive && lstat(c_drive, &c_link) == 0 &&
+             S_ISLNK(c_link.st_mode) && stat(c_drive, &target) == 0 && S_ISDIR(target.st_mode) &&
+             lstat(z_drive, &z_link) == 0 && S_ISLNK(z_link.st_mode) && stat(z_drive, &target) == 0 &&
+             S_ISDIR(target.st_mode);
+        free(c_drive);
+        free(z_drive);
+    }
+    free(prefix);
+    return ok;
+}
+
 static bool stop_managed_wine_processes(const char* home) {
     int status = 500;
     char* result = ms_steam_stop_json(home, &status);
@@ -1458,7 +1529,8 @@ static void* migration_worker(void* opaque) {
         return NULL;
     }
     (void)write_migration_progress(job->home, "running", 2,
-                                   "Preserving user preferences, Steam API key, and bottle settings...", NULL);
+                                   "Preserving user preferences, Steam API key, bottle settings, and GOG prefix...",
+                                   NULL);
     if (!preserve_user_data(job->home, &preserved)) {
         (void)write_migration_progress(job->home, "error", 2,
                                        "Could not safely preserve user data; no files were removed",
@@ -1513,6 +1585,18 @@ static void* migration_worker(void* opaque) {
             restore_preserved_data(job->home, &preserved);
             write_migration_report(job->home, true, true);
             free_preserved_data(&preserved);
+            (void)write_migration_progress(job->home, "running", 6,
+                                           "Rebuilding preserved GOG Wine prefix drive mappings...", NULL);
+            if (!rebuild_gog_prefix_after_migration(job->home)) {
+                (void)write_migration_progress(job->home, "error", 6,
+                                               "Could not initialize the preserved GOG Wine prefix",
+                                               "gog_prefix_wineboot_failed");
+                unlink(job->lock_path);
+                free(job->home);
+                free(job->lock_path);
+                free(job);
+                return NULL;
+            }
             (void)write_migration_progress(job->home, "running", 6, "Registering external Steam libraries...", NULL);
             if (!stop_managed_wine_processes(job->home)) {
                 (void)write_migration_progress(job->home, "error", 6,

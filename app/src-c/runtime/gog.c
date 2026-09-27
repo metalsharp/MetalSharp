@@ -25,25 +25,54 @@ typedef struct {
 } gog_pid_entry;
 static gog_pid_entry gog_pids[32];
 static size_t gog_pid_count;
+static pthread_mutex_t gog_pids_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool remove_tree(const char* path);
 
 static void gog_track_pid(const char* product_id, pid_t pid) {
+    pthread_mutex_lock(&gog_pids_mutex);
     for (size_t i = 0; i < gog_pid_count; i++)
         if (!strcmp(gog_pids[i].product_id, product_id)) {
             gog_pids[i].pid = pid;
+            pthread_mutex_unlock(&gog_pids_mutex);
             return;
         }
     if (gog_pid_count < sizeof(gog_pids) / sizeof(gog_pids[0])) {
         snprintf(gog_pids[gog_pid_count].product_id, sizeof(gog_pids[gog_pid_count].product_id), "%s", product_id);
         gog_pids[gog_pid_count++].pid = pid;
     }
+    pthread_mutex_unlock(&gog_pids_mutex);
 }
 
 static pid_t gog_tracked_pid(const char* product_id) {
+    pid_t pid = 0;
+    pthread_mutex_lock(&gog_pids_mutex);
     for (size_t i = 0; i < gog_pid_count; i++)
-        if (!strcmp(gog_pids[i].product_id, product_id))
-            return gog_pids[i].pid;
-    return 0;
+        if (!strcmp(gog_pids[i].product_id, product_id)) {
+            pid = gog_pids[i].pid;
+            break;
+        }
+    pthread_mutex_unlock(&gog_pids_mutex);
+    return pid;
+}
+
+static void gog_clear_tracked_pid(const char* product_id) {
+    pthread_mutex_lock(&gog_pids_mutex);
+    for (size_t i = 0; i < gog_pid_count; i++)
+        if (!strcmp(gog_pids[i].product_id, product_id)) {
+            gog_pids[i].pid = 0;
+            break;
+        }
+    pthread_mutex_unlock(&gog_pids_mutex);
+}
+
+static void gog_clear_pid(pid_t pid) {
+    pthread_mutex_lock(&gog_pids_mutex);
+    for (size_t i = 0; i < gog_pid_count; i++)
+        if (gog_pids[i].pid == pid) {
+            gog_pids[i].pid = 0;
+            break;
+        }
+    pthread_mutex_unlock(&gog_pids_mutex);
 }
 
 typedef struct {
@@ -55,6 +84,7 @@ static void* gog_reap_worker(void* raw) {
     gog_reap_job* job = raw;
     int wait_status;
     pid_t waited = waitpid(job->pid, &wait_status, 0);
+    gog_clear_pid(job->pid);
     FILE* log = fopen(job->log_path, "a");
     if (log) {
         if (waited == job->pid && WIFEXITED(wait_status))
@@ -622,8 +652,9 @@ static bool spawn_gogdl_download(const char* home, const char* product_id, const
 
 static bool spawn_gogdl_launch(const char* home, const char* product_id, const char* platform, const char* folder,
                                const char* engine, pid_t* pid_out, char** log_out) {
-    char *binary = gogdl_path(home), *log_dir = join(home, "logs/gog"),
-         *wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    char *binary = gogdl_path(home), *log_dir = join(home, "logs/gog"), *wine = ms_steam_wine_launch_wrapper_path(home);
+    if (!wine)
+        wine = join(home, "runtime/wine/bin/metalsharp-wine");
     char* prefix = join(home, "bottles/gog-prefix/prefix");
     char log_path[2048];
     pid_t pid;
@@ -646,6 +677,7 @@ static bool spawn_gogdl_launch(const char* home, const char* product_id, const c
         return false;
     }
     if (pid == 0) {
+        (void)setpgid(0, 0);
         int fd = open(log_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd >= 0) {
             dup2(fd, STDOUT_FILENO);
@@ -1636,16 +1668,74 @@ static char* gog_progress_json(const char* home, const char* id) {
     return result ? result : err("game not found");
 }
 
+static bool stop_gog_wineserver(const char* home) {
+    char *server = join(home, "runtime/wine/bin/wineserver"), *prefix = join(home, "bottles/gog-prefix/prefix");
+    struct timespec delay = {0, 100000000};
+    struct stat prefix_stat;
+    pid_t pid;
+    int status = 0;
+    if (!prefix || stat(prefix, &prefix_stat) != 0 || !S_ISDIR(prefix_stat.st_mode)) {
+        free(server);
+        free(prefix);
+        return true;
+    }
+    if (!server || access(server, X_OK) != 0) {
+        free(server);
+        free(prefix);
+        return false;
+    }
+    pid = fork();
+    if (pid == 0) {
+        char* args[] = {server, "-k", NULL};
+        setenv("WINEPREFIX", prefix, 1);
+        setenv("WINEDEBUG", "-all", 1);
+        execv(server, args);
+        _exit(127);
+    }
+    if (pid < 0) {
+        free(server);
+        free(prefix);
+        return false;
+    }
+    for (unsigned attempt = 0; attempt < 100; attempt++) {
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            free(server);
+            free(prefix);
+            return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        }
+        if (waited < 0 && errno != EINTR)
+            break;
+        (void)nanosleep(&delay, NULL);
+    }
+    (void)kill(pid, SIGTERM);
+    (void)waitpid(pid, &status, 0);
+    free(server);
+    free(prefix);
+    return false;
+}
+
 static char* gog_stop_json(const char* home, const char* id) {
     ms_json* games = load_games(home);
     for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
         char* candidate = field(ms_json_array_get(games, i), "productId", "");
         if (!strcmp(candidate, id)) {
             pid_t tracked = gog_tracked_pid(id);
+            bool wine_stopped;
             char *title = NULL, *platform = NULL, *install_root = NULL, *game_folder = NULL;
             bool installed = gog_launch_record(home, id, &title, &platform, &install_root, &game_folder);
-            if (tracked > 0) {
-                kill(tracked, SIGTERM);
+            if (tracked > 0 && kill(-tracked, SIGTERM) != 0 && errno == ESRCH)
+                (void)kill(tracked, SIGTERM);
+            wine_stopped = stop_gog_wineserver(home);
+            gog_clear_tracked_pid(id);
+            if (!wine_stopped) {
+                free(title);
+                free(platform);
+                free(install_root);
+                free(game_folder);
+                free(candidate);
+                ms_json_free(games);
+                return err("could not stop GOG Wine processes");
             }
             if (!title)
                 title = field(ms_json_array_get(games, i), "title", id);
@@ -1684,6 +1774,43 @@ static char* gog_stop_json(const char* home, const char* id) {
     }
     ms_json_free(games);
     return err("game not found");
+}
+
+static char* gog_stop_all_json(const char* home) {
+    ms_json* games = load_games(home);
+    size_t stopped = 0;
+    bool ok = true;
+    for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
+        const ms_json* game = ms_json_array_get(games, i);
+        char* id = field(game, "productId", "");
+        bool running = false;
+        (void)ms_json_as_bool(ms_json_object_get(game, "running"), &running);
+        if (id[0] && (running || gog_tracked_pid(id) > 0)) {
+            char* result = gog_stop_json(home, id);
+            if (result && strstr(result, "\"ok\":true"))
+                stopped++;
+            else
+                ok = false;
+            free(result);
+        }
+        free(id);
+    }
+    ms_json_free(games);
+    /* Catch live prefix processes even when a previous backend process lost
+     * its in-memory gogdl PID and the library status was stale. */
+    if (stopped == 0 && !stop_gog_wineserver(home))
+        ok = false;
+    {
+        ms_json_writer writer;
+        ms_json_writer_init(&writer);
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "ok");
+        ms_json_writer_bool(&writer, ok);
+        ms_json_writer_key(&writer, "stopped");
+        ms_json_writer_u64(&writer, stopped);
+        ms_json_writer_object_end(&writer);
+        return ms_json_writer_take(&writer);
+    }
 }
 
 char* ms_gog_action_json(const char* home, const char* action, const unsigned char* body, size_t len) {
@@ -1747,6 +1874,8 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             return gog_error_with_status(home, error);
         return ms_gog_status_json(home);
     }
+    if (!strcmp(action, "stop-all"))
+        return gog_stop_all_json(home);
     if (!strcmp(action, "remove-prefix")) {
         char* p = join(home, "bottles/gog-prefix");
         bool ok = p && remove_tree(p);
@@ -1899,6 +2028,8 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 return err("platform must be windows, osx, or linux");
             }
             char* prefix = join(home, "bottles/gog-prefix/prefix");
+            if (!strcmp(platform, "windows"))
+                ms_steam_deploy_controller_input_shims(home, folder);
             bool started = prefix && mkdir_p(prefix) &&
                            spawn_gogdl_launch(home, s, platform, folder, engine, &launch_pid, &log_path);
             if (!started) {

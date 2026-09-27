@@ -9,7 +9,7 @@ import IconSettings from "~icons/lucide/settings";
 import IconSquare from "~icons/lucide/square";
 import IconChevronLeft from "~icons/lucide/chevron-left";
 import sharpLogoUrl from "../icon.png";
-import { api, getAPI } from "../composables/useApi";
+import { api, getAPI, showLaunchQuitHint } from "../composables/useApi";
 import { useToast } from "../composables/useToast";
 import { useTheme, type ThemeName } from "../composables/useTheme";
 import LibraryTopbar from "../components/LibraryTopbar.vue";
@@ -631,13 +631,8 @@ async function launchGame(game: ShowcaseGame) {
     } else {
       toast.show(`Launched ${game.name}`, "success");
     }
-    // Remind the player about the Cmd+Opt+Q escape hatch once the game has
-    // had a moment to take over the screen.
-    setTimeout(() => {
-      void getAPI()
-        .showLaunchOverlay(game.name)
-        .catch(() => {});
-    }, 5000);
+    // Let the game take over the screen before displaying the quit hint.
+    showLaunchQuitHint(game.name);
   } else toast.show(result?.error || `Failed to launch ${game.name}`, "error");
 }
 
