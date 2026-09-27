@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.74.0 — 2026-09-26
+
+Age of Empires IV Steam executable selection and synchronized release metadata.
+
+### Fixed
+
+- **Age of Empires IV launch executable selection** — Steam App ID `1466860` now prefers `RelicCardinal.exe` over competing executables such as `EssenceEditor.exe`.
+
+### Changed
+
+- Bumped the internal application, backend, and native project version to `0.74.0`.
+
 ## v0.54.5 — 2026-07-09
 
 Testing-surface hardening, pre-commit strictness, and compatibility database refresh.
