@@ -2212,6 +2212,8 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "eldenring.exe";
     else if (id == 553850)
         preferred[count++] = "bin/helldivers2.exe";
+    else if (id == 1466860)
+        preferred[count++] = "RelicCardinal.exe";
     else if (id == 1888160)
         preferred[count++] = "armoredcore6.exe";
     else if (id == 1962700)
