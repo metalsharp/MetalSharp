@@ -107,12 +107,28 @@ static char* custom_game_name(const char* home, const char* id, const char* fall
     return name;
 }
 
+static const char* canonical_gamejolt_engine(const char* engine) {
+    if (!engine || !engine[0] || !strcasecmp(engine, "auto") || !strcasecmp(engine, "vkd3d"))
+        return "vkd3d";
+    if (!strcasecmp(engine, "d3dmetal") || !strcasecmp(engine, "d3dmetal_native"))
+        return "d3dmetal";
+    if (!strcasecmp(engine, "dxmt") || !strcasecmp(engine, "m10") || !strcasecmp(engine, "m11"))
+        return "dxmt";
+    if (!strcasecmp(engine, "dxmt_32") || !strcasecmp(engine, "m10_32") || !strcasecmp(engine, "m11_32"))
+        return "dxmt_32";
+    if (!strcasecmp(engine, "d3d9") || !strcasecmp(engine, "m9"))
+        return "d3d9";
+    return "vkd3d";
+}
+
 static char* custom_game_engine(const char* home, const char* id, const char* fallback) {
     char* config_path = engines_config_path(home);
     char* raw = config_path ? read_text(config_path) : NULL;
     char error[96];
     ms_json* config = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
-    char* engine = field(config, id, fallback);
+    char* configured = field(config, id, fallback);
+    char* engine = strdup(canonical_gamejolt_engine(configured));
+    free(configured);
     free(config_path);
     free(raw);
     ms_json_free(config);
@@ -496,10 +512,9 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
 }
 
 static void write_pipeline_options(ms_json_writer* writer) {
-    static const char* const options[][2] = {{"auto", "Auto"},       {"d3d9", "D3D9"},
-                                             {"m10", "M10"},         {"m10_32", "M10 (32-bit)"},
-                                             {"m11", "M11"},         {"m11_32", "M11 (32-bit)"},
-                                             {"vkd3d", "VKD3D"},    {"d3dmetal", "D3DMetal"}};
+    static const char* const options[][2] = {{"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D"},
+                                             {"dxmt", "DXMT"},         {"dxmt_32", "DXMT(32)"},
+                                             {"d3d9", "D3D9"}};
     ms_json_writer_array_begin(writer);
     for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
         ms_json_writer_object_begin(writer);
@@ -508,7 +523,7 @@ static void write_pipeline_options(ms_json_writer* writer) {
         ms_json_writer_key(writer, "name");
         ms_json_writer_string(writer, options[i][1]);
         ms_json_writer_key(writer, "recommended");
-        ms_json_writer_bool(writer, i == 0);
+        ms_json_writer_bool(writer, i == 1);
         ms_json_writer_object_end(writer);
     }
     ms_json_writer_array_end(writer);
@@ -722,9 +737,8 @@ char* ms_gamejolt_set_engine_json(const char* home, const unsigned char* body, s
     ms_json_writer writer;
     char* serialized;
     FILE* file;
-    bool valid = !strcmp(engine, "auto") || !strcmp(engine, "m9") || !strcmp(engine, "d3d9") || !strcmp(engine, "m10") ||
-                 !strcmp(engine, "m10_32") || !strcmp(engine, "m11") || !strcmp(engine, "m11_32") ||
-                 !strcmp(engine, "vkd3d") || !strcmp(engine, "d3dmetal");
+    bool valid = !strcmp(engine, "d3dmetal") || !strcmp(engine, "vkd3d") || !strcmp(engine, "dxmt") ||
+                 !strcmp(engine, "dxmt_32") || !strcmp(engine, "d3d9");
     bool found = false;
     if (!request || !id[0] || !engine[0] || !valid || !path || !dir || !mkdir_p(dir)) {
         ms_json_free(request); ms_json_free(previous); free(id); free(engine); free(path); free(dir); free(raw);

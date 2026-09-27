@@ -684,6 +684,19 @@ function forceQuitAllRunningGames(port: number): void {
   );
   gogReq.on("error", (e) => console.warn("Force-quit GOG games request failed:", e));
   gogReq.end();
+
+  const sharpReq = http.request(
+    {
+      hostname: "127.0.0.1",
+      port,
+      path: "/sharp-library/stop-all",
+      method: "POST",
+      headers: { "Content-Length": 0 },
+    },
+    (res) => res.resume(),
+  );
+  sharpReq.on("error", (e) => console.warn("Force-quit Sharp Library applications request failed:", e));
+  sharpReq.end();
 }
 
 function forceQuitRunningGames(): void {

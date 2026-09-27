@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -17,6 +18,16 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+typedef struct sharp_running_app {
+    char* id;
+    pid_t pid;
+    bool process_group;
+    struct sharp_running_app* next;
+} sharp_running_app;
+
+static sharp_running_app* g_sharp_running;
+static pthread_mutex_t g_sharp_running_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static char* failure(const char* s) {
     ms_json_writer w;
@@ -208,6 +219,224 @@ static char* app_json(const char* id, const char* name, const char* exe, const c
     ms_json_writer_object_end(&w);
     o = ms_json_writer_take(&w);
     return o;
+}
+
+static void sharp_forget_locked(const char* id) {
+    sharp_running_app** current = &g_sharp_running;
+    while (*current) {
+        if (!strcmp((*current)->id, id)) {
+            sharp_running_app* old = *current;
+            *current = old->next;
+            free(old->id);
+            free(old);
+            return;
+        }
+        current = &(*current)->next;
+    }
+}
+
+static void sharp_remember(const char* id, pid_t pid, bool process_group) {
+    sharp_running_app* entry;
+    if (!id || !id[0] || pid <= 1)
+        return;
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    sharp_forget_locked(id);
+    entry = calloc(1, sizeof(*entry));
+    if (entry) {
+        entry->id = strdup(id);
+        if (entry->id) {
+            entry->pid = pid;
+            entry->process_group = process_group;
+            entry->next = g_sharp_running;
+            g_sharp_running = entry;
+        } else
+            free(entry);
+    }
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+}
+
+static bool sharp_process_active(pid_t pid) {
+    int status;
+    pid_t waited = waitpid(pid, &status, WNOHANG);
+    if (waited == pid)
+        return false;
+    if (waited == 0)
+        return true;
+    if (waited < 0 && errno != ECHILD)
+        return errno == EINTR || errno == EPERM;
+    return kill(pid, 0) == 0 || errno == EPERM;
+}
+
+static bool sharp_group_active(pid_t pid) {
+    if (kill(-pid, 0) == 0)
+        return true;
+    return errno != ESRCH;
+}
+
+static void sharp_prune_locked(void) {
+    sharp_running_app** current = &g_sharp_running;
+    while (*current) {
+        bool active = sharp_process_active((*current)->pid);
+        if ((*current)->process_group)
+            active = sharp_group_active((*current)->pid);
+        if (!active) {
+            sharp_running_app* old = *current;
+            *current = old->next;
+            free(old->id);
+            free(old);
+        } else
+            current = &(*current)->next;
+    }
+}
+
+static bool sharp_terminate_locked(sharp_running_app* entry) {
+    pid_t pid = entry->pid;
+    bool group = entry->process_group;
+    int term_result = kill(group ? -pid : pid, SIGTERM);
+    bool sent = term_result == 0 || errno == ESRCH;
+    struct timespec delay = {.tv_sec = 0, .tv_nsec = 50000000};
+    for (int i = 0; i < 20; i++) {
+        (void)sharp_process_active(pid);
+        bool active = group ? sharp_group_active(pid) : sharp_process_active(pid);
+        if (!active)
+            break;
+        nanosleep(&delay, NULL);
+    }
+    (void)sharp_process_active(pid);
+    if (group ? sharp_group_active(pid) : sharp_process_active(pid)) {
+        int kill_result = kill(group ? -pid : pid, SIGKILL);
+        if (kill_result != 0 && errno != ESRCH) {
+            if (!group || (kill(pid, SIGKILL) != 0 && errno != ESRCH))
+                sent = false;
+        }
+    }
+    int status;
+    for (int i = 0; i < 20; i++) {
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid || (waited < 0 && errno == ECHILD))
+            break;
+        nanosleep(&delay, NULL);
+    }
+    if (sharp_process_active(pid) || (group && sharp_group_active(pid)))
+        sent = false;
+    return sent;
+}
+
+char* ms_sharp_running_json(void) {
+    ms_json_writer writer;
+    char* result;
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    sharp_prune_locked();
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "running");
+    ms_json_writer_array_begin(&writer);
+    for (sharp_running_app* entry = g_sharp_running; entry; entry = entry->next) {
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "id");
+        ms_json_writer_string(&writer, entry->id);
+        ms_json_writer_key(&writer, "pid");
+        ms_json_writer_u64(&writer, (unsigned long long)entry->pid);
+        ms_json_writer_object_end(&writer);
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+    return result;
+}
+
+char* ms_sharp_track_running_json(const char* home, const unsigned char* body, size_t length) {
+    char error[96];
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
+    char* id = field(request, "id", "");
+    long long pid_value = 0;
+    ms_json* apps = load_array(home);
+    bool found = false;
+    for (size_t i = 0; apps && i < ms_json_array_length(apps); i++) {
+        char* app_id = field(ms_json_array_get(apps, i), "id", "");
+        found = !strcmp(app_id, id);
+        free(app_id);
+        if (found)
+            break;
+    }
+    bool valid = request && id[0] && found && ms_json_as_i64(ms_json_object_get(request, "pid"), &pid_value) &&
+                 pid_value > 1 && pid_value <= INT_MAX && (kill((pid_t)pid_value, 0) == 0 || errno == EPERM);
+    if (valid)
+        sharp_remember(id, (pid_t)pid_value, false);
+    free(id);
+    ms_json_free(apps);
+    ms_json_free(request);
+    if (!valid)
+        return failure("Sharp Library application or running process not found");
+    return strdup("{\"ok\":true}");
+}
+
+char* ms_sharp_stop_json(const unsigned char* body, size_t length, int* status) {
+    char error[96];
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
+    char* id = field(request, "id", "");
+    bool stopped = false;
+    if (status)
+        *status = 400;
+    if (!request || !id[0]) {
+        free(id);
+        ms_json_free(request);
+        return failure("Sharp Library application id required");
+    }
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    sharp_prune_locked();
+    for (sharp_running_app* entry = g_sharp_running; entry; entry = entry->next) {
+        if (!strcmp(entry->id, id)) {
+            stopped = sharp_terminate_locked(entry);
+            sharp_forget_locked(id);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+    free(id);
+    ms_json_free(request);
+    if (!stopped)
+        return failure("Sharp Library application is not running or could not be stopped");
+    if (status)
+        *status = 200;
+    return strdup("{\"ok\":true}");
+}
+
+char* ms_sharp_stop_all_json(int* status) {
+    size_t stopped = 0;
+    bool failed = false;
+    pthread_mutex_lock(&g_sharp_running_mutex);
+    while (g_sharp_running) {
+        sharp_running_app* entry = g_sharp_running;
+        if (sharp_terminate_locked(entry))
+            stopped++;
+        else
+            failed = true;
+        g_sharp_running = entry->next;
+        free(entry->id);
+        free(entry);
+    }
+    pthread_mutex_unlock(&g_sharp_running_mutex);
+    ms_json_writer writer;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, !failed);
+    ms_json_writer_key(&writer, "stopped");
+    ms_json_writer_u64(&writer, stopped);
+    if (failed) {
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, "one or more Sharp Library applications could not be stopped");
+    }
+    ms_json_writer_object_end(&writer);
+    if (status)
+        *status = failed ? 500 : 200;
+    return ms_json_writer_take(&writer);
 }
 
 static bool contains_ci(const char* text, const char* needle) {
@@ -882,6 +1111,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 return failure("failed to launch application");
             }
             if (pid == 0) {
+                (void)setpgid(0, 0);
                 if (prefix)
                     setenv("WINEPREFIX", prefix, 1);
                 struct stat work_stat;
@@ -897,6 +1127,9 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 execl(wine, wine, exe_path, (char*)NULL);
                 _exit(127);
             }
+            (void)setpgid(pid, pid);
+            if (!strcmp(action, "launch"))
+                sharp_remember(id, pid, true);
             const char* reported_pipeline = engine && engine[0] ? engine : "auto";
             if (!strcmp(reported_pipeline, "auto"))
                 reported_pipeline = "wine_bare";

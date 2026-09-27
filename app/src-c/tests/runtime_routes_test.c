@@ -3,6 +3,7 @@
 #include "../runtime/steam_actions.c"
 #include "../runtime/epic.c"
 #include "metalsharp_backend/sharp.h"
+#include "metalsharp_backend/gamejolt.h"
 // clang-format on
 #define main metalsharp_backend_main_for_test
 #include "../runtime/main.c"
@@ -89,6 +90,91 @@ int main(int argc, char** argv) {
     ms_steam_apply_graphics_route(home, "fna_arm64");
     assert(!strcmp(getenv("MS_GRAPHICS_BACKEND"), "fna_arm64"));
     assert(!getenv("DXMT_CONFIG_FILE"));
+    {
+        const char* expected[] = {"d3dmetal", "vkd3d", "dxmt", "dxmt_32", "d3d9"};
+        char* gj_home = join(home, "gamejolt-options");
+        char* response;
+        char parse_error[96];
+        char* game_id = NULL;
+        ms_json* parsed;
+        fixture(home, "gamejolt-options/GameJolt/Example/Game.exe", "game");
+        response = ms_gamejolt_json(gj_home);
+        parsed = response ? ms_json_parse(response, strlen(response), parse_error, sizeof(parse_error)) : NULL;
+        assert(parsed);
+        const ms_json* games = ms_json_object_get(parsed, "games");
+        assert(ms_json_array_length(games) == 1);
+        const ms_json* game = ms_json_array_get(games, 0);
+        const ms_json* pipelines = ms_json_object_get(game, "available_pipelines");
+        assert(ms_json_array_length(pipelines) == sizeof(expected) / sizeof(expected[0]));
+        for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+            char* id = NULL;
+            assert(ms_json_as_string(ms_json_object_get(ms_json_array_get(pipelines, i), "id"), &id));
+            assert(!strcmp(id, expected[i]));
+            free(id);
+        }
+        assert(ms_json_as_string(ms_json_object_get(game, "id"), &game_id));
+        ms_json_free(parsed);
+        free(response);
+        char engines_path[256];
+        snprintf(engines_path, sizeof(engines_path), "gamejolt-options/gamejolt/engines.json");
+        char legacy_config[256];
+        snprintf(legacy_config, sizeof(legacy_config), "{\"%s\":\"m10_32\"}", game_id);
+        fixture(home, engines_path, legacy_config);
+        response = ms_gamejolt_json(gj_home);
+        assert(response && strstr(response, "\"engine\":\"dxmt_32\""));
+        free(response);
+        char set_engine_body[256];
+        snprintf(set_engine_body, sizeof(set_engine_body), "{\"id\":\"%s\",\"engine\":\"dxmt\"}", game_id);
+        response = ms_gamejolt_set_engine_json(gj_home, (const unsigned char*)set_engine_body, strlen(set_engine_body));
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        snprintf(set_engine_body, sizeof(set_engine_body), "{\"id\":\"%s\",\"engine\":\"m11\"}", game_id);
+        response = ms_gamejolt_set_engine_json(gj_home, (const unsigned char*)set_engine_body, strlen(set_engine_body));
+        assert(response && strstr(response, "invalid GameJolt engine"));
+        free(response);
+        free(game_id);
+        free(gj_home);
+    }
+    {
+        char* sharp_home = join(home, "sharp-running");
+        char* wine_path = join(sharp_home, "runtime/wine/bin/metalsharp-wine");
+        char* exe_path = join(sharp_home, "games/Example.exe");
+        char library[PATH_MAX];
+        char launch_body[PATH_MAX];
+        const char* stop_body = "{\"id\":\"sharp-smoke\"}";
+        char* response;
+        int status = 0;
+        fixture(home, "sharp-running/runtime/wine/bin/metalsharp-wine", "#!/bin/sh\nexec /bin/sleep 30\n");
+        assert(chmod(wine_path, 0700) == 0);
+        fixture(home, "sharp-running/games/Example.exe", "game");
+        snprintf(library, sizeof(library),
+                 "[{\"id\":\"sharp-smoke\",\"name\":\"Smoke App\",\"exe_path\":\"%s\","
+                 "\"install_dir\":\"%s\",\"engine\":\"auto\",\"bottle_id\":null}]",
+                 exe_path, sharp_home);
+        fixture(home, "sharp-running/sharp-library/library.json", library);
+        snprintf(launch_body, sizeof(launch_body), "{\"id\":\"sharp-smoke\"}");
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)launch_body, strlen(launch_body), "launch");
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        response = ms_sharp_running_json();
+        assert(response && strstr(response, "sharp-smoke"));
+        free(response);
+        response = ms_sharp_stop_json((const unsigned char*)stop_body, strlen(stop_body), &status);
+        assert(response && status == 200 && strstr(response, "\"ok\":true"));
+        free(response);
+        response = ms_sharp_running_json();
+        assert(response && !strstr(response, "sharp-smoke"));
+        free(response);
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)launch_body, strlen(launch_body), "launch");
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        response = ms_sharp_stop_all_json(&status);
+        assert(response && status == 200 && strstr(response, "\"stopped\":1"));
+        free(response);
+        free(sharp_home);
+        free(wine_path);
+        free(exe_path);
+    }
     {
         const char* stop_body = "{\"appName\":\"SmokeEpic\"}";
         char* epic_home = join(home, "epic-stop");
