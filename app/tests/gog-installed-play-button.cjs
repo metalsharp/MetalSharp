@@ -24,5 +24,9 @@ assert.doesNotMatch(
   "GOG Play does not depend on nonexistent per-game bottle state",
 );
 assert.match(gogTemplate, /v-if="game\.installed"[\s\S]*?@click="uninstallGogGame\(game\)"/);
+assert.match(source, /async function playGogGame\(game: GogGame\)[\s\S]*?showLaunchQuitHint\(game\.title\)/);
+assert.match(source, /async function playEpicGame\(game: EpicGame\)[\s\S]*?showLaunchQuitHint\(game\.title\)/);
+assert.match(source, /async function refreshGogRunning\(\)[\s\S]*?\/sharp-library\/gog\/games[\s\S]*?setGogGames\(result\.games/);
+assert.match(source, /gogProcessPollTimer = setInterval\([\s\S]*?sourceMode\.value === "gog"[\s\S]*?refreshGogRunning\(\)/);
 
-console.log("GOG installed Play button regression check passed");
+console.log("GOG Play, quit overlay, and running-state regression checks passed");
