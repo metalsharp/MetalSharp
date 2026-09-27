@@ -12,9 +12,11 @@
 
 <!-- Process/review gates enforced by CI
      (.github/workflows/pr-readiness-check.yml). Checked items must use [x].
-     To bypass intentionally, apply the `checklist-exception` label. -->
+     A real-game smoke test is required only when changed files affect game launch,
+     graphics, compatibility, or game-library behavior. To bypass intentionally,
+     apply the `checklist-exception` label. -->
 
-- [ ] Compatibility verified with at least one real game (game + launch method noted below)
+- [ ] Real-game launch test completed for game/runtime/graphics/compatibility changes (game + method below; otherwise mark N/A)
 - [ ] No hardcoded paths, secrets, or absolute `/Users/...` paths introduced
 - [ ] Config/rules TOML validated if `configs/mtsp-rules.toml` or DLL maps changed
 - [ ] Version metadata (`CMakeLists.txt`, `app/src-c/Makefile`, `package.json`, `package-lock.json`) in sync if version bumped
@@ -47,7 +49,7 @@
 - [ ] Shell scripts lint if changed: `tools/ci/shellcheck.sh`
 - [ ] `tools/ci/validate-rules-toml.py` passes if `configs/mtsp-rules.toml` changed
 - [ ] `python3 tools/ci/verify-dmg-workflow.py` passes if release/bundle tooling changed
-- [ ] Tested with at least one game (which one? which launch method? which drive?)
+- [ ] If game/runtime/graphics/compatibility behavior changed, test at least one game (which one, launch method, and drive?)
 - [ ] No hardcoded paths, secrets, or absolute `/Users/...` paths
 - [ ] No new files should be added to the repo root; place them under `app/`, `tools/`, `tests/`, etc.
 
