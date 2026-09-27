@@ -28,5 +28,9 @@ assert.match(source, /async function playGogGame\(game: GogGame\)[\s\S]*?showLau
 assert.match(source, /async function playEpicGame\(game: EpicGame\)[\s\S]*?showLaunchQuitHint\(game\.title\)/);
 assert.match(source, /async function refreshGogRunning\(\)[\s\S]*?\/sharp-library\/gog\/games[\s\S]*?setGogGames\(result\.games/);
 assert.match(source, /gogProcessPollTimer = setInterval\([\s\S]*?sourceMode\.value === "gog"[\s\S]*?refreshGogRunning\(\)/);
+assert.match(source, /async function refreshSharpRunning\(\)[\s\S]*?\/sharp-library\/running[\s\S]*?runningSharpPids\.value = next/);
+assert.match(source, /async function launchApp\(id: string, engine: string\)[\s\S]*?showLaunchQuitHint\(app\.name\)/);
+assert.match(source, /async function stopSharpApp\(app: SharpApp\)[\s\S]*?\/sharp-library\/stop/);
+assert.match(source, /sharpProcessPollTimer = setInterval\(\(\) => void refreshSharpRunning\(\), 1500\)/);
 
-console.log("GOG Play, quit overlay, and running-state regression checks passed");
+console.log("Launcher quit hints and running-state regression checks passed");

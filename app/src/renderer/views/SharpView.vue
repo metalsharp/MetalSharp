@@ -534,6 +534,7 @@ const diagnosticsOpen = ref<Record<string, boolean>>({});
 const diagnosticsLoading = ref<Record<string, boolean>>({});
 const launchErrors = ref<Record<string, string>>({});
 const runningSharpPids = ref<Record<string, number>>({});
+let sharpProcessPollInFlight = false;
 const recentLogLines = ref<Record<string, string[]>>({});
 const recentCrashReports = ref<Record<string, CrashReport[]>>({});
 const gogStatus = ref<GogStatus | null>(null);
@@ -561,6 +562,7 @@ const gamejoltPanel = ref<HTMLElement | null>(null);
 let gamejoltDragPointerId: number | null = null;
 const gamejoltDownloadToastIds = new Map<string, number>();
 let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let sharpProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let gogProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let epicProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 const pcsx2Status = ref<Pcsx2Status | null>(null);
@@ -2850,6 +2852,21 @@ async function openBottleLaunchLog(bottle: BottleManifest) {
   }
 }
 
+async function refreshSharpRunning() {
+  if (sharpProcessPollInFlight) return;
+  sharpProcessPollInFlight = true;
+  try {
+    const result = await api<{ ok: boolean; running: { id: string; pid: number }[] }>("GET", "/sharp-library/running");
+    if (result?.ok) {
+      const next: Record<string, number> = {};
+      for (const entry of result.running ?? []) next[entry.id] = entry.pid;
+      runningSharpPids.value = next;
+    }
+  } finally {
+    sharpProcessPollInFlight = false;
+  }
+}
+
 async function launchApp(id: string, engine: string) {
   const app = apps.value.find((a) => a.id === id);
   if (!app) return;
@@ -2870,9 +2887,15 @@ async function launchApp(id: string, engine: string) {
       }
       const pid = await runD3DMetalAction(bottle, playAction, app);
       if (pid) {
-        runningSharpPids.value[id] = pid;
-        launchErrors.value[id] = "";
-        diagnosticsOpen.value[id] = false;
+        const tracked = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/track-running", { id, pid });
+        if (tracked?.ok) {
+          runningSharpPids.value[id] = pid;
+          launchErrors.value[id] = "";
+          diagnosticsOpen.value[id] = false;
+          showLaunchQuitHint(app.name);
+        } else {
+          toast.show(tracked?.error ?? `Could not track ${app.name} for Stop`, "error");
+        }
       }
       return;
     }
@@ -2888,6 +2911,7 @@ async function launchApp(id: string, engine: string) {
     runningSharpPids.value[id] = result.pid;
     launchErrors.value[id] = "";
     diagnosticsOpen.value[id] = false;
+    showLaunchQuitHint(app.name);
     toast.show(warning ? `Launched ${app.name}: ${warning}` : `Launched ${app.name}`, "success");
   } else {
     const error = result?.error ?? `Failed to launch ${app.name}`;
@@ -2898,11 +2922,15 @@ async function launchApp(id: string, engine: string) {
 }
 
 async function stopSharpApp(app: SharpApp) {
-  const pid = runningSharpPids.value[app.id];
-  if (!pid) return;
-  await api("POST", "/kill", { pid });
-  delete runningSharpPids.value[app.id];
-  toast.show(`Closed ${app.name}`);
+  if (!runningSharpPids.value[app.id]) return;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/stop", { id: app.id });
+  if (result?.ok) {
+    delete runningSharpPids.value[app.id];
+    toast.show(`Closed ${app.name}`);
+  } else {
+    toast.show(result?.error ?? `Could not close ${app.name}`, "error");
+    await refreshSharpRunning();
+  }
 }
 
 async function updateEngine(id: string, engine: string) {
@@ -3197,6 +3225,8 @@ onMounted(() => {
   void load();
   void refreshGameJoltProcessState();
   gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  void refreshSharpRunning();
+  sharpProcessPollTimer = setInterval(() => void refreshSharpRunning(), 1500);
   gogProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "gog" && gogGames.value.some((game) => game.running)) void refreshGogRunning();
   }, 2000);
@@ -3220,6 +3250,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
   gamejoltProcessPollTimer = null;
+  if (sharpProcessPollTimer) clearInterval(sharpProcessPollTimer);
+  sharpProcessPollTimer = null;
   if (gogProcessPollTimer) clearInterval(gogProcessPollTimer);
   gogProcessPollTimer = null;
   if (epicProcessPollTimer) clearInterval(epicProcessPollTimer);
