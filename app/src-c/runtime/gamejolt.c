@@ -1,3 +1,8 @@
+#ifdef __APPLE__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
+#endif
 #include "metalsharp_backend/gamejolt.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
@@ -7,13 +12,16 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#ifdef __APPLE__
+#include <libproc.h>
+#endif
 #include <pthread.h>
-#include <stdbool.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <strings.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -21,6 +29,8 @@
 
 typedef struct gamejolt_process {
     char* id;
+    char* working_dir;
+    char* runtime_dir;
     pid_t pid;
     struct gamejolt_process* next;
 } gamejolt_process;
@@ -192,36 +202,110 @@ static char* error_json(const char* message) {
     return ms_json_writer_take(&writer);
 }
 
-static bool gamejolt_pid_active(pid_t pid) {
+static bool path_is_within(const char* path, const char* root) {
+    size_t length = root ? strlen(root) : 0;
+    return path && root && length > 0 && strncmp(path, root, length) == 0 &&
+           (path[length] == '\0' || path[length] == '/');
+}
+
+static bool process_cwd_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    struct proc_vnodepathinfo info;
+    int bytes = proc_pidinfo((int)pid, PROC_PIDVNODEPATHINFO, 0, &info, (int)sizeof(info));
+    return bytes == (int)sizeof(info) && path_is_within(info.pvi_cdir.vip_path, root);
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool process_executable_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    char executable[PROC_PIDPATHINFO_MAXSIZE];
+    int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
+    return bytes > 0 && path_is_within(executable, root);
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool gamejolt_process_matches(const gamejolt_process* game, pid_t pid) {
+    return pid > 1 && pid != getpid() &&
+           ((process_cwd_within(pid, game->working_dir) && process_executable_within(pid, game->runtime_dir)) ||
+            process_executable_within(pid, game->working_dir));
+}
+
+static bool signal_gamejolt_children(const gamejolt_process* game, int signal_number, bool* found) {
+#ifdef __APPLE__
+    FILE* pipe = popen("/bin/ps axo pid=", "r");
+    char line[64];
+    bool ok = true;
+    *found = false;
+    if (!pipe)
+        return false;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* end;
+        long value;
+        errno = 0;
+        value = strtol(line, &end, 10);
+        if (errno || end == line || value <= 1 || value > INT_MAX || value == game->pid)
+            continue;
+        pid_t pid = (pid_t)value;
+        if (!gamejolt_process_matches(game, pid))
+            continue;
+        *found = true;
+        if (signal_number != 0 && kill(pid, signal_number) != 0 && errno != ESRCH)
+            ok = false;
+    }
+    if (pclose(pipe) != 0)
+        ok = false;
+    return ok;
+#else
+    (void)game;
+    (void)signal_number;
+    *found = false;
+    return true;
+#endif
+}
+
+static bool gamejolt_pid_active(const gamejolt_process* game) {
     int wait_error = 0;
+    pid_t pid = game->pid;
     pid_t waited = waitpid(pid, NULL, WNOHANG);
     if (waited < 0)
         wait_error = errno;
     bool group_active = kill(-pid, 0) == 0 || errno == EPERM;
     bool leader_active = waited == 0 || (waited < 0 && wait_error == ECHILD && (kill(pid, 0) == 0 || errno == EPERM)) ||
                          (waited < 0 && wait_error == EINTR);
-    return group_active || leader_active;
+    bool detached_game_active = false;
+    (void)signal_gamejolt_children(game, 0, &detached_game_active);
+    return group_active || leader_active || detached_game_active;
 }
 
-static bool signal_gamejolt_process(pid_t pid, int signal_number) {
-    if (kill(-pid, signal_number) == 0)
-        return true;
-    if (errno != ESRCH)
-        return false;
-    return kill(pid, signal_number) == 0 || errno == ESRCH;
+static bool signal_gamejolt_process(const gamejolt_process* game, int signal_number) {
+    pid_t pid = game->pid;
+    bool group_ok = kill(-pid, signal_number) == 0;
+    if (!group_ok && errno == ESRCH)
+        group_ok = kill(pid, signal_number) == 0 || errno == ESRCH;
+    bool detached_found = false;
+    bool detached_ok = signal_gamejolt_children(game, signal_number, &detached_found);
+    return group_ok && detached_ok;
 }
 
-static bool terminate_gamejolt_process(pid_t pid) {
+static bool terminate_gamejolt_process(const gamejolt_process* game) {
     struct timespec delay = {0, 50000000L};
-    if (!signal_gamejolt_process(pid, SIGTERM))
+    if (!signal_gamejolt_process(game, SIGTERM))
         return false;
-    for (int i = 0; i < 5 && gamejolt_pid_active(pid); i++)
+    for (int i = 0; i < 5 && gamejolt_pid_active(game); i++)
         (void)nanosleep(&delay, NULL);
-    if (gamejolt_pid_active(pid) && !signal_gamejolt_process(pid, SIGKILL))
+    if (gamejolt_pid_active(game) && !signal_gamejolt_process(game, SIGKILL))
         return false;
-    for (int i = 0; i < 20 && gamejolt_pid_active(pid); i++)
+    for (int i = 0; i < 20 && gamejolt_pid_active(game); i++)
         (void)nanosleep(&delay, NULL);
-    return !gamejolt_pid_active(pid);
+    return !gamejolt_pid_active(game);
 }
 
 static void gamejolt_forget_locked(const char* id) {
@@ -231,6 +315,8 @@ static void gamejolt_forget_locked(const char* id) {
             gamejolt_process* old = *current;
             *current = old->next;
             free(old->id);
+            free(old->working_dir);
+            free(old->runtime_dir);
             free(old);
             return;
         }
@@ -241,10 +327,12 @@ static void gamejolt_forget_locked(const char* id) {
 static void gamejolt_prune_locked(void) {
     gamejolt_process** current = &g_gamejolt_processes;
     while (*current) {
-        if (!gamejolt_pid_active((*current)->pid)) {
+        if (!gamejolt_pid_active(*current)) {
             gamejolt_process* old = *current;
             *current = old->next;
             free(old->id);
+            free(old->working_dir);
+            free(old->runtime_dir);
             free(old);
         } else {
             current = &(*current)->next;
@@ -265,13 +353,39 @@ static pid_t gamejolt_launch_response_pid(const char* response) {
     return pid;
 }
 
-void ms_gamejolt_register_game_process(const char* id, pid_t pid) {
-    if (!id || !id[0] || pid <= 1)
+void ms_gamejolt_register_game_process(const char* home, const char* id, pid_t pid, const char* executable) {
+    if (!home || !id || !id[0] || pid <= 1 || !executable || !executable[0])
         return;
+    char* working_dir = strdup(executable);
+    char* slash = working_dir ? strrchr(working_dir, '/') : NULL;
+    char* runtime_dir = join_path(home, "runtime/wine");
+    if (slash && slash != working_dir)
+        *slash = '\0';
+    else if (slash)
+        slash[1] = '\0';
+    if (!working_dir || !runtime_dir) {
+        free(working_dir);
+        free(runtime_dir);
+        return;
+    }
+    char* resolved = realpath(working_dir, NULL);
+    if (resolved) {
+        free(working_dir);
+        working_dir = resolved;
+    }
+    resolved = realpath(runtime_dir, NULL);
+    if (resolved) {
+        free(runtime_dir);
+        runtime_dir = resolved;
+    }
     pthread_mutex_lock(&g_gamejolt_processes_mutex);
     for (gamejolt_process* current = g_gamejolt_processes; current; current = current->next) {
         if (!strcmp(current->id, id)) {
             current->pid = pid;
+            free(current->working_dir);
+            free(current->runtime_dir);
+            current->working_dir = working_dir;
+            current->runtime_dir = runtime_dir;
             pthread_mutex_unlock(&g_gamejolt_processes_mutex);
             return;
         }
@@ -281,11 +395,19 @@ void ms_gamejolt_register_game_process(const char* id, pid_t pid) {
         entry->id = strdup(id);
         if (entry->id) {
             entry->pid = pid;
+            entry->working_dir = working_dir;
+            entry->runtime_dir = runtime_dir;
             entry->next = g_gamejolt_processes;
             g_gamejolt_processes = entry;
         } else {
+            free(entry->id);
             free(entry);
+            free(working_dir);
+            free(runtime_dir);
         }
+    } else {
+        free(working_dir);
+        free(runtime_dir);
     }
     pthread_mutex_unlock(&g_gamejolt_processes_mutex);
 }
@@ -332,7 +454,7 @@ char* ms_gamejolt_stop_json(const unsigned char* body, size_t length, int* statu
     gamejolt_prune_locked();
     for (gamejolt_process* current = g_gamejolt_processes; current; current = current->next) {
         if (!strcmp(current->id, id)) {
-            stopped = terminate_gamejolt_process(current->pid);
+            stopped = terminate_gamejolt_process(current);
             if (stopped)
                 gamejolt_forget_locked(id);
             break;
@@ -356,9 +478,11 @@ char* ms_gamejolt_stop_all_json(int* status) {
     gamejolt_process** current = &g_gamejolt_processes;
     while (*current) {
         gamejolt_process* entry = *current;
-        if (terminate_gamejolt_process(entry->pid)) {
+        if (terminate_gamejolt_process(entry)) {
             *current = entry->next;
             free(entry->id);
+            free(entry->working_dir);
+            free(entry->runtime_dir);
             free(entry);
             stopped++;
         } else {
@@ -1203,7 +1327,7 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
                              : error_json("failed to prepare GameJolt launch");
         pid_t launched_pid = gamejolt_launch_response_pid(result);
         if (launched_pid > 1)
-            ms_gamejolt_register_game_process(id, launched_pid);
+            ms_gamejolt_register_game_process(home, id, launched_pid, executable);
         free(launch_body);
         ms_json_free(request);
         free(id);
@@ -1250,7 +1374,7 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
     (void)setpgid(pid, pid);
     if (native)
         ms_process_register_game((unsigned)path_hash(executable), pid);
-    ms_gamejolt_register_game_process(id, pid);
+    ms_gamejolt_register_game_process(home, id, pid, executable);
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
