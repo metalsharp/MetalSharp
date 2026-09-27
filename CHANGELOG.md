@@ -2,15 +2,388 @@
 
 ## v0.74.0 — 2026-09-26
 
-Age of Empires IV Steam executable selection and synchronized release metadata.
+Launcher routing and artwork fixes, Sharp Library/setup polish, D3D9 route documentation, and the Age of Empires IV executable-selection fix.
+
+### Added
+
+- **D3D9 launch route** — documented the D3D9 option in the engine routes table and compatibility guide; added compatibility entries for Blasphemous 2, Balatro, and Assassin’s Creed Odyssey.
+- **Assassin’s Creed Odyssey route** — launch it through Steam using D3DMetal.
+- **Epic artwork fallback** — use TheGamesDB artwork when Epic metadata has no usable image.
 
 ### Fixed
 
-- **Age of Empires IV launch executable selection** — Steam App ID `1466860` now prefers `RelicCardinal.exe` over competing executables such as `EssenceEditor.exe`.
+- **Age of Empires IV executable selection** — Steam App ID `1466860` now prefers `RelicCardinal.exe` over competing executables such as `EssenceEditor.exe`. This selects the intended executable; it does not establish that the game successfully starts.
+- **Epic graphics pipeline setup and launch** — repair Epic pipeline configuration and ensure launches use the selected route.
+- **GOG Play and graphics routing** — restore Play behavior and selected-graphics-route handling.
+- **Native macOS Steam launches** — route native macOS titles through the host instead of Wine.
+- **Sharp Library executable routing** — select and launch the intended executable.
+- **Helldivers 2 launch directory** — launch from the game install root.
+- **Legacy updater recovery** — repair installations stuck in the older update/shutdown flow.
 
 ### Changed
 
-- Bumped the internal application, backend, and native project version to `0.74.0`.
+- Polished Sharp Library and setup flows; refreshed the game compatibility page, engine-route descriptions, installation guidance, and README release links.
+- Updated internal application, backend, and native project version metadata to `0.74.0`; included the release dependency batch.
+
+## v0.73.0 — 2026-09-24
+
+Restored library controls and VKD3D/D3D9 routes, external-library path resolution, and broad localization.
+
+### Added
+
+- **20-language UI localization** across the application.
+- **D3D9 route** exposed in the renderer and runtime pipeline list.
+
+### Fixed
+
+- **Library controls and route inference** — restore missing library controls and infer the appropriate graphics route for games.
+- **External Steam libraries** — resolve Wine drive paths for games installed outside the primary Steam library.
+- **VKD3D route** — restore VKD3D runtime handling and its user-facing selector.
+
+### Documentation
+
+- Updated installation instructions and release-badge references.
+
+## v0.72.0 — 2026-09-23
+
+Release signing/notarization, Rosetta AVX support, VKD3D x87sidecar integration, and launch-architecture documentation.
+
+### Added
+
+- **Cooperative x87sidecar for VKD3D** — integrate the helper for compatibility-sensitive floating-point behavior.
+- **Rosetta AVX advertisement** — advertise AVX capability to Wine games running under Rosetta; launch Isaac on the 32-bit DXMT route.
+- **Compatibility entries** for Dredge and Hogwarts Legacy.
+- **Star History** chart in the README.
+
+### Changed
+
+- License changed to PolyForm Noncommercial.
+- Simplified runtime documentation to the five public launch routes and clarified D3DMetal modes, Goldberg behavior, dependency bundles, and VKD3D.
+
+### Fixed
+
+- Final DMG signing and notarization now run on the actual release artifact.
+- Removed the VirusTotal release-scanning job and unnecessary Developer SDK validation from the DMG path.
+- Made selected-member archive extraction safe, fixed zstd/hash-check error handling, and removed a stale Wine GSBASE hash check.
+
+## v0.71.0 — 2026-09-20
+
+Sunshine/Moonlight streaming, hardened migration verification, and setup-wizard recovery fixes.
+
+### Added
+
+- **Game streaming** — stream games to mobile devices through Sunshine and Moonlight, with bounded blocking operations, status re-arbitration, listener cleanup, and permission/process handling.
+- **Palworld** compatibility entry.
+
+### Fixed
+
+- **Setup wizard completion** — restore the final “Launch MetalSharp” reference, correct the invalid page index, and remove the obsolete VC++ setup step.
+- **VC++ migration/setup** — make installation asynchronous, make setup tests repeatable, recover from orphan installers, reject out-of-range PIDs and unsafe names, and handle `EPERM` as an alive process.
+- **Migration verification** — pin the DXMT bridge signature/CDHash, use strict signature verification, and remove content verification that rejected valid preserved data. Existing Steam/GOG prefixes no longer receive the migration wineboot pass.
+- **Streaming controls** — fix the Stream button’s drag-region hit target and restore the absolute curl path.
+- **Window/theme behavior** — disable High Resolution (Retina) by default, reset corrupt saved window geometry, and correct light-theme chrome.
+
+### Documentation
+
+- Refreshed supported-game entries and README installation/quick-start images and instructions; clarified the VKD3D route.
+- Batched dependency updates for `marked`, Biome, `@types/node`, `unplugin-icons`, and Vite.
+
+## v0.70.0 — 2026-09-18
+
+Major library redesign and runtime-routing cleanup, with a first-launch experience, Steam Art Manager, Wine/OpenGL work, setup improvements, and release hardening. The version was deliberately advanced from `0.61.0` to `0.70.0` to mark the major product update and complete visual overhaul—not because releases were omitted.
+
+### Added
+
+- **Library redesign** — themed top bar, collections/actions, settings overlay, refreshed logs and Sharp Library surfaces, themed header menus, and improved draggable window regions.
+- **Steam Art Manager** — bundle the companion tool, add its launcher/control, remember the Steam path and API keys, provide first-use guidance, automatically refresh library artwork when Steam grid art changes, and let custom hero artwork override CDN art.
+- **Quit guidance** — slide in a launch overlay reminding players to use Cmd+Opt+Q; leave Steam running when the shortcut force-quits games.
+- **Startup and updater UX** — add the first-launch video, updater download progress and periodic release checks, and Markdown-formatted release notes.
+- **Steam setup and runtime support** — show installation stages, prepare Wine wrappers before launch, make preflight actionable/best-effort, and bundle required archive/icon/zstd tools.
+- **WineMetalGL OpenGL lane** — port the host OpenGL driver to Wine 11.17, record its host-driver hash, and select the appropriate `ntdll` variant for each Wine launch.
+- **Unified gated ntdll runtime** — promote the unified runtime and ship the Wine GSBASE build for Unity/DXMT; update the pinned runtime hash for the Overwatch-safe rebuild.
+- **Game compatibility and launch routing** — add/default routes for Witcher 3, Master Duel, Team Fortress 2, Ori, Nidhogg 2, and selected D3DMetal titles; select the CS2 executable correctly.
+- **Steam route persistence** — create bottle manifests when saving routes and provide a 32-bit DXMT native-host bridge.
+- **Wine Mono 11.3.0** bundled by default, with licensing documented.
+- **macOS 14 support work** — target runtime components appropriately and harden the DXC container shim.
+- **Installation** — clear Gatekeeper quarantine during install steps, use bundled tools without requiring Homebrew, and improve Steam installation setup.
+
+### Changed
+
+- Consolidated graphics route names and behavior: retired M12 runtime checks, folded DXVK fallback into VKD3D, rebuilt the DXVK lane for x86_64, and retired its i386 lane; preserve the selected `ntdll` variant and route-specific graphics environment.
+- Retired outdated documentation/roadmaps and rewrote the install, route, Wine, D3DMetal, and Vulkan guidance; added a Steam repair guide/script.
+- Refreshed the brand icon, default Electron window size, Retina behavior, Steam display scaling, and draggable header controls.
+- Updated release and dependency workflows; dependency updates included Electron 44, `marked`, Iconify/Lucide, Biome, and the Vue Vite plugin.
+
+### Fixed
+
+- **Steam launch/runtime** — keep Wine Steam startup responsive; repair Steam installation-button behavior; restore Steam wrapper functionality; keep setup and launch controls responsive.
+- **Backend routing and games** — reconcile Steam graphics routes with D3DMetal launches, preserve the correct route when switching, and ensure the Helldivers 2/CS2 launch paths are correct.
+- **Updater/release** — publish progress atomically, derive DMG version from package metadata, report backend-version mismatches, narrow verification extraction, synchronize graphics/ICD checksums, and accept the DXMT manifest emitted by setup.
+- **Security/dependencies** — address `js-yaml`, `tar`, `nanoid`, `fast-uri`, and `xmldom` advisories; authenticate VirusTotal uploads.
+- **Setup and UI** — fix Steam installation preflight and separate library drag regions from interactive header controls.
+- **Uninstall** — remove MetalSharp-owned data safely without deleting unrelated user data.
+
+## v0.61.0 — 2026-08-28
+
+Hand-written C backend becomes the active runtime; adds third-party launchers, GameJolt, emulators, and signed-runtime migration/release work.
+
+### Added
+
+- **Hand-written C backend** — make it the active runtime reference, implement launch/runtime and Steam-sync behavior, and add backend parity comparison/normalization tests and crash reports. Remove the Rust backend after parity work; remove obsolete “basic” file suffixes and local absolute rule paths.
+- **Launcher integrations** — add GameJolt and isolated Epic, Ubisoft, Rockstar, EA App, and Battle.net launcher/library support; add a native Epic library. Battle.net was subsequently removed as a supported launcher and isolated on Wine Staging while that integration was evaluated.
+- **Emulator libraries** — add managed PCSX2, RPCS3, and SharpEmu environments; add experimental shadPS4 library/capability manifests and safe update handling; add emulator library sidebars and setup actions. Remove the dormant RPCS4 provider, simplify emulator actions, and accept PS2 images.
+- **FEX update channel** for runtime updates.
+- **Theme polish** for Beach and Forest themes; official PS3 firmware link/button and firmware onboarding for RPCS3.
+- **PolyForm Noncommercial licensing** and community health files.
+
+### Changed
+
+- Keep the C backend alive for long operations; keep it alive during the update handoff while managed Wine processes are stopped; make migration and ordinary relaunch paths work with the new backend.
+- Preserve GOG installation state when stopping and correctly resolve installed GOG games for launch. Keep the dedicated Sharp Library launcher setup out of the general setup flow.
+- Add native tool paths and bundle/runtime hash refreshes; document Homebrew-tap installation and compatibility testing.
+- Refresh release bundles from the published manifest, pin signed-runtime hashes, split and scan release DMGs with VirusTotal, and update CI for Rosetta/native C-backend and PCSX2 archive/capability tests.
+- Batch Electron, Biome, Node type, and Rust `libc` dependency updates.
+
+### Fixed
+
+- **Steam library** — refresh library contents and executable routing, preserve external-library/game sync, fix TF2 executable selection and Steam setup, and align C migration with Rust preservation behavior.
+- **GOG and launchers** — preserve GOG install state after Stop; resolve installed GOG games; repair GOG auth artwork and Mono persistence; make launcher environments isolated.
+- **Emulators** — make PCSX2 capability and PS2 image indexing exact; complete RPCS3 folder onboarding; avoid redundant shadPS4 manifest writes and clean interrupted updates safely; bind imports to detected runtime capabilities.
+- **Migration/runtime** — match C migration behavior to existing data preservation, normalize quarantined assets, use fixed macOS tool paths for bundle staging, and keep signed-runtime verification aligned with release bundles.
+
+## v0.60.0 — 2026-08-17
+
+Standalone VKD3D-Proton lane, global game controls, route-aware library refresh, and the glass-header/theme experience.
+
+### Added
+
+- **Independent VKD3D-Proton lane** for D3D12 through Vulkan/MoltenVK, with pinned runtime payloads staged during install/migration and protected from DXMT route contamination.
+- **VKD3D route support** — deploy DXVK components for D3D9/10/11, configure MoltenVK and DXVK runtime options, add diagnostics and `dxvk.conf`, and route games that resolve to M12/VKD3D through the lane. Keep an explicit DXMT rollback and seed DXMT configuration/markers for DXMT bottles.
+- **Global Cmd+Opt+Q** to force-quit running games while leaving Steam alive.
+- **Sidebar controls** for MetalFX scale (`1.75`, `1.50`, or off), Msync, and controller input; bundle the XInput controller shim DLLs.
+- **Library lifecycle refresh** — refresh library state automatically and return a stopped game’s card to Play, including when a game exits externally; discover installed games in shared external Steam libraries and refresh after installs.
+- **Glass migration wizard** and redesigned setup wizard; refresh the library/logs UI, theme picker, and game cards.
+- **Themes** — add Banana, Lava, Beach, and Xray; make the picker scrollable and remove the developer theme from normal selection.
+- **Noncommercial license and runtime installer**, plus community health files.
+
+### Changed
+
+- Move the HTTP backend from `tiny_http` to multi-threaded Axum with a blocking pool.
+- Replace M9/M10/M11/M12 labels with the public graphics route names; retire M9 and remove M12 from user-facing selectors.
+- Keep VKD3D’s Vulkan/MoltenVK surface in its own runtime lane and never deploy it into DXMT `system32`; avoid re-running the VKD3D installer during bottle saves.
+- Update compatibility rules and pipeline labels, including the Sons of the Forest DXMT route and the 9 Kings VKD3D diagnostic override.
+
+### Fixed
+
+- **Process control** — restore force-kill ownership checks for Wine argv, parse Windows executable arguments correctly, register the `/game/running` IPC route, poll registered PIDs, and keep library cards in sync with game exits.
+- **Steam library** — show the library before slow scans, make `/scan` single-flight, detect new installs promptly, make Refresh perform a full scan/reload, sync external-library games, hide Wine Steam desktop shortcuts, and stage the Steam runtime for D3DMetal bottles.
+- **Protected launches** — prepare D3DMetal protected games without blocking non-D3D12 titles on Agility SDK setup.
+- **Pipeline transitions** — quarantine stale VKD3D `d3d12core.dll` when switching to DXMT and self-heal `dxmt.conf`.
+- **Security and dependencies** — patch the `undici` Dependabot alerts and tighten release/DMG bundle handling.
+
+## v0.59.9 — 2026-08-15
+
+### Fixed
+
+- Pin the DXMT Metal shader version to Metal 3.1 (`310`) for the shipped graphics runtime.
+- Correct the README release badge.
+
+## v0.59.7 — 2026-08-15
+
+### Fixed
+
+- Rebuild the DXMT graphics DLLs for the macOS 14 / Metal 3 minimum deployment target.
+- Clarify public graphics-route descriptions in the README.
+
+## v0.59.5 — 2026-08-13
+
+Major security/stability hardening across the local API, process control, Wine compatibility shims, DXMT/VKD3D routes, installer/updater, and release packaging.
+
+### Added
+
+- **VKD3D-Proton public lane** — rename M12 to VKD3D, retire the separate M9 route, unify M10/M11 as DXMT and their 32-bit variants as DXMT (32-bit), and use DXVK-MacOS for D3D9/10/11 on the Vulkan route. Keep DXMT and VKD3D payloads separate; pin MoltenVK/DXVK assets, configure Vulkan, deploy the expected DLLs, and add route/bundle checks.
+- **GPTK 4 beta 2 optional overlay** with allowlisted repair endpoint and conditional download; retarget the optional overlay to GPTK 3.0 and refresh its state after D3DMetal settings changes.
+- **EAC support substrate** — package the Linux EAC substrate, stage it across installs/migrations, add opt-in game-card controls and protected-game rules, validate assets on clean builds, and verify protected launcher files remain untouched.
+- **Force-quit and stuck-game recovery** — add backend process-tree ownership, detach/reap Wine helper processes, and allow the UI to evacuate hung games safely.
+- **FNA/Mono and native host compatibility** — add a managed-executable bridge and harden Win32, loader, networking, audio, and threading behavior (details in Fixed).
+
+### Changed
+
+- Remove Developer SDK packaging and requirements from DMG/release manifests and stop verifying the retired DXMT-VKD3D SDK lane.
+- Use a version-aware WineMetal shader configuration and rebuild DXMT for the supported macOS/Metal baseline.
+- Update setup/migration screens to glass styling and redesign setup with the application logo, Rethink Sans, glass, and foil styling.
+- Batch Electron, Vue, Vite, Iconify, Biome, Rust networking/database, and support-library dependency updates; restore formatting gates in CI.
+
+### Fixed
+
+- **Local API and process security** — authenticate local backend requests; bound request bodies; validate Steam AppIDs; constrain process termination to MetalSharp-owned executable/process trees; fix game-process argv ownership; reject unsafe GOG auth flags; prevent local path traversal in Sharp Library artwork/cover writes; reject symlinked cover directories; guard uninstall targets; safely handle privileged updater paths and DMG ejection; verify downloaded installer artifacts.
+- **Updater/install/release** — compare prerelease versions correctly, publish DMG versions from package metadata, surface backend-version mismatch as an error, clean failed Steam staging prefixes, never delete a Steam prefix before reinstall succeeds, inject the EAC substrate into the scripts-tools bundle, verify pinned bundle checksums, and harden package preparation.
+- **Win32/kernel32/loader** — back SRW locks with mapped pthread state; fix `LoadLibrary` resolution, `GetModuleFileNameA`, `RtlLookupFunctionEntry` null-image handling, environment-variable shims, UTF-16 entry points/string termination, PE relocation/import/export/resource bounds, module find-data filenames, thread exit/completion reporting, named-pipe directory/handle behavior, and per-call pipe handles.
+- **Networking/audio** — implement `WSAWaitForMultipleEvents` over real events, honor `TIMEVAL` in `select`, bound `GetAdaptersAddresses`, guard DirectSound buffer lifetime, synchronize CoreAudio callback state, bound stereo render output, clamp X3DAudio matrix stride, and release Mach send rights on every error path.
+- **FNA/Mono and launch** — handle `LoadLibrary` failures and UTF-16 names; preserve borrowed handles in `CloseHandle`; pass managed executable parameters through the mscoree bridge; constrain FNA game directories; stop returning the game directory when executable resolution fails; scope Process Manager shutdown; and restrict teardown to owned process trees.
+- **API and settings** — atomically persist settings and synchronize state; remove duplicate Rust-bridge listener lookups; isolate compatibility database fixtures; add tests for the security and runtime fixes.
+
+## v0.59.1 — 2026-08-08
+
+Stabilizes the new Mono/FNA and VKD3D launch routes, improves game-stop controls, and adds consented developer diagnostics.
+
+### Added
+
+- **Cmd+Q game stop** and UI launch controls; center sidebar launch controls and update registered-process polling so cards return to Play on game exit.
+- **PostHog developer diagnostics** for consented diagnostic reporting.
+- **Reminiscence** M11 compatibility rule; **Stardew Valley** routes through the FNA/Mono path.
+
+### Fixed
+
+- **Mono/FNA** — restore Steamworks before FNA handoff, stage Terraria launcher by executable name, support Terraria WinForms/ReLogic.Native shims and Stardew Steamworks.NET, route .NET Core games correctly, repair wrapper/Mono/.NET 6/GDI+ and Unity launch regressions, and guard runtime directory and DLL staging.
+- **VKD3D/MoltenVK** — synchronize VKMT/MoltenVK on install; resolve its lane before Wine’s own libraries; use the validated VKMT stack to boot Control; deploy DXVK `dxgi` + `d3d11` for D3D11-on-VKD3D; direct-launch with real Steam files; refresh caches/diagnostics; isolate `system32` deployment and freeze the bottle route during save.
+- **DXMT** — select macOS-appropriate Metal shader versions.
+- **Pipeline state** — isolate graphics DLLs when switching routes and mutate runtime pipeline rules consistently with bottle state.
+- Preserve the saved theme on startup and fix Steam launch/bottle-spinner races.
+- Update `js-yaml` and resolve Rust/clang formatting CI failures.
+
+## v0.59.0 — 2026-08-06
+
+Introduces versioned Mono/FNA profiles, launch routing and payload deployment; adds controller and graphics controls.
+
+### Added
+
+- **Mono profile discovery and routing** for Unity Mono, FNA, XNA, MonoKickstart, and IL2CPP. Detect baseline versus modern Mono requirements, deploy version-matched prebuilt runtime payloads when saving a bottle, and dispatch kickstart launches without compiling at launch time.
+- Bundle version-matched Unity Mono, XNA, SDL3, and related runtime payloads; add readiness checks and route-specific configs.
+- **Controller input** selector for XInput/DInput shims and ship the corresponding DLLs in `lib/metalsharp`.
+- **Sidebar MetalFX and Msync toggles**, including MetalFX scale selection and passthrough of the selected factor.
+- Move the D3D12/M12 stack to VKD3D-Proton (D3D12 → Vulkan → MoltenVK), with DXMT rollback available.
+
+### Fixed
+
+- Isolate MetalFX/MSync settings and stop environment overrides from leaking into the wrong launches.
+- Repair bottle-save races, stale component state, migration config survival, M12 install reconciliation, and failed Wine-prefix migration cleanup.
+- Isolate MetalSharp’s Wine runtime from foreign launchers such as CrossOver/SakuraGiri, disable verbose Wine tracing by default, and preserve legacy OpenGL compatibility contexts.
+- Fix the mapped-address virtual-memory test and add the Mono-route discovery roadmap/changelog and bundle manifest updates.
+- Batch Dependabot dependency updates.
+
+## v0.58.0 — 2026-08-04
+
+### Added
+
+- Banana, Lava, Beach, and Xray theme packs; make the theme picker scrollable and remove the developer theme from user-facing selection.
+- Noncommercial license and a runtime installer.
+- Community health files and support guidance.
+
+### Fixed
+
+- Patch `undici` security advisories across affected dependency lines.
+- Clarify README graphics-route names, 32-bit D3D10/D3D11 coverage, Apple Silicon/ARM64 build details, Homebrew installation, and release/download links.
+
+## v0.57.0 — 2026-07-27
+
+### Added
+
+- New library column layout, theme-aware cards and photo textures; ship theme packs, a theme picker, and developer library-preview mode.
+- Document Homebrew-tap installation.
+
+### Fixed
+
+- Clean migration state before relaunch.
+- Correct the Jedi: Fallen Order title and refresh supported-game entries.
+- Update Electron, Electron Builder, Vite, Vue plugin, Biome, and Rust `libc` dependencies.
+
+## v0.56.8 — 2026-07-22
+
+### Changed
+
+- Refresh the library and Logs interfaces.
+- Update the vulnerable `fast-uri` dependency to 3.1.4 and refresh README information.
+
+## v0.56.5 — 2026-07-21
+
+### Added
+
+- **MoonScraper installer support** — detect Inno Setup installers, extract their payload natively, install the discovered app into the right Sharp Library bottle, and document the fallback.
+
+### Fixed
+
+- Automatically synchronize installer bottles and support WineBare installers.
+- Tighten Java/WebView detection so scan noise from large files does not cause false positives.
+- Remove an installer bottle when uninstalling its app and use standard fallback artwork.
+- Refresh app screenshots and description.
+
+## v0.56.3 — 2026-07-21
+
+### Added
+
+- **OpenGL 2–4 bridge** — port the OpenGL bridge from PR #307 and complete its CMake/cherry-pick integration.
+- Port the library UI and visual polish; add SharpView M12 dry-run/timeouts and Settings restart UX.
+
+### Fixed
+
+- Repair Homebrew installation in the setup wizard and parse `mtsp-rules.toml` using the TOML 1.x document API.
+- Enforce i386 DXMT installer lanes, gate the Developer SDK, and stop rebuilding M12 in the installer CI path.
+- Patch the `brace-expansion` ReDoS advisory and synchronize dependency locks; update Prettier, Electron, Vue, Node types, Iconify, TOML/Rust crates, and GitHub Actions.
+- Exclude third-party submodules and SDK caches from clang-format checks; fix Rust map iteration lint.
+
+## v0.56.1 — 2026-07-17
+
+### Fixed
+
+- Restrict release migration to the prefix-only operation and preserve the expected runtime/migration contract.
+- Repair clean M12 runtime setup and cover all Agility SDK cache surfaces with tests.
+- Keep the bottle workspace inside its game card.
+
+### Changed
+
+- Refine sidebar glass/translucency and active-navigation styling, synchronized with the selected app theme.
+
+## v0.56.0 — 2026-07-17
+
+### Added
+
+- **M12/DXMT runtime separation** — isolate the M12 DXMT lane, freeze validated DXMT production surfaces, enforce bundle/deployment and direct-launch contracts, and add conformance gates.
+- Gate Agility SDK setup on game requirements; update the default M12 rule to the proven launch shape and repair Agility installation/routing.
+- Add a glass migration window and simplify bottle runtime-status UI.
+
+### Fixed
+
+- Verify M12 bottle saves, protected launches, and runtime receipts; refresh preserved bottles during migration.
+- Restore sidebar glass outside low-performance mode and keep loading spinners active in low-performance mode.
+- Clarify migration phase UI; remove redundant DMG-clean setup checks and Wine probes from release gates.
+- Update release tooling/dependencies, including artifact actions, electron-builder, Vite, Iconify, Biome, and CodeQL actions.
+
+## v0.55.1 — 2026-07-15
+
+### Added
+
+- Make the Developer SDK an opt-in release artifact and detach DMG release creation from it.
+
+### Fixed
+
+- Harden post-update migration handoff and bottle operations/backend recovery.
+- Use native TLS for backend downloads.
+- Keep long-running GOG backend requests alive.
+- Synchronize application, backend, and native version metadata.
+
+## v0.55.0 — 2026-07-15
+
+Introduces the standalone C backend/release path and its contract tests, architecture checks, and release-bundle pipeline.
+
+### Added
+
+- **Standalone C backend** — create the C runtime and tests, ship it through the pinned Rust-to-C compiler, capture a standalone link manifest, force a portable SHA-2 backend, and validate Electron calls against C routes.
+- **Backend contract suite** and test-count enforcement; validate the C backend in DMG workflows and keep production DMGs on the C-only backend path.
+- **Release pipeline restoration/hardening** — restore bundle builds, refresh stale locked release bundles, validate C-only bundle setup, verify the DMG and release inputs, and make backend updater port handoff reliable.
+- Make macOS target architectures explicit and keep Wine test targets x86_64.
+- Restore CodeQL C++/TypeScript analysis and add release/build job-control contracts.
+
+### Fixed
+
+- Fix the backend contract for `0.55`, Homebrew setup detection, Terminal launch, Electron backend import order, C-only installer bundle resolution, DXMT MinGW GUID formatting, and release-bundle refresh.
+- Address Rust clippy warnings on Rust 1.97; remove obsolete Rust CodeQL analysis.
+
+### Changed
+
+- Clarify C backend runtime ownership and use C backend artifacts consistently.
+- Update README and batch Electron, Vue, Iconify, Biome, Node types, and GitHub Actions dependencies.
+- Add and then revert a post-Rosetta exit-strategy roadmap pending further evaluation.
 
 ## v0.54.5 — 2026-07-09
 

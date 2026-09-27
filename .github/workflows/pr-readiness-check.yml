@@ -28,8 +28,31 @@ jobs:
             }
 
             const body = pr.body || "";
+            const gameTestItem =
+              "Real-game launch test completed for game/runtime/graphics/compatibility changes (game + method below; otherwise mark N/A)";
+            const changedFiles = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            // Only demand a live-game smoke test when changed files can alter launch,
+            // graphics, compatibility, or game-library behavior. Docs, release metadata,
+            // and unrelated UI/tooling changes do not need a game installed.
+            const gameImpactPaths = [
+              /^app\/src-c\/runtime\/(backend|bottle_actions|bottles|config|d3dmetal|emulators|epic|es_bridge|game|gamejolt|gog|integration|kernel_[^/]+|main|metalfx|mono|mtsp|mtsp_catalog|ob_callbacks|pcsx2|process|rpcs3|scan|shadps4|sharp|sharpemu|steam|steam_actions|thread)\.c$/,
+              /^app\/src-c\/include\/metalsharp_backend\/(bottles|config|emulators|epic|game|gamejolt|gog|pcsx2|process|rpcs3|shadps4|sharp|sharpemu|steam|steam_actions)\.h$/,
+              /^app\/src\/renderer\/(views\/(LibraryView|SettingsView|SharpView)\.vue|components\/(GameLaunchSettingsPopover|GameCard)\.vue)$/,
+              /^app\/src\/main\/(index|preload)\.ts$/,
+              /^configs\/(mtsp-rules\.toml|.*(?:dll|route).*\.toml)$/,
+              /^docs\/compatibility\//,
+              /^src\/.*\.(c|cc|cpp|h|hpp|mm|metal)$/,
+              /^app\/native\/.*$/,
+            ];
+            const requiresGameTest = changedFiles.some(({ filename }) =>
+              gameImpactPaths.some((pattern) => pattern.test(filename)),
+            );
             const required = [
-              "Compatibility verified with at least one real game (game + launch method noted below)",
               "No hardcoded paths, secrets, or absolute `/Users/...` paths introduced",
               "Config/rules TOML validated if `configs/mtsp-rules.toml` or DLL maps changed",
               "Version metadata (`CMakeLists.txt`, `app/src-c/Makefile`, `package.json`, `package-lock.json`) in sync if version bumped",
@@ -37,6 +60,12 @@ jobs:
               "Docs / compatibility matrix updated for user-facing changes",
               "Regression test added for each bug fix",
             ];
+            if (requiresGameTest) required.unshift(gameTestItem);
+            else {
+              core.notice(
+                "No game-launch/runtime/graphics/compatibility files changed; a real-game launch is not required for this PR.",
+              );
+            }
 
             const missing = required.filter((item) => {
               const escaped = item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
