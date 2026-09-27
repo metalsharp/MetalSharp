@@ -120,7 +120,7 @@ High Resolution (Retina) is on by default for the shared prefix: each managed la
 
 Wine 11.17 includes MSYNC client/server support. The Wine server keeps its synchronization selection for its lifetime, so apply setting changes after a normal shutdown of managed Wine processes.
 
-The shared `metalsharp-wine` wrapper preserves route-specific `WINEDLLPATH`, `DYLD_LIBRARY_PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, and Vulkan ICD settings supplied by the backend. macOS SIP strips `DYLD_*` variables when protected shell interpreters start, so the backend also passes route paths through `METALSHARP_DYLD_*` bridge variables; the managed Wine wrapper restores them after its shell starts. GOG and Epic launches use the same route configuration as other managed games; an app update upgrades older installed wrappers so their generic defaults do not mask the selected graphics pipeline.
+The shared `metalsharp-wine` wrapper preserves route-specific `WINEDLLPATH`, `DYLD_FALLBACK_LIBRARY_PATH`, and Vulkan ICD settings supplied by the backend. GOG and Epic launches use the same route configuration as other managed games; an app update upgrades older installed wrappers so their generic defaults do not mask the selected graphics pipeline.
 
 ## Steam Wrapper
 
