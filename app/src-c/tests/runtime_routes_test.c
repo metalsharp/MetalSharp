@@ -2,6 +2,7 @@
 // clang-format off
 #include "../runtime/steam_actions.c"
 #include "../runtime/epic.c"
+#include "metalsharp_backend/sharp.h"
 // clang-format on
 #define main metalsharp_backend_main_for_test
 #include "../runtime/main.c"
@@ -185,6 +186,40 @@ int main(int argc, char** argv) {
         free(artwork_home);
         free(fixture_path);
         free(image_fixture_path);
+    }
+    {
+        const char* sharp_manifest = "[{\"id\":\"sharp_test\",\"name\":\"Original Name\",\"exe_path\":\"/tmp/app.exe\","
+                                     "\"install_dir\":\"/tmp\",\"engine\":\"auto\",\"cover_position_x\":50,"
+                                     "\"cover_position_y\":50}]";
+        const char* rename_body = "{\"id\":\"sharp_test\",\"name\":\"  Renamed App  \"}";
+        const char* empty_name_body = "{\"id\":\"sharp_test\",\"name\":\"   \"}";
+        const char* set_position_body = "{\"id\":\"sharp_test\",\"x\":17,\"y\":83}";
+        char* sharp_home = join(home, "sharp-test");
+        char* response;
+        fixture(home, "sharp-test/sharp-library/library.json", sharp_manifest);
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)rename_body, strlen(rename_body), "rename");
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        response = ms_sharp_library_json(sharp_home);
+        assert(response && strstr(response, "\"name\":\"Renamed App\""));
+        assert(strstr(response, "\"exe_path\":\"/tmp/app.exe\""));
+        free(response);
+        response =
+            ms_sharp_action_json(sharp_home, (const unsigned char*)empty_name_body, strlen(empty_name_body), "rename");
+        assert(response && strstr(response, "name is required"));
+        free(response);
+        response = ms_sharp_library_json(sharp_home);
+        assert(response && strstr(response, "\"name\":\"Renamed App\""));
+        free(response);
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)set_position_body, strlen(set_position_body),
+                                        "set-cover-position");
+        assert(response && strstr(response, "\"ok\":true"));
+        free(response);
+        response = ms_sharp_library_json(sharp_home);
+        assert(response && strstr(response, "\"cover_position_x\":17"));
+        assert(strstr(response, "\"cover_position_y\":83"));
+        free(response);
+        free(sharp_home);
     }
     unsetenv("METALSHARP_PORT");
 #ifdef __APPLE__

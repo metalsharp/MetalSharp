@@ -1950,6 +1950,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/rename") == 0) {
+        body = ms_sharp_action_json(context->metalsharp_home, request->body, request->body_length, "rename");
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/set-cover") == 0) {
         body = ms_sharp_action_json(context->metalsharp_home, request->body, request->body_length, "set-cover");
         if (body == NULL)
