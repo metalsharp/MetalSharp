@@ -706,7 +706,6 @@ function forceQuitAllRunningGames(port: number): void {
   );
   gogReq.on("error", (e) => console.warn("Force-quit GOG games request failed:", e));
   gogReq.end();
-
 }
 
 function forceQuitRunningGames(): void {
@@ -732,7 +731,9 @@ function forceQuitRunningGames(): void {
         try {
           const parsed = JSON.parse(body) as { ok?: boolean; running?: { appid?: number }[] };
           odysseyRunning =
-            parsed.ok === true && Array.isArray(parsed.running) && parsed.running.some((game) => game?.appid === 812140);
+            parsed.ok === true &&
+            Array.isArray(parsed.running) &&
+            parsed.running.some((game) => game?.appid === 812140);
         } catch {
           // Fall back to the original global escape hatch if the status is unavailable.
         }
