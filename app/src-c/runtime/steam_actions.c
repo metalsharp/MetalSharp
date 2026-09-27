@@ -3925,6 +3925,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
     }
     if (child == 0) {
         char app_id[32];
+        (void)setpgid(0, 0);
         close(exec_pipe[0]);
         char library_env[4096];
         char* argv[32];
@@ -3989,6 +3990,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         }
         _exit(127);
     }
+    (void)setpgid(child, child);
     close(exec_pipe[1]);
     {
         int error = 0;

@@ -1,6 +1,7 @@
 #include "metalsharp_backend/gamejolt.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam_actions.h"
 #include <dirent.h>
 #include <errno.h>
@@ -1014,6 +1015,7 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
     pid = fork();
     if (pid == 0) {
         char* slash = strrchr(executable, '/');
+        (void)setpgid(0, 0);
         if (native) {
             execl("/usr/bin/open", "open", "-W", executable, (char*)NULL);
         } else {
@@ -1044,6 +1046,9 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
         ms_json_free(request);
         return error_json("failed to launch GameJolt game");
     }
+    (void)setpgid(pid, pid);
+    if (native)
+        ms_process_register_game((unsigned)path_hash(executable), pid);
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
@@ -1075,13 +1080,12 @@ char* ms_gamejolt_pid_status_json(const unsigned char* body, size_t length) {
         return error_json("a valid process id is required");
     }
     {
-        pid_t child_state = waitpid((pid_t)pid_value, NULL, WNOHANG);
-        if (child_state == (pid_t)pid_value)
-            running = false;
-        else if (child_state < 0)
-            running = kill((pid_t)pid_value, 0) == 0 || errno == EPERM;
-        else
-            running = true;
+        pid_t pid = (pid_t)pid_value;
+        pid_t child_state = waitpid(pid, NULL, WNOHANG);
+        bool group_running = kill(-pid, 0) == 0 || errno == EPERM;
+        bool leader_running = child_state == 0 ||
+                              (child_state < 0 && errno == ECHILD && (kill(pid, 0) == 0 || errno == EPERM));
+        running = group_running || leader_running;
     }
     ms_json_free(request);
     ms_json_writer_init(&writer);

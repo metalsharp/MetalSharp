@@ -44,9 +44,9 @@ GOG games share `~/.metalsharp/bottles/gog-prefix/prefix`. Runtime migration pre
 
 ## Sharp Library App Process Controls
 
-Sharp Library app launches are tracked by app ID and process ID in the backend. The Stop button terminates the app's isolated process group; the library polls process state so an app that exits on its own returns to Play. **Cmd+Opt+Q** includes the Sharp Library stop-all action, and successful launches show the shared delayed quit reminder. D3DMetal launches are tracked by their returned PID because their launch lifecycle is owned by the graphics-route backend.
+Sharp Library app launches are tracked by app ID and process ID in the backend. The Stop button terminates the app's isolated process group; the library polls process state so an app that exits on its own returns to Play. **Cmd+Opt+Q** sends Sharp Library's stop-all request immediately, before launcher-state checks, and successful launches show the shared delayed quit reminder. D3DMetal launches are tracked by their returned PID because their launch lifecycle is owned by the graphics-route backend.
 
-GameJolt Windows games expose only D3DMetal, VKD3D, DXMT, DXMT (32-bit), and D3D9. Existing saved M10/M11 selections normalize to the matching DXMT route; the persisted option values no longer use the legacy names.
+GameJolt Windows launches use isolated process groups. The library checks group state (not only the Wine leader PID), so the card can stay on Stop while child processes remain; Stop and Cmd+Opt+Q terminate the registered group. Successful GameJolt launches also show the shared quit reminder. GameJolt Windows games expose only D3DMetal, VKD3D, DXMT, DXMT (32-bit), and D3D9. Existing saved M10/M11 selections normalize to the matching DXMT route; the persisted option values no longer use the legacy names.
 
 ## CEF Compatibility
 

@@ -178,24 +178,36 @@ static void forget(unsigned appid) {
         p = &(*p)->next;
     }
 }
+static bool signal_game_process(pid_t pid, int signal_number) {
+    if (kill(-pid, signal_number) == 0)
+        return true;
+    if (errno != ESRCH)
+        return false;
+    return kill(pid, signal_number) == 0 || errno == ESRCH;
+}
+
+static bool process_group_active(pid_t pid) {
+    return kill(-pid, 0) == 0 || errno == EPERM;
+}
+
 static bool active(pid_t pid) {
     int status;
     pid_t waited;
     if (pid <= 0)
         return false;
-    /* Games are launched by a backend-owned child. Once that wrapper exits,
-     * it can remain a zombie until reaped; kill(pid, 0) still succeeds for a
-     * zombie and used to leave the Library Stop button stuck forever. */
+    /* A Wine leader may exit while its game remains in the process group. Keep
+     * that group registered for status and stop requests, but reap the leader
+     * so its zombie does not make a completed launch look active forever. */
     waited = waitpid(pid, &status, WNOHANG);
     if (waited == pid)
-        return false;
+        return process_group_active(pid);
     if (waited == 0)
         return true;
     if (waited < 0 && errno != ECHILD)
         return errno == EINTR || errno == EPERM;
-    if (kill(pid, 0) == 0)
+    if (kill(pid, 0) == 0 || errno == EPERM)
         return true;
-    return errno == EPERM;
+    return process_group_active(pid);
 }
 static void prune(void) {
     running_game** p = &g_running;
@@ -392,6 +404,7 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
     ms_json* r = parse_root(body, len);
     unsigned long long pid64 = 0, aid = 0;
     pid_t pid = 0;
+    bool registered = false;
     running_game* g;
     ms_json_writer w;
     char* out;
@@ -409,12 +422,13 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
         for (g = g_running; g; g = g->next)
             if (g->appid == (unsigned)aid) {
                 pid = g->pid;
+                registered = true;
                 break;
             }
         forget((unsigned)aid);
         pthread_mutex_unlock(&g_running_mutex);
         if (pid > 1 && active(pid))
-            (void)kill(pid, SIGKILL);
+            (void)(registered ? signal_game_process(pid, SIGKILL) : kill(pid, SIGKILL) == 0);
         stop_ok = ms_steam_stop_odyssey_processes(home);
         ms_json_free(r);
         if (!stop_ok) {
@@ -439,13 +453,20 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
         for (g = g_running; g; g = g->next)
             if (g->appid == (unsigned)aid) {
                 pid = g->pid;
+                registered = true;
                 break;
             }
     } else {
         pthread_mutex_lock(&g_running_mutex);
     }
-    if (pid == 0 && pid64 > 0)
+    if (pid == 0 && pid64 > 0) {
         pid = (pid_t)pid64;
+        for (g = g_running; g; g = g->next)
+            if (g->pid == pid) {
+                registered = true;
+                break;
+            }
+    }
     if (pid <= 0) {
         pthread_mutex_unlock(&g_running_mutex);
         ms_json_free(r);
@@ -453,7 +474,7 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
     }
     if (status)
         *status = 500;
-    if (kill(pid, SIGKILL) != 0 && errno != ESRCH) {
+    if (!(registered ? signal_game_process(pid, SIGKILL) : (kill(pid, SIGKILL) == 0 || errno == ESRCH))) {
         char msg[128];
         snprintf(msg, sizeof(msg), "failed to kill pid %d: %s", (int)pid, strerror(errno));
         pthread_mutex_unlock(&g_running_mutex);
@@ -492,7 +513,7 @@ char* ms_process_force_quit_json(int* status) {
     ms_json_writer_array_begin(&w);
     for (g = g_running; g;) {
         running_game* next = g->next;
-        if (kill(g->pid, SIGKILL) == 0 || errno == ESRCH) {
+        if (signal_game_process(g->pid, SIGKILL)) {
             ms_json_writer_object_begin(&w);
             ms_json_writer_key(&w, "appid");
             ms_json_writer_u64(&w, g->appid);
