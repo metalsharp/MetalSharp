@@ -7,7 +7,7 @@
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.74.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.74.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-purple.svg?style=for-the-badge" alt="License"></a>
-<a href="https://discord.gg/qW5rUr4dH"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
+<a href="https://discord.gg/VVtNAQxBu"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
 
 </div>
 
