@@ -671,6 +671,19 @@ function forceQuitAllRunningGames(port: number): void {
   );
   epicReq.on("error", (e) => console.warn("Force-quit Epic games request failed:", e));
   epicReq.end();
+
+  const gogReq = http.request(
+    {
+      hostname: "127.0.0.1",
+      port,
+      path: "/sharp-library/gog/stop-all",
+      method: "POST",
+      headers: { "Content-Length": 0 },
+    },
+    (res) => res.resume(),
+  );
+  gogReq.on("error", (e) => console.warn("Force-quit GOG games request failed:", e));
+  gogReq.end();
 }
 
 function forceQuitRunningGames(): void {

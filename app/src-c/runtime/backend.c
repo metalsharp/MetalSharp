@@ -1589,6 +1589,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/stop-all") == 0) {
+        body = ms_gog_action_json(context->metalsharp_home, "stop-all", request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/uninstall") == 0) {
         body = ms_gog_action_json(context->metalsharp_home, "uninstall", request->body, request->body_length);
         if (body == NULL)
