@@ -769,13 +769,14 @@ function uninstallMetalsharp() {
 /* Themed via the --library-* custom properties inherited from .library-view. */
 .settings-overlay {
   position: fixed;
-  z-index: 120;
+  z-index: 20000;
   inset: 0;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 26px 24px 24px;
+  padding: 68px 24px 24px;
   background: rgba(6, 8, 10, 0.58);
+  -webkit-app-region: no-drag;
   backdrop-filter: blur(10px);
   animation: so-fade 0.22s ease;
 }
@@ -783,7 +784,7 @@ function uninstallMetalsharp() {
   display: flex;
   flex-direction: column;
   width: min(1080px, 100%);
-  max-height: calc(100vh - 52px);
+  max-height: calc(100vh - 92px);
   border: 1px solid var(--library-accent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--library-control-bg) 94%, #000);
@@ -792,6 +793,14 @@ function uninstallMetalsharp() {
   overflow: hidden;
   -webkit-app-region: no-drag;
   animation: so-drop 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (max-width: 780px) {
+  .settings-overlay {
+    padding-top: 130px;
+  }
+  .settings-panel {
+    max-height: calc(100vh - 154px);
+  }
 }
 @keyframes so-fade {
   from {

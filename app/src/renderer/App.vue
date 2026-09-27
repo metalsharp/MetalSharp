@@ -492,7 +492,13 @@ onMounted(async () => {
     return;
   }
   const firstLaunch = await getAPI().isFirstLaunch();
-  if (firstLaunch && !localStorage.getItem(startupVideoSeenKey)) showStartupVideo.value = true;
+  if (
+    firstLaunch &&
+    !localStorage.getItem(startupVideoSeenKey) &&
+    !new URLSearchParams(window.location.search).has("skip-intro")
+  ) {
+    showStartupVideo.value = true;
+  }
   const setupState = await api<{ deviceName?: string; runtimeMigrationRequired?: boolean }>("GET", "/setup/state");
   if (setupState?.deviceName) setupDeviceName.value = setupState.deviceName;
   if (firstLaunch || setupState?.runtimeMigrationRequired) {

@@ -45,7 +45,7 @@ const phraseKeys: Record<string, string> = {
   Library: "ui.source.library",
   Host: "ui.source.host",
   Required: "ui.source.required",
-  Installed: "ui.source.installed",
+  Installed: "ui.settings.installed",
   "Not installed": "ui.source.notInstalled",
   Running: "ui.source.running",
   "Runtime & support": "ui.source.runtimeSupport",

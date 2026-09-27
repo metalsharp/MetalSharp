@@ -234,7 +234,9 @@ async function toggleSteam() {
     </div>
   </Teleport>
 
-  <SettingsOverlay v-if="settingsOpen" @close="settingsOpen = false" />
+  <Teleport to="body">
+    <SettingsOverlay v-if="settingsOpen" :style="libraryThemeStyle" @close="settingsOpen = false" />
+  </Teleport>
 </template>
 
 <style scoped>
@@ -689,12 +691,14 @@ async function toggleSteam() {
   color: #fff !important;
   background: transparent !important;
 }
-/* With the search hidden (Sharp Library / Logs), keep the theme control
-   beside the tab dropdown at the right edge. */
+/* With search hidden (Sharp Library / Logs), keep the applet switch and
+   Settings anchored at the right edge, including on compact windows. */
 .library-topbar.no-search .library-theme-control {
+  flex: 0 0 auto;
   margin-left: auto;
 }
 .library-topbar.no-search .library-nav {
+  flex: 0 0 auto;
   margin-left: 0;
 }
 

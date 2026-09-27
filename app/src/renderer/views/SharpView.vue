@@ -513,6 +513,12 @@ const headerSubtitle = computed(() => {
   return t("ui.source.installManage");
 });
 const apps = ref<SharpApp[]>([]);
+const sharpCoverAspectRatios = ref<Record<string, number>>({});
+const sharpCoverCacheEpoch = Date.now();
+const sharpCoverCacheRevisions = ref<Record<string, number>>({});
+const editingSharpAppName = ref<string | null>(null);
+const sharpAppNameDraft = ref("");
+const savingSharpAppName = ref<string | null>(null);
 const cardToolsOpen = ref<Record<string, boolean>>({});
 const bottles = ref<BottleManifest[]>([]);
 const runtimeProfiles = ref<RuntimeProfileDefinition[]>([]);
@@ -532,6 +538,7 @@ const recentLogLines = ref<Record<string, string[]>>({});
 const recentCrashReports = ref<Record<string, CrashReport[]>>({});
 const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
+const gogBottleOpen = ref<Record<string, boolean>>({});
 const epicStatus = ref<EpicStatus | null>(null);
 const epicGames = ref<EpicGame[]>([]);
 let epicRunningPollInFlight = false;
@@ -2337,6 +2344,10 @@ async function playGogGame(game: GogGame) {
   }
 }
 
+function toggleGogBottle(game: GogGame) {
+  gogBottleOpen.value[game.productId] = !gogBottleOpen.value[game.productId];
+}
+
 function updateGogEngine(game: GogGame, engine: string) {
   gogEngines.value[game.productId] = engine;
   localStorage.setItem("metalsharp-gog-engines", JSON.stringify(gogEngines.value));
@@ -2897,6 +2908,46 @@ async function uninstallApp(id: string) {
   } else toast.show(result?.error ?? "Failed to uninstall", "error");
 }
 
+function beginSharpAppNameEdit(app: SharpApp) {
+  editingSharpAppName.value = app.id;
+  sharpAppNameDraft.value = app.name;
+  void nextTick(() => {
+    const input = document.getElementById(`sharp-app-name-${app.id}`) as HTMLInputElement | null;
+    input?.focus();
+    input?.select();
+  });
+}
+
+function cancelSharpAppNameEdit() {
+  if (savingSharpAppName.value) return;
+  editingSharpAppName.value = null;
+  sharpAppNameDraft.value = "";
+}
+
+async function saveSharpAppName(app: SharpApp) {
+  if (editingSharpAppName.value !== app.id || savingSharpAppName.value === app.id) return;
+  const name = sharpAppNameDraft.value.trim();
+  if (!name) {
+    toast.show("Application name cannot be empty", "error");
+    return;
+  }
+  if (name === app.name) {
+    cancelSharpAppNameEdit();
+    return;
+  }
+  savingSharpAppName.value = app.id;
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/rename", { id: app.id, name });
+  savingSharpAppName.value = null;
+  if (result?.ok) {
+    app.name = name;
+    editingSharpAppName.value = null;
+    sharpAppNameDraft.value = "";
+    toast.show("Application name updated", "success");
+  } else {
+    toast.show(result?.error ?? "Failed to save application name", "error");
+  }
+}
+
 async function setCover(id: string) {
   const filePath = await getAPI().pickImageFile();
   if (!filePath) return;
@@ -2905,6 +2956,10 @@ async function setCover(id: string) {
     coverPath: filePath,
   });
   if (result?.ok) {
+    sharpCoverCacheRevisions.value[id] = Math.max(
+      Date.now(),
+      (sharpCoverCacheRevisions.value[id] ?? sharpCoverCacheEpoch) + 1,
+    );
     toast.show("Cover updated", "success");
     await load();
   } else toast.show(result?.error ?? "Failed to set cover", "error");
@@ -2937,8 +2992,33 @@ async function updateCoverPosition(app: SharpApp) {
   if (!result?.ok) toast.show(result?.error ?? "Failed to save cover position", "error");
 }
 
-function coverPosition(app: SharpApp): string {
-  return `${app.cover_position_x ?? 50}% ${app.cover_position_y ?? 50}%`;
+function sharpCoverImageUrl(app: SharpApp): string {
+  const revision = sharpCoverCacheRevisions.value[app.id] ?? sharpCoverCacheEpoch;
+  return `http://127.0.0.1:9274/sharp-library/cover?id=${encodeURIComponent(app.id)}&v=${revision}`;
+}
+
+function sharpCoverImageStyle(app: SharpApp): Record<string, string> {
+  const x = Math.min(100, Math.max(0, Number(app.cover_position_x ?? 50)));
+  const y = Math.min(100, Math.max(0, Number(app.cover_position_y ?? 50)));
+  const imageAspectRatio = sharpCoverAspectRatios.value[app.id];
+  const bannerAspectRatio = 16 / 5.6;
+  // object-position cannot move a portrait/square image horizontally inside a
+  // wide cover: object-fit: cover already fills the full width. A restrained
+  // zoom gives the X control some horizontal crop to work with in that case.
+  const horizontalPanScale =
+    imageAspectRatio && imageAspectRatio <= bannerAspectRatio ? 1 + Math.abs(x - 50) / 250 : 1;
+  return {
+    objectPosition: `${x}% ${y}%`,
+    transform: horizontalPanScale > 1 ? `scale(${horizontalPanScale})` : "none",
+    transformOrigin: `${x}% ${y}%`,
+  };
+}
+
+function rememberSharpCoverAspect(app: SharpApp, event: Event) {
+  const image = event.currentTarget as HTMLImageElement;
+  if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+    sharpCoverAspectRatios.value[app.id] = image.naturalWidth / image.naturalHeight;
+  }
 }
 
 async function runDoctor(app: SharpApp) {
@@ -3416,9 +3496,10 @@ onUnmounted(() => {
                 <div class="sharp-card-banner">
                   <img
                     v-if="app.cover"
-                    :src="`http://127.0.0.1:9274/sharp-library/cover?id=${app.id}`"
+                    :src="sharpCoverImageUrl(app)"
                     :alt="app.name"
-                    :style="{ objectPosition: coverPosition(app) }"
+                    :style="sharpCoverImageStyle(app)"
+                    @load="rememberSharpCoverAspect(app, $event)"
                   />
                   <img v-else :src="sharpLogoUrl" :alt="`${app.name} default artwork`" class="sharp-cover-fallback" />
                   <button
@@ -3431,7 +3512,53 @@ onUnmounted(() => {
                   </button>
                 </div>
                 <div class="sharp-card-body">
-                  <div class="sharp-card-title">{{ app.name }}</div>
+                  <div class="sharp-card-title sharp-app-card-title">
+                    <input
+                      v-if="editingSharpAppName === app.id"
+                      :id="`sharp-app-name-${app.id}`"
+                      v-model="sharpAppNameDraft"
+                      class="gamejolt-name-input sharp-app-name-input"
+                      type="text"
+                      maxlength="128"
+                      :aria-label="t('ui.sharp.appName')"
+                      @keydown.enter.prevent="saveSharpAppName(app)"
+                      @keydown.esc.prevent="cancelSharpAppNameEdit()"
+                    />
+                    <template v-else>
+                      <span>{{ app.name }}</span>
+                      <button
+                        class="gamejolt-edit-name"
+                        type="button"
+                        :title="t('ui.sharp.editAppName')"
+                        :aria-label="t('ui.sharp.editAppName')"
+                        @click="beginSharpAppNameEdit(app)"
+                      >
+                        <IconPencil width="13" height="13" />
+                      </button>
+                    </template>
+                    <template v-if="editingSharpAppName === app.id">
+                      <button
+                        class="gamejolt-edit-name"
+                        type="button"
+                        :disabled="savingSharpAppName === app.id"
+                        :title="t('ui.sharp.saveAppName')"
+                        :aria-label="t('ui.sharp.saveAppName')"
+                        @click="saveSharpAppName(app)"
+                      >
+                        <IconCheck width="13" height="13" />
+                      </button>
+                      <button
+                        class="gamejolt-edit-name"
+                        type="button"
+                        :disabled="savingSharpAppName === app.id"
+                        :title="t('ui.sharp.cancelAppNameEdit')"
+                        :aria-label="t('ui.sharp.cancelAppNameEdit')"
+                        @click="cancelSharpAppNameEdit()"
+                      >
+                        <IconX width="13" height="13" />
+                      </button>
+                    </template>
+                  </div>
                   <div class="sharp-card-meta">
                     <span class="badge badge-ok">Sharp App</span>
                     <span v-if="bottleForApp(app)" class="badge" :class="bottleBadgeClass(bottleForApp(app)!.health)">
@@ -3479,7 +3606,9 @@ onUnmounted(() => {
                     </div>
                     <div v-if="cardToolsOpen[app.id]" class="sharp-card-tools">
                       <div class="sharp-tool-actions">
-                        <button class="btn btn-secondary btn-sm" @click="setCover(app.id)">Set Cover</button>
+                        <button class="btn btn-secondary btn-sm" @click="setCover(app.id)">
+                          {{ t('ui.sharp.changeImage') }}
+                        </button>
                         <button
                           class="btn btn-secondary btn-sm"
                           :disabled="!app.bottle_id"
@@ -3656,7 +3785,7 @@ onUnmounted(() => {
                       game.running
                         ? "Running"
                         : game.installed
-                          ? "Installed"
+                          ? t("ui.settings.installed")
                           : game.status === "downloading"
                             ? "Downloading"
                             : "GOG"
@@ -3673,7 +3802,16 @@ onUnmounted(() => {
                   <small>{{ Math.floor(gogProgress[game.productId] ?? 0) }}%</small>
                 </div>
                 <div class="sharp-card-actions">
-                  <div class="sharp-card-actions-row">
+                  <div class="sharp-card-actions-row" :class="{ 'epic-installed-actions': game.installed }">
+                    <button
+                      v-if="game.installed"
+                      class="icon-button epic-bottle-button"
+                      :aria-expanded="Boolean(gogBottleOpen[game.productId])"
+                      title="Bottle"
+                      @click="toggleGogBottle(game)"
+                    >
+                      <IconFlaskConical width="17" height="17" />
+                    </button>
                     <button
                       v-if="game.running"
                       class="btn btn-stop"
@@ -3706,18 +3844,22 @@ onUnmounted(() => {
                     >
                       Uninstall
                     </button>
-                    <select
-                      v-if="game.installed"
-                      class="control-input gog-pipeline-select"
-                      :value="gogEngines[game.productId] ?? 'auto'"
-                      aria-label="GOG bottle pipeline"
-                      @change="updateGogEngine(game, ($event.target as HTMLSelectElement).value)"
-                    >
-                      <option value="auto">Auto</option>
-                      <option v-for="option in engineOptions" :key="option.id" :value="option.id">
-                        {{ option.name }}
-                      </option>
-                    </select>
+                  </div>
+                  <div v-if="game.installed && gogBottleOpen[game.productId]" class="epic-bottle-dropdown">
+                    <label class="epic-bottle-field">
+                      <span>Graphics Backend</span>
+                      <select
+                        class="control-input gog-pipeline-select"
+                        :value="gogEngines[game.productId] ?? 'auto'"
+                        aria-label="GOG bottle pipeline"
+                        @change="updateGogEngine(game, ($event.target as HTMLSelectElement).value)"
+                      >
+                        <option value="auto">Auto</option>
+                        <option v-for="option in engineOptions" :key="option.id" :value="option.id">
+                          {{ option.name }}
+                        </option>
+                      </select>
+                    </label>
                   </div>
                   <div v-if="game.status === 'install_failed' && game.lastError" class="gog-card-meta">
                     <strong class="launch-failure">{{ game.lastError }}</strong>
@@ -3773,7 +3915,7 @@ onUnmounted(() => {
                         : game.downloading
                           ? "Downloading"
                           : game.installed
-                            ? "Installed"
+                            ? t("ui.settings.installed")
                             : "Epic"
                     }}
                   </span>
@@ -5858,6 +6000,7 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 80ms ease-out;
 }
 .sharp-card-banner img.sharp-cover-fallback {
   object-fit: contain;
@@ -5896,6 +6039,21 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.sharp-app-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sharp-app-card-title > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sharp-app-name-input {
+  flex: 1 1 auto;
+  width: auto;
 }
 .gamejolt-card-title {
   display: flex;
@@ -7301,5 +7459,246 @@ details[open] > .drawer-summary {
 }
 .rpcs3-stat strong {
   font-size: 11.5px;
+}
+
+/* Unified applet workspace: keep the main Library chrome and make every
+   Sharp source feel like another page in that same library. */
+.sharp-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(18px, 3vw, 40px);
+  min-height: 126px;
+  padding: 18px clamp(24px, 3vw, 42px);
+  border-bottom: 1px solid var(--library-control-border);
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.035), transparent 62%);
+}
+.sharp-header-title {
+  flex: 1 1 320px;
+  gap: 5px;
+}
+.sharp-header-title h1 {
+  font-size: clamp(30px, 3vw, 42px);
+  letter-spacing: 0.015em;
+}
+.sharp-header-title p {
+  max-width: 560px;
+  color: color-mix(in srgb, var(--library-control-text) 65%, transparent);
+  font-size: 13px;
+}
+.sharp-header-controls {
+  flex: 0 0 auto;
+  width: max-content;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 0;
+}
+.sharp-header-actions,
+.emulator-header-actions {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: 0;
+}
+.sharp-header-controls > .btn,
+.sharp-header-actions > .btn,
+.emulator-header-actions > .btn {
+  min-height: 40px;
+  border-radius: 9px;
+}
+.sharp-source-picker {
+  z-index: 60;
+  order: 99;
+  margin-left: auto;
+}
+.sharp-source-trigger {
+  width: 226px;
+  height: 44px;
+  border-radius: 10px;
+  border-color: var(--library-control-border);
+  background: color-mix(in srgb, var(--library-control-bg) 88%, transparent);
+}
+.sharp-source-trigger:hover,
+.sharp-source-trigger.open {
+  border-color: var(--library-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--library-accent) 12%, transparent);
+}
+.sharp-source-trigger-icon,
+.sharp-source-option-icon {
+  color: var(--library-accent);
+  border-color: color-mix(in srgb, var(--library-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--library-accent) 12%, transparent);
+}
+.sharp-source-popover {
+  right: 0;
+  left: auto;
+  width: min(470px, calc(100vw - 36px));
+  padding: 12px;
+  border-color: color-mix(in srgb, var(--library-accent) 42%, var(--library-control-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--library-control-bg) 96%, #080a0b);
+}
+.sharp-source-popover-header {
+  margin-bottom: 10px;
+  padding: 4px 5px 10px;
+  color: var(--library-control-text);
+  border-bottom-color: var(--library-control-border);
+  font-size: 11px;
+}
+.sharp-source-popover-header small {
+  font-size: 10px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.sharp-source-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: min(62vh, 440px);
+}
+.sharp-source-option {
+  min-width: 0;
+  min-height: 64px;
+  padding: 8px;
+  border-color: var(--library-control-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--library-control-bg) 75%, transparent);
+}
+.sharp-source-option:hover,
+.sharp-source-option.active {
+  border-color: color-mix(in srgb, var(--library-accent) 58%, var(--library-control-border));
+  background: color-mix(in srgb, var(--library-accent) 11%, var(--library-control-bg));
+}
+.sharp-source-option-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.sharp-source-option-copy strong {
+  color: var(--library-control-text);
+  font-size: 12px;
+}
+.sharp-source-option-copy small {
+  color: color-mix(in srgb, var(--library-control-text) 58%, transparent);
+  font-size: 10px;
+}
+.sharp-body {
+  padding: 22px clamp(22px, 3vw, 40px) 32px;
+}
+.sharp-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 224px), 1fr));
+  gap: clamp(12px, 1.4vw, 18px);
+}
+.installer-workspace,
+.gog-panel,
+.epic-panel,
+.emulator-panel,
+.gamejolt-panel {
+  border: 1px solid color-mix(in srgb, var(--library-control-border) 74%, transparent);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.008));
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.14);
+}
+.installer-workspace,
+.gog-panel,
+.epic-panel,
+.emulator-panel {
+  padding: clamp(14px, 1.8vw, 22px);
+}
+.gamejolt-panel {
+  padding: 0;
+  overflow: hidden;
+}
+.sharp-card {
+  border-color: color-mix(in srgb, var(--library-control-border) 90%, transparent);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #202427, #171a1c);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.sharp-card:hover {
+  border-color: color-mix(in srgb, var(--library-accent) 65%, var(--library-control-border));
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.34), 0 0 0 1px color-mix(in srgb, var(--library-accent) 18%, transparent);
+}
+.sharp-card-banner {
+  aspect-ratio: 16 / 9;
+}
+.sharp-card-body {
+  padding: 13px 14px 14px;
+}
+.empty-state.compact {
+  min-height: 220px;
+  border: 1px dashed color-mix(in srgb, var(--library-control-border) 90%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--library-control-bg) 52%, transparent);
+}
+
+@media (max-width: 1280px) {
+  .sharp-header {
+    height: auto;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 16px clamp(18px, 2.4vw, 28px);
+  }
+  .sharp-header-title {
+    flex: 0 1 auto;
+  }
+  .sharp-header-title h1 {
+    font-size: clamp(26px, 3.2vw, 36px);
+  }
+  .sharp-header-controls {
+    flex: 0 0 auto;
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    margin: 0;
+  }
+  .sharp-header-actions,
+  .emulator-header-actions {
+    flex: 0 1 auto;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    margin-left: 0;
+  }
+}
+@media (max-width: 620px) {
+  .sharp-header {
+    padding-inline: 18px;
+  }
+  .sharp-header-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sharp-source-picker,
+  .sharp-source-trigger {
+    width: 100%;
+  }
+  .sharp-source-popover {
+    right: auto;
+    left: 0;
+    width: min(440px, calc(100vw - 36px));
+  }
+  .sharp-source-list {
+    grid-template-columns: 1fr;
+    max-height: min(64vh, 440px);
+  }
+  .sharp-header-actions,
+  .emulator-header-actions {
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+  .sharp-body {
+    padding: 16px 14px 24px;
+  }
+  .installer-workspace,
+  .gog-panel,
+  .epic-panel,
+  .emulator-panel {
+    padding: 12px;
+  }
 }
 </style>

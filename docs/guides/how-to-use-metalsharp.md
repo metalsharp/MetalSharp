@@ -1,5 +1,5 @@
 # How to Use MetalSharp
-**Updated:** 2026-09-08
+**Updated:** 2026-09-26
 
 
 ## Install
@@ -33,7 +33,9 @@ Sharp Library is for Windows apps, demos, launchers, installers, and non-Steam p
 
 Use **Install Windows Program** to select an `.exe` or `.msi`. MetalSharp may import it directly, or create an installer bottle, classify the installer, apply a known launcher recipe when one matches, launch it with the right profile, then scan for installed app candidates. Imported executables launch from their containing folder, and their selected graphics engine is applied to the Wine launch.
 
-Optionally you can manage / login / install / launch Epic / Gog / GameJolt Games here. As well as ps2/ps3/ps4/ps5 emulators. 
+Sharp Library cards let you rename an app with the pencil next to its title and change its cover image with **Change Image**. Cover images may be JPEG, PNG, or WebP; use the cover-position control to adjust the crop.
+
+The library also provides tabs for Epic, GOG, Game Jolt, and supported emulators. These use the same library-style layout while keeping the shared applet switch and Settings controls in the top-right.
 
 ## Logs and Settings
 

@@ -902,7 +902,7 @@ async function checkNeedsMigration(): Promise<boolean> {
 async function createWindow(migrating = false) {
   const uiOnly = isUiOnlyRuntime();
   mainWindow = new BrowserWindow({
-    width: migrating ? 640 : 900,
+    width: migrating ? 640 : 1035,
     height: migrating ? 420 : 765,
     minWidth: migrating ? 640 : 900,
     minHeight: migrating ? 420 : 600,
@@ -2604,7 +2604,7 @@ webview{flex:1;border:none}
     const result = await dialog.showOpenDialog(mainWindow, {
       title: "Select a cover image",
       properties: ["openFile"],
-      filters: [{ name: "Image", extensions: ["jpg", "jpeg", "png"] }],
+      filters: [{ name: "Image", extensions: ["jpg", "jpeg", "png", "webp"] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
