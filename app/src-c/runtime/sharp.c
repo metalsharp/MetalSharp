@@ -1,3 +1,8 @@
+#ifdef __APPLE__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
+#endif
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
@@ -18,11 +23,16 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <libproc.h>
+#endif
 
 typedef struct sharp_running_app {
     char* id;
     pid_t pid;
     bool process_group;
+    char* working_dir;
+    char* runtime_dir;
     struct sharp_running_app* next;
 } sharp_running_app;
 
@@ -228,6 +238,8 @@ static void sharp_forget_locked(const char* id) {
             sharp_running_app* old = *current;
             *current = old->next;
             free(old->id);
+            free(old->working_dir);
+            free(old->runtime_dir);
             free(old);
             return;
         }
@@ -235,10 +247,19 @@ static void sharp_forget_locked(const char* id) {
     }
 }
 
-static void sharp_remember(const char* id, pid_t pid, bool process_group) {
+static char* sharp_resolve_path(const char* path) {
+    char* resolved = path && path[0] ? realpath(path, NULL) : NULL;
+    return resolved ? resolved : (path && path[0] ? strdup(path) : NULL);
+}
+
+static void sharp_remember(const char* id, pid_t pid, bool process_group, const char* working_dir, const char* home) {
     sharp_running_app* entry;
     if (!id || !id[0] || pid <= 1)
         return;
+    char* resolved_working_dir = sharp_resolve_path(working_dir);
+    char* runtime_dir = join(home, "runtime/wine");
+    char* resolved_runtime_dir = runtime_dir ? sharp_resolve_path(runtime_dir) : NULL;
+    free(runtime_dir);
     pthread_mutex_lock(&g_sharp_running_mutex);
     sharp_forget_locked(id);
     entry = calloc(1, sizeof(*entry));
@@ -247,12 +268,18 @@ static void sharp_remember(const char* id, pid_t pid, bool process_group) {
         if (entry->id) {
             entry->pid = pid;
             entry->process_group = process_group;
+            entry->working_dir = resolved_working_dir;
+            entry->runtime_dir = resolved_runtime_dir;
             entry->next = g_sharp_running;
             g_sharp_running = entry;
+            resolved_working_dir = NULL;
+            resolved_runtime_dir = NULL;
         } else
             free(entry);
     }
     pthread_mutex_unlock(&g_sharp_running_mutex);
+    free(resolved_working_dir);
+    free(resolved_runtime_dir);
 }
 
 static bool sharp_process_active(pid_t pid) {
@@ -273,16 +300,103 @@ static bool sharp_group_active(pid_t pid) {
     return errno != ESRCH;
 }
 
+static bool sharp_path_within(const char* path, const char* root) {
+    size_t length = root ? strlen(root) : 0;
+    return path && root && length > 0 && strncmp(path, root, length) == 0 &&
+           (path[length] == '\0' || path[length] == '/');
+}
+
+static bool sharp_process_cwd_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    struct proc_vnodepathinfo info;
+    int bytes = proc_pidinfo((int)pid, PROC_PIDVNODEPATHINFO, 0, &info, (int)sizeof(info));
+    return bytes == (int)sizeof(info) && sharp_path_within(info.pvi_cdir.vip_path, root);
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool sharp_process_executable_within(pid_t pid, const char* root) {
+#ifdef __APPLE__
+    char executable[PROC_PIDPATHINFO_MAXSIZE];
+    int bytes = proc_pidpath((int)pid, executable, sizeof(executable));
+    return bytes > 0 && sharp_path_within(executable, root);
+#else
+    (void)pid;
+    (void)root;
+    return false;
+#endif
+}
+
+static bool sharp_detached_process_matches(const sharp_running_app* entry, pid_t pid) {
+    return entry && pid > 1 && pid != getpid() && pid != entry->pid && entry->working_dir && entry->runtime_dir &&
+           ((sharp_process_cwd_within(pid, entry->working_dir) &&
+             sharp_process_executable_within(pid, entry->runtime_dir)) ||
+            sharp_process_executable_within(pid, entry->working_dir));
+}
+
+static bool sharp_signal_detached_processes(const sharp_running_app* entry, int signal_number, bool* found) {
+#ifdef __APPLE__
+    FILE* pipe = popen("/bin/ps axo pid=", "r");
+    char line[64];
+    bool ok = true;
+    *found = false;
+    if (!pipe)
+        return false;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* end;
+        errno = 0;
+        long value = strtol(line, &end, 10);
+        if (errno || end == line || value <= 1 || value > INT_MAX)
+            continue;
+        pid_t pid = (pid_t)value;
+        if (!sharp_detached_process_matches(entry, pid))
+            continue;
+        *found = true;
+        if (signal_number != 0 && kill(pid, signal_number) != 0 && errno != ESRCH)
+            ok = false;
+    }
+    if (pclose(pipe) != 0)
+        ok = false;
+    return ok;
+#else
+    (void)entry;
+    (void)signal_number;
+    *found = false;
+    return true;
+#endif
+}
+
+static bool sharp_entry_active(const sharp_running_app* entry) {
+    bool detached_active = false;
+    bool leader_active = sharp_process_active(entry->pid);
+    bool group_active = entry->process_group && sharp_group_active(entry->pid);
+    bool scan_ok = sharp_signal_detached_processes(entry, 0, &detached_active);
+    return leader_active || group_active || detached_active || !scan_ok;
+}
+
+static bool sharp_signal_entry(const sharp_running_app* entry, int signal_number) {
+    pid_t pid = entry->pid;
+    int result = kill(entry->process_group ? -pid : pid, signal_number);
+    if (entry->process_group && result != 0 && errno == ESRCH)
+        result = kill(pid, signal_number);
+    bool sent = result == 0 || errno == ESRCH;
+    bool detached_found = false;
+    bool detached_ok = sharp_signal_detached_processes(entry, signal_number, &detached_found);
+    return sent && detached_ok;
+}
+
 static void sharp_prune_locked(void) {
     sharp_running_app** current = &g_sharp_running;
     while (*current) {
-        bool active = sharp_process_active((*current)->pid);
-        if ((*current)->process_group)
-            active = sharp_group_active((*current)->pid);
-        if (!active) {
+        if (!sharp_entry_active(*current)) {
             sharp_running_app* old = *current;
             *current = old->next;
             free(old->id);
+            free(old->working_dir);
+            free(old->runtime_dir);
             free(old);
         } else
             current = &(*current)->next;
@@ -290,34 +404,23 @@ static void sharp_prune_locked(void) {
 }
 
 static bool sharp_terminate_locked(sharp_running_app* entry) {
-    pid_t pid = entry->pid;
-    bool group = entry->process_group;
-    int term_result = kill(group ? -pid : pid, SIGTERM);
-    bool sent = term_result == 0 || errno == ESRCH;
+    bool sent = sharp_signal_entry(entry, SIGTERM);
     struct timespec delay = {.tv_sec = 0, .tv_nsec = 50000000};
     for (int i = 0; i < 20; i++) {
-        (void)sharp_process_active(pid);
-        bool active = group ? sharp_group_active(pid) : sharp_process_active(pid);
-        if (!active)
+        if (!sharp_entry_active(entry))
             break;
         nanosleep(&delay, NULL);
     }
-    (void)sharp_process_active(pid);
-    if (group ? sharp_group_active(pid) : sharp_process_active(pid)) {
-        int kill_result = kill(group ? -pid : pid, SIGKILL);
-        if (kill_result != 0 && errno != ESRCH) {
-            if (!group || (kill(pid, SIGKILL) != 0 && errno != ESRCH))
-                sent = false;
-        }
-    }
+    if (sharp_entry_active(entry) && !sharp_signal_entry(entry, SIGKILL))
+        sent = false;
     int status;
     for (int i = 0; i < 20; i++) {
-        pid_t waited = waitpid(pid, &status, WNOHANG);
-        if (waited == pid || (waited < 0 && errno == ECHILD))
+        pid_t waited = waitpid(entry->pid, &status, WNOHANG);
+        if (waited == entry->pid || (waited < 0 && errno == ECHILD))
             break;
         nanosleep(&delay, NULL);
     }
-    if (sharp_process_active(pid) || (group && sharp_group_active(pid)))
+    if (sharp_entry_active(entry))
         sent = false;
     return sent;
 }
@@ -355,19 +458,25 @@ char* ms_sharp_track_running_json(const char* home, const unsigned char* body, s
     char* id = field(request, "id", "");
     long long pid_value = 0;
     ms_json* apps = load_array(home);
+    char* working_dir = NULL;
     bool found = false;
     for (size_t i = 0; apps && i < ms_json_array_length(apps); i++) {
-        char* app_id = field(ms_json_array_get(apps, i), "id", "");
+        const ms_json* app = ms_json_array_get(apps, i);
+        char* app_id = field(app, "id", "");
         found = !strcmp(app_id, id);
         free(app_id);
-        if (found)
+        if (found) {
+            working_dir = field(app, "install_dir", "");
             break;
+        }
     }
-    bool valid = request && id[0] && found && ms_json_as_i64(ms_json_object_get(request, "pid"), &pid_value) &&
-                 pid_value > 1 && pid_value <= INT_MAX && (kill((pid_t)pid_value, 0) == 0 || errno == EPERM);
+    bool valid = request && id[0] && found && working_dir && working_dir[0] &&
+                 ms_json_as_i64(ms_json_object_get(request, "pid"), &pid_value) && pid_value > 1 &&
+                 pid_value <= INT_MAX && (kill((pid_t)pid_value, 0) == 0 || errno == EPERM);
     if (valid)
-        sharp_remember(id, (pid_t)pid_value, false);
+        sharp_remember(id, (pid_t)pid_value, false, working_dir, home);
     free(id);
+    free(working_dir);
     ms_json_free(apps);
     ms_json_free(request);
     if (!valid)
@@ -393,7 +502,8 @@ char* ms_sharp_stop_json(const unsigned char* body, size_t length, int* status) 
     for (sharp_running_app* entry = g_sharp_running; entry; entry = entry->next) {
         if (!strcmp(entry->id, id)) {
             stopped = sharp_terminate_locked(entry);
-            sharp_forget_locked(id);
+            if (stopped)
+                sharp_forget_locked(id);
             break;
         }
     }
@@ -411,14 +521,20 @@ char* ms_sharp_stop_all_json(int* status) {
     size_t stopped = 0;
     bool failed = false;
     pthread_mutex_lock(&g_sharp_running_mutex);
-    while (g_sharp_running) {
-        sharp_running_app* entry = g_sharp_running;
+    sharp_running_app** current = &g_sharp_running;
+    while (*current) {
+        sharp_running_app* entry = *current;
         if (sharp_terminate_locked(entry))
             stopped++;
-        else
+        else {
             failed = true;
-        g_sharp_running = entry->next;
+            current = &entry->next;
+            continue;
+        }
+        *current = entry->next;
         free(entry->id);
+        free(entry->working_dir);
+        free(entry->runtime_dir);
         free(entry);
     }
     pthread_mutex_unlock(&g_sharp_running_mutex);
@@ -1120,16 +1236,23 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                     free(work_dir);
                     work_dir = executable_dir;
                 }
-                if (work_dir && work_dir[0])
+                if (work_dir && work_dir[0]) {
+                    ms_steam_deploy_controller_input_shims(home, work_dir);
                     (void)chdir(work_dir);
+                }
+                ms_steam_apply_launch_preferences(home);
                 if (engine && strcmp(engine, "wine_bare") && strcmp(engine, "auto"))
                     ms_steam_apply_graphics_route(home, engine);
-                execl(wine, wine, exe_path, (char*)NULL);
+                const char* launch_wrapper = getenv("METALSHARP_WINE_LAUNCH_WRAPPER");
+                char* launch_argv[] = {
+                    (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine), exe_path,
+                    NULL};
+                execv(launch_argv[0], launch_argv);
                 _exit(127);
             }
             (void)setpgid(pid, pid);
             if (!strcmp(action, "launch"))
-                sharp_remember(id, pid, true);
+                sharp_remember(id, pid, true, work_dir, home);
             const char* reported_pipeline = engine && engine[0] ? engine : "auto";
             if (!strcmp(reported_pipeline, "auto"))
                 reported_pipeline = "wine_bare";

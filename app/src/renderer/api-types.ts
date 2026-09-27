@@ -35,6 +35,8 @@ interface AppConfig {
   graphics_runtime_logs?: boolean;
   controllerInput?: "off" | "x" | "d";
   msync?: boolean;
+  windowMode?: "default" | "windowed" | "fullscreen";
+  gameResolution?: "default" | "1280x720" | "1920x1080" | "2560x1440" | "3840x2160";
   retinaMode?: boolean;
   excludeNativeMacSteamGames?: boolean;
 }

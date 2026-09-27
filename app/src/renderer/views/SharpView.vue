@@ -7,6 +7,7 @@ import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
 import type { SharpApp } from "../api-types";
 import LibraryTopbar from "../components/LibraryTopbar.vue";
 import LibraryFooter from "../components/LibraryFooter.vue";
+import GameLaunchSettingsPopover from "../components/GameLaunchSettingsPopover.vue";
 import { themedNavIcon } from "../composables/useTheme";
 import IconChevronLeft from "~icons/lucide/chevron-left";
 import IconUpload from "~icons/lucide/upload";
@@ -3292,7 +3293,11 @@ onUnmounted(() => {
         <p>{{ headerSubtitle }}</p>
       </div>
       <div class="sharp-header-controls">
-        <div class="sharp-source-picker" @keydown.esc="sourcePickerOpen = false">
+        <div class="sharp-header-source-controls">
+          <GameLaunchSettingsPopover
+            v-if="sourceMode === 'installers' || sourceMode === 'gog' || sourceMode === 'epic' || sourceMode === 'gamejolt'"
+          />
+          <div class="sharp-source-picker" @keydown.esc="sourcePickerOpen = false">
           <button
             class="sharp-source-trigger"
             :class="{ open: sourcePickerOpen }"
@@ -3338,6 +3343,7 @@ onUnmounted(() => {
                 <IconCheck v-if="sourceMode === source.id" class="sharp-source-check" width="15" height="15" />
               </button>
             </div>
+          </div>
           </div>
         </div>
         <div class="sharp-header-actions">
@@ -7564,10 +7570,21 @@ details[open] > .drawer-summary {
   min-height: 40px;
   border-radius: 9px;
 }
+.sharp-header-source-controls {
+  order: 99;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  margin-left: auto;
+}
+.sharp-header-source-controls .sharp-source-picker {
+  order: 0;
+  margin-left: 0;
+}
 .sharp-source-picker {
   z-index: 60;
-  order: 99;
-  margin-left: auto;
 }
 .sharp-source-trigger {
   width: 226px;
@@ -7729,9 +7746,17 @@ details[open] > .drawer-summary {
     flex-direction: column;
     align-items: stretch;
   }
-  .sharp-source-picker,
+  .sharp-header-source-controls {
+    width: 100%;
+    margin-left: 0;
+  }
+  .sharp-header-source-controls .sharp-source-picker,
   .sharp-source-trigger {
     width: 100%;
+  }
+  .sharp-header-source-controls .sharp-source-picker {
+    flex: 1 1 auto;
+    width: auto;
   }
   .sharp-source-popover {
     right: auto;
