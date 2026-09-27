@@ -404,7 +404,8 @@ const english = {
       windowed: "Windowed",
       fullscreen: "Fullscreen",
       resolution: "Resolution",
-      launchHint: "Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch.",
+      launchHint:
+        "Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch.",
       close: "Close game launch settings",
     },
     migration: {
