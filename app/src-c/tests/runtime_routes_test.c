@@ -294,6 +294,13 @@ int main(int argc, char** argv) {
     }
     free(helldivers_exe);
     free(helldivers_dir);
+    fixture(home, "aoe4/EssenceEditor.exe", "editor executable that must not launch");
+    fixture(home, "aoe4/RelicCardinal.exe", "Age of Empires IV game executable");
+    char* aoe4_dir = join(home, "aoe4");
+    char* aoe4_exe = preferred_steam_game_executable(aoe4_dir, 1466860, "d3dmetal");
+    assert(aoe4_exe && strstr(aoe4_exe, "/aoe4/RelicCardinal.exe"));
+    free(aoe4_exe);
+    free(aoe4_dir);
     {
         char* args[8] = {0};
         size_t count = 0;
