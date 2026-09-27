@@ -160,18 +160,34 @@ printf '{}' > "$home/gog-play/Game/goggame-424242.info"
 cat > "$home/tools/gogdl" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$@" > "$METALSHARP_HOME/gog-launch-args"
-printf 'pipeline=%s\ndllpath=%s\ndyld=%s\noverrides=%s\nvkicd=%s\n' \
-  "$METALSHARP_PIPELINE" "$WINEDLLPATH" "$DYLD_FALLBACK_LIBRARY_PATH" "$WINEDLLOVERRIDES" "$VK_ICD_FILENAMES" \
-  > "$METALSHARP_HOME/gog-launch-env"
+printf 'pipeline=%s\ndllpath=%s\ndyld=%s\noverrides=%s\nvkicd=%s\nbridge_dyld=%s\nbridge_fallback=%s\n' \
+  "$METALSHARP_PIPELINE" "$WINEDLLPATH" "${DYLD_FALLBACK_LIBRARY_PATH:-}" "$WINEDLLOVERRIDES" "${VK_ICD_FILENAMES:-}" \
+  "$METALSHARP_DYLD_LIBRARY_PATH" "$METALSHARP_DYLD_FALLBACK_LIBRARY_PATH" > "$METALSHARP_HOME/gog-launch-env"
+# Simulate macOS SIP clearing DYLD_* when protected shell interpreters start.
+unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
+MS_LIB="$METALSHARP_HOME/runtime/wine/lib"
+export MS_LIB
+wine=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--wine" ] && [ "$#" -gt 1 ]; then
+    shift
+    wine=$1
+    break
+  fi
+  shift
+done
+[ -n "$wine" ] && "$wine" --smoke-child
 EOF
 chmod +x "$home/tools/gogdl"
 mkdir -p "$home/runtime/wine/bin"
 cat > "$home/runtime/wine/bin/metalsharp-wine" <<'EOF'
 #!/bin/bash
+MS_ROOT="$METALSHARP_HOME/runtime/wine"
+MS_LIB="$MS_ROOT/lib"
 export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows"
 export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix:${DYLD_FALLBACK_LIBRARY_PATH}"
 export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
-printf 'dll=%s\ndyld=%s\nvkicd=%s\n' "$WINEDLLPATH" "${DYLD_FALLBACK_LIBRARY_PATH:-}" "${VK_ICD_FILENAMES:-}" > "$METALSHARP_HOME/wrapper-env"
+printf 'dll=%s\ndyld=%s\ndyldlib=%s\nvkicd=%s\n' "$WINEDLLPATH" "${DYLD_FALLBACK_LIBRARY_PATH:-}" "${DYLD_LIBRARY_PATH:-}" "${VK_ICD_FILENAMES:-}" > "$METALSHARP_HOME/wrapper-env"
 EOF
 chmod +x "$home/runtime/wine/bin/metalsharp-wine"
 python3 - <<'PY'
@@ -227,9 +243,11 @@ assert args[args.index("--wine") + 1] == str(home / "runtime" / "wine" / "bin" /
 env = dict(line.split("=", 1) for line in (home / "gog-launch-env").read_text().splitlines())
 assert env["pipeline"] == "dxmt"
 assert str(home / "runtime/wine/lib/dxmt/x86_64-windows") in env["dllpath"]
+assert str(home / "runtime/wine/lib/dxmt/x86_64-unix") in env["bridge_dyld"]
+assert str(home / "runtime/wine/lib/dxmt/x86_64-unix") in env["bridge_fallback"]
 assert "d3d11" in env["overrides"] and "=n,b" in env["overrides"]
 wrapper = (home / "runtime/wine/bin/metalsharp-wine").read_text()
-assert "METALSHARP_ROUTE_ENV_V1" in wrapper
+assert "METALSHARP_ROUTE_ENV_V2" in wrapper
 assert 'if [ -z "${METALSHARP_PIPELINE:-}" ] || [ -z "${WINEDLLPATH:-}" ]; then' in wrapper
 assert 'elif [ "$METALSHARP_PIPELINE" != "vkd3d" ]; then' in wrapper
 stat = (home / "runtime/wine/bin/metalsharp-wine").stat()
@@ -240,7 +258,7 @@ assert game["primaryExe"] == "Game.exe"
 assert game["primaryTaskName"] == "Play"
 assert game["downloadSizeBytes"] == 12 and game["diskSizeBytes"] == 34
 PY
-/bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; METALSHARP_PIPELINE=dxmt; WINEDLLPATH=/route/dxmt; DYLD_FALLBACK_LIBRARY_PATH=/route/dyld; VK_ICD_FILENAMES=/wrong; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
+/bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; METALSHARP_PIPELINE=dxmt; WINEDLLPATH=/route/dxmt; METALSHARP_DYLD_LIBRARY_PATH=/route/dyld-library; METALSHARP_DYLD_FALLBACK_LIBRARY_PATH=/route/dyld; unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH; VK_ICD_FILENAMES=/wrong; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
 cp "$home/wrapper-env" "$home/dxmt-wrapper-env"
 /bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; unset METALSHARP_PIPELINE; WINEDLLPATH=/stale; DYLD_FALLBACK_LIBRARY_PATH=/custom; VK_ICD_FILENAMES=/custom; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
 cp "$home/wrapper-env" "$home/default-wrapper-env"
@@ -256,6 +274,7 @@ assert dxmt["dll"] == "/route/dxmt" and dxmt["dyld"].startswith("/route/dyld:") 
 default = read("default-wrapper-env")
 assert default["dll"] == str(home / "runtime/wine/lib/wine/x86_64-windows") + ":" + str(home / "runtime/wine/lib/wine/i386-windows")
 assert default["vkicd"] == "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+assert dxmt["dyldlib"] == "/route/dyld-library"
 vkd3d = read("vkd3d-wrapper-env")
 assert vkd3d["dll"] == "/route/vkd3d" and vkd3d["vkicd"] == "/route/vkd3d-icd"
 PY
@@ -278,9 +297,10 @@ home = Path(os.environ["METALSHARP_HOME"])
 env = dict(line.split("=", 1) for line in (home / "gog-launch-env").read_text().splitlines())
 assert env["pipeline"] == "vkd3d"
 assert str(home / "vkd3d/vkd3d-proton/x86_64-windows") in env["dllpath"]
+assert str(home / "runtime/wine/lib/wine/x86_64-unix") in env["bridge_dyld"]
 assert env["vkicd"] == str(home / "runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json")
 wrapper_path = home / "runtime/wine/bin/metalsharp-wine"
-assert "METALSHARP_ROUTE_ENV_V1" in wrapper_path.read_text()
+assert "METALSHARP_ROUTE_ENV_V2" in wrapper_path.read_text()
 stat = wrapper_path.stat()
 assert f"{stat.st_dev}:{stat.st_ino}" == (home / "wine-wrapper-inode").read_text()
 PY

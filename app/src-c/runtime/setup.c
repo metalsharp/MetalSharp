@@ -839,7 +839,8 @@ static char* replace_text(const char* text, const char* needle, const char* repl
 }
 
 bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
-    static const char marker[] = "# METALSHARP_ROUTE_ENV_V1";
+    static const char marker[] = "# METALSHARP_ROUTE_ENV_V2";
+    static const char old_marker[] = "# METALSHARP_ROUTE_ENV_V1";
     static const char old_dll[] = "export WINEDLLPATH=\"$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows\"";
     static const char new_dll[] = "if [ -z \"${METALSHARP_PIPELINE:-}\" ] || [ -z \"${WINEDLLPATH:-}\" ]; then\n"
                                   "  export WINEDLLPATH=\"$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows\"\n"
@@ -860,12 +861,21 @@ bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
                                  "elif [ \"$METALSHARP_PIPELINE\" != \"vkd3d\" ]; then\n"
                                  "  unset VK_ICD_FILENAMES\n"
                                  "fi";
-    char *path = NULL, *text = NULL, *patched_dll = NULL, *patched_dyld = NULL, *patched_vk = NULL, *final = NULL;
+    static const char library_anchor[] = "MS_LIB=\"$MS_ROOT/lib\"\n";
+    static const char library_restore[] =
+        "MS_LIB=\"$MS_ROOT/lib\"\n"
+        "if [ -n \"${METALSHARP_DYLD_LIBRARY_PATH:-}\" ]; then\n"
+        "  export DYLD_LIBRARY_PATH=\"$METALSHARP_DYLD_LIBRARY_PATH\"\n"
+        "fi\n"
+        "if [ -n \"${METALSHARP_DYLD_FALLBACK_LIBRARY_PATH:-}\" ]; then\n"
+        "  export DYLD_FALLBACK_LIBRARY_PATH=\"$METALSHARP_DYLD_FALLBACK_LIBRARY_PATH\"\n"
+        "fi\n";
+    char *path = NULL, *text = NULL, *working = NULL, *next = NULL;
     struct stat st;
     char temporary[PATH_MAX];
     int fd = -1;
     FILE* output = NULL;
-    bool ok = false;
+    bool ok = false, route_aware = false;
     if (!metalsharp_home)
         return false;
     path = join_path(metalsharp_home, "runtime/wine/bin/metalsharp-wine");
@@ -880,23 +890,63 @@ bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
     text = read_file(path, NULL);
     if (!text)
         goto done;
-    if (strstr(text, marker) || (strstr(text, "METALSHARP_PIPELINE") && strstr(text, "${WINEDLLPATH:-") &&
-                                 strstr(text, "DYLD_FALLBACK_LIBRARY_PATH:+") && strstr(text, "VK_ICD_FILENAMES"))) {
+    if (strstr(text, marker)) {
         ok = true;
         goto done;
     }
-    patched_dll = replace_text(text, old_dll, new_dll);
-    if (!patched_dll)
+    route_aware = strstr(text, "METALSHARP_PIPELINE") && strstr(text, "${WINEDLLPATH:-") &&
+                  strstr(text, "DYLD_FALLBACK_LIBRARY_PATH:+") && strstr(text, "VK_ICD_FILENAMES");
+    working = strdup(text);
+    if (!working)
         goto done;
-    patched_dyld = replace_text(patched_dll, old_dyld, new_dyld);
-    if (!patched_dyld)
-        goto done;
-    patched_vk = replace_text(patched_dyld, old_vk, new_vk);
-    if (!patched_vk)
-        goto done;
-    final = replace_text(patched_vk, "#!/bin/bash\n", "#!/bin/bash\n# METALSHARP_ROUTE_ENV_V1\n");
-    if (!final)
-        goto done;
+    if (strstr(working, old_marker)) {
+        next = replace_text(working, old_marker, marker);
+        if (!next)
+            goto done;
+        free(working);
+        working = next;
+        next = NULL;
+    } else if (route_aware) {
+        next = replace_text(working, "#!/bin/bash\n", "#!/bin/bash\n# METALSHARP_ROUTE_ENV_V2\n");
+        if (!next)
+            goto done;
+        free(working);
+        working = next;
+        next = NULL;
+    } else {
+        next = replace_text(working, old_dll, new_dll);
+        if (!next)
+            goto done;
+        free(working);
+        working = next;
+        next = replace_text(working, old_dyld, new_dyld);
+        if (!next)
+            goto done;
+        free(working);
+        working = next;
+        next = replace_text(working, old_vk, new_vk);
+        if (!next)
+            goto done;
+        free(working);
+        working = next;
+        next = replace_text(working, "#!/bin/bash\n", "#!/bin/bash\n# METALSHARP_ROUTE_ENV_V2\n");
+        if (!next)
+            goto done;
+        free(working);
+        working = next;
+        next = NULL;
+    }
+    if (!strstr(working, "export DYLD_LIBRARY_PATH=\"$METALSHARP_DYLD_LIBRARY_PATH\"")) {
+        next = replace_text(working, library_anchor, library_restore);
+        if (!next) {
+            if (route_aware)
+                ok = true;
+            goto done;
+        }
+        free(working);
+        working = next;
+        next = NULL;
+    }
     if (snprintf(temporary, sizeof(temporary), "%s.route-XXXXXX", path) >= (int)sizeof(temporary))
         goto done;
     fd = mkstemp(temporary);
@@ -915,8 +965,8 @@ bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
         goto done;
     }
     fd = -1;
-    if (fwrite(final, 1, strlen(final), output) != strlen(final) || fflush(output) != 0 || fsync(fileno(output)) != 0 ||
-        fchmod(fileno(output), st.st_mode & 0777) != 0) {
+    if (fwrite(working, 1, strlen(working), output) != strlen(working) || fflush(output) != 0 ||
+        fsync(fileno(output)) != 0 || fchmod(fileno(output), st.st_mode & 0777) != 0) {
         fclose(output);
         output = NULL;
         unlink(temporary);
@@ -940,10 +990,8 @@ done:
         close(fd);
     free(path);
     free(text);
-    free(patched_dll);
-    free(patched_dyld);
-    free(patched_vk);
-    free(final);
+    free(working);
+    free(next);
     return ok;
 }
 
@@ -1591,8 +1639,8 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
     ms_json_writer_array_begin(&writer);
-    dependency_begin(&writer, "homebrew", "Homebrew", "Optional package manager for fallback and extra tools",
-                     homebrew, false, "bash scripts/tools/install-homebrew.sh");
+    dependency_begin(&writer, "homebrew", "Homebrew", "Optional package manager for fallback and extra tools", homebrew,
+                     false, "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
                      "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
@@ -1780,9 +1828,9 @@ static void run_install_all_worker(const char* home) {
                                      configured_tool_available("lsar", "METALSHARP_LSAR_PATH") &&
                                      configured_tool_available("unar", "METALSHARP_UNAR_PATH");
         if (!bundled_archive_tools) {
-            write_install_progress(home, 1, total, "Bundled Tools", "error",
-                                   "MetalSharp bundled tools are missing or not executable",
-                                   "reinstall the application so zstd, icoutils, and The Unarchiver tools are restored");
+            write_install_progress(
+                home, 1, total, "Bundled Tools", "error", "MetalSharp bundled tools are missing or not executable",
+                "reinstall the application so zstd, icoutils, and The Unarchiver tools are restored");
             _exit(0);
         }
         write_install_progress(home, 1, total, "Bundled Tools", "done",
@@ -1820,7 +1868,8 @@ static void run_install_all_worker(const char* home) {
 
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "installing", "Checking zstd...", NULL);
     if (!fixed_zstd_path()) {
-        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error", "Bundled zstd is missing or not executable",
+        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error",
+                               "Bundled zstd is missing or not executable",
                                "reinstall the application so zstd/unzstd are restored");
         _exit(0);
     }
@@ -1893,7 +1942,8 @@ static void run_install_all_worker(const char* home) {
         _exit(0);
     }
     write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
-    const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
+    const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine",
+                                   "runtime/host/manifest.json",
                                    "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
                                    "runtime/wine/lib/wine/x86_64-unix/opengl32.so",
                                    "runtime/wine/lib/wine/x86_64-unix/winemac.so",
@@ -2004,16 +2054,14 @@ static void run_install_all_worker(const char* home) {
             if (!temp || !extract_archive_to(temp, archive)) {
                 graphics_ok = false;
             } else {
-                char *src_dxmt = join_path(temp, "Graphics/dll/dxmt"),
-                     *src_dxvk = join_path(temp, "Graphics/dll/dxvk"),
+                char *src_dxmt = join_path(temp, "Graphics/dll/dxmt"), *src_dxvk = join_path(temp, "Graphics/dll/dxvk"),
                      *src_vkd3d = join_path(temp, "Graphics/dll/vkd3d-proton"),
                      *dst_dxmt = join_path(home, "runtime/wine/lib/dxmt"), *dst_dxvk = join_path(home, "vkd3d/dxvk"),
                      *dst_vkd3d = join_path(home, "vkd3d/vkd3d-proton");
                 struct stat dxvk_info, vkd3d_info;
                 bool has_dxvk = src_dxvk && stat(src_dxvk, &dxvk_info) == 0 && S_ISDIR(dxvk_info.st_mode);
                 bool has_vkd3d = src_vkd3d && stat(src_vkd3d, &vkd3d_info) == 0 && S_ISDIR(vkd3d_info.st_mode);
-                graphics_ok = src_dxmt && dst_dxmt &&
-                              copy_directory_contents(src_dxmt, dst_dxmt) &&
+                graphics_ok = src_dxmt && dst_dxmt && copy_directory_contents(src_dxmt, dst_dxmt) &&
                               (!has_dxvk || (dst_dxvk && copy_directory_contents(src_dxvk, dst_dxvk))) &&
                               (!has_vkd3d || (dst_vkd3d && copy_directory_contents(src_vkd3d, dst_vkd3d))) &&
                               sign_dxmt_native_bridges(dst_dxmt) && write_dxmt_manifest(dst_dxmt);
@@ -2530,9 +2578,8 @@ static void run_vcpp_install_worker(const char* home, bool x86) {
     /* ECHILD after the SIG_DFL reset means the exit status is genuinely gone;
      * treat it as indeterminate and let the DLL verification below decide. */
     wait_indeterminate = waited < 0 && errno == ECHILD;
-    if (!wait_indeterminate &&
-        (waited != pid || !WIFEXITED(child_status) ||
-         (WEXITSTATUS(child_status) != 0 && WEXITSTATUS(child_status) != 194))) {
+    if (!wait_indeterminate && (waited != pid || !WIFEXITED(child_status) ||
+                                (WEXITSTATUS(child_status) != 0 && WEXITSTATUS(child_status) != 194))) {
         write_vcpp_progress(home, arch, "error", x86 ? "VC++ x86 installer failed" : "VC++ x64 installer failed");
         _exit(1);
     }

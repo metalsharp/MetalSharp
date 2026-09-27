@@ -35,6 +35,23 @@ static void fixture_bytes(const char* home, const char* relative, const unsigned
     free(path);
 }
 
+static char* read_fixture(const char* path) {
+    FILE* f = fopen(path, "rb");
+    long length;
+    char* bytes;
+    assert(f);
+    assert(fseek(f, 0, SEEK_END) == 0);
+    length = ftell(f);
+    assert(length >= 0);
+    assert(fseek(f, 0, SEEK_SET) == 0);
+    bytes = malloc((size_t)length + 1);
+    assert(bytes);
+    assert(fread(bytes, 1, (size_t)length, f) == (size_t)length);
+    bytes[length] = '\0';
+    assert(fclose(f) == 0);
+    return bytes;
+}
+
 static void executable_fixture(const char* home, const char* relative) {
     char* path;
     fixture(home, relative, "x87sidecar");
@@ -54,6 +71,8 @@ int main(int argc, char** argv) {
     assert(setenv("DYLD_FALLBACK_LIBRARY_PATH", "/tmp/foreign-wine/lib", 1) == 0);
     assert(setenv("SteamAppId", "999", 1) == 0);
     assert(setenv("GRAPHICS_BACKEND", "foreign", 1) == 0);
+    assert(setenv("METALSHARP_DYLD_LIBRARY_PATH", "/foreign/dyld", 1) == 0);
+    assert(setenv("METALSHARP_DYLD_FALLBACK_LIBRARY_PATH", "/foreign/fallback", 1) == 0);
     assert(setenv("METALSHARP_PORT", "9123", 1) == 0);
     sanitize_inherited_runtime_environment();
     assert(getenv("WINEPREFIX") == NULL && getenv("WINEARCH") == NULL);
@@ -61,6 +80,8 @@ int main(int argc, char** argv) {
     assert(getenv("DXVK_HUD") == NULL && getenv("VK_ICD_FILENAMES") == NULL);
     assert(getenv("DYLD_FALLBACK_LIBRARY_PATH") == NULL && getenv("SteamAppId") == NULL);
     assert(getenv("GRAPHICS_BACKEND") == NULL);
+    assert(getenv("METALSHARP_DYLD_LIBRARY_PATH") == NULL);
+    assert(getenv("METALSHARP_DYLD_FALLBACK_LIBRARY_PATH") == NULL);
     assert(getenv("METALSHARP_PORT") && !strcmp(getenv("METALSHARP_PORT"), "9123"));
     assert(valid_pipeline("d3dmetal"));
     assert(valid_pipeline("dxmt"));
@@ -79,6 +100,10 @@ int main(int argc, char** argv) {
     ms_steam_apply_graphics_route(home, "dxmt");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/x86_64-windows"));
     assert(strstr(getenv("WINEDLLOVERRIDES"), "winemetal,dxgi,d3d11"));
+#ifdef __APPLE__
+    assert(strstr(getenv("METALSHARP_DYLD_LIBRARY_PATH"), "runtime/wine/lib/dxmt/x86_64-unix"));
+    assert(strstr(getenv("METALSHARP_DYLD_FALLBACK_LIBRARY_PATH"), "runtime/wine/lib/dxmt/x86_64-unix"));
+#endif
     assert(!getenv("VK_DRIVER_FILES"));
     ms_steam_apply_graphics_route(home, "dxmt_32");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/i386-windows"));
@@ -89,6 +114,31 @@ int main(int argc, char** argv) {
     ms_steam_apply_graphics_route(home, "fna_arm64");
     assert(!strcmp(getenv("MS_GRAPHICS_BACKEND"), "fna_arm64"));
     assert(!getenv("DXMT_CONFIG_FILE"));
+#ifdef __APPLE__
+    assert(!getenv("METALSHARP_DYLD_LIBRARY_PATH"));
+    assert(!getenv("METALSHARP_DYLD_FALLBACK_LIBRARY_PATH"));
+#endif
+    {
+        char* v1_home = join(home, "wrapper-v1");
+        char* wrapper_path = join(v1_home, "runtime/wine/bin/metalsharp-wine");
+        char* wrapper;
+        fixture(v1_home, "runtime/wine/bin/metalsharp-wine",
+                "#!/bin/bash\n# METALSHARP_ROUTE_ENV_V1\nMS_ROOT=\"$MS_ROOT\"\nMS_LIB=\"$MS_ROOT/lib\"\n"
+                "if [ -z \"${METALSHARP_PIPELINE:-}\" ] || [ -z \"${WINEDLLPATH:-}\" ]; then\n"
+                "  export WINEDLLPATH=\"$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows\"\nfi\n"
+                "if [ -n \"${METALSHARP_PIPELINE:-}\" ]; then\n"
+                "  export "
+                "DYLD_FALLBACK_LIBRARY_PATH=\"${DYLD_FALLBACK_LIBRARY_PATH:+$DYLD_FALLBACK_LIBRARY_PATH:}$MS_LIB:$MS_"
+                "LIB/wine/x86_64-unix\"\nfi\n"
+                "if [ \"$METALSHARP_PIPELINE\" != \"vkd3d\" ]; then unset VK_ICD_FILENAMES; fi\n");
+        assert(ms_setup_wine_wrapper_ensure(v1_home));
+        wrapper = read_fixture(wrapper_path);
+        assert(strstr(wrapper, "METALSHARP_ROUTE_ENV_V2"));
+        assert(strstr(wrapper, "export DYLD_LIBRARY_PATH=\"$METALSHARP_DYLD_LIBRARY_PATH\""));
+        free(wrapper);
+        free(wrapper_path);
+        free(v1_home);
+    }
     {
         const char* stop_body = "{\"appName\":\"SmokeEpic\"}";
         char* epic_home = join(home, "epic-stop");
