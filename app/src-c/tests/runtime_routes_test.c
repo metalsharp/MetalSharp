@@ -9,6 +9,10 @@
 #include "../runtime/main.c"
 #undef main
 #include <assert.h>
+#include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 static void fixture(const char* home, const char* relative, const char* bytes) {
     char* path = join(home, relative);
@@ -132,6 +136,55 @@ int main(int argc, char** argv) {
         response = ms_gamejolt_set_engine_json(gj_home, (const unsigned char*)set_engine_body, strlen(set_engine_body));
         assert(response && strstr(response, "invalid GameJolt engine"));
         free(response);
+        {
+            pid_t child = fork();
+            char status_body[64];
+            int process_status = 0;
+            assert(child >= 0);
+            if (child == 0) {
+                (void)setpgid(0, 0);
+                for (;;)
+                    pause();
+            }
+            assert(setpgid(child, child) == 0 || errno == EACCES);
+            ms_process_register_game(987654321U, child);
+            snprintf(status_body, sizeof(status_body), "{\"pid\":%ld}", (long)child);
+            response = ms_gamejolt_pid_status_json((const unsigned char*)status_body, strlen(status_body));
+            assert(response && strstr(response, "\"running\":true"));
+            free(response);
+            response = ms_process_kill_json(home, status_body, strlen(status_body), &process_status);
+            assert(response && process_status == 200 && strstr(response, "\"ok\":true"));
+            free(response);
+            assert(waitpid(child, NULL, 0) == child);
+            response = ms_gamejolt_pid_status_json((const unsigned char*)status_body, strlen(status_body));
+            assert(response && strstr(response, "\"running\":false"));
+            free(response);
+        }
+        {
+            pid_t leader = fork();
+            char status_body[64];
+            int process_status = 0;
+            assert(leader >= 0);
+            if (leader == 0) {
+                (void)setpgid(0, 0);
+                pid_t member = fork();
+                if (member == 0) {
+                    for (;;)
+                        pause();
+                }
+                _exit(member < 0 ? 1 : 0);
+            }
+            assert(setpgid(leader, leader) == 0 || errno == EACCES);
+            ms_process_register_game(987654322U, leader);
+            assert(waitpid(leader, NULL, 0) == leader);
+            response = ms_process_running_json(home);
+            assert(response && strstr(response, "987654322"));
+            free(response);
+            snprintf(status_body, sizeof(status_body), "{\"pid\":%ld}", (long)leader);
+            response = ms_process_kill_json(home, status_body, strlen(status_body), &process_status);
+            assert(response && process_status == 200 && strstr(response, "\"ok\":true"));
+            free(response);
+        }
         free(game_id);
         free(gj_home);
     }

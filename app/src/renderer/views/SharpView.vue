@@ -836,6 +836,7 @@ async function launchGameJolt(game: GameJoltGame) {
   });
   if (result?.ok && result.pid) {
     gamejoltRunningPids.value[game.id] = result.pid;
+    showLaunchQuitHint(game.name);
     toast.show(`Launched ${game.name}`, "success");
   } else {
     toast.show(result?.error ?? `Failed to launch ${game.name}`, "error");
