@@ -1829,6 +1829,22 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/epic/thegamesdb-api-key") == 0) {
+        body = ms_epic_thegamesdb_api_key_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/thegamesdb-api-key") == 0) {
+        int status = 500;
+        body = ms_epic_save_thegamesdb_api_key_json(context->metalsharp_home, request->body, request->body_length,
+                                                    &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/logout") == 0) {
         body = ms_epic_logout_json(context->metalsharp_home);
         if (body == NULL)
