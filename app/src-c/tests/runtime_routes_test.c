@@ -161,6 +161,28 @@ int main(int argc, char** argv) {
             free(response);
         }
         {
+            pid_t child = fork();
+            const char* gamejolt_body = "{\"id\":\"gamejolt-smoke\"}";
+            int stop_status = 0;
+            assert(child >= 0);
+            if (child == 0) {
+                (void)setpgid(0, 0);
+                for (;;)
+                    pause();
+            }
+            assert(setpgid(child, child) == 0 || errno == EACCES);
+            ms_gamejolt_register_game_process("gamejolt-smoke", child);
+            response = ms_gamejolt_running_json();
+            assert(response && strstr(response, "gamejolt-smoke"));
+            free(response);
+            response = ms_gamejolt_stop_json((const unsigned char*)gamejolt_body, strlen(gamejolt_body), &stop_status);
+            assert(response && stop_status == 200 && strstr(response, "\"ok\":true"));
+            free(response);
+            response = ms_gamejolt_running_json();
+            assert(response && !strstr(response, "gamejolt-smoke"));
+            free(response);
+        }
+        {
             pid_t leader = fork();
             char status_body[64];
             int process_status = 0;

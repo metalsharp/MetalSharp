@@ -844,10 +844,12 @@ async function launchGameJolt(game: GameJoltGame) {
 }
 
 async function stopGameJolt(game: GameJoltGame) {
-  const pid = gamejoltRunningPids.value[game.id];
-  if (!pid) return;
-  await api("POST", "/kill", { pid });
-  delete gamejoltRunningPids.value[game.id];
+  const result = await api<{ ok: boolean; error?: string }>("POST", "/gamejolt/stop", { id: game.id });
+  if (result?.ok) delete gamejoltRunningPids.value[game.id];
+  else {
+    toast.show(result?.error ?? `Could not stop ${game.name}`, "error");
+    await refreshGameJoltProcessState();
+  }
 }
 
 async function uninstallGameJolt(game: GameJoltGame) {
@@ -867,13 +869,11 @@ async function uninstallGameJolt(game: GameJoltGame) {
 }
 
 async function refreshGameJoltProcessState() {
-  const entries = Object.entries(gamejoltRunningPids.value);
-  await Promise.all(
-    entries.map(async ([id, pid]) => {
-      const result = await api<{ ok: boolean; running: boolean }>("POST", "/gamejolt/status", { pid });
-      if (!result?.running) delete gamejoltRunningPids.value[id];
-    }),
-  );
+  const result = await api<{ ok: boolean; running?: { id: string; pid: number }[] }>("GET", "/gamejolt/running");
+  if (!result?.ok || !Array.isArray(result.running)) return;
+  const next: Record<string, number> = {};
+  for (const game of result.running) next[game.id] = game.pid;
+  gamejoltRunningPids.value = next;
 }
 
 async function updateGameJoltEngine(game: GameJoltGame, engine: string) {

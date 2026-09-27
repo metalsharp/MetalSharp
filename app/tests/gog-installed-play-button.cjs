@@ -42,14 +42,16 @@ assert.match(
 assert.match(source, /async function launchApp\(id: string, engine: string\)[\s\S]*?showLaunchQuitHint\(app\.name\)/);
 assert.match(source, /async function stopSharpApp\(app: SharpApp\)[\s\S]*?\/sharp-library\/stop/);
 assert.match(source, /async function launchGameJolt\(game: GameJoltGame\)[\s\S]*?showLaunchQuitHint\(game\.name\)/);
-assert.match(source, /async function refreshGameJoltProcessState\(\)[\s\S]*?\/gamejolt\/status/);
+assert.match(source, /async function refreshGameJoltProcessState\(\)[\s\S]*?\/gamejolt\/running/);
+assert.match(source, /async function stopGameJolt\(game: GameJoltGame\)[\s\S]*?\/gamejolt\/stop/);
 const quitShortcutStart = mainSource.indexOf("function forceQuitRunningGames(): void {");
 const quitShortcutEnd = mainSource.indexOf("\n}\n", quitShortcutStart);
 assert.ok(quitShortcutStart >= 0 && quitShortcutEnd > quitShortcutStart, "global quit handler is present");
 const quitShortcutBody = mainSource.slice(quitShortcutStart, quitShortcutEnd);
 assert.ok(
-  quitShortcutBody.indexOf("stopSharpLibraryApplications(port)") < quitShortcutBody.indexOf('path: "/game/running"'),
-  "Cmd+Opt+Q stops Sharp Library apps immediately before launcher-state checks",
+  quitShortcutBody.indexOf("stopSharpLibraryApplications(port)") < quitShortcutBody.indexOf('path: "/game/running"') &&
+    quitShortcutBody.indexOf("stopGameJoltGames(port") < quitShortcutBody.indexOf('path: "/game/running"'),
+  "Cmd+Opt+Q stops Sharp Library and GameJolt apps before launcher-state checks",
 );
 assert.match(source, /sharpProcessPollTimer = setInterval\(\(\) => void refreshSharpRunning\(\), 1500\)/);
 

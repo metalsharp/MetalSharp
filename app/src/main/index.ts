@@ -673,6 +673,28 @@ function stopSharpLibraryApplications(port: number, onComplete?: () => void): vo
   req.end();
 }
 
+function stopGameJoltGames(port: number, onComplete?: () => void): void {
+  const req = http.request(
+    {
+      hostname: "127.0.0.1",
+      port,
+      path: "/gamejolt/stop-all",
+      method: "POST",
+      headers: { "Content-Length": 0 },
+    },
+    (res) => {
+      res.resume();
+      res.on("end", () => onComplete?.());
+    },
+  );
+  req.setTimeout(2000, () => req.destroy());
+  req.on("error", (error) => {
+    console.warn("Force-quit GameJolt games request failed:", error);
+    onComplete?.();
+  });
+  req.end();
+}
+
 function forceQuitAllRunningGames(port: number): void {
   const req = http.request(
     { hostname: "127.0.0.1", port, path: "/games/force-quit", method: "POST", headers: { "Content-Length": 0 } },
@@ -710,65 +732,67 @@ function forceQuitAllRunningGames(port: number): void {
 
 function forceQuitRunningGames(): void {
   const port = bridge ? bridge.getPort() : 9274;
-  // Stop Sharp Library process groups immediately rather than waiting for the
-  // Steam-running query and Odyssey-specific fallback path to complete.
+  // Stop Sharp Library and GameJolt process groups before the Steam-running
+  // query and Odyssey-specific fallback path.
   const fallback = () => forceQuitAllRunningGames(port);
   stopSharpLibraryApplications(port, () => {
-    const req = http.request({ hostname: "127.0.0.1", port, path: "/game/running", method: "GET" }, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        fallback();
-        return;
-      }
-      let body = "";
-      res.setEncoding("utf8");
-      res.on("data", (chunk: string) => {
-        body += chunk;
-        if (body.length > 65536) req.destroy();
-      });
-      res.on("end", () => {
-        let odysseyRunning = false;
-        try {
-          const parsed = JSON.parse(body) as { ok?: boolean; running?: { appid?: number }[] };
-          odysseyRunning =
-            parsed.ok === true &&
-            Array.isArray(parsed.running) &&
-            parsed.running.some((game) => game?.appid === 812140);
-        } catch {
-          // Fall back to the original global escape hatch if the status is unavailable.
-        }
-        if (!odysseyRunning) {
+    stopGameJoltGames(port, () => {
+      const req = http.request({ hostname: "127.0.0.1", port, path: "/game/running", method: "GET" }, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
           fallback();
           return;
         }
-        const stopBody = JSON.stringify({ appid: 812140 });
-        const stop = http.request(
-          {
-            hostname: "127.0.0.1",
-            port,
-            path: "/kill",
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(stopBody) },
-          },
-          (stopResponse) => {
-            stopResponse.resume();
-            stopResponse.on("end", fallback);
-          },
-        );
-        stop.setTimeout(5000, () => stop.destroy());
-        stop.on("error", (error) => {
-          console.warn("Stop Odyssey request failed:", error);
-          fallback();
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => {
+          body += chunk;
+          if (body.length > 65536) req.destroy();
         });
-        stop.end(stopBody);
+        res.on("end", () => {
+          let odysseyRunning = false;
+          try {
+            const parsed = JSON.parse(body) as { ok?: boolean; running?: { appid?: number }[] };
+            odysseyRunning =
+              parsed.ok === true &&
+              Array.isArray(parsed.running) &&
+              parsed.running.some((game) => game?.appid === 812140);
+          } catch {
+            // Fall back to the original global escape hatch if the status is unavailable.
+          }
+          if (!odysseyRunning) {
+            fallback();
+            return;
+          }
+          const stopBody = JSON.stringify({ appid: 812140 });
+          const stop = http.request(
+            {
+              hostname: "127.0.0.1",
+              port,
+              path: "/kill",
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(stopBody) },
+            },
+            (stopResponse) => {
+              stopResponse.resume();
+              stopResponse.on("end", fallback);
+            },
+          );
+          stop.setTimeout(5000, () => stop.destroy());
+          stop.on("error", (error) => {
+            console.warn("Stop Odyssey request failed:", error);
+            fallback();
+          });
+          stop.end(stopBody);
+        });
       });
+      req.setTimeout(2000, () => req.destroy());
+      req.on("error", (error) => {
+        console.warn("Running-games query failed for Cmd+Opt+Q:", error);
+        fallback();
+      });
+      req.end();
     });
-    req.setTimeout(2000, () => req.destroy());
-    req.on("error", (error) => {
-      console.warn("Running-games query failed for Cmd+Opt+Q:", error);
-      fallback();
-    });
-    req.end();
   });
 }
 
