@@ -134,6 +134,14 @@ function getAPI(): MetalsharpAPI {
   return (window as unknown as { metalsharp?: MetalsharpAPI }).metalsharp || browserAPI;
 }
 
+export function showLaunchQuitHint(gameName: string): void {
+  window.setTimeout(() => {
+    void getAPI()
+      .showLaunchOverlay(gameName)
+      .catch(() => {});
+  }, 5000);
+}
+
 export async function steamFix(): Promise<{ ok: boolean; output?: string; error?: string }> {
   const bridge = getAPI() as MetalsharpAPI & {
     runSteamFix?: () => Promise<{ ok: boolean; output?: string; error?: string }>;

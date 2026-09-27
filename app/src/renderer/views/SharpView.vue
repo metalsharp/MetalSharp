@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, onMounted, onUnmounted, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import { useToast } from "../composables/useToast";
-import { api, getAPI } from "../composables/useApi";
+import { api, getAPI, showLaunchQuitHint } from "../composables/useApi";
 import { useLibraryThemeStyle } from "../composables/useLibraryTheme";
 import type { SharpApp } from "../api-types";
 import LibraryTopbar from "../components/LibraryTopbar.vue";
@@ -539,6 +539,7 @@ const recentCrashReports = ref<Record<string, CrashReport[]>>({});
 const gogStatus = ref<GogStatus | null>(null);
 const gogGames = ref<GogGame[]>([]);
 const gogBottleOpen = ref<Record<string, boolean>>({});
+let gogRunningPollInFlight = false;
 const epicStatus = ref<EpicStatus | null>(null);
 const epicGames = ref<EpicGame[]>([]);
 let epicRunningPollInFlight = false;
@@ -560,6 +561,7 @@ const gamejoltPanel = ref<HTMLElement | null>(null);
 let gamejoltDragPointerId: number | null = null;
 const gamejoltDownloadToastIds = new Map<string, number>();
 let gamejoltProcessPollTimer: ReturnType<typeof setInterval> | null = null;
+let gogProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 let epicProcessPollTimer: ReturnType<typeof setInterval> | null = null;
 const pcsx2Status = ref<Pcsx2Status | null>(null);
 const pcsx2Games = ref<Pcsx2Game[]>([]);
@@ -2037,6 +2039,7 @@ async function playEpicGame(game: EpicGame) {
   epicLoading.value[`${game.appName}:play`] = false;
   if (result?.ok) {
     game.running = true;
+    showLaunchQuitHint(game.title);
     toast.show(`${game.title} launched`, "success");
   } else toast.show(result?.error ?? `Could not launch ${game.title}`, "error");
   await refreshEpicRunning();
@@ -2115,6 +2118,20 @@ function setGogGames(games: GogGame[]) {
   gogGames.value = [...unique.values()].sort((a, b) =>
     a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true }),
   );
+}
+
+async function refreshGogRunning() {
+  if (gogRunningPollInFlight || !gogGames.value.length) return;
+  gogRunningPollInFlight = true;
+  try {
+    const result = await api<{ ok: boolean; games: GogGame[]; status: GogStatus }>("GET", "/sharp-library/gog/games");
+    if (result?.ok) {
+      setGogGames(result.games ?? []);
+      gogStatus.value = result.status;
+    }
+  } finally {
+    gogRunningPollInFlight = false;
+  }
 }
 
 async function refreshGog() {
@@ -2338,6 +2355,7 @@ async function playGogGame(game: GogGame) {
   gogLoading.value[`${game.productId}:play`] = false;
   if (result?.ok && result.game) {
     upsertGogGame(result.game);
+    showLaunchQuitHint(game.title);
     toast.show(`${game.title} launched`, "success");
   } else {
     toast.show(result?.error ?? `Failed to launch ${game.title}`, "error");
@@ -3179,6 +3197,9 @@ onMounted(() => {
   void load();
   void refreshGameJoltProcessState();
   gamejoltProcessPollTimer = setInterval(() => void refreshGameJoltProcessState(), 1500);
+  gogProcessPollTimer = setInterval(() => {
+    if (sourceMode.value === "gog" && gogGames.value.some((game) => game.running)) void refreshGogRunning();
+  }, 2000);
   epicProcessPollTimer = setInterval(() => {
     if (sourceMode.value === "epic" && epicGames.value.some((game) => game.running)) void refreshEpicRunning();
   }, 2000);
@@ -3199,6 +3220,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (gamejoltProcessPollTimer) clearInterval(gamejoltProcessPollTimer);
   gamejoltProcessPollTimer = null;
+  if (gogProcessPollTimer) clearInterval(gogProcessPollTimer);
+  gogProcessPollTimer = null;
   if (epicProcessPollTimer) clearInterval(epicProcessPollTimer);
   epicProcessPollTimer = null;
   if (pcsx2ProcessPollTimer) clearInterval(pcsx2ProcessPollTimer);
