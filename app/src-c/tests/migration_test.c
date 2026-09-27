@@ -29,8 +29,6 @@ void ms_clear_quarantine_tree(const char* path) {
     (void)path;
 }
 
-
-
 bool ms_steam_wrappers_ensure(const char* home) {
     (void)home;
     return true;
@@ -95,6 +93,15 @@ int main(void) {
     make_directory(path);
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", home);
     write_file(path, "gog settings");
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/dosdevices", home);
+    make_directory(path);
+    {
+        char c_drive[512], z_drive[512];
+        snprintf(c_drive, sizeof(c_drive), "%s/bottles/gog-prefix/prefix/dosdevices/c:", home);
+        snprintf(z_drive, sizeof(z_drive), "%s/bottles/gog-prefix/prefix/dosdevices/z:", home);
+        assert(symlink("../drive_c", c_drive) == 0);
+        assert(symlink("/", z_drive) == 0);
+    }
     snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/drive_c/windows", home);
     make_directory(path);
     snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/bottle.json", home);
@@ -128,6 +135,10 @@ int main(void) {
     assert(!file_exists(path));
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", preserved.temp);
     assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/dosdevices/c:", preserved.temp);
+    assert(!file_exists(path));
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/dosdevices/z:", preserved.temp);
+    assert(!file_exists(path));
     snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/user.reg", preserved.temp);
     assert(file_exists(path));
     snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/drive_c/windows/runtime.dll", preserved.temp);
@@ -159,6 +170,37 @@ int main(void) {
     }
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", home);
     assert(file_exists(path));
+    assert(!rebuild_gog_prefix_after_migration(home));
+    snprintf(path, sizeof(path), "%s/runtime/wine/bin", home);
+    make_directory(path);
+    snprintf(path, sizeof(path), "%s/runtime/wine/bin/metalsharp-wine", home);
+    write_file(path, "#!/bin/sh\n"
+                     "[ \"$1\" = wineboot ] && [ \"$2\" = -u ] || exit 4\n"
+                     "mkdir -p \"$WINEPREFIX/dosdevices\"\n"
+                     "ln -sf ../drive_c \"$WINEPREFIX/dosdevices/c:\"\n"
+                     "ln -sf / \"$WINEPREFIX/dosdevices/z:\"\n"
+                     "printf '%s %s\\n' \"$1\" \"$2\" > \"$WINEPREFIX/migration-wineboot-args\"\n");
+    assert(chmod(path, 0700) == 0);
+    assert(rebuild_gog_prefix_after_migration(home));
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/migration-wineboot-args", home);
+    {
+        FILE* args = fopen(path, "rb");
+        char contents[64] = {0};
+        assert(args != NULL);
+        assert(fread(contents, 1, sizeof(contents) - 1, args) > 0);
+        fclose(args);
+        assert(strcmp(contents, "wineboot -u\n") == 0);
+    }
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/dosdevices/c:", home);
+    {
+        struct stat st;
+        assert(lstat(path, &st) == 0 && S_ISLNK(st.st_mode));
+    }
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/dosdevices/z:", home);
+    {
+        struct stat st;
+        assert(lstat(path, &st) == 0 && S_ISLNK(st.st_mode));
+    }
     snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/user.reg", home);
     assert(file_exists(path));
     snprintf(path, sizeof(path), "%s/bottles/epic_TestGame/prefix/system.reg", home);

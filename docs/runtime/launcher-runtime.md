@@ -38,6 +38,10 @@ The Sharp Library **Epic** tab downloads Epic games through upstream [Legendary]
 
 Backend routes: `GET /sharp-library/epic/status`, `GET /sharp-library/epic/games`, `GET /sharp-library/epic/running`, `GET /sharp-library/epic/thegamesdb-api-key` (configured status only), and POST actions for `install-tool`, `auth`, `thegamesdb-api-key`, `logout`, `sync`, `install`, `progress`, `cancel`, `initialize`, `play`, `stop`, `stop-all`, `uninstall`.
 
+## GOG Library Prefix
+
+GOG games share `~/.metalsharp/bottles/gog-prefix/prefix`. Runtime migration preserves the prefix's regular files, then runs `wineboot -u` against the restored prefix and verifies its `dosdevices/c:` and `dosdevices/z:` mappings; prefix symlinks are intentionally omitted from the migration copy. A failed Wineboot or missing mapping leaves migration in an explicit error state rather than silently treating the prefix as usable. The per-game Stop action terminates its launch process group and targets `wineserver -k` at this GOG prefix; because the prefix is shared, stopping one GOG game also stops any other Wine games using it. **Cmd+Opt+Q** invokes the GOG stop-all action as part of its global game-stop fallback.
+
 ## CEF Compatibility
 
 Steam already uses a wrapped `steamwebhelper.exe` to force CEF onto a Wine-safe software GPU path. Sharp Library bottles generalize that behavior for launcher apps carrying CEF or Chromium payloads (`libcef.dll`, `chrome_*.pak`, `vk_swiftshader.dll`, `app.asar`): the original executable is preserved as `<name>_real.exe`, `<name>.exe` becomes an architecture-matched wrapper relaunching with `--in-process-gpu --disable-gpu`, and a sibling `metalsharp-cefchildhook.dll` handles launchers that spawn renderer, utility, or GPU children.
