@@ -1659,6 +1659,29 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/gamejolt/running") == 0) {
+        body = ms_gamejolt_running_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/stop") == 0) {
+        int status = 500;
+        body = ms_gamejolt_stop_json(request->body, request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/stop-all") == 0) {
+        int status = 500;
+        body = ms_gamejolt_stop_all_json(&status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/gamejolt/status") == 0) {
         body = ms_gamejolt_pid_status_json(request->body, request->body_length);
         if (body == NULL)

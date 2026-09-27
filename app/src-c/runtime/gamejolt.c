@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdbool.h>
 #include <signal.h>
 #include <stdio.h>
@@ -15,7 +16,17 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
+
+typedef struct gamejolt_process {
+    char* id;
+    pid_t pid;
+    struct gamejolt_process* next;
+} gamejolt_process;
+
+static gamejolt_process* g_gamejolt_processes;
+static pthread_mutex_t g_gamejolt_processes_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static char* join_path(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
@@ -178,6 +189,194 @@ static char* error_json(const char* message) {
     ms_json_writer_key(&writer, "error");
     ms_json_writer_string(&writer, message);
     ms_json_writer_object_end(&writer);
+    return ms_json_writer_take(&writer);
+}
+
+static bool gamejolt_pid_active(pid_t pid) {
+    int wait_error = 0;
+    pid_t waited = waitpid(pid, NULL, WNOHANG);
+    if (waited < 0)
+        wait_error = errno;
+    bool group_active = kill(-pid, 0) == 0 || errno == EPERM;
+    bool leader_active = waited == 0 || (waited < 0 && wait_error == ECHILD && (kill(pid, 0) == 0 || errno == EPERM)) ||
+                         (waited < 0 && wait_error == EINTR);
+    return group_active || leader_active;
+}
+
+static bool signal_gamejolt_process(pid_t pid, int signal_number) {
+    if (kill(-pid, signal_number) == 0)
+        return true;
+    if (errno != ESRCH)
+        return false;
+    return kill(pid, signal_number) == 0 || errno == ESRCH;
+}
+
+static bool terminate_gamejolt_process(pid_t pid) {
+    struct timespec delay = {0, 50000000L};
+    if (!signal_gamejolt_process(pid, SIGTERM))
+        return false;
+    for (int i = 0; i < 5 && gamejolt_pid_active(pid); i++)
+        (void)nanosleep(&delay, NULL);
+    if (gamejolt_pid_active(pid) && !signal_gamejolt_process(pid, SIGKILL))
+        return false;
+    for (int i = 0; i < 20 && gamejolt_pid_active(pid); i++)
+        (void)nanosleep(&delay, NULL);
+    return !gamejolt_pid_active(pid);
+}
+
+static void gamejolt_forget_locked(const char* id) {
+    gamejolt_process** current = &g_gamejolt_processes;
+    while (*current) {
+        if (!strcmp((*current)->id, id)) {
+            gamejolt_process* old = *current;
+            *current = old->next;
+            free(old->id);
+            free(old);
+            return;
+        }
+        current = &(*current)->next;
+    }
+}
+
+static void gamejolt_prune_locked(void) {
+    gamejolt_process** current = &g_gamejolt_processes;
+    while (*current) {
+        if (!gamejolt_pid_active((*current)->pid)) {
+            gamejolt_process* old = *current;
+            *current = old->next;
+            free(old->id);
+            free(old);
+        } else {
+            current = &(*current)->next;
+        }
+    }
+}
+
+static pid_t gamejolt_launch_response_pid(const char* response) {
+    char error[96];
+    ms_json* parsed = response ? ms_json_parse(response, strlen(response), error, sizeof(error)) : NULL;
+    bool ok = false;
+    long long value = 0;
+    pid_t pid = 0;
+    if (parsed && ms_json_as_bool(ms_json_object_get(parsed, "ok"), &ok) && ok &&
+        ms_json_as_i64(ms_json_object_get(parsed, "pid"), &value) && value > 1 && value <= INT_MAX)
+        pid = (pid_t)value;
+    ms_json_free(parsed);
+    return pid;
+}
+
+void ms_gamejolt_register_game_process(const char* id, pid_t pid) {
+    if (!id || !id[0] || pid <= 1)
+        return;
+    pthread_mutex_lock(&g_gamejolt_processes_mutex);
+    for (gamejolt_process* current = g_gamejolt_processes; current; current = current->next) {
+        if (!strcmp(current->id, id)) {
+            current->pid = pid;
+            pthread_mutex_unlock(&g_gamejolt_processes_mutex);
+            return;
+        }
+    }
+    gamejolt_process* entry = calloc(1, sizeof(*entry));
+    if (entry) {
+        entry->id = strdup(id);
+        if (entry->id) {
+            entry->pid = pid;
+            entry->next = g_gamejolt_processes;
+            g_gamejolt_processes = entry;
+        } else {
+            free(entry);
+        }
+    }
+    pthread_mutex_unlock(&g_gamejolt_processes_mutex);
+}
+
+char* ms_gamejolt_running_json(void) {
+    ms_json_writer writer;
+    pthread_mutex_lock(&g_gamejolt_processes_mutex);
+    gamejolt_prune_locked();
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "running");
+    ms_json_writer_array_begin(&writer);
+    for (gamejolt_process* current = g_gamejolt_processes; current; current = current->next) {
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "id");
+        ms_json_writer_string(&writer, current->id);
+        ms_json_writer_key(&writer, "pid");
+        ms_json_writer_u64(&writer, (unsigned long long)current->pid);
+        ms_json_writer_object_end(&writer);
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_object_end(&writer);
+    char* result = ms_json_writer_take(&writer);
+    pthread_mutex_unlock(&g_gamejolt_processes_mutex);
+    return result;
+}
+
+char* ms_gamejolt_stop_json(const unsigned char* body, size_t length, int* status) {
+    char error[96];
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
+    char* id = field(request, "id", "");
+    bool stopped = false;
+    if (status)
+        *status = 400;
+    if (!request || !id[0]) {
+        free(id);
+        ms_json_free(request);
+        return error_json("GameJolt game id required");
+    }
+    pthread_mutex_lock(&g_gamejolt_processes_mutex);
+    gamejolt_prune_locked();
+    for (gamejolt_process* current = g_gamejolt_processes; current; current = current->next) {
+        if (!strcmp(current->id, id)) {
+            stopped = terminate_gamejolt_process(current->pid);
+            if (stopped)
+                gamejolt_forget_locked(id);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_gamejolt_processes_mutex);
+    free(id);
+    ms_json_free(request);
+    if (!stopped)
+        return error_json("GameJolt game is not running or could not be stopped");
+    if (status)
+        *status = 200;
+    return strdup("{\"ok\":true}");
+}
+
+char* ms_gamejolt_stop_all_json(int* status) {
+    size_t stopped = 0;
+    bool failed = false;
+    pthread_mutex_lock(&g_gamejolt_processes_mutex);
+    gamejolt_prune_locked();
+    gamejolt_process** current = &g_gamejolt_processes;
+    while (*current) {
+        gamejolt_process* entry = *current;
+        if (terminate_gamejolt_process(entry->pid)) {
+            *current = entry->next;
+            free(entry->id);
+            free(entry);
+            stopped++;
+        } else {
+            failed = true;
+            current = &entry->next;
+        }
+    }
+    pthread_mutex_unlock(&g_gamejolt_processes_mutex);
+    ms_json_writer writer;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, !failed);
+    ms_json_writer_key(&writer, "stopped");
+    ms_json_writer_u64(&writer, stopped);
+    ms_json_writer_object_end(&writer);
+    if (status)
+        *status = failed ? 500 : 200;
     return ms_json_writer_take(&writer);
 }
 
@@ -948,8 +1147,8 @@ char* ms_gamejolt_cover_path(const char* home, const char* id) {
 
 char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_t length) {
     char error[96];
-    ms_json* request = ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2,
-                                      error, sizeof(error));
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
     char* id = field(request, "id", "");
     char* executable = field(request, "exePath", "");
     char* engine = field(request, "engine", "auto");
@@ -1000,9 +1199,11 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
         ms_json_writer_string(&request_writer, !strcmp(engine, "auto") ? "vkd3d" : engine);
         ms_json_writer_object_end(&request_writer);
         launch_body = ms_json_writer_take(&request_writer);
-        result = launch_body
-                     ? ms_steam_launch_external_json(home, launch_body, strlen(launch_body), NULL)
-                     : error_json("failed to prepare GameJolt launch");
+        result = launch_body ? ms_steam_launch_external_json(home, launch_body, strlen(launch_body), NULL)
+                             : error_json("failed to prepare GameJolt launch");
+        pid_t launched_pid = gamejolt_launch_response_pid(result);
+        if (launched_pid > 1)
+            ms_gamejolt_register_game_process(id, launched_pid);
         free(launch_body);
         ms_json_free(request);
         free(id);
@@ -1049,6 +1250,7 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
     (void)setpgid(pid, pid);
     if (native)
         ms_process_register_game((unsigned)path_hash(executable), pid);
+    ms_gamejolt_register_game_process(id, pid);
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
