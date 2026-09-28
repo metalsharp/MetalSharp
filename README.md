@@ -68,9 +68,9 @@ To launch a game, install it through Steam and launch it through MetalSharp. Cho
 | **_GOG Library_** | Download and play GOG games through the Sharp Library |
 | **_Epic Library_** | Download and play Epic Games through the Sharp Library |
 | **_Ubisoft Connect_** | Download and play Ubisoft Connect Games |
-| **_GameJolt Library_** | Download, Manage, and Play GameJolt games through the Sharp Library |
+| **_GameJolt Library_** | Download and Play GameJolt games through the Sharp Library |
 | **_Emulation Support_** |  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu |
-| **_Runtime Bottles_** | Select your launch method, repair missing assets, and switch between bottle runtimes |
+| **_Runtime Bottles_** | Select your launch method, enable / disable Msync / Controller Input / MetalFX, and switch between bottle runtimes |
 | **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
 | **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
 | **_Game Streaming_** | Streams games to a phone or tablet with Sunshine + Moonlight |
