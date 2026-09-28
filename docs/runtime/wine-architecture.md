@@ -92,6 +92,8 @@ D3DMETAL_FRAMEWORK_PATH=<MetalSharp home>/runtime/d3dmetal-gptk4-beta2/external/
 
 `D3DMETAL_FRAMEWORK_PATH` names the framework **executable**. Keep the PE DLLs, Unix support files, and framework from the same payload.
 
+A fresh Wine Steam session started with **Launch Steam** inherits the D3DMetal environment, so Steam-launched games use that route by default. An already-running client is reused rather than restarted; EVE Online's D3DMetal handoff checks that the active client was started by MetalSharp with the expected route and reports when a stop/relaunch is needed. EVE's route DLLs are staged beside its downloaded 64-bit client when present; before the first client download, the Steam launcher can bootstrap the install. Pending EVE launches stay visible during the launcher-to-client handoff, and Stop/Cmd+Opt+Q target the managed EVE Wine processes.
+
 When switching routes, graphics cleanup removes only files that byte-match a managed payload; game-provided files stay untouched. If the payload is incomplete, repair the MetalSharp runtime installation.
 
 ## Prefixes
