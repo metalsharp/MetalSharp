@@ -15,7 +15,7 @@
 
 <div align="center">
   
-MetalSharp Is An Application Designed To Run Windows Applications and Windows Steam Games on Apple Silicon MacOS. Easily Select Between Different Launch Methods, Change Artwork For Games, And More. 
+MetalSharp Is An Application Designed To Run Windows Applications and Windows Games on Apple Silicon MacOS. Easily Select Between Different Launch Methods, Change Artwork For Games, And More. Works with Steam, Epic, GOG, Ubisoft Connect, and Gamejolt. 
 
 </div>
 
@@ -67,6 +67,7 @@ To launch a game, install it through Steam and launch it through MetalSharp. Cho
 | **_Sharp Library_** | Import and run standalone Windows programs, installers, and launchers |
 | **_GOG Library_** | Download and play GOG games through the Sharp Library |
 | **_Epic Library_** | Download and play Epic Games through the Sharp Library |
+| **_Ubisoft Connect_** | Download and play Ubisoft Connect Games |
 | **_GameJolt Library_** | Download, Manage, and Play GameJolt games through the Sharp Library |
 | **_Emulation Support_** |  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu |
 | **_Runtime Bottles_** | Select your launch method, repair missing assets, and switch between bottle runtimes |
@@ -85,20 +86,15 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 - Apple M4 Macbook Air, 10-core CPU (4 performance, 6 efficiency)
 - 16 GB memory
-- macOS Golden Gate, Version 27.0
+- macOS Golden Gate, Version 27.2
 
 ## Documentation
 
 - [Install from Source](docs/guides/install-from-source.md)
 - [How to Use MetalSharp](docs/guides/how-to-use-metalsharp.md)
 - [Launch Architecture](docs/architecture/launch-architecture.md)
+- [Ubisoft Connect Guide](https://github.com/metalsharp/MetalSharp/blob/main/Ubisoft%20Connect%20Guide.md)
 - [Docs Map](docs/README.md)
-
-## Community
-
-- [Releases](https://github.com/aaf2tbz/metalsharp/releases)
-- [Discussions](https://github.com/aaf2tbz/metalsharp/discussions)
-- [Issues](https://github.com/aaf2tbz/metalsharp/issues)
 
 ## License
 
