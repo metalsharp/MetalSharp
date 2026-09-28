@@ -54,6 +54,10 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Hogwarts Legacy | 990080 | Online Play |
 | HELLDIVERS 2 | 553850 | Online Play, Medium Settings |
 | Assassin's Creed Odyssey | 812140 | Steam-first launch with automatic direct D3DMetal retry after Ubisoft Connect first-run; verified playable. |
+| Eve Online | 8500 | Launches through steam with Specific Flags that enable the launcher to load |
+| Far Cry 6 | Ubisoft | |
+| TrackMania | Ubisoft | |
+| Marvel Rivals | Launches through Steam with -Windowed to avoid a mouse bug | 
 
 ---
 
