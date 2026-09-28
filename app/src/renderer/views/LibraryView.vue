@@ -31,8 +31,13 @@ interface SteamGame {
   wine_game_path?: string | null;
   bottle_id?: string | null;
   embedded_icon_path?: string | null;
+  icon_pending?: boolean;
+  ubisoft_artwork_url?: string | null;
   has_native_build?: boolean;
   native_app_path?: string | null;
+  source?: "steam" | "ubisoft";
+  ubisoft_id?: string;
+  game_dir?: string;
   last_played_at?: string | null;
   last_played?: string | null;
   playtime_2weeks?: number;
@@ -95,6 +100,10 @@ const steamEmuBusy = ref(false);
 const msyncBusy = ref(false);
 const artworkSources = ref<Record<number, string[]>>({});
 const heroArtSources = ref<Record<number, string>>({});
+const ubisoftGridArtCache = new Map<string, Promise<{ hero?: string; card?: string } | null>>();
+const ubisoftGridArtResolvedApps = new Set<number>();
+let ubisoftIconRefreshTimer: number | null = null;
+let ubisoftIconRefreshAttempts = 0;
 const backendBase = ref("");
 const artManagerOpening = ref(false);
 // Bumped whenever grid artwork changes on disk (Steam Art Manager save) so
@@ -201,9 +210,11 @@ function gridArtUrl(appid: number, kind: "hero" | "poster" | "header") {
 }
 
 function artworkCandidates(game: ShowcaseGame) {
+  if (game.source === "ubisoft")
+    return [...new Set([game.ubisoft_artwork_url, game.hero_url, game.cover_url, game.header_url].filter(Boolean) as string[])];
+  const embedded = game.embedded_icon_path ? `file://${encodeURI(game.embedded_icon_path)}` : "";
   const primary = game.cover_url || steamArt(game.appid, "library_600x900_2x");
   const steamDbFallback = `https://steamdb.info/resize/600x900/${primary}`;
-  const embedded = game.embedded_icon_path ? `file://${encodeURI(game.embedded_icon_path)}` : "";
   return [
     ...new Set(
       [
@@ -222,7 +233,31 @@ function artworkCandidates(game: ShowcaseGame) {
 }
 
 function gameArt(game: ShowcaseGame) {
-  return artworkSources.value[game.appid]?.[0] || artworkCandidates(game)[0];
+  return artworkSources.value[game.appid]?.[0] || artworkCandidates(game)[0] || sharpLogoUrl;
+}
+
+function localUbisoftArtwork(game: ShowcaseGame) {
+  return game.embedded_icon_path ? `file://${encodeURI(game.embedded_icon_path)}` : sharpLogoUrl;
+}
+
+function loadUbisoftGridArtwork(game: ShowcaseGame) {
+  const key = game.name.trim().toLocaleLowerCase();
+  const cached = ubisoftGridArtCache.get(key);
+  if (cached) return cached;
+  const lookup = getAPI()
+    .steamGridDbArtwork?.(game.name)
+    .catch(() => null) ?? Promise.resolve(null);
+  ubisoftGridArtCache.set(key, lookup);
+  return lookup;
+}
+
+function applyUbisoftGridArtwork(game: ShowcaseGame, artwork: { hero?: string; card?: string } | null) {
+  ubisoftGridArtResolvedApps.add(game.appid);
+  const communityArt = [artwork?.card, artwork?.hero].filter((url): url is string => !!url);
+  artworkSources.value = {
+    ...artworkSources.value,
+    [game.appid]: [...new Set([...communityArt, localUbisoftArtwork(game)])],
+  };
 }
 
 type SteamArtEnrichment = { hero?: string; card?: string; shot?: string };
@@ -369,21 +404,49 @@ const liveGames = computed(() => {
 });
 
 function showcaseGame(game: SteamGame): ShowcaseGame {
+  const ubisoft = game.source === "ubisoft";
+  const ubisoftArt = game.ubisoft_artwork_url || "";
   return {
     ...game,
-    cover_url: game.cover_url || steamArt(game.appid, "library_600x900_2x"),
-    header_url: game.header_url || steamArt(game.appid, "header"),
-    hero_url: steamArt(game.appid, "library_hero"),
-    eyebrow: game.launch_method_name?.toUpperCase() || "READY TO PLAY",
+    cover_url: ubisoft ? ubisoftArt : game.cover_url || steamArt(game.appid, "library_600x900_2x"),
+    header_url: ubisoft ? ubisoftArt : game.header_url || steamArt(game.appid, "header"),
+    hero_url: ubisoft ? ubisoftArt : steamArt(game.appid, "library_hero"),
+    eyebrow: ubisoft ? "UBISOFT CONNECT" : game.launch_method_name?.toUpperCase() || "READY TO PLAY",
     description: "Installed and ready to launch from your MetalSharp library.",
-    tags: [game.launch_method_name || "Installed", game.state === "installed" ? "Ready to play" : game.state],
-    developer: "MetalSharp library",
+    tags: [ubisoft ? "Ubisoft" : game.launch_method_name || "Installed", game.state === "installed" ? "Ready to play" : game.state],
+    developer: ubisoft ? "Ubisoft" : "MetalSharp library",
     version: "Ready",
     isLive: true,
   };
 }
 
 const allGames = computed<ShowcaseGame[]>(() => liveGames.value.map(showcaseGame));
+
+watch(
+  allGames,
+  (games) => {
+    for (const game of games) {
+      if (game.source === "ubisoft" && !game.ubisoft_artwork_url) {
+        void loadUbisoftGridArtwork(game).then((artwork) => applyUbisoftGridArtwork(game, artwork));
+      }
+    }
+    const iconPending = games.some((game) => game.source === "ubisoft" && game.icon_pending);
+    if (!iconPending) {
+      ubisoftIconRefreshAttempts = 0;
+      if (ubisoftIconRefreshTimer !== null) {
+        window.clearTimeout(ubisoftIconRefreshTimer);
+        ubisoftIconRefreshTimer = null;
+      }
+    } else if (ubisoftIconRefreshTimer === null && ubisoftIconRefreshAttempts < 12) {
+      ubisoftIconRefreshTimer = window.setTimeout(() => {
+        ubisoftIconRefreshTimer = null;
+        ubisoftIconRefreshAttempts++;
+        void reloadLibrary();
+      }, 1500);
+    }
+  },
+  { immediate: true },
+);
 
 const filteredGames = computed(() => {
   const query = search.value.trim().toLowerCase();
@@ -404,7 +467,13 @@ const jumpBackGames = computed(() => {
 });
 
 const featuredGame = computed<ShowcaseGame | null>(() => {
-  return allGames.value.find((game) => game.appid === selectedGameId.value) || allGames.value[0] || null;
+  const selected = allGames.value.find((game) => game.appid === selectedGameId.value);
+  const query = search.value.trim();
+  if (query) {
+    const matches = filteredGames.value;
+    return matches.find((game) => game.appid === selectedGameId.value) || matches[0] || null;
+  }
+  return selected || allGames.value[0] || null;
 });
 const heroBleedStyle = computed<Record<string, string>>(() => ({
   "--hero-bleed": featuredGame.value ? `url('${heroArt(featuredGame.value)}')` : "none",
@@ -418,13 +487,44 @@ function probeHeroArt(game: ShowcaseGame) {
   // a CDN candidate, and the guard below would then block the grid-art probe
   // forever. The watch re-fires once backendBase is set.
   if (!game || !backendBase.value || heroArtSources.value[game.appid]) return;
-  const candidates = [gridArtUrl(game.appid, "hero"), game.hero_url, game.cover_url, game.header_url].filter(
-    Boolean,
-  ) as string[];
-  const tail = [storeArt(game.appid), sharpLogoUrl];
+  const candidates =
+    game.source === "ubisoft"
+      ? artworkCandidates(game)
+      : [gridArtUrl(game.appid, "hero"), game.hero_url, game.cover_url, game.header_url].filter(Boolean) as string[];
+  const tail = game.source === "ubisoft" ? [] : [storeArt(game.appid), sharpLogoUrl];
+  const probeLocalUbisoftFallback = () => {
+    const url = localUbisoftArtwork(game);
+    const image = new Image();
+    image.onload = () => {
+      heroArtSources.value = { ...heroArtSources.value, [game.appid]: url };
+    };
+    image.onerror = () => {
+      heroArtSources.value = { ...heroArtSources.value, [game.appid]: sharpLogoUrl };
+    };
+    image.src = url;
+  };
+  const probeUbisoftGridFallback = () => {
+    void loadUbisoftGridArtwork(game).then((artwork) => {
+      const url = artwork?.hero || artwork?.card;
+      if (!url) {
+        probeLocalUbisoftFallback();
+        return;
+      }
+      const image = new Image();
+      image.onload = () => {
+        heroArtSources.value = { ...heroArtSources.value, [game.appid]: url };
+      };
+      image.onerror = probeLocalUbisoftFallback;
+      image.src = url;
+    });
+  };
   const probe = (index: number) => {
     const url = candidates[index];
     if (!url) {
+      if (game.source === "ubisoft") {
+        probeUbisoftGridFallback();
+        return;
+      }
       void enrichArtwork(game.appid).then((extra) => {
         const hero = extra?.hero || extra?.shot || extra?.card;
         if (hero) {
@@ -519,8 +619,9 @@ async function saveCollectionPipeline(game: ShowcaseGame, event: Event) {
     live.launch_method = pipeline;
     live.launch_method_name = pipelineLabel(pipeline);
   }
-  const result =
-    pipeline === "d3dmetal"
+  const result = game.source === "ubisoft"
+    ? await api<{ ok: boolean; error?: string }>("POST", "/ubisoft/save-pipeline", { ubisoft_id: game.ubisoft_id, pipeline })
+    : pipeline === "d3dmetal"
       ? await api<{ ok: boolean; error?: string }>(
           "POST",
           "/d3dmetal/bottles/save",
@@ -548,12 +649,16 @@ async function saveCollectionPipeline(game: ShowcaseGame, event: Event) {
   await reloadLibrary();
 }
 
+function gamePipelineOptions(game: ShowcaseGame) {
+  if (game.source !== "ubisoft") return pipelineOptions;
+  return (game.available_pipelines || []).map((option) => ({ id: option.id, label: option.name }));
+}
+
 function collectionPipelineValue(game: ShowcaseGame) {
   const effective = game.preferred_pipeline || game.launch_method || "";
   const recommended = game.available_pipelines?.find((pipeline) => pipeline.recommended)?.id || "";
-  return (
-    [effective, recommended].find((id) => pipelineOptions.some((option) => option.id === id)) || pipelineOptions[0].id
-  );
+  const options = gamePipelineOptions(game);
+  return [effective, recommended].find((id) => options.some((option) => option.id === id)) || options[0]?.id || "d3dmetal";
 }
 
 function scrollDock(direction: -1 | 1) {
@@ -611,15 +716,19 @@ async function launchGame(game: ShowcaseGame) {
   }
   launchingAppId.value = game.appid;
   const launchMethod = game.launch_method || "auto";
-  const endpoint = game.has_native_build
-    ? "/steam/mac-launch-game"
-    : isWineSteamRouteId(launchMethod)
-      ? "/steam/launch-game"
-      : "/game/launch-auto";
+  const endpoint = game.source === "ubisoft"
+    ? "/ubisoft/launch-game"
+    : game.has_native_build
+      ? "/steam/mac-launch-game"
+      : isWineSteamRouteId(launchMethod)
+        ? "/steam/launch-game"
+        : "/game/launch-auto";
   const result = await api<{ ok: boolean; pid?: number; error?: string; launch_mode?: string }>(
     "POST",
     endpoint,
-    { appid: game.appid, launchMethod },
+    game.source === "ubisoft"
+      ? { appid: game.appid, ubisoft_id: game.ubisoft_id, pipeline: game.preferred_pipeline || game.launch_method }
+      : { appid: game.appid, launchMethod },
     10 * 60 * 1000,
   );
   launchingAppId.value = null;
@@ -645,8 +754,9 @@ async function savePipeline() {
   game.launch_method = selectedPipeline.value;
   // NOTE: never call /bottles/sync-steam here — it seeds a manifest with an
   // explicit vkd3d override for EVERY game, masking their recommended routes.
-  const result =
-    selectedPipeline.value === "d3dmetal"
+  const result = game.source === "ubisoft"
+    ? await api<{ ok: boolean; error?: string }>("POST", "/ubisoft/save-pipeline", { ubisoft_id: game.ubisoft_id, pipeline: selectedPipeline.value })
+    : selectedPipeline.value === "d3dmetal"
       ? await api<{ ok: boolean; error?: string }>(
           "POST",
           "/d3dmetal/bottles/save",
@@ -777,10 +887,11 @@ watch(
     // the effective route the backend launches with).
     const effective = game?.preferred_pipeline || game?.launch_method || "";
     const recommended = game?.available_pipelines?.find((pipeline) => pipeline.recommended)?.id || "";
-    const selectable = [effective, recommended].find((id) => pipelineOptions.some((option) => option.id === id));
-    selectedPipeline.value = selectable || pipelineOptions[0].id;
+    const options = game ? gamePipelineOptions(game) : pipelineOptions;
+    const selectable = [effective, recommended].find((id) => options.some((option) => option.id === id));
+    selectedPipeline.value = selectable || options[0]?.id || pipelineOptions[0].id;
     if (game) void loadGameSettings();
-    if (game?.installed) void loadSteamEmuStatus(game.appid);
+    if (game?.installed && game.source !== "ubisoft") void loadSteamEmuStatus(game.appid);
     else steamEmuActive.value = false;
   },
   { immediate: true },
@@ -797,7 +908,7 @@ const defaultRulesAppliedKey = "metalsharp-default-rules-applied-v1";
 async function applyDefaultRulesOnce() {
   if (localStorage.getItem(defaultRulesAppliedKey)) return;
   localStorage.setItem(defaultRulesAppliedKey, "1");
-  const games = allGames.value.filter((game) => game.installed && game.preferred_pipeline === "vkd3d");
+  const games = allGames.value.filter((game) => game.source !== "ubisoft" && game.installed && game.preferred_pipeline === "vkd3d");
   const repairs = games
     .map((game) => {
       const recommended = game.available_pipelines?.find((pipeline) => pipeline.recommended)?.id;
@@ -868,6 +979,10 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (ubisoftIconRefreshTimer !== null) {
+    window.clearTimeout(ubisoftIconRefreshTimer);
+    ubisoftIconRefreshTimer = null;
+  }
   if (runningPollTimer !== null) {
     window.clearInterval(runningPollTimer);
     runningPollTimer = null;
@@ -884,6 +999,24 @@ function handleImageError(event: Event, game: ShowcaseGame) {
   if (next) {
     artworkSources.value = { ...artworkSources.value, [game.appid]: candidates.slice(currentIndex + 1) };
     image.src = next;
+    return;
+  }
+  if (game.source === "ubisoft") {
+    if (ubisoftGridArtResolvedApps.has(game.appid)) {
+      image.classList.add("image-missing");
+      return;
+    }
+    void loadUbisoftGridArtwork(game).then((artwork) => {
+      applyUbisoftGridArtwork(game, artwork);
+      const communityArt = artwork?.card || artwork?.hero;
+      const next = communityArt && !current.endsWith(communityArt) ? communityArt : localUbisoftArtwork(game);
+      if (next && !current.endsWith(next)) {
+        image.classList.remove("image-missing");
+        image.src = next;
+      } else {
+        image.classList.add("image-missing");
+      }
+    });
     return;
   }
   // Every static candidate failed — ask Steam for the hashed artwork.
@@ -966,7 +1099,8 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
             <div class="collection-card-shade"></div>
             <div class="collection-card-info">
               <strong>{{ game.name }}</strong>
-              <span v-if="game.has_native_build" class="native-game-badge">Native macOS</span>
+              <span v-if="game.source === 'ubisoft'" class="native-game-badge">Ubisoft</span>
+              <span v-else-if="game.has_native_build" class="native-game-badge">Native macOS</span>
               <div class="collection-card-actions">
                 <select
                   v-if="!game.has_native_build"
@@ -977,7 +1111,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                   @change="saveCollectionPipeline(game, $event)"
                   @click.stop
                 >
-                  <option v-for="option in pipelineOptions" :key="option.id" :value="option.id">
+                  <option v-for="option in gamePipelineOptions(game)" :key="option.id" :value="option.id">
                     {{ option.label }}
                   </option>
                 </select>
@@ -1011,7 +1145,8 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
           <div class="library-hero-wash"></div>
           <div class="library-hero-content">
             <h1>{{ featuredGame.name }}</h1>
-            <span v-if="featuredGame.has_native_build" class="native-game-badge">Native macOS</span>
+            <span v-if="featuredGame.source === 'ubisoft'" class="native-game-badge">Ubisoft Connect</span>
+            <span v-else-if="featuredGame.has_native_build" class="native-game-badge">Native macOS</span>
             <div class="library-hero-actions">
               <button
                 class="library-play-button"
@@ -1036,6 +1171,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
           </div>
           <div class="library-hero-controls" @click.stop>
             <button
+              v-if="featuredGame.source !== 'ubisoft'"
               class="library-art-button"
               type="button"
               title="Customize Steam artwork with Steam Art Manager"
@@ -1063,7 +1199,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
             <div v-if="!featuredGame.has_native_build" class="library-bottle-control">
               <span class="library-control-label">{{ t("library.bottle") }}</span>
               <select v-model="selectedPipeline" :disabled="pipelineSaving" @change="savePipeline">
-                <option v-for="option in pipelineOptions" :key="option.id" :value="option.id">
+                <option v-for="option in gamePipelineOptions(featuredGame)" :key="option.id" :value="option.id">
                   {{ option.label }}
                 </option>
               </select>
@@ -1120,7 +1256,7 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                   {{ msyncEnabled ? t("ui.game.on") : t("ui.game.off") }}
                 </button>
               </div>
-              <div class="game-setting-row game-setting-toggle">
+              <div v-if="featuredGame.source !== 'ubisoft'" class="game-setting-row game-setting-toggle">
                 <span>{{ t("ui.game.steamEmu") }}</span>
                 <button
                   type="button"

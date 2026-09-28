@@ -24,6 +24,16 @@ The WebView profile provisions Gecko, WebView2, .NET 4.8, VC runtime, and core f
 
 `Install Windows Program` routes launcher-like EXEs and MSI packages into installer bottles that record: source installer path, installer kind, runtime profile, prefix path, launch log, launch pid/status, and detected installed app candidates. WebView2/Edge helper executables are runtime components and stay out of app detection.
 
+## Ubisoft Connect in the Main Library
+
+The main library's Steam controls include a separate Launch/Stop Ubisoft action. First launch downloads Ubisoft Connect from Ubisoft's `https://ubi.li/4vxt9` installer redirect, initializes the dedicated `~/.metalsharp/prefix-ubisoft` Wine prefix, and starts the installer with MetalSharp's D3DMetal environment and the same CEF launch arguments used for Wine Steam. A writable external volume is mapped to Wine drive Y: so Ubisoft Connect reports that volume's available space when users choose paths such as `Y:\\Ubisoft\\Far Cry 6`. Stop targets only this prefix's Wine process server and tracks the client across its launcher-to-process handoff.
+
+Installed games are discovered from local Ubisoft Connect registry entries inside that prefix, with titles resolved from Ubisoft's local uninstall registry; no Ubisoft account API or online catalog is queried. Artwork tries official Ubisoft game-page images for mapped titles first, then resolves SteamGridDB hero/card images using the SteamGridDB API key already saved by Steam Art Manager, and finally falls back to a locally extracted executable icon in `~/.metalsharp/cache/ubisoft-connect/artwork/`. Icon extraction runs asynchronously so a cold cache does not block other backend requests; the library refreshes while extraction is pending. Ubisoft and SteamGridDB image hosts are explicitly allowed by the renderer's image policy. Ubisoft games have per-game bottle manifests/pipeline choices (D3DMetal, VKD3D, DXMT, DXMT 32-bit, and D3D9); saving a route stages its DLLs beside the selected game executable, and launch re-stages the current route. Executable discovery skips support and redistributable folders so prerequisite installers are not mistaken for the game. Live game tracking scans for the selected executable inside its install directory and registers that process for per-game Stop/Cmd+Opt+Q; it does not bind the shared Connect client. Mono/FNA and Steam Emulator controls are hidden. The Ubisoft client uses D3DMetal, while each game's selected route and shared launch preferences are applied to its game process.
+
+Runtime migration preserves the full Ubisoft Connect prefix and its non-standard Wine drive links, then runs `wineboot -u` and verifies the `dosdevices/c:` and `dosdevices/z:` mappings. The route, installer, local library, and migration behavior have regression coverage. The user confirmed Far Cry 6 launches; compatibility for other Ubisoft titles remains unverified.
+
+Backend routes: `GET /ubisoft/status`, `GET /ubisoft/library`, `POST /ubisoft/launch`, `POST /ubisoft/stop`, `POST /ubisoft/launch-game`, and `POST /ubisoft/save-pipeline`.
+
 ## Native Epic Library Path
 
 The Sharp Library **Epic** tab downloads Epic games through upstream [Legendary](https://github.com/legendary-gl/legendary) 0.21.0 running out of process.

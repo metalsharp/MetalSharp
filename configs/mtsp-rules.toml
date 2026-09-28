@@ -202,6 +202,7 @@ check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 pipeline = "d3dmetal"
 name = "Cyberpunk 2077"
 offline_capable = true
+exe_names = ["bin/x64/Cyberpunk2077.exe"]
 
 [overrides.1091500.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
@@ -315,7 +316,7 @@ name = "Mortal Kombat 11"
 [overrides.976310.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.2767030]
-pipeline = "vkd3d"
+pipeline = "d3dmetal"
 name = "Marvel Rivals"
 exe_names = ["MarvelGame/Marvel/Binaries/Win64/Marvel-Win64-Shipping.exe"]
 

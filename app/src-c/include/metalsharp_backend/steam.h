@@ -14,6 +14,8 @@ char* ms_steam_library_json(const char* metalsharp_home);
 char* ms_steam_library_refresh_json(const char* metalsharp_home);
 char* ms_steam_game_dir(const char* metalsharp_home, unsigned appid);
 char* ms_steam_native_app_path(const char* metalsharp_home, unsigned appid);
+/* Extract a Windows executable's embedded icon into MetalSharp's local artwork cache. */
+char* ms_steam_extract_executable_icon(const char* metalsharp_home, const char* executable, unsigned cache_key);
 /* Infer a graphics pipeline from the Direct3D DLLs present in a game install. */
 const char* ms_steam_detect_graphics_pipeline(const char* game_dir);
 /* Resolve a raw libraryfolders.vdf "path" value to a host path. Wine drive paths such as

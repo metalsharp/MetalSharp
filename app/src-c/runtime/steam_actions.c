@@ -43,6 +43,7 @@
 static const char EVE_ONLINE_CHROMIUM_FLAGS[] =
     "--no-sandbox%20--in-process-gpu%20--disable-gpu%20--disable-d3d11%20--enable-unsafe-swiftshader%20"
     "--use-gl=angle%20--use-angle=swiftshader-webgl";
+static const char MARVEL_RIVALS_STEAM_ARGS[] = "-windowed";
 
 static char* join(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
@@ -757,6 +758,8 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         for (size_t i = 0; i < sizeof(eve_chromium_args) / sizeof(eve_chromium_args[0]); i++)
             append_launch_arg(argv, count, max, eve_chromium_args[i]);
     }
+    if (id == 2767030)
+        append_launch_arg(argv, count, max, "-windowed");
     if (id == 553850) {
         append_launch_arg(argv, count, max, "--bundle-dir");
         append_launch_arg(argv, count, max, "data");
@@ -1574,6 +1577,14 @@ done:
     free(game_dir);
     free(exe_dir);
     return ok;
+}
+
+bool ms_steam_stage_route_for_executable(const char* home, const char* pipeline, const char* game_dir,
+                                         const char* executable) {
+    if (!home || !pipeline || !game_dir || !executable)
+        return false;
+    ms_steam_cleanup_route_dlls(home, pipeline, game_dir, executable);
+    return stage_route_dlls(home, 0, pipeline, executable);
 }
 
 static const char* default_pipeline_for_appid(const char* home, unsigned appid) {
@@ -2808,6 +2819,96 @@ static bool command_contains_wine_path(const char* command, const char* path) {
     return false;
 }
 
+static int marvel_rivals_process_rank(const char* command) {
+    if (contains_ci(command, "Marvel-Win64-Shipping.exe"))
+        return 4;
+    if (contains_ci(command, "\\Marvel.exe"))
+        return 3;
+    if (contains_ci(command, "MarvelRivals_Launcher.exe"))
+        return 2;
+    if (contains_ci(command, "CrashReportClient.exe"))
+        return 1;
+    return 0;
+}
+
+static pid_t scan_marvel_rivals_wine_processes(const char* home, int signal_number, bool* failed) {
+    char* game_dir = ms_steam_game_dir(home, 2767030);
+    char (*paths)[PATH_MAX] = calloc(26, sizeof(*paths));
+    size_t path_count = game_dir && paths ? eve_install_dir_wine_paths(home, game_dir, paths, 26) : 0;
+    char line[8192];
+    FILE* pipe;
+    pid_t best_pid = 0;
+    int best_rank = 0;
+    if (failed)
+        *failed = !game_dir || !paths || path_count == 0;
+    free(game_dir);
+    if (!paths || path_count == 0) {
+        free(paths);
+        return 0;
+    }
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe) {
+        if (failed)
+            *failed = true;
+        free(paths);
+        return 0;
+    }
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        int rank;
+        bool install_matches = false;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX || raw_pid == (long)getpid())
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        rank = marvel_rivals_process_rank(end);
+        if (!rank)
+            continue;
+        for (size_t i = 0; i < path_count; i++)
+            if (command_contains_wine_path(end, paths[i])) {
+                install_matches = true;
+                break;
+            }
+        if (!install_matches)
+            continue;
+        if (signal_number && kill((pid_t)raw_pid, signal_number) != 0 && errno != ESRCH && failed)
+            *failed = true;
+        if (rank > best_rank) {
+            best_rank = rank;
+            best_pid = (pid_t)raw_pid;
+        }
+    }
+    int pipe_status = pclose(pipe);
+    if ((pipe_status == -1 || !WIFEXITED(pipe_status) || WEXITSTATUS(pipe_status) != 0) && failed)
+        *failed = true;
+    free(paths);
+    return best_pid;
+}
+
+pid_t ms_steam_marvel_rivals_process_pid(const char* home) {
+    return scan_marvel_rivals_wine_processes(home, 0, NULL);
+}
+
+bool ms_steam_stop_marvel_rivals_processes(const char* home) {
+    for (unsigned attempt = 0; attempt < 10; attempt++) {
+        bool failed = false;
+        pid_t pid = scan_marvel_rivals_wine_processes(home, attempt < 3 ? SIGTERM : SIGKILL, &failed);
+        if (failed)
+            return false;
+        if (pid == 0)
+            return true;
+        usleep(100000);
+    }
+    bool failed = false;
+    return scan_marvel_rivals_wine_processes(home, SIGKILL, &failed) == 0 && !failed;
+}
+
 static bool eve_wine_process_command(const char* command, const char paths[][PATH_MAX], size_t path_count) {
     bool eve_executable = contains_ci(command, "evelauncher.exe") || contains_ci(command, "eve-online.exe");
     bool eve_game_client = contains_ci(command, "c:\\ccp\\eve\\tq\\bin64\\exefile.exe") ||
@@ -3315,7 +3416,7 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
         if (wine_steam_route_marker_is_pending(home, pipeline) && write_wine_steam_route_marker(home, pipeline))
             return NULL;
         return strdup("Wine Steam is already running without MetalSharp's verified D3DMetal environment. Stop Wine "
-                      "Steam, then launch it from MetalSharp before launching EVE Online.");
+                      "Steam, then relaunch it from MetalSharp before starting this game.");
     }
     steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
     ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
@@ -5055,6 +5156,10 @@ static bool ubisoft_connect_installed(const char* home) {
     return length > 0 && (size_t)length < sizeof(path) && access(path, R_OK) == 0;
 }
 
+static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline) {
+    return id == 2767030 && pipeline && !strcmp(pipeline, "d3dmetal");
+}
+
 static bool odyssey_uses_steam_bootstrap(unsigned id, const char* pipeline) {
     /* Odyssey must always enter through Steam first. Ubisoft Connect's
      * presence must not route later attempts into the legacy direct launcher. */
@@ -5165,10 +5270,6 @@ pid_t ms_steam_odyssey_activity_pid(const char* home) {
     pid_t pid = executable ? ubisoft_game_process_pid(home, executable) : 0;
     bool monitor_active;
     free(executable);
-    if (pid <= 0)
-        pid = ubisoft_owned_process_pid(home, false);
-    if (pid <= 0)
-        pid = ubisoft_owned_process_pid(home, true);
     pthread_mutex_lock(&ubisoft_first_run_mutex);
     monitor_active = ubisoft_first_run_active;
     pthread_mutex_unlock(&ubisoft_first_run_mutex);
@@ -5180,8 +5281,9 @@ pid_t ms_steam_odyssey_activity_pid(const char* home) {
 static bool odyssey_process_command(const char* command, const char* executable) {
     const char* exe_name = executable ? strrchr(executable, '/') : NULL;
     exe_name = exe_name ? exe_name + 1 : executable;
-    return ubisoft_connect_command(command) || ubisoft_crash_reporter_command(command) ||
-           (exe_name && contains_ci(command, exe_name));
+    /* Ubisoft Connect is shared by multiple library entries; its presence is
+     * not evidence that Assassin's Creed Odyssey itself is running. */
+    return exe_name && contains_ci(command, exe_name);
 }
 
 static bool signal_odyssey_processes(const char* home, const char* executable, int signal_number, bool* failed) {
@@ -5577,6 +5679,37 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                 *status = 500;
             return err("required graphics runtime DLLs are missing");
         }
+    }
+    if (marvel_rivals_uses_steam_bootstrap(id, pipeline)) {
+        pid_t steam_pid = 0;
+        int steam_status = 500;
+        char* error_text = ensure_wine_steam_pipeline(home, pipeline);
+        char* result;
+        if (error_text) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            result = err(error_text);
+            free(error_text);
+            return result;
+        }
+        result = launch_game_via_steam_args_json(home, id, MARVEL_RIVALS_STEAM_ARGS, &steam_status, &steam_pid);
+        if (!result || steam_status >= 400) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = steam_status;
+            return result ? result : err("Marvel Rivals Steam handoff failed");
+        }
+        free(result);
+        ms_process_register_pending_game(id, steam_pid, 15);
+        record_launch_timing(home, id, started_at, pipeline);
+        if (status)
+            *status = 200;
+        free(game_dir);
+        free(executable);
+        return launch_mode_pid_result(steam_pid, id, "steam_handoff");
     }
     if (odyssey_uses_steam_bootstrap(id, pipeline)) {
         pid_t steam_pid = 0;

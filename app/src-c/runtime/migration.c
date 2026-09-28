@@ -3,6 +3,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/ubisoft.h"
 #include <CommonCrypto/CommonDigest.h>
 #include <dirent.h>
 #include <errno.h>
@@ -21,30 +22,14 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "0.74.0"
-#define MIGRATION_SCHEMA  5
+#define MIGRATION_VERSION "0.75.0"
+#define MIGRATION_SCHEMA  6
 
-static const char* const migration_payload_denies[] = {"steamapps",
-                                                       "common",
-                                                       "downloading",
-                                                       "shadercache",
-                                                       "compatdata",
-                                                       "prefix",
-                                                       "prefix-steam",
-                                                       "drive_c",
-                                                       "dosdevices",
-                                                       "Program Files",
-                                                       "Program Files (x86)",
-                                                       "Steam",
-                                                       "runtime",
-                                                       "downloads",
-                                                       "updates",
-                                                       "updater-tools",
-                                                       "tmp",
-                                                       "Temp",
-                                                       "cache",
-                                                       "logs",
-                                                       "crashes"};
+static const char* const migration_payload_denies[] = {
+    "steamapps",    "common",         "downloading", "shadercache", "compatdata",    "prefix",
+    "prefix-steam", "prefix-ubisoft", "drive_c",     "dosdevices",  "Program Files", "Program Files (x86)",
+    "Steam",        "runtime",        "downloads",   "updates",     "updater-tools", "tmp",
+    "Temp",         "cache",          "logs",        "crashes"};
 static const char* const migration_setting_names[] = {
     "setup.json",    "steam_config.json",   "bottle.json",      "library.json",   "apps.json",
     "routes.json",   "settings.json",       "preferences.json", "user.reg",       "userdef.reg",
@@ -68,6 +53,7 @@ typedef struct {
     char* steam_config;
     migration_link* steam_links;
     migration_link* gptk_links;
+    migration_link* ubisoft_links;
 } preserved_data;
 
 static char* path_join(const char* a, const char* b) {
@@ -584,7 +570,8 @@ static int compare_versions(const char* left, const char* right) {
 static bool preserve_user_data(const char* home, preserved_data* out) {
     char template_path[PATH_MAX];
     char *cache = NULL, *prefix = NULL, *gptk = NULL, *games = NULL, *library = NULL, *bottles = NULL,
-         *sharp_prefix = NULL, *epic = NULL, *launcher_games = NULL, *source = NULL, *destination = NULL;
+         *sharp_prefix = NULL, *epic = NULL, *launcher_games = NULL, *ubisoft = NULL, *source = NULL,
+         *destination = NULL;
     DIR* dir = NULL;
     struct dirent* entry;
     memset(out, 0, sizeof(*out));
@@ -614,6 +601,7 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
 
     prefix = path_join(home, "prefix-steam");
     gptk = path_join(home, "prefix-gptk");
+    ubisoft = path_join(home, "prefix-ubisoft");
     games = path_join(home, "games");
     library = path_join(home, "sharp-library");
     sharp_prefix = path_join(home, "sharp-prefix");
@@ -632,6 +620,14 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
         out->gptk_links = collect_links(gptk);
         destination = path_join(out->temp, "prefix-gptk");
         if (!copy_tree_filtered(gptk, destination, 1))
+            goto fail;
+        free(destination);
+        destination = NULL;
+    }
+    if (ubisoft) {
+        out->ubisoft_links = collect_links(ubisoft);
+        destination = path_join(out->temp, "prefix-ubisoft");
+        if (!copy_tree_filtered(ubisoft, destination, 0))
             goto fail;
         free(destination);
         destination = NULL;
@@ -738,6 +734,7 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
     free(cache);
     free(prefix);
     free(gptk);
+    free(ubisoft);
     free(games);
     free(library);
     free(sharp_prefix);
@@ -752,6 +749,7 @@ fail:
     free(cache);
     free(prefix);
     free(gptk);
+    free(ubisoft);
     free(games);
     free(library);
     free(sharp_prefix);
@@ -762,6 +760,7 @@ fail:
     free(out->steam_config);
     free_links(out->steam_links);
     free_links(out->gptk_links);
+    free_links(out->ubisoft_links);
     remove_tree_local(out->temp);
     free(out->temp);
     memset(out, 0, sizeof(*out));
@@ -775,6 +774,7 @@ static void free_preserved_data(preserved_data* data) {
     free(data->steam_config);
     free_links(data->steam_links);
     free_links(data->gptk_links);
+    free_links(data->ubisoft_links);
     remove_tree_local(data->temp);
     free(data->temp);
     memset(data, 0, sizeof(*data));
@@ -904,6 +904,16 @@ static void restore_preserved_data(const char* home, const preserved_data* data)
     }
     free(src);
     free(dst);
+    src = path_join(data->temp, "prefix-ubisoft");
+    dst = path_join(home, "prefix-ubisoft");
+    if (src && dst && directory_local(src)) {
+        remove_tree_local(dst);
+        (void)mkdir(dst, 0700);
+        (void)copy_tree_filtered(src, dst, 0);
+        restore_links(dst, data->ubisoft_links);
+    }
+    free(src);
+    free(dst);
     src = path_join(data->temp, "prefix-gptk");
     dst = path_join(home, "prefix-gptk");
     if (src && dst && directory_local(src)) {
@@ -1010,8 +1020,9 @@ static void write_migration_report(const char* home, bool preserved, bool restor
     FILE* f;
     ms_json_writer writer;
     char* payload;
-    const char* categories[] = {"setup.json",    "steam_config", "cache", "prefix-steam",   "prefix-gptk", "games",
-                                "sharp-library", "sharp-prefix", "epic",  "launcher-games", "bottles"};
+    const char* categories[] = {"setup.json",     "steam_config", "cache",          "prefix-steam",
+                                "prefix-ubisoft", "prefix-gptk",  "games",          "sharp-library",
+                                "sharp-prefix",   "epic",         "launcher-games", "bottles"};
     const char* reason = "migration preservation/restoration pass";
     if (logs)
         (void)mkdir(logs, 0700);
@@ -1173,10 +1184,32 @@ static bool rebuild_gog_prefix_after_migration(const char* home) {
     return ok;
 }
 
+static bool rebuild_ubisoft_prefix_after_migration(const char* home) {
+    char* prefix = path_join(home, "prefix-ubisoft");
+    bool ok = true;
+    if (prefix && directory_local(prefix)) {
+        char *c_drive = path_join(prefix, "dosdevices/c:"), *z_drive = path_join(prefix, "dosdevices/z:");
+        struct stat c_link, z_link, target;
+        ok = run_migration_wineboot(home, prefix) && c_drive && z_drive && lstat(c_drive, &c_link) == 0 &&
+             S_ISLNK(c_link.st_mode) && stat(c_drive, &target) == 0 && S_ISDIR(target.st_mode) &&
+             lstat(z_drive, &z_link) == 0 && S_ISLNK(z_link.st_mode) && stat(z_drive, &target) == 0 &&
+             S_ISDIR(target.st_mode);
+        free(c_drive);
+        free(z_drive);
+    }
+    free(prefix);
+    return ok;
+}
+
 static bool stop_managed_wine_processes(const char* home) {
     int status = 500;
     char* result = ms_steam_stop_json(home, &status);
     bool stopped = result != NULL && status == 200 && strstr(result, "\"running\":false") != NULL;
+    free(result);
+    if (!stopped)
+        return false;
+    result = ms_ubisoft_stop_json(home, &status);
+    stopped = result != NULL && status == 200;
     free(result);
     return stopped;
 }
@@ -1387,7 +1420,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.74.0\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.75.0\"}");
     free(p);
     return out;
 }
@@ -1395,7 +1428,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.74.0\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.75.0\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;
@@ -1591,6 +1624,18 @@ static void* migration_worker(void* opaque) {
                 (void)write_migration_progress(job->home, "error", 6,
                                                "Could not initialize the preserved GOG Wine prefix",
                                                "gog_prefix_wineboot_failed");
+                unlink(job->lock_path);
+                free(job->home);
+                free(job->lock_path);
+                free(job);
+                return NULL;
+            }
+            (void)write_migration_progress(job->home, "running", 6,
+                                           "Rebuilding preserved Ubisoft Connect Wine prefix drive mappings...", NULL);
+            if (!rebuild_ubisoft_prefix_after_migration(job->home)) {
+                (void)write_migration_progress(job->home, "error", 6,
+                                               "Could not initialize the preserved Ubisoft Connect Wine prefix",
+                                               "ubisoft_prefix_wineboot_failed");
                 unlink(job->lock_path);
                 free(job->home);
                 free(job->lock_path);

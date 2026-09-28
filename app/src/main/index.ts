@@ -86,6 +86,24 @@ function getMetalsharpDir(): string {
   return path.join(os.homedir(), isDevRuntime() ? ".metalsharp-dev" : ".metalsharp");
 }
 
+function savedSteamGridDbApiKey(): string | null {
+  const files = [
+    path.join(os.homedir(), "Library", "Application Support", "dev.tormak.steam-art-manager", "settings.json"),
+    path.join(getMetalsharpDir(), "config", "steam-art-manager-settings.json"),
+  ];
+  for (const file of files) {
+    try {
+      const settings: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (!settings || typeof settings !== "object") continue;
+      const key = (settings as Record<string, unknown>).steamGridDbApiKey;
+      if (typeof key === "string" && key.trim()) return key.trim();
+    } catch {
+      // Try the persistent MetalSharp copy if Steam Art Manager settings are missing.
+    }
+  }
+  return null;
+}
+
 function uiOnlyVersion(): string {
   return `${app.getVersion()}-ui`;
 }
@@ -775,6 +793,7 @@ function forceQuitRunningGames(): void {
         res.on("end", () => {
           let eveRunning = false;
           let odysseyRunning = false;
+          let marvelRivalsRunning = false;
           try {
             const parsed = JSON.parse(body) as { ok?: boolean; running?: { appid?: number }[] };
             eveRunning =
@@ -785,17 +804,30 @@ function forceQuitRunningGames(): void {
               parsed.ok === true &&
               Array.isArray(parsed.running) &&
               parsed.running.some((game) => game?.appid === 812140);
+            marvelRivalsRunning =
+              parsed.ok === true &&
+              Array.isArray(parsed.running) &&
+              parsed.running.some((game) => game?.appid === 2767030);
           } catch {
             // Fall back to the original global escape hatch if the status is unavailable.
           }
-          if (!eveRunning && !odysseyRunning) {
+          if (!eveRunning && !odysseyRunning && !marvelRivalsRunning) {
             fallback();
             return;
           }
-          const stopOdyssey = () => stopSteamGameForShortcut(port, 812140, "Odyssey", fallback);
+          const stopMarvelRivals = () => stopSteamGameForShortcut(port, 2767030, "Marvel Rivals", fallback);
+          const stopOdyssey = () =>
+            stopSteamGameForShortcut(port, 812140, "Odyssey", () =>
+              marvelRivalsRunning ? stopMarvelRivals() : fallback(),
+            );
           if (eveRunning)
-            stopSteamGameForShortcut(port, 8500, "EVE Online", () => (odysseyRunning ? stopOdyssey() : fallback()));
-          else stopOdyssey();
+            stopSteamGameForShortcut(port, 8500, "EVE Online", () => {
+              if (odysseyRunning) stopOdyssey();
+              else if (marvelRivalsRunning) stopMarvelRivals();
+              else fallback();
+            });
+          else if (odysseyRunning) stopOdyssey();
+          else stopMarvelRivals();
         });
       });
       req.setTimeout(2000, () => req.destroy());
@@ -808,8 +840,8 @@ function forceQuitRunningGames(): void {
   });
 }
 
-// Cmd+Opt+Q uses per-game stop paths for EVE Online and Odyssey (including its
-// Ubisoft Connect processes), then force-quits other running games as before.
+// Cmd+Opt+Q uses per-game stop paths for EVE Online, Odyssey (including its
+// Ubisoft Connect processes), and Marvel Rivals, then force-quits other games.
 function registerForceQuitGamesShortcut(): void {
   if (process.platform !== "darwin") return;
   for (const accelerator of ["Command+Option+Q", "Command+Alt+Q"]) {
@@ -1467,6 +1499,84 @@ function registerIpc() {
         card: header || screenshot,
         shot: screenshot,
       };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+
+  ipcMain.handle("steamgriddb:artwork", async (_e, gameName: unknown) => {
+    if (typeof gameName !== "string" || !gameName.trim() || gameName.length > 160) return null;
+    const apiKey = savedSteamGridDbApiKey();
+    if (!apiKey) return null;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const normalizeName = (value: string) =>
+        value
+          .toLocaleLowerCase()
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+      const query = encodeURIComponent(gameName.trim());
+      const fetchData = async (url: string): Promise<unknown[]> => {
+        const response = await net.fetch(url, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+          signal: controller.signal,
+        });
+        if (!response.ok) return [];
+        const payload = (await response.json()) as { success?: unknown; data?: unknown };
+        return payload.success === true && Array.isArray(payload.data) ? payload.data : [];
+      };
+      const games = (await fetchData(`https://www.steamgriddb.com/api/v2/search/autocomplete/${query}`)) as Array<{
+        id?: unknown;
+        name?: unknown;
+      }>;
+      const normalizedQuery = normalizeName(gameName);
+      if (!normalizedQuery) return null;
+      const match =
+        games.find((game) => typeof game.name === "string" && normalizeName(game.name) === normalizedQuery) ??
+        games.find((game) => {
+          if (typeof game.name !== "string") return false;
+          const name = normalizeName(game.name);
+          return name.startsWith(normalizedQuery) || normalizedQuery.startsWith(name);
+        });
+      if (typeof match?.id !== "number" || !Number.isSafeInteger(match.id)) return null;
+      const [heroes, grids] = await Promise.all([
+        fetchData(`https://www.steamgriddb.com/api/v2/heroes/game/${match.id}?types=static&nsfw=false&humor=false`),
+        fetchData(`https://www.steamgriddb.com/api/v2/grids/game/${match.id}?types=static&nsfw=false&humor=false`),
+      ]);
+      const safeImageUrl = (value: unknown): string | undefined => {
+        if (typeof value !== "string") return undefined;
+        try {
+          const url = new URL(value);
+          if (url.protocol !== "https:") return undefined;
+          if (url.hostname === "cdn2.steamgriddb.com" || url.hostname === "cdn.steamgriddb.com") return value;
+          if (url.hostname === "s3.amazonaws.com" && url.pathname.startsWith("/steamgriddb/")) return value;
+        } catch {
+          // Ignore malformed community image URLs.
+        }
+        return undefined;
+      };
+      const imageUrl = (items: unknown[], aspect: "hero" | "grid"): string | undefined => {
+        const ranked = items
+          .filter(
+            (item): item is { url?: unknown; width?: unknown; height?: unknown } => !!item && typeof item === "object",
+          )
+          .map((item) => ({ url: safeImageUrl(item.url), width: item.width, height: item.height }))
+          .filter((item) => item.url);
+        ranked.sort((a, b) => {
+          const ratio = (item: (typeof ranked)[number]) =>
+            typeof item.width === "number" && typeof item.height === "number" && item.height > 0
+              ? item.width / item.height
+              : 0;
+          const ideal = aspect === "hero" ? 3.1 : 2 / 3;
+          const distance = (item: (typeof ranked)[number]) => Math.abs(Math.log(Math.max(ratio(item), 0.01) / ideal));
+          return distance(a) - distance(b);
+        });
+        return ranked[0]?.url;
+      };
+      return { hero: imageUrl(heroes, "hero"), card: imageUrl(grids, "grid") };
     } catch {
       return null;
     } finally {
