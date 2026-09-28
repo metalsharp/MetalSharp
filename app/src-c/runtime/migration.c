@@ -1134,6 +1134,8 @@ static bool run_migration_wineboot(const char* home, const char* prefix) {
         char* args[] = {wine, "wineboot", "-u", NULL};
         setenv("WINEPREFIX", prefix, 1);
         setenv("WINEDEBUG", "-all", 1);
+        setenv("WINEMSYNC", "0", 1);
+        setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
         setenv("WINEDEBUGGER", "/usr/bin/true", 1);
         setenv("WINEDLOVERRIDES", "winedbg=d", 1);
         if (fallback)
@@ -1167,19 +1169,61 @@ static bool run_migration_wineboot(const char* home, const char* prefix) {
     return false;
 }
 
+static bool migration_ensure_drive_link(const char* prefix, const char* name, const char* link_target,
+                                        const char* target_dir) {
+    char *dosdevices = path_join(prefix, "dosdevices"), *link_path = NULL;
+    struct stat link_stat, target_stat, resolved_stat;
+    bool ok = false;
+    if (!dosdevices || (mkdir(dosdevices, 0700) != 0 && errno != EEXIST))
+        goto done;
+    link_path = path_join(dosdevices, name);
+    if (!link_path || stat(target_dir, &target_stat) != 0 || !S_ISDIR(target_stat.st_mode))
+        goto done;
+    if (lstat(link_path, &link_stat) == 0) {
+        if (!S_ISLNK(link_stat.st_mode))
+            goto done;
+        if (stat(link_path, &resolved_stat) == 0 && S_ISDIR(resolved_stat.st_mode) &&
+            resolved_stat.st_dev == target_stat.st_dev && resolved_stat.st_ino == target_stat.st_ino) {
+            ok = true;
+            goto done;
+        }
+        if (unlink(link_path) != 0)
+            goto done;
+    } else if (errno != ENOENT) {
+        goto done;
+    }
+    ok = symlink(link_target, link_path) == 0;
+done:
+    free(dosdevices);
+    free(link_path);
+    return ok;
+}
+
+static bool migration_prepare_prefix_drive_mappings(const char* prefix) {
+    char* drive_c = path_join(prefix, "drive_c");
+    bool ok = drive_c && migration_ensure_drive_link(prefix, "c:", "../drive_c", drive_c) &&
+              migration_ensure_drive_link(prefix, "z:", "/", "/");
+    free(drive_c);
+    return ok;
+}
+
+static bool migration_prefix_drive_mappings_valid(const char* prefix) {
+    char *c_drive = path_join(prefix, "dosdevices/c:"), *z_drive = path_join(prefix, "dosdevices/z:");
+    struct stat c_link, z_link, target;
+    bool ok = c_drive && z_drive && lstat(c_drive, &c_link) == 0 && S_ISLNK(c_link.st_mode) &&
+              stat(c_drive, &target) == 0 && S_ISDIR(target.st_mode) && lstat(z_drive, &z_link) == 0 &&
+              S_ISLNK(z_link.st_mode) && stat(z_drive, &target) == 0 && S_ISDIR(target.st_mode);
+    free(c_drive);
+    free(z_drive);
+    return ok;
+}
+
 static bool rebuild_gog_prefix_after_migration(const char* home) {
     char* prefix = path_join(home, "bottles/gog-prefix/prefix");
     bool ok = true;
-    if (prefix && directory_local(prefix)) {
-        char *c_drive = path_join(prefix, "dosdevices/c:"), *z_drive = path_join(prefix, "dosdevices/z:");
-        struct stat c_link, z_link, target;
-        ok = run_migration_wineboot(home, prefix) && c_drive && z_drive && lstat(c_drive, &c_link) == 0 &&
-             S_ISLNK(c_link.st_mode) && stat(c_drive, &target) == 0 && S_ISDIR(target.st_mode) &&
-             lstat(z_drive, &z_link) == 0 && S_ISLNK(z_link.st_mode) && stat(z_drive, &target) == 0 &&
-             S_ISDIR(target.st_mode);
-        free(c_drive);
-        free(z_drive);
-    }
+    if (prefix && directory_local(prefix))
+        ok = migration_prepare_prefix_drive_mappings(prefix) && run_migration_wineboot(home, prefix) &&
+             migration_prefix_drive_mappings_valid(prefix);
     free(prefix);
     return ok;
 }
@@ -1187,18 +1231,19 @@ static bool rebuild_gog_prefix_after_migration(const char* home) {
 static bool rebuild_ubisoft_prefix_after_migration(const char* home) {
     char* prefix = path_join(home, "prefix-ubisoft");
     bool ok = true;
-    if (prefix && directory_local(prefix)) {
-        char *c_drive = path_join(prefix, "dosdevices/c:"), *z_drive = path_join(prefix, "dosdevices/z:");
-        struct stat c_link, z_link, target;
-        ok = run_migration_wineboot(home, prefix) && c_drive && z_drive && lstat(c_drive, &c_link) == 0 &&
-             S_ISLNK(c_link.st_mode) && stat(c_drive, &target) == 0 && S_ISDIR(target.st_mode) &&
-             lstat(z_drive, &z_link) == 0 && S_ISLNK(z_link.st_mode) && stat(z_drive, &target) == 0 &&
-             S_ISDIR(target.st_mode);
-        free(c_drive);
-        free(z_drive);
-    }
+    if (prefix && directory_local(prefix))
+        ok = migration_prepare_prefix_drive_mappings(prefix) && run_migration_wineboot(home, prefix) &&
+             migration_prefix_drive_mappings_valid(prefix);
     free(prefix);
     return ok;
+}
+
+static bool rebuild_preserved_wine_prefixes(const char* home, bool* gog_ok, bool* ubisoft_ok) {
+    /* Do not short-circuit: even if one legacy prefix is damaged, initialize
+     * the other preserved prefix before reporting either failure. */
+    *gog_ok = rebuild_gog_prefix_after_migration(home);
+    *ubisoft_ok = rebuild_ubisoft_prefix_after_migration(home);
+    return *gog_ok && *ubisoft_ok;
 }
 
 static bool stop_managed_wine_processes(const char* home) {
@@ -1618,9 +1663,11 @@ static void* migration_worker(void* opaque) {
             restore_preserved_data(job->home, &preserved);
             write_migration_report(job->home, true, true);
             free_preserved_data(&preserved);
+            bool gog_prefix_ok, ubisoft_prefix_ok;
             (void)write_migration_progress(job->home, "running", 6,
-                                           "Rebuilding preserved GOG Wine prefix drive mappings...", NULL);
-            if (!rebuild_gog_prefix_after_migration(job->home)) {
+                                           "Rebuilding preserved GOG and Ubisoft Wine prefixes...", NULL);
+            (void)rebuild_preserved_wine_prefixes(job->home, &gog_prefix_ok, &ubisoft_prefix_ok);
+            if (!gog_prefix_ok) {
                 (void)write_migration_progress(job->home, "error", 6,
                                                "Could not initialize the preserved GOG Wine prefix",
                                                "gog_prefix_wineboot_failed");
@@ -1630,9 +1677,7 @@ static void* migration_worker(void* opaque) {
                 free(job);
                 return NULL;
             }
-            (void)write_migration_progress(job->home, "running", 6,
-                                           "Rebuilding preserved Ubisoft Connect Wine prefix drive mappings...", NULL);
-            if (!rebuild_ubisoft_prefix_after_migration(job->home)) {
+            if (!ubisoft_prefix_ok) {
                 (void)write_migration_progress(job->home, "error", 6,
                                                "Could not initialize the preserved Ubisoft Connect Wine prefix",
                                                "ubisoft_prefix_wineboot_failed");
