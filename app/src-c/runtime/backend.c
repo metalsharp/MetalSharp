@@ -2360,7 +2360,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/games/force-quit") == 0) {
         int status = 500;
-        body = ms_process_force_quit_json(&status);
+        body = ms_process_force_quit_json(context->metalsharp_home, &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

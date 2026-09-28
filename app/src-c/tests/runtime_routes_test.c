@@ -297,6 +297,10 @@ static pid_t spawn_sharp_detached_fixture(const char* game_dir, const char* help
 #endif
 
 int main(int argc, char** argv) {
+    if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
+        for (;;)
+            pause();
+    }
     if (argc == 2 && !strcmp(argv[1], "--gamejolt-detached-child")) {
         for (;;)
             pause();
@@ -515,6 +519,107 @@ int main(int argc, char** argv) {
             response = ms_process_kill_json(home, status_body, strlen(status_body), &process_status);
             assert(response && process_status == 200 && strstr(response, "\"ok\":true"));
             free(response);
+        }
+        {
+            char source[PATH_MAX];
+            char* wine_helper = join(home, "runtime/wine/probe/metalsharp-probe");
+            char* wine_bin = join(home, "runtime/wine/probe");
+            pid_t leader, wine_game;
+            int status = 0;
+            assert(wine_helper && wine_bin && realpath(argv[0], source));
+            assert(ensure_directory(wine_bin));
+            int input = open(source, O_RDONLY);
+            int output = open(wine_helper, O_WRONLY | O_CREAT | O_TRUNC, 0700);
+            assert(input >= 0 && output >= 0);
+            char buffer[16384];
+            ssize_t bytes;
+            while ((bytes = read(input, buffer, sizeof(buffer))) > 0) {
+                ssize_t written = 0;
+                while (written < bytes) {
+                    ssize_t amount = write(output, buffer + written, (size_t)(bytes - written));
+                    assert(amount > 0);
+                    written += amount;
+                }
+            }
+            assert(bytes == 0 && close(input) == 0 && close(output) == 0);
+            wine_game = fork();
+            assert(wine_game >= 0);
+            if (wine_game == 0) {
+                (void)setpgid(0, 0);
+                execl(wine_helper, wine_helper, "--wine-exe-probe", "Game.exe", (char*)NULL);
+                _exit(127);
+            }
+            assert(setpgid(wine_game, wine_game) == 0 || errno == EACCES);
+            leader = fork();
+            assert(leader >= 0);
+            if (leader == 0)
+                _exit(0);
+            assert(waitpid(leader, NULL, 0) == leader);
+            ms_process_register_game(987654323U, leader);
+            response = ms_process_running_json(home);
+            assert(response && strstr(response, "987654323") && strstr(response, "\"pid\""));
+            free(response);
+            const char* fallback_stop_body = "{\"appid\":987654323}";
+            response = ms_process_kill_json(home, fallback_stop_body, strlen(fallback_stop_body), &status);
+            assert(response && status == 200 && strstr(response, "\"ok\":true"));
+            free(response);
+            assert(waitpid(wine_game, NULL, 0) == wine_game);
+            free(wine_helper);
+            free(wine_bin);
+        }
+        {
+            char* wine_helper = join(home, "runtime/wine/probe/metalsharp-probe");
+            pid_t wine_game = fork();
+            int status = 0;
+            assert(wine_helper && wine_game >= 0);
+            if (wine_game == 0) {
+                (void)setpgid(0, 0);
+                execl(wine_helper, wine_helper, "--wine-exe-probe", "UntrackedGame.exe", (char*)NULL);
+                _exit(127);
+            }
+            assert(setpgid(wine_game, wine_game) == 0 || errno == EACCES);
+            const char* untracked_stop_body = "{\"appid\":987654324}";
+            response = ms_process_kill_json(home, untracked_stop_body, strlen(untracked_stop_body), &status);
+            assert(response && status == 200 && strstr(response, "\"ok\":true"));
+            free(response);
+            assert(waitpid(wine_game, NULL, 0) == wine_game);
+            free(wine_helper);
+        }
+        {
+            char* wine_helper = join(home, "runtime/wine/probe/metalsharp-probe");
+            pid_t wine_game = fork();
+            int status = 0;
+            assert(wine_helper && wine_game >= 0);
+            if (wine_game == 0) {
+                (void)setpgid(0, 0);
+                execl(wine_helper, wine_helper, "--wine-exe-probe", "Game.exe", (char*)NULL);
+                _exit(127);
+            }
+            assert(setpgid(wine_game, wine_game) == 0 || errno == EACCES);
+            response = ms_process_force_quit_json(home, &status);
+            assert(response && status == 200 && strstr(response, "\"pid\"") && strstr(response, "\"appid\":0"));
+            free(response);
+            assert(waitpid(wine_game, NULL, 0) == wine_game);
+            free(wine_helper);
+        }
+        {
+            char* wine_helper = join(home, "runtime/wine/probe/metalsharp-probe");
+            pid_t steam = fork();
+            int status = 0;
+            assert(wine_helper && steam >= 0);
+            if (steam == 0) {
+                (void)setpgid(0, 0);
+                execl(wine_helper, wine_helper, "--wine-exe-probe", "Steam.exe", (char*)NULL);
+                _exit(127);
+            }
+            assert(setpgid(steam, steam) == 0 || errno == EACCES);
+            response = ms_process_force_kill_json(home, &status);
+            assert(response && status == 200 && strstr(response, "\"terminated_count\":0"));
+            free(response);
+            assert(kill(steam, 0) == 0);
+            assert(kill(steam, SIGKILL) == 0);
+            assert(waitpid(steam, NULL, 0) == steam);
+            free(wine_helper);
         }
         free(game_id);
         free(gj_home);
@@ -778,6 +883,14 @@ int main(int argc, char** argv) {
     graphics_path = join(home, "graphics-scan/none");
     assert(ms_steam_detect_graphics_pipeline(graphics_path) == NULL);
     free(graphics_path);
+
+    fixture(home, "cyberpunk/REDprelauncher.exe", "launcher executable");
+    fixture(home, "cyberpunk/bin/x64/Cyberpunk2077.exe", "game executable");
+    char* cyberpunk_dir = join(home, "cyberpunk");
+    char* cyberpunk_exe = preferred_steam_game_executable(cyberpunk_dir, 1091500, "d3dmetal");
+    assert(cyberpunk_exe && strstr(cyberpunk_exe, "/cyberpunk/bin/x64/Cyberpunk2077.exe"));
+    free(cyberpunk_exe);
+    free(cyberpunk_dir);
 
     fixture(home, "cs2/game/bin/win64/vconsole2.exe", "console helper");
     fixture(home, "cs2/game/bin/win64/cs2.exe", "game executable");

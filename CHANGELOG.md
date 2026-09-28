@@ -9,6 +9,8 @@
 ### Fixed
 
 - **Marvel Rivals launch lifecycle** — route Steam App ID 2767030 to D3DMetal by default through a Steam `-windowed` handoff, rediscover its detached game PID, and target its installed game processes for Stop and Cmd+Opt+Q.
+- **Generic Wine process tracking** — recover game status from MetalSharp-managed non-Steam Wine executables when a launcher PID is lost, and let Stop/Cmd+Opt+Q kill those fallback processes.
+- **Cyberpunk 2077 executable selection** — prefer `bin/x64/Cyberpunk2077.exe` for D3DMetal launches instead of relying on filesystem traversal that can select the RED launcher.
 - **Ubisoft library/search lifecycle** — use the installed-game display name from Ubisoft's local uninstall registry, make search focus the matching hero game, keep Ubisoft Connect separate from Assassin's Creed Odyssey process detection, and retain Connect's tracked PID through its launcher-to-client handoff.
 - **Ubisoft game process tracking** — rediscover live Ubisoft game PIDs from the exact executable command and install-directory working directory so Stop and Cmd+Opt+Q target the game, not the Connect client.
 - **Ubisoft game launch selection** — ignore support/redistributable folders when selecting the game executable so launch and D3DMetal staging don't target bundled VC redistributers.
