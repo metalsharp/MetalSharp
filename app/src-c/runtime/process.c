@@ -1,3 +1,8 @@
+#ifdef __APPLE__
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
+#endif
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
@@ -5,6 +10,7 @@
 #include "metalsharp_backend/ubisoft.h"
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -13,6 +19,13 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <netinet/in.h>
+#include <sys/resource.h>
+#include <sys/socket.h>
+#endif
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -21,6 +34,7 @@ typedef struct running_game {
     unsigned appid;
     pid_t pid;
     unsigned long long keep_until_ms;
+    bool wine_fallback;
     struct running_game* next;
 } running_game;
 typedef struct retired_child {
@@ -28,6 +42,7 @@ typedef struct retired_child {
     struct retired_child* next;
 } retired_child;
 static running_game* g_running;
+static unsigned g_last_registered_appid;
 static retired_child* g_retired_children;
 static pthread_mutex_t g_running_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_background_task_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -94,6 +109,133 @@ static char* join_path(const char* a, const char* b) {
         snprintf(p, x + y + (slash ? 2 : 1), "%s%s%s", a, slash ? "/" : "", b);
     return p;
 }
+
+typedef struct wine_process_list {
+    pid_t* pids;
+    size_t count;
+    size_t capacity;
+} wine_process_list;
+
+static bool contains_ci(const char* value, const char* needle) {
+    size_t length;
+    if (!value || !needle || !needle[0])
+        return false;
+    length = strlen(needle);
+    for (; *value; value++)
+        if (!strncasecmp(value, needle, length))
+            return true;
+    return false;
+}
+
+static bool process_executable_within(pid_t pid, const char* root) {
+    char executable[PATH_MAX];
+    size_t length;
+    if (!root || !root[0])
+        return false;
+#if defined(__APPLE__)
+    if (proc_pidpath((int)pid, executable, sizeof(executable)) <= 0)
+        return false;
+#elif defined(__linux__)
+    char proc_path[64];
+    ssize_t bytes;
+    snprintf(proc_path, sizeof(proc_path), "/proc/%ld/exe", (long)pid);
+    bytes = readlink(proc_path, executable, sizeof(executable) - 1);
+    if (bytes <= 0)
+        return false;
+    executable[bytes] = '\0';
+#else
+    (void)pid;
+    return false;
+#endif
+    length = strlen(root);
+    return !strncmp(executable, root, length) && (executable[length] == '\0' || executable[length] == '/');
+}
+
+static bool process_is_steam(const char* command) {
+    return contains_ci(command, "steam.exe") || contains_ci(command, "steamwebhelper") ||
+           contains_ci(command, "steamservice.exe") || contains_ci(command, "steam_osx") ||
+           contains_ci(command, "Steam.app/Contents/MacOS");
+}
+
+static bool process_is_wine_helper(const char* command) {
+    return contains_ci(command, " reg import ") || contains_ci(command, " regedit ") ||
+           contains_ci(command, "reg.exe") || contains_ci(command, "regedit.exe") ||
+           contains_ci(command, "wineboot.exe") || contains_ci(command, "winedevice.exe") ||
+           contains_ci(command, "winedbg.exe") || contains_ci(command, "services.exe") ||
+           contains_ci(command, "rpcss.exe") || contains_ci(command, "svchost.exe") ||
+           contains_ci(command, "conhost.exe");
+}
+
+static bool wine_game_process_owned(pid_t pid, const char* command, const char* prefix, const char* runtime) {
+    return command && !process_is_steam(command) && !process_is_wine_helper(command) && contains_ci(command, ".exe") &&
+           (strstr(command, prefix) != NULL || strstr(command, runtime) != NULL ||
+            process_executable_within(pid, runtime));
+}
+
+static bool wine_process_list_add(wine_process_list* list, pid_t pid) {
+    pid_t* expanded;
+    size_t capacity;
+    if (list->count == list->capacity) {
+        capacity = list->capacity ? list->capacity * 2 : 16;
+        expanded = realloc(list->pids, capacity * sizeof(*expanded));
+        if (!expanded)
+            return false;
+        list->pids = expanded;
+        list->capacity = capacity;
+    }
+    list->pids[list->count++] = pid;
+    return true;
+}
+
+static wine_process_list find_non_steam_wine_executables(const char* home) {
+    wine_process_list result = {0};
+    char prefix[PATH_MAX], runtime[PATH_MAX], line[4096];
+    FILE* pipe;
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe)
+        return result;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        char* newline;
+        long raw_pid;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX || raw_pid == (long)getpid())
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        newline = strchr(end, '\n');
+        if (newline)
+            *newline = '\0';
+        if (!wine_game_process_owned((pid_t)raw_pid, end, prefix, runtime))
+            continue;
+        if (!wine_process_list_add(&result, (pid_t)raw_pid))
+            break;
+    }
+    pclose(pipe);
+    return result;
+}
+
+static size_t kill_non_steam_wine_executables(const char* home, wine_process_list* killed) {
+    wine_process_list processes = find_non_steam_wine_executables(home);
+    size_t count = 0;
+    for (size_t i = 0; i < processes.count; i++) {
+        pid_t pid = processes.pids[i];
+        if (kill(pid, SIGKILL) == 0 || errno == ESRCH) {
+            if (killed)
+                (void)wine_process_list_add(killed, pid);
+            count++;
+        }
+    }
+    free(processes.pids);
+    return count;
+}
+
 static char* runtime_missing_error(const char* home) {
     char* wine = join_path(home, "runtime/wine/bin/wine");
     bool missing = !wine || access(wine, X_OK) != 0;
@@ -200,12 +342,14 @@ static void remember(unsigned appid, pid_t pid) {
             if (g->pid != pid)
                 retire_child_if_needed(g->pid);
             g->pid = pid;
+            g->wine_fallback = false;
             return;
         }
     g = calloc(1, sizeof(*g));
     if (g) {
         g->appid = appid;
         g->pid = pid;
+        g->wine_fallback = false;
         g->next = g_running;
         g_running = g;
     }
@@ -216,6 +360,7 @@ void ms_process_register_pending_game(unsigned appid, pid_t pid, unsigned grace_
     if (appid == 0 || pid <= 0)
         return;
     pthread_mutex_lock(&g_running_mutex);
+    g_last_registered_appid = appid;
     remember(appid, pid);
     for (g = g_running; g; g = g->next) {
         if (g->appid == appid) {
@@ -229,6 +374,7 @@ void ms_process_register_pending_game(unsigned appid, pid_t pid, unsigned grace_
 void ms_process_register_game(unsigned appid, pid_t pid) {
     if (appid > 0 && pid > 0) {
         pthread_mutex_lock(&g_running_mutex);
+        g_last_registered_appid = appid;
         remember(appid, pid);
         pthread_mutex_unlock(&g_running_mutex);
     }
@@ -431,6 +577,7 @@ char* ms_process_running_json(const char* home) {
     char* out;
     bool odyssey_registered = false;
     pid_t odyssey_pid = 0;
+    wine_process_list wine_processes = find_non_steam_wine_executables(home);
     pid_t eve_pid = ms_steam_eve_process_pid(home);
     pid_t marvel_rivals_pid = ms_steam_marvel_rivals_process_pid(home);
     ms_ubisoft_register_running_games(home);
@@ -439,6 +586,14 @@ char* ms_process_running_json(const char* home) {
     if (marvel_rivals_pid > 0)
         ms_process_register_game(2767030, marvel_rivals_pid);
     pthread_mutex_lock(&g_running_mutex);
+    if (wine_processes.count > 0 && g_last_registered_appid > 0) {
+        for (g = g_running; g; g = g->next)
+            if (g->appid == g_last_registered_appid && !active(g->pid)) {
+                g->pid = wine_processes.pids[0];
+                g->wine_fallback = true;
+                break;
+            }
+    }
     prune();
     for (g = g_running; g; g = g->next)
         if (g->appid == 812140) {
@@ -473,6 +628,7 @@ char* ms_process_running_json(const char* home) {
     ms_json_writer_object_end(&w);
     out = ms_json_writer_take(&w);
     pthread_mutex_unlock(&g_running_mutex);
+    free(wine_processes.pids);
     return out;
 }
 
@@ -481,6 +637,7 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
     unsigned long long pid64 = 0, aid = 0;
     pid_t pid = 0;
     bool registered = false;
+    bool wine_fallback = false;
     running_game* g;
     ms_json_writer w;
     char* out;
@@ -545,6 +702,7 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
             if (g->appid == (unsigned)aid) {
                 pid = g->pid;
                 registered = true;
+                wine_fallback = g->wine_fallback;
                 break;
             }
         forget((unsigned)aid);
@@ -591,18 +749,59 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
     }
     if (pid <= 0) {
         pthread_mutex_unlock(&g_running_mutex);
+        if (aid > 0) {
+            wine_process_list killed = {0};
+            (void)kill_non_steam_wine_executables(home, &killed);
+            if (killed.count > 0) {
+                ms_json_writer_init(&w);
+                ms_json_writer_object_begin(&w);
+                ms_json_writer_key(&w, "ok");
+                ms_json_writer_bool(&w, true);
+                ms_json_writer_key(&w, "pid");
+                ms_json_writer_u64(&w, (unsigned)killed.pids[0]);
+                ms_json_writer_object_end(&w);
+                out = ms_json_writer_take(&w);
+                if (status)
+                    *status = 200;
+                free(killed.pids);
+                ms_json_free(r);
+                return out;
+            }
+            free(killed.pids);
+        }
         ms_json_free(r);
         return error_json("pid required");
     }
     if (status)
         *status = 500;
     if (!(registered ? signal_game_process(pid, SIGKILL) : (kill(pid, SIGKILL) == 0 || errno == ESRCH))) {
+        if (aid > 0) {
+            size_t fallback_count = kill_non_steam_wine_executables(home, NULL);
+            if (fallback_count > 0) {
+                if (aid)
+                    forget((unsigned)aid);
+                pthread_mutex_unlock(&g_running_mutex);
+                ms_json_free(r);
+                ms_json_writer_init(&w);
+                ms_json_writer_object_begin(&w);
+                ms_json_writer_key(&w, "ok");
+                ms_json_writer_bool(&w, true);
+                ms_json_writer_key(&w, "pid");
+                ms_json_writer_u64(&w, (unsigned)pid);
+                ms_json_writer_object_end(&w);
+                if (status)
+                    *status = 200;
+                return ms_json_writer_take(&w);
+            }
+        }
         char msg[128];
         snprintf(msg, sizeof(msg), "failed to kill pid %d: %s", (int)pid, strerror(errno));
         pthread_mutex_unlock(&g_running_mutex);
         ms_json_free(r);
         return error_json(msg);
     }
+    if (wine_fallback)
+        (void)kill_non_steam_wine_executables(home, NULL);
     if (aid)
         forget((unsigned)aid);
     pthread_mutex_unlock(&g_running_mutex);
@@ -620,12 +819,14 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
     return out;
 }
 
-char* ms_process_force_quit_json(int* status) {
+char* ms_process_force_quit_json(const char* home, int* status) {
     running_game* g;
     ms_json_writer w;
     char* out;
     size_t count = 0;
+    wine_process_list killed_wine = {0};
     ms_steam_cancel_background_tasks();
+    (void)kill_non_steam_wine_executables(home, &killed_wine);
     pthread_mutex_lock(&g_running_mutex);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
@@ -647,6 +848,15 @@ char* ms_process_force_quit_json(int* status) {
         free(g);
         g = next;
     }
+    for (size_t i = 0; i < killed_wine.count; i++) {
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "appid");
+        ms_json_writer_u64(&w, 0);
+        ms_json_writer_key(&w, "pid");
+        ms_json_writer_u64(&w, (unsigned)killed_wine.pids[i]);
+        ms_json_writer_object_end(&w);
+        count++;
+    }
     g_running = NULL;
     pthread_mutex_unlock(&g_running_mutex);
     ms_json_writer_array_end(&w);
@@ -659,16 +869,26 @@ char* ms_process_force_quit_json(int* status) {
     out = ms_json_writer_take(&w);
     if (status)
         *status = 200;
+    free(killed_wine.pids);
     return out;
 }
 char* ms_process_force_kill_json(const char* home, int* status) {
-    char out[256];
-    (void)home;
+    ms_json_writer w;
+    char* out;
+    size_t count = kill_non_steam_wine_executables(home, NULL);
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, true);
+    ms_json_writer_key(&w, "terminated_count");
+    ms_json_writer_u64(&w, count);
+    ms_json_writer_key(&w, "backendPid");
+    ms_json_writer_u64(&w, (unsigned)getpid());
+    ms_json_writer_object_end(&w);
+    out = ms_json_writer_take(&w);
     if (status)
         *status = 200;
-    snprintf(out, sizeof(out), "{\"ok\":true,\"terminated\":[],\"killed\":[],\"errors\":[],\"backendPid\":%ld}",
-             (long)getpid());
-    return strdup(out);
+    return out;
 }
 char* ms_process_prepare_json(const char* home, const char* body, size_t len, int* status) {
     ms_json* r = parse_root(body, len);

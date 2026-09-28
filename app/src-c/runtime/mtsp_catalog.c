@@ -3,6 +3,7 @@
 #include <string.h>
 
 // clang-format off
+// clang-format off
 static const char* const chunks[] = {
     "{\"count\":715,\"ok\":true,\"rules\":[{\"appid\":50,\"check_dlls\":[\"d3d9.dll\",\"d3dx9_43.dll\",\"D3DCompiler_43.dll\",\"xinput1_3.dll\"",
     ",\"winemetal.dll\"],\"components\":[\"vcrun2019_x86\",\"directx_jun2010\"],\"custom_exe_fix\":false,\"default_pipeline\":\"d3d9\",\"def",
@@ -4565,17 +4566,17 @@ static const char* const chunks[] = {
     "_ntdll_hook.dll\",\"source_subpath\":\"lib/metalsharp/x86_64-windows\"}],\"dyld_paths\":[\"lib/wine/x86_64-unix\",\"lib/dxmt/x86_6",
     "4-unix\"],\"wine_overrides\":\"winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d\",\"winedllpath_",
     "dirs\":[\"lib/dxmt/x86_64-windows\",\"lib/metalsharp/x86_64-windows\"]},\"name\":\"Yakuza 3 Remastered\",\"offline_capable\":false}",
-    ",{\"appid\":1091500,\"check_dlls\":[\"d3d12.dll\",\"d3d12core.dll\",\"d3d11.dll\",\"d3d10core.dll\",\"d3d9.dll\",\"dxgi.dll\"],\"componen",
-    "ts\":[\"vcrun2019\",\"directx_jun2010\"],\"custom_exe_fix\":false,\"default_pipeline\":\"d3dmetal\",\"default_pipeline_name\":\"D3DMet",
-    "al\",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d12.dll\",",
-    "\"source_subpath\":\"vkd3d-proton/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d12core.dll\",\"source",
-    "_subpath\":\"vkd3d-proton/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d11.dll\",\"source_subpath\":\"",
-    "dxvk/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d10core.dll\",\"source_subpath\":\"dxvk/x86_64-win",
-    "dows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d9.dll\",\"source_subpath\":\"dxvk/x86_64-windows\"},{\"arch\":\"64-b",
-    "it\",\"dest_filename\":null,\"filename\":\"dxgi.dll\",\"source_subpath\":\"dxvk/x86_64-windows\"}],\"dyld_paths\":[\"lib/wine/x86_64-u",
-    "nix\"],\"wine_overrides\":\"d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d\",",
-    "\"winedllpath_dirs\":[\"vkd3d-proton/x86_64-windows\",\"dxvk/x86_64-windows\",\"lib/wine/x86_64-windows\"]},\"name\":\"Cyberpunk 20",
-    "77\",\"offline_capable\":true},{\"appid\":1092790,\"check_dlls\":[\"d3d11.dll\",\"dxgi.dll\",\"winemetal.dll\"],\"components\":[\"vcrun2",
+    ",{\"appid\":1091500,\"check_dlls\":[\"d3d12.dll\",\"d3d12core.dll\",\"d3d11.dll\",\"d3d10core.dll\",\"d3d9.dll\",\"dxgi.dll\"],\"components\"",
+    ":[\"vcrun2019\",\"directx_jun2010\"],\"custom_exe_fix\":false,\"default_pipeline\":\"d3dmetal\",\"default_pipeline_name\":\"D3DMetal\",\"e",
+    "nv\":{},\"exe_names\":[\"bin/x64/Cyberpunk2077.exe\"],\"launch_shape\":{\"deploy_dlls\":[{\"arch\":\"64-bit\",\"dest_filename\":null,\"file",
+    "name\":\"d3d12.dll\",\"source_subpath\":\"vkd3d-proton/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d12co",
+    "re.dll\",\"source_subpath\":\"vkd3d-proton/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d11.dll\",\"sourc",
+    "e_subpath\":\"dxvk/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d10core.dll\",\"source_subpath\":\"dxvk/",
+    "x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d9.dll\",\"source_subpath\":\"dxvk/x86_64-windows\"},{\"arc",
+    "h\":\"64-bit\",\"dest_filename\":null,\"filename\":\"dxgi.dll\",\"source_subpath\":\"dxvk/x86_64-windows\"}],\"dyld_paths\":[\"lib/wine/x8",
+    "6_64-unix\"],\"wine_overrides\":\"d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64",
+    "=d\",\"winedllpath_dirs\":[\"vkd3d-proton/x86_64-windows\",\"dxvk/x86_64-windows\",\"lib/wine/x86_64-windows\"]},\"name\":\"Cyberpunk ",
+    "2077\",\"offline_capable\":true},{\"appid\":1092790,\"check_dlls\":[\"d3d11.dll\",\"dxgi.dll\",\"winemetal.dll\"],\"components\":[\"vcrun2",
     "019_x86\",\"directx_jun2010\"],\"custom_exe_fix\":true,\"default_pipeline\":\"m11_32\",\"default_pipeline_name\":\"M11(32)\",\"env\":{}",
     ",\"exe_names\":[\"Inscryption.exe\"],\"launch_shape\":{\"deploy_dlls\":[{\"arch\":\"32-bit\",\"dest_filename\":null,\"filename\":\"d3d11.",
     "dll\",\"source_subpath\":\"lib/dxmt/i386-windows\"},{\"arch\":\"32-bit\",\"dest_filename\":null,\"filename\":\"dxgi.dll\",\"source_subpa",
@@ -7783,6 +7784,7 @@ static const char* const chunks[] = {
     "erer64=d\",\"winedllpath_dirs\":[\"lib/dxmt/x86_64-windows\",\"lib/wine/x86_64-windows\",\"lib/wine/i386-windows\",\"lib/metalshar",
     "p/x86_64-windows\"]},\"name\":\"DiRT 3 Complete Edition\",\"offline_capable\":false}]}",
 };
+// clang-format on
 // clang-format on
 
 char* ms_mtsp_default_rules_json_raw(void) {
