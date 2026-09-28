@@ -6,6 +6,8 @@
 bool ms_steam_process_running(const char*);
 pid_t ms_steam_odyssey_activity_pid(const char*);
 bool ms_steam_stop_odyssey_processes(const char*);
+pid_t ms_steam_eve_process_pid(const char*);
+bool ms_steam_stop_eve_processes(const char*);
 void ms_steam_cancel_background_tasks(void);
 /* Apply registered graphics and global launch preferences to a child process. */
 void ms_steam_apply_graphics_route(const char* home, const char* pipeline);
@@ -32,6 +34,7 @@ char* ms_steam_launch_d3dmetal_json(const char*, unsigned, const char*, const ch
 /* App-aware executable selection for D3DMetal bottles (for example Unreal
  * launchers versus their actual Win64 shipping executable). */
 char* ms_steam_d3dmetal_game_executable(const char*, unsigned);
+char* ms_steam_d3dmetal_game_local_executable(const char*, unsigned);
 /* Remove only byte-matched MetalSharp route DLLs before staging a new route. */
 void ms_steam_cleanup_route_dlls(const char*, const char*, const char*, const char*);
 char* ms_steam_prepare_bottle_route_json(const char*, const char*);

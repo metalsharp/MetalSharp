@@ -1059,11 +1059,22 @@ static dstate* state_from_steam_app(const char* home, unsigned long long appid, 
     return s;
 }
 
-static bool d3dmetal_game_local_ready(const dstate* s) {
+static bool d3dmetal_game_local_ready(const char* home, const dstate* s) {
     char* slash;
     char* dir;
+    char* local_exe;
     bool ok = false;
-    if (!s || !s->game_exe[0] || !(dir = strdup(s->game_exe)))
+    if (!s || !s->game_exe[0])
+        return false;
+    local_exe = s->appid == 8500 ? ms_steam_d3dmetal_game_local_executable(home, s->appid) : strdup(s->game_exe);
+    /* EVE's launcher is 32-bit and only bootstraps the separately downloaded
+     * 64-bit client. Before that client exists, the Steam handoff can still
+     * start the launcher without local D3DMetal DLL staging. */
+    if (!local_exe)
+        return s->appid == 8500 && file_ready(s->game_exe);
+    dir = strdup(local_exe);
+    free(local_exe);
+    if (!dir)
         return false;
     slash = strrchr(dir, '/');
     if (!slash)
@@ -1081,6 +1092,7 @@ done:
 }
 
 static bool stage_d3dmetal_game_local(const char* home, dstate* s) {
+    char* local_exe;
     char* dir;
     char* slash;
     bool ok = false;
@@ -1096,11 +1108,20 @@ static bool stage_d3dmetal_game_local(const char* home, dstate* s) {
             free(detected_dir);
         }
     }
-    if (!s || !s->game_exe[0] || !(dir = strdup(s->game_exe)))
+    if (!s || !s->game_exe[0])
         return false;
+    local_exe = s->appid == 8500 ? ms_steam_d3dmetal_game_local_executable(home, s->appid) : strdup(s->game_exe);
+    if (!local_exe)
+        return s->appid == 8500 && file_ready(s->game_exe);
+    dir = strdup(local_exe);
+    if (!dir) {
+        free(local_exe);
+        return false;
+    }
     /* Match normal Steam route changes: remove only exact MetalSharp artifacts
      * from the previous pipeline before deploying this route. */
-    ms_steam_cleanup_route_dlls(home, "d3dmetal", s->game_dir, s->game_exe);
+    ms_steam_cleanup_route_dlls(home, "d3dmetal", s->game_dir, local_exe);
+    free(local_exe);
     slash = strrchr(dir, '/');
     if (!slash)
         goto done;
@@ -1144,7 +1165,7 @@ static bool d3dmetal_runtime_ready(const char* home) {
 static void refresh_d3dmetal_state(const char* home, dstate* s) {
     bool runtime = d3dmetal_runtime_ready(home);
     snprintf(s->step[0], 20, "%s", runtime ? "installed" : "missing");
-    snprintf(s->step[1], 20, "%s", runtime && d3dmetal_game_local_ready(s) ? "seeded" : "missing");
+    snprintf(s->step[1], 20, "%s", runtime && d3dmetal_game_local_ready(home, s) ? "seeded" : "missing");
     s->ready = runtime && !strcmp(s->step[1], "seeded");
 }
 
