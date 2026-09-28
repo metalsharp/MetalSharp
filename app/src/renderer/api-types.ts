@@ -221,6 +221,7 @@ type MetalsharpAPI = {
   onSteamappsChanged: (callback: () => void) => () => void;
   onGridArtChanged: (callback: () => void) => () => void;
   steamStoreArtwork?: (appid: number) => Promise<{ hero?: string; card?: string; shot?: string } | null>;
+  steamGridDbArtwork?: (gameName: string) => Promise<{ hero?: string; card?: string } | null>;
   showLaunchOverlay: (gameName: string) => Promise<{ ok: boolean }>;
   request: (
     method: string,

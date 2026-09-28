@@ -38,6 +38,7 @@
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/streaming.h"
 #include "metalsharp_backend/thread.h"
+#include "metalsharp_backend/ubisoft.h"
 #include "metalsharp_backend/updater.h"
 
 #include <ctype.h>
@@ -910,6 +911,20 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/steam/status") == 0) {
         body = ms_steam_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/ubisoft/status") == 0) {
+        body = ms_ubisoft_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/ubisoft/library") == 0) {
+        body = ms_ubisoft_library_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
@@ -2199,6 +2214,40 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, status, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/ubisoft/launch") == 0) {
+        int status = 500;
+        body = ms_ubisoft_launch_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/ubisoft/stop") == 0) {
+        int status = 500;
+        body = ms_ubisoft_stop_json(context->metalsharp_home, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/ubisoft/launch-game") == 0) {
+        int status = 500;
+        body = ms_ubisoft_launch_game_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                           &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/ubisoft/save-pipeline") == 0) {
+        int status = 500;
+        body = ms_ubisoft_save_pipeline_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                             &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steam/mac-launch") == 0) {
         int status = 500;
         ms_log_event(context->metalsharp_home, "Launching macOS Steam...");
@@ -2311,7 +2360,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/games/force-quit") == 0) {
         int status = 500;
-        body = ms_process_force_quit_json(&status);
+        body = ms_process_force_quit_json(context->metalsharp_home, &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

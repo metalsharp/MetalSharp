@@ -28,6 +28,14 @@ interface SteamGame {
   preferred_pipeline?: string | null;
   has_native_build?: boolean;
   native_app_path?: string | null;
+  source?: "steam" | "ubisoft";
+  ubisoft_id?: string;
+  game_dir?: string;
+  bottle_id?: string | null;
+  embedded_icon_path?: string | null;
+  icon_pending?: boolean;
+  ubisoft_artwork_url?: string | null;
+  available_pipelines?: { id: string; name: string; recommended?: boolean }[];
 }
 
 interface SteamLibrary {
@@ -65,6 +73,9 @@ const backendConnected = ref(false);
 const backendVersion = ref<string | null>(null);
 const wineSteamInstalled = ref(false);
 const wineSteamRunning = ref(false);
+const wineUbisoftInstalled = ref(false);
+const wineUbisoftRunning = ref(false);
+const ubisoftInstalling = ref(false);
 const macSteamInstalled = ref(false);
 const macSteamRunning = ref(false);
 const library = ref<SteamLibrary | null>(null);
@@ -141,6 +152,9 @@ provide("library", library);
 provide("config", config);
 provide("wineSteamInstalled", wineSteamInstalled);
 provide("wineSteamRunning", wineSteamRunning);
+provide("wineUbisoftInstalled", wineUbisoftInstalled);
+provide("wineUbisoftRunning", wineUbisoftRunning);
+provide("ubisoftInstalling", ubisoftInstalling);
 provide("macSteamInstalled", macSteamInstalled);
 provide("macSteamRunning", macSteamRunning);
 provide("backendConnected", backendConnected);
@@ -160,18 +174,27 @@ provide("loadLibrary", loadLibrary);
 provide("api", api);
 
 async function refreshSteamStatus() {
-  const steamStatus = await api<{
+  const [steamStatus, ubisoftStatus] = await Promise.all([api<{
     installed: boolean;
     running: boolean;
     mac_installed: boolean;
     mac_running: boolean;
     metalsharp_wine_available: boolean;
-  }>("GET", "/steam/status");
+  }>("GET", "/steam/status"), api<{
+    installed?: boolean;
+    running?: boolean;
+    installing?: boolean;
+  }>("GET", "/ubisoft/status")]);
   if (steamStatus) {
     wineSteamInstalled.value = steamStatus.installed;
     wineSteamRunning.value = steamStatus.running;
     macSteamInstalled.value = steamStatus.mac_installed;
     macSteamRunning.value = steamStatus.mac_running;
+  }
+  if (ubisoftStatus) {
+    wineUbisoftInstalled.value = ubisoftStatus.installed === true;
+    wineUbisoftRunning.value = ubisoftStatus.running === true;
+    ubisoftInstalling.value = ubisoftStatus.installing === true;
   }
 }
 
@@ -187,8 +210,26 @@ async function loadLibrary(force = false) {
       pendingForceReload = false;
       // Read manifests first. This makes new games appear before the
       // expensive full filesystem scan, including external Steam libraries.
-      const lib = await api<SteamLibrary>("GET", `/steam/library${refresh ? "?refresh=1" : ""}`, undefined, 120_000);
-      if (lib && Array.isArray(lib.games)) library.value = lib;
+      const [lib, ubisoft] = await Promise.all([
+        api<SteamLibrary>("GET", `/steam/library${refresh ? "?refresh=1" : ""}`, undefined, 120_000),
+        api<SteamLibrary>("GET", "/ubisoft/library", undefined, 120_000),
+      ]);
+      if (lib && Array.isArray(lib.games)) {
+        const seenNames = new Set(lib.games.map((game) => game.name.trim().toLocaleLowerCase()));
+        const ubisoftGames = (ubisoft?.games ?? []).filter((game) => {
+          const key = game.name.trim().toLocaleLowerCase();
+          if (seenNames.has(key)) return false;
+          seenNames.add(key);
+          return true;
+        });
+        const games = [...lib.games, ...ubisoftGames];
+        library.value = {
+          ...lib,
+          games,
+          total: games.length,
+          installed_count: games.filter((game) => game.installed).length,
+        };
+      }
       if (refresh) await api<{ steam: SteamStatus }>("GET", "/scan", undefined, 120_000);
       await refreshSteamStatus();
       refresh = pendingForceReload;

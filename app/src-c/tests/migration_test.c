@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 static unsigned steam_stop_calls = 0;
+static unsigned ubisoft_stop_calls = 0;
 
 char* ms_setup_install_all_json(const char* home, int* status) {
     (void)home;
@@ -15,6 +16,14 @@ char* ms_setup_install_all_json(const char* home, int* status) {
 char* ms_steam_stop_json(const char* home, int* status) {
     assert(home != NULL);
     steam_stop_calls++;
+    if (status)
+        *status = 200;
+    return strdup("{\"ok\":true,\"running\":false}");
+}
+
+char* ms_ubisoft_stop_json(const char* home, int* status) {
+    assert(home != NULL);
+    ubisoft_stop_calls++;
     if (status)
         *status = 200;
     return strdup("{\"ok\":true,\"running\":false}");
@@ -63,6 +72,7 @@ int main(void) {
     make_directory(home);
     assert(stop_managed_wine_processes(home));
     assert(steam_stop_calls == 1);
+    assert(ubisoft_stop_calls == 1);
 
     /* Content verification was removed from migration entirely: hash drift,
      * signature format changes, and version strings must never fail a
@@ -89,6 +99,22 @@ int main(void) {
     snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files/Game/game.exe", home);
     write_file(path, "game payload");
 
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher", home);
+    make_directory(path);
+    snprintf(path, sizeof(path),
+             "%s/prefix-ubisoft/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe", home);
+    write_file(path, "Ubisoft Connect install payload");
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices", home);
+    make_directory(path);
+    {
+        char c_drive[512], y_drive[512], z_drive[512];
+        snprintf(c_drive, sizeof(c_drive), "%s/prefix-ubisoft/dosdevices/c:", home);
+        snprintf(y_drive, sizeof(y_drive), "%s/prefix-ubisoft/dosdevices/y:", home);
+        snprintf(z_drive, sizeof(z_drive), "%s/prefix-ubisoft/dosdevices/z:", home);
+        assert(symlink("../drive_c", c_drive) == 0);
+        assert(symlink("/Volumes/AverySSD", y_drive) == 0);
+        assert(symlink("/", z_drive) == 0);
+    }
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows", home);
     make_directory(path);
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", home);
@@ -133,6 +159,16 @@ int main(void) {
     assert(file_exists(path));
     snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/Program Files/Game/game.exe", preserved.temp);
     assert(!file_exists(path));
+    snprintf(path, sizeof(path),
+             "%s/prefix-ubisoft/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe",
+             preserved.temp);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/c:", preserved.temp);
+    assert(!file_exists(path));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/y:", preserved.temp);
+    assert(!file_exists(path));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/z:", preserved.temp);
+    assert(!file_exists(path));
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", preserved.temp);
     assert(file_exists(path));
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/dosdevices/c:", preserved.temp);
@@ -170,7 +206,23 @@ int main(void) {
     }
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/drive_c/windows/user.reg", home);
     assert(file_exists(path));
+    snprintf(path, sizeof(path),
+             "%s/prefix-ubisoft/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe", home);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/c:", home);
+    assert(!file_exists(path));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/z:", home);
+    assert(!file_exists(path));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/y:", home);
+    {
+        char target[512] = {0};
+        ssize_t length = readlink(path, target, sizeof(target) - 1);
+        assert(length > 0);
+        target[length] = '\0';
+        assert(!strcmp(target, "/Volumes/AverySSD"));
+    }
     assert(!rebuild_gog_prefix_after_migration(home));
+    assert(!rebuild_ubisoft_prefix_after_migration(home));
     snprintf(path, sizeof(path), "%s/runtime/wine/bin", home);
     make_directory(path);
     snprintf(path, sizeof(path), "%s/runtime/wine/bin/metalsharp-wine", home);
@@ -182,6 +234,26 @@ int main(void) {
                      "printf '%s %s\\n' \"$1\" \"$2\" > \"$WINEPREFIX/migration-wineboot-args\"\n");
     assert(chmod(path, 0700) == 0);
     assert(rebuild_gog_prefix_after_migration(home));
+    assert(rebuild_ubisoft_prefix_after_migration(home));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/migration-wineboot-args", home);
+    {
+        FILE* args = fopen(path, "rb");
+        char contents[64] = {0};
+        assert(args != NULL);
+        assert(fread(contents, 1, sizeof(contents) - 1, args) > 0);
+        fclose(args);
+        assert(strcmp(contents, "wineboot -u\n") == 0);
+    }
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/c:", home);
+    {
+        struct stat st;
+        assert(lstat(path, &st) == 0 && S_ISLNK(st.st_mode));
+    }
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/dosdevices/z:", home);
+    {
+        struct stat st;
+        assert(lstat(path, &st) == 0 && S_ISLNK(st.st_mode));
+    }
     snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/migration-wineboot-args", home);
     {
         FILE* args = fopen(path, "rb");

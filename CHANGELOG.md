@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.75.0 — Unreleased
+
+### Added
+
+- **Ubisoft Connect library support** — launch/stop Ubisoft Connect in a dedicated D3DMetal-configured Wine prefix, map a writable external volume as Y: for game installs, discover locally installed games without account/API access, extract executable icons asynchronously into a local cache, and save/apply per-game graphics routes. Selecting a route stages its DLLs beside the chosen game executable; official Ubisoft page artwork is preferred for mapped titles, then SteamGridDB artwork is resolved with the saved Steam Art Manager API key if Ubisoft art is absent/unavailable, with local executable icons as the final fallback. Runtime migration preserves the Connect prefix and rebuilds Wine drive mappings. The user confirmed Far Cry 6 launches; other Ubisoft titles remain unverified.
+
+### Fixed
+
+- **Marvel Rivals launch lifecycle** — route Steam App ID 2767030 to D3DMetal by default through a Steam `-windowed` handoff, rediscover its detached game PID, and target its installed game processes for Stop and Cmd+Opt+Q.
+- **Generic Wine process tracking** — recover game status from MetalSharp-managed non-Steam Wine executables when a launcher PID is lost, and let Stop/Cmd+Opt+Q kill those fallback processes.
+- **Cyberpunk 2077 executable selection** — prefer `bin/x64/Cyberpunk2077.exe` for D3DMetal launches instead of relying on filesystem traversal that can select the RED launcher.
+- **Ubisoft library/search lifecycle** — use the installed-game display name from Ubisoft's local uninstall registry, make search focus the matching hero game, keep Ubisoft Connect separate from Assassin's Creed Odyssey process detection, and retain Connect's tracked PID through its launcher-to-client handoff.
+- **Ubisoft game process tracking** — rediscover live Ubisoft game PIDs from the exact executable command and install-directory working directory so Stop and Cmd+Opt+Q target the game, not the Connect client.
+- **Ubisoft game launch selection** — ignore support/redistributable folders when selecting the game executable so launch and D3DMetal staging don't target bundled VC redistributers.
+
 ## v0.74.0 — 2026-09-26
 
 Launcher routing and artwork fixes, Sharp Library/setup polish, D3D9 route documentation, and the Age of Empires IV executable-selection fix.
