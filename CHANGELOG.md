@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.75.0 — Unreleased
+## v0.75.0 - 09/28/2026
 
 ### Added
 
@@ -14,6 +14,8 @@
 - **Ubisoft library/search lifecycle** — use the installed-game display name from Ubisoft's local uninstall registry, make search focus the matching hero game, keep Ubisoft Connect separate from Assassin's Creed Odyssey process detection, and retain Connect's tracked PID through its launcher-to-client handoff.
 - **Ubisoft game process tracking** — rediscover live Ubisoft game PIDs from the exact executable command and install-directory working directory so Stop and Cmd+Opt+Q target the game, not the Connect client.
 - **Ubisoft game launch selection** — ignore support/redistributable folders when selecting the game executable so launch and D3DMetal staging don't target bundled VC redistributers.
+- **Steam Launch with D3DMetal Env** - Launch Steam with D3DMetal Environment so Steam can use it naturally without work-around hacks.
+- **EVE Online** - Fix EVE Online Launcher loading and x64 client hand-off. 
 
 ## v0.74.0 — 2026-09-26
 
