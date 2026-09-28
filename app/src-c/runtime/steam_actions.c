@@ -40,6 +40,10 @@
 #define STEAMWEBHELPER_WRAPPER_MAX_BYTES 100000ULL
 #define STEAMWEBHELPER_WRAPPER_SHA256    "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9"
 
+static const char EVE_ONLINE_CHROMIUM_FLAGS[] =
+    "--no-sandbox%20--in-process-gpu%20--disable-gpu%20--disable-d3d11%20--enable-unsafe-swiftshader%20"
+    "--use-gl=angle%20--use-angle=swiftshader-webgl";
+
 static char* join(const char* a, const char* b) {
     size_t x = strlen(a), y = strlen(b);
     bool slash = x > 0 && a[x - 1] != '/';
@@ -61,10 +65,12 @@ static char* read_bounded_file(const char* path);
 static char* find_game_executable(const char* directory, unsigned depth);
 static char* preferred_steam_game_executable(const char* game_dir, unsigned id, const char* pipeline);
 static char* find_steam_game_executable(const char* home, unsigned id, const char* pipeline);
+static char* latest_eve_online_client_executable(const char* game_dir);
 static bool executable_is_32bit(const char* executable);
 static bool body_id(const char* body, size_t len, unsigned* id);
 static void string_field(ms_json_writer* writer, const char* key, const char* value);
 static bool copy_file_path_new(const char* source, const char* destination);
+static char* launch_eve_d3dmetal_via_steam_json(const char* home, int* status);
 
 char* ms_steam_wine_launch_wrapper_path(const char* home) {
     static const char wrapper[] =
@@ -383,6 +389,16 @@ static const char* pipeline_overrides(const char* pipeline) {
     if (!strcmp(pipeline, "m13") || !strcmp(pipeline, "d3dmetal"))
         return "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
     return NULL;
+}
+
+static bool format_steam_pipeline_overrides(char* out, size_t out_size, const char* pipeline) {
+    static const char steam_runtime_overrides[] = "d3d10core=n,b;bcrypt=b;ncrypt=b";
+    const char* route_overrides = pipeline_overrides(pipeline);
+    int written = route_overrides ? snprintf(out, out_size, "%s;%s", route_overrides, steam_runtime_overrides)
+                                  : snprintf(out, out_size,
+                                             "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b;"
+                                             "gameoverlayrenderer,gameoverlayrenderer64=d");
+    return written >= 0 && (size_t)written < out_size;
 }
 
 static void normalize_fna_bottle_profile(const char* path, unsigned id) {
@@ -730,6 +746,17 @@ static bool append_launch_arg(char** argv, size_t* count, size_t max, const char
 }
 
 static void build_launch_args(unsigned id, const char* pipeline, char** argv, size_t* count, size_t max) {
+    if (id == 8500) {
+        static const char* const eve_chromium_args[] = {"--no-sandbox",
+                                                        "--in-process-gpu",
+                                                        "--disable-gpu",
+                                                        "--disable-d3d11",
+                                                        "--enable-unsafe-swiftshader",
+                                                        "--use-gl=angle",
+                                                        "--use-angle=swiftshader-webgl"};
+        for (size_t i = 0; i < sizeof(eve_chromium_args) / sizeof(eve_chromium_args[0]); i++)
+            append_launch_arg(argv, count, max, eve_chromium_args[i]);
+    }
     if (id == 553850) {
         append_launch_arg(argv, count, max, "--bundle-dir");
         append_launch_arg(argv, count, max, "data");
@@ -1494,8 +1521,10 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
     game_dir = ms_steam_game_dir(home, id);
 
     if (!strcmp(pipeline, "d3dmetal")) {
-        if (is32)
-            return false;
+        if (is32) {
+            ok = false;
+            goto done;
+        }
         source = "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows";
         files[file_count++] = "d3d10.dll";
         files[file_count++] = "d3d11.dll";
@@ -2303,6 +2332,8 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "Chameleon/Binaries/Win64/PenguinHotel-Win64-Shipping.exe";
     else if (id == 4126040)
         preferred[count++] = "Aniimo.exe";
+    else if (id == 8500)
+        preferred[count++] = "Launcher/evelauncher.exe";
     else if (id == 1145360 && pipeline && !strcmp(pipeline, "dxmt_32"))
         preferred[count++] = "x86/Hades.exe";
     else if (id == 1145360)
@@ -2358,6 +2389,17 @@ static void set_pipeline_runtime_env(const char*, const char*);
 
 char* ms_steam_d3dmetal_game_executable(const char* home, unsigned id) {
     return find_steam_game_executable(home, id, "d3dmetal");
+}
+
+char* ms_steam_d3dmetal_game_local_executable(const char* home, unsigned id) {
+    char* game_dir;
+    char* executable;
+    if (id != 8500)
+        return ms_steam_d3dmetal_game_executable(home, id);
+    game_dir = ms_steam_game_dir(home, id);
+    executable = game_dir ? latest_eve_online_client_executable(game_dir) : NULL;
+    free(game_dir);
+    return executable;
 }
 
 static char* spawn_offline_game(const char* home, const char* executable, unsigned id, const char* pipeline,
@@ -2539,6 +2581,376 @@ bool ms_steam_process_running(const char* home) {
     return managed_wine_process_running(home, true);
 }
 
+static pid_t wine_steam_client_pid(const char* home) {
+    char prefix[PATH_MAX];
+    char runtime[PATH_MAX];
+    FILE* pipe;
+    char line[4096];
+    pid_t steam_pid = 0;
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe)
+        return 0;
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX)
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if (contains_ci(end, "steam.exe") && !contains_ci(end, "steamwebhelper") &&
+            wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
+            steam_pid = (pid_t)raw_pid;
+            break;
+        }
+    }
+    pclose(pipe);
+    return steam_pid;
+}
+
+static char* wine_steam_route_marker_path(const char* home) {
+    return join(home, "runtime/steam-session-pipeline");
+}
+
+static bool write_wine_steam_route_marker(const char* home, const char* pipeline) {
+    char* path = wine_steam_route_marker_path(home);
+    pid_t steam_pid = wine_steam_client_pid(home);
+    FILE* file;
+    bool ok = false;
+    if (!path || steam_pid <= 0) {
+        free(path);
+        return false;
+    }
+    file = fopen(path, "wb");
+    if (file) {
+        bool wrote = fprintf(file, "%s %ld\n", pipeline, (long)steam_pid) > 0;
+        int close_status = fclose(file);
+        ok = wrote && close_status == 0;
+        if (!ok)
+            (void)unlink(path);
+    }
+    free(path);
+    return ok;
+}
+
+static bool wine_steam_route_marker_matches(const char* home, const char* pipeline) {
+    char* path = wine_steam_route_marker_path(home);
+    char* contents = path ? read_bounded_file(path) : NULL;
+    char saved_pipeline[32];
+    long saved_pid = 0;
+    bool matches = contents && sscanf(contents, "%31s %ld", saved_pipeline, &saved_pid) == 2 && saved_pid > 1 &&
+                   !strcmp(saved_pipeline, pipeline) && (pid_t)saved_pid == wine_steam_client_pid(home);
+    free(contents);
+    free(path);
+    return matches;
+}
+
+static bool write_wine_steam_route_pending(const char* home, const char* pipeline) {
+    char* path = wine_steam_route_marker_path(home);
+    FILE* file;
+    bool ok = false;
+    if (!path)
+        return false;
+    file = fopen(path, "wb");
+    if (file) {
+        bool wrote = fprintf(file, "%s pending %lld\n", pipeline, (long long)time(NULL)) > 0;
+        int close_status = fclose(file);
+        ok = wrote && close_status == 0;
+        if (!ok)
+            (void)unlink(path);
+    }
+    free(path);
+    return ok;
+}
+
+static bool wine_steam_route_marker_is_pending(const char* home, const char* pipeline) {
+    char* path = wine_steam_route_marker_path(home);
+    char* contents = path ? read_bounded_file(path) : NULL;
+    char saved_pipeline[32];
+    char state[16];
+    long long started_at = 0;
+    time_t now = time(NULL);
+    bool pending = contents && sscanf(contents, "%31s %15s %lld", saved_pipeline, state, &started_at) == 3 &&
+                   !strcmp(saved_pipeline, pipeline) && !strcmp(state, "pending") && started_at > 0 &&
+                   now >= started_at && now - started_at <= 120;
+    free(contents);
+    free(path);
+    return pending;
+}
+
+static void clear_wine_steam_route_marker(const char* home) {
+    char* path = wine_steam_route_marker_path(home);
+    if (path)
+        (void)unlink(path);
+    free(path);
+}
+
+static pthread_mutex_t g_eve_game_dir_mutex = PTHREAD_MUTEX_INITIALIZER;
+static char g_eve_game_dir_home[PATH_MAX];
+static char* g_eve_game_dir_cache;
+static time_t g_eve_game_dir_cached_at;
+static bool g_eve_game_dir_cache_valid;
+
+static char* cached_eve_game_dir(const char* home) {
+    time_t now = time(NULL);
+    char* result = NULL;
+    pthread_mutex_lock(&g_eve_game_dir_mutex);
+    if (g_eve_game_dir_cache_valid && !strcmp(g_eve_game_dir_home, home) && now >= g_eve_game_dir_cached_at &&
+        now - g_eve_game_dir_cached_at < 5) {
+        result = g_eve_game_dir_cache ? strdup(g_eve_game_dir_cache) : NULL;
+        pthread_mutex_unlock(&g_eve_game_dir_mutex);
+        return result;
+    }
+    pthread_mutex_unlock(&g_eve_game_dir_mutex);
+
+    result = ms_steam_game_dir(home, 8500);
+    pthread_mutex_lock(&g_eve_game_dir_mutex);
+    free(g_eve_game_dir_cache);
+    g_eve_game_dir_cache = result ? strdup(result) : NULL;
+    snprintf(g_eve_game_dir_home, sizeof(g_eve_game_dir_home), "%s", home);
+    g_eve_game_dir_cached_at = now;
+    g_eve_game_dir_cache_valid = true;
+    pthread_mutex_unlock(&g_eve_game_dir_mutex);
+    return result;
+}
+
+static bool path_is_within(const char* path, const char* root) {
+    size_t length = strlen(root);
+    return length > 0 && !strncmp(path, root, length) &&
+           (path[length] == '\0' || root[length - 1] == '/' || path[length] == '/');
+}
+
+static void append_eve_wine_path(char paths[][PATH_MAX], size_t capacity, size_t* count, char drive,
+                                 const char* resolved_root, const char* resolved_game_dir) {
+    char* output;
+    const char* relative;
+    size_t used;
+    if (*count >= capacity || !path_is_within(resolved_game_dir, resolved_root))
+        return;
+    relative = resolved_game_dir + strlen(resolved_root);
+    while (*relative == '/')
+        relative++;
+    output = paths[*count];
+    int written = snprintf(output, PATH_MAX, "%c:\\", drive);
+    if (written < 0 || written >= PATH_MAX)
+        return;
+    used = (size_t)written;
+    while (*relative && used + 1 < PATH_MAX) {
+        char character = *relative++;
+        output[used++] = character == '/' ? '\\' : character;
+    }
+    output[used] = '\0';
+    for (size_t i = 0; i < *count; i++)
+        if (!strcasecmp(paths[i], output))
+            return;
+    (*count)++;
+}
+
+static size_t eve_install_dir_wine_paths(const char* home, const char* game_dir, char paths[][PATH_MAX],
+                                         size_t capacity) {
+    char resolved_game[PATH_MAX];
+    char dosdevices[PATH_MAX];
+    DIR* directory;
+    struct dirent* entry;
+    size_t count = 0;
+    if (!game_dir || !realpath(game_dir, resolved_game))
+        return 0;
+
+    /* Z: remains valid for arbitrary Unix paths and is how some Steam
+     * libraryfolders.vdf files represent external libraries. */
+    append_eve_wine_path(paths, capacity, &count, 'Z', "/", resolved_game);
+    snprintf(dosdevices, sizeof(dosdevices), "%s/prefix-steam/dosdevices", home);
+    directory = opendir(dosdevices);
+    if (!directory)
+        return count;
+    while ((entry = readdir(directory)) != NULL) {
+        char link_path[PATH_MAX];
+        char link_target[PATH_MAX];
+        char resolved_root[PATH_MAX];
+        ssize_t length;
+        if (strlen(entry->d_name) != 2 || entry->d_name[1] != ':' || !isalpha((unsigned char)entry->d_name[0]))
+            continue;
+        if (snprintf(link_path, sizeof(link_path), "%s/%s", dosdevices, entry->d_name) >= (int)sizeof(link_path))
+            continue;
+        length = readlink(link_path, link_target, sizeof(link_target) - 1);
+        if (length <= 0)
+            continue;
+        link_target[length] = '\0';
+        if (link_target[0] == '/') {
+            if (!realpath(link_target, resolved_root))
+                continue;
+        } else {
+            char candidate[PATH_MAX];
+            if (snprintf(candidate, sizeof(candidate), "%s/%s", dosdevices, link_target) >= (int)sizeof(candidate) ||
+                !realpath(candidate, resolved_root))
+                continue;
+        }
+        append_eve_wine_path(paths, capacity, &count, (char)toupper((unsigned char)entry->d_name[0]), resolved_root,
+                             resolved_game);
+    }
+    closedir(directory);
+    return count;
+}
+
+static bool command_contains_wine_path(const char* command, const char* path) {
+    size_t length = strlen(path);
+    for (const char* cursor = command; *cursor; cursor++)
+        if (!strncasecmp(cursor, path, length) &&
+            (cursor[length] == '\0' || cursor[length] == '\\' || cursor[length] == '/' || cursor[length] == '"' ||
+             isspace((unsigned char)cursor[length])))
+            return true;
+    return false;
+}
+
+static bool eve_wine_process_command(const char* command, const char paths[][PATH_MAX], size_t path_count) {
+    bool eve_executable = contains_ci(command, "evelauncher.exe") || contains_ci(command, "eve-online.exe");
+    bool eve_game_client = contains_ci(command, "c:\\ccp\\eve\\tq\\bin64\\exefile.exe") ||
+                           contains_ci(command, "c:\\ccp\\eve\\tq\\bin64\\eve_crashmon.exe");
+    bool install_path_matches = false;
+    for (size_t i = 0; eve_executable && i < path_count; i++)
+        if (command_contains_wine_path(command, paths[i])) {
+            install_path_matches = true;
+            break;
+        }
+    return (eve_executable && install_path_matches) || eve_game_client;
+}
+
+static size_t signal_eve_wine_processes(const char* home, int signal_number, bool* failed) {
+    char prefix[PATH_MAX];
+    char runtime[PATH_MAX];
+    char (*paths)[PATH_MAX] = calloc(26, sizeof(*paths));
+    char* game_dir = cached_eve_game_dir(home);
+    size_t path_count = paths ? eve_install_dir_wine_paths(home, game_dir, paths, 26) : 0;
+    FILE* pipe;
+    char line[8192];
+    size_t signaled = 0;
+    if (failed)
+        *failed = paths == NULL;
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    free(game_dir);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe) {
+        if (failed)
+            *failed = true;
+        free(paths);
+        return 0;
+    }
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX || raw_pid == (long)getpid())
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if (!eve_wine_process_command(end, (const char (*)[PATH_MAX])paths, path_count) ||
+            !wine_process_owned((pid_t)raw_pid, end, prefix, runtime))
+            continue;
+        if (kill((pid_t)raw_pid, signal_number) == 0 || errno == ESRCH)
+            signaled++;
+    }
+    int pipe_status = pclose(pipe);
+    if ((pipe_status == -1 || !WIFEXITED(pipe_status) || WEXITSTATUS(pipe_status) != 0) && failed)
+        *failed = true;
+    free(paths);
+    return signaled;
+}
+
+static pid_t scan_eve_wine_process_pid(const char* home, bool* failed) {
+    char prefix[PATH_MAX];
+    char runtime[PATH_MAX];
+    char (*paths)[PATH_MAX] = calloc(26, sizeof(*paths));
+    char* game_dir = cached_eve_game_dir(home);
+    size_t path_count = paths ? eve_install_dir_wine_paths(home, game_dir, paths, 26) : 0;
+    FILE* pipe;
+    char line[8192];
+    pid_t eve_client_pid = 0;
+    pid_t game_client_pid = 0;
+    pid_t launcher_pid = 0;
+    pid_t fallback_pid = 0;
+    if (failed)
+        *failed = paths == NULL;
+    snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    free(game_dir);
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe) {
+        if (failed)
+            *failed = true;
+        free(paths);
+        return 0;
+    }
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        if (!paths)
+            break;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX)
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if (!eve_wine_process_command(end, (const char (*)[PATH_MAX])paths, path_count) ||
+            !wine_process_owned((pid_t)raw_pid, end, prefix, runtime))
+            continue;
+        if (!contains_ci(end, "--type=") && !fallback_pid)
+            fallback_pid = (pid_t)raw_pid;
+        if (contains_ci(end, "eve-online.exe") && !contains_ci(end, "--type=") && !eve_client_pid)
+            eve_client_pid = (pid_t)raw_pid;
+        else if (contains_ci(end, "c:\\ccp\\eve\\tq\\bin64\\exefile.exe") && !game_client_pid)
+            game_client_pid = (pid_t)raw_pid;
+        else if (contains_ci(end, "evelauncher.exe") && !contains_ci(end, "--type=") && !launcher_pid)
+            launcher_pid = (pid_t)raw_pid;
+    }
+    int pipe_status = pclose(pipe);
+    if ((pipe_status == -1 || !WIFEXITED(pipe_status) || WEXITSTATUS(pipe_status) != 0) && failed)
+        *failed = true;
+    free(paths);
+    if (eve_client_pid)
+        return eve_client_pid;
+    if (game_client_pid)
+        return game_client_pid;
+    if (launcher_pid)
+        return launcher_pid;
+    return fallback_pid;
+}
+
+pid_t ms_steam_eve_process_pid(const char* home) {
+    return scan_eve_wine_process_pid(home, NULL);
+}
+
+bool ms_steam_stop_eve_processes(const char* home) {
+    for (unsigned attempt = 0; attempt < 20; attempt++) {
+        bool scan_failed = false;
+        bool process_scan_failed = false;
+        size_t signaled = signal_eve_wine_processes(home, SIGKILL, &scan_failed);
+        pid_t pid = scan_eve_wine_process_pid(home, &process_scan_failed);
+        if (scan_failed || process_scan_failed)
+            return false;
+        if (signaled == 0 && pid == 0)
+            return true;
+        usleep(100000);
+    }
+    bool failed = false;
+    pid_t pid = scan_eve_wine_process_pid(home, &failed);
+    return !failed && pid == 0;
+}
+
 static void signal_wine_steam_processes(const char* home, int signal_number) {
     char prefix[PATH_MAX], runtime[PATH_MAX];
     FILE* pipe;
@@ -2598,6 +3010,7 @@ static void terminate_wine_steam_session(const char* home) {
     free(wineserver);
     free(prefix);
     signal_wine_steam_processes(home, SIGKILL);
+    clear_wine_steam_route_marker(home);
 }
 
 static char* spawn_wine(const char* home, const char* first, const char* second, const char* third, const char* fourth,
@@ -2655,6 +3068,64 @@ static char* spawn_wine(const char* home, const char* first, const char* second,
     *pid = child;
     return NULL;
 }
+
+static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, unsigned id, const char* first,
+                                     const char* second, const char* third, const char* fourth, const char* fifth,
+                                     pid_t* pid) {
+    char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
+    char* prefix = join(home, "prefix-steam");
+    char* steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+    pid_t child;
+    if (!wine || access(wine, X_OK) != 0) {
+        free(wine);
+        free(prefix);
+        free(steam_dir);
+        return strdup("MetalSharp Wine not found");
+    }
+    redirect_wine_steam_desktop(home);
+    ensure_steam_launch_ready(home, steam_dir);
+    seed_steam_registry(home);
+    child = fork();
+    if (child < 0) {
+        char* error_text = strdup(strerror(errno));
+        free(wine);
+        free(prefix);
+        free(steam_dir);
+        return error_text;
+    }
+    if (child == 0) {
+        char overrides[1024];
+        bool overrides_ready = format_steam_pipeline_overrides(overrides, sizeof(overrides), pipeline);
+        if (prefix)
+            setenv("WINEPREFIX", prefix, 1);
+        setenv("METALSHARP_HOME", home, 1);
+        setenv("METALSHARP_PIPELINE", pipeline, 1);
+        set_rosetta_avx_env();
+        set_route_paths(home, pipeline);
+        set_route_default_env(home, pipeline);
+        set_game_opengl_env(0, pipeline);
+        if (id > 0)
+            set_launch_cache_env(home, id, pipeline);
+        setenv("WINEDEBUG", "+vulkan,+d3d,+d3d11,+dxgi,+wined3d,+opengl", 1);
+        setenv("WINEDEBUGGER", "none", 1);
+        setenv("STEAM_RUNTIME", "0", 1);
+        setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
+        if (overrides_ready)
+            setenv("WINEDLLOVERRIDES", overrides, 1);
+        else
+            unsetenv("WINEDLLOVERRIDES");
+        if (steam_dir)
+            (void)chdir(steam_dir);
+        execl(wine, wine, first, second, third, fourth, fifth, (char*)NULL);
+        _exit(127);
+    }
+    free(wine);
+    free(prefix);
+    free(steam_dir);
+    *pid = child;
+    return NULL;
+}
+
 static char* spawn_wine_install(const char* home, const char* first, const char* second, const char* third,
                                 pid_t* pid) {
     char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
@@ -2788,6 +3259,8 @@ char* ms_steam_launch_json(const char* home, int* status) {
     }
     redirect_wine_steam_desktop(home);
     if (ms_steam_process_running(home)) {
+        if (wine_steam_route_marker_is_pending(home, "d3dmetal"))
+            (void)write_wine_steam_route_marker(home, "d3dmetal");
         errtext = spawn_wine_install(home, steam, "steam://open/library", NULL, &pid);
         free(steam);
         free(ui);
@@ -2803,10 +3276,16 @@ char* ms_steam_launch_json(const char* home, int* status) {
     }
     ensure_steam_launch_ready(home, steam_dir);
     seed_steam_registry(home);
-    errtext = spawn_wine(home, steam, "-no-cef-sandbox", "-cef-single-process", "-noverifyfiles", "-no-dwrite", &pid);
-    if (!errtext)
+    /* Start the shared Wine Steam client with D3DMetal available so Steam-
+     * launched games inherit the same verified environment. Never restart an
+     * already-running client here; the branch above only activates it. */
+    errtext = spawn_wine_for_pipeline(home, "d3dmetal", 0, steam, "-no-cef-sandbox", "-cef-single-process",
+                                      "-noverifyfiles", "-no-dwrite", &pid);
+    if (!errtext) {
+        (void)write_wine_steam_route_pending(home, "d3dmetal");
         for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
             sleep(1);
+    }
     free(steam);
     free(ui);
     free(steam_dir);
@@ -2817,10 +3296,54 @@ char* ms_steam_launch_json(const char* home, int* status) {
     }
     if (!ms_steam_process_running(home))
         return err("Wine Steam was started but did not become ready");
+    if (!write_wine_steam_route_marker(home, "d3dmetal"))
+        return err("Wine Steam is running, but its D3DMetal launch environment could not be verified");
     if (status)
         *status = 200;
     return pid_result(pid, "pid", 0, false);
 }
+
+static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) {
+    char* steam;
+    char* ui;
+    char* steam_dir;
+    char* error_text;
+    pid_t pid;
+    if (ms_steam_process_running(home)) {
+        if (wine_steam_route_marker_matches(home, pipeline))
+            return NULL;
+        if (wine_steam_route_marker_is_pending(home, pipeline) && write_wine_steam_route_marker(home, pipeline))
+            return NULL;
+        return strdup("Wine Steam is already running without MetalSharp's verified D3DMetal environment. Stop Wine "
+                      "Steam, then launch it from MetalSharp before launching EVE Online.");
+    }
+    steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
+    ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
+    steam_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+    if (!steam || !ui || !steam_dir || access(steam, F_OK) != 0 || access(ui, F_OK) != 0) {
+        free(steam);
+        free(ui);
+        free(steam_dir);
+        return strdup("Steam is not installed — use the setup wizard to install it first");
+    }
+    error_text = spawn_wine_for_pipeline(home, pipeline, 0, steam, "-no-cef-sandbox", "-cef-single-process",
+                                         "-noverifyfiles", "-no-dwrite", &pid);
+    if (!error_text)
+        (void)write_wine_steam_route_pending(home, pipeline);
+    free(steam);
+    free(ui);
+    free(steam_dir);
+    if (error_text)
+        return error_text;
+    for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
+        sleep(1);
+    if (!ms_steam_process_running(home))
+        return strdup("Wine Steam was started but did not become ready for this graphics route");
+    if (!write_wine_steam_route_marker(home, pipeline))
+        return strdup("Wine Steam started, but its D3DMetal launch environment could not be verified");
+    return NULL;
+}
+
 char* ms_steam_stop_json(const char* home, int* status) {
     if (status)
         *status = 200;
@@ -4019,6 +4542,14 @@ static bool direct_game_launch_paths(const char* executable, unsigned id, char* 
             return written >= 0 && (size_t)written < program_size;
         }
     }
+    if (id == 8500) {
+        char* launcher_slash = strrchr(cwd, '/');
+        if (launcher_slash && !strcmp(launcher_slash + 1, "Launcher") && !strcmp(exe_name, "evelauncher.exe")) {
+            *launcher_slash = '\0';
+            written = snprintf(program, program_size, "Launcher/%s", exe_name);
+            return written >= 0 && (size_t)written < program_size;
+        }
+    }
     written = snprintf(program, program_size, "%s", exe_name);
     return written >= 0 && (size_t)written < program_size;
 }
@@ -4126,6 +4657,24 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
                  home);
         if (cwd)
             (void)chdir(cwd);
+        if (id == 8500) {
+            char log_dir[PATH_MAX];
+            char log_path[PATH_MAX];
+            int diagnostic_fd = -1;
+            snprintf(log_dir, sizeof(log_dir), "%s/logs/%s/%u", home, pipeline, id);
+            if (ensure_directory(log_dir)) {
+                snprintf(log_path, sizeof(log_path), "%s/launch.stderr.log", log_dir);
+                diagnostic_fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            }
+            if (diagnostic_fd >= 0) {
+                setenv("WINEDEBUG", "+loaddll,+seh", 1);
+                (void)dup2(diagnostic_fd, STDERR_FILENO);
+                (void)dup2(diagnostic_fd, STDOUT_FILENO);
+                close(diagnostic_fd);
+            }
+            dprintf(STDERR_FILENO, "\n--- MetalSharp EVE launch ---\npipeline=%s\nexecutable=%s\ncwd=%s\n", pipeline,
+                    executable, cwd ? cwd : "(null)");
+        }
         const char* launch_wrapper = getenv("METALSHARP_WINE_LAUNCH_WRAPPER");
         argv[argc++] = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
         argv[argc++] = exe_name;
@@ -4137,9 +4686,17 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
             dprintf(STDERR_FILENO, "\\n");
         }
         argv[argc] = NULL;
+        if (id == 8500) {
+            dprintf(STDERR_FILENO, "command=");
+            for (size_t i = 0; i < argc; i++)
+                dprintf(STDERR_FILENO, "%s%s", i ? " " : "", argv[i]);
+            dprintf(STDERR_FILENO, "\n");
+        }
         execv(argv[0], argv);
         {
             int error = errno;
+            if (id == 8500)
+                dprintf(STDERR_FILENO, "execv failed: %s\n", strerror(error));
             (void)write(exec_pipe[1], &error, sizeof(error));
         }
         _exit(127);
@@ -4262,6 +4819,14 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
             *status = 400;
         return err("D3DMetal game executable not found");
     }
+    if (id == 8500) {
+        if (!ms_steam_ensure_bottle_manifest(home, id, "d3dmetal")) {
+            if (status)
+                *status = 500;
+            return err("failed to prepare EVE Online D3DMetal bottle manifest");
+        }
+        return launch_eve_d3dmetal_via_steam_json(home, status);
+    }
     /* Use the same Steam-prefix direct launcher as every routed Steam
      * pipeline. It preserves SteamAppId/SteamGameId/SteamOverlayGameId and
      * route setup, rather than marking this game as offline. */
@@ -4300,8 +4865,15 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
     return ms_json_writer_take(&writer);
 }
 
-static char* launch_game_via_steam_json(const char* home, unsigned id, int* status, pid_t* launched_pid) {
-    char url[64];
+static bool format_steam_run_url(char* url, size_t url_size, unsigned id, const char* encoded_args) {
+    int written = encoded_args && encoded_args[0] ? snprintf(url, url_size, "steam://run/%u//%s", id, encoded_args)
+                                                  : snprintf(url, url_size, "steam://run/%u", id);
+    return written >= 0 && (size_t)written < url_size;
+}
+
+static char* launch_game_via_steam_args_json(const char* home, unsigned id, const char* encoded_args, int* status,
+                                             pid_t* launched_pid) {
+    char url[1024];
     char *steam_result, *error_text;
     pid_t pid;
     if (!ms_steam_process_running(home)) {
@@ -4321,7 +4893,11 @@ static char* launch_game_via_steam_json(const char* home, unsigned id, int* stat
             return err("Wine Steam was started but did not become ready for game launch");
         }
     }
-    snprintf(url, sizeof(url), "steam://run/%u", id);
+    if (!format_steam_run_url(url, sizeof(url), id, encoded_args)) {
+        if (status)
+            *status = 500;
+        return err("Steam launch URI exceeds the supported length");
+    }
     error_text = spawn_wine(home, "start", url, NULL, NULL, NULL, &pid);
     if (error_text) {
         char* result = err(error_text);
@@ -4335,6 +4911,124 @@ static char* launch_game_via_steam_json(const char* home, unsigned id, int* stat
     if (status)
         *status = 200;
     return pid_result(pid, "pid", id, true);
+}
+
+static char* launch_game_via_steam_json(const char* home, unsigned id, int* status, pid_t* launched_pid) {
+    return launch_game_via_steam_args_json(home, id, NULL, status, launched_pid);
+}
+
+static int compare_eve_version(const char* left, const char* right) {
+    while (*left || *right) {
+        if (isdigit((unsigned char)*left) && isdigit((unsigned char)*right)) {
+            char* left_end;
+            char* right_end;
+            unsigned long left_value = strtoul(left, &left_end, 10);
+            unsigned long right_value = strtoul(right, &right_end, 10);
+            if (left_value != right_value)
+                return left_value < right_value ? -1 : 1;
+            left = left_end;
+            right = right_end;
+        } else {
+            unsigned char left_char = (unsigned char)tolower((unsigned char)*left);
+            unsigned char right_char = (unsigned char)tolower((unsigned char)*right);
+            if (left_char != right_char)
+                return left_char < right_char ? -1 : 1;
+            if (*left)
+                left++;
+            if (*right)
+                right++;
+        }
+    }
+    return 0;
+}
+
+static char* latest_eve_online_client_executable(const char* game_dir) {
+    DIR* directory = opendir(game_dir);
+    struct dirent* entry;
+    char* best = NULL;
+    char best_version[128] = "";
+    if (!directory)
+        return NULL;
+    while ((entry = readdir(directory)) != NULL) {
+        char* version_dir;
+        char* executable;
+        struct stat st;
+        const char* version;
+        if (strncmp(entry->d_name, "app-", 4) != 0 || entry->d_name[4] == '\0')
+            continue;
+        version = entry->d_name + 4;
+        version_dir = join(game_dir, entry->d_name);
+        executable = version_dir ? join(version_dir, "eve-online.exe") : NULL;
+        free(version_dir);
+        if (!executable || access(executable, F_OK) != 0 || executable_is_32bit(executable) || stat(executable, &st)) {
+            free(executable);
+            continue;
+        }
+        if (!best || compare_eve_version(version, best_version) > 0) {
+            free(best);
+            best = executable;
+            snprintf(best_version, sizeof(best_version), "%s", version);
+        } else
+            free(executable);
+    }
+    closedir(directory);
+    return best;
+}
+
+static char* launch_eve_d3dmetal_via_steam_json(const char* home, int* status) {
+    char* game_dir = ms_steam_game_dir(home, 8500);
+    char* launcher = game_dir ? join(game_dir, "Launcher/evelauncher.exe") : NULL;
+    char* executable = game_dir ? latest_eve_online_client_executable(game_dir) : NULL;
+    char* error_text;
+    char* result;
+    pid_t pid = 0;
+    int launch_status = 500;
+
+    if (status)
+        *status = 500;
+    if (!game_dir || !launcher || access(launcher, F_OK) != 0) {
+        free(game_dir);
+        free(launcher);
+        free(executable);
+        if (status)
+            *status = 404;
+        return err("EVE Online Steam launcher was not found");
+    }
+
+    ms_steam_deploy_controller_input_shims(home, game_dir);
+    remove_stale_route_dlls(home, "d3dmetal", game_dir, launcher);
+    if (executable) {
+        remove_stale_route_dlls(home, "d3dmetal", game_dir, executable);
+        if (!stage_route_dlls(home, 8500, "d3dmetal", executable)) {
+            free(game_dir);
+            free(launcher);
+            free(executable);
+            return err("required D3DMetal runtime DLLs are missing for EVE Online");
+        }
+    }
+    free(game_dir);
+    free(launcher);
+    free(executable);
+
+    /* Reuse the shared Wine Steam client if it is already running. When no
+     * client exists, start one with D3DMetal configured before the handoff. */
+    error_text = ensure_wine_steam_pipeline(home, "d3dmetal");
+    if (error_text) {
+        char* result = err(error_text);
+        free(error_text);
+        return result;
+    }
+    result = launch_game_via_steam_args_json(home, 8500, EVE_ONLINE_CHROMIUM_FLAGS, &launch_status, &pid);
+    if (!result || launch_status >= 400) {
+        if (status)
+            *status = launch_status;
+        return result ? result : err("EVE Online Steam handoff failed");
+    }
+    free(result);
+    ms_process_register_pending_game(8500, pid, 15);
+    if (status)
+        *status = 200;
+    return pipeline_pid_result(pid, 8500, "d3dmetal", home);
 }
 
 static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
@@ -4810,6 +5504,12 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             *status = 500;
         return err("failed to prepare Steam bottle manifest");
     }
+    if (id == 8500 && !strcmp(pipeline, "d3dmetal")) {
+        char* result = launch_eve_d3dmetal_via_steam_json(home, status);
+        if (result && status && *status == 200)
+            record_launch_timing(home, id, started_at, pipeline);
+        return result;
+    }
     if (!strcmp(pipeline, "fna_arm64")) {
         game_dir = ms_steam_game_dir(home, id);
         ms_steam_deploy_controller_input_shims(home, game_dir);
@@ -4833,7 +5533,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             *status = 404;
         return err("Game executable not found");
     }
-    if (!strcmp(pipeline, "dxmt") && executable_is_32bit(executable)) {
+    if (id != 8500 && !strcmp(pipeline, "dxmt") && executable_is_32bit(executable)) {
         /* DXMT has a separate PE lane for 32-bit games. */
         char widened_pipeline[32];
         snprintf(widened_pipeline, sizeof(widened_pipeline), "%s_32", pipeline);
@@ -4848,13 +5548,35 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     game_dir = ms_steam_game_dir(home, id);
     ms_steam_deploy_controller_input_shims(home, game_dir);
     prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
-    remove_stale_route_dlls(home, pipeline, game_dir, executable);
-    if (!stage_route_dlls(home, id, pipeline, executable)) {
-        free(game_dir);
-        free(executable);
-        if (status)
-            *status = 500;
-        return err("required graphics runtime DLLs are missing");
+    if (id == 8500) {
+        char* eve_client = latest_eve_online_client_executable(game_dir);
+        if (!eve_client) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 404;
+            return err("EVE Online 64-bit client was not found");
+        }
+        remove_stale_route_dlls(home, pipeline, game_dir, executable);
+        remove_stale_route_dlls(home, pipeline, game_dir, eve_client);
+        if (!stage_route_dlls(home, id, pipeline, eve_client)) {
+            free(eve_client);
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            return err("required graphics runtime DLLs are missing for EVE Online");
+        }
+        free(eve_client);
+    } else {
+        remove_stale_route_dlls(home, pipeline, game_dir, executable);
+        if (!stage_route_dlls(home, id, pipeline, executable)) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            return err("required graphics runtime DLLs are missing");
+        }
     }
     if (odyssey_uses_steam_bootstrap(id, pipeline)) {
         pid_t steam_pid = 0;
@@ -4975,6 +5697,15 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
         return err("unknown pipeline");
     }
     snprintf(pipeline, sizeof(pipeline), "%s", canonical_pipeline(pipeline));
+    if (id == 8500 && !strcmp(pipeline, "d3dmetal")) {
+        free(executable);
+        if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
+            if (status)
+                *status = 500;
+            return err("failed to prepare EVE Online D3DMetal bottle manifest");
+        }
+        return launch_eve_d3dmetal_via_steam_json(home, status);
+    }
     if (access(executable, F_OK) != 0) {
         free(executable);
         if (status)

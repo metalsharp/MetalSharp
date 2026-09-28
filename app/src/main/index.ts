@@ -730,10 +730,33 @@ function forceQuitAllRunningGames(port: number): void {
   gogReq.end();
 }
 
+function stopSteamGameForShortcut(port: number, appid: number, label: string, onComplete: () => void): void {
+  const stopBody = JSON.stringify({ appid });
+  const stop = http.request(
+    {
+      hostname: "127.0.0.1",
+      port,
+      path: "/kill",
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(stopBody) },
+    },
+    (response) => {
+      response.resume();
+      response.on("end", onComplete);
+    },
+  );
+  stop.setTimeout(5000, () => stop.destroy());
+  stop.on("error", (error) => {
+    console.warn(`Stop ${label} request failed:`, error);
+    onComplete();
+  });
+  stop.end(stopBody);
+}
+
 function forceQuitRunningGames(): void {
   const port = bridge ? bridge.getPort() : 9274;
   // Stop Sharp Library and GameJolt process groups before the Steam-running
-  // query and Odyssey-specific fallback path.
+  // query and the per-game Steam stop paths.
   const fallback = () => forceQuitAllRunningGames(port);
   stopSharpLibraryApplications(port, () => {
     stopGameJoltGames(port, () => {
@@ -750,9 +773,14 @@ function forceQuitRunningGames(): void {
           if (body.length > 65536) req.destroy();
         });
         res.on("end", () => {
+          let eveRunning = false;
           let odysseyRunning = false;
           try {
             const parsed = JSON.parse(body) as { ok?: boolean; running?: { appid?: number }[] };
+            eveRunning =
+              parsed.ok === true &&
+              Array.isArray(parsed.running) &&
+              parsed.running.some((game) => game?.appid === 8500);
             odysseyRunning =
               parsed.ok === true &&
               Array.isArray(parsed.running) &&
@@ -760,30 +788,14 @@ function forceQuitRunningGames(): void {
           } catch {
             // Fall back to the original global escape hatch if the status is unavailable.
           }
-          if (!odysseyRunning) {
+          if (!eveRunning && !odysseyRunning) {
             fallback();
             return;
           }
-          const stopBody = JSON.stringify({ appid: 812140 });
-          const stop = http.request(
-            {
-              hostname: "127.0.0.1",
-              port,
-              path: "/kill",
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(stopBody) },
-            },
-            (stopResponse) => {
-              stopResponse.resume();
-              stopResponse.on("end", fallback);
-            },
-          );
-          stop.setTimeout(5000, () => stop.destroy());
-          stop.on("error", (error) => {
-            console.warn("Stop Odyssey request failed:", error);
-            fallback();
-          });
-          stop.end(stopBody);
+          const stopOdyssey = () => stopSteamGameForShortcut(port, 812140, "Odyssey", fallback);
+          if (eveRunning)
+            stopSteamGameForShortcut(port, 8500, "EVE Online", () => (odysseyRunning ? stopOdyssey() : fallback()));
+          else stopOdyssey();
         });
       });
       req.setTimeout(2000, () => req.destroy());
@@ -796,8 +808,8 @@ function forceQuitRunningGames(): void {
   });
 }
 
-// Cmd+Opt+Q uses Odyssey's per-game stop path when it is active (also closing
-// Ubisoft Connect), and otherwise force-quits all running games as before.
+// Cmd+Opt+Q uses per-game stop paths for EVE Online and Odyssey (including its
+// Ubisoft Connect processes), then force-quits other running games as before.
 function registerForceQuitGamesShortcut(): void {
   if (process.platform !== "darwin") return;
   for (const accelerator of ["Command+Option+Q", "Command+Alt+Q"]) {

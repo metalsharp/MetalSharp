@@ -11,6 +11,7 @@ char* ms_process_force_quit_json(int*);
 char* ms_process_force_kill_json(const char*, int*);
 char* ms_process_prepare_json(const char*, const char*, size_t, int*);
 void ms_process_register_game(unsigned, pid_t);
+void ms_process_register_pending_game(unsigned, pid_t, unsigned);
 unsigned long ms_process_background_task_generation(void);
 bool ms_process_background_task_cancelled(unsigned long);
 bool ms_process_background_task_begin(unsigned long);
