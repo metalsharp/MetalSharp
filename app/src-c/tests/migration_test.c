@@ -228,13 +228,27 @@ int main(void) {
     snprintf(path, sizeof(path), "%s/runtime/wine/bin/metalsharp-wine", home);
     write_file(path, "#!/bin/sh\n"
                      "[ \"$1\" = wineboot ] && [ \"$2\" = -u ] || exit 4\n"
-                     "mkdir -p \"$WINEPREFIX/dosdevices\"\n"
-                     "ln -sf ../drive_c \"$WINEPREFIX/dosdevices/c:\"\n"
-                     "ln -sf / \"$WINEPREFIX/dosdevices/z:\"\n"
-                     "printf '%s %s\\n' \"$1\" \"$2\" > \"$WINEPREFIX/migration-wineboot-args\"\n");
+                     "[ \"$WINEMSYNC\" = 0 ] && [ \"$MS_FWD_COMPAT_GL_CTX\" = 1 ] || exit 5\n"
+                     "[ \"$(readlink \"$WINEPREFIX/dosdevices/c:\")\" = ../drive_c ] || exit 7\n"
+                     "[ \"$(readlink \"$WINEPREFIX/dosdevices/z:\")\" = / ] || exit 8\n"
+                     "printf '%s %s\\n' \"$1\" \"$2\" > \"$WINEPREFIX/migration-wineboot-args\"\n"
+                     "case \"$WINEPREFIX\" in *gog-prefix*) [ \"${FAIL_GOG_WINEBOOT:-0}\" != 1 ] || exit 6;; esac\n");
     assert(chmod(path, 0700) == 0);
-    assert(rebuild_gog_prefix_after_migration(home));
-    assert(rebuild_ubisoft_prefix_after_migration(home));
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/dosdevices/c:", home);
+    unlink(path);
+    assert(symlink("/", path) == 0);
+    setenv("FAIL_GOG_WINEBOOT", "1", 1);
+    {
+        bool gog_ok = true, ubisoft_ok = false;
+        assert(!rebuild_preserved_wine_prefixes(home, &gog_ok, &ubisoft_ok));
+        assert(!gog_ok && ubisoft_ok);
+    }
+    unsetenv("FAIL_GOG_WINEBOOT");
+    snprintf(path, sizeof(path), "%s/bottles/gog-prefix/prefix/migration-wineboot-args", home);
+    assert(file_exists(path));
+    snprintf(path, sizeof(path), "%s/prefix-ubisoft/migration-wineboot-args", home);
+    assert(file_exists(path));
+    assert(rebuild_preserved_wine_prefixes(home, &(bool){false}, &(bool){false}));
     snprintf(path, sizeof(path), "%s/prefix-ubisoft/migration-wineboot-args", home);
     {
         FILE* args = fopen(path, "rb");
