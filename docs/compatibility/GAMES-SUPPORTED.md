@@ -57,7 +57,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Eve Online | 8500 | Launches through steam with Specific Flags that enable the launcher to load |
 | Far Cry 6 | Ubisoft | |
 | TrackMania | Ubisoft | |
-| Marvel Rivals | Launches through Steam with -Windowed to avoid a mouse bug | 
+| Marvel Rivals | | Launches through Steam with -Windowed to avoid a mouse bug |
 
 ---
 
