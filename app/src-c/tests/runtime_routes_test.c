@@ -42,6 +42,18 @@ static void fixture_bytes(const char* home, const char* relative, const unsigned
     free(path);
 }
 
+static void pe_fixture(const char* home, const char* relative, unsigned short machine) {
+    unsigned char pe[0x5a] = {0};
+    pe[0] = 'M';
+    pe[1] = 'Z';
+    pe[0x3c] = 0x40;
+    pe[0x40] = 'P';
+    pe[0x41] = 'E';
+    pe[0x44] = (unsigned char)(machine & 0xff);
+    pe[0x45] = (unsigned char)(machine >> 8);
+    fixture_bytes(home, relative, pe, sizeof(pe));
+}
+
 static void executable_fixture(const char* home, const char* relative) {
     char* path;
     fixture(home, relative, "x87sidecar");
@@ -596,6 +608,142 @@ int main(int argc, char** argv) {
     }
     free(helldivers_exe);
     free(helldivers_dir);
+
+    fixture(home, "eve/Launcher/evelauncher.exe", "EVE Steam launcher");
+    char* eve_dir = join(home, "eve");
+    char* eve_dosdevices = join(home, "prefix-steam/dosdevices");
+    char* e_drive = join(eve_dosdevices, "e:");
+    char* c_drive = join(eve_dosdevices, "c:");
+    char* local_eve_dir = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamapps/common/Eve Online");
+    assert(ensure_directory(eve_dosdevices));
+    assert(symlink(home, e_drive) == 0);
+    assert(symlink("../drive_c", c_drive) == 0);
+    assert(ensure_directory(local_eve_dir));
+    pe_fixture(home, "eve/app-1.9.9/eve-online.exe", 0x8664);
+    pe_fixture(home, "eve/app-1.16.1/eve-online.exe", 0x8664);
+    pe_fixture(home, "eve/app-2.0.0/eve-online.exe", 0x014c);
+    char* eve_exe = preferred_steam_game_executable(eve_dir, 8500, "dxmt_32");
+    assert(eve_exe && strstr(eve_exe, "/eve/Launcher/evelauncher.exe"));
+    {
+        char launch_cwd[PATH_MAX];
+        char launch_program[PATH_MAX];
+        assert(direct_game_launch_paths(eve_exe, 8500, launch_cwd, sizeof(launch_cwd), launch_program,
+                                        sizeof(launch_program)));
+        assert(!strcmp(launch_cwd, eve_dir));
+        assert(!strcmp(launch_program, "Launcher/evelauncher.exe"));
+    }
+    char* eve_client = latest_eve_online_client_executable(eve_dir);
+    assert(eve_client && strstr(eve_client, "/eve/app-1.16.1/eve-online.exe"));
+    {
+        char (*paths)[PATH_MAX] = calloc(26, sizeof(*paths));
+        size_t count = eve_install_dir_wine_paths(home, eve_dir, paths, 26);
+        assert(count >= 2);
+        assert(eve_wine_process_command("wine E:\\eve\\Launcher\\evelauncher.exe", (const char (*)[PATH_MAX])paths,
+                                        count));
+        assert(!eve_wine_process_command("wine E:\\other\\eve-online.exe", (const char (*)[PATH_MAX])paths, count));
+        free(paths);
+        paths = calloc(26, sizeof(*paths));
+        count = eve_install_dir_wine_paths(home, local_eve_dir, paths, 26);
+        assert(count >= 1);
+        assert(eve_wine_process_command(
+            "wine C:\\Program Files (x86)\\Steam\\steamapps\\common\\Eve Online\\Launcher\\evelauncher.exe",
+            (const char (*)[PATH_MAX])paths, count));
+        assert(
+            eve_wine_process_command("wine C:\\CCP\\EVE\\tq\\bin64\\exefile.exe", (const char (*)[PATH_MAX])NULL, 0));
+        free(paths);
+        assert(unlink(c_drive) == 0);
+        assert(unlink(e_drive) == 0);
+    }
+    char eve_steam_url[512];
+    assert(format_steam_run_url(eve_steam_url, sizeof(eve_steam_url), 8500, EVE_ONLINE_CHROMIUM_FLAGS));
+    assert(!strcmp(eve_steam_url,
+                   "steam://run/8500//--no-sandbox%20--in-process-gpu%20--disable-gpu%20--disable-d3d11%20"
+                   "--enable-unsafe-swiftshader%20--use-gl=angle%20--use-angle=swiftshader-webgl"));
+    {
+        char overrides[1024];
+        assert(format_steam_pipeline_overrides(overrides, sizeof(overrides), "d3dmetal"));
+        assert(strstr(overrides, "d3d10core=n,b"));
+        assert(strstr(overrides, "bcrypt=b"));
+        assert(strstr(overrides, "ncrypt=b"));
+    }
+    {
+        char* args[16];
+        size_t arg_count = 0;
+        build_launch_args(8500, "dxmt", args, &arg_count, sizeof(args) / sizeof(args[0]));
+        assert(arg_count == 7);
+        assert(!strcmp(args[0], "--no-sandbox"));
+        assert(!strcmp(args[6], "--use-angle=swiftshader-webgl"));
+    }
+    {
+        int handoff_pipe[2];
+        pid_t handoff_child;
+        int child_status;
+        assert(pipe(handoff_pipe) == 0);
+        handoff_child = fork();
+        assert(handoff_child >= 0);
+        if (handoff_child == 0) {
+            char byte;
+            close(handoff_pipe[1]);
+            (void)read(handoff_pipe[0], &byte, 1);
+            _exit(0);
+        }
+        close(handoff_pipe[0]);
+        ms_process_register_pending_game(8499, handoff_child, 15);
+        ms_process_register_game(8499, getpid());
+        close(handoff_pipe[1]);
+        usleep(20000);
+        char* reap_probe = ms_process_running_json(home);
+        assert(reap_probe && strstr(reap_probe, "\"appid\":8499"));
+        free(reap_probe);
+        errno = 0;
+        assert(waitpid(handoff_child, &child_status, WNOHANG) == -1 && errno == ECHILD);
+        ms_process_register_pending_game(8499, handoff_child, 0);
+        reap_probe = ms_process_running_json(home);
+        assert(reap_probe && !strstr(reap_probe, "\"appid\":8499"));
+        free(reap_probe);
+    }
+    {
+        pid_t grace_child = fork();
+        assert(grace_child >= 0);
+        if (grace_child == 0)
+            _exit(0);
+        ms_process_register_pending_game(8498, grace_child, 1);
+        char* grace_probe = ms_process_running_json(home);
+        assert(grace_probe && strstr(grace_probe, "\"appid\":8498"));
+        free(grace_probe);
+        usleep(1100000);
+        grace_probe = ms_process_running_json(home);
+        assert(grace_probe && !strstr(grace_probe, "\"appid\":8498"));
+        free(grace_probe);
+    }
+    ms_process_register_pending_game(8500, getpid(), 15);
+    char* running_during_eve_handoff = ms_process_running_json(home);
+    assert(running_during_eve_handoff && strstr(running_during_eve_handoff, "\"appid\":8500"));
+    free(running_during_eve_handoff);
+    {
+        int kill_status = 0;
+        const char* eve_stop_body = "{\"appid\":8500}";
+        char* stopped = ms_process_kill_json(home, eve_stop_body, strlen(eve_stop_body), &kill_status);
+        assert(stopped && kill_status == 200 && strstr(stopped, "\"ok\":true"));
+        free(stopped);
+    }
+    free(eve_client);
+    free(eve_exe);
+    free(eve_dir);
+    free(eve_dosdevices);
+    free(e_drive);
+    free(c_drive);
+    free(local_eve_dir);
+    {
+        char* runtime_dir = join(home, "runtime");
+        assert(ensure_directory(runtime_dir));
+        free(runtime_dir);
+        assert(write_wine_steam_route_pending(home, "d3dmetal"));
+        assert(wine_steam_route_marker_is_pending(home, "d3dmetal"));
+        assert(!wine_steam_route_marker_is_pending(home, "dxmt"));
+        clear_wine_steam_route_marker(home);
+    }
+
     fixture(home, "aoe4/EssenceEditor.exe", "editor executable that must not launch");
     fixture(home, "aoe4/RelicCardinal.exe", "Age of Empires IV game executable");
     char* aoe4_dir = join(home, "aoe4");

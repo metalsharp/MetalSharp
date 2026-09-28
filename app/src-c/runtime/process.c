@@ -13,18 +13,32 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 typedef struct running_game {
     unsigned appid;
     pid_t pid;
+    unsigned long long keep_until_ms;
     struct running_game* next;
 } running_game;
+typedef struct retired_child {
+    pid_t pid;
+    struct retired_child* next;
+} retired_child;
 static running_game* g_running;
+static retired_child* g_retired_children;
 static pthread_mutex_t g_running_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_background_task_mutex = PTHREAD_MUTEX_INITIALIZER;
 static unsigned long g_background_task_generation;
 static volatile sig_atomic_t g_background_shutdown_requested;
+
+static unsigned long long process_monotonic_millis(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return 0;
+    return (unsigned long long)now.tv_sec * 1000ULL + (unsigned long long)now.tv_nsec / 1000000ULL;
+}
 
 unsigned long ms_process_background_task_generation(void) {
     unsigned long generation;
@@ -143,10 +157,47 @@ static char* error_json(const char* s) {
     r = ms_json_writer_take(&w);
     return r;
 }
+static void reap_retired_children(void) {
+    retired_child** current = &g_retired_children;
+    while (*current) {
+        retired_child* child = *current;
+        int status;
+        pid_t waited = waitpid(child->pid, &status, WNOHANG);
+        if (waited == child->pid || (waited < 0 && errno != EINTR)) {
+            *current = child->next;
+            free(child);
+        } else
+            current = &child->next;
+    }
+}
+
+static void retire_child_if_needed(pid_t pid) {
+    retired_child* child;
+    int status;
+    pid_t waited;
+    if (pid <= 0)
+        return;
+    waited = waitpid(pid, &status, WNOHANG);
+    if (waited != 0 && !(waited < 0 && errno == EINTR))
+        return; /* Reaped already, not our child, or an unrecoverable wait error. */
+    for (child = g_retired_children; child; child = child->next)
+        if (child->pid == pid)
+            return;
+    child = calloc(1, sizeof(*child));
+    if (child) {
+        child->pid = pid;
+        child->next = g_retired_children;
+        g_retired_children = child;
+    }
+}
+
 static void remember(unsigned appid, pid_t pid) {
     running_game* g;
+    reap_retired_children();
     for (g = g_running; g; g = g->next)
         if (g->appid == appid) {
+            if (g->pid != pid)
+                retire_child_if_needed(g->pid);
             g->pid = pid;
             return;
         }
@@ -157,6 +208,21 @@ static void remember(unsigned appid, pid_t pid) {
         g->next = g_running;
         g_running = g;
     }
+}
+
+void ms_process_register_pending_game(unsigned appid, pid_t pid, unsigned grace_seconds) {
+    running_game* g;
+    if (appid == 0 || pid <= 0)
+        return;
+    pthread_mutex_lock(&g_running_mutex);
+    remember(appid, pid);
+    for (g = g_running; g; g = g->next) {
+        if (g->appid == appid) {
+            g->keep_until_ms = process_monotonic_millis() + (unsigned long long)grace_seconds * 1000ULL;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_running_mutex);
 }
 
 void ms_process_register_game(unsigned appid, pid_t pid) {
@@ -171,6 +237,7 @@ static void forget(unsigned appid) {
     while (*p) {
         if ((*p)->appid == appid) {
             running_game* old = *p;
+            retire_child_if_needed(old->pid);
             *p = old->next;
             free(old);
             return;
@@ -211,8 +278,9 @@ static bool active(pid_t pid) {
 }
 static void prune(void) {
     running_game** p = &g_running;
+    reap_retired_children();
     while (*p) {
-        if (!active((*p)->pid)) {
+        if (!active((*p)->pid) && (*p)->keep_until_ms <= process_monotonic_millis()) {
             running_game* old = *p;
             *p = old->next;
             free(old);
@@ -362,6 +430,9 @@ char* ms_process_running_json(const char* home) {
     char* out;
     bool odyssey_registered = false;
     pid_t odyssey_pid = 0;
+    pid_t eve_pid = ms_steam_eve_process_pid(home);
+    if (eve_pid > 0)
+        ms_process_register_game(8500, eve_pid);
     pthread_mutex_lock(&g_running_mutex);
     prune();
     for (g = g_running; g; g = g->next)
@@ -414,6 +485,29 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
         return error_json("invalid JSON object");
     (void)u64(r, "pid", &pid64);
     (void)u64(r, "appid", &aid);
+    if (aid == 8500) {
+        pid_t eve_pid = ms_steam_eve_process_pid(home);
+        pthread_mutex_lock(&g_running_mutex);
+        forget((unsigned)aid);
+        pthread_mutex_unlock(&g_running_mutex);
+        if (!ms_steam_stop_eve_processes(home)) {
+            ms_json_free(r);
+            if (status)
+                *status = 500;
+            return error_json("failed to stop EVE Online launcher and game processes");
+        }
+        ms_json_free(r);
+        ms_json_writer_init(&w);
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "ok");
+        ms_json_writer_bool(&w, true);
+        ms_json_writer_key(&w, "pid");
+        ms_json_writer_u64(&w, (unsigned)(eve_pid > 0 ? eve_pid : pid64));
+        ms_json_writer_object_end(&w);
+        if (status)
+            *status = 200;
+        return ms_json_writer_take(&w);
+    }
     if (aid == 812140) {
         bool stop_ok;
         pid_t activity_pid = ms_steam_odyssey_activity_pid(home);
