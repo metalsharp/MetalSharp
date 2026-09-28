@@ -39,6 +39,27 @@ static bool steam_regular_file(const char* path) {
     return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
+static unsigned long long icon_png_area(const char* name) {
+    for (const char* p = name; p && *p; p++) {
+        char* width_end = NULL;
+        char* height_end = NULL;
+        unsigned long long width, height;
+        if (!isdigit((unsigned char)*p))
+            continue;
+        errno = 0;
+        width = strtoull(p, &width_end, 10);
+        if (errno || width_end == p || *width_end != 'x' || !isdigit((unsigned char)width_end[1]))
+            continue;
+        errno = 0;
+        height = strtoull(width_end + 1, &height_end, 10);
+        if (errno || height_end == width_end + 1 || (*height_end != '_' && *height_end != '.') || !height ||
+            width > ULLONG_MAX / height)
+            continue;
+        return width * height;
+    }
+    return 1;
+}
+
 static bool has_app_extension(const char* name) {
     size_t length = name ? strlen(name) : 0;
     return length > 4 && strcasecmp(name + length - 4, ".app") == 0;
@@ -141,6 +162,8 @@ static char* steam_embedded_icon(const char* game_directory, bool refresh) {
     char* output;
     char* resource;
     char* executable = NULL;
+    char* best_image = NULL;
+    unsigned long long best_area = 0;
     int score = -1;
     DIR* dir;
     struct dirent* entry;
@@ -211,19 +234,28 @@ static char* steam_embedded_icon(const char* game_directory, bool refresh) {
         if (length < 4 || strcasecmp(entry->d_name + length - 4, ".png") != 0)
             continue;
         image = join_path(output, entry->d_name);
-        if (image && rename(image, cache) == 0) {
-            free(image);
-            closedir(dir);
-            unlink(resource);
-            rmdir(output);
-            free(executable);
-            free(output);
-            free(resource);
-            return cache;
+        if (image) {
+            unsigned long long area = icon_png_area(entry->d_name);
+            if (area > best_area) {
+                free(best_image);
+                best_image = image;
+                best_area = area;
+            } else {
+                free(image);
+            }
         }
-        free(image);
     }
     closedir(dir);
+    if (best_image && rename(best_image, cache) == 0) {
+        free(best_image);
+        unlink(resource);
+        rmdir(output);
+        free(executable);
+        free(output);
+        free(resource);
+        return cache;
+    }
+    free(best_image);
 fail:
     free(executable);
     unlink(resource);
@@ -233,6 +265,138 @@ fail:
     free(resource);
     free(cache);
     return NULL;
+}
+
+char* ms_steam_extract_executable_icon(const char* home, const char* executable, unsigned cache_key) {
+    const char* wrestool = NULL;
+    const char* icotool = NULL;
+    char relative[128], temp_relative[128];
+    char *art_dir = NULL, *cache = NULL, *temp = NULL, *resource = NULL, *png_dir = NULL;
+    DIR* dir = NULL;
+    struct dirent* entry;
+    char* best_image = NULL;
+    unsigned long long best_area = 0;
+    char* result = NULL;
+    int status = 0;
+    pid_t pid, waited;
+    if (!home || !executable)
+        return NULL;
+    snprintf(relative, sizeof(relative), "cache/ubisoft-connect/artwork/%u.png", cache_key);
+    snprintf(temp_relative, sizeof(temp_relative), "cache/ubisoft-connect/artwork/.%u-extract", cache_key);
+    cache = join_path(home, relative);
+    if (!cache)
+        goto done;
+    if (steam_regular_file(cache)) {
+        result = cache;
+        cache = NULL;
+        goto done;
+    }
+    wrestool = steam_icon_tool("wrestool");
+    icotool = steam_icon_tool("icotool");
+    if (!wrestool || !icotool)
+        goto done;
+    art_dir = join_path(home, "cache/ubisoft-connect/artwork");
+    temp = join_path(home, temp_relative);
+    resource = temp ? join_path(temp, "resource.ico") : NULL;
+    png_dir = temp ? join_path(temp, "png") : NULL;
+    if (!art_dir || !temp || !resource || !png_dir || !mkdir_p(art_dir))
+        goto done;
+    (void)mkdir(temp, 0700);
+    (void)mkdir(png_dir, 0700);
+    pid = fork();
+    if (pid == 0) {
+        int fd = open(resource, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        int null_fd = open("/dev/null", O_WRONLY);
+        char* const args[] = {(char*)wrestool, "-x", "--type=14", (char*)executable, NULL};
+        if (null_fd >= 0) {
+            (void)dup2(null_fd, STDERR_FILENO);
+            close(null_fd);
+        }
+        if (fd < 0 || dup2(fd, STDOUT_FILENO) < 0)
+            _exit(127);
+        close(fd);
+        execv(wrestool, args);
+        _exit(127);
+    }
+    if (pid <= 0)
+        goto done;
+    do
+        waited = waitpid(pid, &status, 0);
+    while (waited < 0 && errno == EINTR);
+    if (waited != pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        goto done;
+    pid = fork();
+    if (pid == 0) {
+        int null_fd = open("/dev/null", O_WRONLY);
+        char* const args[] = {(char*)icotool, "-x", "-o", png_dir, resource, NULL};
+        if (null_fd >= 0) {
+            (void)dup2(null_fd, STDERR_FILENO);
+            close(null_fd);
+        }
+        execv(icotool, args);
+        _exit(127);
+    }
+    if (pid <= 0)
+        goto done;
+    do
+        waited = waitpid(pid, &status, 0);
+    while (waited < 0 && errno == EINTR);
+    if (waited != pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        goto done;
+    dir = opendir(png_dir);
+    if (dir) {
+        while ((entry = readdir(dir)) != NULL) {
+            size_t n = strlen(entry->d_name);
+            char* image;
+            if (n < 4 || strcasecmp(entry->d_name + n - 4, ".png"))
+                continue;
+            image = join_path(png_dir, entry->d_name);
+            if (image) {
+                unsigned long long area = icon_png_area(entry->d_name);
+                if (area > best_area) {
+                    free(best_image);
+                    best_image = image;
+                    best_area = area;
+                } else {
+                    free(image);
+                }
+            }
+        }
+        closedir(dir);
+        dir = NULL;
+    }
+    if (best_image && rename(best_image, cache) == 0)
+        result = strdup(cache);
+done:
+    free(best_image);
+    if (dir)
+        closedir(dir);
+    if (resource)
+        unlink(resource);
+    if (png_dir) {
+        DIR* cleanup = opendir(png_dir);
+        if (cleanup) {
+            while ((entry = readdir(cleanup)) != NULL) {
+                if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+                    continue;
+                char* image = join_path(png_dir, entry->d_name);
+                if (image) {
+                    unlink(image);
+                    free(image);
+                }
+            }
+            closedir(cleanup);
+        }
+        rmdir(png_dir);
+    }
+    if (temp)
+        rmdir(temp);
+    free(art_dir);
+    free(cache);
+    free(temp);
+    free(resource);
+    free(png_dir);
+    return result;
 }
 
 static bool mkdir_p(const char* path) {

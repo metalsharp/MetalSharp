@@ -49,6 +49,7 @@ SOURCES := \
 	runtime/epic.c \
 	runtime/gamejolt.c \
 	runtime/gog.c \
+	runtime/ubisoft.c \
 	runtime/game.c \
 	runtime/diagnostics.c \
 	runtime/antidebug.c \
@@ -90,7 +91,7 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 -include $(OBJECTS:.o=.d)
 
 $(BUILD_DIR)/runtime-routes-test: tests/runtime_routes_test.c runtime/steam_actions.c runtime/epic.c $(OBJECTS)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/runtime_routes_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/steam_actions.o $(BUILD_DIR)/c-backend/runtime/epic.o,$(OBJECTS))
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/runtime_routes_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/steam_actions.o $(BUILD_DIR)/c-backend/runtime/epic.o $(BUILD_DIR)/c-backend/runtime/ubisoft.o,$(OBJECTS))
 
 test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(BUILD_DIR)/runtime-routes-test
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc

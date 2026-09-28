@@ -46,7 +46,10 @@ const tabButtonEl = ref<HTMLElement | null>(null);
 const settingsOpen = ref(false);
 const steamFixMenuOpen = ref(false);
 const steamFixBusy = ref(false);
+const launcherMenuOpen = ref(false);
 const wineSteamRunning = inject<Ref<boolean>>("wineSteamRunning")!;
+const wineUbisoftRunning = inject<Ref<boolean>>("wineUbisoftRunning")!;
+const ubisoftInstalling = inject<Ref<boolean>>("ubisoftInstalling")!;
 const toast = useToast();
 const { t } = useI18n();
 
@@ -113,6 +116,23 @@ async function runSteamFix() {
   else toast.show(result?.error ?? t("library.fixSteam"), "error");
 }
 
+async function toggleUbisoft() {
+  if (ubisoftInstalling.value) return;
+  launcherMenuOpen.value = false;
+  if (wineUbisoftRunning.value) {
+    const result = await api<{ ok: boolean; error?: string }>("POST", "/ubisoft/stop");
+    if (result?.ok) wineUbisoftRunning.value = false;
+    toast.show(result?.error || "Ubisoft Connect stopped", result?.ok ? "success" : "error");
+    return;
+  }
+  const result = await api<{ ok: boolean; installing?: boolean; error?: string }>("POST", "/ubisoft/launch");
+  if (result?.ok && result.installing) toast.show("Downloading and installing Ubisoft Connect…", "info");
+  else if (result?.ok) {
+    wineUbisoftRunning.value = true;
+    toast.show("Starting Ubisoft Connect with D3DMetal…", "success");
+  } else toast.show(result?.error || "Could not start Ubisoft Connect", "error");
+}
+
 async function toggleSteam() {
   if (wineSteamRunning.value) {
     const result = await api<{ ok: boolean; running?: boolean; error?: string }>("POST", "/steam/stop");
@@ -144,6 +164,15 @@ async function toggleSteam() {
           <span>{{ wineSteamRunning ? t("library.stopSteam") : t("library.startSteam") }}</span>
         </button>
         <button
+          class="library-launcher-menu-button"
+          type="button"
+          aria-label="Show launcher options"
+          :aria-expanded="launcherMenuOpen"
+          @click.stop="launcherMenuOpen = !launcherMenuOpen"
+        >
+          <IconChevronDown width="13" height="13" />
+        </button>
+        <button
           class="library-steam-gear"
           type="button"
           :aria-label="t('library.steamOptions')"
@@ -152,6 +181,12 @@ async function toggleSteam() {
         >
           <IconSettings width="13" height="13" />
         </button>
+        <div v-if="launcherMenuOpen" class="library-steam-fix-backdrop" @click="launcherMenuOpen = false"></div>
+        <div v-if="launcherMenuOpen" class="library-launcher-menu">
+          <button type="button" :disabled="ubisoftInstalling" @click="toggleUbisoft">
+            {{ ubisoftInstalling ? "Installing Ubisoft Connect…" : wineUbisoftRunning ? "Stop Ubisoft" : "Launch Ubisoft" }}
+          </button>
+        </div>
         <div v-if="steamFixMenuOpen" class="library-steam-fix-backdrop" @click="steamFixMenuOpen = false"></div>
         <div v-if="steamFixMenuOpen" class="library-steam-fix-menu">
           <button type="button" :disabled="steamFixBusy" @click="runSteamFix">
@@ -409,6 +444,21 @@ async function toggleSteam() {
   border-radius: 8px 0 0 8px;
   border-right: 0;
 }
+.library-launcher-menu-button {
+  display: grid;
+  width: 25px;
+  min-height: 36px;
+  place-items: center;
+  border: 1px solid var(--library-control-border);
+  border-left: 0;
+  color: var(--library-control-text);
+  background: var(--library-control-bg);
+  cursor: pointer;
+}
+.library-launcher-menu-button:hover,
+.library-launcher-menu-button[aria-expanded="true"] {
+  background: var(--library-control-hover);
+}
 .library-steam-gear {
   display: grid;
   place-items: center;
@@ -434,6 +484,7 @@ async function toggleSteam() {
   inset: 0;
   z-index: 50;
 }
+.library-launcher-menu,
 .library-steam-fix-menu {
   position: absolute;
   z-index: 60;
@@ -446,6 +497,11 @@ async function toggleSteam() {
   background: var(--library-control-bg);
   box-shadow: 0 14px 35px rgba(0, 0, 0, 0.45);
 }
+.library-launcher-menu {
+  left: 0;
+  min-width: 196px;
+}
+.library-launcher-menu button,
 .library-steam-fix-menu button {
   display: flex;
   width: 100%;
@@ -461,6 +517,7 @@ async function toggleSteam() {
   font-size: 12.5px;
   text-align: left;
 }
+.library-launcher-menu button:hover:not(:disabled),
 .library-steam-fix-menu button:hover:not(:disabled) {
   background: var(--library-control-hover);
 }

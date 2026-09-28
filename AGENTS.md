@@ -53,6 +53,7 @@ Important runtime paths:
 - Home: `~/.metalsharp/`
 - Wine: `~/.metalsharp/runtime/wine/`
 - Steam prefix: `~/.metalsharp/prefix-steam/`
+- Ubisoft Connect prefix: `~/.metalsharp/prefix-ubisoft/`
 - Bottles: `~/.metalsharp/bottles/<bottle_id>/`
 - Logs: `~/.metalsharp/logs/`
 - Shader cache: `~/.metalsharp/shader-cache/<pipeline>/<appid>/`
@@ -65,6 +66,8 @@ Representative endpoints:
 
 - `GET /status`
 - `GET /steam/library`
+- `GET /ubisoft/library`
+- `POST /ubisoft/launch` / `POST /ubisoft/stop`
 - `POST /steam/launch-game`
 - `POST /steam/stop`
 - `GET /bottles`
