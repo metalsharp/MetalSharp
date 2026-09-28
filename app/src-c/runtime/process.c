@@ -2,6 +2,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/ubisoft.h"
 #include <dirent.h>
 #include <errno.h>
 #include <pthread.h>
@@ -431,8 +432,12 @@ char* ms_process_running_json(const char* home) {
     bool odyssey_registered = false;
     pid_t odyssey_pid = 0;
     pid_t eve_pid = ms_steam_eve_process_pid(home);
+    pid_t marvel_rivals_pid = ms_steam_marvel_rivals_process_pid(home);
+    ms_ubisoft_register_running_games(home);
     if (eve_pid > 0)
         ms_process_register_game(8500, eve_pid);
+    if (marvel_rivals_pid > 0)
+        ms_process_register_game(2767030, marvel_rivals_pid);
     pthread_mutex_lock(&g_running_mutex);
     prune();
     for (g = g_running; g; g = g->next)
@@ -503,6 +508,29 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
         ms_json_writer_bool(&w, true);
         ms_json_writer_key(&w, "pid");
         ms_json_writer_u64(&w, (unsigned)(eve_pid > 0 ? eve_pid : pid64));
+        ms_json_writer_object_end(&w);
+        if (status)
+            *status = 200;
+        return ms_json_writer_take(&w);
+    }
+    if (aid == 2767030) {
+        pid_t marvel_pid = ms_steam_marvel_rivals_process_pid(home);
+        pthread_mutex_lock(&g_running_mutex);
+        forget((unsigned)aid);
+        pthread_mutex_unlock(&g_running_mutex);
+        if (!ms_steam_stop_marvel_rivals_processes(home)) {
+            ms_json_free(r);
+            if (status)
+                *status = 500;
+            return error_json("failed to stop Marvel Rivals game processes");
+        }
+        ms_json_free(r);
+        ms_json_writer_init(&w);
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "ok");
+        ms_json_writer_bool(&w, true);
+        ms_json_writer_key(&w, "pid");
+        ms_json_writer_u64(&w, (unsigned)(marvel_pid > 0 ? marvel_pid : pid64));
         ms_json_writer_object_end(&w);
         if (status)
             *status = 200;

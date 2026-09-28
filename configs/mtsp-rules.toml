@@ -315,7 +315,7 @@ name = "Mortal Kombat 11"
 [overrides.976310.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 [overrides.2767030]
-pipeline = "vkd3d"
+pipeline = "d3dmetal"
 name = "Marvel Rivals"
 exe_names = ["MarvelGame/Marvel/Binaries/Win64/Marvel-Win64-Shipping.exe"]
 
