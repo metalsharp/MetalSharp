@@ -58,7 +58,8 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Far Cry 6 | Ubisoft | |
 | TrackMania | Ubisoft | |
 | Marvel Rivals | 2767030 | Launches through Steam with -Windowed to avoid a mouse bug |
-| Baldur's Gate 3 | 1086940 | Defaults to D3DMetal; Steam launch tracks and stops both the Larian launcher and game process. |
+| Baldur's Gate 3 | 1086940 | |
+| Watch Dogs Legions | Ubisoft | |
 
 ---
 
