@@ -108,7 +108,12 @@ export class UpdaterBridge {
     });
   }
 
-  spawnInstallUpdater(dmgPath: string, backendPid: number, targetVersion: string): { ok: boolean; error?: string } {
+  spawnInstallUpdater(
+    dmgPath: string,
+    backendPid: number,
+    targetVersion: string,
+    variant: "regular" | "fex",
+  ): { ok: boolean; error?: string } {
     if (!this.scriptPath) {
       return { ok: false, error: "Updater not ready — update.sh missing" };
     }
@@ -123,37 +128,39 @@ export class UpdaterBridge {
     const toolPath = [bundledToolsDir, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
       .filter(Boolean)
       .join(":");
-    const child = spawn(
-      "/bin/bash",
-      [
-        this.scriptPath,
-        "--dmg",
-        dmgPath,
-        "--backend-pid",
-        String(backendPid),
-        "--target-version",
-        targetVersion,
-        "--status-file",
-        getStatusFile(),
-        "--metalsharp-home",
-        getMetalsharpDir(),
-        "--app-pid",
-        String(process.pid),
-      ],
-      {
-        detached: true,
-        stdio: "ignore",
-        env: {
-          ...process.env,
-          METALSHARP_HOME: getMetalsharpDir(),
-          PATH: toolPath,
-        },
+    const installArgs =
+      variant === "regular"
+        ? [this.scriptPath, "--recover"]
+        : [
+            this.scriptPath,
+            "--dmg",
+            dmgPath,
+            "--backend-pid",
+            String(backendPid),
+            "--target-version",
+            targetVersion,
+            "--status-file",
+            getStatusFile(),
+            "--metalsharp-home",
+            getMetalsharpDir(),
+            "--app-pid",
+            String(process.pid),
+          ];
+    const child = spawn("/bin/bash", installArgs, {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        METALSHARP_HOME: getMetalsharpDir(),
+        PATH: toolPath,
       },
-    );
+    });
 
     child.unref();
 
-    console.log(`Updater: spawned install script (pid=${child.pid}) for v${targetVersion}`);
+    console.log(
+      `Updater: spawned ${variant === "regular" ? "recovery" : "install"} script (pid=${child.pid}) for v${targetVersion}`,
+    );
 
     return { ok: true };
   }

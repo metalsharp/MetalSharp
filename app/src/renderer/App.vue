@@ -174,17 +174,20 @@ provide("loadLibrary", loadLibrary);
 provide("api", api);
 
 async function refreshSteamStatus() {
-  const [steamStatus, ubisoftStatus] = await Promise.all([api<{
-    installed: boolean;
-    running: boolean;
-    mac_installed: boolean;
-    mac_running: boolean;
-    metalsharp_wine_available: boolean;
-  }>("GET", "/steam/status"), api<{
-    installed?: boolean;
-    running?: boolean;
-    installing?: boolean;
-  }>("GET", "/ubisoft/status")]);
+  const [steamStatus, ubisoftStatus] = await Promise.all([
+    api<{
+      installed: boolean;
+      running: boolean;
+      mac_installed: boolean;
+      mac_running: boolean;
+      metalsharp_wine_available: boolean;
+    }>("GET", "/steam/status"),
+    api<{
+      installed?: boolean;
+      running?: boolean;
+      installing?: boolean;
+    }>("GET", "/ubisoft/status"),
+  ]);
   if (steamStatus) {
     wineSteamInstalled.value = steamStatus.installed;
     wineSteamRunning.value = steamStatus.running;
@@ -347,7 +350,7 @@ async function beginUpdateDownload(variant: "regular" | "fex" = "regular") {
         updateDownloading.value = false;
         return;
       }
-      const spawnResult = await backend.updaterSpawnInstall(dmgResult.path, pid, targetVersion);
+      const spawnResult = await backend.updaterSpawnInstall(dmgResult.path, pid, targetVersion, variant);
       if (!spawnResult?.ok) {
         toast.show(spawnResult?.error ?? "Failed to start installer", "error");
         updateDownloading.value = false;

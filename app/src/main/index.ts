@@ -965,7 +965,7 @@ function showLaunchOverlay(gameName: string): void {
         if (launchOverlayWindow === win) launchOverlayWindow = null;
       }, 9100);
     });
-    win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   } catch (error) {
     console.warn("MetalSharp launch overlay failed:", error);
   }
@@ -2234,10 +2234,14 @@ function registerIpc() {
     return updaterBridge.ensureReady();
   });
 
-  ipcMain.handle("updater:spawn-install", async (_e, dmgPath: string, backendPid: number, targetVersion: string) => {
-    if (isUiOnlyRuntime()) return { ok: false, error: "Updater is disabled in UI-only preview mode." };
-    return updaterBridge.spawnInstallUpdater(dmgPath, backendPid, targetVersion);
-  });
+  ipcMain.handle(
+    "updater:spawn-install",
+    async (_e, dmgPath: string, backendPid: number, targetVersion: string, variant: string) => {
+      if (isUiOnlyRuntime()) return { ok: false, error: "Updater is disabled in UI-only preview mode." };
+      if (variant !== "regular" && variant !== "fex") return { ok: false, error: "Invalid update variant" };
+      return updaterBridge.spawnInstallUpdater(dmgPath, backendPid, targetVersion, variant);
+    },
+  );
 
   ipcMain.handle("updater:install-status", async () => {
     if (isUiOnlyRuntime()) return null;

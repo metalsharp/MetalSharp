@@ -157,11 +157,17 @@ run_recovery_update() {
     local app_pid="0"
     local backend_pid="0"
 
+    STATUS_FILE="$ms_dir/update_install_status.json"
+    TARGET_VERSION="latest"
+    DMG_PATH=""
+    write_status "recovery_preparing" 2 "Preparing the verified update..."
+
     recovery_fail() {
         if [ -n "$mount_path" ] && [ -d "$mount_path" ]; then
             hdiutil detach "$mount_path" -quiet 2>/dev/null || true
             rmdir "$mount_path" 2>/dev/null || true
         fi
+        write_status "error" 0 "$*" "recovery_failed"
         echo "MetalSharp recovery: $*" >&2
         exit 1
     }
@@ -180,11 +186,13 @@ run_recovery_update() {
     case "$recovery_version" in
         ''|*[!0-9.]*|.*|*.) recovery_fail "latest stable release has an invalid version: $release_tag" ;;
     esac
+    TARGET_VERSION="$recovery_version"
+    write_status "recovery_verifying" 4 "Checking the latest official release..."
     dmg_name="MetalSharp-$recovery_version-arm64.dmg"
     existing_dmg="$ms_dir/cache/updates/MetalSharp-$recovery_version.dmg"
     recovery_dmg="$recovery_dir/$dmg_name"
     download_url="https://github.com/$repository/releases/download/$release_tag/$dmg_name"
-    mkdir -p "$recovery_dir"
+    mkdir -p "$recovery_dir" || recovery_fail "could not create recovery cache"
 
     # Reuse the DMG left by the in-app updater when it is intact. Otherwise
     # fetch the latest official stable release. At the time this rescue script
@@ -196,23 +204,26 @@ run_recovery_update() {
         dmg_path="$recovery_dmg"
     else
         partial_path="$recovery_dmg.part"
+        write_status "recovery_downloading" 8 "Downloading the official MetalSharp $recovery_version update..."
         echo "Downloading the official MetalSharp $recovery_version update..."
         if [ -s "$partial_path" ]; then
             if ! curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 --continue-at - \
                 --output "$partial_path" "$download_url"; then
                 rm -f "$partial_path"
                 curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 \
-                    --output "$partial_path" "$download_url"
+                    --output "$partial_path" "$download_url" || recovery_fail "could not download the official update"
             fi
         else
             curl --fail --location --silent --show-error --retry 3 --connect-timeout 30 \
-                --output "$partial_path" "$download_url"
+                --output "$partial_path" "$download_url" || recovery_fail "could not download the official update"
         fi
         mv "$partial_path" "$recovery_dmg"
         hdiutil verify "$recovery_dmg" >/dev/null || recovery_fail "downloaded update image failed verification"
         dmg_path="$recovery_dmg"
     fi
 
+    DMG_PATH="$dmg_path"
+    write_status "recovery_verifying" 15 "Verifying the downloaded update and app signature..."
     echo "Verifying the official MetalSharp $recovery_version app signature..."
     mount_path="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-recovery.XXXXXX")"
     hdiutil attach -readonly -nobrowse -mountpoint "$mount_path" "$dmg_path" >/dev/null || \
@@ -258,7 +269,10 @@ run_recovery_update() {
     app_pid="${app_pid:-0}"
     backend_pid="${backend_pid:-0}"
 
-    /usr/bin/osascript -e "display dialog \"Install MetalSharp $recovery_version over v$current_version? This will close MetalSharp and stop Steam/Wine processes. Save work in running games first.\" buttons {\"Cancel\", \"Install Update\"} default button \"Cancel\" cancel button \"Cancel\" with icon caution" >/dev/null
+    write_status "awaiting_confirmation" 20 "Waiting for confirmation to close MetalSharp and Steam/Wine processes..."
+    if ! /usr/bin/osascript -e "display dialog \"Install MetalSharp $recovery_version over v$current_version? This will close MetalSharp and stop Steam/Wine processes. Save work in running games first.\" buttons {\"Cancel\", \"Install Update\"} default button \"Cancel\" cancel button \"Cancel\" with icon caution" >/dev/null; then
+        recovery_fail "update cancelled"
+    fi
     echo "Installing MetalSharp $recovery_version over v$current_version; the normal migration handoff will run after relaunch."
     exec /bin/bash "$script_path" \
         --dmg "$dmg_path" \
