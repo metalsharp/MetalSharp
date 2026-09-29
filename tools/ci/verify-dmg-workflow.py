@@ -97,6 +97,15 @@ def check_updater_handoff() -> None:
             if needle not in updater:
                 fail(f"{path} no longer mounts the downloaded DMG on a private update mount point before install")
 
+    bridge = read("app/src/main/updater-bridge.ts")
+    renderer = read("app/src/renderer/App.vue")
+    if 'variant === "regular"' not in bridge or '[this.scriptPath, "--recover"]' not in bridge:
+        fail("stable in-app updates must hand off to update.sh --recover")
+    if '"--app-pid"' not in bridge:
+        fail("FEX in-app updates must pass the MetalSharp PID to the updater")
+    if "backend.updaterSpawnInstall(dmgResult.path, pid, targetVersion, variant)" not in renderer:
+        fail("the selected update variant must reach the updater handoff")
+
 
 def check_bundle_scripts() -> None:
     create_bundles = read("tools/dmg/create-bundles.sh")
