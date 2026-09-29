@@ -112,6 +112,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: fast-uri malformed-host security regression
+        run: node --test tests/fast-uri-security.test.cjs
+
       - name: TypeScript
         run: npx tsc --noEmit
 
