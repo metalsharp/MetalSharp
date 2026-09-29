@@ -794,6 +794,7 @@ function forceQuitRunningGames(): void {
           let eveRunning = false;
           let odysseyRunning = false;
           let marvelRivalsRunning = false;
+          let baldursGate3Running = false;
           try {
             const parsed = JSON.parse(body) as { ok?: boolean; running?: { appid?: number }[] };
             eveRunning =
@@ -808,26 +809,36 @@ function forceQuitRunningGames(): void {
               parsed.ok === true &&
               Array.isArray(parsed.running) &&
               parsed.running.some((game) => game?.appid === 2767030);
+            baldursGate3Running =
+              parsed.ok === true &&
+              Array.isArray(parsed.running) &&
+              parsed.running.some((game) => game?.appid === 1086940);
           } catch {
             // Fall back to the original global escape hatch if the status is unavailable.
           }
-          if (!eveRunning && !odysseyRunning && !marvelRivalsRunning) {
+          if (!eveRunning && !odysseyRunning && !marvelRivalsRunning && !baldursGate3Running) {
             fallback();
             return;
           }
-          const stopMarvelRivals = () => stopSteamGameForShortcut(port, 2767030, "Marvel Rivals", fallback);
+          const stopBaldursGate3 = () => stopSteamGameForShortcut(port, 1086940, "Baldur's Gate 3", fallback);
+          const stopMarvelRivals = () =>
+            stopSteamGameForShortcut(port, 2767030, "Marvel Rivals", () =>
+              baldursGate3Running ? stopBaldursGate3() : fallback(),
+            );
           const stopOdyssey = () =>
             stopSteamGameForShortcut(port, 812140, "Odyssey", () =>
-              marvelRivalsRunning ? stopMarvelRivals() : fallback(),
+              marvelRivalsRunning ? stopMarvelRivals() : baldursGate3Running ? stopBaldursGate3() : fallback(),
             );
           if (eveRunning)
             stopSteamGameForShortcut(port, 8500, "EVE Online", () => {
               if (odysseyRunning) stopOdyssey();
               else if (marvelRivalsRunning) stopMarvelRivals();
+              else if (baldursGate3Running) stopBaldursGate3();
               else fallback();
             });
           else if (odysseyRunning) stopOdyssey();
-          else stopMarvelRivals();
+          else if (marvelRivalsRunning) stopMarvelRivals();
+          else stopBaldursGate3();
         });
       });
       req.setTimeout(2000, () => req.destroy());
