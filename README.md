@@ -1,4 +1,4 @@
-I'm looking for Input! Please leave a comment: [Feature Requests](https://github.com/metalsharp/MetalSharp/discussions/692)
+<div align="center"> I'm looking for Input! Please leave a comment: [Feature Requests](https://github.com/metalsharp/MetalSharp/discussions/692) </div>
 
 <div align="center">
 
