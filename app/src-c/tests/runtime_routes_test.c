@@ -19,6 +19,14 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+static void wait_for_test_child(pid_t child) {
+    pid_t result;
+    do {
+        result = waitpid(child, NULL, 0);
+    } while (result < 0 && errno == EINTR);
+    assert(result == child || (result < 0 && errno == ECHILD));
+}
+
 static void fixture(const char* home, const char* relative, const char* bytes) {
     char* path = join(home, relative);
     char* parent = strdup(path);
@@ -563,7 +571,7 @@ int main(int argc, char** argv) {
             response = ms_process_kill_json(home, fallback_stop_body, strlen(fallback_stop_body), &status);
             assert(response && status == 200 && strstr(response, "\"ok\":true"));
             free(response);
-            assert(waitpid(wine_game, NULL, 0) == wine_game);
+            wait_for_test_child(wine_game);
             free(wine_helper);
             free(wine_bin);
         }
@@ -582,7 +590,7 @@ int main(int argc, char** argv) {
             response = ms_process_kill_json(home, untracked_stop_body, strlen(untracked_stop_body), &status);
             assert(response && status == 200 && strstr(response, "\"ok\":true"));
             free(response);
-            assert(waitpid(wine_game, NULL, 0) == wine_game);
+            wait_for_test_child(wine_game);
             free(wine_helper);
         }
         {
@@ -599,7 +607,7 @@ int main(int argc, char** argv) {
             response = ms_process_force_quit_json(home, &status);
             assert(response && status == 200 && strstr(response, "\"pid\"") && strstr(response, "\"appid\":0"));
             free(response);
-            assert(waitpid(wine_game, NULL, 0) == wine_game);
+            wait_for_test_child(wine_game);
             free(wine_helper);
         }
         {
