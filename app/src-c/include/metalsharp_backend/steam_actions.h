@@ -10,6 +10,9 @@ pid_t ms_steam_eve_process_pid(const char*);
 bool ms_steam_stop_eve_processes(const char*);
 pid_t ms_steam_marvel_rivals_process_pid(const char*);
 bool ms_steam_stop_marvel_rivals_processes(const char*);
+pid_t ms_steam_baldurs_gate_3_process_pid(const char*);
+bool ms_steam_stop_baldurs_gate_3_processes(const char*);
+bool ms_steam_migrate_baldurs_gate_3_route_default(const char*);
 void ms_steam_cancel_background_tasks(void);
 /* Apply registered graphics and global launch preferences to a child process. */
 void ms_steam_apply_graphics_route(const char* home, const char* pipeline);

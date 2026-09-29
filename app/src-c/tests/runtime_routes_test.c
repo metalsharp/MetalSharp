@@ -982,6 +982,23 @@ int main(int argc, char** argv) {
     assert(marvel_rivals_uses_steam_bootstrap(2767030, "d3dmetal"));
     assert(!marvel_rivals_uses_steam_bootstrap(2767030, "vkd3d"));
     assert(!marvel_rivals_uses_steam_bootstrap(8500, "d3dmetal"));
+    char baldurs_gate_3_steam_url[64];
+    assert(format_steam_run_url(baldurs_gate_3_steam_url, sizeof(baldurs_gate_3_steam_url), 1086940, NULL));
+    assert(!strcmp(baldurs_gate_3_steam_url, "steam://run/1086940"));
+    assert(baldurs_gate_3_uses_steam_bootstrap(1086940, "d3dmetal"));
+    assert(!baldurs_gate_3_uses_steam_bootstrap(1086940, "vkd3d"));
+    assert(!baldurs_gate_3_uses_steam_bootstrap(2767030, "d3dmetal"));
+    assert(baldurs_gate_3_process_rank("Z:\\SteamLibrary\\steamapps\\common\\Baldurs Gate 3\\bin\\bg3_dx11.exe") == 3);
+    assert(baldurs_gate_3_process_rank("..\\bin\\bg3_dx11.exe -externalcrashhandler") == 3);
+    assert(baldurs_gate_3_process_rank("Z:\\SteamLibrary\\steamapps\\common\\Baldurs Gate 3\\bin\\bg3.exe") == 2);
+    assert(baldurs_gate_3_process_rank("Z:\\Other\\bg3.exe") == 2);
+    assert(baldurs_gate_3_process_matches(3, false, true));
+    assert(!baldurs_gate_3_process_matches(3, false, false));
+    assert(baldurs_gate_3_process_matches(1, true, false));
+    assert(!baldurs_gate_3_process_matches(0, true, true));
+    assert(baldurs_gate_3_process_rank("Z:\\SteamLibrary\\steamapps\\common\\Baldurs Gate 3\\LariLauncher.exe") == 1);
+    assert(baldurs_gate_3_process_rank("Z:\\SteamLibrary\\steamapps\\common\\Baldurs Gate "
+                                       "3\\Launcher\\runtimes\\CefSharp.BrowserSubprocess.exe") == 0);
     const char* marvel_command =
         "Z:\\Volumes\\AverySSD\\SteamLibrary\\steamapps\\common\\MarvelRivals\\MarvelGame\\Marvel\\"
         "Binaries\\Win64\\Marvel-Win64-Shipping.exe";
@@ -989,6 +1006,12 @@ int main(int argc, char** argv) {
     assert(command_contains_wine_path(marvel_command,
                                       "Z:\\Volumes\\AverySSD\\SteamLibrary\\steamapps\\common\\MarvelRivals"));
     assert(!command_contains_wine_path(marvel_command, "Z:\\Volumes\\OtherDrive\\MarvelRivals"));
+    const char* baldurs_gate_3_command =
+        "Z:\\Volumes\\AverySSD\\SteamLibrary\\steamapps\\common\\Baldurs Gate 3\\bin\\bg3_dx11.exe";
+    assert(command_contains_wine_path(baldurs_gate_3_command,
+                                      "Z:\\Volumes\\AverySSD\\SteamLibrary\\steamapps\\common\\Baldurs Gate 3"));
+    assert(!command_contains_wine_path(baldurs_gate_3_command,
+                                       "Z:\\Volumes\\OtherDrive\\SteamLibrary\\steamapps\\common\\Baldurs Gate 3"));
     {
         char overrides[1024];
         assert(format_steam_pipeline_overrides(overrides, sizeof(overrides), "d3dmetal"));
@@ -1112,6 +1135,57 @@ int main(int argc, char** argv) {
         ms_json_free(defaults);
         free(defaults_json);
     }
+    {
+        char parse_error[128];
+        char* defaults_json = ms_mtsp_default_rules_json();
+        ms_json* defaults = defaults_json
+                                ? ms_json_parse(defaults_json, strlen(defaults_json), parse_error, sizeof(parse_error))
+                                : NULL;
+        const ms_json* rules = defaults ? ms_json_object_get(defaults, "rules") : NULL;
+        bool found = false;
+        assert(defaults && rules);
+        for (size_t i = 0; i < ms_json_array_length(rules); i++) {
+            const ms_json* rule = ms_json_array_get(rules, i);
+            long long appid = 0;
+            char* pipeline = NULL;
+            if (!ms_json_as_i64(ms_json_object_get(rule, "appid"), &appid) || appid != 1086940)
+                continue;
+            assert(ms_json_as_string(ms_json_object_get(rule, "default_pipeline"), &pipeline));
+            assert(!strcmp(pipeline, "d3dmetal"));
+            free(pipeline);
+            found = true;
+            break;
+        }
+        assert(found);
+        ms_json_free(defaults);
+        free(defaults_json);
+    }
+    fixture(home, "bg3-game/bin/bg3_dx11.exe", "game executable");
+    fixture(home, "bg3-game/Launcher/runtimes/win-x86/native/CefSharp.BrowserSubprocess.exe", "helper executable");
+    char* bg3_game_dir = join(home, "bg3-game");
+    char* bg3_executable = preferred_steam_game_executable(bg3_game_dir, 1086940, "d3dmetal");
+    assert(bg3_executable && strstr(bg3_executable, "/bg3-game/bin/bg3_dx11.exe"));
+    free(bg3_executable);
+    free(bg3_game_dir);
+    fixture(home, "bottles/steam_1086940/bottle.json",
+            "{\"steam_app_id\":1086940,\"preferred_pipeline\":\"dxmt\",\"runtime_profile\":\"dxmt\","
+            "\"custom_name\":\"My BG3\",\"updated_at\":\"old\"}");
+    assert(ms_steam_migrate_baldurs_gate_3_route_default(home));
+    char* bg3_manifest_path = join(home, "bottles/steam_1086940/bottle.json");
+    char* migrated_bg3 = read_bounded_file(bg3_manifest_path);
+    assert(migrated_bg3 && strstr(migrated_bg3, "\"preferred_pipeline\":\"d3dmetal\""));
+    assert(migrated_bg3 && strstr(migrated_bg3, "\"runtime_profile\":\"d3dmetal\""));
+    assert(migrated_bg3 && strstr(migrated_bg3, "\"custom_name\":\"My BG3\""));
+    free(migrated_bg3);
+    free(bg3_manifest_path);
+    fixture(home, "bottles/steam_1086940/bottle.json",
+            "{\"steam_app_id\":1086940,\"preferred_pipeline\":\"dxmt\",\"runtime_profile\":\"dxmt\"}");
+    assert(ms_steam_migrate_baldurs_gate_3_route_default(home));
+    bg3_manifest_path = join(home, "bottles/steam_1086940/bottle.json");
+    migrated_bg3 = read_bounded_file(bg3_manifest_path);
+    assert(migrated_bg3 && strstr(migrated_bg3, "\"preferred_pipeline\":\"dxmt\""));
+    free(migrated_bg3);
+    free(bg3_manifest_path);
     {
         char* args[8] = {0};
         size_t count = 0;
