@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-09-26
+Updated: 2026-09-28
 
 Tested and working games organized by launch route. Only games confirmed playable are listed, either by users who use MetalSharp or by the Developer. Many more games likely work beyond this default list.
 
@@ -58,6 +58,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Far Cry 6 | Ubisoft | |
 | TrackMania | Ubisoft | |
 | Marvel Rivals | 2767030 | Launches through Steam with -Windowed to avoid a mouse bug |
+| Baldur's Gate 3 | 1086940 | Defaults to D3DMetal; Steam launch tracks and stops both the Larian launcher and game process. |
 
 ---
 

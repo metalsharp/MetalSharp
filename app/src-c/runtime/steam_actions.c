@@ -1929,6 +1929,94 @@ done:
     return ok;
 }
 
+bool ms_steam_migrate_baldurs_gate_3_route_default(const char* home) {
+    char* bottles = join(home, "bottles");
+    char* dir = bottles ? join(bottles, "steam_1086940") : NULL;
+    char* path = dir ? join(dir, "bottle.json") : NULL;
+    char* marker = dir ? join(dir, ".bg3-d3dmetal-default-v1") : NULL;
+    char* temporary = dir ? join(dir, ".bottle.json.bg3-default.tmp") : NULL;
+    char* raw = NULL;
+    char* preferred = NULL;
+    char error[96];
+    ms_json* manifest = NULL;
+    ms_json_writer writer;
+    char* serialized = NULL;
+    bool ok = false;
+
+    if (!path || !marker || !temporary)
+        goto done;
+    if (access(marker, F_OK) == 0) {
+        ok = true;
+        goto done;
+    }
+    raw = read_bounded_file(path);
+    manifest = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    if (!manifest || ms_json_type_of(manifest) != MS_JSON_OBJECT)
+        goto done;
+    if (!ms_json_as_string(ms_json_object_get(manifest, "preferred_pipeline"), &preferred) || !preferred)
+        goto done;
+
+    /* Before the D3DMetal default, BG3's catalog route was DXMT. Existing
+     * bottles captured that recommendation as if it were an explicit user
+     * choice, so migrate that legacy value once. The marker allows users to
+     * choose another route after the migration without it being overwritten. */
+    if (strcmp(preferred, "dxmt") && strcmp(preferred, "m11") && strcmp(preferred, "m10"))
+        goto write_marker;
+
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    for (size_t i = 0; i < ms_json_object_length(manifest); i++) {
+        const char* key = ms_json_object_key_at(manifest, i);
+        ms_json_writer_key(&writer, key);
+        if (!strcmp(key, "preferred_pipeline") || !strcmp(key, "runtime_profile")) {
+            ms_json_writer_string(&writer, "d3dmetal");
+        } else if (!strcmp(key, "updated_at")) {
+            char stamp[32];
+            snprintf(stamp, sizeof(stamp), "%llu", (unsigned long long)time(NULL));
+            ms_json_writer_string(&writer, stamp);
+        } else {
+            char* value = ms_json_stringify(ms_json_object_value_at(manifest, i));
+            ms_json_writer_raw(&writer, value ? value : "null");
+            free(value);
+        }
+    }
+    ms_json_writer_object_end(&writer);
+    serialized = ms_json_writer_take(&writer);
+    if (!serialized)
+        goto done;
+    FILE* file = fopen(temporary, "wb");
+    if (!file)
+        goto done;
+    bool wrote = fputs(serialized, file) >= 0 && fflush(file) == 0;
+    if (fclose(file) != 0)
+        wrote = false;
+    if (!wrote || rename(temporary, path) != 0)
+        goto done;
+
+write_marker: {
+    FILE* file = fopen(marker, "wb");
+    if (!file)
+        goto done;
+    bool wrote = fputs("d3dmetal\n", file) >= 0;
+    if (fclose(file) != 0)
+        wrote = false;
+    ok = wrote;
+}
+done:
+    if (!ok && temporary)
+        (void)unlink(temporary);
+    free(bottles);
+    free(dir);
+    free(path);
+    free(marker);
+    free(temporary);
+    free(raw);
+    free(preferred);
+    free(serialized);
+    ms_json_free(manifest);
+    return ok;
+}
+
 char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id) {
     char* bottles = join(home, "bottles");
     char* directory = bottles && bottle_id ? join(bottles, bottle_id) : NULL;
@@ -2907,6 +2995,104 @@ bool ms_steam_stop_marvel_rivals_processes(const char* home) {
     }
     bool failed = false;
     return scan_marvel_rivals_wine_processes(home, SIGKILL, &failed) == 0 && !failed;
+}
+
+static int baldurs_gate_3_process_rank(const char* command) {
+    if (contains_ci(command, "bg3_dx11.exe") || contains_ci(command, "bg3_vulkan.exe"))
+        return 3;
+    if (contains_ci(command, "\\bg3.exe") || contains_ci(command, "/bg3.exe"))
+        return 2;
+    if (contains_ci(command, "lariLauncher.exe") || contains_ci(command, "bg3launcher.exe"))
+        return 1;
+    return 0;
+}
+
+static bool baldurs_gate_3_process_matches(int rank, bool install_path_matches, bool wine_game_in_install) {
+    return rank > 0 && (install_path_matches || (rank >= 2 && wine_game_in_install));
+}
+
+static pid_t scan_baldurs_gate_3_wine_processes(const char* home, int signal_number, bool* failed) {
+    char runtime[PATH_MAX];
+    char* game_dir = ms_steam_game_dir(home, 1086940);
+    char (*paths)[PATH_MAX] = calloc(26, sizeof(*paths));
+    size_t path_count = game_dir && paths ? eve_install_dir_wine_paths(home, game_dir, paths, 26) : 0;
+    char line[8192];
+    FILE* pipe;
+    pid_t best_pid = 0;
+    int best_rank = 0;
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    if (failed)
+        *failed = !game_dir || !paths || path_count == 0;
+    if (!game_dir || !paths || path_count == 0) {
+        free(game_dir);
+        free(paths);
+        return 0;
+    }
+    pipe = popen("/bin/ps axo pid=,command=", "r");
+    if (!pipe) {
+        if (failed)
+            *failed = true;
+        free(game_dir);
+        free(paths);
+        return 0;
+    }
+    while (fgets(line, sizeof(line), pipe)) {
+        char* command = line;
+        char* end;
+        long raw_pid;
+        int rank;
+        bool install_matches = false;
+        while (*command == ' ' || *command == '\t')
+            command++;
+        errno = 0;
+        raw_pid = strtol(command, &end, 10);
+        if (errno != 0 || end == command || raw_pid <= 1 || raw_pid > INT_MAX || raw_pid == (long)getpid())
+            continue;
+        while (*end == ' ' || *end == '\t')
+            end++;
+        rank = baldurs_gate_3_process_rank(end);
+        if (!rank)
+            continue;
+        for (size_t i = 0; i < path_count; i++)
+            if (command_contains_wine_path(end, paths[i])) {
+                install_matches = true;
+                break;
+            }
+        bool wine_game_in_install = rank >= 2 && process_cwd_within((pid_t)raw_pid, game_dir) &&
+                                    process_executable_within((pid_t)raw_pid, runtime);
+        if (!baldurs_gate_3_process_matches(rank, install_matches, wine_game_in_install))
+            continue;
+        if (signal_number && kill((pid_t)raw_pid, signal_number) != 0 && errno != ESRCH && failed)
+            *failed = true;
+        if (rank > best_rank) {
+            best_rank = rank;
+            best_pid = (pid_t)raw_pid;
+        }
+    }
+    int pipe_status = pclose(pipe);
+    if ((pipe_status == -1 || !WIFEXITED(pipe_status) || WEXITSTATUS(pipe_status) != 0) && failed)
+        *failed = true;
+    free(game_dir);
+    free(paths);
+    return best_pid;
+}
+
+pid_t ms_steam_baldurs_gate_3_process_pid(const char* home) {
+    return scan_baldurs_gate_3_wine_processes(home, 0, NULL);
+}
+
+bool ms_steam_stop_baldurs_gate_3_processes(const char* home) {
+    for (unsigned attempt = 0; attempt < 10; attempt++) {
+        bool failed = false;
+        pid_t pid = scan_baldurs_gate_3_wine_processes(home, attempt < 3 ? SIGTERM : SIGKILL, &failed);
+        if (failed)
+            return false;
+        if (pid == 0)
+            return true;
+        usleep(100000);
+    }
+    bool failed = false;
+    return scan_baldurs_gate_3_wine_processes(home, SIGKILL, &failed) == 0 && !failed;
 }
 
 static bool eve_wine_process_command(const char* command, const char paths[][PATH_MAX], size_t path_count) {
@@ -5160,6 +5346,10 @@ static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline
     return id == 2767030 && pipeline && !strcmp(pipeline, "d3dmetal");
 }
 
+static bool baldurs_gate_3_uses_steam_bootstrap(unsigned id, const char* pipeline) {
+    return id == 1086940 && pipeline && !strcmp(pipeline, "d3dmetal");
+}
+
 static bool odyssey_uses_steam_bootstrap(unsigned id, const char* pipeline) {
     /* Odyssey must always enter through Steam first. Ubisoft Connect's
      * presence must not route later attempts into the legacy direct launcher. */
@@ -5701,6 +5891,37 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             if (status)
                 *status = steam_status;
             return result ? result : err("Marvel Rivals Steam handoff failed");
+        }
+        free(result);
+        ms_process_register_pending_game(id, steam_pid, 15);
+        record_launch_timing(home, id, started_at, pipeline);
+        if (status)
+            *status = 200;
+        free(game_dir);
+        free(executable);
+        return launch_mode_pid_result(steam_pid, id, "steam_handoff");
+    }
+    if (baldurs_gate_3_uses_steam_bootstrap(id, pipeline)) {
+        pid_t steam_pid = 0;
+        int steam_status = 500;
+        char* error_text = ensure_wine_steam_pipeline(home, pipeline);
+        char* result;
+        if (error_text) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = 500;
+            result = err(error_text);
+            free(error_text);
+            return result;
+        }
+        result = launch_game_via_steam_json(home, id, &steam_status, &steam_pid);
+        if (!result || steam_status >= 400) {
+            free(game_dir);
+            free(executable);
+            if (status)
+                *status = steam_status;
+            return result ? result : err("Baldur's Gate 3 Steam handoff failed");
         }
         free(result);
         ms_process_register_pending_game(id, steam_pid, 15);

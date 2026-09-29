@@ -4409,8 +4409,9 @@ components = ["vcrun2019", "directx_jun2010"]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
 [overrides.1086940]
-pipeline = "dxmt"
+pipeline = "d3dmetal"
 name = "Baldur's Gate 3"
+exe_names = ["bin/bg3_dx11.exe"]
 
 [overrides.1086940.dependencies]
 components = ["vcrun2019", "directx_jun2010"]

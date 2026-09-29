@@ -580,11 +580,14 @@ char* ms_process_running_json(const char* home) {
     wine_process_list wine_processes = find_non_steam_wine_executables(home);
     pid_t eve_pid = ms_steam_eve_process_pid(home);
     pid_t marvel_rivals_pid = ms_steam_marvel_rivals_process_pid(home);
+    pid_t baldurs_gate_3_pid = ms_steam_baldurs_gate_3_process_pid(home);
     ms_ubisoft_register_running_games(home);
     if (eve_pid > 0)
         ms_process_register_game(8500, eve_pid);
     if (marvel_rivals_pid > 0)
         ms_process_register_game(2767030, marvel_rivals_pid);
+    if (baldurs_gate_3_pid > 0)
+        ms_process_register_game(1086940, baldurs_gate_3_pid);
     pthread_mutex_lock(&g_running_mutex);
     if (wine_processes.count > 0 && g_last_registered_appid > 0) {
         for (g = g_running; g; g = g->next)
@@ -688,6 +691,29 @@ char* ms_process_kill_json(const char* home, const char* body, size_t len, int* 
         ms_json_writer_bool(&w, true);
         ms_json_writer_key(&w, "pid");
         ms_json_writer_u64(&w, (unsigned)(marvel_pid > 0 ? marvel_pid : pid64));
+        ms_json_writer_object_end(&w);
+        if (status)
+            *status = 200;
+        return ms_json_writer_take(&w);
+    }
+    if (aid == 1086940) {
+        pid_t game_pid = ms_steam_baldurs_gate_3_process_pid(home);
+        pthread_mutex_lock(&g_running_mutex);
+        forget((unsigned)aid);
+        pthread_mutex_unlock(&g_running_mutex);
+        if (!ms_steam_stop_baldurs_gate_3_processes(home)) {
+            ms_json_free(r);
+            if (status)
+                *status = 500;
+            return error_json("failed to stop Baldur's Gate 3 processes");
+        }
+        ms_json_free(r);
+        ms_json_writer_init(&w);
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "ok");
+        ms_json_writer_bool(&w, true);
+        ms_json_writer_key(&w, "pid");
+        ms_json_writer_u64(&w, (unsigned)(game_pid > 0 ? game_pid : pid64));
         ms_json_writer_object_end(&w);
         if (status)
             *status = 200;

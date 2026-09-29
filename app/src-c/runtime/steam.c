@@ -1131,12 +1131,15 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
      * discovery.  Without this, the library response can display the
      * recommendation while the fresh bottle has no preferred_pipeline and
      * the first launch falls back to a generic route. Existing manifests are
-     * intentionally left untouched so explicit user choices remain stable. */
+     * intentionally left untouched so explicit user choices remain stable,
+     * except for the one-time BG3 migration from its former default DXMT route. */
     for (i = 0; i < count; ++i) {
         if (!games[i].installed || games[i].native_app_path || hidden_library_game(&games[i], exclude_native_mac_games))
             continue;
         (void)ms_steam_ensure_bottle_manifest(metalsharp_home, games[i].appid,
                                               default_pipeline_for_appid(games[i].appid, games[i].game_dir));
+        if (games[i].appid == 1086940)
+            (void)ms_steam_migrate_baldurs_gate_3_route_default(metalsharp_home);
     }
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
