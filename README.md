@@ -1,6 +1,6 @@
 <div align="center"> 
   
-## I'm looking for Input! Please leave a comment:(https://github.com/metalsharp/MetalSharp/discussions/692) 
+**I'm looking for Input! Please leave a comment:(https://github.com/metalsharp/MetalSharp/discussions/692)**
 
 </div>
 
