@@ -41,7 +41,7 @@ The library also provides tabs for Epic, GOG, Game Jolt, and supported emulators
 
 Use **Logs** when something fails. The page has drawer sections for live logs, crash reports, and recent log files.
 
-Use **Settings** to manage Steam API sync, backend restart, cache cleanup, and runtime maintenance.
+Use **Settings** to manage Steam API sync, backend restart, cache cleanup, runtime maintenance, and updates. Stable in-app updates use the verified recovery installer after the download completes; it asks before closing MetalSharp and stopping Steam/Wine, then resumes the normal migration handoff. FEX updates continue through the selected DMG installer.
 
 ### Controller Input Shims
 
