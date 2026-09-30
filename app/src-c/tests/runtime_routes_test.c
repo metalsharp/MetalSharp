@@ -1113,6 +1113,47 @@ int main(int argc, char** argv) {
     free(aoe4_exe);
     free(aoe4_dir);
     {
+        const char* game_root = "beamng";
+        static const char* const route_files[] = {"d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll"};
+        char* game_dir = join(home, game_root);
+        char* executable;
+        assert(game_dir);
+        pe_fixture(home, "beamng/BeamNG.drive.exe", 0x014c);
+        pe_fixture(home, "beamng/Bin64/BeamNG.drive.x64.exe", 0x8664);
+        executable = preferred_steam_game_executable(game_dir, 284160, "d3dmetal");
+        assert(executable && strstr(executable, "/beamng/Bin64/BeamNG.drive.x64.exe"));
+        for (size_t i = 0; i < sizeof(route_files) / sizeof(route_files[0]); i++) {
+            char relative[PATH_MAX];
+            snprintf(relative, sizeof(relative), "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows/%s", route_files[i]);
+            fixture(home, relative, route_files[i]);
+        }
+        assert(ms_steam_stage_route_for_executable(home, "d3dmetal", game_dir, executable));
+        for (size_t i = 0; i < sizeof(route_files) / sizeof(route_files[0]); i++) {
+            char relative[PATH_MAX];
+            snprintf(relative, sizeof(relative), "beamng/Bin64/%s", route_files[i]);
+            char* staged = join(home, relative);
+            assert(staged && access(staged, R_OK) == 0);
+            free(staged);
+        }
+        free(executable);
+        free(game_dir);
+    }
+    {
+        char* game_dir = join(home, "witcher3");
+        char* resolved;
+        char* steam_selected;
+        assert(game_dir);
+        fixture(home, "witcher3/REDlauncher.exe", "storefront launcher");
+        fixture(home, "witcher3/bin/x64/witcher3.exe", "actual game executable");
+        resolved = ms_witcher3_game_executable(game_dir);
+        assert(resolved && strstr(resolved, "/witcher3/bin/x64/witcher3.exe"));
+        steam_selected = preferred_steam_game_executable(game_dir, 292030, "d3dmetal");
+        assert(steam_selected && strstr(steam_selected, "/witcher3/bin/x64/witcher3.exe"));
+        free(resolved);
+        free(steam_selected);
+        free(game_dir);
+    }
+    {
         char parse_error[128];
         char* defaults_json = ms_mtsp_default_rules_json();
         ms_json* defaults = defaults_json
