@@ -1,6 +1,6 @@
 # Games Supported
 
-Updated: 2026-09-28
+Updated: 2026-09-30
 
 Tested and working games organized by launch route. Only games confirmed playable are listed, either by users who use MetalSharp or by the Developer. Many more games likely work beyond this default list.
 
@@ -55,6 +55,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | HELLDIVERS 2 | 553850 | Online Play, Medium Settings |
 | Assassin's Creed Odyssey | 812140 | |
 | Eve Online | 8500 | Launches through steam with Specific Flags that enable the launcher to load |
+| Far Cry 5 | Ubisoft | |
 | Far Cry 6 | Ubisoft | |
 | TrackMania | Ubisoft | |
 | Marvel Rivals | 2767030 | Launches through Steam with -Windowed to avoid a mouse bug |

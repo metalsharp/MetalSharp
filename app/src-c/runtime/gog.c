@@ -651,7 +651,7 @@ static bool spawn_gogdl_download(const char* home, const char* product_id, const
 }
 
 static bool spawn_gogdl_launch(const char* home, const char* product_id, const char* platform, const char* folder,
-                               const char* engine, pid_t* pid_out, char** log_out) {
+                               const char* engine, const char* override_exe, pid_t* pid_out, char** log_out) {
     char *binary = gogdl_path(home), *log_dir = join(home, "logs/gog"), *wine = ms_steam_wine_launch_wrapper_path(home);
     if (!wine)
         wine = join(home, "runtime/wine/bin/metalsharp-wine");
@@ -692,11 +692,25 @@ static bool spawn_gogdl_launch(const char* home, const char* product_id, const c
         if (support)
             setenv("GOGDL_SUPPORT_PATH", support, 1);
         ms_steam_apply_graphics_route(home, engine && *engine ? engine : "auto");
-        char* args[] = {binary,       "--auth-config-path", auth ? auth : (char*)"",
-                        "launch",     (char*)folder,        (char*)product_id,
-                        "--platform", (char*)platform,      "--wine",
-                        wine,         "--wine-prefix",      prefix,
-                        NULL};
+        char* args[18];
+        int count = 0;
+        args[count++] = binary;
+        args[count++] = "--auth-config-path";
+        args[count++] = auth ? auth : (char*)"";
+        args[count++] = "launch";
+        args[count++] = (char*)folder;
+        args[count++] = (char*)product_id;
+        args[count++] = "--platform";
+        args[count++] = (char*)platform;
+        args[count++] = "--wine";
+        args[count++] = wine;
+        args[count++] = "--wine-prefix";
+        args[count++] = prefix;
+        if (override_exe) {
+            args[count++] = "--override-exe";
+            args[count++] = (char*)override_exe;
+        }
+        args[count] = NULL;
         execv(binary, args);
         _exit(127);
     }
@@ -2001,7 +2015,7 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
         }
         if (!strcmp(action, "play")) {
             char *folder = NULL, *install_root = NULL, *platform = NULL, *stored_title = NULL;
-            char* engine = field(j, "engine", "auto");
+            char *engine = field(j, "engine", "auto"), *override_exe = NULL;
             pid_t launch_pid;
             char* log_path = NULL;
             if (!gog_launch_record(home, s, &stored_title, &platform, &install_root, &folder)) {
@@ -2028,10 +2042,13 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 return err("platform must be windows, osx, or linux");
             }
             char* prefix = join(home, "bottles/gog-prefix/prefix");
-            if (!strcmp(platform, "windows"))
+            if (!strcmp(platform, "windows")) {
                 ms_steam_deploy_controller_input_shims(home, folder);
+                override_exe = ms_witcher3_game_executable(folder);
+            }
             bool started = prefix && mkdir_p(prefix) &&
-                           spawn_gogdl_launch(home, s, platform, folder, engine, &launch_pid, &log_path);
+                           spawn_gogdl_launch(home, s, platform, folder, engine, override_exe, &launch_pid, &log_path);
+            free(override_exe);
             if (!started) {
                 free(prefix);
                 free(folder);
