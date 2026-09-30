@@ -2370,6 +2370,19 @@ static char* find_named_game_executable(const char* directory, const char* name,
     return NULL;
 }
 
+char* ms_witcher3_game_executable(const char* game_dir) {
+    char* executable;
+    if (!game_dir || !*game_dir)
+        return NULL;
+    executable = join(game_dir, "bin/x64/witcher3.exe");
+    if (executable && access(executable, R_OK) == 0)
+        return executable;
+    free(executable);
+    /* Some storefront builds vary path casing; locate the canonical basename
+     * recursively if the standard relative path is not an exact host match. */
+    return find_named_game_executable(game_dir, "witcher3.exe", 0);
+}
+
 static char* rule_preferred_game_executable(const char* game_dir, unsigned id) {
     char* raw = ms_mtsp_default_rules_json();
     char error[96];
@@ -2431,7 +2444,13 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "Chameleon/Binaries/Win64/PenguinHotel-Win64-Shipping.exe";
     else if (id == 4126040)
         preferred[count++] = "Aniimo.exe";
-    else if (id == 8500)
+    else if (id == 284160)
+        preferred[count++] = "Bin64/BeamNG.drive.x64.exe";
+    else if (id == 292030) {
+        char* witcher3 = ms_witcher3_game_executable(game_dir);
+        if (witcher3)
+            return witcher3;
+    } else if (id == 8500)
         preferred[count++] = "Launcher/evelauncher.exe";
     else if (id == 1145360 && pipeline && !strcmp(pipeline, "dxmt_32"))
         preferred[count++] = "x86/Hades.exe";

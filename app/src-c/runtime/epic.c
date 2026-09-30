@@ -1238,6 +1238,11 @@ static char* epic_games_response(const char* home, const ms_json* games, const m
                  *artwork = epic_artwork_url(home, app_name, title, game, &artwork_from_thegamesdb);
             char* install_path = json_string_field(install, "install_path");
             char* executable = json_string_field(install, "executable");
+            char* witcher3_executable = ms_witcher3_game_executable(install_path);
+            if (witcher3_executable) {
+                free(executable);
+                executable = witcher3_executable;
+            }
             char* pipeline = epic_bottle_field(home, app_name, "preferred_pipeline");
             char* mouse_mode = epic_bottle_field(home, app_name, "mouse_mode");
             double install_size = 0;
@@ -1790,7 +1795,7 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     char *tool = NULL, *wine = NULL, *real_wine = NULL, *wineserver = NULL, *prefix = NULL, *logs = NULL,
          *log_path = NULL;
     char* launch_pid_path = NULL;
-    char *pipeline = NULL, *mouse_mode = NULL, *install_path = NULL;
+    char *pipeline = NULL, *mouse_mode = NULL, *install_path = NULL, *override_exe = NULL;
     char* result = NULL;
     if (!app_name)
         return epic_failure("invalid Epic app name");
@@ -1821,20 +1826,24 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
         goto done;
     }
     install_path = epic_installed_game_path(home, app_name);
-    if (install_path)
+    if (install_path) {
         ms_steam_deploy_controller_input_shims(home, install_path);
+        override_exe = ms_witcher3_game_executable(install_path);
+    }
     if (configure_epic_mouse(home, prefix, mouse_mode) != 0) {
         result = epic_failure("could not apply Epic game mouse settings");
         goto done;
     }
     static const char* supervisor_script =
-        "pid_marker=$6; supervisor_pid=$$; "
+        "pid_marker=$7; supervisor_pid=$$; "
         "cleanup_pid_marker() { if [ -r \"$pid_marker\" ]; then IFS= read -r stored_pid < \"$pid_marker\"; "
         "if [ \"$stored_pid\" = \"$supervisor_pid\" ]; then IFS= read -r confirmed_pid < \"$pid_marker\"; "
         "if [ \"$confirmed_pid\" = \"$supervisor_pid\" ]; then /bin/rm -f \"$pid_marker\"; fi; fi; fi; }; "
         "trap cleanup_pid_marker EXIT; "
-        "\"$1\" launch \"$2\" --skip-version-check --wine \"$3\" --wine-prefix \"$4\"; "
-        "launch_status=$?; WINEPREFIX=\"$4\" \"$5\" -w; exit $launch_status";
+        "if [ -n \"$5\" ]; then \"$1\" launch \"$2\" --skip-version-check --wine \"$3\" --wine-prefix \"$4\" "
+        "--override-exe \"$5\"; else \"$1\" launch \"$2\" --skip-version-check --wine \"$3\" "
+        "--wine-prefix \"$4\"; fi; "
+        "launch_status=$?; WINEPREFIX=\"$4\" \"$6\" -w; exit $launch_status";
     char* const argv[] = {"/bin/sh",
                           "-c",
                           (char*)supervisor_script,
@@ -1843,6 +1852,7 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
                           app_name,
                           wine,
                           prefix,
+                          override_exe ? override_exe : (char*)"",
                           wineserver,
                           launch_pid_path,
                           NULL};
@@ -1890,6 +1900,7 @@ done:
     free(pipeline);
     free(mouse_mode);
     free(install_path);
+    free(override_exe);
     return result;
 }
 
