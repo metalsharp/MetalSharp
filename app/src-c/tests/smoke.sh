@@ -275,6 +275,43 @@ gog_stop=$(curl --silent --fail --request POST --header 'Content-Type: applicati
 printf '%s' "$gog_stop" | python3 -c 'import json, sys; v=json.load(sys.stdin); g=v["game"]; assert v["ok"] and g["installed"] and not g["running"] and g["status"] == "installed" and g["installRoot"].endswith("/gog-play") and g["gameFolder"].endswith("/gog-play/Game")'
 gog_after_stop=$(curl --silent --fail "http://127.0.0.1:$port/sharp-library/gog/games")
 printf '%s' "$gog_after_stop" | python3 -c 'import json, sys; g=json.load(sys.stdin)["games"][0]; assert g["installed"] and not g["running"] and g["status"] == "installed" and g["slug"] == "gog_launch_regression" and g["primaryExe"] == "Game.exe"'
+mkdir -p "$home/gog-play/Game/bin/x64"
+printf 'Witcher 3 executable fixture' > "$home/gog-play/Game/bin/x64/witcher3.exe"
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+path = Path(os.environ["METALSHARP_HOME"]) / "gog" / "library.json"
+library = json.loads(path.read_text())
+library["games"][0]["title"] = "The Witcher 3: Wild Hunt"
+path.write_text(json.dumps(library))
+PY
+rm -f "$home/gog-launch-args" "$home/gog-launch-env"
+gog_witcher=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242","engine":"auto"}' "http://127.0.0.1:$port/sharp-library/gog/play")
+printf '%s' "$gog_witcher" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["title"] == "The Witcher 3: Wild Hunt"'
+i=0
+while [ ! -f "$home/gog-launch-args" ] && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.02
+done
+python3 - <<'PY'
+import os
+from pathlib import Path
+home = Path(os.environ["METALSHARP_HOME"])
+args = (home / "gog-launch-args").read_text().splitlines()
+assert args[args.index("--override-exe") + 1] == str(home / "gog-play/Game/bin/x64/witcher3.exe")
+PY
+gog_witcher_stop=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242"}' "http://127.0.0.1:$port/sharp-library/gog/stop")
+printf '%s' "$gog_witcher_stop" | python3 -c 'import json, sys; assert json.load(sys.stdin)["ok"]'
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+path = Path(os.environ["METALSHARP_HOME"]) / "gog" / "library.json"
+library = json.loads(path.read_text())
+library["games"][0]["title"] = "GOG Launch Regression"
+path.write_text(json.dumps(library))
+PY
 rm -f "$home/gog-launch-args" "$home/gog-launch-env"
 gog_vkd3d=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"productId":"424242","engine":"vkd3d"}' "http://127.0.0.1:$port/sharp-library/gog/play")
 printf '%s' "$gog_vkd3d" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["game"]["title"] == "GOG Launch Regression"'
@@ -305,7 +342,7 @@ import os
 from pathlib import Path
 home = Path(os.environ["METALSHARP_HOME"])
 stops = (home / "wineserver-stop").read_text().splitlines()
-assert len(stops) == 2 and all(line == f"-k|{home}/bottles/gog-prefix/prefix" for line in stops)
+assert len(stops) == 3 and all(line == f"-k|{home}/bottles/gog-prefix/prefix" for line in stops)
 PY
 gog_launch_log=$(printf '%s' "$gog_vkd3d" | python3 -c 'import json, sys; print(json.load(sys.stdin)["logPath"])')
 i=0

@@ -21,6 +21,8 @@ void ms_steam_apply_launch_preferences(const char* home);
 void ms_steam_deploy_controller_input_shims(const char* home, const char* game_dir);
 /* Return the app-managed Wine shim that opens requested Wine virtual desktops. */
 char* ms_steam_wine_launch_wrapper_path(const char* home);
+/* Resolve the actual Witcher 3 game executable, not a storefront launcher. */
+char* ms_witcher3_game_executable(const char* game_dir);
 char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
 /* Migration-time guarantee: verify/restore steamwebhelper wrapper, bridge shim and Goldberg payloads. */

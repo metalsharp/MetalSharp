@@ -218,14 +218,26 @@ async function loadLibrary(force = false) {
         api<SteamLibrary>("GET", "/ubisoft/library", undefined, 120_000),
       ]);
       if (lib && Array.isArray(lib.games)) {
-        const seenNames = new Set(lib.games.map((game) => game.name.trim().toLocaleLowerCase()));
-        const ubisoftGames = (ubisoft?.games ?? []).filter((game) => {
+        const ubisoftGames = ubisoft?.games ?? [];
+        const installedUbisoftNames = new Set(
+          ubisoftGames
+            .filter((game) => game.installed)
+            .map((game) => game.name.trim().toLocaleLowerCase()),
+        );
+        // Prefer an installed Ubisoft copy over an uninstalled Steam ownership
+        // entry with the same title (e.g. Far Cry 5). Keep Steam precedence if
+        // the Steam copy is also installed.
+        const steamGames = lib.games.filter(
+          (game) => !(game.installed === false && installedUbisoftNames.has(game.name.trim().toLocaleLowerCase())),
+        );
+        const seenNames = new Set(steamGames.map((game) => game.name.trim().toLocaleLowerCase()));
+        const distinctUbisoftGames = ubisoftGames.filter((game) => {
           const key = game.name.trim().toLocaleLowerCase();
           if (seenNames.has(key)) return false;
           seenNames.add(key);
           return true;
         });
-        const games = [...lib.games, ...ubisoftGames];
+        const games = [...steamGames, ...distinctUbisoftGames];
         library.value = {
           ...lib,
           games,
