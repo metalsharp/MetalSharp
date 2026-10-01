@@ -4,6 +4,7 @@
 #endif
 #endif
 #include "metalsharp_backend/ubisoft.h"
+#include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/process.h"
@@ -1308,6 +1309,11 @@ static void write_game_json(ms_json_writer* w, const char* home, const ubisoft_g
     char* pipeline = pipeline_for_game(home, appid);
     char* icon_cache = NULL;
     char* icon = NULL;
+    char* executable = NULL;
+    off_t executable_size = 0;
+    int executable_override = ms_game_executable_override_load(home, "ubisoft", game->id, game->path, &executable);
+    if (executable_override == 0)
+        ubisoft_find_game_executable(game->path, 0, &executable, &executable_size);
     bool icon_pending = false;
     snprintf(icon_relative, sizeof(icon_relative), "cache/ubisoft-connect/artwork/%u.png", appid);
     icon_cache = path_join(home, icon_relative);
@@ -1334,6 +1340,11 @@ static void write_game_json(ms_json_writer* w, const char* home, const ubisoft_g
     ms_json_writer_string(w, "installed");
     ms_json_writer_key(w, "game_dir");
     ms_json_writer_string(w, game->path);
+    ms_json_writer_key(w, "executable_path");
+    if (executable)
+        ms_json_writer_string(w, executable);
+    else
+        ms_json_writer_null(w);
     ms_json_writer_key(w, "embedded_icon_path");
     if (icon)
         ms_json_writer_string(w, icon);
@@ -1371,6 +1382,7 @@ static void write_game_json(ms_json_writer* w, const char* home, const ubisoft_g
     ms_json_writer_object_end(w);
     free(pipeline);
     free(icon);
+    free(executable);
 }
 
 char* ms_ubisoft_library_json(const char* home) {
@@ -1552,6 +1564,61 @@ done:
     return out;
 }
 
+char* ms_ubisoft_save_executable_json(const char* home, const char* body, size_t body_length, int* status) {
+    char *id = NULL, *executable = NULL;
+    char failure[256] = "Could not save Ubisoft game executable";
+    ubisoft_game games[256];
+    size_t count = scan_registry_games(home, games, sizeof(games) / sizeof(games[0]));
+    const ubisoft_game* game;
+    ms_json* request = NULL;
+    ms_json_writer writer;
+    char* out = NULL;
+    if (status)
+        *status = 400;
+    request = ms_json_parse(body ? body : "", body_length, NULL, 0);
+    if (!request || ms_json_type_of(request) != MS_JSON_OBJECT ||
+        !ms_json_as_string(ms_json_object_get(request, "ubisoft_id"), &id) || !valid_ubisoft_id(id) ||
+        !ms_json_as_string(ms_json_object_get(request, "executablePath"), &executable) || !executable ||
+        !executable[0]) {
+        snprintf(failure, sizeof(failure), "A valid Ubisoft game ID and executablePath are required");
+        goto done;
+    }
+    game = find_game(games, count, id);
+    if (!game) {
+        if (status)
+            *status = 404;
+        snprintf(failure, sizeof(failure), "Installed Ubisoft game was not found in the local registry");
+        goto done;
+    }
+    if (!ms_game_executable_override_save(home, "ubisoft", game->id, game->path, executable, failure, sizeof(failure)))
+        goto done;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "executablePath");
+    ms_json_writer_string(&writer, executable);
+    ms_json_writer_object_end(&writer);
+    out = ms_json_writer_take(&writer);
+    if (status)
+        *status = 200;
+done:
+    if (!out) {
+        ms_json_writer_init(&writer);
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "ok");
+        ms_json_writer_bool(&writer, false);
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, failure);
+        ms_json_writer_object_end(&writer);
+        out = ms_json_writer_take(&writer);
+    }
+    free(id);
+    free(executable);
+    ms_json_free(request);
+    return out;
+}
+
 char* ms_ubisoft_launch_game_json(const char* home, const char* body, size_t body_length, int* status) {
     char *id = NULL, *pipeline = NULL;
     ubisoft_game games[256];
@@ -1561,6 +1628,7 @@ char* ms_ubisoft_launch_game_json(const char* home, const char* body, size_t bod
     char failure[512] = "Could not launch the installed Ubisoft game";
     unsigned appid = 0;
     off_t executable_size = 0;
+    int executable_override = 0;
     int failure_status = 400;
     bool ok = false;
     ms_json_writer writer;
@@ -1601,7 +1669,14 @@ char* ms_ubisoft_launch_game_json(const char* home, const char* body, size_t bod
         }
     }
     appid = ubisoft_appid(id);
-    ubisoft_find_game_executable(game->path, 0, &executable, &executable_size);
+    executable_override = ms_game_executable_override_load(home, "ubisoft", game->id, game->path, &executable);
+    if (executable_override == 0)
+        ubisoft_find_game_executable(game->path, 0, &executable, &executable_size);
+    if (executable_override < 0) {
+        failure_status = 409;
+        snprintf(failure, sizeof(failure), "The saved game executable is no longer valid; choose it again");
+        goto done;
+    }
     if (!executable) {
         failure_status = 404;
         snprintf(failure, sizeof(failure), "No launchable Windows executable was found for %s", game->name);

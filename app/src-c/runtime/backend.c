@@ -1590,6 +1590,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/save-executable") == 0) {
+        body = ms_gog_action_json(context->metalsharp_home, "save-executable", request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/play") == 0) {
         body = ms_gog_action_json(context->metalsharp_home, "play", request->body, request->body_length);
         if (body == NULL)
@@ -1932,6 +1939,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/save-executable") == 0) {
+        body = ms_epic_save_executable_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/epic/play") == 0) {
         body = ms_epic_launch_json(context->metalsharp_home, request->body, request->body_length);
         if (body == NULL)
@@ -2239,6 +2253,15 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, status, body);
         return true;
     }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/ubisoft/save-executable") == 0) {
+        int status = 500;
+        body = ms_ubisoft_save_executable_json(context->metalsharp_home, (const char*)request->body,
+                                               request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/ubisoft/save-pipeline") == 0) {
         int status = 500;
         body = ms_ubisoft_save_pipeline_json(context->metalsharp_home, (const char*)request->body, request->body_length,
@@ -2272,6 +2295,15 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         int status = 500;
         ms_log_event(context->metalsharp_home, "Stopping macOS Steam...");
         body = ms_steam_mac_stop_json(&status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steam/save-executable") == 0) {
+        int status = 500;
+        body = ms_steam_save_executable_json(context->metalsharp_home, (const char*)request->body, request->body_length,
+                                             &status);
         if (body == NULL)
             return false;
         set_json_response(response, status, body);

@@ -35,6 +35,7 @@ char* ms_steam_install_json(const char*, int*);
 char* ms_steam_install_game_json(const char*, const char*, size_t, int*);
 char* ms_steam_uninstall_game_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_game_json(const char*, const char*, size_t, int*);
+char* ms_steam_save_executable_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_auto_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_external_json(const char*, const char*, size_t, int*);
 char* ms_steam_launch_d3dmetal_json(const char*, unsigned, const char*, const char*, int*);
@@ -42,6 +43,8 @@ char* ms_steam_launch_d3dmetal_json(const char*, unsigned, const char*, const ch
  * launchers versus their actual Win64 shipping executable). */
 char* ms_steam_d3dmetal_game_executable(const char*, unsigned);
 char* ms_steam_d3dmetal_game_local_executable(const char*, unsigned);
+char* ms_steam_resolve_game_executable(const char*, unsigned, const char*);
+char* ms_game_find_executable_in_directory(const char*);
 /* Remove only byte-matched MetalSharp route DLLs before staging a new route. */
 void ms_steam_cleanup_route_dlls(const char*, const char*, const char*, const char*);
 /* Stage the selected route beside an arbitrary installed Windows game's executable. */

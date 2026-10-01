@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.76.0 - Unreleased
+
+### Added
+
+- **Per-game executable selection** — choose and persist an installed Windows game's `.exe` from Steam/Ubisoft hero settings or the GOG/Epic game card. Choices are validated to stay within the game's install folder and are applied on subsequent launches.
+
 ## v0.75.0 - 09/28/2026
 
 ### Added

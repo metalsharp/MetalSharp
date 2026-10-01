@@ -281,6 +281,7 @@ type MetalsharpAPI = {
   quitApp: () => void;
   uninstallApp: () => void;
   pickExeFile: () => Promise<string | null>;
+  pickGameExeFile: (defaultPath?: string) => Promise<string | null>;
   pickRpcs3File: (kind: "firmware" | "package") => Promise<string | null>;
   pickPcsx2Bios: () => Promise<string | null>;
   pickPcsx2Game: () => Promise<string | null>;
