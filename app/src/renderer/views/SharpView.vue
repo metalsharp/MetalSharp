@@ -3013,24 +3013,6 @@ async function setCover(id: string) {
   } else toast.show(result?.error ?? "Failed to set cover", "error");
 }
 
-async function addAsset(app: SharpApp) {
-  if (!app.bottle_id) {
-    toast.show(`${app.name} is not associated with an app bottle`, "error");
-    return;
-  }
-  const filePath = await getAPI().pickAssetFile();
-  if (!filePath) return;
-  const result = await api<{ ok: boolean; path?: string; error?: string }>("POST", "/sharp-library/add-asset", {
-    id: app.id,
-    assetPath: filePath,
-  });
-  if (result?.ok) {
-    toast.show(`Added asset to ${app.name}`, "success");
-  } else {
-    toast.show(result?.error ?? "Failed to add asset", "error");
-  }
-}
-
 async function updateCoverPosition(app: SharpApp) {
   const result = await api<{ ok: boolean; error?: string }>("POST", "/sharp-library/set-cover-position", {
     id: app.id,
@@ -3187,6 +3169,15 @@ async function openBottleLog(bottle: BottleManifest) {
 
 async function openBottleFolder(bottle: BottleManifest) {
   await getAPI().openInFinder(bottle.prefix_path);
+}
+
+async function openAppBottleFolder(app: SharpApp) {
+  const bottle = bottleForApp(app);
+  if (!bottle) {
+    toast.show(`${app.name} is not associated with an app bottle`, "error");
+    return;
+  }
+  await openBottleFolder(bottle);
 }
 
 async function copyDiagnosticBundle(app: SharpApp) {
@@ -3673,15 +3664,15 @@ onUnmounted(() => {
                         </button>
                         <button
                           class="btn btn-secondary btn-sm"
-                          :disabled="!app.bottle_id"
+                          :disabled="!bottleForApp(app)"
                           :title="
-                            app.bottle_id
-                              ? 'Copy a file into this app bottle prefix'
+                            bottleForApp(app)
+                              ? 'Open this app bottle folder to add files manually'
                               : 'This app is not associated with a bottle'
                           "
-                          @click="addAsset(app)"
+                          @click="openAppBottleFolder(app)"
                         >
-                          Add Asset
+                          {{ t('ui.source.openFolder') }}
                         </button>
                       </div>
                       <div v-if="app.cover" class="cover-position-controls">
