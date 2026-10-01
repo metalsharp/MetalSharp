@@ -5,6 +5,7 @@
 #endif
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/config.h"
+#include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/logs.h"
@@ -2332,6 +2333,10 @@ static char* find_game_executable(const char* directory, unsigned depth) {
     }
     closedir(dir);
     return NULL;
+}
+
+char* ms_game_find_executable_in_directory(const char* directory) {
+    return find_game_executable(directory, 0);
 }
 
 static char* find_named_game_executable(const char* directory, const char* name, unsigned depth) {
@@ -4787,6 +4792,20 @@ static char* find_steam_game_executable(const char* home, unsigned id, const cha
     char* executable = NULL;
     char* game_dir = ms_steam_game_dir(home, id);
     if (game_dir) {
+        char app_id[32];
+        char* override = NULL;
+        int override_status;
+        snprintf(app_id, sizeof(app_id), "%u", id);
+        override_status = ms_game_executable_override_load(home, "steam", app_id, game_dir, &override);
+        if (override_status != 0) {
+            free(game_dir);
+            if (candidates) {
+                for (size_t i = 0; i < 32; i++)
+                    free(candidates[i]);
+                free(candidates);
+            }
+            return override_status > 0 ? override : NULL;
+        }
         executable = preferred_steam_game_executable(game_dir, id, pipeline);
         free(game_dir);
         if (executable || !candidates)
@@ -4825,6 +4844,68 @@ done:
         free(candidates);
     }
     return executable;
+}
+
+char* ms_steam_resolve_game_executable(const char* home, unsigned id, const char* pipeline) {
+    return find_steam_game_executable(home, id, pipeline && pipeline[0] ? pipeline : "d3dmetal");
+}
+
+char* ms_steam_save_executable_json(const char* home, const char* body, size_t length, int* status) {
+    unsigned id = 0;
+    char *game_dir = NULL, *selected = NULL, *result = NULL;
+    char message[256] = "Could not save game executable";
+    ms_json* request = NULL;
+    ms_json_writer writer;
+    if (status)
+        *status = 400;
+    if (!body_id(body, length, &id)) {
+        snprintf(message, sizeof(message), "appid required");
+        goto done;
+    }
+    request = ms_json_parse(body ? body : "", length, NULL, 0);
+    if (!request || ms_json_type_of(request) != MS_JSON_OBJECT ||
+        !ms_json_as_string(ms_json_object_get(request, "executablePath"), &selected) || !selected || !selected[0]) {
+        snprintf(message, sizeof(message), "executablePath required");
+        goto done;
+    }
+    game_dir = ms_steam_game_dir(home, id);
+    if (!game_dir) {
+        if (status)
+            *status = 404;
+        snprintf(message, sizeof(message), "Installed Steam game was not found");
+        goto done;
+    }
+    {
+        char app_id[32];
+        snprintf(app_id, sizeof(app_id), "%u", id);
+        if (!ms_game_executable_override_save(home, "steam", app_id, game_dir, selected, message, sizeof(message)))
+            goto done;
+    }
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "executablePath");
+    ms_json_writer_string(&writer, selected);
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    if (status)
+        *status = 200;
+done:
+    if (!result) {
+        ms_json_writer_init(&writer);
+        ms_json_writer_object_begin(&writer);
+        ms_json_writer_key(&writer, "ok");
+        ms_json_writer_bool(&writer, false);
+        ms_json_writer_key(&writer, "error");
+        ms_json_writer_string(&writer, message);
+        ms_json_writer_object_end(&writer);
+        result = ms_json_writer_take(&writer);
+    }
+    free(game_dir);
+    free(selected);
+    ms_json_free(request);
+    return result;
 }
 
 static bool direct_game_launch_paths(const char* executable, unsigned id, char* cwd, size_t cwd_size, char* program,
@@ -5757,7 +5838,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                                                 bool default_to_steam) {
     unsigned id;
     char *e, pipeline[32] = "auto", saved_pipeline[32] = "";
-    char* executable;
+    char* executable = NULL;
     char* game_dir;
     pid_t pid;
     char je[96];
@@ -5838,7 +5919,25 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             *status = 200;
         return pipeline_pid_result(pid, id, pipeline, home);
     }
-    executable = find_steam_game_executable(home, id, pipeline);
+    game_dir = ms_steam_game_dir(home, id);
+    if (game_dir) {
+        char app_id[32];
+        char* saved_executable = NULL;
+        int saved_status;
+        snprintf(app_id, sizeof(app_id), "%u", id);
+        saved_status = ms_game_executable_override_load(home, "steam", app_id, game_dir, &saved_executable);
+        free(game_dir);
+        if (saved_status < 0) {
+            free(saved_executable);
+            if (status)
+                *status = 409;
+            return err("The saved game executable is no longer valid; choose it again");
+        }
+        if (saved_status > 0)
+            executable = saved_executable;
+    }
+    if (!executable)
+        executable = find_steam_game_executable(home, id, pipeline);
     if (!executable) {
         if (status)
             *status = 404;

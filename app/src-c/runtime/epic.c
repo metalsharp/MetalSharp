@@ -1,4 +1,5 @@
 #include "metalsharp_backend/epic.h"
+#include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
@@ -1239,10 +1240,33 @@ static char* epic_games_response(const char* home, const ms_json* games, const m
             char* install_path = json_string_field(install, "install_path");
             char* executable = json_string_field(install, "executable");
             char* witcher3_executable = ms_witcher3_game_executable(install_path);
-            if (witcher3_executable) {
+            char* metadata_executable = NULL;
+            char* saved_executable = NULL;
+            int saved_executable_status =
+                install_path ? ms_game_executable_override_load(home, "epic", app_name, install_path, &saved_executable)
+                             : 0;
+            if (saved_executable_status > 0) {
+                free(executable);
+                executable = saved_executable;
+                saved_executable = NULL;
+            } else if (saved_executable_status < 0) {
+                free(executable);
+                executable = NULL;
+            } else if (witcher3_executable) {
                 free(executable);
                 executable = witcher3_executable;
+                witcher3_executable = NULL;
+            } else if (install_path && executable && executable[0] != '/') {
+                metadata_executable = epic_join(install_path, executable);
+                if (metadata_executable && access(metadata_executable, F_OK) == 0) {
+                    free(executable);
+                    executable = metadata_executable;
+                    metadata_executable = NULL;
+                }
             }
+            free(witcher3_executable);
+            free(metadata_executable);
+            free(saved_executable);
             char* pipeline = epic_bottle_field(home, app_name, "preferred_pipeline");
             char* mouse_mode = epic_bottle_field(home, app_name, "mouse_mode");
             double install_size = 0;
@@ -1790,6 +1814,41 @@ done:
     return result;
 }
 
+char* ms_epic_save_executable_json(const char* home, const unsigned char* body, size_t body_length) {
+    char *app_name = request_app_name(body, body_length),
+         *selected = request_string(body, body_length, "executablePath");
+    char *install_path = NULL, *result = NULL;
+    char failure[256] = "Could not save Epic game executable";
+    if (!app_name || !selected || !selected[0]) {
+        free(app_name);
+        free(selected);
+        return epic_failure("A valid Epic app name and executablePath are required");
+    }
+    install_path = epic_installed_game_path(home, app_name);
+    if (!install_path) {
+        result = epic_failure("Installed Epic game was not found");
+        goto done;
+    }
+    if (!ms_game_executable_override_save(home, "epic", app_name, install_path, selected, failure, sizeof(failure))) {
+        result = epic_failure(failure);
+        goto done;
+    }
+    ms_json_writer writer;
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "executablePath");
+    ms_json_writer_string(&writer, selected);
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+done:
+    free(app_name);
+    free(selected);
+    free(install_path);
+    return result;
+}
+
 char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t body_length) {
     char* app_name = request_app_name(body, body_length);
     char *tool = NULL, *wine = NULL, *real_wine = NULL, *wineserver = NULL, *prefix = NULL, *logs = NULL,
@@ -1827,8 +1886,15 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     }
     install_path = epic_installed_game_path(home, app_name);
     if (install_path) {
+        int saved_executable_status;
         ms_steam_deploy_controller_input_shims(home, install_path);
-        override_exe = ms_witcher3_game_executable(install_path);
+        saved_executable_status = ms_game_executable_override_load(home, "epic", app_name, install_path, &override_exe);
+        if (saved_executable_status < 0) {
+            result = epic_failure("the saved game executable is no longer valid; choose it again");
+            goto done;
+        }
+        if (saved_executable_status == 0)
+            override_exe = ms_witcher3_game_executable(install_path);
     }
     if (configure_epic_mouse(home, prefix, mouse_mode) != 0) {
         result = epic_failure("could not apply Epic game mouse settings");

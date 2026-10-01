@@ -2750,6 +2750,27 @@ webview{flex:1;border:none}
     return result.filePaths[0];
   });
 
+  ipcMain.handle("app:pick-game-exe", async (_event, defaultPath?: string) => {
+    if (!mainWindow) return null;
+    let initialDirectory: string | undefined;
+    if (typeof defaultPath === "string" && defaultPath.trim()) {
+      const resolved = path.resolve(defaultPath);
+      try {
+        initialDirectory = fs.statSync(resolved).isDirectory() ? resolved : path.dirname(resolved);
+      } catch {
+        initialDirectory = path.dirname(resolved);
+      }
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select the game's Windows executable",
+      ...(initialDirectory ? { defaultPath: initialDirectory } : {}),
+      properties: ["openFile"],
+      filters: [{ name: "Windows Executable", extensions: ["exe"] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
   ipcMain.handle("app:pick-rpcs3-file", async (_event, kind: "firmware" | "package") => {
     if (!mainWindow || (kind !== "firmware" && kind !== "package")) return null;
     const firmware = kind === "firmware";

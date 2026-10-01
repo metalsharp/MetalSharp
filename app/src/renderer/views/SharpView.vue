@@ -10,6 +10,7 @@ import LibraryFooter from "../components/LibraryFooter.vue";
 import GameLaunchSettingsPopover from "../components/GameLaunchSettingsPopover.vue";
 import { themedNavIcon } from "../composables/useTheme";
 import IconChevronLeft from "~icons/lucide/chevron-left";
+import IconSettings from "~icons/lucide/settings";
 import IconUpload from "~icons/lucide/upload";
 import IconMonitor from "~icons/lucide/monitor";
 import IconX from "~icons/lucide/x";
@@ -237,6 +238,7 @@ interface GogGame {
   iconUrl?: string | null;
   installRoot?: string | null;
   gameFolder?: string | null;
+  executablePath?: string | null;
   primaryExe?: string | null;
   primaryTaskName?: string | null;
   installed: boolean;
@@ -548,6 +550,7 @@ let epicRunningPollInFlight = false;
 const epicLoading = ref<Record<string, boolean>>({});
 const epicProgress = ref<Record<string, number>>({});
 const epicBottleOpen = ref<Record<string, boolean>>({});
+const executablePickerBusy = ref<string | null>(null);
 let savedGogEngines: Record<string, string> = {};
 try {
   savedGogEngines = JSON.parse(localStorage.getItem("metalsharp-gog-engines") ?? "{}");
@@ -2032,6 +2035,26 @@ async function cancelEpicInstall(game: EpicGame) {
   } else toast.show(result?.error ?? `Could not stop ${game.title} download`, "error");
 }
 
+async function chooseEpicExecutable(game: EpicGame) {
+  if (!game.installed || !game.installPath || executablePickerBusy.value) return;
+  const key = `epic:${game.appName}`;
+  const selected = await getAPI().pickGameExeFile(game.executable || game.installPath);
+  if (!selected) return;
+  executablePickerBusy.value = key;
+  const result = await api<{ ok: boolean; executablePath?: string; error?: string }>(
+    "POST",
+    "/sharp-library/epic/save-executable",
+    { appName: game.appName, executablePath: selected },
+  );
+  executablePickerBusy.value = null;
+  if (!result?.ok) {
+    toast.show(result?.error ?? `Could not save ${game.title}'s executable`, "error");
+    return;
+  }
+  game.executable = result.executablePath || selected;
+  toast.show(`${game.title}: launch executable saved`, "success");
+}
+
 async function playEpicGame(game: EpicGame) {
   epicLoading.value[`${game.appName}:play`] = true;
   const result = await api<{ ok: boolean; pid?: number; error?: string }>(
@@ -2346,6 +2369,26 @@ async function monitorGogProgress(productId: string) {
     }
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
+}
+
+async function chooseGogExecutable(game: GogGame) {
+  if (!game.installed || game.platform !== "windows" || executablePickerBusy.value) return;
+  const key = `gog:${game.productId}`;
+  const selected = await getAPI().pickGameExeFile(game.executablePath || game.gameFolder || game.installRoot || undefined);
+  if (!selected) return;
+  executablePickerBusy.value = key;
+  const result = await api<{ ok: boolean; executablePath?: string; error?: string }>(
+    "POST",
+    "/sharp-library/gog/save-executable",
+    { productId: game.productId, executablePath: selected },
+  );
+  executablePickerBusy.value = null;
+  if (!result?.ok) {
+    toast.show(result?.error ?? `Could not save ${game.title}'s executable`, "error");
+    return;
+  }
+  game.executablePath = result.executablePath || selected;
+  toast.show(`${game.title}: launch executable saved`, "success");
 }
 
 async function playGogGame(game: GogGame) {
@@ -3815,6 +3858,18 @@ onUnmounted(() => {
               <div class="sharp-card-banner">
                 <img v-if="game.imageUrl" :src="game.imageUrl" :alt="game.title" />
                 <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
+                <button
+                  v-if="game.installed && game.platform === 'windows'"
+                  class="game-executable-settings-button"
+                  :class="{ 'with-stop': game.running }"
+                  type="button"
+                  :disabled="executablePickerBusy === `gog:${game.productId}`"
+                  :title="executablePickerBusy === `gog:${game.productId}` ? 'Saving executable…' : 'Choose game executable'"
+                  aria-label="Choose game executable"
+                  @click.stop="chooseGogExecutable(game)"
+                >
+                  <IconSettings width="15" height="15" />
+                </button>
                 <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopGogGame(game)">
                   <IconX width="14" height="14" />
                 </button>
@@ -3954,6 +4009,18 @@ onUnmounted(() => {
                   :title="game.artworkSource ? `Artwork from ${game.artworkSource}` : undefined"
                 />
                 <img v-else :src="sharpLogoUrl" :alt="`${game.title} default artwork`" class="sharp-cover-fallback" />
+                <button
+                  v-if="game.installed && game.installPath"
+                  class="game-executable-settings-button"
+                  :class="{ 'with-stop': game.running }"
+                  type="button"
+                  :disabled="executablePickerBusy === `epic:${game.appName}`"
+                  :title="executablePickerBusy === `epic:${game.appName}` ? 'Saving executable…' : 'Choose game executable'"
+                  aria-label="Choose game executable"
+                  @click.stop="chooseEpicExecutable(game)"
+                >
+                  <IconSettings width="15" height="15" />
+                </button>
                 <button v-if="game.running" class="running-close-button" title="Stop game" @click="stopEpicGame(game)">
                   <IconX width="14" height="14" />
                 </button>
@@ -6061,6 +6128,34 @@ onUnmounted(() => {
   background:
     radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 48%),
     var(--bg-surface);
+}
+.game-executable-settings-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, white 12%);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-deep) 82%, transparent);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 22px var(--card-glow);
+}
+.game-executable-settings-button.with-stop {
+  right: 46px;
+}
+.game-executable-settings-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.game-executable-settings-button:disabled {
+  opacity: 0.5;
+  cursor: wait;
 }
 .running-close-button {
   position: absolute;
