@@ -1,4 +1,5 @@
 #include "metalsharp_backend/gog.h"
+#include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/setup.h"
@@ -1311,9 +1312,10 @@ static char* gog_metadata_game_json(const char* raw_game, const ms_json* metadat
 
 static char* refresh_game_json(const char* home, const ms_json* game) {
     char *id = field(game, "productId", ""), *root = field(game, "installRoot", ""), *folder = NULL,
-         *status = field(game, "status", ""), *serialized;
+         *status = field(game, "status", ""), *platform = field(game, "platform", "windows"), *serialized;
+    char* executable = NULL;
     long long pid_value = 0;
-    bool installed, running;
+    bool installed, running, has_executable_path = false;
     ms_json_writer writer;
     if (!*root) {
         root = join(home, "gog-games");
@@ -1326,6 +1328,14 @@ static char* refresh_game_json(const char* home, const ms_json* game) {
     if (root && *id)
         folder = gog_import_folder(root, id);
     installed = folder != NULL;
+    if (installed && !strcmp(platform, "windows")) {
+        int override_status = ms_game_executable_override_load(home, "gog", id, folder, &executable);
+        if (override_status == 0) {
+            executable = ms_witcher3_game_executable(folder);
+            if (!executable)
+                executable = ms_game_find_executable_in_directory(folder);
+        }
+    }
     (void)ms_json_as_i64(ms_json_object_get(game, "lastLaunchPid"), &pid_value);
     running = pid_value > 0 && kill((pid_t)pid_value, 0) == 0;
     if (running) {
@@ -1349,7 +1359,13 @@ static char* refresh_game_json(const char* home, const ms_json* game) {
             ms_json_writer_string(&writer, root);
         else if (!strcmp(key, "gameFolder") && installed)
             ms_json_writer_string(&writer, folder);
-        else if (!strcmp(key, "installed"))
+        else if (!strcmp(key, "executablePath")) {
+            has_executable_path = true;
+            if (executable)
+                ms_json_writer_string(&writer, executable);
+            else
+                ms_json_writer_null(&writer);
+        } else if (!strcmp(key, "installed"))
             ms_json_writer_bool(&writer, installed);
         else if (!strcmp(key, "running"))
             ms_json_writer_bool(&writer, running);
@@ -1361,12 +1377,21 @@ static char* refresh_game_json(const char* home, const ms_json* game) {
             free(raw);
         }
     }
+    if (!has_executable_path) {
+        ms_json_writer_key(&writer, "executablePath");
+        if (executable)
+            ms_json_writer_string(&writer, executable);
+        else
+            ms_json_writer_null(&writer);
+    }
     ms_json_writer_object_end(&writer);
     serialized = ms_json_writer_take(&writer);
     free(id);
     free(root);
     free(folder);
     free(status);
+    free(platform);
+    free(executable);
     return serialized;
 }
 
@@ -1908,7 +1933,8 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
     if (!strcmp(action, "games"))
         return ms_gog_games_json(home);
     bool needs_id = !strcmp(action, "install") || !strcmp(action, "import") || !strcmp(action, "progress") ||
-                    !strcmp(action, "play") || !strcmp(action, "stop") || !strcmp(action, "uninstall");
+                    !strcmp(action, "play") || !strcmp(action, "stop") || !strcmp(action, "uninstall") ||
+                    !strcmp(action, "save-executable");
     if (needs_id) {
         j = ms_json_parse(body ? (const char*)body : "", body ? len : 0, e, sizeof(e));
         v = j ? ms_json_object_get(j, "productId") : NULL;
@@ -1918,6 +1944,48 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             free(s);
             ms_json_free(j);
             return err("missing productId");
+        }
+        if (!strcmp(action, "save-executable")) {
+            char *title = NULL, *platform = NULL, *install_root = NULL, *folder = NULL;
+            char* selected = field(j, "executablePath", "");
+            char error[256] = "Could not save GOG game executable";
+            ms_json_writer response;
+            if (!selected[0] || !gog_launch_record(home, s, &title, &platform, &install_root, &folder) || !platform ||
+                strcmp(platform, "windows")) {
+                free(title);
+                free(platform);
+                free(install_root);
+                free(folder);
+                free(selected);
+                free(s);
+                ms_json_free(j);
+                return err("The installed Windows GOG game could not be resolved");
+            }
+            if (!ms_game_executable_override_save(home, "gog", s, folder, selected, error, sizeof(error))) {
+                free(title);
+                free(platform);
+                free(install_root);
+                free(folder);
+                free(selected);
+                free(s);
+                ms_json_free(j);
+                return err(error);
+            }
+            ms_json_writer_init(&response);
+            ms_json_writer_object_begin(&response);
+            ms_json_writer_key(&response, "ok");
+            ms_json_writer_bool(&response, true);
+            ms_json_writer_key(&response, "executablePath");
+            ms_json_writer_string(&response, selected);
+            ms_json_writer_object_end(&response);
+            free(title);
+            free(platform);
+            free(install_root);
+            free(folder);
+            free(selected);
+            free(s);
+            ms_json_free(j);
+            return ms_json_writer_take(&response);
         }
         if (!strcmp(action, "uninstall")) {
             char *root = NULL, *folder = NULL;
@@ -2043,8 +2111,22 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             }
             char* prefix = join(home, "bottles/gog-prefix/prefix");
             if (!strcmp(platform, "windows")) {
+                int override_status;
                 ms_steam_deploy_controller_input_shims(home, folder);
-                override_exe = ms_witcher3_game_executable(folder);
+                override_status = ms_game_executable_override_load(home, "gog", s, folder, &override_exe);
+                if (override_status < 0) {
+                    free(prefix);
+                    free(folder);
+                    free(install_root);
+                    free(platform);
+                    free(engine);
+                    free(s);
+                    free(title);
+                    ms_json_free(j);
+                    return err("the saved game executable is no longer valid; choose it again");
+                }
+                if (override_status == 0)
+                    override_exe = ms_witcher3_game_executable(folder);
             }
             bool started = prefix && mkdir_p(prefix) &&
                            spawn_gogdl_launch(home, s, platform, folder, engine, override_exe, &launch_pid, &log_path);

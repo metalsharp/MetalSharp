@@ -29,6 +29,7 @@ interface SteamGame {
   preferred_pipeline?: string | null;
   available_pipelines?: { id: string; name: string; recommended?: boolean }[];
   wine_game_path?: string | null;
+  executable_path?: string | null;
   bottle_id?: string | null;
   embedded_icon_path?: string | null;
   icon_pending?: boolean;
@@ -745,6 +746,29 @@ async function launchGame(game: ShowcaseGame) {
   } else toast.show(result?.error || `Failed to launch ${game.name}`, "error");
 }
 
+async function chooseFeaturedExecutable() {
+  const game = featuredGame.value;
+  if (!game || game.has_native_build || !game.installed) return;
+  const defaultPath = game.executable_path || game.game_dir || game.wine_game_path || undefined;
+  const selected = await getAPI().pickGameExeFile(defaultPath);
+  if (!selected) return;
+  const endpoint = game.source === "ubisoft" ? "/ubisoft/save-executable" : "/steam/save-executable";
+  const payload = game.source === "ubisoft"
+    ? { ubisoft_id: game.ubisoft_id, executablePath: selected }
+    : { appid: game.appid, executablePath: selected };
+  const result = await api<{ ok: boolean; executablePath?: string; error?: string }>("POST", endpoint, payload);
+  if (!result?.ok) {
+    toast.show(result?.error || `Could not save ${game.name}'s executable`, "error");
+    return;
+  }
+  game.executable_path = result.executablePath || selected;
+  const sourceGame = library.value?.games.find(
+    (candidate) => candidate.source === game.source && candidate.appid === game.appid,
+  );
+  if (sourceGame) sourceGame.executable_path = game.executable_path;
+  toast.show(`${game.name}: launch executable saved`, "success");
+}
+
 async function savePipeline() {
   const game = featuredGame.value;
   if (!game || pipelineSaving.value) return;
@@ -1255,6 +1279,13 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
                 <button type="button" :class="{ active: msyncEnabled }" @click="setMsync(!msyncEnabled)">
                   {{ msyncEnabled ? t("ui.game.on") : t("ui.game.off") }}
                 </button>
+              </div>
+              <div v-if="featuredGame.installed && !featuredGame.has_native_build" class="game-setting-row game-executable-setting">
+                <div class="game-executable-label">
+                  <span>Launch executable</span>
+                  <small :title="featuredGame.executable_path || undefined">{{ featuredGame.executable_path?.split(/[\\/]/).pop() || "Automatically detected" }}</small>
+                </div>
+                <button type="button" @click="chooseFeaturedExecutable">Choose EXE</button>
               </div>
               <div v-if="featuredGame.source !== 'ubisoft'" class="game-setting-row game-setting-toggle">
                 <span>{{ t("ui.game.steamEmu") }}</span>
@@ -2051,6 +2082,37 @@ function handleImageLoad(event: Event, game: ShowcaseGame) {
 .game-setting-row > span {
   color: color-mix(in srgb, var(--library-control-text) 82%, transparent);
   font-size: 12px;
+}
+.game-executable-label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: color-mix(in srgb, var(--library-control-text) 88%, transparent);
+  font-size: 12px;
+}
+.game-executable-label small {
+  max-width: 190px;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--library-control-text) 55%, transparent);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-executable-setting > button {
+  flex: 0 0 auto;
+  min-height: 27px;
+  padding: 0 8px;
+  border: 1px solid var(--library-control-border);
+  border-radius: 5px;
+  color: var(--library-control-text);
+  background: var(--library-control-bg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+.game-executable-setting > button:hover {
+  background: var(--library-control-hover);
 }
 .game-setting-options {
   display: flex;

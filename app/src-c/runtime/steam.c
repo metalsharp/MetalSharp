@@ -1030,6 +1030,8 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
         !native_build && bottle_string_value(home, game->appid, "preferred_pipeline", preferred, sizeof(preferred))
             ? preferred
             : recommended;
+    char* executable =
+        game->installed && !native_build ? ms_steam_resolve_game_executable(home, game->appid, effective) : NULL;
     snprintf(cover, sizeof(cover), "https://steamcdn-a.akamaihd.net/steam/apps/%u/library_600x900.jpg", game->appid);
     snprintf(header, sizeof(header), "https://steamcdn-a.akamaihd.net/steam/apps/%u/header.jpg", game->appid);
     ms_json_writer_object_begin(w);
@@ -1050,6 +1052,11 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     ms_json_writer_key(w, "preferred_pipeline");
     if (preferred[0])
         ms_json_writer_string(w, preferred);
+    else
+        ms_json_writer_null(w);
+    ms_json_writer_key(w, "executable_path");
+    if (executable)
+        ms_json_writer_string(w, executable);
     else
         ms_json_writer_null(w);
     ms_json_writer_key(w, "available_pipelines");
@@ -1097,6 +1104,7 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
         ms_json_writer_null(w);
     ms_json_writer_object_end(w);
     free(embedded_icon);
+    free(executable);
 }
 
 static char* steam_library_json(const char* metalsharp_home, bool refresh) {

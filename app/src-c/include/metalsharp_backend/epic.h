@@ -18,6 +18,7 @@ char* ms_epic_progress_json(const char* home, const unsigned char* body, size_t 
 char* ms_epic_cancel_json(const char* home, const unsigned char* body, size_t body_length);
 char* ms_epic_initialize_json(const char* home, const unsigned char* body, size_t body_length);
 char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t body_length);
+char* ms_epic_save_executable_json(const char* home, const unsigned char* body, size_t body_length);
 char* ms_epic_stop_json(const char* home, const unsigned char* body, size_t body_length);
 char* ms_epic_stop_all_json(const char* home);
 char* ms_epic_uninstall_json(const char* home, const unsigned char* body, size_t body_length);
