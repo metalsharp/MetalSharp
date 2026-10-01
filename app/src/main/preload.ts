@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld("metalsharp", {
   quitApp: () => ipcRenderer.send("app:quit"),
   uninstallApp: () => ipcRenderer.send("app:uninstall"),
   pickExeFile: () => ipcRenderer.invoke("app:pick-exe-file"),
+  pickGameExeFile: (defaultPath?: string) => ipcRenderer.invoke("app:pick-game-exe", defaultPath),
   pickRpcs3File: (kind: "firmware" | "package") => ipcRenderer.invoke("app:pick-rpcs3-file", kind),
   pickPcsx2Bios: () => ipcRenderer.invoke("app:pick-pcsx2-bios"),
   pickPcsx2Game: () => ipcRenderer.invoke("app:pick-pcsx2-game"),

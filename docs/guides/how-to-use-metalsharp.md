@@ -39,6 +39,10 @@ Use **Tools → Open Folder** on an app card to open that app's bottle prefix in
 
 The library also provides tabs for Epic, GOG, Game Jolt, and supported emulators. These use the same library-style layout while keeping the shared applet switch and Settings controls in the top-right.
 
+### Choosing a game's executable
+
+For installed Windows Steam and Ubisoft games, open the selected game's **Settings** popover in the Library hero and choose **Choose EXE**. For GOG and Epic games, use the gear button on the game's card. The file picker starts in the current executable's folder when one is known. Choose an `.exe` inside that game's install folder; MetalSharp saves the choice per game and uses it on later launches.
+
 ## Logs and Settings
 
 Use **Logs** when something fails. The page has drawer sections for live logs, crash reports, and recent log files.
