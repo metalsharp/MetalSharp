@@ -35,6 +35,8 @@ Use **Install Windows Program** to select an `.exe` or `.msi`. MetalSharp may im
 
 Sharp Library cards let you rename an app with the pencil next to its title and change its cover image with **Change Image**. Cover images may be JPEG, PNG, or WebP; use the cover-position control to adjust the crop.
 
+Use **Tools → Open Folder** on an app card to open that app's bottle prefix in Finder when you need to add files manually. Managed runtime components should be installed or repaired through their runtime and bottle tools, not copied into the prefix by hand.
+
 The library also provides tabs for Epic, GOG, Game Jolt, and supported emulators. These use the same library-style layout while keeping the shared applet switch and Settings controls in the top-right.
 
 ## Logs and Settings
