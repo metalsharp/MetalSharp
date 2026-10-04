@@ -22,17 +22,30 @@ CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo bu
 rm -rf "$BUNDLE"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/assets"
 ICON_TMP="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-icon.XXXXXX")"
-ICONSET="$ICON_TMP/MetalSharp.iconset"
+ICON_NAME="metalsharp-liquid-glass"
+ICON_SOURCE="$APP_DIR/assets/$ICON_NAME.icon"
+ICON_OUTPUT="$ICON_TMP/compiled"
 trap 'rm -rf "$ICON_TMP"' EXIT
-mkdir -p "$ICONSET"
-for size in 16 32 128 256 512; do
-  sips -s format png -z "$size" "$size" "$APP_DIR/assets/metalsharp-logo.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
-  if [ "$size" -lt 512 ]; then
-    double=$((size * 2))
-    sips -s format png -z "$double" "$double" "$APP_DIR/assets/metalsharp-logo.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
-  fi
-done
-iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/MetalSharp.icns"
+mkdir -p "$ICON_OUTPUT"
+if [ -n "${ACTOOL:-}" ]; then
+  ACTOOL_BIN="$ACTOOL"
+elif ACTOOL_BIN="$(xcrun --find actool 2>/dev/null)"; then
+  :
+else
+  echo "Apple actool from full Xcode is required to compile the Liquid Glass icon; set DEVELOPER_DIR or ACTOOL." >&2
+  exit 1
+fi
+"$ACTOOL_BIN" \
+  --compile "$ICON_OUTPUT" \
+  --platform macosx \
+  --minimum-deployment-target "${MACOSX_DEPLOYMENT_TARGET:-13.0}" \
+  --app-icon "$ICON_NAME" \
+  --output-partial-info-plist "$ICON_OUTPUT/partial-Info.plist" \
+  "$ICON_SOURCE"
+test -s "$ICON_OUTPUT/Assets.car" || { echo "actool did not produce Assets.car" >&2; exit 1; }
+test -s "$ICON_OUTPUT/$ICON_NAME.icns" || { echo "actool did not produce the legacy ICNS icon" >&2; exit 1; }
+install -m 0644 "$ICON_OUTPUT/Assets.car" "$CONTENTS/Resources/Assets.car"
+install -m 0644 "$ICON_OUTPUT/$ICON_NAME.icns" "$CONTENTS/Resources/$ICON_NAME.icns"
 install -m 0755 "$CARGO_TARGET_DIR/debug/metalsharp-gpui" "$CONTENTS/MacOS/MetalSharp-GPUI"
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 
@@ -68,7 +81,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>MetalSharp GPUI Preview</string>
   <key>CFBundleDisplayName</key><string>MetalSharp GPUI Preview</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleIconFile</key><string>MetalSharp</string>
+  <key>CFBundleIconFile</key><string>metalsharp-liquid-glass</string>
+  <key>CFBundleIconName</key><string>metalsharp-liquid-glass</string>
   <key>CFBundleShortVersionString</key><string>0.1.0-preview</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>

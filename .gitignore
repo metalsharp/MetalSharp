@@ -49,6 +49,8 @@ app/bundles/SteamSetup.exe
 # Code intelligence
 .graphiq/
 metalsharp-*/
+!app-gpui/assets/metalsharp-liquid-glass.icon/
+!app-gpui/assets/metalsharp-liquid-glass.icon/**
 
 # SQLite runtime sidecars
 *.db-shm
