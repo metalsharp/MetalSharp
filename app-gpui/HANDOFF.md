@@ -1,5 +1,9 @@
 # Native MiniBrowser handoff
 
+## Connected streaming checkpoint
+
+`streaming.rs` and `streaming_watch.rs` now bind the approved panel to owned authenticated backend routes in both explicit connected modes. `ConnectedApp` emits a panel-open event; `MetalSharpApp` composes it above the workbench. The ordinary launch stays offline. Reads are panel-scoped; heavy library refresh is not starved. Install completion has a window generation and a once-consumed accepted-install intent; closing/reopening or ambiguous mutation failure prevents stale automatic starts. PINs are masked and cleared on dispatch/close. Unpair is confirmed and does not depend on pending PIN count (which is not registered-client count). Fixed system-browser links never loosen native WebKit filters. Sixty-five fixture/virtual-window Rust tests passed; no Sunshine installs, real pairing, OS permissions or account acceptance were exercised. Agent work interrupted by disk exhaustion survives in seven worktrees; recovered lanes run with external-SSD Cargo targets. Parent owns review/integration and Electron remains intact.
+
 ## Delivered and scope
 
 `src/mini_browser.rs` provides a native macOS `WKWebView` in a titled, closable, resizable `NSWindow`, with back/forward/reload/close buttons and a read-only URL header updated as navigation starts, redirects, and completes. The default offline preview still does not invoke it. `connected.rs` calls it from explicit connected-mode GOG/Epic/key-help actions. Safe offline native-window checks and anonymous live Steam Store loading were performed; the user approved the browser's look. Live sign-in acceptance remains untested. No Electron/Node, injected app/JavaScript bridge, custom user agent, or filesystem/app-data access is used. Following explicit user approval, Epic alone uses a fixed read-only page-text extractor at the exact Epic JSON redirect endpoint; there is no generic script-evaluation API.
