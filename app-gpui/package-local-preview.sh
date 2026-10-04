@@ -79,6 +79,49 @@ test -s "$ICON_OUTPUT/Assets.car" || { echo "actool did not produce Assets.car" 
 test -s "$ICON_OUTPUT/$ICON_NAME.icns" || { echo "actool did not produce the legacy ICNS icon" >&2; exit 1; }
 install -m 0644 "$ICON_OUTPUT/Assets.car" "$CONTENTS/Resources/Assets.car"
 install -m 0644 "$ICON_OUTPUT/$ICON_NAME.icns" "$CONTENTS/Resources/$ICON_NAME.icns"
+
+# "MetalSharp Steam.app": the backend starts the Wine Steam client through this
+# LaunchServices helper so its first window gets the MetalSharp Steam icon
+# instead of being attributed to MetalSharp (see steam_helper_app_path).
+STEAM_HELPER="$CONTENTS/Resources/MetalSharp Steam.app/Contents"
+STEAM_ICON_OUTPUT="$ICON_TMP/steam-compiled"
+mkdir -p "$STEAM_HELPER/MacOS" "$STEAM_HELPER/Resources" "$STEAM_ICON_OUTPUT"
+"$ACTOOL_BIN" \
+  --compile "$STEAM_ICON_OUTPUT" \
+  --platform macosx \
+  --minimum-deployment-target "${MACOSX_DEPLOYMENT_TARGET:-13.0}" \
+  --app-icon metalsharp-steam \
+  --output-partial-info-plist "$STEAM_ICON_OUTPUT/partial-Info.plist" \
+  "$APP_DIR/assets/metalsharp-steam.icon"
+test -s "$STEAM_ICON_OUTPUT/metalsharp-steam.icns" || { echo "actool did not produce the Steam helper icon" >&2; exit 1; }
+install -m 0644 "$STEAM_ICON_OUTPUT/Assets.car" "$STEAM_HELPER/Resources/Assets.car"
+install -m 0644 "$STEAM_ICON_OUTPUT/metalsharp-steam.icns" "$STEAM_HELPER/Resources/metalsharp-steam.icns"
+cat > "$STEAM_HELPER/MacOS/metalsharp-steam" <<'LAUNCHER'
+#!/bin/sh
+# Started by LaunchServices with the Wine argv; exec keeps this app's identity.
+if [ -n "$METALSHARP_LAUNCH_CWD" ]; then cd "$METALSHARP_LAUNCH_CWD" || exit 1; fi
+exec "$@"
+LAUNCHER
+chmod 0755 "$STEAM_HELPER/MacOS/metalsharp-steam"
+cat > "$STEAM_HELPER/Info.plist" <<STEAMPLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>metalsharp-steam</string>
+  <key>CFBundleIdentifier</key><string>com.metalsharp.steam</string>
+  <key>CFBundleName</key><string>MetalSharp Steam</string>
+  <key>CFBundleDisplayName</key><string>MetalSharp Steam</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>metalsharp-steam</string>
+  <key>CFBundleIconName</key><string>metalsharp-steam</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+  <key>CFBundleVersion</key><string>$APP_BUILD_VERSION</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+</dict>
+</plist>
+STEAMPLIST
+/usr/bin/plutil -lint "$STEAM_HELPER/Info.plist" >/dev/null
 install -m 0755 "$CARGO_TARGET_DIR/$CARGO_PROFILE/metalsharp-gpui" "$CONTENTS/MacOS/$APP_EXECUTABLE"
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 # First-launch intro video (App.vue startup overlay), shared with the Electron renderer.

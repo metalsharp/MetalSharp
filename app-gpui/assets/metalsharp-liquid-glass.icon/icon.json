@@ -1,18 +1,23 @@
 {
-  "fill" : "system-dark",
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.00028,0.01725,0.15556,1.00000",
+      "srgb:0.15761,0.16811,0.18016,1.00000"
+    ]
+  },
   "groups" : [
     {
       "layers" : [
         {
-          "fill" : "automatic",
+          "blend-mode" : "normal",
           "image-name" : "metalsharp-transparent.png",
           "name" : "metalsharp-transparent",
-          "opacity" : 0.68,
+          "opacity" : 0.9,
           "position" : {
-            "scale" : 0.94,
+            "scale" : 0.77,
             "translation-in-points" : [
               0,
-              6
+              0
             ]
           }
         }

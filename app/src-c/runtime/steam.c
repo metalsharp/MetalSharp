@@ -1148,6 +1148,8 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
                                               default_pipeline_for_appid(games[i].appid, games[i].game_dir));
         if (games[i].appid == 1086940)
             (void)ms_steam_migrate_baldurs_gate_3_route_default(metalsharp_home);
+        ms_steam_stage_route_on_discovery(metalsharp_home, games[i].appid);
+        (void)ms_steam_ensure_game_audio_fix(metalsharp_home, games[i].appid);
     }
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
