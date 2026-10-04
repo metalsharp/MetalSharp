@@ -3,9 +3,28 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR="$ROOT/app-gpui"
-BUNDLE="$APP_DIR/target/MetalSharp-GPUI-Preview.app"
+APP_BUNDLE_NAME="${METALSHARP_GPUI_APP_BUNDLE_NAME:-MetalSharp-GPUI-Preview.app}"
+APP_DISPLAY_NAME="${METALSHARP_GPUI_APP_DISPLAY_NAME:-MetalSharp GPUI Preview}"
+APP_BUNDLE_ID="${METALSHARP_GPUI_APP_BUNDLE_ID:-dev.metalsharp.gpui-preview}"
+APP_VERSION="${METALSHARP_GPUI_APP_VERSION:-0.1.0-preview}"
+APP_BUILD_VERSION="${METALSHARP_GPUI_APP_BUILD_VERSION:-${APP_VERSION%%-*}}"
+BUNDLE="$APP_DIR/target/$APP_BUNDLE_NAME"
 CONTENTS="$BUNDLE/Contents"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP_DIR/target}"
+if [[ ! "$APP_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}(-[A-Za-z0-9.-]+)?$ ]]; then
+  echo "Invalid METALSHARP_GPUI_APP_VERSION: $APP_VERSION" >&2
+  exit 1
+fi
+if [[ ! "$APP_BUILD_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]; then
+  echo "Invalid METALSHARP_GPUI_APP_BUILD_VERSION: $APP_BUILD_VERSION" >&2
+  exit 1
+fi
+DISPLAY_NAME_PATTERN='^[A-Za-z0-9][A-Za-z0-9 .-]*$'
+BUNDLE_ID_PATTERN='^[A-Za-z0-9.-]+$'
+if [[ ! "$APP_DISPLAY_NAME" =~ $DISPLAY_NAME_PATTERN ]] || [[ ! "$APP_BUNDLE_ID" =~ $BUNDLE_ID_PATTERN ]]; then
+  echo "Invalid local app display name or bundle identifier" >&2
+  exit 1
+fi
 mkdir -p "$CARGO_TARGET_DIR"
 CARGO_TARGET_DIR="$(cd "$CARGO_TARGET_DIR" && pwd)"
 export CARGO_TARGET_DIR
@@ -17,7 +36,11 @@ command -v swift >/dev/null || { echo "swift is required to generate dock artwor
 # Derived tilt variants are generated locally, not committed to the repository.
 (cd "$APP_DIR" && swift generate-dock-art.swift)
 
-CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo build --locked --manifest-path "$APP_DIR/Cargo.toml"
+CARGO_FEATURE_ARGS=()
+if [ -n "${METALSHARP_GPUI_CARGO_FEATURES:-}" ]; then
+  CARGO_FEATURE_ARGS=(--features "$METALSHARP_GPUI_CARGO_FEATURES")
+fi
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo build --locked --manifest-path "$APP_DIR/Cargo.toml" "${CARGO_FEATURE_ARGS[@]}"
 
 rm -rf "$BUNDLE"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/assets"
@@ -53,8 +76,10 @@ cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 # This builds/copies only; it never launches the backend, installers or accounts.
 if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   make -C "$ROOT/app/src-c"
-  mkdir -p "$CONTENTS/Resources/runtime" "$CONTENTS/Resources/tools" "$CONTENTS/Resources/scripts/tools" "$CONTENTS/Resources/bundles"
+  "$ROOT/tools/package/create-host-runtime.sh"
+  mkdir -p "$CONTENTS/Resources/runtime" "$CONTENTS/Resources/tools" "$CONTENTS/Resources/scripts/tools/native" "$CONTENTS/Resources/bundles" "$CONTENTS/Resources/licenses" "$CONTENTS/Resources/runtime/shim-sources/fna/shims"
   install -m 0755 "$ROOT/app/src-c/build/metalsharp-backend" "$CONTENTS/Resources/runtime/metalsharp-backend"
+  cp -R "$ROOT/app/native/host" "$CONTENTS/Resources/runtime/host"
   for tool in zstd unzstd wrestool icotool unar lsar; do
     [ -f "$ROOT/app/tools/$tool" ] || { echo "Missing required packaged tool: $tool" >&2; exit 1; }
     install -m 0755 "$ROOT/app/tools/$tool" "$CONTENTS/Resources/tools/$tool"
@@ -62,29 +87,47 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   for directory in lib licenses; do
     [ ! -d "$ROOT/app/tools/$directory" ] || cp -R "$ROOT/app/tools/$directory" "$CONTENTS/Resources/tools/"
   done
+  cp -R "$ROOT/LICENSES/." "$CONTENTS/Resources/licenses/"
+  install -m 0644 "$ROOT/THIRD_PARTY_LICENSES" "$CONTENTS/Resources/THIRD_PARTY_LICENSES"
+  cp -R "$ROOT/src/fna/shims/." "$CONTENTS/Resources/runtime/shim-sources/fna/shims/"
+  for entry in "$ROOT"/app/native/*; do
+    [ -e "$entry" ] || continue
+    [ "$(basename "$entry")" = host ] && continue
+    cp -R "$entry" "$CONTENTS/Resources/scripts/tools/native/"
+  done
+  [ ! -d "$ROOT/app/tools/steam-art-manager" ] || cp -R "$ROOT/app/tools/steam-art-manager" "$CONTENTS/Resources/tools/"
   install -m 0755 "$ROOT/tools/install-homebrew.sh" "$CONTENTS/Resources/scripts/tools/install-homebrew.sh"
   cp -R "$ROOT/app/updater" "$CONTENTS/Resources/scripts/tools/"
   cp -R "$ROOT/configs" "$CONTENTS/Resources/"
-  # Do not rebuild archives or copy the Electron desktop payload.
-  for archive in metalsharp-runtime metalsharp-assets metalsharp-graphics-dll metalsharp-scripts-tools metalsharp-steam metalsharp-d3d12-developer-sdk fnalibs; do
-    [ ! -f "$ROOT/app/bundles/$archive.tar.zst" ] || cp "$ROOT/app/bundles/$archive.tar.zst" "$CONTENTS/Resources/bundles/"
+  # Do not rebuild archives or copy the Electron desktop payload or developer SDK.
+  BUNDLE_SOURCE="${METALSHARP_GPUI_BUNDLE_SOURCE:-$ROOT/app/bundles}"
+  for archive in metalsharp-runtime metalsharp-assets metalsharp-graphics-dll metalsharp-scripts-tools metalsharp-steam fnalibs; do
+    source="$BUNDLE_SOURCE/$archive.tar.zst"
+    if [ ! -s "$source" ]; then
+      if [ "${METALSHARP_GPUI_REQUIRE_BUNDLES:-0}" = "1" ]; then
+        echo "Missing required runtime bundle: $source" >&2
+        exit 1
+      fi
+      continue
+    fi
+    cp "$source" "$CONTENTS/Resources/bundles/"
   done
 fi
 
-cat > "$CONTENTS/Info.plist" <<'PLIST'
+cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>MetalSharp-GPUI</string>
-  <key>CFBundleIdentifier</key><string>dev.metalsharp.gpui-preview</string>
-  <key>CFBundleName</key><string>MetalSharp GPUI Preview</string>
-  <key>CFBundleDisplayName</key><string>MetalSharp GPUI Preview</string>
+  <key>CFBundleIdentifier</key><string>$APP_BUNDLE_ID</string>
+  <key>CFBundleName</key><string>$APP_DISPLAY_NAME</string>
+  <key>CFBundleDisplayName</key><string>$APP_DISPLAY_NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>metalsharp-liquid-glass</string>
   <key>CFBundleIconName</key><string>metalsharp-liquid-glass</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0-preview</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+  <key>CFBundleVersion</key><string>$APP_BUILD_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -95,5 +138,5 @@ PLIST
 /usr/bin/plutil -lint "$CONTENTS/Info.plist"
 codesign --force --deep --sign - "$BUNDLE"
 codesign --verify --deep --strict --verbose=2 "$BUNDLE"
-echo "Built local-only preview: $BUNDLE"
-echo "Bundle id: dev.metalsharp.gpui-preview (does not replace the production app)"
+echo "Built local-only GPUI app: $BUNDLE"
+echo "Bundle id: $APP_BUNDLE_ID"

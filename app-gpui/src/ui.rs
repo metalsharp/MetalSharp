@@ -598,7 +598,12 @@ impl Render for MetalSharpApp {
                     .border_color(rgb(0x292b2d))
                     .bg(rgb(PANEL_BG))
                     .shadow_lg()
-                    .child(render_visual(asset, self.copy.steps.clone(), self.step))
+                    .child(render_visual(
+                        asset,
+                        self.copy.steps.clone(),
+                        self.step,
+                        self.connected.is_none(),
+                    ))
                     .child(self.render_setup_page(cx)),
             )
     }
@@ -608,6 +613,7 @@ fn render_visual(
     asset: impl Fn(&str) -> PathBuf,
     steps: Vec<String>,
     current_step: usize,
+    show_sample_games: bool,
 ) -> gpui::Div {
     let cover = |name: &str| {
         img(asset(name))
@@ -617,7 +623,7 @@ fn render_visual(
             .rounded(px(6.0))
     };
 
-    div()
+    let mut visual = div()
         .relative()
         .w(relative(0.52))
         .flex_none()
@@ -652,8 +658,9 @@ fn render_visual(
                         .h(px(330.0))
                         .object_fit(ObjectFit::Contain),
                 ),
-        )
-        .child(
+        );
+    if show_sample_games {
+        visual = visual.child(
             div()
                 .relative()
                 .mt_auto()
@@ -672,8 +679,9 @@ fn render_visual(
                 )
                 .child(cover("hades.jpg").mb(px(5.0)))
                 .child(cover("stray.jpg").mt(px(8.0))),
-        )
-        .child(render_steps(steps, current_step))
+        );
+    }
+    visual.child(render_steps(steps, current_step))
 }
 
 fn render_steps(labels: Vec<String>, current_step: usize) -> gpui::Div {

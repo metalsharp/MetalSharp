@@ -8,6 +8,8 @@ description = "Native GPUI desktop app prototype for MetalSharp"
 [features]
 # Explicit local acceptance harness; never enabled in packaging/default builds.
 browser-fixture = []
+# Side-by-side local test package: launch the real setup UI with an isolated data home.
+connected-setup-default = []
 
 [dependencies]
 anyhow = "1"

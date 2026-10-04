@@ -116,8 +116,11 @@ fn main() -> Result<()> {
         });
         return Ok(());
     }
-    let connected_setup = matches!(args.as_slice(),[mode] if mode=="--connected-setup-validation");
+    let connected_setup_default = cfg!(feature = "connected-setup-default") && args.is_empty();
+    let connected_setup = connected_setup_default
+        || matches!(args.as_slice(),[mode] if mode=="--connected-setup-validation");
     let connected = match args.as_slice() {
+        [] if connected_setup_default => Some(backend_host::HostConfig::from_environment(true)?),
         [] => None,
         #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
         [mode] if mode == "--browser-fixture" || mode == "--browser-steam-test" => None,

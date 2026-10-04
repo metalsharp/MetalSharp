@@ -1272,8 +1272,8 @@ impl Render for ConnectedApp {
             .bg(rgb(0x101316))
             .font_family("Rethink Sans")
             .text_color(rgb(0xf2efe6));
-        root=root.child(div().text_size(px(22.)).child("MetalSharp — connected candidate"))
-            .child(div().text_color(rgb(0xc2bda9)).child(if self.validation {"Isolated data home. Install/start/launch buttons perform real operations when clicked; they are not simulations."} else {"Production data mode explicitly enabled. Operations use the existing C backend and ~/.metalsharp."}))
+        root=root.child(div().text_size(px(22.)).child("MetalSharp — connected GPUI test"))
+            .child(div().text_color(rgb(0xc2bda9)).child(if self.validation {"Isolated test data home. Actions use the bundled backend and perform real operations when clicked."} else {"Production data mode explicitly enabled. Operations use the existing C backend and ~/.metalsharp."}))
             .child(div().child(self.notice.clone()))
             .child(div().flex().gap(px(8.)).flex_wrap()
                 .child(Self::button("connected-library","Library",true).on_click(cx.listener(|this,_,_,cx|{this.panel=Some(ConnectedPanel::Library);cx.notify();})))
