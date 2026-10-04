@@ -3296,13 +3296,18 @@ static void signal_wine_steam_processes(const char* home, int signal_number) {
 /* SteamSetup may start Steam as soon as its payload is committed.  The setup
  * flow must remain in control until prerequisite installers have run, so tear
  * down every process owned by the Steam prefix, including a wineserver whose
- * command line no longer mentions Steam. */
+ * command line no longer mentions Steam.
+ *
+ * `wineserver -k` goes first so a healthy server kills its whole client tree
+ * at once; a wedged server is bounded to 1 s and then SIGKILLed with every
+ * other prefix-owned process. Returns once nothing owned by the prefix is
+ * left (or after ~3 s), so callers can report `running` without a fixed
+ * sleep. */
 static void terminate_wine_steam_session(const char* home) {
     char* wineserver = join(home, "runtime/wine/bin/wineserver");
     char* prefix = join(home, "prefix-steam");
     pid_t child = -1;
 
-    signal_wine_steam_processes(home, SIGTERM);
     if (wineserver && prefix && access(wineserver, X_OK) == 0 && (child = fork()) == 0) {
         setenv("WINEPREFIX", prefix, 1);
         execl(wineserver, wineserver, "-k", (char*)NULL);
@@ -3310,11 +3315,11 @@ static void terminate_wine_steam_session(const char* home) {
     }
     if (child > 0) {
         int status;
-        for (unsigned i = 0; i < 20; i++) {
+        for (unsigned i = 0; i < 50; i++) {
             pid_t waited = waitpid(child, &status, WNOHANG);
             if (waited == child || (waited < 0 && errno != EINTR))
                 break;
-            usleep(100000);
+            usleep(20000);
         }
         if (waitpid(child, &status, WNOHANG) == 0) {
             (void)kill(child, SIGKILL);
@@ -3323,7 +3328,12 @@ static void terminate_wine_steam_session(const char* home) {
     }
     free(wineserver);
     free(prefix);
-    signal_wine_steam_processes(home, SIGKILL);
+    for (unsigned i = 0; i < 30; i++) {
+        signal_wine_steam_processes(home, SIGKILL);
+        if (!managed_wine_process_running(home, false))
+            break;
+        usleep(100000);
+    }
     clear_wine_steam_route_marker(home);
 }
 
@@ -3548,6 +3558,33 @@ static char* launch_mode_waiting_result(unsigned id) {
     return ms_json_writer_take(&w);
 }
 
+/* Ask a running Wine Steam client to show its library. Returns false when
+ * there is no live client (only leftover helpers) or when the forwarding
+ * Wine process hangs, which means the session's wineserver is wedged; the
+ * caller then restarts Steam. `*error_text` is set only for spawn failures. */
+static bool activate_wine_steam(const char* home, const char* steam, pid_t* pid, char** error_text) {
+    pid_t child = -1;
+    if (wine_steam_client_pid(home) <= 0)
+        return false;
+    *error_text = spawn_wine_install(home, steam, "steam://open/library", NULL, &child);
+    if (*error_text)
+        return false;
+    *pid = child;
+    for (unsigned i = 0; i < 160; i++) {
+        int wait_status;
+        pid_t waited = waitpid(child, &wait_status, WNOHANG);
+        /* ECHILD: a process-wide SIGCHLD reaper collected it, so it exited. */
+        if (waited == child || (waited < 0 && errno == ECHILD))
+            return true;
+        if (waited < 0 && errno != EINTR)
+            return true;
+        usleep(50000);
+    }
+    (void)kill(child, SIGKILL);
+    (void)waitpid(child, NULL, 0);
+    return false;
+}
+
 char* ms_steam_launch_json(const char* home, int* status) {
     char* steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
     char* ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
@@ -3575,30 +3612,38 @@ char* ms_steam_launch_json(const char* home, int* status) {
     if (ms_steam_process_running(home)) {
         if (wine_steam_route_marker_is_pending(home, "d3dmetal"))
             (void)write_wine_steam_route_marker(home, "d3dmetal");
-        errtext = spawn_wine_install(home, steam, "steam://open/library", NULL, &pid);
-        free(steam);
-        free(ui);
-        free(steam_dir);
+        errtext = NULL;
+        if (activate_wine_steam(home, steam, &pid, &errtext)) {
+            free(steam);
+            free(ui);
+            free(steam_dir);
+            if (status)
+                *status = 200;
+            return pid_result(pid, "pid", 0, false);
+        }
         if (errtext) {
             char* o = err(errtext);
             free(errtext);
+            free(steam);
+            free(ui);
+            free(steam_dir);
             return o;
         }
-        if (status)
-            *status = 200;
-        return pid_result(pid, "pid", 0, false);
+        /* Leftover helpers without a live client, or a wedged session that
+         * cannot forward the request: start over instead of reporting a
+         * launch that never shows Steam. */
+        terminate_wine_steam_session(home);
     }
-    ensure_steam_launch_ready(home, steam_dir);
-    seed_steam_registry(home);
     /* Start the shared Wine Steam client with D3DMetal available so Steam-
-     * launched games inherit the same verified environment. Never restart an
-     * already-running client here; the branch above only activates it. */
+     * launched games inherit the same verified environment. Never restart a
+     * responsive client here; the branch above only activates it.
+     * spawn_wine_for_pipeline prepares the webhelper wrappers and registry. */
     errtext = spawn_wine_for_pipeline(home, "d3dmetal", 0, steam, "-no-cef-sandbox", "-cef-single-process",
                                       "-noverifyfiles", "-no-dwrite", &pid);
     if (!errtext) {
         (void)write_wine_steam_route_pending(home, "d3dmetal");
-        for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
-            sleep(1);
+        for (int i = 0; i < 120 && !ms_steam_process_running(home); i++)
+            usleep(100000);
     }
     free(steam);
     free(ui);
@@ -3649,8 +3694,8 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
     free(steam_dir);
     if (error_text)
         return error_text;
-    for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
-        sleep(1);
+    for (int i = 0; i < 120 && !ms_steam_process_running(home); i++)
+        usleep(100000);
     if (!ms_steam_process_running(home))
         return strdup("Wine Steam was started but did not become ready for this graphics route");
     if (!write_wine_steam_route_marker(home, pipeline))
@@ -3662,7 +3707,6 @@ char* ms_steam_stop_json(const char* home, int* status) {
     if (status)
         *status = 200;
     terminate_wine_steam_session(home);
-    usleep(500000);
     {
         ms_json_writer w;
         bool running = managed_wine_process_running(home, false);
@@ -4305,6 +4349,68 @@ char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
     return ms_json_writer_take(&writer);
 }
 
+/* True when `section` (registry path as written in user.reg, e.g.
+ * `Software\\Wine\\Mac Driver`) exists in `text` and contains every line in
+ * `values`. Section names compare case-insensitively like the registry. */
+static bool user_reg_section_has(const char* text, const char* section, const char* const* values, size_t count) {
+    size_t section_length = strlen(section);
+    for (const char* line = text; line && *line;) {
+        const char* next = strchr(line, '\n');
+        if (line[0] == '[' && !strncasecmp(line + 1, section, section_length) && line[1 + section_length] == ']') {
+            const char* body = next ? next + 1 : NULL;
+            const char* end = body;
+            while (end && *end && *end != '[') {
+                const char* eol = strchr(end, '\n');
+                end = eol ? eol + 1 : end + strlen(end);
+            }
+            for (size_t i = 0; i < count; i++) {
+                size_t value_length = strlen(values[i]);
+                bool found = false;
+                for (const char* cursor = body; cursor && cursor < end;) {
+                    const char* eol = strchr(cursor, '\n');
+                    size_t length = eol ? (size_t)(eol - cursor) : strlen(cursor);
+                    if (length && cursor[length - 1] == '\r')
+                        length--;
+                    if (length == value_length && !strncmp(cursor, values[i], value_length)) {
+                        found = true;
+                        break;
+                    }
+                    cursor = eol ? eol + 1 : NULL;
+                }
+                if (!found)
+                    return false;
+            }
+            return true;
+        }
+        line = next ? next + 1 : NULL;
+    }
+    return false;
+}
+
+/* `wine reg import` cold-boots a wineserver and costs seconds on every Steam
+ * start. The values only change with the Retina setting, so skip the import
+ * when the prefix's user.reg already carries all of them. */
+static bool steam_registry_seeded(const char* prefix, bool retina) {
+    static const char* const overrides[] = {"\"d3d12\"=\"builtin\"", "\"d3d12core\"=\"builtin\"",
+                                            "\"d3d12SDKLayers\"=\"builtin\"", "\"dxcore\"=\"builtin\""};
+    static const char* const apps[] = {"steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"};
+    const char* retina_line = retina ? "\"RetinaMode\"=\"Y\"" : "\"RetinaMode\"=\"N\"";
+    const char* dpi_line = retina ? "\"LogPixels\"=dword:000000c0" : "\"LogPixels\"=dword:00000060";
+    char* path = join(prefix, "user.reg");
+    char* text = path ? read_bounded_file(path) : NULL;
+    bool seeded = text != NULL;
+    for (size_t i = 0; seeded && i < sizeof(apps) / sizeof(apps[0]); i++) {
+        char section[256];
+        snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\DllOverrides", apps[i]);
+        seeded = user_reg_section_has(text, section, overrides, sizeof(overrides) / sizeof(overrides[0]));
+    }
+    seeded = seeded && user_reg_section_has(text, "Software\\\\Wine\\\\Mac Driver", &retina_line, 1) &&
+             user_reg_section_has(text, "Control Panel\\\\Desktop", &dpi_line, 1);
+    free(text);
+    free(path);
+    return seeded;
+}
+
 static void seed_steam_registry(const char* home) {
     char* prefix = join(home, "prefix-steam");
     char* drive_c = prefix ? join(prefix, "drive_c") : NULL;
@@ -4314,6 +4420,8 @@ static void seed_steam_registry(const char* home) {
     pid_t pid;
     char* error_text;
     if (!prefix || !drive_c || !reg_file || !ensure_directory(drive_c))
+        goto done;
+    if (steam_registry_seeded(prefix, retina))
         goto done;
     f = fopen(reg_file, "wb");
     if (!f)

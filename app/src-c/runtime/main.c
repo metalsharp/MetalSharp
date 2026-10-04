@@ -102,6 +102,14 @@ int main(void) {
 
     sanitize_inherited_runtime_environment();
     port = configured_port();
+    /* A launcher spawning from a worker thread (GCD, GPUI) can hand us a
+     * blocked signal mask; SIGTERM must reach request_stop, and children
+     * (Wine, Steam) must not inherit blocked signals either. */
+    {
+        sigset_t unblocked;
+        sigemptyset(&unblocked);
+        (void)sigprocmask(SIG_SETMASK, &unblocked, NULL);
+    }
     (void)signal(SIGINT, request_stop);
     (void)signal(SIGTERM, request_stop);
     (void)signal(SIGPIPE, SIG_IGN);

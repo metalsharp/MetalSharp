@@ -98,6 +98,10 @@ pub struct SettingsPreview {
     pipeline_cache: Option<Value>,
     confirm: Option<ConfirmAction>,
     language_menu: bool,
+    uninstalling: bool,
+    /// Window position of the language button click; the menu is drawn at
+    /// the overlay root (this overlay is itself deferred, so no nested defer).
+    language_anchor: gpui::Point<gpui::Pixels>,
     notice: Option<&'static str>,
 }
 
@@ -148,6 +152,8 @@ impl SettingsPreview {
             pipeline_cache: None,
             confirm: None,
             language_menu: false,
+            uninstalling: false,
+            language_anchor: gpui::Point::default(),
             notice: Some(
                 "SAFE PREVIEW · Settings are simulated in memory; no backend, files, processes, or credentials are accessed.",
             ),
@@ -851,36 +857,77 @@ impl SettingsPreview {
         );
     }
 
-    /// main `app:uninstall` after confirmation.
+    /// main `app:uninstall` after confirmation. Everything slow (process
+    /// teardown, backend stop, deletion) runs off the UI thread; the result
+    /// dialog runs on the main thread, as AppKit requires.
     fn uninstall(&mut self, cx: &mut Context<Self>) {
         let Some(live) = crate::live::Live::get(cx) else {
             return;
         };
-        live.stop_backend();
-        let mut failures = Vec::new();
-        for path in crate::host_actions::related_data_paths(&live.home()) {
-            if !crate::host_actions::remove_path(&path) {
-                failures.push(path.to_string_lossy().into_owned());
-            }
+        if self.uninstalling {
+            return;
         }
-        crate::host_actions::schedule_bundle_trash();
-        let message = if failures.is_empty() {
-            "MetalSharp data was removed. The app will now close.".to_owned()
-        } else {
-            format!(
-                "Some MetalSharp data could not be removed:\n{}",
-                failures.join("\n")
-            )
-        };
+        self.uninstalling = true;
+        toast::info(cx, "Uninstalling MetalSharp…");
+        cx.notify();
         cx.spawn(async move |_, cx| {
-            cx.background_executor()
+            let failures = cx
+                .background_executor()
                 .spawn(async move {
-                    rfd::MessageDialog::new()
-                        .set_title("Uninstall MetalSharp")
-                        .set_description(message)
-                        .set_level(rfd::MessageLevel::Info)
-                        .show();
+                    // Stop every managed Wine session (Steam, Ubisoft, GOG, Epic,
+                    // games) so nothing recreates files in the prefixes.
+                    let body = json!({});
+                    let _ = live.request(
+                        "POST",
+                        "/sharp-library/stop-all",
+                        Some(&body),
+                        std::time::Duration::from_secs(10),
+                    );
+                    let _ = live.request(
+                        "POST",
+                        "/processes/force-kill",
+                        Some(&body),
+                        std::time::Duration::from_secs(15),
+                    );
+                    live.stop_backend();
+                    crate::host_actions::related_data_paths(&live.home())
+                        .into_iter()
+                        .filter(|path| !crate::host_actions::remove_path(path))
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
                 })
+                .await;
+            let trashing = crate::host_actions::schedule_bundle_trash();
+            let removed = failures.is_empty();
+            let detail = if removed {
+                format!(
+                    "All MetalSharp-owned Wine prefixes (Steam, Ubisoft, GOG, Epic), bottles, Steam data, runtime, caches and settings have been deleted. {}\n\nClick OK to close the app.",
+                    if trashing {
+                        "When you close this window, MetalSharp will be moved to the Trash."
+                    } else {
+                        "Close this window to exit MetalSharp."
+                    }
+                )
+            } else {
+                format!(
+                    "Some files remain on disk. MetalSharp will not claim that uninstall completed successfully.\n\n{}",
+                    failures.join("\n")
+                )
+            };
+            rfd::AsyncMessageDialog::new()
+                .set_title(if removed {
+                    "MetalSharp Uninstalled"
+                } else {
+                    "MetalSharp Uninstall Incomplete"
+                })
+                .set_description(detail)
+                .set_level(if removed {
+                    rfd::MessageLevel::Info
+                } else {
+                    rfd::MessageLevel::Error
+                })
+                .set_buttons(rfd::MessageButtons::Ok)
+                .show()
                 .await;
             let _ = cx.update(|cx| cx.quit());
         })
@@ -982,54 +1029,17 @@ impl SettingsPreview {
             .find(|(code, _)| *code == self.language)
             .map(|(_, name)| *name)
             .unwrap_or("English");
-        let mut control = div().relative().flex_none().child(
+        let control = div().relative().flex_none().child(
             self.action_button("language-pick", format!("{label}  ⌄"), false)
                 .min_w(px(132.0))
                 .text_size(px(12.0))
-                .on_click(cx.listener(|this, _, _, cx| {
+                .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
                     this.language_menu = !this.language_menu;
+                    this.language_anchor = event.position();
                     cx.notify();
                 })),
         );
-        if self.language_menu {
-            let mut menu = div()
-                .id("settings-language-list")
-                .occlude()
-                .absolute()
-                .top(gpui::relative(1.0))
-                .right_0()
-                .mt(px(4.0))
-                .w(px(210.0))
-                .max_h(px((height - 300.0).clamp(120.0, 360.0)))
-                .overflow_y_scroll()
-                .p(px(6.0))
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(rgba(self.palette.control_border))
-                .bg(rgb(self.palette.menu_bg))
-                .shadow_lg();
-            for (code, name) in LANGUAGES {
-                menu = menu.child(
-                    div()
-                        .id(code)
-                        .px(px(9.0))
-                        .py(px(7.0))
-                        .rounded(px(5.0))
-                        .text_color(rgb(self.palette.control_text))
-                        .text_size(px(12.0))
-                        .cursor_pointer()
-                        .hover(|style| style.bg(rgb(self.palette.menu_hover)))
-                        .child(name)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.language = code;
-                            this.language_menu = false;
-                            cx.emit(SettingsPreviewEvent::LanguageChanged(code));
-                            cx.notify();
-                        })),
-                );
-            }
-            control = control.child(gpui::deferred(menu).with_priority(230));
-        }
+        let _ = height;
         div()
             .flex()
             .items_center()
@@ -1043,6 +1053,52 @@ impl SettingsPreview {
             .child(control)
     }
 
+    /// Language list, drawn at the overlay root below the clicked button.
+    fn language_menu_overlay(
+        &self,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let anchor = self.language_anchor;
+        let mut menu = div()
+            .id("settings-language-list")
+            .occlude()
+            .absolute()
+            .top(anchor.y + px(18.0))
+            .left((anchor.x - px(170.0)).max(px(8.0)))
+            .w(px(210.0))
+            .max_h(px((height - f32::from(anchor.y) - 40.0).clamp(120.0, 360.0)))
+            .overflow_y_scroll()
+            .p(px(6.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(rgba(self.palette.control_border))
+            .bg(rgb(self.palette.menu_bg))
+            .shadow_lg()
+            .on_click(|_, _, cx| cx.stop_propagation());
+        for (code, name) in LANGUAGES {
+            menu = menu.child(
+                div()
+                    .id(code)
+                    .px(px(9.0))
+                    .py(px(7.0))
+                    .rounded(px(5.0))
+                    .text_color(rgb(self.palette.control_text))
+                    .text_size(px(12.0))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(self.palette.menu_hover)))
+                    .child(name)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.language = code;
+                        this.language_menu = false;
+                        cx.emit(SettingsPreviewEvent::LanguageChanged(code));
+                        cx.notify();
+                    })),
+            );
+        }
+        menu
+    }
+
     fn confirmation_overlay(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let action = self.confirm.unwrap();
         let (title, copy, confirm) = match action {
@@ -1053,7 +1109,7 @@ impl SettingsPreview {
             ),
             ConfirmAction::Uninstall => (
                 "Uninstall MetalSharp?",
-                "Permanently delete all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings? The app will close after cleanup.",
+                "Permanently delete the Steam, Ubisoft, GOG and Epic Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings? The app will close after cleanup.",
                 "Uninstall",
             ),
             ConfirmAction::SwitchToMac => (
@@ -1930,10 +1986,13 @@ impl Render for SettingsPreview {
             );
         }
         panel = panel.child(body);
-        let confirmation = self
-            .confirm
-            .map(|_| gpui::deferred(self.confirmation_overlay(cx)).with_priority(240));
+        // This overlay is itself drawn deferred by the shell; GPUI aborts on a
+        // nested defer, so the menu and confirm are plain top-most children.
         let bounds = window.viewport_size();
+        let language_menu = self
+            .language_menu
+            .then(|| self.language_menu_overlay(f32::from(bounds.height), cx));
+        let confirmation = self.confirm.map(|_| self.confirmation_overlay(cx));
         div()
             .id("settings-overlay")
             .absolute()
@@ -1966,6 +2025,7 @@ impl Render for SettingsPreview {
                         }
                     })),
             )
+            .children(language_menu)
             .children(confirmation)
     }
 }

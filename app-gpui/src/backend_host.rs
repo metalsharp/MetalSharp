@@ -80,6 +80,7 @@ impl HostConfig {
 pub struct BackendHost {
     child: Child,
     client: BackendClient,
+    binary_name: String,
 }
 
 /// PIDs of `metalsharp-backend` processes listening on `port` (Electron's
@@ -161,6 +162,7 @@ impl BackendHost {
         };
         std::fs::create_dir_all(&config.home)?;
         let mut command = Command::new(&config.binary);
+        crate::lifecycle::unmask_child_signals(&mut command);
         let installer = if config
             .resources
             .join("scripts/tools/install-homebrew.sh")
@@ -225,7 +227,16 @@ impl BackendHost {
             None => BackendClient::for_port(config.port)?,
         };
         // Construct RAII guard immediately, so ALL startup failures reap the child.
-        let mut host = Self { child, client };
+        let binary_name = config
+            .binary
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut host = Self {
+            child,
+            client,
+            binary_name,
+        };
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             if host.child.try_wait()?.is_some() {
@@ -286,6 +297,44 @@ impl BackendHost {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+impl BackendHost {
+    /// App-quit path: SIGTERM now and hand the 3 s SIGKILL fallback to a
+    /// detached watchdog, so quitting never blocks on a backend that is busy
+    /// finishing a long request (its server handles one request at a time).
+    pub fn terminate_detached(mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            let pid = self.child.id();
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGTERM);
+            }
+            // Only SIGKILL if the pid still runs our backend binary.
+            let name = self.binary_name.replace('\'', "");
+            let script = format!(
+                "i=0; while [ $i -lt 30 ]; do kill -0 {pid} 2>/dev/null || exit 0; sleep 0.1; i=$((i+1)); done; \
+                 case \"$(ps -p {pid} -o comm= 2>/dev/null)\" in *'{name}') kill -9 {pid} ;; esac"
+            );
+            let mut command = Command::new("/bin/sh");
+            command
+                .arg("-c")
+                .arg(script)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            #[cfg(unix)]
+            unsafe {
+                use std::os::unix::process::CommandExt;
+                command.pre_exec(|| {
+                    libc::setsid();
+                    Ok(())
+                });
+            }
+            let _ = command.spawn();
+        }
+        // The watchdog owns the fallback; skip Drop's blocking stop().
+        std::mem::forget(self);
     }
 }
 impl Drop for BackendHost {
@@ -389,13 +438,9 @@ mod tests {
                 .installed
         );
         assert_eq!(client.install_progress().unwrap().status, "idle");
-        assert!(
-            client
-                .library(crate::backend::Launcher::Steam)
-                .unwrap()
-                .games
-                .is_empty()
-        );
+        // External /Volumes Steam libraries are discovered regardless of home,
+        // so only require that the isolated library request succeeds.
+        assert!(client.library(crate::backend::Launcher::Steam).is_ok());
         assert!(
             client
                 .library(crate::backend::Launcher::Ubisoft)

@@ -747,6 +747,10 @@ impl SharpPreview {
                         this.live_mut().gog_status = Some(status);
                     }
                     this.refresh_gog(cx);
+                    // Signing out also forgets the browser's persistent GOG login.
+                    crate::mini_browser::forget_browser_sign_in(
+                        crate::mini_browser::BrowserPurpose::GogAuth,
+                    );
                     toast::success(cx, "GOG disconnected");
                 } else {
                     toast::error(
@@ -1317,6 +1321,9 @@ impl SharpPreview {
                 if r.as_ref().is_some_and(is_ok) {
                     this.live_mut().epic_status = r;
                     this.live_mut().epic_games.clear();
+                    crate::mini_browser::forget_browser_sign_in(
+                        crate::mini_browser::BrowserPurpose::EpicAuth,
+                    );
                     toast::success(cx, "Epic Games disconnected");
                 } else {
                     toast::error(

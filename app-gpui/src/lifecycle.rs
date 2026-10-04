@@ -27,3 +27,19 @@ pub fn install_connected_signal_handlers() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// Children inherit the spawning thread's signal mask. GPUI work runs on GCD
+/// worker threads that block signals, so without this a spawned backend or
+/// script never receives SIGTERM (stops always fall through to SIGKILL).
+pub fn unmask_child_signals(command: &mut std::process::Command) {
+    #[cfg(unix)]
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        command.pre_exec(|| {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::pthread_sigmask(libc::SIG_SETMASK, &set, std::ptr::null_mut());
+            Ok(())
+        });
+    }
+}
