@@ -1,0 +1,4496 @@
+{
+  "schema_version": 1,
+  "generator": "app-gpui/inventory-backend-routes.py",
+  "router": "app/src-c/runtime/backend.c",
+  "router_sha256": "3c6a275efb6cf52b0a1b900e1d853371b3d21245f266412b49291749a52aa0c9",
+  "limitations": [
+    "This is a migration discovery inventory, not a full C/TypeScript parser or a parity report.",
+    "Dynamic/prefix routes and unmatched comparisons require manual expansion.",
+    "Literal references may be comments or non-API code; computed routes require manual reconciliation.",
+    "Request/response schemas and acceptance IDs must be reviewed against current callers and C handlers.",
+    "No backend, provider, install, launch or credential operation is executed by the generator."
+  ],
+  "exact_routes": [
+    {
+      "method": "GET",
+      "path": "/bottles",
+      "router_lines": [
+        2100
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2104,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/bottles/compatibility-matrix",
+      "router_lines": [
+        2115
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/bottles/profiles",
+      "router_lines": [
+        2108
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2105,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/bottles/redist-sources",
+      "router_lines": [
+        2122
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/bottles/relaunch-installer",
+      "router_lines": [
+        2014
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2829,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/bottles/route-contracts",
+      "router_lines": [
+        2129
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/clear",
+      "router_lines": [
+        796
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 274,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 282,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 261,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 269,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3188,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/size",
+      "router_lines": [
+        803
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 95,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 82,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/config",
+      "router_lines": [
+        316
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
+          "line": 40,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
+          "line": 63,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 81,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 348,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 369,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 386,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 55,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 94,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 112,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 113,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 814,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 878,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 887,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 68,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 335,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 356,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 373,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/config",
+      "router_lines": [
+        323
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
+          "line": 40,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
+          "line": 63,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 81,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 348,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 369,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 386,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 55,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 94,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 112,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 113,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 814,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 878,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 887,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 68,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 335,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 356,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 373,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/diagnostics/binding-contract/validate",
+      "router_lines": [
+        1228
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/cache-doctor",
+      "router_lines": [
+        1148
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/diagnostics/command-replay/validate",
+      "router_lines": [
+        1236
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/fna/classify",
+      "router_lines": [
+        1156
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/fna/explain",
+      "router_lines": [
+        1164
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/fna/signals",
+      "router_lines": [
+        1172
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/launch",
+      "router_lines": [
+        1180
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/launch/timing",
+      "router_lines": [
+        1188
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/pipeline/dry-run",
+      "router_lines": [
+        1196
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/pso-manifests",
+      "router_lines": [
+        1204
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/runtime-artifacts",
+      "router_lines": [
+        1212
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics/wineboot-state",
+      "router_lines": [
+        1220
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/emulators",
+      "router_lines": [
+        1252
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/game/dual-info",
+      "router_lines": [
+        1025
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/game/launch-auto",
+      "router_lines": [
+        2368
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 726,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 329,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 581,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 582,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/game/prepare",
+      "router_lines": [
+        2350
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/game/resolve-routing",
+      "router_lines": [
+        1017
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/game/running",
+      "router_lines": [
+        2377
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 682,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 29,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/gamejolt",
+      "router_lines": [
+        1663
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 763,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/gamejolt/cover",
+      "router_lines": [
+        1714
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/engine",
+      "router_lines": [
+        1649
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 886,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/launch",
+      "router_lines": [
+        1677
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 836,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/name",
+      "router_lines": [
+        1642
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 826,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/gamejolt/running",
+      "router_lines": [
+        1684
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 876,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/status",
+      "router_lines": [
+        1707
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/stop",
+      "router_lines": [
+        1691
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 851,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/stop-all",
+      "router_lines": [
+        1699
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/gamejolt/storage",
+      "router_lines": [
+        1628
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 766,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 807,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/storage",
+      "router_lines": [
+        1635
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 766,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 807,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/sync",
+      "router_lines": [
+        1670
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 782,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/gamejolt/uninstall",
+      "router_lines": [
+        1656
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 862,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/games/force-quit",
+      "router_lines": [
+        2393
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/goldberg/status",
+      "router_lines": [
+        1033
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/goldberg/toggle",
+      "router_lines": [
+        1041
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameCard.vue",
+          "line": 561,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 843,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/add-sanitize-rule",
+      "router_lines": [
+        1103
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/check-results",
+      "router_lines": [
+        1067
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/filesystem-check",
+      "router_lines": [
+        1121
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/full-breakpoint-map",
+      "router_lines": [
+        1085
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/hw-breakpoint-map",
+      "router_lines": [
+        1076
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/module-sanitize",
+      "router_lines": [
+        1094
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/run-all-checks",
+      "router_lines": [
+        1058
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/seed-demo",
+      "router_lines": [
+        1139
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/simulate-check",
+      "router_lines": [
+        1049
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/status-survey",
+      "router_lines": [
+        1130
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/anti-debug/timing-analysis",
+      "router_lines": [
+        1112
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/allocate-trampoline",
+      "router_lines": [
+        558
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/get-thread-context",
+      "router_lines": [
+        573
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/inject-sequence",
+      "router_lines": [
+        589
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/queue",
+      "router_lines": [
+        537
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/queue-status",
+      "router_lines": [
+        596
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/set-thread-context",
+      "router_lines": [
+        581
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/suspend-thread",
+      "router_lines": [
+        566
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/test-alert",
+      "router_lines": [
+        544
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/trampoline-status",
+      "router_lines": [
+        603
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/apc/wait-alertable",
+      "router_lines": [
+        551
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/create-device",
+      "router_lines": [
+        687
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/decode-ioctl",
+      "router_lines": [
+        724
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/dispatch-irp",
+      "router_lines": [
+        702
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/extension-template",
+      "router_lines": [
+        746
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/list",
+      "router_lines": [
+        680
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/list-devices",
+      "router_lines": [
+        695
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/list-ioctls",
+      "router_lines": [
+        731
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/list-irps",
+      "router_lines": [
+        709
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/load",
+      "router_lines": [
+        666
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/register-ioctl",
+      "router_lines": [
+        716
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/seed-demo",
+      "router_lines": [
+        754
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/type-mapping-survey",
+      "router_lines": [
+        738
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/driver/unload",
+      "router_lines": [
+        673
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/close",
+      "router_lines": [
+        488
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/create",
+      "router_lines": [
+        481
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/duplicate",
+      "router_lines": [
+        495
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/enumerate",
+      "router_lines": [
+        509
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/query",
+      "router_lines": [
+        502
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/seed-demo",
+      "router_lines": [
+        530
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/system-info",
+      "router_lines": [
+        516
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/handle/table-status",
+      "router_lines": [
+        523
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/integrity/list-modules",
+      "router_lines": [
+        651
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/integrity/query-process-signing",
+      "router_lines": [
+        619
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/integrity/query-signing-level",
+      "router_lines": [
+        611
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/integrity/register-macho-module",
+      "router_lines": [
+        635
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/integrity/register-pe-module",
+      "router_lines": [
+        627
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/integrity/seed-demo",
+      "router_lines": [
+        659
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/integrity/set-cached-signing-level",
+      "router_lines": [
+        643
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/kernel-translation/ipc/handles",
+      "router_lines": [
+        2480
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/ipc/start",
+      "router_lines": [
+        2456
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/kernel-translation/ipc/status",
+      "router_lines": [
+        2472
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kernel-translation/ipc/stop",
+      "router_lines": [
+        2464
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/kill",
+      "router_lines": [
+        2384
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 697,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 418,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/launch",
+      "router_lines": [
+        2359
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/launcher/evidence",
+      "router_lines": [
+        1244
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/logs",
+      "router_lines": [
+        810
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LogsView.vue",
+          "line": 90,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3126,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/logs/crash-reports",
+      "router_lines": [
+        824
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LogsView.vue",
+          "line": 84,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3127,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/logs/stream",
+      "router_lines": [
+        817
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/metalfx/state",
+      "router_lines": [
+        331
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
+          "line": 41,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/ProcessManagerOverlay.vue",
+          "line": 28,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 62,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 815,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/metalfx/toggle",
+      "router_lines": [
+        338
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
+          "line": 90,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/ProcessManagerOverlay.vue",
+          "line": 39,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/ProcessManagerOverlay.vue",
+          "line": 54,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/Sidebar.vue",
+          "line": 74,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 867,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/mtsp/default-rules",
+      "router_lines": [
+        775,
+        979
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameCard.vue",
+          "line": 959,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/mtsp/doctor",
+      "router_lines": [
+        1009
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameCard.vue",
+          "line": 592,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/mtsp/launch-shape",
+      "router_lines": [
+        782,
+        986
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/mtsp/pipelines",
+      "router_lines": [
+        789,
+        972
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/mtsp/prepare",
+      "router_lines": [
+        993
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/mtsp/recipe",
+      "router_lines": [
+        1001
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/processes/force-kill",
+      "router_lines": [
+        2401
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 329,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 316,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/runtime/host-abi",
+      "router_lines": [
+        309
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/scan",
+      "router_lines": [
+        896
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 248,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/setup/agility-versions",
+      "router_lines": [
+        388,
+        761
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/setup/dependencies",
+      "router_lines": [
+        381,
+        768
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/setup/device-name",
+      "router_lines": [
+        360
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 156,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 228,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 102,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 143,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/setup/install-all",
+      "router_lines": [
+        403
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 108,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 78,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3162,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 235,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/setup/install-deps",
+      "router_lines": [
+        395
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/setup/install-progress",
+      "router_lines": [
+        367
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 128,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 82,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 238,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/setup/install-vcpp-x64",
+      "router_lines": [
+        465
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/setup/install-vcpp-x86",
+      "router_lines": [
+        473
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/setup/installing",
+      "router_lines": [
+        374
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/setup/save",
+      "router_lines": [
+        352
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 159,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 248,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 146,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 289,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/setup/state",
+      "router_lines": [
+        345
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 494,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 558,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 103,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 232,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/setup/vcpp-status",
+      "router_lines": [
+        411
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library",
+      "router_lines": [
+        1835
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2103,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/cover",
+      "router_lines": [
+        1798
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/doctor",
+      "router_lines": [
+        2035
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3103,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/auth",
+      "router_lines": [
+        1877
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1926,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 119,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/cancel",
+      "router_lines": [
+        1928
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2028,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/epic/games",
+      "router_lines": [
+        1856
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1874,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/initialize",
+      "router_lines": [
+        1935
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1980,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/install",
+      "router_lines": [
+        1914
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1965,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/install-tool",
+      "router_lines": [
+        1870
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1906,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 108,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 113,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/logout",
+      "router_lines": [
+        1900
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1938,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/play",
+      "router_lines": [
+        1949
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2062,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/progress",
+      "router_lines": [
+        1921
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2004,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/epic/running",
+      "router_lines": [
+        1863
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1895,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/save-executable",
+      "router_lines": [
+        1942
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2046,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/epic/status",
+      "router_lines": [
+        1849
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1857,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 106,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/stop",
+      "router_lines": [
+        1956
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2076,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/stop-all",
+      "router_lines": [
+        1963
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/sync",
+      "router_lines": [
+        1907
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1874,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 120,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/epic/thegamesdb-api-key",
+      "router_lines": [
+        1884
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 68,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 143,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 267,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 63,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 130,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 269,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/thegamesdb-api-key",
+      "router_lines": [
+        1891
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 68,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 143,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 267,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 63,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 130,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 269,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/epic/uninstall",
+      "router_lines": [
+        1970
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2090,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/auth-code",
+      "router_lines": [
+        1544
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2298,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 115,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/gog/games",
+      "router_lines": [
+        1530
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2107,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2154,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2167,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/import",
+      "router_lines": [
+        1579
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/initialize-prefix",
+      "router_lines": [
+        1537
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2196,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 112,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/install",
+      "router_lines": [
+        1572
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2337,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/logout",
+      "router_lines": [
+        1551
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2252,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/play",
+      "router_lines": [
+        1600
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2398,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/progress",
+      "router_lines": [
+        1586
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2360,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/remove-prefix",
+      "router_lines": [
+        1558
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2233,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/save-executable",
+      "router_lines": [
+        1593
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2382,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/gog/status",
+      "router_lines": [
+        1523
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2106,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2166,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 104,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/stop",
+      "router_lines": [
+        1607
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2423,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/stop-all",
+      "router_lines": [
+        1614
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/sync",
+      "router_lines": [
+        1565
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2316,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/connected.rs",
+          "line": 116,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/gog/uninstall",
+      "router_lines": [
+        1621
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2440,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/import-bottle-app",
+      "router_lines": [
+        2007
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2845,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/install",
+      "router_lines": [
+        1842
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2534,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/launch",
+      "router_lines": [
+        2028
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2951,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/pcsx2/games",
+      "router_lines": [
+        1460
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 967,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/pcsx2/settings",
+      "router_lines": [
+        1467
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 970,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 993,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/pcsx2/status",
+      "router_lines": [
+        1453
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 964,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1004,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/pcsx2/update/check",
+      "router_lines": [
+        1474
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1012,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/pcsx2/update/install",
+      "router_lines": [
+        1495
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1079,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/pcsx2/update/progress",
+      "router_lines": [
+        1488
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1044,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/pcsx2/update/refresh",
+      "router_lines": [
+        1481
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1012,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/pcsx2/update/rollback",
+      "router_lines": [
+        1502
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1115,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/rename",
+      "router_lines": [
+        2042
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3030,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/rpcs3/games",
+      "router_lines": [
+        1266
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1247,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/rpcs3/status",
+      "router_lines": [
+        1259
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1246,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/rpcs3/update/check",
+      "router_lines": [
+        1273
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1264,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/rpcs3/update/install",
+      "router_lines": [
+        1294
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1334,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/rpcs3/update/progress",
+      "router_lines": [
+        1287
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1297,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/rpcs3/update/refresh",
+      "router_lines": [
+        1280
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1264,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/rpcs3/update/rollback",
+      "router_lines": [
+        1301
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1369,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/running",
+      "router_lines": [
+        1977
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2904,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/set-cover",
+      "router_lines": [
+        2049
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3045,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/set-cover-position",
+      "router_lines": [
+        2056
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3060,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/set-engine",
+      "router_lines": [
+        2071
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2982,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/set-launch-args",
+      "router_lines": [
+        2064
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/shadps4/games",
+      "router_lines": [
+        1329
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1465,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/shadps4/status",
+      "router_lines": [
+        1322
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1464,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/shadps4/update/check",
+      "router_lines": [
+        1336
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1485,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/shadps4/update/install",
+      "router_lines": [
+        1357
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1542,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/shadps4/update/progress",
+      "router_lines": [
+        1350
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1508,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/shadps4/update/refresh",
+      "router_lines": [
+        1343
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1485,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/shadps4/update/rollback",
+      "router_lines": [
+        1364
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1565,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/sharpemu/games",
+      "router_lines": [
+        1391
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1660,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/sharpemu/sessions",
+      "router_lines": [
+        1398
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/sharpemu/status",
+      "router_lines": [
+        1384
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1659,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/sharpemu/update/check",
+      "router_lines": [
+        1405
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1680,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/sharpemu/update/install",
+      "router_lines": [
+        1426
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1737,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/sharp-library/sharpemu/update/progress",
+      "router_lines": [
+        1419
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1703,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/sharpemu/update/refresh",
+      "router_lines": [
+        1412
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1680,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/sharpemu/update/rollback",
+      "router_lines": [
+        1433
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 1760,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/stop",
+      "router_lines": [
+        1991
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2971,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/stop-all",
+      "router_lines": [
+        1999
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/track-running",
+      "router_lines": [
+        1984
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2935,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/sharp-library/uninstall",
+      "router_lines": [
+        2021
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 2995,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/status",
+      "router_lines": [
+        298
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 264,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 456,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 42,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 111,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 229,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend_host.rs",
+          "line": 158,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/steam/api-key",
+      "router_lines": [
+        944
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 420,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 105,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/bridge-start",
+      "router_lines": [
+        2152
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/steam/bridge-status",
+      "router_lines": [
+        958
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/compatdata",
+      "router_lines": [
+        2160
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/d3d12-runtime-doctor",
+      "router_lines": [
+        2203
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/ensure-launch-ready",
+      "router_lines": [
+        904
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 243,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 281,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/install",
+      "router_lines": [
+        2136
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 195,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 95,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 241,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/install-game",
+      "router_lines": [
+        2168
+      ],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 411,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/install-recipe-deps",
+      "router_lines": [
+        2409
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/steam/is-running",
+      "router_lines": [
+        951
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/launch",
+      "router_lines": [
+        2211
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/LibraryTopbar.vue",
+          "line": 142,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 176,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 899,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 163,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3169,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/launch-game",
+      "router_lines": [
+        2312
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 725,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 327,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 579,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 580,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/launch-offline",
+      "router_lines": [
+        2186
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/steam/library",
+      "router_lines": [
+        933
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 104,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/mac-install",
+      "router_lines": [
+        2285
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 187,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 174,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/mac-launch",
+      "router_lines": [
+        2274
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 222,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 209,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/mac-launch-game",
+      "router_lines": [
+        2321
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 723,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 315,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 583,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/mac-stop",
+      "router_lines": [
+        2294
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 202,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 189,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/runtime-doctor",
+      "router_lines": [
+        2195
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/GameCard.vue",
+          "line": 628,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/save-api-key",
+      "router_lines": [
+        2339
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 120,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 255,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 106,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 107,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 265,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/save-executable",
+      "router_lines": [
+        2303
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 755,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 401,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/steam/status",
+      "router_lines": [
+        912
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 184,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SetupWizard.vue",
+          "line": 167,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 99,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/stop",
+      "router_lines": [
+        2222
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/LibraryTopbar.vue",
+          "line": 138,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 166,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 213,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 895,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 153,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 200,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SharpView.vue",
+          "line": 3168,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/steam/stop-targets",
+      "router_lines": [
+        2144
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/uninstall-game",
+      "router_lines": [
+        2177
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/steam/view-game",
+      "router_lines": [
+        2330
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/steam/watch-steamapps",
+      "router_lines": [
+        965
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 435,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/streaming/install",
+      "router_lines": [
+        425
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/StreamingOverlay.vue",
+          "line": 92,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/streaming/launch",
+      "router_lines": [
+        433
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/StreamingOverlay.vue",
+          "line": 107,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/streaming/pin",
+      "router_lines": [
+        449
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/StreamingOverlay.vue",
+          "line": 142,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/streaming/status",
+      "router_lines": [
+        418
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/StreamingOverlay.vue",
+          "line": 47,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/streaming/stop",
+      "router_lines": [
+        441
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/StreamingOverlay.vue",
+          "line": 130,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/streaming/unpair-all",
+      "router_lines": [
+        457
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/StreamingOverlay.vue",
+          "line": 154,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/ubisoft/launch",
+      "router_lines": [
+        2231
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/LibraryTopbar.vue",
+          "line": 128,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/ubisoft/launch-game",
+      "router_lines": [
+        2247
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 721,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 310,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/ubisoft/library",
+      "router_lines": [
+        926
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 218,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/ubisoft/save-executable",
+      "router_lines": [
+        2256
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 755,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 396,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/ubisoft/save-pipeline",
+      "router_lines": [
+        2265
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 624,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/LibraryView.vue",
+          "line": 782,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 352,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/ubisoft/status",
+      "router_lines": [
+        919
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 189,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/ubisoft/stop",
+      "router_lines": [
+        2239
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/components/LibraryTopbar.vue",
+          "line": 123,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/update/check",
+      "router_lines": [
+        831
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 276,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/components/SettingsOverlay.vue",
+          "line": 291,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/composables/useApi.ts",
+          "line": 112,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app/src/renderer/views/SettingsView.vue",
+          "line": 278,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/update/cleanup",
+      "router_lines": [
+        889
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/update/dmg-path",
+      "router_lines": [
+        880
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/update/migrate/check",
+      "router_lines": [
+        852
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/update/migrate/progress",
+      "router_lines": [
+        859
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/update/migrate/report",
+      "router_lines": [
+        866
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/update/migrate/start",
+      "router_lines": [
+        873
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/update/progress",
+      "router_lines": [
+        845
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 348,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/update/start",
+      "router_lines": [
+        838
+      ],
+      "literal_references": [
+        {
+          "file": "app/src/renderer/App.vue",
+          "line": 335,
+          "kind": "literal-candidate"
+        }
+      ],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/wine-mono/install",
+      "router_lines": [
+        2086
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "POST",
+      "path": "/wine-mono/reset",
+      "router_lines": [
+        2093
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    },
+    {
+      "method": "GET",
+      "path": "/wine-mono/status",
+      "router_lines": [
+        2078
+      ],
+      "literal_references": [],
+      "request_contract": "manual-review",
+      "response_contract": "manual-review",
+      "acceptance": "not-verified"
+    }
+  ],
+  "manual_review": [
+    {
+      "path_or_prefix": "/art/grid/",
+      "comparison": "strncmp",
+      "router_line": 306,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/rpcs3/",
+      "comparison": "strncmp",
+      "router_line": 1308,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/shadps4/",
+      "comparison": "strncmp",
+      "router_line": 1371,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/sharpemu/",
+      "comparison": "strncmp",
+      "router_line": 1440,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/pcsx2/",
+      "comparison": "strncmp",
+      "router_line": 1509,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/rpcs3/cover",
+      "comparison": "strcmp",
+      "router_line": 1751,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/shadps4/cover",
+      "comparison": "strcmp",
+      "router_line": 1752,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/sharpemu/cover",
+      "comparison": "strcmp",
+      "router_line": 1753,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/pcsx2/cover",
+      "comparison": "strcmp",
+      "router_line": 1754,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/shadps4/cover",
+      "comparison": "strcmp",
+      "router_line": 1773,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/sharpemu/cover",
+      "comparison": "strcmp",
+      "router_line": 1775,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/sharp-library/pcsx2/cover",
+      "comparison": "strcmp",
+      "router_line": 1777,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/bottles/",
+      "comparison": "strncmp",
+      "router_line": 2417,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/d3dmetal/bottles/",
+      "comparison": "strncmp",
+      "router_line": 2427,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/kernel-translation/integration/",
+      "comparison": "strncmp",
+      "router_line": 2437,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/kernel-translation/thread/",
+      "comparison": "strncmp",
+      "router_line": 2447,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/kernel-translation/es-live/",
+      "comparison": "strncmp",
+      "router_line": 2489,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/kernel-translation/es/",
+      "comparison": "strncmp",
+      "router_line": 2503,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/kernel-translation/ob/",
+      "comparison": "strncmp",
+      "router_line": 2513,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/kernel-translation/",
+      "comparison": "strncmp",
+      "router_line": 2523,
+      "status": "manual-review"
+    },
+    {
+      "path_or_prefix": "/kernel-translation/ipc/",
+      "comparison": "strncmp",
+      "router_line": 2524,
+      "status": "manual-review"
+    }
+  ]
+}

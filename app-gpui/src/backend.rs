@@ -128,6 +128,10 @@ pub struct Game {
     #[serde(default, deserialize_with = "nullable_string")]
     pub preferred_pipeline: String,
     pub ubisoft_id: Option<String>,
+    pub bottle_id: Option<String>,
+    pub wine_game_path: Option<String>,
+    pub executable_path: Option<String>,
+    pub game_dir: Option<String>,
     #[serde(default)]
     pub source: String,
 }
@@ -328,6 +332,85 @@ impl BackendClient {
         };
         self.post(path, body)
     }
+    pub fn save_pipeline(&self, game: &Game, pipeline: &str) -> Result<(), BackendError> {
+        if game.appid == 0
+            || game.has_native_build
+            || !["d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9", "fna_arm64"].contains(&pipeline)
+        {
+            return Err(BackendError::InvalidInput);
+        }
+        let (path, body) = if game.source == "ubisoft" {
+            let id = game
+                .ubisoft_id
+                .as_deref()
+                .filter(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()))
+                .ok_or(BackendError::InvalidInput)?;
+            if pipeline == "fna_arm64" {
+                return Err(BackendError::InvalidInput);
+            }
+            (
+                "/ubisoft/save-pipeline",
+                json!({"ubisoft_id":id,"pipeline":pipeline}),
+            )
+        } else {
+            let bottle = game
+                .bottle_id
+                .clone()
+                .unwrap_or_else(|| format!("steam_{}", game.appid));
+            if bottle.is_empty()
+                || !bottle
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+            {
+                return Err(BackendError::InvalidInput);
+            }
+            if pipeline == "d3dmetal" {
+                (
+                    "/d3dmetal/bottles/save",
+                    json!({"appid":game.appid,"bottleId":bottle,"name":game.name,"gameDir":game.wine_game_path.as_deref().unwrap_or("")}),
+                )
+            } else {
+                (
+                    "/bottles/edit",
+                    json!({"id":bottle,"name":game.name,"preferredPipeline":pipeline}),
+                )
+            }
+        };
+        self.post(path, body).map(|_| ())
+    }
+    pub fn save_executable(&self, game: &Game, path: &str) -> Result<(), BackendError> {
+        if game.appid == 0
+            || game.has_native_build
+            || !std::path::Path::new(path).is_absolute()
+            || path.chars().any(char::is_control)
+        {
+            return Err(BackendError::InvalidInput);
+        }
+        let (route, body) = if game.source == "ubisoft" {
+            let id = game
+                .ubisoft_id
+                .as_deref()
+                .filter(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_digit()))
+                .ok_or(BackendError::InvalidInput)?;
+            (
+                "/ubisoft/save-executable",
+                json!({"ubisoft_id":id,"executablePath":path}),
+            )
+        } else {
+            (
+                "/steam/save-executable",
+                json!({"appid":game.appid,"executablePath":path}),
+            )
+        };
+        self.post(route, body).map(|_| ())
+    }
+    pub fn install_game(&self, appid: u64) -> Result<(), BackendError> {
+        if appid == 0 {
+            return Err(BackendError::InvalidInput);
+        }
+        self.post("/steam/install-game", json!({"appid":appid}))
+            .map(|_| ())
+    }
     pub fn stop_game(&self, appid: u64) -> Result<(), BackendError> {
         if appid == 0 {
             return Err(BackendError::InvalidInput);
@@ -345,6 +428,14 @@ mod tests {
         thread,
     };
     fn server(reply: &'static str) -> (BackendClient, thread::JoinHandle<String>) {
+        server_response(reply, 200, "")
+    }
+    fn server_response(
+        reply: &'static str,
+        status: u16,
+        headers: &str,
+    ) -> (BackendClient, thread::JoinHandle<String>) {
+        let headers = headers.to_owned();
         let socket = TcpListener::bind("127.0.0.1:0").unwrap();
         let client = BackendClient::for_port(socket.local_addr().unwrap().port()).unwrap();
         let thread = thread::spawn(move || {
@@ -376,7 +467,7 @@ mod tests {
             }
             write!(
                 stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                "HTTP/1.1 {status} Fixture\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
                 reply.len(),
                 reply
             )
@@ -392,6 +483,32 @@ mod tests {
         let request = t.join().unwrap();
         assert!(request.starts_with("POST /ubisoft/launch HTTP/1.1"));
         assert!(request.ends_with("{}"));
+    }
+    #[test]
+    fn mutation_failure_is_not_replayed_and_redirects_are_not_followed() {
+        let (client, thread) = server_response(r#"{"error":"secret-fixture"}"#, 500, "");
+        assert_eq!(
+            client.install_runtime().unwrap_err(),
+            BackendError::Http(500)
+        );
+        assert!(
+            thread
+                .join()
+                .unwrap()
+                .starts_with("POST /setup/install-all ")
+        );
+        let (client, thread) =
+            server_response("", 302, "Location: https://example.invalid/untrusted\r\n");
+        assert_eq!(
+            client.save_steam_key("secret-fixture").unwrap_err(),
+            BackendError::Http(302)
+        );
+        assert!(
+            thread
+                .join()
+                .unwrap()
+                .starts_with("POST /steam/save-api-key ")
+        );
     }
     #[test]
     fn steam_key_is_sent_only_in_json_body() {
@@ -493,6 +610,56 @@ mod tests {
             assert!(request.to_ascii_lowercase().contains("content-length: 2"));
             assert!(!request.to_ascii_lowercase().contains("transfer-encoding"));
         }
+    }
+    #[test]
+    fn pipeline_and_executable_payloads_preserve_source_contracts() {
+        let steam: Game = serde_json::from_value(
+            json!({"appid":10,"name":"Fixture","wine_game_path":"C:/Fixture"}),
+        )
+        .unwrap();
+        for pipeline in ["d3dmetal", "dxmt_32", "fna_arm64"] {
+            let (client, thread) = server(r#"{"ok":true}"#);
+            client.save_pipeline(&steam, pipeline).unwrap();
+            let request = thread.join().unwrap();
+            let (header, body) = request.split_once("\r\n\r\n").unwrap();
+            let body: Value = serde_json::from_str(body).unwrap();
+            if pipeline == "d3dmetal" {
+                assert!(header.starts_with("POST /d3dmetal/bottles/save "));
+                assert_eq!(
+                    body,
+                    json!({"appid":10,"bottleId":"steam_10","name":"Fixture","gameDir":"C:/Fixture"})
+                );
+            } else {
+                assert!(header.starts_with("POST /bottles/edit "));
+                assert_eq!(
+                    body,
+                    json!({"id":"steam_10","name":"Fixture","preferredPipeline":pipeline})
+                );
+            }
+        }
+        let ubisoft: Game = serde_json::from_value(
+            json!({"appid":100,"name":"Fixture","source":"ubisoft","ubisoft_id":"0042"}),
+        )
+        .unwrap();
+        let (client, thread) = server(r#"{"ok":true}"#);
+        client
+            .save_executable(&ubisoft, "/tmp/fixture.exe")
+            .unwrap();
+        let request = thread.join().unwrap();
+        assert!(request.starts_with("POST /ubisoft/save-executable "));
+        let body: Value = serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(
+            body,
+            json!({"ubisoft_id":"0042","executablePath":"/tmp/fixture.exe"})
+        );
+        assert_eq!(
+            client.save_pipeline(&ubisoft, "fna_arm64").unwrap_err(),
+            BackendError::InvalidInput
+        );
+        assert_eq!(
+            client.save_executable(&steam, "relative.exe").unwrap_err(),
+            BackendError::InvalidInput
+        );
     }
     #[test]
     fn nullable_preferences_are_not_a_library_failure() {

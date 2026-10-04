@@ -20,7 +20,7 @@ libc = "0.2"
 objc2 = "=0.6.4"
 block2 = "=0.6.2"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSUUID"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSButton", "NSColor", "NSGraphics", "NSLayoutConstraint", "NSStackView", "NSTextField", "NSUserInterfaceLayout", "NSWindow"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSButton", "NSColor", "NSGraphics", "NSLayoutAnchor", "NSLayoutConstraint", "NSStackView", "NSTextField", "NSUserInterfaceLayout", "NSWindow"] }
 objc2-web-kit = { version = "=0.3.1", default-features = false, features = ["objc2-app-kit", "objc2-core-foundation", "WKFrameInfo", "WKNavigation", "WKNavigationAction", "WKNavigationDelegate", "WKNavigationResponse", "WKSecurityOrigin", "WKUIDelegate", "WKWebView", "WKWebViewConfiguration", "WKWebsiteDataStore", "WKWindowFeatures", "block2"] }
 
 [profile.release]

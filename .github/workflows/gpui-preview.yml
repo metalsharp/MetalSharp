@@ -4,11 +4,17 @@ on:
   pull_request:
     paths:
       - 'app-gpui/**'
+      - 'app/src-c/runtime/backend.c'
+      - 'app/src/renderer/**'
+      - 'docs/architecture/gpui-backend-route-inventory.json'
       - '.github/workflows/gpui-preview.yml'
   push:
     branches: [main]
     paths:
       - 'app-gpui/**'
+      - 'app/src-c/runtime/backend.c'
+      - 'app/src/renderer/**'
+      - 'docs/architecture/gpui-backend-route-inventory.json'
       - '.github/workflows/gpui-preview.yml'
 
 permissions:
@@ -40,6 +46,8 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-gpui-${{ hashFiles('app-gpui/Cargo.lock') }}
       - name: Check Rust formatting
         run: cargo fmt --manifest-path app-gpui/Cargo.toml --check
+      - name: Check source-derived backend migration inventory
+        run: python3 app-gpui/inventory-backend-routes.py --check
       - name: Generate ignored dock-artwork fixtures
         working-directory: app-gpui
         run: swift generate-dock-art.swift
