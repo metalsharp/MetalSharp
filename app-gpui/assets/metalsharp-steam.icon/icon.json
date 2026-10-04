@@ -1,8 +1,8 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "extended-gray:0.00000,1.00000",
-      "srgb:0.16694,0.16656,0.17612,1.00000"
+      "srgb:0.12362,0.12362,0.12362,1.00000",
+      "srgb:0.00000,0.07304,0.17612,1.00000"
     ]
   },
   "groups" : [
@@ -11,15 +11,15 @@
         {
           "blend-mode" : "multiply",
           "fill" : {
-            "solid" : "srgb:0.37997,0.10844,1.00000,0.57477"
+            "solid" : "srgb:0.00000,0.11234,1.00000,0.57000"
           },
           "image-name" : "steam-computer-icons-desktop-wallpaper-logo-steam-icon-d7f898a2828c678ae9b96e3f9dfe7361.png",
           "name" : "steam-computer-icons-desktop-wallpaper-logo-steam-icon-d7f898a2828c678ae9b96e3f9dfe7361",
           "position" : {
-            "scale" : 0.44,
+            "scale" : 0.56,
             "translation-in-points" : [
-              271,
-              133
+              266,
+              147
             ]
           }
         },
@@ -31,8 +31,8 @@
           "position" : {
             "scale" : 0.66,
             "translation-in-points" : [
-              -88,
-              3.9600000000000364
+              -137,
+              -63
             ]
           }
         }
