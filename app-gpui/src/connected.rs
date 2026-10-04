@@ -82,6 +82,8 @@ enum Operation {
     SaveExecutable(Game, String),
     Preference(PreferenceChange),
     ReadDiagnostics,
+    ReadStreaming,
+    Streaming(crate::streaming::StreamingAction),
     Stop(u64),
     GogLogin,
     EpicLogin,
@@ -93,7 +95,8 @@ enum Operation {
 impl Operation {
     fn run(self, client: &BackendClient) -> Result<Value, BackendError> {
         match self {
-            Self::Refresh | Self::Poll => Ok(json!({})),
+            Self::Refresh | Self::Poll | Self::ReadStreaming => Ok(json!({})),
+            Self::Streaming(action) => client.streaming_action(action),
             Self::InstallRuntime => client.install_runtime().map(|_| json!({})),
             Self::InstallSteam => client.install_steam().map(|_| json!({})),
             Self::Launcher(launcher, running) => client
@@ -151,7 +154,14 @@ pub(crate) struct SetupViewState {
     pub notice: String,
 }
 
+pub(crate) enum ConnectedEvent {
+    OpenStreaming,
+}
+impl gpui::EventEmitter<ConnectedEvent> for ConnectedApp {}
 pub struct ConnectedApp {
+    streaming_status: Option<crate::streaming::StreamingStatus>,
+    streaming_watch: crate::streaming_watch::StreamingWatch,
+    streaming_pin: gpui::Entity<SearchInput>,
     has_snapshot: bool,
     config: HostConfig,
     host: Option<BackendHost>,
@@ -178,6 +188,9 @@ impl ConnectedApp {
             })
         };
         let view = Self {
+            streaming_status: None,
+            streaming_watch: Default::default(),
+            streaming_pin: input("PIN", true, cx),
             has_snapshot: false,
             config: config.clone(),
             validation: config.validation,
@@ -208,9 +221,11 @@ impl ConnectedApp {
                 cx.notify();
             });
             let mut ticks=0u64;
+            let mut full_refresh_due=false;
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 ticks=ticks.wrapping_add(1);
+                if ticks%15==0 {full_refresh_due=true;}
                 if this.update(cx, |this, cx| {
                     if crate::lifecycle::quit_requested() {cx.quit();return;}
                     if this.busy { return; }
@@ -227,7 +242,7 @@ impl ConnectedApp {
                     if !this.busy && this.host.is_some() {
                         // Progress/status remain lightweight. The single-threaded C
                         // server must not be monopolized by a full library scan every second.
-                        this.dispatch(if ticks%15==0 {Operation::Refresh}else{Operation::Poll},cx);
+                        this.dispatch(if full_refresh_due {full_refresh_due=false;Operation::Refresh}else if this.streaming_watch.is_open()&&ticks%3==0 {Operation::ReadStreaming}else{Operation::Poll},cx);
                     }
                 }).is_err() { break; }
             }
@@ -242,6 +257,61 @@ impl ConnectedApp {
         })
         .detach();
         view
+    }
+    pub(crate) fn streaming_visible(&self) -> bool {
+        self.streaming_watch.is_open()
+    }
+    pub(crate) fn streaming_view(
+        &self,
+    ) -> (
+        Option<crate::streaming::StreamingStatus>,
+        bool,
+        gpui::Entity<SearchInput>,
+        String,
+    ) {
+        (
+            self.streaming_status.clone(),
+            self.busy,
+            self.streaming_pin.clone(),
+            self.notice.clone(),
+        )
+    }
+    pub(crate) fn open_streaming(&mut self, cx: &mut Context<Self>) {
+        self.streaming_watch.open();
+        self.streaming_status = None;
+        self.dispatch(Operation::ReadStreaming, cx);
+        cx.emit(ConnectedEvent::OpenStreaming);
+    }
+    pub(crate) fn close_streaming(&mut self, cx: &mut Context<Self>) {
+        self.streaming_watch.close();
+        self.streaming_pin.update(cx, |input, cx| input.clear(cx));
+    }
+    pub(crate) fn streaming_command(
+        &mut self,
+        action: crate::streaming::StreamingAction,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::streaming::StreamingAction;
+        let Some(status) = &self.streaming_status else {
+            return;
+        };
+        let allowed = status.allows(&action);
+        if !allowed || self.busy || !self.streaming_watch.is_open() {
+            return;
+        }
+        if let StreamingAction::Pair(pin) = &action {
+            if pin.len() != 4 || !pin.bytes().all(|byte| byte.is_ascii_digit()) {
+                self.notice = "Enter the four-digit PIN shown in Moonlight".into();
+                cx.notify();
+                return;
+            }
+            self.streaming_pin.update(cx, |input, cx| input.clear(cx));
+        }
+        self.dispatch(Operation::Streaming(action), cx);
+    }
+    pub(crate) fn streaming_pair(&mut self, cx: &mut Context<Self>) {
+        let pin = self.streaming_pin.read(cx).content.to_string();
+        self.streaming_command(crate::streaming::StreamingAction::Pair(pin), cx);
     }
     pub(crate) fn setup_view(&self) -> SetupViewState {
         let migration = self.snapshot.setup.runtime_migration_required;
@@ -364,6 +434,10 @@ impl ConnectedApp {
             self.snapshot.progress.status.as_str(),
             "running" | "installing"
         ) || self.snapshot.steam.installing
+            || self
+                .streaming_status
+                .as_ref()
+                .is_some_and(|status| status.installing)
             || !self.snapshot.running.is_empty();
         if active && self.host.as_mut().is_some_and(BackendHost::is_running) {
             self.notice="Finish the active installation or stop tracked games before restarting the owned backend".into();
@@ -372,6 +446,9 @@ impl ConnectedApp {
         }
         self.busy = true;
         self.notice = "Restarting owned C backend…".into();
+        self.streaming_watch
+            .failed(self.streaming_watch.generation());
+        self.streaming_status = None;
         let previous = self.host.take();
         let config = self.config.clone();
         cx.notify();
@@ -420,7 +497,19 @@ impl ConnectedApp {
         let client = host.client();
         let poll = matches!(operation, Operation::Poll);
         let logs = matches!(operation, Operation::ReadDiagnostics);
-        let refresh = poll || matches!(operation, Operation::Refresh);
+        let streaming = matches!(
+            operation,
+            Operation::ReadStreaming | Operation::Streaming(_)
+        );
+        let stream_generation = self.streaming_watch.generation();
+        let stream_install = matches!(
+            operation,
+            Operation::Streaming(crate::streaming::StreamingAction::Install)
+        );
+        if streaming && !stream_install && !matches!(operation, Operation::ReadStreaming) {
+            self.streaming_watch.failed(stream_generation);
+        }
+        let refresh = poll || matches!(operation, Operation::Refresh | Operation::ReadStreaming);
         let login_purpose = match &operation {
             Operation::GogLogin => Some(crate::mini_browser::BrowserPurpose::GogAuth),
             Operation::EpicLogin => Some(crate::mini_browser::BrowserPurpose::EpicAuth),
@@ -449,23 +538,31 @@ impl ConnectedApp {
         cx.spawn(async move |this,cx| {
             let result = cx.background_executor().spawn(async move {
                 let response = operation.run(&client)?;
-                let snapshot = if poll || logs {Snapshot::load_status(&client)}else{Snapshot::load(&client)};
-                Ok::<_,BackendError>((response,snapshot))
+                let snapshot = if streaming {None}else{Some(if poll || logs {Snapshot::load_status(&client)}else{Snapshot::load(&client)})};
+                let stream_status=if streaming {Some(client.streaming_status())}else{None};
+                Ok::<_,BackendError>((response,snapshot,stream_status))
             }).await;
             let _ = this.update(cx, |this,cx| {
                 this.busy = false;
+                if streaming&&!this.streaming_watch.accepts(stream_generation) {cx.notify();return;}
+                let mut auto_launch=false;
                 match result {
-                    Ok((response,snapshot)) => {
-                        let snapshot_failed = snapshot.is_err();
+                    Ok((response,snapshot,stream_status)) => {
+                        let snapshot_failed = snapshot.as_ref().is_some_and(Result::is_err)||stream_status.as_ref().is_some_and(Result::is_err);
                         match snapshot {
-                            Ok(mut snapshot) => {
+                            Some(Ok(mut snapshot)) => {
                                 if poll || logs {snapshot.games=std::mem::take(&mut this.snapshot.games);snapshot.dependencies=this.snapshot.dependencies.clone();}
                                 this.has_snapshot=true;
                                 let device = snapshot.setup.device_name.clone();
                                 this.snapshot = snapshot;
                                 if this.device.read(cx).content.is_empty() && !device.is_empty() { this.device.update(cx,|input,cx|{input.content=device.into();cx.notify();}); }
                             }
-                            Err(error) => this.notice = if refresh {error.to_string()} else {"Operation accepted, but refreshed status is unavailable; do not repeat the operation automatically".into()},
+                            Some(Err(error)) => this.notice = if refresh {error.to_string()} else {"Operation accepted, but refreshed status is unavailable; do not repeat the operation automatically".into()},
+                            None=>{},
+                        }
+                        if stream_install {this.streaming_watch.accepted_install(stream_generation);}
+                        if let Some(status)=stream_status {
+                            match status {Ok(status)=>{auto_launch=this.streaming_watch.observe(stream_generation,&status);this.streaming_status=Some(status);},Err(_)=>{this.streaming_status=None;this.notice="Streaming status unavailable; do not repeat an accepted operation automatically".into();}}
                         }
                         if !refresh && !snapshot_failed {
                             this.notice = if response.get("sync").and_then(|s|s.get("steam_id_detected")).and_then(Value::as_bool)==Some(false) { "Key saved; sign in to Steam before ownership sync can populate the library".into() } else { "Operation accepted; status reflects the backend, not a simulation".into() };
@@ -480,8 +577,9 @@ impl ConnectedApp {
                             }
                         }
                     }
-                    Err(error) => this.notice = error.to_string(),
+                    Err(error) => {if streaming&&!refresh {this.streaming_watch.failed(stream_generation);}this.notice = error.to_string();},
                 }
+                if auto_launch {this.streaming_command(crate::streaming::StreamingAction::Start,cx);}
                 cx.notify();
             });
         }).detach();
@@ -688,6 +786,7 @@ impl Render for ConnectedApp {
         root=root.child(div().text_size(px(18.)).child("Persisted runtime preferences"))
             .child(div().child("Changes apply to subsequent launches. Restart Steam/titles yourself when required; these controls never silently terminate them."))
             .child(settings)
+            .child(Self::button("open-streaming","Game Streaming",enabled).on_click(cx.listener(|this,_,_,cx|this.open_streaming(cx))))
             .child(div().text_size(px(18.)).child(format!("Steam / Ubisoft library — {} games",self.snapshot.games.len())));
         if self.snapshot.games.is_empty() {
             root=root.child(div().child("No library entries returned. Install/sign in to Steam or Ubisoft and refresh; sample titles are never substituted."));

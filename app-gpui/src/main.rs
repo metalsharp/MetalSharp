@@ -15,6 +15,7 @@ mod search_input;
 mod settings_preview;
 mod sharp_preview;
 mod streaming;
+mod streaming_watch;
 mod ui;
 
 use anyhow::Result;
@@ -174,7 +175,7 @@ fn main() -> Result<()> {
                     .expect("failed to open connected setup candidate");
                 } else {
                     cx.open_window(options, move |_, cx| {
-                        cx.new(|cx| connected::ConnectedApp::new(config, cx))
+                        cx.new(|cx| ui::MetalSharpApp::new_connected_workbench(config, cx))
                     })
                     .expect("failed to open connected GPUI candidate");
                 }

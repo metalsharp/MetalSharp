@@ -386,6 +386,8 @@ impl Default for PreviewGameSettings {
 pub struct MetalSharpApp {
     connected: Option<gpui::Entity<crate::connected::ConnectedApp>>,
     connected_subscription: Option<gpui::Subscription>,
+    connected_events: Option<gpui::Subscription>,
+    streaming_unpair_confirm: bool,
     show_setup: bool,
     theme: PreviewTheme,
     theme_menu_open: bool,
@@ -436,6 +438,8 @@ impl MetalSharpApp {
         Self {
             connected: None,
             connected_subscription: None,
+            connected_events: None,
+            streaming_unpair_confirm: false,
             show_setup: false,
             theme: PreviewTheme::Dark,
             theme_menu_open: false,
@@ -501,8 +505,36 @@ impl MetalSharpApp {
             }
             cx.notify();
         }));
+        app.connected_events = Some(cx.subscribe(&session, |this, session, event, cx| {
+            if !session.read(cx).streaming_visible() {
+                return;
+            }
+            match event {
+                crate::connected::ConnectedEvent::OpenStreaming => {
+                    this.streaming_open = true;
+                    this.streaming_unpair_confirm = false;
+                }
+            }
+            cx.notify();
+        }));
         app.connected = Some(session);
         app
+    }
+    pub fn new_connected_workbench(
+        config: crate::backend_host::HostConfig,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut app = Self::new_connected_setup(config, cx);
+        app.show_setup = false;
+        app
+    }
+    fn close_streaming_panel(&mut self, cx: &mut Context<Self>) {
+        self.streaming_open = false;
+        self.streaming_unpair_confirm = false;
+        if let Some(session) = self.connected.clone() {
+            session.update(cx, |session, cx| session.close_streaming(cx));
+        }
+        cx.notify();
     }
     fn setup_can_advance(&self, cx: &gpui::App) -> bool {
         self.connected.as_ref().is_none_or(|session| {
@@ -515,7 +547,14 @@ impl Render for MetalSharpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.show_setup {
             if let Some(session) = &self.connected {
-                return div().size_full().child(session.clone());
+                return div()
+                    .size_full()
+                    .relative()
+                    .child(session.clone())
+                    .children(self.streaming_open.then(|| {
+                        gpui::deferred(self.render_streaming_overlay(window.viewport_size(), cx))
+                            .with_priority(100)
+                    }));
             }
             return self.render_library(window.viewport_size(), cx);
         }
@@ -1876,8 +1915,25 @@ impl MetalSharpApp {
         viewport: gpui::Size<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let installed = self.streaming_installed;
-        let running = self.streaming_running;
+        let live = self
+            .connected
+            .as_ref()
+            .map(|session| session.read(cx).streaming_view());
+        let status = live.as_ref().and_then(|(status, _, _, _)| status.as_ref());
+        let ready = live
+            .as_ref()
+            .is_none_or(|(status, busy, _, _)| status.is_some() && !*busy);
+        let installed = if live.is_some() {
+            status.is_some_and(|status| status.installed)
+        } else {
+            self.streaming_installed
+        };
+        let running = if live.is_some() {
+            status.is_some_and(|status| status.running)
+        } else {
+            self.streaming_running
+        };
+        let installing = status.is_some_and(|status| status.installing);
         let title = |label: &'static str| {
             div()
                 .text_size(px(14.0))
@@ -1942,7 +1998,11 @@ impl MetalSharpApp {
                         } else {
                             0xffffff0f
                         }))
-                        .child(if running {
+                        .child(if live.is_some() && status.is_none() {
+                            "Checking…"
+                        } else if installing {
+                            "Installing…"
+                        } else if running {
                             "Connected"
                         } else if installed {
                             "Installed — Offline"
@@ -1955,49 +2015,103 @@ impl MetalSharpApp {
             host = host.child(div().mb(px(12.0)).line_height(px(19.4)).child("Sunshine captures this Mac's screen and streams it over your local network. Install it once — about a 40 MB download from LizardByte."));
         }
         let mut actions = div().flex().flex_wrap().gap(px(9.0));
-        if !installed {
+        if !installed && !installing {
             actions = actions.child(
                 button("stream-install", "↓  Install Sunshine", true).on_click(cx.listener(
                     |this, _, _, cx| {
-                        this.streaming_installed = true;
+                        if let Some(session) = this.connected.clone() {
+                            session.update(cx, |session, cx| {
+                                session.streaming_command(
+                                    crate::streaming::StreamingAction::Install,
+                                    cx,
+                                )
+                            });
+                        } else {
+                            this.streaming_installed = true;
+                        }
                         cx.notify();
                     },
                 )),
             );
-        } else if !running {
+        } else if !running && !installing {
             actions = actions.child(
                 button("stream-start", "▶  Start Streaming Host", true).on_click(cx.listener(
                     |this, _, _, cx| {
-                        this.streaming_running = true;
+                        if let Some(session) = this.connected.clone() {
+                            session.update(cx, |session, cx| {
+                                session
+                                    .streaming_command(crate::streaming::StreamingAction::Start, cx)
+                            });
+                        } else {
+                            this.streaming_running = true;
+                        }
                         cx.notify();
                     },
                 )),
             );
-        } else {
+        } else if running {
             actions =
                 actions
                     .child(
                         button("stream-stop", "■  Stop", false).on_click(cx.listener(
                             |this, _, _, cx| {
-                                this.streaming_running = false;
+                                if let Some(session) = this.connected.clone() {
+                                    session.update(cx, |session, cx| {
+                                        session.streaming_command(
+                                            crate::streaming::StreamingAction::Stop,
+                                            cx,
+                                        )
+                                    });
+                                } else {
+                                    this.streaming_running = false;
+                                }
                                 cx.notify();
                             },
                         )),
                     )
                     .child(button("stream-web", "↗  Sunshine Web UI", false).on_click(
-                        cx.listener(|_, _, _, cx| {
+                        cx.listener(|this, _, _, cx| {
+                            // External system browser, not a privacy-rule bypass in WKWebView.
+                            if this.connected.as_ref().is_some_and(|session| {
+                                session
+                                    .read(cx)
+                                    .streaming_view()
+                                    .0
+                                    .is_some_and(|status| status.running)
+                            }) {
+                                cx.open_url("https://localhost:47990");
+                            }
                             cx.notify();
                         }),
                     ));
         }
-        host = host.child(actions);
+        host = host.child(actions.opacity(if ready { 1.0 } else { 0.5 }));
+        if let Some(status) = status {
+            if status.installing || status.progress_detail.is_some() {
+                host = host.child(div().mt(px(10.)).child(format!(
+                    "{} · {}",
+                    status.progress_status.as_deref().unwrap_or("Status"),
+                    status.progress_detail.as_deref().unwrap_or("")
+                )));
+            }
+        }
         if installed {
             host = host.child(
                 div()
                     .mt(px(10.0))
                     .text_size(px(11.5))
                     .text_color(rgb(0x7d8381))
-                    .child("Version preview · https://localhost:47990"),
+                    .child(if live.is_some() {
+                        format!(
+                            "Version {} · https://localhost:47990",
+                            status
+                                .map(|status| status.version.as_str())
+                                .filter(|version| !version.is_empty())
+                                .unwrap_or("unknown")
+                        )
+                    } else {
+                        "Version preview · https://localhost:47990".into()
+                    }),
             );
         }
         let moonlight_instruction = "1. Install Moonlight on your phone or tablet — App Store / Google Play (Works best on the same Wi-Fi.)";
@@ -2009,26 +2123,53 @@ impl MetalSharpApp {
                 ..Default::default()
             },
         )]);
+        let can_pair = ready && status.is_some_and(crate::streaming::StreamingStatus::can_pair);
+        let pin = div()
+            .w(px(110.0))
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(rgba(0xffffff24))
+            .bg(rgba(0xffffff0a))
+            .children(live.as_ref().map(|(_, _, pin, _)| pin.clone()))
+            .children(live.is_none().then(|| {
+                div()
+                    .py(px(8.))
+                    .px(px(12.))
+                    .text_size(px(16.))
+                    .text_color(rgb(0x9aa09e))
+                    .child("P I N")
+            }));
         let mut pairing = card().opacity(if running { 1.0 } else { 0.55 })
             .child(div().mb(px(10.0)).child(title("Pair your device")))
             .child(div().flex().flex_col().gap(px(5.0)).mb(px(14.0)).line_height(px(20.6))
                 .child(div().child(moonlight_line))
+                .children(live.is_some().then(||div().flex().gap(px(9.)).child(button("stream-app-store","↗ App Store",false).on_click(cx.listener(|_,_,_,cx|cx.open_url("https://apps.apple.com/app/moonlight-game-streaming/id1000551566")))).child(button("stream-play-store","↗ Google Play",false).on_click(cx.listener(|_,_,_,cx|cx.open_url("https://play.google.com/store/apps/details?id=com.limelight"))))))
                 .child("2. Start playing your game in MetalSharp on this Mac.")
                 .child("3. Open Moonlight and tap this Mac — it shows a 4-digit PIN.")
                 .child("4. Enter the PIN below to pair, then tap the game in Moonlight to start streaming."))
             .child(div().flex().gap(px(9.0))
-                .child(div().w(px(110.0)).py(px(8.0)).px(px(12.0)).rounded(px(8.0))
-                    .border_1().border_color(rgba(0xffffff24)).bg(rgba(0xffffff0a))
-                    .text_size(px(16.0)).text_color(rgb(0x9aa09e)).child("P I N"))
-                .child(button("stream-pair", "Pair Device", true).opacity(0.5).cursor_default()));
+                .child(pin)
+                .child(button("stream-pair", "Pair Device", true).opacity(if can_pair {1.0}else{0.5}).on_click(cx.listener(|this,_,_,cx|{if let Some(session)=this.connected.clone(){session.update(cx,|session,cx|session.streaming_pair(cx));}}))));
         // The preview never accepts a real pairing PIN or transmits credentials.
-        if running {
+        if running && live.is_none() {
             pairing = pairing.child(
                 div()
                     .mt(px(10.0))
                     .text_size(px(11.0))
                     .child("Pairing is disabled in the isolated preview."),
             );
+        }
+        if let Some(status) = status {
+            pairing = pairing.child(div().mt(px(10.)).child(
+                if status.running && !status.creds_valid {
+                    "Host is starting — pairing credentials are not ready yet".into()
+                } else {
+                    format!(
+                        "{} waiting to pair: {}",
+                        status.pairing_count, status.pairings_summary
+                    )
+                },
+            ));
         }
         let mut notes = card().child(div().mb(px(10.0)).child(title("Good to know")))
             .child(div().flex().flex_col().gap(px(5.0)).text_size(px(12.0)).line_height(px(20.4))
@@ -2037,18 +2178,55 @@ impl MetalSharpApp {
                 .child("• Keep both devices on the same network; ports 47984–48010 must be reachable."));
         if installed {
             notes = notes.child(
-                button("stream-unpair", "Unpair all devices", false)
-                    .mt(px(12.0))
-                    .text_color(rgb(0xff9d9d))
-                    .border_color(rgba(0xff7a7a4d))
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        cx.notify();
-                    })),
+                button(
+                    "stream-unpair",
+                    if self.streaming_unpair_confirm {
+                        "Confirm — unpair ALL devices"
+                    } else {
+                        "Unpair all devices"
+                    },
+                    false,
+                )
+                .mt(px(12.0))
+                .text_color(rgb(0xff9d9d))
+                .border_color(rgba(0xff7a7a4d))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(session) = this.connected.clone() {
+                        let (status, busy, _, _) = session.read(cx).streaming_view();
+                        if !busy && status.is_some_and(|status| status.can_pair()) {
+                            if this.streaming_unpair_confirm {
+                                this.streaming_unpair_confirm = false;
+                                session.update(cx, |session, cx| {
+                                    session.streaming_command(
+                                        crate::streaming::StreamingAction::UnpairAll,
+                                        cx,
+                                    )
+                                });
+                            } else {
+                                this.streaming_unpair_confirm = true;
+                            }
+                        }
+                    }
+                    cx.notify();
+                })),
             );
+            if self.streaming_unpair_confirm {
+                notes = notes.child(
+                    button("stream-unpair-cancel", "Cancel unpair", false)
+                        .mt(px(8.))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.streaming_unpair_confirm = false;
+                            cx.notify();
+                        })),
+                );
+            }
+        }
+        if let Some((_, _, _, notice)) = &live {
+            notes = notes.child(div().mt(px(10.)).child(notice.clone()));
         }
         div().id("streaming-overlay").occlude().absolute().top(px(0.0)).left(px(0.0))
             .size_full().flex().items_center().justify_center().p(px(24.0)).bg(rgba(0x040608b8))
-            .on_click(cx.listener(|this, _, _, cx| { this.streaming_open = false; cx.notify(); }))
+            .on_click(cx.listener(|this, _, _, cx| {this.close_streaming_panel(cx);}))
             .child(div().id("streaming-panel").occlude().w(px(680.0)).max_w_full()
                 .h(px((f32::from(viewport.height) * 0.86).min(680.0)))
                 .flex().flex_col().rounded(px(16.0)).overflow_hidden()
@@ -2068,12 +2246,12 @@ impl MetalSharpApp {
                     .child(div().id("stream-close").flex_none().size(px(30.0)).rounded(px(8.0))
                         .border_1().border_color(rgba(0xffffff24)).flex().items_center().justify_center()
                         .text_size(px(20.0)).text_color(rgba(0xffffff99)).cursor_pointer().child("×")
-                        .on_click(cx.listener(|this, _, _, cx| { this.streaming_open = false; cx.notify(); }))))
+                        .on_click(cx.listener(|this, _, _, cx| {this.close_streaming_panel(cx);}))))
                 .child(div().id("streaming-body").min_h_0().flex_1().overflow_y_scroll()
                     .flex().flex_col().gap(px(14.0)).pt(px(18.0)).px(px(22.0)).pb(px(22.0))
                     .child(host).child(pairing).child(notes)
                     .child(div().flex_none().text_size(px(10.0)).text_color(rgb(0x7d8381))
-                        .child("LOCAL PREVIEW · Install/Start/Stop are simulated. No downloads, networking, or pairing."))))
+                        .child(if live.is_some(){"CONNECTED · Host actions affect Sunshine on this Mac only when explicitly requested."}else{"LOCAL PREVIEW · Install/Start/Stop are simulated. No downloads, networking, or pairing."}))))
     }
 
     fn log_preview_event(&self, message: String, cx: &mut Context<Self>) {
@@ -3462,6 +3640,56 @@ mod tests {
                 assert!(!app.steam_installed);
                 assert_eq!(app.runtime_progress, 0);
                 assert!(!app.setup_can_advance(cx));
+            })
+            .unwrap();
+    }
+    #[gpui::test]
+    fn connected_streaming_never_simulates_unavailable_host_and_clears_pin(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let config = crate::backend_host::HostConfig {
+            port: 0,
+            home: "/should-not-create/streaming-fixture".into(),
+            binary: "/missing-fixture-backend".into(),
+            resources: "/missing-fixture-resources".into(),
+            validation: true,
+        };
+        let window = cx.add_window(|_, cx| MetalSharpApp::new_connected_workbench(config, cx));
+        window
+            .update(cx, |app, _, cx| {
+                let session = app.connected.clone().unwrap();
+                session.update(cx, |session, cx| session.open_streaming(cx));
+                let pin = session.read(cx).streaming_view().2;
+                assert!(pin.read(cx).secret);
+                pin.update(cx, |input, cx| {
+                    input.content = "0042".into();
+                    cx.notify();
+                });
+                session.update(cx, |session, cx| {
+                    session.streaming_command(crate::streaming::StreamingAction::Install, cx);
+                    session.streaming_command(crate::streaming::StreamingAction::Start, cx);
+                    session.streaming_pair(cx);
+                });
+                assert!(session.read(cx).streaming_view().0.is_none());
+                assert!(!app.streaming_installed && !app.streaming_running);
+                app.close_streaming_panel(cx);
+                assert!(pin.read(cx).content.is_empty());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |app, _, cx| {
+                assert!(!app.streaming_open);
+                assert!(
+                    app.connected
+                        .as_ref()
+                        .unwrap()
+                        .read(cx)
+                        .streaming_view()
+                        .0
+                        .is_none()
+                );
+                assert!(!app.show_setup);
             })
             .unwrap();
     }
