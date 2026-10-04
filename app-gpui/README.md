@@ -73,7 +73,7 @@ METALSHARP_GPUI_PACKAGE_BACKEND=1 app-gpui/package-local-preview.sh
 
 This only builds/copies resources; it does not run installers or rebuild runtime archives. The connected package is ad-hoc signed and verified locally, but production resource completeness and release acceptance are still outstanding.
 
-The candidate has a separate `dev.metalsharp.gpui-preview` bundle identifier and is ad-hoc signed for local testing only. It is not notarized, published, or suitable for distribution. It bundles its UI image assets in `Contents/Resources/assets/` and makes no backend or production-data changes.
+The candidate has a separate `dev.metalsharp.gpui-preview` bundle identifier and is ad-hoc signed for local testing only. It is not notarized, published, or suitable for distribution. It bundles its UI image assets in `Contents/Resources/assets/` and makes no backend or production-data changes. The app icon source is `assets/metalsharp-liquid-glass.icon`, authored with Apple Icon Composer; packaging compiles its Liquid Glass `Assets.car` and legacy `.icns` with `actool` from full Xcode. If Xcode is not selected, set `DEVELOPER_DIR` to the Xcode bundle's `Contents/Developer` directory.
 
 The native input in `src/search_input.rs` is adapted from GPUI 0.2.2's Apache-2.0 `examples/input.rs`; license included in `assets/gpui-input-LICENSE-APACHE`. Rethink Sans fonts retain their SIL Open Font License in `assets/RethinkSans-OFL.txt`. Theme SVGs come from Lucide's `bone`, `tree-pine`, and `citrus` icons under the ISC license in `assets/lucide-LICENSE.txt`.
 
