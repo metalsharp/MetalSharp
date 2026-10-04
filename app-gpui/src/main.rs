@@ -5,18 +5,32 @@ mod backend_host;
 #[allow(dead_code)]
 mod configuration;
 mod connected;
+mod connected_library;
+mod desktop_host;
 mod diagnostics;
 mod lifecycle;
+mod localization;
+mod logs_connected;
 mod logs_preview;
+mod migration_connected;
 #[allow(dead_code)]
 mod mini_browser;
+mod native_windows;
 mod page_palette;
+mod process_manager_connected;
+mod resource_home;
 mod search_input;
+mod settings_connected;
 mod settings_preview;
+mod sharp_connected;
 mod sharp_preview;
 mod streaming;
 mod streaming_watch;
+mod theme_preferences;
 mod ui;
+mod update_recovery_ui;
+mod updater_connected;
+mod updater_native;
 
 use anyhow::Result;
 use gpui::{App, AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};

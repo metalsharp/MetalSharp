@@ -29,15 +29,33 @@ fn network_rules_json() -> String {
         r"100\.12[0-7]\.",
         r"198\.1[89]\.",
         r"\[",
-        r"localhost[:/]",
-        r"localhost\.[:/]",
-        r"[^/]*\.local[:/]",
-        r"[^/]*\.localhost[.:/]",
-        r"[^/]*\.internal[:/]",
+    ];
+    let local_hosts = [
+        r"localhost",
+        r"localhost\.",
+        r"[^/]*\.local",
+        r"[^/]*\.localhost[.:]",
+        r"[^/]*\.internal",
     ];
     for scheme in ["https", "wss"] {
         for host in hosts {
+            // Network prefixes intentionally match partial IPv4 host strings.
             patterns.push(format!("^{scheme}://([^/]*@)?{host}"));
+        }
+        // WHATWG/WebKit accepts legacy numeric IPv4 spellings (single decimal
+        // integers and 0x-prefixed hex). Match them before authority delimiters;
+        // this is deliberately conservative for DNS names with numeric labels.
+        for numeric in [r"[0-9]+", r"0[xX][0-9a-fA-F]+"] {
+            let prefix = format!("^{scheme}://([^/]*@)?{numeric}");
+            patterns.push(format!("{prefix}[.:/?#]"));
+            patterns.push(format!("{prefix}$"));
+        }
+        // Local DNS hosts require an explicit authority boundary.
+        // Delimiter and end-of-string cases are separate (no alternation).
+        for host in local_hosts {
+            let prefix = format!("^{scheme}://([^/]*@)?{host}");
+            patterns.push(format!("{prefix}[:/?#]"));
+            patterns.push(format!("{prefix}$"));
         }
     }
     serde_json::Value::Array(patterns.into_iter().map(|pattern|serde_json::json!({"trigger":{"url-filter":pattern},"action":{"type":"block"}})).collect()).to_string()
@@ -162,7 +180,12 @@ impl GogCallbackParser {
         }
         let pairs: Vec<_> = url.query_pairs().collect();
         let codes: Vec<_> = pairs.iter().filter(|(k, _)| k == "code").collect();
-        let errors: Vec<_> = pairs.iter().filter(|(k, _)| k == "error").collect();
+        // Electron's existing GOG callback accepts `error` or `error_description`.
+        // Keep that provider contract, but reject repeated/competing result fields.
+        let errors: Vec<_> = pairs
+            .iter()
+            .filter(|(k, _)| k == "error" || k == "error_description")
+            .collect();
         if codes.len() + errors.len() == 0 {
             return Err(CallbackError::MissingResult);
         }
@@ -326,6 +349,7 @@ mod native {
         purpose: OnceCell<BrowserPurpose>,
         header: RefCell<Option<Retained<NSTextField>>>,
         window: RefCell<Option<Retained<NSWindow>>>,
+        web_view: RefCell<Option<Retained<WKWebView>>>,
         completion: Mutex<Option<MiniBrowserCompletion>>,
         callback: GogCallbackParser,
         navigation_epoch: Cell<u64>,
@@ -345,9 +369,28 @@ mod native {
             #[allow(non_snake_case)]
             fn windowWillClose(&self, _notification: &objc2_foundation::NSNotification) {
                 self.finish(MiniBrowserResult::Cancelled);
+                self.ivars().navigation_epoch.set(self.ivars().navigation_epoch.get().wrapping_add(1));
+                self.ivars().epic_inspection_pending.set(false);
+                if let Some(web) = self.ivars().web_view.borrow_mut().take() {
+                    unsafe {
+                        web.stopLoading();
+                        web.setNavigationDelegate(None);
+                        web.setUIDelegate(None);
+                    }
+                }
                 self.ivars().header.borrow_mut().take();
                 self.ivars().window.borrow_mut().take();
-                self.ivars().history_buttons.replace([None,None]);
+                self.ivars().history_buttons.replace([None, None]);
+                // The AppKit delegate property is weak. Hold the receiver across
+                // removal of our registry's last owned reference.
+                let _keep_alive = unsafe {
+                    Retained::retain(self as *const Delegate as *mut Delegate)
+                };
+                DELEGATES.with(|items| {
+                    items
+                        .borrow_mut()
+                        .retain(|item| !std::ptr::eq::<Delegate>(&**item, self))
+                });
             }
         }
         unsafe impl WKNavigationDelegate for Delegate {
@@ -575,6 +618,7 @@ mod native {
                 purpose: OnceCell::from(request.purpose),
                 header: RefCell::new(None),
                 window: RefCell::new(None),
+                web_view: RefCell::new(None),
                 completion: Mutex::new(
                     if matches!(
                         request.purpose,
@@ -779,6 +823,65 @@ mod native {
     ) -> anyhow::Result<()> {
         open_inner(mtm, request, completion, None)
     }
+
+    /// Remove only MetalSharp's explicitly named GameJolt WebKit store. Call
+    /// from the app's explicit GameJolt data-removal flow after closing its
+    /// browser windows; the default WebKit store is never queried or modified.
+    pub fn remove_gamejolt_store(
+        mtm: MainThreadMarker,
+        completion: Box<dyn FnOnce(Result<(), String>) + 'static>,
+    ) -> anyhow::Result<()> {
+        if !WKWebsiteDataStore::class()
+            .metaclass()
+            .responds_to(sel!(removeDataStoreForIdentifier:completionHandler:))
+        {
+            anyhow::bail!("named GameJolt store cleanup requires macOS 14 or newer");
+        }
+        let active = DELEGATES.with(|items| {
+            items.borrow().iter().any(|delegate| {
+                delegate.ivars().purpose.get() == Some(&BrowserPurpose::GameJolt)
+                    && delegate.ivars().window.borrow().is_some()
+            })
+        });
+        if active {
+            anyhow::bail!("close GameJolt browser windows before removing their store");
+        }
+        let identifier = gamejolt_store_identifier()?;
+        let completion = Mutex::new(Some(completion));
+        let callback = RcBlock::new(move |error: *mut objc2_foundation::NSError| {
+            let result = if error.is_null() {
+                Ok(())
+            } else {
+                let message = unsafe { error.as_ref() }
+                    .map(|error| error.localizedDescription().to_string())
+                    .unwrap_or_else(|| "WebKit store removal failed".to_owned());
+                Err(message)
+            };
+            if let Some(completion) = completion
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take()
+            {
+                completion(result);
+            }
+        });
+        unsafe {
+            WKWebsiteDataStore::removeDataStoreForIdentifier_completionHandler(
+                &identifier,
+                &callback,
+                mtm,
+            );
+        }
+        Ok(())
+    }
+
+    fn gamejolt_store_identifier() -> anyhow::Result<Retained<NSUUID>> {
+        NSUUID::initWithUUIDString(
+            NSUUID::alloc(),
+            &objc2_foundation::NSString::from_str("5C6F493A-2D9E-4A25-BEB0-7DC86791553A"),
+        )
+        .ok_or_else(|| anyhow::anyhow!("GameJolt persistent store identifier is invalid"))
+    }
     fn open_inner(
         mtm: MainThreadMarker,
         request: MiniBrowserRequest,
@@ -816,11 +919,7 @@ mod native {
         }
         let config = unsafe { WKWebViewConfiguration::new(mtm) };
         let store = if request.purpose == BrowserPurpose::GameJolt {
-            let identifier = NSUUID::initWithUUIDString(
-                NSUUID::alloc(),
-                &objc2_foundation::NSString::from_str("5C6F493A-2D9E-4A25-BEB0-7DC86791553A"),
-            )
-            .ok_or_else(|| anyhow::anyhow!("GameJolt persistent store identifier is invalid"))?;
+            let identifier = gamejolt_store_identifier()?;
             unsafe { WKWebsiteDataStore::dataStoreForIdentifier(&identifier, mtm) }
         } else {
             unsafe { WKWebsiteDataStore::nonPersistentDataStore(mtm) }
@@ -858,6 +957,7 @@ mod native {
         );
         *delegate.ivars().header.borrow_mut() = Some(header.clone());
         *delegate.ivars().window.borrow_mut() = Some(window.clone());
+        *delegate.ivars().web_view.borrow_mut() = Some(web.clone());
         let navigation_delegate: &ProtocolObject<dyn WKNavigationDelegate> =
             ProtocolObject::from_ref(&*delegate);
         let ui_delegate: &ProtocolObject<dyn WKUIDelegate> = ProtocolObject::from_ref(&*delegate);
@@ -1042,6 +1142,15 @@ pub fn open_native(
 ) -> anyhow::Result<()> {
     native::open(mtm, request, completion)
 }
+/// Explicit integration seam for an app-owned GameJolt data-removal action.
+/// This never touches WebKit's default store and fails if a GameJolt window is open.
+#[cfg(target_os = "macos")]
+pub fn remove_gamejolt_browser_data(
+    mtm: objc2::MainThreadMarker,
+    completion: Box<dyn FnOnce(Result<(), String>) + 'static>,
+) -> anyhow::Result<()> {
+    native::remove_gamejolt_store(mtm, completion)
+}
 #[cfg(not(target_os = "macos"))]
 pub fn open_native(
     _request: MiniBrowserRequest,
@@ -1066,17 +1175,66 @@ mod tests {
     fn network_rules_only_block_and_use_webkit_supported_regex_subset() {
         let rules: serde_json::Value = serde_json::from_str(&network_rules_json()).unwrap();
         let rules = rules.as_array().unwrap();
-        assert_eq!(rules.len(), 41);
+        assert_eq!(rules.len(), 59);
         for rule in rules {
             assert_eq!(rule["action"]["type"], "block");
-            assert!(
-                !rule["trigger"]["url-filter"]
-                    .as_str()
-                    .unwrap()
-                    .contains('|')
-            );
+            let pattern = rule["trigger"]["url-filter"].as_str().unwrap();
+            assert!(!pattern.contains('|'));
+            regex::Regex::new(pattern).unwrap_or_else(|error| panic!("{pattern}: {error}"));
         }
         assert_eq!(rules[0]["trigger"]["url-filter"], "^http://");
+    }
+
+    #[test]
+    fn private_local_url_patterns_cover_authority_end_query_and_scheme_variants() {
+        let rules: serde_json::Value = serde_json::from_str(&network_rules_json()).unwrap();
+        let regexes: Vec<_> = rules
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| regex::Regex::new(rule["trigger"]["url-filter"].as_str().unwrap()).unwrap())
+            .collect();
+        let blocked = |raw: &str| {
+            let canonical = Url::parse(raw)
+                .map(|url| url.to_string())
+                .unwrap_or_else(|_| raw.to_owned());
+            regexes.iter().any(|rule| rule.is_match(&canonical))
+        };
+        for raw in [
+            "https://localhost",
+            "https://localhost?x=1",
+            "https://localhost/",
+            "https://printer.local",
+            "https://printer.local?x=1",
+            "https://service.internal",
+            "https://service.internal?x=1",
+            "https://127.0.0.1",
+            "https://10.0.0.1?x=1",
+            "https://[::1]/",
+            "https://[fd00::1]?x=1",
+            "wss://localhost",
+            "wss://printer.local?x=1",
+            "wss://192.168.1.2/",
+            "http://2130706433/",
+            "http://0x7f000001/",
+            "https://2130706433/",
+            "https://2130706433?x=1",
+            "https://0x7f000001/",
+            "https://0x7f000001?x=1",
+            "https://127.1/",
+            "wss://2130706433/",
+            "wss://0x7f000001?x=1",
+        ] {
+            assert!(blocked(raw), "must be blocked: {raw}");
+        }
+        for raw in [
+            "https://public.example/",
+            "wss://public.example/socket",
+            "https://printer.local.example/",
+            "https://notinternal.example/",
+        ] {
+            assert!(!blocked(raw), "must not match private-host rules: {raw}");
+        }
     }
     #[test]
     fn steam_store_navigation_stays_separate_from_key_help() {
@@ -1248,6 +1406,16 @@ mod tests {
                 .parse_once("https://embed.gog.com/on_login_success?error=denied"),
             Ok(GogCallback::Error("denied".into()))
         );
+        assert_eq!(
+            GogCallbackParser::default()
+                .parse_once("https://embed.gog.com/on_login_success?error_description=denied"),
+            Ok(GogCallback::Error("denied".into()))
+        );
+        // Callback consumption belongs to a single window/session parser.
+        assert_eq!(
+            GogCallbackParser::default().parse_once(cb),
+            Ok(GogCallback::Code("secret".into()))
+        );
         for raw in [
             "http://embed.gog.com/on_login_success?code=x",
             "https://embed.gog.com.evil.test/on_login_success?code=x",
@@ -1255,6 +1423,8 @@ mod tests {
             "https://embed.gog.com:444/on_login_success?code=x",
             "https://embed.gog.com/on_login_success/?code=x",
             "https://embed.gog.com/on_login_success?code=x&error=y",
+            "https://embed.gog.com/on_login_success?error=x&error_description=y",
+            "https://embed.gog.com/on_login_success?error_description=x&error_description=y",
         ] {
             assert!(
                 GogCallbackParser::default().parse_once(raw).is_err(),

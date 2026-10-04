@@ -520,13 +520,19 @@ impl MetalSharpApp {
             cx.notify();
         }));
         app.connected_events = Some(cx.subscribe(&session, |this, session, event, cx| {
-            if !session.read(cx).streaming_visible() {
-                return;
-            }
             match event {
-                crate::connected::ConnectedEvent::OpenStreaming => {
+                crate::connected::ConnectedEvent::OpenStreaming
+                    if session.read(cx).streaming_visible() =>
+                {
                     this.streaming_open = true;
                     this.streaming_unpair_confirm = false;
+                }
+                crate::connected::ConnectedEvent::OpenStreaming => {}
+                crate::connected::ConnectedEvent::OpenSetup => {
+                    this.show_setup = true;
+                    this.streaming_open = false;
+                    this.streaming_unpair_confirm = false;
+                    this.streaming_unpair_deadline = None;
                 }
             }
             cx.notify();
