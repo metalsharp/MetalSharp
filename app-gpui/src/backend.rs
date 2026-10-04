@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_electron_bridge_wrapped_library_payload() {
+    fn parses_wrapped_library_payload() {
         let snapshot = parse_library(json!({
             "ok": true,
             "data": {
