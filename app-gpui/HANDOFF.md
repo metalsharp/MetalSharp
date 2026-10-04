@@ -1,0 +1,20 @@
+# Native MiniBrowser handoff
+
+## Delivered and scope
+
+`src/mini_browser.rs` provides a native macOS `WKWebView` in a titled, closable, resizable `NSWindow`, with back/forward/reload/close buttons and a read-only URL header updated as navigation starts, redirects, and completes. The default offline preview still does not invoke it. `connected.rs` now calls it only from explicit connected-mode GOG/key-help actions; live sign-in/browser acceptance remains untested. No Electron/Node, JavaScript bridge, script evaluation, custom user agent, or filesystem/app-data access is used.
+
+The checked API is `MiniBrowserRequest::new(purpose, url, title)` followed on the AppKit/GPUI main thread by `open_native(mtm, request, completion)`. The initial URL and each top-level navigation/action/response are HTTPS/default-port/no-userinfo and checked against the selected purpose allowlist; subframes and popup/new-window targets are denied. The GOG parser handles only `https://embed.gog.com/on_login_success`, rejects ambiguous/invalid values, and captures one result. The completion can return a GOG code only through that exact callback, a typed error, or cancellation. Help and GameJolt windows deliberately do not invoke completion callbacks. Authentication URL headers omit query/fragment values so transient codes/state are not displayed. Malformed exact GOG callback requests terminate authentication without navigating to the callback.
+
+Storage: Steam help, TheGamesDB help, GOG auth, and Epic auth each receive fresh nonpersistent stores. GameJolt uses the explicitly named persistent `WKWebsiteDataStore.dataStoreForIdentifier` store (`5C6F493A-2D9E-4A25-BEB0-7DC86791553A`), never the default store. That API requires macOS 14; since the preview bundle minimum is macOS 13, GameJolt browser launch fails closed on macOS 13. Camera/microphone, geolocation (on WebKit versions exposing the macOS 27 selector), JS alert/confirm/prompt, and file-open panels are denied; popup creation is left unimplemented so WebKit cancels it by default. Responses that WebKit cannot render and HTTP responses marked `Content-Disposition: attachment` are canceled.
+
+## Integration steps
+
+1. Keep `mod mini_browser;` in `src/main.rs`. `ConnectedApp` uses this API for GOG sign-in and key-help actions; the default preview and its Settings placeholder credentials remain untouched.
+2. From a GPUI callback known to run on AppKit's main thread, construct a purpose-scoped `MiniBrowserRequest` and call `open_native(MainThreadMarker, request, Box::new(callback))`.
+3. Handle `MiniBrowserResult::GogCode` only for the GOG OAuth result; handle `Error`/`Cancelled` as terminal auth outcomes. Do not log, persist, or send returned codes except through the existing credential flow. Help/GameJolt callbacks are not delivered.
+4. Epic's federated hosts are allowed for the web flow, but this implementation does not inspect page state or extract Epic authorization results. Do not claim Epic login completion or wire it into settings without a separate safe, native callback design.
+
+## Validation and residual limitations
+
+Offline policy unit tests and native API type checking are covered by Cargo tests/build. No window was opened and no live URL/account/login traffic was performed. Runtime layout, live provider redirects, federated login behavior, and visual URL updates remain untested. Delegate objects remain in a main-thread registry for process lifetime because WebKit holds its delegates weakly; `windowWillClose` releases their header/window references so closed WebViews and sessions are not intentionally retained. GameJolt persistent-session cleanup has not yet been integrated into the app's data-removal lifecycle. WebKit's `canShowMIMEType` gate denies non-renderable payloads, and HTTP attachment responses are canceled based on `Content-Disposition`; these behaviors have not been live-tested. Geolocation denial is registered for WebKit/macOS 27+; the pinned binding/older WebKit has no exposed geolocation decision callback. Review the OS deployment target and authorization-flow requirements before integration.
