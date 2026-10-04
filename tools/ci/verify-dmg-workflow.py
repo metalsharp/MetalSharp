@@ -181,6 +181,14 @@ def check_workflows() -> None:
     ]:
         if required not in release:
             fail(f"release workflow missing signing fallback contract: {required}")
+
+    dmg_job = release.split("\n  build:\n", 1)[1].split("\n  release:\n", 1)[0]
+    for excluded in [
+        "metalsharp-electron.tar.zst",
+        "metalsharp-d3d12-developer-sdk.tar.zst",
+    ]:
+        if excluded in dmg_job:
+            fail(f"DMG release job must not package or check excluded bundle: {excluded}")
     if "CSC_IDENTITY_AUTO_DISCOVERY=false" not in read("tools/dmg/check-apple-signing-readiness.sh"):
         fail("unsigned DMG fallback must disable Electron Builder certificate discovery")
     signing_preparation = read("tools/dmg/prepare-apple-signing.sh")
