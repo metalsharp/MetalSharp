@@ -67,11 +67,10 @@ cat > "$STAGE/READ-ME-GPUI-TEST.txt" <<EOF
 MetalSharp GPUI $VERSION — local connected test build
 
 This is the GPUI application and bundled C backend/runtime assets, not the synthetic UI preview.
-It opens the real setup wizard and starts the owned backend in isolated validation mode.
-The validation data home is separate from ~/.metalsharp and the official MetalSharp app.
-Setup runtime/Steam installs write to the validation home. Other import/file actions can use
-explicitly selected destinations. This local ad-hoc-signed build is not notarized or for distribution.
-Keep the separate app name when copying it into /Applications.
+It behaves exactly like the production MetalSharp app: it starts the backend on port 9274 with
+~/.metalsharp, so the runtime installs to ~/.metalsharp/runtime and Steam to
+~/.metalsharp/prefix-steam. Quit the Electron MetalSharp app before launching it; only one
+backend can own port 9274. This local ad-hoc-signed build is not notarized or for distribution.
 EOF
 
 hdiutil create \

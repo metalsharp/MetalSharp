@@ -56,7 +56,7 @@ jobs:
       - name: Build authoritative C backend for isolated ownership smoke test
         run: make -C app/src-c
       - name: Verify connected startup and shutdown in a fresh isolated home
-        run: cargo test --locked --manifest-path app-gpui/Cargo.toml backend_host::tests::isolated_c_backend_smoke -- --ignored
+        run: cargo test --locked --manifest-path app-gpui/Cargo.toml backend_host::tests -- --ignored
       - name: Package and verify side-by-side candidate
         env:
           METALSHARP_GPUI_PACKAGE_BACKEND: '1'

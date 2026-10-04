@@ -191,6 +191,9 @@ impl BackendClient {
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
+    pub(crate) fn token(&self) -> Option<&str> {
+        self.client_token.as_deref()
+    }
     pub fn request(
         &self,
         method: &str,
@@ -268,20 +271,6 @@ impl BackendClient {
         }
         Ok(value.get("data").cloned().unwrap_or(value))
     }
-    pub(crate) fn update_dmg_path(
-        &self,
-        variant: crate::updater_connected::UpdateVariant,
-    ) -> Result<crate::updater_connected::DmgPath, BackendError> {
-        let path = format!("/update/dmg-path?variant={}", variant.as_str());
-        serde_json::from_value(self.request_internal(
-            "GET",
-            &path,
-            None,
-            Duration::from_secs(30),
-            true,
-        )?)
-        .map_err(|_| BackendError::InvalidJson)
-    }
     pub fn steam_grid_art(&self, appid: u64, kind: &str) -> Result<Vec<u8>, BackendError> {
         if appid == 0 || appid > i32::MAX as u64 || !matches!(kind, "hero" | "poster" | "header") {
             return Err(BackendError::InvalidInput);
@@ -325,46 +314,6 @@ impl BackendClient {
         let mut bundle: crate::diagnostics::DiagnosticLogs = self.get("/logs")?;
         bundle.logs.truncate(8);
         Ok(bundle)
-    }
-    pub fn log_stream(
-        &self,
-        after: u64,
-    ) -> Result<crate::logs_connected::LiveLogBatch, BackendError> {
-        let path = format!("/logs/stream?after={after}");
-        let url = format!("{}{path}", self.base_url);
-        let mut request = self.agent.get(&url);
-        if let Some(token) = self.client_token.as_deref() {
-            request = request.header("X-MetalSharp-Client-Token", token);
-        }
-        let mut response = request
-            .config()
-            .timeout_global(Some(Duration::from_secs(10)))
-            .build()
-            .call()
-            .map_err(|_| BackendError::Transport)?;
-        let status = response.status().as_u16();
-        if !(200..300).contains(&status) {
-            return Err(BackendError::Http(status));
-        }
-        let mut batch: crate::logs_connected::LiveLogBatch = response
-            .body_mut()
-            .with_config()
-            .limit(2 * 1024 * 1024)
-            .read_json()
-            .map_err(|_| BackendError::InvalidJson)?;
-        if !batch.ok {
-            return Err(BackendError::Rejected);
-        }
-        batch.lines.truncate(500);
-        for line in &mut batch.lines {
-            *line = crate::diagnostics::redact_line(line);
-        }
-        Ok(batch)
-    }
-    pub fn crash_reports(&self) -> Result<crate::logs_connected::CrashReports, BackendError> {
-        let mut result: crate::logs_connected::CrashReports = self.get("/logs/crash-reports")?;
-        result.reports.truncate(20);
-        Ok(result)
     }
     pub fn backend_home(&self) -> Result<std::path::PathBuf, BackendError> {
         let status = self.status()?;

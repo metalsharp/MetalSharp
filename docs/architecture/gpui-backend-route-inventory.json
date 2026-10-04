@@ -126,6 +126,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 3188,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 794,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -147,6 +152,11 @@
         {
           "file": "app/src/renderer/views/SettingsView.vue",
           "line": 82,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 270,
           "kind": "literal-candidate"
         }
       ],
@@ -248,12 +258,57 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 263,
+          "line": 326,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 269,
+          "line": 332,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 241,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 646,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 680,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 714,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2193,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2301,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1220,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1301,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1327,
           "kind": "literal-candidate"
         }
       ],
@@ -355,12 +410,57 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 263,
+          "line": 326,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 269,
+          "line": 332,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 241,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 646,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 680,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 714,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2193,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2301,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1220,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1301,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1327,
           "kind": "literal-candidate"
         }
       ],
@@ -536,17 +636,32 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
+          "line": 440,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 692,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 693,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 299,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 367,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
           "line": 372,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app-gpui/src/backend.rs",
-          "line": 624,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app-gpui/src/backend.rs",
-          "line": 625,
           "kind": "literal-candidate"
         }
       ],
@@ -589,8 +704,13 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 36,
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 694,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1056,
           "kind": "literal-candidate"
         }
       ],
@@ -608,6 +728,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 763,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1788,
           "kind": "literal-candidate"
         }
       ],
@@ -637,6 +762,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 886,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2075,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -653,6 +783,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 836,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1978,
           "kind": "literal-candidate"
         }
       ],
@@ -688,6 +823,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 876,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1943,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -716,6 +856,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 851,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2009,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -728,7 +873,13 @@
       "router_lines": [
         1699
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 692,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -748,6 +899,16 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 807,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1814,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1884,
           "kind": "literal-candidate"
         }
       ],
@@ -771,6 +932,16 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 807,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1814,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1884,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -787,6 +958,16 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 782,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1832,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 610,
           "kind": "literal-candidate"
         }
       ],
@@ -805,6 +986,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 862,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2037,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -817,7 +1003,13 @@
       "router_lines": [
         2393
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 714,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -848,6 +1040,11 @@
         {
           "file": "app/src/renderer/views/LibraryView.vue",
           "line": 843,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1357,
           "kind": "literal-candidate"
         }
       ],
@@ -1452,7 +1649,17 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 461,
+          "line": 529,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 708,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1096,
           "kind": "literal-candidate"
         }
       ],
@@ -1501,7 +1708,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 258,
+          "line": 314,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/logs_preview.rs",
+          "line": 176,
           "kind": "literal-candidate"
         }
       ],
@@ -1525,6 +1737,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 3127,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/logs_preview.rs",
+          "line": 132,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -1537,7 +1754,13 @@
       "router_lines": [
         817
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/logs_preview.rs",
+          "line": 62,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -1567,6 +1790,16 @@
         {
           "file": "app/src/renderer/views/LibraryView.vue",
           "line": 815,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2224,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1239,
           "kind": "literal-candidate"
         }
       ],
@@ -1604,6 +1837,16 @@
         {
           "file": "app/src/renderer/views/LibraryView.vue",
           "line": 867,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 2264,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1275,
           "kind": "literal-candidate"
         }
       ],
@@ -1708,6 +1951,11 @@
           "file": "app/src/renderer/views/SettingsView.vue",
           "line": 316,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 592,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -1735,6 +1983,11 @@
         {
           "file": "app/src/renderer/App.vue",
           "line": 248,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 835,
           "kind": "literal-candidate"
         }
       ],
@@ -1764,7 +2017,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 275,
+          "line": 343,
           "kind": "literal-candidate"
         }
       ],
@@ -1798,6 +2051,16 @@
           "file": "app/src/renderer/views/SettingsView.vue",
           "line": 143,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 370,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2053,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -1828,7 +2091,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 278,
+          "line": 346,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1799,
           "kind": "literal-candidate"
         }
       ],
@@ -1866,7 +2134,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 281,
+          "line": 349,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1840,
           "kind": "literal-candidate"
         }
       ],
@@ -1931,7 +2204,22 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 332,
+          "line": 339,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/backend.rs",
+          "line": 400,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 387,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2115,
           "kind": "literal-candidate"
         }
       ],
@@ -1963,7 +2251,17 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 272,
+          "line": 335,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 327,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 413,
           "kind": "literal-candidate"
         }
       ],
@@ -1992,6 +2290,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2103,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 196,
           "kind": "literal-candidate"
         }
       ],
@@ -2040,8 +2343,8 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 138,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 852,
           "kind": "literal-candidate"
         }
       ],
@@ -2060,6 +2363,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2028,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1503,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2076,6 +2384,16 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 1874,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1175,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1458,
           "kind": "literal-candidate"
         }
       ],
@@ -2094,6 +2412,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 1980,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1543,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2110,6 +2433,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 1965,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1397,
           "kind": "literal-candidate"
         }
       ],
@@ -2130,13 +2458,8 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 127,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app-gpui/src/connected.rs",
-          "line": 132,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1253,
           "kind": "literal-candidate"
         }
       ],
@@ -2155,6 +2478,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 1938,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1302,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2171,6 +2499,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2062,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1601,
           "kind": "literal-candidate"
         }
       ],
@@ -2189,6 +2522,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2004,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1430,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2206,6 +2544,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 1895,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1225,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2222,6 +2565,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2046,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1702,
           "kind": "literal-candidate"
         }
       ],
@@ -2242,8 +2590,13 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 125,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1158,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1328,
           "kind": "literal-candidate"
         }
       ],
@@ -2262,6 +2615,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2076,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1636,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2274,7 +2632,13 @@
       "router_lines": [
         1963
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 715,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -2292,8 +2656,13 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 139,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1173,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1348,
           "kind": "literal-candidate"
         }
       ],
@@ -2335,7 +2704,22 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 312,
+          "line": 380,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 223,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 344,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2176,
           "kind": "literal-candidate"
         }
       ],
@@ -2377,7 +2761,22 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 312,
+          "line": 380,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 223,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 344,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2176,
           "kind": "literal-candidate"
         }
       ],
@@ -2395,6 +2794,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2090,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1669,
           "kind": "literal-candidate"
         }
       ],
@@ -2415,8 +2819,8 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 134,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 823,
           "kind": "literal-candidate"
         }
       ],
@@ -2444,6 +2848,16 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2167,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 571,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 612,
           "kind": "literal-candidate"
         }
       ],
@@ -2475,8 +2889,8 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 131,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 639,
           "kind": "literal-candidate"
         }
       ],
@@ -2495,6 +2909,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2337,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 966,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2511,6 +2930,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2252,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 730,
           "kind": "literal-candidate"
         }
       ],
@@ -2529,6 +2953,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2398,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1049,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2545,6 +2974,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2360,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 995,
           "kind": "literal-candidate"
         }
       ],
@@ -2563,6 +2997,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2233,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 702,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2579,6 +3018,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2382,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1713,
           "kind": "literal-candidate"
         }
       ],
@@ -2604,8 +3048,13 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 123,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 558,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 668,
           "kind": "literal-candidate"
         }
       ],
@@ -2624,6 +3073,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2423,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1082,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2636,7 +3090,13 @@
       "router_lines": [
         1614
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 716,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -2654,8 +3114,8 @@
           "kind": "literal-candidate"
         },
         {
-          "file": "app-gpui/src/connected.rs",
-          "line": 135,
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 917,
           "kind": "literal-candidate"
         }
       ],
@@ -2673,6 +3133,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2440,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 1114,
           "kind": "literal-candidate"
         }
       ],
@@ -2708,6 +3173,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2534,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 334,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -2724,6 +3194,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2951,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 373,
           "kind": "literal-candidate"
         }
       ],
@@ -3024,6 +3499,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2904,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 295,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -3040,6 +3520,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 3045,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 473,
           "kind": "literal-candidate"
         }
       ],
@@ -3074,6 +3559,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2982,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 440,
           "kind": "literal-candidate"
         }
       ],
@@ -3352,6 +3842,11 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2971,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 417,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -3364,7 +3859,13 @@
       "router_lines": [
         1999
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 691,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3396,6 +3897,11 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 2995,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/sharp_live.rs",
+          "line": 503,
           "kind": "literal-candidate"
         }
       ],
@@ -3432,12 +3938,22 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 255,
+          "line": 311,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/backend_host.rs",
-          "line": 164,
+          "line": 236,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 378,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 551,
           "kind": "literal-candidate"
         }
       ],
@@ -3460,6 +3976,11 @@
         {
           "file": "app/src/renderer/composables/useApi.ts",
           "line": 105,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 400,
           "kind": "literal-candidate"
         }
       ],
@@ -3525,7 +4046,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 324,
+          "line": 392,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2100,
           "kind": "literal-candidate"
         }
       ],
@@ -3552,7 +4078,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 284,
+          "line": 352,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1969,
           "kind": "literal-candidate"
         }
       ],
@@ -3569,7 +4100,7 @@
       "literal_references": [
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 454,
+          "line": 522,
           "kind": "literal-candidate"
         }
       ],
@@ -3630,6 +4161,16 @@
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 3169,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 429,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1611,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -3650,17 +4191,27 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 370,
+          "line": 438,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 622,
+          "line": 690,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 623,
+          "line": 691,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 297,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 365,
           "kind": "literal-candidate"
         }
       ],
@@ -3690,6 +4241,11 @@
           "file": "app/src/renderer/composables/useApi.ts",
           "line": 104,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 814,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -3711,6 +4267,11 @@
         {
           "file": "app/src/renderer/views/SettingsView.vue",
           "line": 174,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 452,
           "kind": "literal-candidate"
         }
       ],
@@ -3734,6 +4295,11 @@
           "file": "app/src/renderer/views/SettingsView.vue",
           "line": 209,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 517,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -3754,12 +4320,22 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 358,
+          "line": 426,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 626,
+          "line": 694,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 295,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 377,
           "kind": "literal-candidate"
         }
       ],
@@ -3782,6 +4358,11 @@
         {
           "file": "app/src/renderer/views/SettingsView.vue",
           "line": 189,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 483,
           "kind": "literal-candidate"
         }
       ],
@@ -3835,7 +4416,17 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 308,
+          "line": 376,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 295,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2133,
           "kind": "literal-candidate"
         }
       ],
@@ -3857,7 +4448,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 444,
+          "line": 512,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1432,
           "kind": "literal-candidate"
         }
       ],
@@ -3885,6 +4481,16 @@
         {
           "file": "app/src/renderer/composables/useApi.ts",
           "line": 99,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 733,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1932,
           "kind": "literal-candidate"
         }
       ],
@@ -3932,6 +4538,31 @@
         {
           "file": "app/src/renderer/views/SharpView.vue",
           "line": 3168,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 403,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 533,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1584,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2021,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2626,
           "kind": "literal-candidate"
         }
       ],
@@ -3983,6 +4614,11 @@
           "file": "app/src/renderer/App.vue",
           "line": 435,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 774,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -4009,6 +4645,11 @@
         {
           "file": "app-gpui/src/streaming.rs",
           "line": 189,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2782,
           "kind": "literal-candidate"
         }
       ],
@@ -4037,6 +4678,11 @@
           "file": "app-gpui/src/streaming.rs",
           "line": 190,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2810,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -4064,6 +4710,11 @@
           "file": "app-gpui/src/streaming.rs",
           "line": 182,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2877,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -4085,6 +4736,11 @@
         {
           "file": "app-gpui/src/streaming.rs",
           "line": 76,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2707,
           "kind": "literal-candidate"
         }
       ],
@@ -4113,6 +4769,11 @@
           "file": "app-gpui/src/streaming.rs",
           "line": 191,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2850,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -4140,6 +4801,11 @@
           "file": "app-gpui/src/streaming.rs",
           "line": 192,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2903,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -4156,6 +4822,11 @@
         {
           "file": "app/src/renderer/components/LibraryTopbar.vue",
           "line": 128,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1674,
           "kind": "literal-candidate"
         }
       ],
@@ -4177,7 +4848,17 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 353,
+          "line": 421,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 290,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 384,
           "kind": "literal-candidate"
         }
       ],
@@ -4195,6 +4876,11 @@
         {
           "file": "app/src/renderer/App.vue",
           "line": 218,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 820,
           "kind": "literal-candidate"
         }
       ],
@@ -4216,7 +4902,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 439,
+          "line": 507,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1427,
           "kind": "literal-candidate"
         }
       ],
@@ -4243,7 +4934,12 @@
         },
         {
           "file": "app-gpui/src/backend.rs",
-          "line": 395,
+          "line": 463,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/library_model.rs",
+          "line": 311,
           "kind": "literal-candidate"
         }
       ],
@@ -4262,6 +4958,11 @@
           "file": "app/src/renderer/App.vue",
           "line": 189,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 751,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -4278,6 +4979,11 @@
         {
           "file": "app/src/renderer/components/LibraryTopbar.vue",
           "line": 123,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 1648,
           "kind": "literal-candidate"
         }
       ],
@@ -4311,6 +5017,16 @@
           "file": "app/src/renderer/views/SettingsView.vue",
           "line": 278,
           "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/settings_preview.rs",
+          "line": 823,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2226,
+          "kind": "literal-candidate"
         }
       ],
       "request_contract": "manual-review",
@@ -4323,7 +5039,13 @@
       "router_lines": [
         889
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2634,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -4345,7 +5067,13 @@
       "router_lines": [
         852
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2983,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -4356,7 +5084,13 @@
       "router_lines": [
         859
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2580,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -4378,7 +5112,13 @@
       "router_lines": [
         873
       ],
-      "literal_references": [],
+      "literal_references": [
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2535,
+          "kind": "literal-candidate"
+        }
+      ],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -4393,6 +5133,11 @@
         {
           "file": "app/src/renderer/App.vue",
           "line": 348,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2385,
           "kind": "literal-candidate"
         }
       ],
@@ -4410,6 +5155,11 @@
         {
           "file": "app/src/renderer/App.vue",
           "line": 335,
+          "kind": "literal-candidate"
+        },
+        {
+          "file": "app-gpui/src/ui_live.rs",
+          "line": 2351,
           "kind": "literal-candidate"
         }
       ],

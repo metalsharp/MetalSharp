@@ -96,7 +96,8 @@ impl BrowserPurpose {
                     "nintendo.net",
                 ])
             }
-            Self::GameJolt => suffix(&["gamejolt.com"]),
+            // Store pages plus the GameJolt download/CDN hosts that serve builds.
+            Self::GameJolt => suffix(&["gamejolt.com", "gamejolt.net", "gjcdn.net"]),
             Self::SteamApiKeyHelp => exact(&["steamcommunity.com", "www.steamcommunity.com"]),
             Self::SteamStore => exact(&[
                 "steampowered.com",
@@ -313,6 +314,75 @@ fn parse_epic_document(raw_url: &str, text: &str) -> Result<MiniBrowserResult, C
 }
 pub type MiniBrowserCompletion = Box<dyn FnOnce(MiniBrowserResult) + 'static>;
 
+/// GameJolt browser downloads (Electron `persist:gamejolt` `will-download`).
+#[derive(Clone, Debug)]
+pub enum GameJoltDownloadEvent {
+    Started {
+        id: u64,
+        filename: String,
+        path: std::path::PathBuf,
+        total: Option<u64>,
+    },
+    Finished {
+        id: u64,
+        filename: String,
+        path: std::path::PathBuf,
+    },
+    Failed {
+        id: u64,
+        filename: String,
+        error: String,
+    },
+}
+
+static GAMEJOLT_DOWNLOAD_DIR: Mutex<Option<std::path::PathBuf>> = Mutex::new(None);
+static GAMEJOLT_DOWNLOAD_EVENTS: Mutex<Vec<GameJoltDownloadEvent>> = Mutex::new(Vec::new());
+
+/// Directory that receives `.downloads/` for the GameJolt browser.
+pub fn set_gamejolt_download_dir(dir: std::path::PathBuf) {
+    *GAMEJOLT_DOWNLOAD_DIR.lock().unwrap() = Some(dir);
+}
+
+pub fn take_gamejolt_download_events() -> Vec<GameJoltDownloadEvent> {
+    std::mem::take(&mut *GAMEJOLT_DOWNLOAD_EVENTS.lock().unwrap())
+}
+
+fn push_gamejolt_event(event: GameJoltDownloadEvent) {
+    GAMEJOLT_DOWNLOAD_EVENTS.lock().unwrap().push(event);
+}
+
+/// main `uniqueDownloadPath`.
+pub fn unique_download_path(directory: &std::path::Path, filename: &str) -> std::path::PathBuf {
+    let original: String = std::path::Path::new(filename)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+        .chars()
+        .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
+        .collect();
+    let original = if original.is_empty() {
+        "download".to_owned()
+    } else {
+        original
+    };
+    let path = std::path::Path::new(&original);
+    let extension = path
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    let stem = original
+        .strip_suffix(&extension)
+        .unwrap_or(&original)
+        .to_owned();
+    let mut candidate = directory.join(&original);
+    let mut suffix = 2;
+    while candidate.exists() {
+        candidate = directory.join(format!("{stem} ({suffix}){extension}"));
+        suffix += 1;
+    }
+    candidate
+}
+
 fn expected_navigation_cancel(domain: &str, code: i64) -> bool {
     domain == "NSURLErrorDomain" && code == -999
 }
@@ -338,12 +408,19 @@ mod native {
         NSURLRequest, NSUUID,
     };
     use objc2_web_kit::{
-        WKContentRuleList, WKContentRuleListStore, WKFrameInfo, WKMediaCaptureType, WKNavigation,
-        WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
-        WKNavigationResponsePolicy, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate,
-        WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+        WKContentRuleList, WKContentRuleListStore, WKDownload, WKDownloadDelegate, WKFrameInfo,
+        WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
+        WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy,
+        WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView, WKWebViewConfiguration,
+        WKWebsiteDataStore,
     };
     thread_local! { static DELEGATES: RefCell<Vec<Retained<Delegate>>> = const { RefCell::new(Vec::new()) }; }
+    // Downloads awaiting a destination: WebKit holds delegates weakly, so keep
+    // ours (and the download) alive even if the window closes meanwhile.
+    thread_local! { static ARMED: RefCell<Vec<(Retained<WKDownload>, Retained<Delegate>)>> = const { RefCell::new(Vec::new()) }; }
+    // Active WKDownloads: (download, id, filename, destination).
+    thread_local! { static DOWNLOADS: RefCell<Vec<(Retained<WKDownload>, u64, String, std::path::PathBuf, Retained<Delegate>)>> = const { RefCell::new(Vec::new()) }; }
+    thread_local! { static NEXT_DOWNLOAD: Cell<u64> = const { Cell::new(1) }; }
     #[derive(Default)]
     struct Ivars {
         purpose: OnceCell<BrowserPurpose>,
@@ -469,6 +546,12 @@ mod native {
                         .and_then(|http| http.valueForHTTPHeaderField(&NSString::from_str("Content-Disposition")))
                         .is_some_and(|value| value.to_string().split(';').next().is_some_and(|token| token.trim().eq_ignore_ascii_case("attachment")))
                 } else { false };
+                let gamejolt = *self.ivars().purpose.get().unwrap() == BrowserPurpose::GameJolt
+                    && self.ivars().fixture_initial_url.is_none();
+                if gamejolt && (is_attachment || !unsafe { response.canShowMIMEType() }) {
+                    handler.call((WKNavigationResponsePolicy::Download,));
+                    return;
+                }
                 let allow = !is_attachment && unsafe { response.canShowMIMEType() }
                     && response_url.as_deref().is_some_and(|url| match self.ivars().fixture_initial_url.as_deref() {
                         Some(initial)=>url==initial || url=="about:blank",
@@ -479,6 +562,18 @@ mod native {
                 } else {
                     WKNavigationResponsePolicy::Cancel
                 },));
+            }
+            #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
+            #[allow(non_snake_case)]
+            unsafe fn webView_navigationResponse_didBecomeDownload(&self, _web_view: &WKWebView, _response: &WKNavigationResponse, download: &WKDownload) {
+                unsafe { download.setDelegate(Some(ProtocolObject::from_ref(self))) };
+                self.arm_download(download);
+            }
+            #[unsafe(method(webView:navigationAction:didBecomeDownload:))]
+            #[allow(non_snake_case)]
+            unsafe fn webView_navigationAction_didBecomeDownload(&self, _web_view: &WKWebView, _action: &WKNavigationAction, download: &WKDownload) {
+                unsafe { download.setDelegate(Some(ProtocolObject::from_ref(self))) };
+                self.arm_download(download);
             }
             #[unsafe(method(webView:didFailProvisionalNavigation:withError:))]
             #[allow(non_snake_case)]
@@ -558,6 +653,55 @@ mod native {
             #[allow(non_snake_case)]
             unsafe fn deny_geolocation(&self, _web_view: &WKWebView, _origin: &WKSecurityOrigin, _frame: &WKFrameInfo, handler: &DynBlock<dyn Fn(WKPermissionDecision)>) { handler.call((WKPermissionDecision::Deny,)); }
         }
+        unsafe impl WKDownloadDelegate for Delegate {
+            #[unsafe(method(download:decideDestinationUsingResponse:suggestedFilename:completionHandler:))]
+            #[allow(non_snake_case)]
+            unsafe fn download_decideDestinationUsingResponse_suggestedFilename_completionHandler(
+                &self,
+                download: &WKDownload,
+                response: &objc2_foundation::NSURLResponse,
+                suggested_filename: &NSString,
+                completion_handler: &DynBlock<dyn Fn(*mut NSURL)>,
+            ) {
+                disarm_download(download);
+                let dir = GAMEJOLT_DOWNLOAD_DIR.lock().unwrap().clone();
+                let Some(dir) = dir.filter(|_| *self.ivars().purpose.get().unwrap() == BrowserPurpose::GameJolt) else {
+                    completion_handler.call((core::ptr::null_mut(),));
+                    return;
+                };
+                let incoming = dir.join(".downloads");
+                let _ = std::fs::create_dir_all(&incoming);
+                let filename = suggested_filename.to_string();
+                let path = unique_download_path(&incoming, &filename);
+                let id = NEXT_DOWNLOAD.with(|n| { let id = n.get(); n.set(id + 1); id });
+                let expected = response.expectedContentLength();
+                let total = (expected > 0).then_some(expected as u64);
+                let retained = unsafe { Retained::retain(download as *const WKDownload as *mut WKDownload) };
+                // WebKit holds download delegates weakly; keep ours alive until the transfer ends.
+                let keep = unsafe { Retained::retain(self as *const Delegate as *mut Delegate) };
+                if let (Some(retained), Some(keep)) = (retained, keep) {
+                    DOWNLOADS.with(|d| d.borrow_mut().push((retained, id, filename.clone(), path.clone(), keep)));
+                }
+                push_gamejolt_event(GameJoltDownloadEvent::Started { id, filename, path: path.clone(), total });
+                let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
+                completion_handler.call((Retained::as_ptr(&url) as *mut NSURL,));
+            }
+            #[unsafe(method(downloadDidFinish:))]
+            #[allow(non_snake_case)]
+            unsafe fn downloadDidFinish(&self, download: &WKDownload) {
+                if let Some((_, id, filename, path, _)) = take_download(download) {
+                    push_gamejolt_event(GameJoltDownloadEvent::Finished { id, filename, path });
+                }
+            }
+            #[unsafe(method(download:didFailWithError:resumeData:))]
+            #[allow(non_snake_case)]
+            unsafe fn download_didFailWithError_resumeData(&self, download: &WKDownload, error: &objc2_foundation::NSError, _resume: Option<&objc2_foundation::NSData>) {
+                disarm_download(download);
+                if let Some((_, id, filename, _, _)) = take_download(download) {
+                    push_gamejolt_event(GameJoltDownloadEvent::Failed { id, filename, error: error.localizedDescription().to_string() });
+                }
+            }
+        }
         unsafe impl WKUIDelegate for Delegate {
             #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
             #[allow(non_snake_case)]
@@ -607,7 +751,40 @@ mod native {
             }
         }
     );
+    fn disarm_download(download: &WKDownload) {
+        ARMED.with(|armed| {
+            armed
+                .borrow_mut()
+                .retain(|(item, _)| !std::ptr::eq::<WKDownload>(&**item, download))
+        });
+    }
+    #[allow(clippy::type_complexity)]
+    fn take_download(
+        download: &WKDownload,
+    ) -> Option<(
+        Retained<WKDownload>,
+        u64,
+        String,
+        std::path::PathBuf,
+        Retained<Delegate>,
+    )> {
+        DOWNLOADS.with(|d| {
+            let mut list = d.borrow_mut();
+            let index = list
+                .iter()
+                .position(|(item, ..)| std::ptr::eq::<WKDownload>(&**item, download))?;
+            Some(list.remove(index))
+        })
+    }
     impl Delegate {
+        fn arm_download(&self, download: &WKDownload) {
+            let download =
+                unsafe { Retained::retain(download as *const WKDownload as *mut WKDownload) };
+            let keep = unsafe { Retained::retain(self as *const Delegate as *mut Delegate) };
+            if let (Some(download), Some(keep)) = (download, keep) {
+                ARMED.with(|armed| armed.borrow_mut().push((download, keep)));
+            }
+        }
         fn new(
             mtm: MainThreadMarker,
             request: &MiniBrowserRequest,
@@ -666,6 +843,12 @@ mod native {
         fn navigation_failed(&self, error: &objc2_foundation::NSError) {
             // Policy denials and user back/reload cancellation are not auth failures.
             if expected_navigation_cancel(&error.domain().to_string(), error.code() as i64) {
+                return;
+            }
+            // GameJolt is a browsing window: a response turned into a download
+            // ends its navigation with WebKitErrorDomain 102, and other load
+            // failures must not close the store either (Electron's webview).
+            if *self.ivars().purpose.get().unwrap() == BrowserPurpose::GameJolt {
                 return;
             }
             #[cfg(feature = "browser-fixture")]

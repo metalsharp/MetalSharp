@@ -1,4 +1,12 @@
-# Native MiniBrowser handoff
+# GPUI app handoff
+
+## Production wiring checkpoint — 2026-10-04
+
+The approved GPUI shell is now the production app. A normal launch starts the C backend on :9274 with `~/.metalsharp` (Electron BackendBridge semantics: stale `metalsharp-backend` listeners are terminated, no session token), shows the setup wizard or library like `App.vue`, and drives every surface from the real backend: setup install/progress/Steam install (Wine Steam session stopped once Steam reports installed), API keys, library merge and auto-sync (steamapps watching, `/steam/watch-steamapps`, Ubisoft reloads, window focus), Play/Stop with `/game/running` polling, Bottle routes (`/bottles/edit` now also removes the previous route's bundled DLLs before staging), hero settings incl. Steam Emu and EXE choice, Steam/Ubisoft launchers, Fix Steam, Settings overlay, updater (`update.sh` handoff and restart), streaming, Logs, Sharp Library (Installers/GOG/Epic/GameJolt incl. WebKit downloads, PCSX2/RPCS3/shadPS4/SharpEmu), launch overlay and global ⌘⌥Q. The offline sample UI stays available behind `--preview`; `--connected-validation` runs the same UI against an isolated home. The earlier connected "workbench" modules were removed. `package-app.sh` builds `MetalSharp.app` with the Electron identity required by the updater. See README for the module map.
+
+Not ported: the first-launch intro video, the ⌘P process-manager overlay window, Electron's in-page GameJolt split view (GameJolt opens in the native browser window instead), and Sharp installer bottle tooling beyond engine/cover/uninstall (Launch Doctor, D3DMetal bottle actions, component repair).
+
+## Native MiniBrowser handoff (earlier checkpoints)
 
 ## Connected lane integration checkpoint — 2026-10-04
 

@@ -1,36 +1,29 @@
-// Connected mode is explicit; the default preview never constructs these services.
+#[allow(dead_code)]
+mod artwork;
 #[allow(dead_code)]
 mod backend;
 mod backend_host;
 #[allow(dead_code)]
 mod configuration;
-mod connected;
-mod connected_library;
-mod desktop_host;
 mod diagnostics;
+mod host_actions;
+mod hotkeys;
+mod launch_overlay;
+mod library_model;
 mod lifecycle;
-mod localization;
-mod logs_connected;
+mod live;
 mod logs_preview;
-mod migration_connected;
 #[allow(dead_code)]
 mod mini_browser;
-mod native_windows;
 mod page_palette;
-mod process_manager_connected;
-mod resource_home;
 mod search_input;
-mod settings_connected;
 mod settings_preview;
-mod sharp_connected;
 mod sharp_preview;
+#[allow(dead_code)]
 mod streaming;
-mod streaming_watch;
-mod theme_preferences;
+mod toast;
 mod ui;
-mod update_recovery_ui;
-mod updater_connected;
-mod updater_native;
+mod updater_bridge;
 
 use anyhow::Result;
 use gpui::{App, AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
@@ -116,12 +109,10 @@ fn main() -> Result<()> {
         });
         return Ok(());
     }
-    let connected_setup_default = cfg!(feature = "connected-setup-default") && args.is_empty();
-    let connected_setup = connected_setup_default
-        || matches!(args.as_slice(),[mode] if mode=="--connected-setup-validation");
+    // Default launch is the production app (port 9274, ~/.metalsharp), like Electron.
     let connected = match args.as_slice() {
-        [] if connected_setup_default => Some(backend_host::HostConfig::from_environment(true)?),
-        [] => None,
+        [] => Some(backend_host::HostConfig::from_environment(false)?),
+        [mode] if mode == "--preview" => None,
         #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
         [mode] if mode == "--browser-fixture" || mode == "--browser-steam-test" => None,
         [mode] if mode == "--connected-validation" || mode == "--connected-setup-validation" => {
@@ -130,8 +121,15 @@ fn main() -> Result<()> {
         [mode] if mode == "--connected-production" => {
             Some(backend_host::HostConfig::from_environment(false)?)
         }
+        // macOS may pass -psn_*/-NS* launch arguments; treat as a normal launch.
+        _ if args.iter().all(|arg| {
+            arg.starts_with("-psn") || arg.starts_with("-NS") || arg.starts_with("-Apple")
+        }) =>
+        {
+            Some(backend_host::HostConfig::from_environment(false)?)
+        }
         _ => anyhow::bail!(
-            "Use no arguments for offline preview, --connected-validation for an isolated workbench, --connected-setup-validation for the real setup UI with isolated data, or --connected-production for explicit production-data access"
+            "Use no arguments for MetalSharp, --preview for the offline sample UI, or --connected-validation for an isolated data home"
         ),
     };
     if connected.is_some() {
@@ -174,6 +172,16 @@ fn main() -> Result<()> {
                 cx.activate(true);
                 return;
             }
+            cx.on_window_closed(|cx| {
+                if cx
+                    .windows()
+                    .iter()
+                    .all(|window| window.downcast::<ui::MetalSharpApp>().is_none())
+                {
+                    cx.quit();
+                }
+            })
+            .detach();
             let bounds = Bounds::centered(None, size(px(1360.0), px(860.0)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -184,18 +192,14 @@ fn main() -> Result<()> {
                 }),
                 ..Default::default()
             };
+            crate::toast::install(cx);
+            crate::artwork::install(cx);
             if let Some(config) = connected {
-                if connected_setup {
-                    cx.open_window(options, move |_, cx| {
-                        cx.new(|cx| ui::MetalSharpApp::new_connected_setup(config, cx))
-                    })
-                    .expect("failed to open connected setup candidate");
-                } else {
-                    cx.open_window(options, move |_, cx| {
-                        cx.new(|cx| ui::MetalSharpApp::new_connected_workbench(config, cx))
-                    })
-                    .expect("failed to open connected GPUI candidate");
-                }
+                crate::hotkeys::register();
+                cx.open_window(options, move |window, cx| {
+                    cx.new(|cx| ui::MetalSharpApp::new_live(config, window, cx))
+                })
+                .expect("failed to open MetalSharp");
             } else {
                 cx.open_window(options, |_, cx| cx.new(|_| ui::MetalSharpApp::new()))
                     .expect("failed to open GPUI offline preview");

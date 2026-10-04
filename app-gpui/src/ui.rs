@@ -1,10 +1,15 @@
+use crate::library_model::{self, LibGame};
 use gpui::{
-    ClickEvent, Context, Focusable, FontWeight, ObjectFit, Render, Window, div, img,
-    linear_color_stop, linear_gradient, prelude::*, px, relative, rgb, rgba,
+    App, AppContext, ClickEvent, Context, Focusable, FontWeight, ObjectFit, Render, Window, div,
+    img, linear_color_stop, linear_gradient, prelude::*, px, relative, rgb, rgba,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+#[path = "ui_live.rs"]
+mod live_impl;
+use live_impl::{LiveState, LogClass, MigrationViewState};
 
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
@@ -110,6 +115,7 @@ const LANGUAGES: [(&str, &str); 20] = [
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct SetupCopy {
     language_label: String,
     step_of: String,
@@ -150,6 +156,42 @@ struct SetupCopy {
     steam: String,
     steam_desc: String,
     get_started: String,
+    #[serde(default)]
+    steam_failed: String,
+    #[serde(default)]
+    starting_installation: String,
+    #[serde(default)]
+    downloading_steam: String,
+    #[serde(default)]
+    creating_steam_prefix: String,
+    #[serde(default)]
+    retry_steam: String,
+    #[serde(default)]
+    preparing_steam: String,
+    #[serde(default)]
+    steam_install_failed: String,
+    #[serde(default)]
+    steam_install_timed_out: String,
+    #[serde(default)]
+    wrapper_warning: String,
+    #[serde(default)]
+    api_key_save_failed: String,
+    #[serde(default)]
+    api_key_steam_id_missing: String,
+    #[serde(default)]
+    the_games_db_api_key_save_failed: String,
+    #[serde(default)]
+    install_failed: String,
+    #[serde(default)]
+    start_steam: String,
+    #[serde(default)]
+    start_steam_text: String,
+    #[serde(default)]
+    first_launch: String,
+    #[serde(default)]
+    first_launch_text: String,
+    #[serde(default)]
+    exit: String,
 }
 
 fn asset_path(name: &str) -> PathBuf {
@@ -353,6 +395,21 @@ impl PreviewTheme {
     }
 }
 
+impl PreviewTheme {
+    /// Electron `useTheme` identifiers (persisted like localStorage `metalsharp-theme`).
+    fn storage_id(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+            Self::Skeleton => "skeleton",
+            Self::Forest => "forest",
+            Self::OrangePeel => "orange-peel",
+            Self::Dragonfruit => "dragonfruit",
+            Self::Lava => "lava",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LibraryTab {
     Play,
@@ -361,32 +418,23 @@ enum LibraryTab {
     Logs,
 }
 
-const PREVIEW_PIPELINES: [&str; 6] = ["D3DMetal", "VKD3D", "D3D9", "DXMT", "DXMT(32)", "Mono/FNA"];
-
-struct PreviewGameSettings {
-    pipeline: usize,
-    metal_fx: usize,
-    controller: usize,
-    msync: bool,
-    executable: Option<String>,
-}
-
-impl Default for PreviewGameSettings {
-    fn default() -> Self {
-        Self {
-            pipeline: 0,
-            metal_fx: 1,
-            controller: 0,
-            msync: true,
-            executable: None,
-        }
-    }
+fn preview_games() -> Vec<LibGame> {
+    LIBRARY_GAMES
+        .iter()
+        .enumerate()
+        .map(|(index, (name, cover, hero))| LibGame {
+            appid: index as u64 + 1,
+            name: (*name).to_owned(),
+            installed: true,
+            state: Some("installed".into()),
+            launch_method: Some("d3dmetal".into()),
+            preview_art: Some((*cover, *hero)),
+            ..Default::default()
+        })
+        .collect()
 }
 
 pub struct MetalSharpApp {
-    connected: Option<gpui::Entity<crate::connected::ConnectedApp>>,
-    connected_subscription: Option<gpui::Subscription>,
-    connected_events: Option<gpui::Subscription>,
     streaming_unpair_confirm: bool,
     streaming_unpair_deadline: Option<std::time::Instant>,
     show_setup: bool,
@@ -400,17 +448,20 @@ pub struct MetalSharpApp {
     streaming_open: bool,
     streaming_installed: bool,
     streaming_running: bool,
+    streaming_pin: Option<gpui::Entity<crate::search_input::SearchInput>>,
     steam_running: bool,
     sharp_preview: Option<gpui::Entity<crate::sharp_preview::SharpPreview>>,
     logs_preview: Option<gpui::Entity<crate::logs_preview::LogsPreview>>,
     search_input: Option<gpui::Entity<crate::search_input::SearchInput>>,
+    setup_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
     search_query: String,
+    /// Displayed (installed, ordered) games: live library or bundled samples.
+    games: Vec<LibGame>,
     selected_game: usize,
     dock_start: usize,
-    running_game: Option<usize>,
     pipeline_menu_open: bool,
+    collection_menu: Option<(bool, u64)>,
     game_settings_open: bool,
-    game_preferences: Vec<PreviewGameSettings>,
     hovered_card: Option<usize>,
     active_tab: LibraryTab,
     step: usize,
@@ -418,13 +469,12 @@ pub struct MetalSharpApp {
     language_menu_open: bool,
     locales: HashMap<String, SetupCopy>,
     copy: SetupCopy,
-    runtime_installing: bool,
-    runtime_started: bool,
-    runtime_installed: bool,
-    runtime_progress: usize,
-    install_log_open: bool,
-    steam_installing: bool,
-    steam_installed: bool,
+    developer_mode: bool,
+    low_performance: bool,
+    startup_video_seen: bool,
+    migration_view: MigrationViewState,
+    live: LiveState,
+    observers: Vec<gpui::Subscription>,
 }
 
 impl MetalSharpApp {
@@ -437,9 +487,6 @@ impl MetalSharpApp {
             .expect("English setup locale must be present")
             .clone();
         Self {
-            connected: None,
-            connected_subscription: None,
-            connected_events: None,
             streaming_unpair_confirm: false,
             streaming_unpair_deadline: None,
             show_setup: false,
@@ -453,19 +500,19 @@ impl MetalSharpApp {
             streaming_open: false,
             streaming_installed: false,
             streaming_running: false,
+            streaming_pin: None,
             steam_running: false,
             sharp_preview: None,
             logs_preview: None,
             search_input: None,
+            setup_inputs: None,
             search_query: String::new(),
+            games: preview_games(),
             selected_game: 0,
             dock_start: 0,
-            running_game: None,
             pipeline_menu_open: false,
+            collection_menu: None,
             game_settings_open: false,
-            game_preferences: (0..LIBRARY_GAMES.len())
-                .map(|_| PreviewGameSettings::default())
-                .collect(),
             hovered_card: None,
             active_tab: LibraryTab::Play,
             step: 2,
@@ -473,114 +520,137 @@ impl MetalSharpApp {
             language_menu_open: false,
             locales,
             copy,
-            runtime_installing: false,
-            runtime_started: false,
-            runtime_installed: false,
-            runtime_progress: 0,
-            install_log_open: false,
-            steam_installing: false,
-            steam_installed: false,
+            developer_mode: false,
+            low_performance: false,
+            startup_video_seen: false,
+            migration_view: MigrationViewState::default(),
+            live: LiveState::default(),
+            observers: Vec::new(),
         }
     }
-}
 
-impl MetalSharpApp {
-    /// Opt-in real setup; never substitutes fixture titles after completion.
-    pub fn new_connected_setup(
-        config: crate::backend_host::HostConfig,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let session = cx.new(|cx| crate::connected::ConnectedApp::new(config, cx));
-        let mut app = Self::new();
-        app.show_setup = true;
-        app.step = 0;
-        app.connected_subscription = Some(cx.observe(&session, |this, session, cx| {
-            let state = session.read(cx).setup_view();
-            if !session
-                .read(cx)
-                .streaming_view()
-                .0
-                .is_some_and(|status| status.can_pair())
-                || this
-                    .streaming_unpair_deadline
-                    .is_some_and(|deadline| std::time::Instant::now() >= deadline)
-            {
-                this.streaming_unpair_confirm = false;
-                this.streaming_unpair_deadline = None;
+    fn ensure_inputs(&mut self, cx: &mut Context<Self>) {
+        if self.setup_inputs.is_none() {
+            let make = |placeholder: &str, secret: bool, cx: &mut Context<Self>| {
+                cx.new(|cx| {
+                    let mut input = crate::search_input::SearchInput::new(cx);
+                    input.placeholder = placeholder.to_owned().into();
+                    input.secret = secret;
+                    input
+                })
+            };
+            let device = make(&self.copy.device_placeholder.clone(), false, cx);
+            let steam = make(&self.copy.api_placeholder.clone(), true, cx);
+            let gamesdb = make(&self.copy.the_games_db_api_placeholder.clone(), true, cx);
+            self.setup_inputs = Some([device, steam, gamesdb]);
+        }
+        if self.streaming_pin.is_none() {
+            self.streaming_pin = Some(cx.new(|cx| {
+                let mut input = crate::search_input::SearchInput::new(cx);
+                input.placeholder = "PIN".into();
+                input.secret = true;
+                input
+            }));
+        }
+        if let Some(inputs) = &self.setup_inputs {
+            let placeholders = [
+                self.copy.device_placeholder.clone(),
+                self.copy.api_placeholder.clone(),
+                self.copy.the_games_db_api_placeholder.clone(),
+            ];
+            for (input, placeholder) in inputs.iter().zip(placeholders) {
+                input.update(cx, |input, _| {
+                    if input.placeholder.as_ref() != placeholder {
+                        input.placeholder = placeholder.into();
+                    }
+                });
             }
-            this.runtime_installed = state.runtime_ready;
-            this.runtime_installing = state.runtime_installing;
-            this.runtime_started = state.runtime_started;
-            this.runtime_progress = state.percent;
-            this.steam_installed = state.steam_installed;
-            this.steam_installing = state.steam_installing;
-            if state.completed {
-                this.show_setup = false;
-            }
-            cx.notify();
-        }));
-        app.connected_events = Some(cx.subscribe(&session, |this, session, event, cx| {
-            match event {
-                crate::connected::ConnectedEvent::OpenStreaming
-                    if session.read(cx).streaming_visible() =>
-                {
-                    this.streaming_open = true;
-                    this.streaming_unpair_confirm = false;
-                }
-                crate::connected::ConnectedEvent::OpenStreaming => {}
-                crate::connected::ConnectedEvent::OpenSetup => {
-                    this.show_setup = true;
-                    this.streaming_open = false;
-                    this.streaming_unpair_confirm = false;
-                    this.streaming_unpair_deadline = None;
-                }
-            }
-            cx.notify();
-        }));
-        app.connected = Some(session);
-        app
+        }
     }
-    pub fn new_connected_workbench(
-        config: crate::backend_host::HostConfig,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let mut app = Self::new_connected_setup(config, cx);
-        app.show_setup = false;
-        app
-    }
+
     fn close_streaming_panel(&mut self, cx: &mut Context<Self>) {
         self.streaming_open = false;
         self.streaming_unpair_confirm = false;
         self.streaming_unpair_deadline = None;
-        if let Some(session) = self.connected.clone() {
-            session.update(cx, |session, cx| session.close_streaming(cx));
+        self.live.streaming.session += 1;
+        if let Some(pin) = &self.streaming_pin {
+            pin.update(cx, |input, cx| input.clear(cx));
         }
         cx.notify();
     }
-    fn setup_can_advance(&self, cx: &gpui::App) -> bool {
-        self.connected.as_ref().is_none_or(|session| {
-            let state = session.read(cx).setup_view();
-            state.ready && state.runtime_ready && state.steam_installed && !state.steam_installing
-        })
-    }
-}
-impl Render for MetalSharpApp {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.show_setup {
-            if let Some(session) = &self.connected {
-                return div()
-                    .size_full()
-                    .relative()
-                    .child(session.clone())
-                    .children(self.streaming_open.then(|| {
-                        gpui::deferred(self.render_streaming_overlay(window.viewport_size(), cx))
-                            .with_priority(100)
-                    }));
-            }
-            return self.render_library(window.viewport_size(), cx);
-        }
-        let asset = |name: &str| asset_path(name);
 
+    fn change_language(&mut self, code: &'static str, cx: &mut Context<Self>) {
+        self.selected_language = code;
+        if let Some(copy) = self.locales.get(code).cloned() {
+            self.copy = copy;
+        }
+        self.save_ui_state(cx);
+    }
+
+    fn render_status_screen(
+        &self,
+        title: String,
+        detail: String,
+        retry: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(14.0))
+            .bg(rgb(PAGE_BG))
+            .font_family("Rethink Sans")
+            .text_color(rgb(TEXT))
+            .child(
+                img(asset_path("metalsharp-logo.png"))
+                    .size(px(72.0))
+                    .object_fit(ObjectFit::Contain),
+            )
+            .child(
+                div()
+                    .text_size(px(20.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title),
+            )
+            .child(
+                div()
+                    .max_w(px(560.0))
+                    .text_center()
+                    .text_size(px(13.0))
+                    .line_height(px(19.0))
+                    .text_color(rgb(MUTED))
+                    .child(detail),
+            )
+            .children(retry.then(|| {
+                div()
+                    .id("boot-retry")
+                    .mt(px(6.0))
+                    .h(px(40.0))
+                    .px(px(22.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(8.0))
+                    .bg(rgb(0xefe7d6))
+                    .text_color(rgb(0x14161a))
+                    .font_weight(FontWeight::BOLD)
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.retry_boot(cx)))
+                    .child("Retry")
+            }))
+    }
+
+    fn render_migration(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let view = &self.migration_view;
+        let complete = view.status == "complete";
+        let failed = view.status == "error";
+        let percent = if view.total > 0 {
+            (view.step as f32 / view.total as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         div()
             .size_full()
             .flex()
@@ -588,19 +658,252 @@ impl Render for MetalSharpApp {
             .justify_center()
             .bg(rgb(PAGE_BG))
             .font_family("Rethink Sans")
+            .text_color(rgb(TEXT))
             .child(
                 div()
-                    .size_full()
-                    .flex()
-                    .overflow_hidden()
-                    .rounded(px(18.0))
+                    .w(px(520.0))
+                    .max_w_full()
+                    .p(px(28.0))
+                    .rounded(px(14.0))
                     .border_1()
                     .border_color(rgb(0x292b2d))
                     .bg(rgb(PANEL_BG))
-                    .shadow_lg()
-                    .child(render_visual(asset, self.copy.steps.clone(), self.step))
-                    .child(self.render_setup_page(cx)),
+                    .flex()
+                    .flex_col()
+                    .gap(px(14.0))
+                    .child(
+                        div()
+                            .text_size(px(22.0))
+                            .font_family("Georgia")
+                            .child(if complete {
+                                "Update complete"
+                            } else if failed {
+                                "Migration failed"
+                            } else {
+                                "Finishing your update…"
+                            }),
+                    )
+                    .child(div().text_size(px(13.0)).text_color(rgb(MUTED)).child(
+                        if failed && !view.error.is_empty() {
+                            view.error.clone()
+                        } else if view.message.is_empty() {
+                            "Migrating MetalSharp data to the new version.".to_owned()
+                        } else {
+                            view.message.clone()
+                        },
+                    ))
+                    .child(
+                        div()
+                            .h(px(8.0))
+                            .w_full()
+                            .rounded_full()
+                            .bg(rgb(0x2a2d30))
+                            .child(
+                                div()
+                                    .h(px(8.0))
+                                    .w(relative(if complete { 1.0 } else { percent }))
+                                    .rounded_full()
+                                    .bg(rgb(if failed { 0xd66a6a } else { 0xefe7d6 })),
+                            ),
+                    )
+                    .children(complete.then(|| {
+                        div()
+                            .id("migration-restart")
+                            .h(px(44.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(8.0))
+                            .bg(rgb(0xefe7d6))
+                            .text_color(rgb(0x14161a))
+                            .font_weight(FontWeight::BOLD)
+                            .cursor_pointer()
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.restart_after_migration(cx)),
+                            )
+                            .child("Restart MetalSharp")
+                    })),
             )
+    }
+
+    fn render_update_confirm(
+        &self,
+        variant: &'static str,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let button = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(34.0))
+                .px(px(16.0))
+                .flex()
+                .items_center()
+                .rounded(px(7.0))
+                .border_1()
+                .border_color(rgba(if primary { 0xefe7d6ff } else { 0xffffff2e }))
+                .bg(rgb(if primary { 0xefe7d6 } else { 0x1d2124 }))
+                .text_color(rgb(if primary { 0x14161a } else { 0xe6e8e7 }))
+                .text_size(px(13.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .child(label)
+        };
+        div()
+            .id("update-confirm-backdrop")
+            .occlude()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgba(0x000000a0))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.live.update_confirm = None;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .id("update-confirm-modal")
+                    .occlude()
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .w(px(420.0))
+                    .p(px(22.0))
+                    .rounded(px(12.0))
+                    .border_1()
+                    .border_color(rgba(0xffffff1f))
+                    .bg(rgb(0x14171a))
+                    .text_color(rgb(0xe6e8e7))
+                    .flex()
+                    .flex_col()
+                    .gap(px(14.0))
+                    .child(div().text_size(px(17.0)).font_weight(FontWeight::BOLD).child("Confirm Update"))
+                    .children((variant == "fex").then(|| {
+                        div().text_size(px(12.0)).line_height(px(18.0)).text_color(rgb(0xffd47f)).child(
+                            "FEX Version Notice — The FEX DMG only works on macOS 27 or newer. The FEX version is experimental, so expect more potential bugs than the baseline MetalSharp version.",
+                        )
+                    }))
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .line_height(px(19.0))
+                            .child("MetalSharp will now close and re-open on it's own to update. Proceed?"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap(px(8.0))
+                            .child(button("update-confirm-cancel", "Cancel", false).on_click(cx.listener(
+                                |this, _, _, cx| {
+                                    this.live.update_confirm = None;
+                                    cx.notify();
+                                },
+                            )))
+                            .child(button("update-confirm-ok", "Ok", true).on_click(cx.listener(
+                                move |this, _, _, cx| this.begin_update_download(variant, cx),
+                            ))),
+                    ),
+            )
+    }
+}
+
+impl Render for MetalSharpApp {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_inputs(cx);
+        let toasts = crate::toast::hub(cx);
+        let library_visible = !(self.live.enabled && self.live.booting)
+            && self.live.boot_error.is_none()
+            && !self.live.migration
+            && !self.show_setup;
+        if !library_visible {
+            self.deactivate_polling_pages(cx);
+        }
+        let body: gpui::AnyElement = if self.live.enabled && self.live.booting {
+            self.render_status_screen(
+                "Starting MetalSharp…".into(),
+                "Starting the MetalSharp backend.".into(),
+                false,
+                cx,
+            )
+            .into_any_element()
+        } else if let Some(error) = self.live.boot_error.clone() {
+            self.render_status_screen("MetalSharp backend unavailable".into(), error, true, cx)
+                .into_any_element()
+        } else if self.live.migration {
+            self.render_migration(cx).into_any_element()
+        } else if !self.show_setup {
+            self.render_library(window.viewport_size(), cx)
+                .into_any_element()
+        } else {
+            let asset = |name: &str| asset_path(name);
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(rgb(PAGE_BG))
+                .font_family("Rethink Sans")
+                .child(
+                    div()
+                        .size_full()
+                        .flex()
+                        .overflow_hidden()
+                        .rounded(px(18.0))
+                        .border_1()
+                        .border_color(rgb(0x292b2d))
+                        .bg(rgb(PANEL_BG))
+                        .shadow_lg()
+                        .child(render_visual(asset, self.copy.steps.clone(), self.step))
+                        .child(self.render_setup_page(cx)),
+                )
+                .into_any_element()
+        };
+        div()
+            .relative()
+            .size_full()
+            .child(body)
+            .children(self.live.update_confirm.map(|variant| {
+                gpui::deferred(self.render_update_confirm(variant, cx)).with_priority(300)
+            }))
+            .children(toasts.map(|hub| gpui::deferred(hub).with_priority(400)))
+    }
+}
+
+impl MetalSharpApp {
+    /// Logs and Sharp poll the backend only while their tab is on screen.
+    fn deactivate_polling_pages(&mut self, cx: &mut Context<Self>) {
+        if let Some(sharp) = &self.sharp_preview {
+            sharp.update(cx, |sharp, cx| sharp.set_active(false, cx));
+        }
+        if let Some(logs) = &self.logs_preview {
+            logs.update(cx, |logs, cx| logs.set_active(false, cx));
+        }
+    }
+
+    fn retry_boot(&mut self, cx: &mut Context<Self>) {
+        let Some(live) = crate::live::Live::get(cx) else {
+            return;
+        };
+        self.live.boot_error = None;
+        self.live.booting = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let started = cx
+                .background_executor()
+                .spawn(async move { live.start_backend() })
+                .await;
+            let _ = this.update(cx, |this, cx| match started {
+                Ok(()) => this.after_backend_started(cx),
+                Err(error) => {
+                    this.live.booting = false;
+                    this.live.boot_error = Some(error);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 }
 
@@ -735,40 +1038,51 @@ impl MetalSharpApp {
         if let Some(settings) = &self.settings_preview {
             let palette = self.theme.page_palette();
             let language = self.selected_language;
+            let app_state = self.settings_app_state();
             settings.update(cx, |settings, cx| {
-                if settings.palette != palette || settings.language != language {
-                    settings.palette = palette;
-                    settings.language = language;
+                let changed = settings.palette != palette || settings.language != language;
+                settings.palette = palette;
+                settings.language = language;
+                if settings.sync_app_state(app_state) || changed {
                     cx.notify();
                 }
             });
         }
         if self.sharp_preview.is_none() {
-            self.sharp_preview = Some(cx.new(|_| {
+            self.sharp_preview = Some(cx.new(|cx| {
                 let mut sharp = crate::sharp_preview::SharpPreview::new();
                 sharp.asset_root = asset_path("");
+                sharp.attach_live(cx);
                 sharp
             }));
         }
         if let Some(sharp) = &self.sharp_preview {
             let palette = self.theme.page_palette();
+            let active = self.active_tab == LibraryTab::SharpLibrary;
             sharp.update(cx, |sharp, cx| {
                 if sharp.palette != palette {
                     sharp.palette = palette;
                     cx.notify();
                 }
+                sharp.set_active(active, cx);
             });
         }
         if self.logs_preview.is_none() {
-            self.logs_preview = Some(cx.new(|_| crate::logs_preview::LogsPreview::new()));
+            self.logs_preview = Some(cx.new(|cx| {
+                let mut logs = crate::logs_preview::LogsPreview::new();
+                logs.attach_live(cx);
+                logs
+            }));
         }
         if let Some(logs) = &self.logs_preview {
             let palette = self.theme.page_palette();
+            let active = self.active_tab == LibraryTab::Logs;
             logs.update(cx, |logs, cx| {
                 if logs.palette != palette {
                     logs.palette = palette;
                     cx.notify();
                 }
+                logs.set_active(active, cx);
             });
         }
         let show_search = matches!(self.active_tab, LibraryTab::Play | LibraryTab::Collection);
@@ -779,13 +1093,13 @@ impl MetalSharpApp {
                 if this.search_query != query {
                     this.search_query = query;
                     this.dock_start = 0;
-                    let matches = this.matching_preview_games();
+                    let matches = this.matching_games();
                     if !matches.contains(&this.selected_game) {
                         if let Some(first) = matches.first() {
                             this.selected_game = *first;
                         }
                     }
-                    this.select_preview_game(this.selected_game);
+                    this.select_game(this.selected_game, cx);
                     cx.notify();
                 }
             })
@@ -853,6 +1167,7 @@ impl MetalSharpApp {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.theme = option;
                             this.theme_menu_open = false;
+                            this.save_ui_state(cx);
                             cx.notify();
                         }))
                         .child(div().size(px(17.0)).child(option.render_icon(control_text)))
@@ -931,35 +1246,52 @@ impl MetalSharpApp {
                 .bg(rgb(theme.menu_bg()))
                 .shadow_lg()
                 .p(px(5.0));
-            let options: &[&str] = if is_launcher {
-                &["Launch Ubisoft", "Local preview only"]
+            let (label, disabled): (&str, bool) = if is_launcher {
+                if self.live.ubisoft_installing {
+                    ("Installing Ubisoft Connect…", true)
+                } else if self.live.ubisoft_running {
+                    ("Stop Ubisoft", false)
+                } else {
+                    ("Launch Ubisoft", false)
+                }
+            } else if self.live.steam_fix_busy {
+                ("Fixing Steam...", true)
             } else {
-                &["Fix Steam", "Steam options"]
+                ("Fix Steam", false)
             };
-            for (index, label) in options.iter().enumerate() {
-                menu = menu.child(
-                    div()
-                        .id(("steam-menu-option", index))
-                        .h(px(30.0))
-                        .flex()
-                        .items_center()
-                        .px(px(10.0))
-                        .rounded(px(5.0))
-                        .text_size(px(12.5))
-                        .text_color(rgb(control_text))
-                        .cursor_pointer()
-                        .hover(|style| style.bg(rgb(theme.menu_hover())))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.launcher_menu_open = false;
-                            this.steam_options_open = false;
-                            cx.notify();
-                        }))
-                        .child(*label),
-                );
-            }
+            menu = menu.child(
+                div()
+                    .id("steam-menu-option")
+                    .h(px(30.0))
+                    .flex()
+                    .items_center()
+                    .px(px(10.0))
+                    .rounded(px(5.0))
+                    .text_size(px(12.5))
+                    .text_color(rgb(control_text))
+                    .opacity(if disabled { 0.5 } else { 1.0 })
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(theme.menu_hover())))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if is_launcher {
+                            this.toggle_ubisoft(cx);
+                        } else {
+                            this.run_steam_fix(cx);
+                        }
+                        this.launcher_menu_open = false;
+                        this.steam_options_open = false;
+                        cx.notify();
+                    }))
+                    .child(label.to_owned()),
+            );
             steam_menu = Some(gpui::deferred(menu.id("steam_menu").occlude()).with_priority(10));
         }
 
+        let steam_running = if self.live.enabled {
+            self.live.wine_steam_running
+        } else {
+            self.steam_running
+        };
         let mut header = div()
             .relative()
             .w_full()
@@ -1013,11 +1345,11 @@ impl MetalSharpApp {
                             .text_color(rgb(0xffffff))
                             .cursor_pointer()
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.steam_running = !this.steam_running;
-                                cx.notify();
+                                this.close_library_menus();
+                                this.toggle_steam(false, cx);
                             }))
                             .child("◉")
-                            .child(if self.steam_running {
+                            .child(if steam_running {
                                 "Stop Steam"
                             } else {
                                 "Start Steam"
@@ -1224,7 +1556,197 @@ impl MetalSharpApp {
                 .child(self.sharp_preview.clone().unwrap()),
         };
 
-        let footer = div()
+        let footer = self.render_footer(cx);
+        let update_banner = self.render_update_banner(cx);
+
+        div()
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .font_family("Rethink Sans")
+            .bg(rgb(0x111416))
+            .children(update_banner)
+            .child(header)
+            .child(body)
+            .child(footer)
+            .children(
+                self.settings_open.then(|| {
+                    gpui::deferred(self.settings_preview.clone().unwrap()).with_priority(200)
+                }),
+            )
+            .children(self.streaming_open.then(|| {
+                gpui::deferred(self.render_streaming_overlay(viewport, cx)).with_priority(100)
+            }))
+    }
+
+    /// App.vue update banner.
+    fn render_update_banner(&self, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        if !self.update_available() || self.live.update_dismissed {
+            return None;
+        }
+        let version = self.update_field("latest_version").unwrap_or_default();
+        let notes = self.update_field("release_notes").unwrap_or_default();
+        let first_line = notes
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("")
+            .trim_start_matches('#')
+            .replace("**", "")
+            .replace('`', "")
+            .trim()
+            .to_owned();
+        let changelog = if first_line.chars().count() <= 20 {
+            first_line
+        } else {
+            format!("{}…", first_line.chars().take(19).collect::<String>())
+        };
+        let fex = self
+            .live
+            .update_status
+            .as_ref()
+            .and_then(|s| s.get("fex_available"))
+            .and_then(serde_json::Value::as_bool)
+            == Some(true);
+        let button = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .h(px(26.0))
+                .px(px(11.0))
+                .flex()
+                .items_center()
+                .rounded(px(6.0))
+                .border_1()
+                .border_color(rgba(if primary { 0x5fb7e8ff } else { 0xffffff2e }))
+                .bg(rgba(if primary { 0x5fb7e833 } else { 0xffffff0a }))
+                .text_size(px(11.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(0xe6e8e7))
+                .cursor_pointer()
+                .child(label)
+        };
+        let downloading = self.live.update_downloading;
+        Some(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(12.0))
+                .px(px(16.0))
+                .py(px(8.0))
+                .bg(rgb(0x15191c))
+                .border_b_1()
+                .border_color(rgba(0x8caac814))
+                .text_size(px(12.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(0xe6e8e7))
+                .child(if downloading {
+                    div().child(self.live.update_message.clone())
+                } else {
+                    div()
+                        .flex()
+                        .gap(px(8.0))
+                        .child(format!("MetalSharp v{version} is available"))
+                        .child(div().text_color(rgb(0x9aa09e)).child(changelog))
+                })
+                .children(downloading.then(|| {
+                    div()
+                        .w(px(160.0))
+                        .h(px(5.0))
+                        .rounded_full()
+                        .bg(rgb(0x2a2d30))
+                        .child(
+                            div()
+                                .h(px(5.0))
+                                .rounded_full()
+                                .bg(rgb(0x5fb7e8))
+                                .w(relative(
+                                    (self.live.update_progress / 100.0).clamp(0.0, 1.0),
+                                )),
+                        )
+                }))
+                .children((!downloading).then(|| {
+                    button("update-banner-install", "Download & Install", true).on_click(
+                        cx.listener(|this, _, _, cx| this.start_update_download("regular", cx)),
+                    )
+                }))
+                .children((!downloading && fex).then(|| {
+                    button("update-banner-fex", "Update to FEX Version", false).on_click(
+                        cx.listener(|this, _, _, cx| this.start_update_download("fex", cx)),
+                    )
+                }))
+                .children((!downloading).then(|| {
+                    button("update-banner-close", "×", false).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.live.update_dismissed = true;
+                            cx.notify();
+                        },
+                    ))
+                })),
+        )
+    }
+
+    /// LibraryFooter.vue.
+    fn render_footer(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let theme = self.theme;
+        let live = self.live.enabled;
+        let (ready_label, ready_detail) = if !live {
+            (
+                "Preview library ready".to_owned(),
+                format!("{} sample games · UI preview only", self.games.len()),
+            )
+        } else {
+            let total = self.live.library.len();
+            let installed = self.live.installed_count;
+            let label = if self.live.backend_connected {
+                "All Games Ready"
+            } else {
+                "Offline"
+            };
+            let detail = if self.live.backend_connected {
+                "All Games Ready".to_owned()
+            } else if let Some(version) = &self.live.backend_version {
+                format!("Backend Runtime v{version}")
+            } else {
+                "Offline".to_owned()
+            };
+            (
+                label.to_owned(),
+                format!("{installed} of {total} games · {detail}"),
+            )
+        };
+        let available = self.update_available();
+        let downloading = self.live.update_downloading;
+        let progress = self.live.update_progress.round().clamp(3.0, 100.0) as u32;
+        let (update_title, update_detail) = if downloading {
+            (
+                format!("Updating… {progress}%"),
+                if self.live.update_message.is_empty() {
+                    self.update_field("latest_version")
+                        .unwrap_or_else(|| "Up To Date".into())
+                } else {
+                    self.live.update_message.clone()
+                },
+            )
+        } else if available {
+            (
+                "Update Ready: Download Now?".to_owned(),
+                format!(
+                    "v{} ready",
+                    self.update_field("latest_version").unwrap_or_default()
+                ),
+            )
+        } else if live {
+            ("Up To Date".to_owned(), "Up To Date".to_owned())
+        } else {
+            (
+                "Up to date".to_owned(),
+                "Preview build · updater disabled".to_owned(),
+            )
+        };
+        div()
             .h(px(68.0))
             .min_h(px(68.0))
             .flex()
@@ -1265,11 +1787,14 @@ impl MetalSharpApp {
                                     .text_size(px(13.0))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(rgb(0xe2e4e3))
-                                    .child("Preview library ready"),
+                                    .child(ready_label),
                             )
-                            .child(div().text_size(px(11.0)).text_color(rgb(0x969b9a)).child(
-                                format!("{} sample games · UI preview only", LIBRARY_GAMES.len()),
-                            )),
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .text_color(rgb(0x969b9a))
+                                    .child(ready_detail),
+                            ),
                     ),
             )
             .child(
@@ -1299,11 +1824,7 @@ impl MetalSharpApp {
                             }))
                             .bg(rgba(0x74d2c80f))
                     })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.close_library_menus();
-                        this.streaming_open = true;
-                        cx.notify();
-                    }))
+                    .on_click(cx.listener(|this, _, _, cx| this.open_streaming_panel(cx)))
                     .child(
                         div()
                             .relative()
@@ -1359,20 +1880,29 @@ impl MetalSharpApp {
                     .gap(px(11.0))
                     .child(
                         div()
+                            .id("footer-update")
                             .size(px(30.0))
                             .flex()
                             .items_center()
                             .justify_center()
                             .rounded_full()
                             .border_1()
-                            .border_color(rgba(if theme == PreviewTheme::Light {
+                            .border_color(rgba(if available {
+                                0x74d28aff
+                            } else if theme == PreviewTheme::Light {
                                 0xffffffff
                             } else {
                                 0xe7eaec2e
                             }))
-                            .bg(rgb(0x282c2d))
+                            .bg(rgb(if available { 0x1f3a28 } else { 0x282c2d }))
                             .text_size(px(16.0))
-                            .text_color(rgb(0x777d7b))
+                            .text_color(rgb(if available { 0x74d28a } else { 0x777d7b }))
+                            .when(available && !downloading, |button| button.cursor_pointer())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if this.update_available() && !this.live.update_downloading {
+                                    this.start_update_download("regular", cx);
+                                }
+                            }))
                             .child("↓"),
                     )
                     .child(
@@ -1385,36 +1915,119 @@ impl MetalSharpApp {
                                     .text_size(px(13.0))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(rgb(0xe2e4e3))
-                                    .child("Up to date"),
+                                    .child(update_title),
                             )
                             .child(
                                 div()
                                     .text_size(px(11.0))
                                     .text_color(rgb(0x969b9a))
-                                    .child("Preview build · updater disabled"),
-                            ),
+                                    .child(update_detail),
+                            )
+                            .children(downloading.then(|| {
+                                div()
+                                    .w(px(140.0))
+                                    .h(px(3.0))
+                                    .rounded_full()
+                                    .bg(rgb(0x2a2d30))
+                                    .child(
+                                        div()
+                                            .h(px(3.0))
+                                            .rounded_full()
+                                            .bg(rgb(0x74d28a))
+                                            .w(relative(progress as f32 / 100.0)),
+                                    )
+                            })),
                     ),
-            );
+            )
+    }
 
+    /// LibraryView empty hero ("YOUR LIBRARY AWAITS").
+    fn render_empty_hero(
+        &self,
+        viewport: gpui::Size<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let theme = self.theme;
+        let hero_height = (f32::from(viewport.height) * 0.54).clamp(300.0, 520.0);
+        let searching = !self.search_query.trim().is_empty() && !self.games.is_empty();
         div()
-            .relative()
-            .size_full()
+            .id("library-empty-scroll")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .bg(rgb(0x111416))
             .flex()
             .flex_col()
-            .overflow_hidden()
-            .font_family("Rethink Sans")
-            .bg(rgb(0x111416))
-            .child(header)
-            .child(body)
-            .child(footer)
-            .children(
-                self.settings_open.then(|| {
-                    gpui::deferred(self.settings_preview.clone().unwrap()).with_priority(200)
-                }),
+            .child(
+                div()
+                    .w_full()
+                    .h(px(hero_height))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(linear_gradient(
+                        180.0,
+                        linear_color_stop(rgb(0x1a1d20), 0.0),
+                        linear_color_stop(rgb(0x111416), 1.0),
+                    ))
+                    .child(if searching {
+                        div().text_color(rgb(0xd4d5d4)).child("No matching games")
+                    } else {
+                        div()
+                            .max_w(px(560.0))
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(12.0))
+                            .text_center()
+                            .child(div().text_size(px(38.0)).text_color(rgb(0x9aa09e)).child("▦"))
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(0xb9b0a1))
+                                    .child("YOUR LIBRARY AWAITS"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(39.0))
+                                    .font_family("Georgia")
+                                    .text_color(rgb(theme.hero_title()))
+                                    .child("No installed games"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(14.0))
+                                    .line_height(px(21.0))
+                                    .text_color(rgb(0xaeb3b2))
+                                    .child("Start Steam or install a game to see your real library here. MetalSharp will use the games already installed on this Mac."),
+                            )
+                            .child(
+                                div()
+                                    .id("library-empty-start-steam")
+                                    .mt(px(8.0))
+                                    .w(px(204.0))
+                                    .h(px(48.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap(px(10.0))
+                                    .rounded(px(8.0))
+                                    .border_1()
+                                    .border_color(rgb(theme.border()))
+                                    .bg(rgb(theme.control_bg()))
+                                    .text_size(px(15.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(rgb(theme.control_text()))
+                                    .cursor_pointer()
+                                    .hover(|style| style.bg(rgb(theme.control_hover())))
+                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_steam(true, cx)))
+                                    .child("◉")
+                                    .child("Start Steam"),
+                            )
+                    }),
             )
-            .children(self.streaming_open.then(|| {
-                gpui::deferred(self.render_streaming_overlay(viewport, cx)).with_priority(100)
-            }))
     }
 
     fn render_library_play(
@@ -1422,36 +2035,46 @@ impl MetalSharpApp {
         viewport: gpui::Size<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let matches = self.matching_preview_games();
+        let matches = self.matching_games();
         if matches.is_empty() {
-            return div()
-                .id("library-no-search-results")
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(rgb(0xd4d5d4))
-                .child("No matching preview games");
+            return self.render_empty_hero(viewport, cx);
         }
         let width = f32::from(viewport.width);
         let hero_height = (f32::from(viewport.height) * 0.54).clamp(300.0, 520.0);
         let card_width = dock_card_width(width);
         let card_height = card_width * 1.35 + 12.0;
-        let selected = self.selected_game.min(LIBRARY_GAMES.len() - 1);
-        let (game_name, _, hero_art) = LIBRARY_GAMES[selected];
+        let selected = if matches.contains(&self.selected_game) {
+            self.selected_game
+        } else {
+            matches[0]
+        };
+        let game = self.games[selected].clone();
         let theme = self.theme;
         let accent = theme.accent();
         let control_bg = theme.control_bg();
         let control_text = theme.control_text();
-        let is_running = self.running_game == Some(selected);
-        let pipeline = PREVIEW_PIPELINES[self.game_preferences[selected].pipeline];
+        let is_running = self.is_running(game.appid);
+        let launching = self.live.launching == Some(game.appid);
+        let pipeline_label = library_model::game_pipeline_options(&game)
+            .into_iter()
+            .find(|(id, _)| *id == self.live.selected_pipeline)
+            .map(|(_, label)| label)
+            .unwrap_or_else(|| library_model::pipeline_label(&self.live.selected_pipeline));
         let pipeline_menu = self
             .pipeline_menu_open
-            .then(|| gpui::deferred(self.render_pipeline_menu(cx)).with_priority(20));
-
+            .then(|| gpui::deferred(self.render_pipeline_menu(&game, cx)).with_priority(20));
         let game_settings_menu = self
             .game_settings_open
-            .then(|| gpui::deferred(self.render_game_settings(cx)).with_priority(20));
+            .then(|| gpui::deferred(self.render_game_settings(&game, cx)).with_priority(20));
+        let hero_art = self.art_path(&game, true, cx);
+        let play_game = game.clone();
+        let badge = if game.is_ubisoft() {
+            Some("Ubisoft Connect")
+        } else if game.has_native_build {
+            Some("Native macOS")
+        } else {
+            None
+        };
         let hero = div()
             .relative()
             .w_full()
@@ -1462,8 +2085,8 @@ impl MetalSharpApp {
             .items_center()
             .overflow_hidden()
             .bg(rgb(0x242629))
-            .child(
-                img(asset_path(hero_art))
+            .children(hero_art.map(|art| {
+                img(art)
                     .w_full()
                     .h_full()
                     .absolute()
@@ -1472,8 +2095,8 @@ impl MetalSharpApp {
                     .bottom(px(0.0))
                     .left(px(0.0))
                     .object_fit(ObjectFit::Cover)
-                    .opacity(0.62),
-            )
+                    .opacity(0.62)
+            }))
             .child(
                 div()
                     .absolute()
@@ -1525,8 +2148,21 @@ impl MetalSharpApp {
                             .line_height(px(38.0))
                             .font_family("Georgia")
                             .text_color(rgb(theme.hero_title()))
-                            .child(game_name),
+                            .child(game.name.clone()),
                     )
+                    .children(badge.map(|badge| {
+                        div()
+                            .px(px(9.0))
+                            .py(px(3.0))
+                            .rounded(px(5.0))
+                            .border_1()
+                            .border_color(rgba(0xe7eaec4d))
+                            .bg(rgba(0x0c0f10b8))
+                            .text_size(px(11.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(rgb(0xf0f0ee))
+                            .child(badge)
+                    }))
                     .child(
                         div()
                             .w_full()
@@ -1548,6 +2184,7 @@ impl MetalSharpApp {
                                     .border_1()
                                     .border_color(rgb(theme.border()))
                                     .bg(rgb(if is_running { 0xa52d2d } else { control_bg }))
+                                    .opacity(if launching { 0.6 } else { 1.0 })
                                     .text_size(px(15.0))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(if is_running {
@@ -1558,16 +2195,16 @@ impl MetalSharpApp {
                                     .cursor_pointer()
                                     .hover(|style| style.bg(rgb(theme.control_hover())))
                                     .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.running_game = if this.running_game == Some(selected) {
-                                            None
-                                        } else {
-                                            Some(selected)
-                                        };
-                                        this.log_preview_event(format!("[PREVIEW] [{}] {} · simulated library action; no process launched", if this.running_game.is_some() { "LAUNCHED" } else { "STOPPED" }, game_name), cx);
-                                        cx.notify();
+                                        this.launch_game(play_game.clone(), cx);
                                     }))
                                     .child(if is_running { "■" } else { "▶" })
-                                    .child(if is_running { "Stop" } else { "Play" }),
+                                    .child(if launching {
+                                        "Launching"
+                                    } else if is_running {
+                                        "Stop"
+                                    } else {
+                                        "Play"
+                                    }),
                             )
                             .child(
                                 div()
@@ -1575,7 +2212,7 @@ impl MetalSharpApp {
                                     .flex()
                                     .items_center()
                                     .gap(px(9.0))
-                                    .child(
+                                    .children((!game.is_ubisoft()).then(|| {
                                         div()
                                             .id("library-art-manager")
                                             .h(px(42.0))
@@ -1590,9 +2227,12 @@ impl MetalSharpApp {
                                             .text_size(px(16.0))
                                             .text_color(rgb(0xf0f0ee))
                                             .cursor_pointer()
-                                            .child("✎"),
-                                    )
-                                    .child(
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.open_steam_art_manager(cx)
+                                            }))
+                                            .child("✎")
+                                    }))
+                                    .children((!game.has_native_build).then(|| {
                                         div()
                                             .relative()
                                             .flex_none()
@@ -1612,17 +2252,24 @@ impl MetalSharpApp {
                                                     .text_color(rgb(0xf0f0ee))
                                                     .cursor_pointer()
                                                     .on_click(cx.listener(|this, _, _, cx| {
+                                                        if this.live.pipeline_saving {
+                                                            return;
+                                                        }
                                                         let open = !this.pipeline_menu_open;
                                                         this.close_library_menus();
                                                         this.pipeline_menu_open = open;
                                                         cx.notify();
                                                     }))
                                                     .child("Bottle")
-                                                    .child(pipeline)
-                                                    .child("⌄"),
+                                                    .child(pipeline_label.clone())
+                                                    .child(if self.live.pipeline_saving {
+                                                        "Saving…"
+                                                    } else {
+                                                        "⌄"
+                                                    }),
                                             )
-                                            .children(pipeline_menu),
-                                    )
+                                            .children(pipeline_menu)
+                                    }))
                                     .child(
                                         div()
                                             .relative()
@@ -1705,17 +2352,31 @@ impl MetalSharpApp {
             .take(DOCK_VISIBLE_CARDS)
             .enumerate()
         {
-            let (_, cover, _) = LIBRARY_GAMES[index];
+            let card_game = self.games[index].clone();
             let selected_card = index == selected;
             let arch_slot = first_slot + slot;
-            let angle = dock_card_angle(arch_slot);
-            let card_art = if angle == 0 {
-                cover.to_string()
-            } else {
-                format!("dock/{}-{angle}.png", cover.trim_end_matches(".jpg"))
+            // Tilted cover variants: bundled for samples, rendered on demand for real games.
+            let slot_angle = dock_card_angle(arch_slot);
+            let (angle, card_art) = match card_game.preview_art {
+                Some((cover, _)) if slot_angle != 0 => (
+                    slot_angle,
+                    Some(asset_path(&format!(
+                        "dock/{}-{slot_angle}.png",
+                        cover.trim_end_matches(".jpg")
+                    ))),
+                ),
+                Some(_) => (0, self.art_path(&card_game, false, cx)),
+                None => match (slot_angle != 0)
+                    .then(|| self.tilted_art(&card_game, slot_angle, cx))
+                    .flatten()
+                {
+                    Some(path) => (slot_angle, Some(path)),
+                    None => (0, self.art_path(&card_game, false, cx)),
+                },
             };
             let hovered = self.hovered_card == Some(index);
-            let running = self.running_game == Some(index);
+            let running = self.is_running(card_game.appid);
+            let launching = self.live.launching == Some(card_game.appid);
             let card = div()
                 .id(("showcase-card", index))
                 .relative()
@@ -1732,9 +2393,9 @@ impl MetalSharpApp {
                     cx.notify();
                 }))
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.selected_game = index;
                     this.active_tab = LibraryTab::Play;
                     this.close_library_menus();
+                    this.select_game(index, cx);
                     cx.notify();
                 }))
                 .child(
@@ -1771,8 +2432,8 @@ impl MetalSharpApp {
                                 .bg(rgb(0x242729))
                                 .shadow_lg()
                         })
-                        .child(
-                            img(asset_path(&card_art))
+                        .child(match card_art {
+                            Some(art) => img(art)
                                 .w_full()
                                 .h_full()
                                 .object_fit(ObjectFit::Cover)
@@ -1784,8 +2445,30 @@ impl MetalSharpApp {
                                         .left(px(-card_width * 0.2))
                                         .top(px(-(card_height - 12.0) * 72.0 / 486.0))
                                         .object_fit(ObjectFit::Contain)
-                                }),
-                        )
+                                })
+                                .into_any_element(),
+                            None => div()
+                                .size_full()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .justify_center()
+                                .gap(px(8.0))
+                                .p(px(10.0))
+                                .child(
+                                    img(asset_path("metalsharp-logo.png"))
+                                        .size(px(card_width * 0.42))
+                                        .object_fit(ObjectFit::Contain),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_center()
+                                        .text_color(rgb(0xd8dad9))
+                                        .child(card_game.name.clone()),
+                                )
+                                .into_any_element(),
+                        })
                         .child(
                             div()
                                 .absolute()
@@ -1802,7 +2485,8 @@ impl MetalSharpApp {
                                     ),
                                 )),
                         )
-                        .child(if hovered || running {
+                        .child(if hovered || running || launching {
+                            let action_game = card_game.clone();
                             div()
                                 .id(("showcase-play-overlay", index))
                                 .absolute()
@@ -1827,16 +2511,17 @@ impl MetalSharpApp {
                                         .font_weight(FontWeight::BOLD)
                                         .text_color(rgb(if running { 0xffffff } else { 0x171819 }))
                                         .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.running_game = if this.running_game == Some(index)
-                                            {
-                                                None
-                                            } else {
-                                                Some(index)
-                                            };
-                                            cx.notify();
+                                            cx.stop_propagation();
+                                            this.launch_game(action_game.clone(), cx);
                                         }))
                                         .child(if running { "■" } else { "▶" })
-                                        .child(if running { "Stop" } else { "Play" }),
+                                        .child(if launching {
+                                            "Launching"
+                                        } else if running {
+                                            "Stop"
+                                        } else {
+                                            "Play"
+                                        }),
                                 )
                         } else {
                             div().id(("showcase-play-hidden", index)).h(px(0.0))
@@ -1887,7 +2572,7 @@ impl MetalSharpApp {
                             .text_color(rgb(0xffffff))
                             .cursor_pointer()
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.scroll_preview_dock(-1);
+                                this.scroll_dock(-1, cx);
                                 cx.notify();
                             }))
                             .child("‹"),
@@ -1911,14 +2596,14 @@ impl MetalSharpApp {
                             .text_color(rgb(0xffffff))
                             .cursor_pointer()
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.scroll_preview_dock(1);
+                                this.scroll_dock(1, cx);
                                 cx.notify();
                             }))
                             .child("›"),
                     ),
             );
 
-        let page = div()
+        div()
             .id("library-play-scroll")
             .flex_1()
             .min_h_0()
@@ -1927,389 +2612,46 @@ impl MetalSharpApp {
             .flex()
             .flex_col()
             .child(hero)
-            .child(dock);
-
-        page
+            .child(dock)
     }
 
-    fn render_streaming_overlay(
-        &self,
-        viewport: gpui::Size<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<gpui::Div> {
-        let live = self
-            .connected
-            .as_ref()
-            .map(|session| session.read(cx).streaming_view());
-        let status = live.as_ref().and_then(|(status, _, _, _)| status.as_ref());
-        let ready = live
-            .as_ref()
-            .is_none_or(|(status, busy, _, _)| status.is_some() && !*busy);
-        let installed = if live.is_some() {
-            status.is_some_and(|status| status.installed)
-        } else {
-            self.streaming_installed
-        };
-        let running = if live.is_some() {
-            status.is_some_and(|status| status.running)
-        } else {
-            self.streaming_running
-        };
-        let installing = status.is_some_and(|status| status.installing);
-        let title = |label: &'static str| {
-            div()
-                .text_size(px(14.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(0xe6e8e7))
-                .child(label)
-        };
-        let card = || {
-            div()
-                .flex_none()
-                .p(px(16.0))
-                .px(px(18.0))
-                .rounded(px(12.0))
-                .border_1()
-                .border_color(rgba(0xffffff12))
-                .bg(rgba(0xffffff05))
-                .text_color(rgb(0x9aa09e))
-        };
-        let button = |id: &'static str, label: &'static str, primary: bool| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .gap(px(7.0))
-                .px(px(15.0))
-                .py(px(8.0))
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(rgba(if primary { 0x74d2c8ff } else { 0xffffff24 }))
-                .bg(rgba(if primary { 0x74d2c8ff } else { 0xffffff0a }))
-                .text_color(rgb(if primary { 0x10201d } else { 0xe2e4e3 }))
-                .text_size(px(12.5))
-                .font_weight(FontWeight::SEMIBOLD)
-                .cursor_pointer()
-                .child(label)
-        };
-        let mut host = card().child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(12.0))
-                .mb(px(10.0))
-                .child(title("Sunshine Host (this Mac)"))
-                .child(
-                    div()
-                        .px(px(9.0))
-                        .py(px(3.0))
-                        .rounded_full()
-                        .text_size(px(11.0))
-                        .text_color(rgb(if running {
-                            0x7ce0a3
-                        } else if installed {
-                            0xffd47f
-                        } else {
-                            0xb9bfbd
-                        }))
-                        .bg(rgba(if running {
-                            0x74d28a1f
-                        } else if installed {
-                            0xffc14d1a
-                        } else {
-                            0xffffff0f
-                        }))
-                        .child(if live.is_some() && status.is_none() {
-                            if live.as_ref().is_some_and(|(_, busy, _, _)| *busy) {
-                                "Checking…"
-                            } else {
-                                "Status unavailable"
-                            }
-                        } else if installing {
-                            "Installing…"
-                        } else if running {
-                            "Connected"
-                        } else if installed {
-                            "Installed — Offline"
-                        } else {
-                            "Not installed"
-                        }),
-                ),
-        );
-        if !installed {
-            host = host.child(div().mb(px(12.0)).line_height(px(19.4)).child("Sunshine captures this Mac's screen and streams it over your local network. Install it once — about a 40 MB download from LizardByte."));
-        }
-        let mut actions = div().flex().flex_wrap().gap(px(9.0));
-        if !installed && !installing {
-            actions = actions.child(
-                button("stream-install", "↓  Install Sunshine", true).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        if let Some(session) = this.connected.clone() {
-                            session.update(cx, |session, cx| {
-                                session.streaming_command(
-                                    crate::streaming::StreamingAction::Install,
-                                    cx,
-                                )
-                            });
-                        } else {
-                            this.streaming_installed = true;
-                        }
-                        cx.notify();
-                    },
-                )),
-            );
-        } else if !running && !installing {
-            actions = actions.child(
-                button("stream-start", "▶  Start Streaming Host", true).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        if let Some(session) = this.connected.clone() {
-                            session.update(cx, |session, cx| {
-                                session
-                                    .streaming_command(crate::streaming::StreamingAction::Start, cx)
-                            });
-                        } else {
-                            this.streaming_running = true;
-                        }
-                        cx.notify();
-                    },
-                )),
-            );
-        } else if running {
-            actions =
-                actions
-                    .child(
-                        button("stream-stop", "■  Stop", false).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                if let Some(session) = this.connected.clone() {
-                                    session.update(cx, |session, cx| {
-                                        session.streaming_command(
-                                            crate::streaming::StreamingAction::Stop,
-                                            cx,
-                                        )
-                                    });
-                                } else {
-                                    this.streaming_running = false;
-                                }
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .child(button("stream-web", "↗  Sunshine Web UI", false).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            // External system browser, not a privacy-rule bypass in WKWebView.
-                            if this.connected.as_ref().is_some_and(|session| {
-                                session
-                                    .read(cx)
-                                    .streaming_view()
-                                    .0
-                                    .is_some_and(|status| status.running)
-                            }) {
-                                cx.open_url("https://localhost:47990");
-                            }
-                            cx.notify();
-                        }),
-                    ));
-        }
-        host = host.child(actions.opacity(if ready { 1.0 } else { 0.5 }));
-        if let Some(status) = status {
-            if status.installing || status.progress_detail.is_some() {
-                host = host.child(div().mt(px(10.)).child(format!(
-                    "{} · {}",
-                    status.progress_status.as_deref().unwrap_or("Status"),
-                    status.progress_detail.as_deref().unwrap_or("")
-                )));
-            }
-        }
-        if installed {
-            host = host.child(
-                div()
-                    .mt(px(10.0))
-                    .text_size(px(11.5))
-                    .text_color(rgb(0x7d8381))
-                    .child(if live.is_some() {
-                        format!(
-                            "Version {} · https://localhost:47990",
-                            status
-                                .map(|status| status.version.as_str())
-                                .filter(|version| !version.is_empty())
-                                .unwrap_or("unknown")
-                        )
-                    } else {
-                        "Version preview · https://localhost:47990".into()
-                    }),
-            );
-        }
-        let moonlight_instruction = "1. Install Moonlight on your phone or tablet — App Store / Google Play (Works best on the same Wi-Fi.)";
-        let links_start = moonlight_instruction.find("App Store").unwrap();
-        let moonlight_line = gpui::StyledText::new(moonlight_instruction).with_highlights(vec![(
-            links_start..links_start + "App Store / Google Play".len(),
-            gpui::HighlightStyle {
-                color: Some(rgb(0x74d2c8).into()),
-                ..Default::default()
-            },
-        )]);
-        let can_pair = ready && status.is_some_and(crate::streaming::StreamingStatus::can_pair);
-        let pin = div()
-            .w(px(110.0))
-            .rounded(px(8.0))
-            .border_1()
-            .border_color(rgba(0xffffff24))
-            .bg(rgba(0xffffff0a))
-            .children(live.as_ref().map(|(_, _, pin, _)| pin.clone()))
-            .children(live.is_none().then(|| {
-                div()
-                    .py(px(8.))
-                    .px(px(12.))
-                    .text_size(px(16.))
-                    .text_color(rgb(0x9aa09e))
-                    .child("P I N")
-            }));
-        let mut pairing = card().opacity(if running { 1.0 } else { 0.55 })
-            .child(div().mb(px(10.0)).child(title("Pair your device")))
-            .child(div().flex().flex_col().gap(px(5.0)).mb(px(14.0)).line_height(px(20.6))
-                .child(div().child(moonlight_line))
-                .children(live.is_some().then(||div().flex().gap(px(9.)).child(button("stream-app-store","↗ App Store",false).on_click(cx.listener(|_,_,_,cx|cx.open_url("https://apps.apple.com/app/moonlight-game-streaming/id1000551566")))).child(button("stream-play-store","↗ Google Play",false).on_click(cx.listener(|_,_,_,cx|cx.open_url("https://play.google.com/store/apps/details?id=com.limelight"))))))
-                .child("2. Start playing your game in MetalSharp on this Mac.")
-                .child("3. Open Moonlight and tap this Mac — it shows a 4-digit PIN.")
-                .child("4. Enter the PIN below to pair, then tap the game in Moonlight to start streaming."))
-            .child(div().flex().gap(px(9.0))
-                .child(pin)
-                .child(button("stream-pair", "Pair Device", true).opacity(if can_pair {1.0}else{0.5}).on_click(cx.listener(|this,_,_,cx|{if let Some(session)=this.connected.clone(){session.update(cx,|session,cx|session.streaming_pair(cx));}}))));
-        // The preview never accepts a real pairing PIN or transmits credentials.
-        if running && live.is_none() {
-            pairing = pairing.child(
-                div()
-                    .mt(px(10.0))
-                    .text_size(px(11.0))
-                    .child("Pairing is disabled in the isolated preview."),
-            );
-        }
-        if let Some(status) = status {
-            pairing = pairing.child(div().mt(px(10.)).child(
-                if status.running && !status.creds_valid {
-                    "Host is starting — pairing credentials are not ready yet".into()
-                } else {
-                    format!(
-                        "{} waiting to pair: {}",
-                        status.pairing_count, status.pairings_summary
-                    )
-                },
-            ));
-        }
-        let mut notes = card().child(div().mb(px(10.0)).child(title("Good to know")))
-            .child(div().flex().flex_col().gap(px(5.0)).text_size(px(12.0)).line_height(px(20.4))
-                .child("• Sunshine on macOS is experimental: gamepads aren't supported yet — use touch controls in Moonlight.")
-                .child("• macOS asks for Screen Recording permission the first time you stream. Approve it once.")
-                .child("• Keep both devices on the same network; ports 47984–48010 must be reachable."));
-        if installed {
-            notes = notes.child(
-                button(
-                    "stream-unpair",
-                    if self.streaming_unpair_confirm {
-                        "Confirm — unpair ALL devices"
-                    } else {
-                        "Unpair all devices"
-                    },
-                    false,
-                )
-                .mt(px(12.0))
-                .text_color(rgb(0xff9d9d))
-                .border_color(rgba(0xff7a7a4d))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(session) = this.connected.clone() {
-                        let (status, busy, _, _) = session.read(cx).streaming_view();
-                        if !busy && status.is_some_and(|status| status.can_pair()) {
-                            if this.streaming_unpair_confirm
-                                && this
-                                    .streaming_unpair_deadline
-                                    .is_some_and(|deadline| std::time::Instant::now() < deadline)
-                            {
-                                this.streaming_unpair_confirm = false;
-                                session.update(cx, |session, cx| {
-                                    session.streaming_command(
-                                        crate::streaming::StreamingAction::UnpairAll,
-                                        cx,
-                                    )
-                                });
-                            } else {
-                                this.streaming_unpair_confirm = true;
-                                this.streaming_unpair_deadline = Some(
-                                    std::time::Instant::now() + std::time::Duration::from_secs(10),
-                                );
-                            }
-                        }
-                    }
-                    cx.notify();
-                })),
-            );
-            if self.streaming_unpair_confirm {
-                notes = notes.child(
-                    button("stream-unpair-cancel", "Cancel unpair", false)
-                        .mt(px(8.))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.streaming_unpair_confirm = false;
-                            cx.notify();
-                        })),
-                );
-            }
-        }
-        if let Some((_, _, _, notice)) = &live {
-            notes = notes.child(div().mt(px(10.)).child(notice.clone()));
-        }
-        div().id("streaming-overlay").occlude().absolute().top(px(0.0)).left(px(0.0))
-            .size_full().flex().items_center().justify_center().p(px(24.0)).bg(rgba(0x040608b8))
-            .on_click(cx.listener(|this, _, _, cx| {this.close_streaming_panel(cx);}))
-            .child(div().id("streaming-panel").occlude().w(px(680.0)).max_w_full()
-                .h(px((f32::from(viewport.height) * 0.86).min(680.0)))
-                .flex().flex_col().rounded(px(16.0)).overflow_hidden()
-                .border_1().border_color(rgba(0xffffff17)).bg(rgb(0x14171a)).shadow_lg()
-                .text_size(px(12.5))
-                .on_click(|_, _, cx| cx.stop_propagation())
-                .child(div().flex_none().flex().items_center().justify_between().gap(px(14.0))
-                    .py(px(18.0)).px(px(22.0)).border_b_1().border_color(rgba(0xffffff12))
-                    .child(div().flex().items_center().gap(px(13.0))
-                        .child(div().flex_none().size(px(40.0)).flex().items_center().justify_center()
-                            .rounded(px(11.0)).border_1().border_color(rgba(0x74d2c859)).bg(rgba(0x74d2c814))
-                            .child(gpui::svg().path("stream-tv.svg").size(px(20.0)).text_color(rgb(0x74d2c8))))
-                        .child(div().min_w_0().flex().flex_col().gap(px(2.0))
-                            .child(div().text_size(px(18.0)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(0xeef0ef)).child("Game Streaming"))
-                            .child(div().text_size(px(12.0)).text_color(rgb(0x989e9c))
-                                .child("Stream your MetalSharp games to a phone or tablet with Sunshine + Moonlight"))))
-                    .child(div().id("stream-close").flex_none().size(px(30.0)).rounded(px(8.0))
-                        .border_1().border_color(rgba(0xffffff24)).flex().items_center().justify_center()
-                        .text_size(px(20.0)).text_color(rgba(0xffffff99)).cursor_pointer().child("×")
-                        .on_click(cx.listener(|this, _, _, cx| {this.close_streaming_panel(cx);}))))
-                .child(div().id("streaming-body").min_h_0().flex_1().overflow_y_scroll()
-                    .flex().flex_col().gap(px(14.0)).pt(px(18.0)).px(px(22.0)).pb(px(22.0))
-                    .child(host).child(pairing).child(notes)
-                    .child(div().flex_none().text_size(px(10.0)).text_color(rgb(0x7d8381))
-                        .child(if live.is_some(){"CONNECTED · Host actions affect Sunshine on this Mac only when explicitly requested."}else{"LOCAL PREVIEW · Install/Start/Stop are simulated. No downloads, networking, or pairing."}))))
-    }
-
-    fn log_preview_event(&self, message: String, cx: &mut Context<Self>) {
-        if let Some(logs) = &self.logs_preview {
-            logs.update(cx, |logs, cx| {
-                logs.append_preview_event(message);
-                cx.notify();
-            });
-        }
-    }
-
-    fn matching_preview_games(&self) -> Vec<usize> {
+    fn matching_games(&self) -> Vec<usize> {
         let query = self.search_query.trim().to_lowercase();
-        LIBRARY_GAMES
+        self.games
             .iter()
             .enumerate()
-            .filter_map(|(index, (name, _, _))| {
-                name.to_lowercase().contains(&query).then_some(index)
+            .filter_map(|(index, game)| {
+                if query.is_empty() {
+                    return Some(index);
+                }
+                let developer = if game.is_ubisoft() {
+                    "Ubisoft"
+                } else {
+                    "MetalSharp library"
+                };
+                let tag = if game.is_ubisoft() {
+                    "Ubisoft".to_owned()
+                } else {
+                    game.launch_method_name
+                        .clone()
+                        .unwrap_or_else(|| "Installed".into())
+                };
+                let state = if game.state.as_deref() == Some("installed") {
+                    "Ready to play".to_owned()
+                } else {
+                    game.state.clone().unwrap_or_default()
+                };
+                [game.name.as_str(), developer, tag.as_str(), state.as_str()]
+                    .iter()
+                    .any(|value| value.to_lowercase().contains(&query))
+                    .then_some(index)
             })
             .collect()
     }
 
-    fn select_preview_game(&mut self, index: usize) {
-        self.selected_game = index.min(LIBRARY_GAMES.len() - 1);
-        let matches = self.matching_preview_games();
+    fn select_game(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.selected_game = index.min(self.games.len().saturating_sub(1));
+        let matches = self.matching_games();
         if let Some(position) = matches.iter().position(|game| *game == self.selected_game) {
             if position < self.dock_start {
                 self.dock_start = position;
@@ -2322,10 +2664,11 @@ impl MetalSharpApp {
             .min(matches.len().saturating_sub(DOCK_VISIBLE_CARDS));
         self.hovered_card = None;
         self.close_library_menus();
+        self.on_featured_changed(cx);
     }
 
-    fn scroll_preview_dock(&mut self, direction: i32) {
-        let matches = self.matching_preview_games();
+    fn scroll_dock(&mut self, direction: i32, cx: &mut Context<Self>) {
+        let matches = self.matching_games();
         let last_start = matches.len().saturating_sub(DOCK_VISIBLE_CARDS);
         let next_start = if direction > 0 {
             (self.dock_start + 1).min(last_start)
@@ -2346,28 +2689,59 @@ impl MetalSharpApp {
             position.saturating_sub(1)
         };
         let next_position = next_position.clamp(next_start, next_start + DOCK_VISIBLE_CARDS - 1);
-        self.select_preview_game(matches[next_position]);
+        self.select_game(matches[next_position], cx);
     }
 
     fn open_settings_preview(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
         self.close_library_menus();
         self.streaming_open = false;
         if self.settings_preview.is_none() {
-            let settings = cx.new(|_| crate::settings_preview::SettingsPreview::new());
+            let settings = cx.new(|cx| {
+                let mut settings = crate::settings_preview::SettingsPreview::new();
+                settings.attach_live(cx);
+                settings
+            });
             cx.subscribe(&settings, |this, _, event, cx| {
-                use crate::settings_preview::SettingsPreviewEvent;
+                use crate::settings_preview::SettingsPreviewEvent as E;
                 match event {
-                    SettingsPreviewEvent::Close => this.settings_open = false,
-                    SettingsPreviewEvent::ReopenSetup => {
+                    E::Close => this.settings_open = false,
+                    E::ReopenSetup => {
                         this.settings_open = false;
-                        this.show_setup = true;
-                        this.step = 0;
-                    }
-                    SettingsPreviewEvent::LanguageChanged(code) => {
-                        this.selected_language = *code;
-                        if let Some(copy) = this.locales.get(*code) {
-                            this.copy = copy.clone();
+                        if this.live.enabled {
+                            this.open_setup(true, cx);
+                        } else {
+                            this.show_setup = true;
+                            this.step = 0;
                         }
+                    }
+                    E::LanguageChanged(code) => this.change_language(code, cx),
+                    E::StartUpdate(variant) => this.start_update_download(variant, cx),
+                    E::UpdateStatus(status) => this.live.update_status = Some(status.clone()),
+                    E::SteamApiKeySaved(key, library) => {
+                        this.live.steam_api_key = Some(key.clone());
+                        match library {
+                            Some(games) => {
+                                this.live.library = games.clone();
+                                this.live.installed_count =
+                                    games.iter().filter(|g| g.installed).count();
+                                this.rebuild_display_games(cx);
+                            }
+                            None => this.load_library(false, cx),
+                        }
+                    }
+                    E::ReloadLibrary => this.load_library(false, cx),
+                    E::RefreshLaunchers => this.refresh_steam_status(cx),
+                    E::DeveloperMode(value) => {
+                        this.developer_mode = *value;
+                        this.save_ui_state(cx);
+                    }
+                    E::LowPerformance(value) => {
+                        this.low_performance = *value;
+                        this.save_ui_state(cx);
+                    }
+                    E::DeviceName(name) => this.live.device_name = name.clone(),
+                    E::BackendRestarted => {
+                        this.check_backend(cx);
                     }
                 }
                 cx.notify();
@@ -2377,16 +2751,38 @@ impl MetalSharpApp {
         }
         let palette = self.theme.page_palette();
         let language = self.selected_language;
+        let app_state = self.settings_app_state();
         self.settings_preview
             .as_ref()
             .unwrap()
             .update(cx, |settings, cx| {
                 settings.palette = palette;
                 settings.language = language;
+                settings.sync_app_state(app_state);
                 settings.open(window, cx);
             });
         self.settings_open = true;
         cx.notify();
+    }
+
+    fn settings_app_state(&self) -> crate::settings_preview::AppState {
+        crate::settings_preview::AppState {
+            live: self.live.enabled,
+            steam_api_key: self.live.steam_api_key.clone(),
+            device_name: self.live.device_name.clone(),
+            wine_steam_installed: self.live.wine_steam_installed,
+            wine_steam_running: self.live.wine_steam_running,
+            mac_steam_installed: self.live.mac_steam_installed,
+            mac_steam_running: self.live.mac_steam_running,
+            backend_connected: self.live.backend_connected,
+            backend_version: self.live.backend_version.clone(),
+            update_status: self.live.update_status.clone(),
+            update_downloading: self.live.update_downloading,
+            update_progress: self.live.update_progress,
+            update_message: self.live.update_message.clone(),
+            developer_mode: self.developer_mode,
+            low_performance: self.low_performance,
+        }
     }
 
     fn close_library_menus(&mut self) {
@@ -2397,10 +2793,14 @@ impl MetalSharpApp {
         self.settings_open = false;
         self.game_settings_open = false;
         self.pipeline_menu_open = false;
+        self.collection_menu = None;
     }
 
-    fn render_pipeline_menu(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let game = self.selected_game;
+    fn render_pipeline_menu(
+        &self,
+        game: &LibGame,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
         let mut menu = div()
             .id("pipeline-menu")
             .occlude()
@@ -2419,7 +2819,12 @@ impl MetalSharpApp {
             .shadow_lg()
             .text_size(px(12.0))
             .text_color(rgb(self.theme.control_text()));
-        for (index, label) in PREVIEW_PIPELINES.into_iter().enumerate() {
+        for (index, (id, label)) in library_model::game_pipeline_options(game)
+            .into_iter()
+            .enumerate()
+        {
+            let active = self.live.selected_pipeline == id;
+            let game = game.clone();
             menu = menu.child(
                 div()
                     .id(("pipeline-option", index))
@@ -2429,7 +2834,7 @@ impl MetalSharpApp {
                     .items_center()
                     .justify_between()
                     .rounded(px(5.0))
-                    .bg(rgb(if self.game_preferences[game].pipeline == index {
+                    .bg(rgb(if active {
                         self.theme.menu_hover()
                     } else {
                         self.theme.menu_bg()
@@ -2437,14 +2842,14 @@ impl MetalSharpApp {
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(self.theme.menu_hover())))
                     .child(label)
-                    .child(if self.game_preferences[game].pipeline == index {
-                        "✓"
-                    } else {
-                        ""
-                    })
+                    .child(if active { "✓" } else { "" })
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.game_preferences[game].pipeline = index;
                         this.pipeline_menu_open = false;
+                        if this.live.enabled {
+                            this.save_pipeline(game.clone(), id.clone(), false, cx);
+                        } else {
+                            this.live.selected_pipeline = id.clone();
+                        }
                         cx.notify();
                     })),
             );
@@ -2452,9 +2857,16 @@ impl MetalSharpApp {
         menu
     }
 
-    fn render_game_settings(&self, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let game = self.selected_game;
-        let prefs = &self.game_preferences[game];
+    fn render_game_settings(
+        &self,
+        game: &LibGame,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let muted = if self.theme == PreviewTheme::Light {
+            0x000000
+        } else {
+            0x939a9b
+        };
         let mut menu = div()
             .id("game-settings-popover")
             .occlude()
@@ -2486,14 +2898,10 @@ impl MetalSharpApp {
                             .child(
                                 div()
                                     .text_size(px(10.0))
-                                    .text_color(rgb(if self.theme == PreviewTheme::Light {
-                                        0x000000
-                                    } else {
-                                        0x939a9b
-                                    }))
+                                    .text_color(rgb(muted))
                                     .child("GAME SETTINGS"),
                             )
-                            .child(LIBRARY_GAMES[game].0),
+                            .child(game.name.clone()),
                     )
                     .child(
                         div()
@@ -2507,137 +2915,203 @@ impl MetalSharpApp {
                             })),
                     ),
             );
-        for (category, label, choices, current) in [
-            (
-                0usize,
-                "MetalFX",
-                vec!["1.75×", "2×", "Off"],
-                prefs.metal_fx,
-            ),
-            (
-                1usize,
-                "Controller input",
-                vec!["Off", "XInput", "DInput"],
-                prefs.controller,
-            ),
-            (2usize, "Msync", vec!["Off", "On"], usize::from(prefs.msync)),
-        ] {
-            let mut options = div().flex().gap(px(4.0));
-            for (choice, text) in choices.into_iter().enumerate() {
-                options = options.child(
-                    div()
-                        .id(("game-setting-option", category * 3 + choice))
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .rounded(px(5.0))
-                        .border_1()
-                        .border_color(rgb(if current == choice {
-                            self.theme.button_border()
-                        } else {
-                            self.theme.border()
-                        }))
-                        .bg(rgb(if current == choice {
-                            self.theme.menu_hover()
-                        } else {
-                            self.theme.menu_bg()
-                        }))
-                        .cursor_pointer()
-                        .child(text)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let prefs = &mut this.game_preferences[game];
-                            match category {
-                                0 => prefs.metal_fx = choice,
-                                1 => prefs.controller = choice,
-                                _ => prefs.msync = choice == 1,
-                            }
-                            cx.notify();
-                        })),
-                );
-            }
+        let theme = self.theme;
+        let option = move |id: (&'static str, usize), text: &'static str, active: bool| {
+            div()
+                .id(id)
+                .px(px(8.0))
+                .py(px(6.0))
+                .rounded(px(5.0))
+                .border_1()
+                .border_color(rgb(if active {
+                    theme.button_border()
+                } else {
+                    theme.border()
+                }))
+                .bg(rgb(if active {
+                    theme.menu_hover()
+                } else {
+                    theme.menu_bg()
+                }))
+                .cursor_pointer()
+                .child(text)
+        };
+        let row = |label: &'static str, options: gpui::Div| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(10.0))
+                .child(label)
+                .child(options)
+        };
+        let mut metal_fx = div().flex().gap(px(4.0));
+        for (index, (mode, text)) in [("1.75", "1.75×"), ("2.0", "2×"), ("off", "Off")]
+            .into_iter()
+            .enumerate()
+        {
+            metal_fx = metal_fx.child(
+                option(
+                    ("game-setting-metalfx", index),
+                    text,
+                    self.live.metal_fx_mode == mode,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_metal_fx(mode, cx))),
+            );
+        }
+        let mut controller = div().flex().gap(px(4.0));
+        for (index, (mode, text)) in [("off", "Off"), ("x", "XInput"), ("d", "DInput")]
+            .into_iter()
+            .enumerate()
+        {
+            controller = controller.child(
+                option(
+                    ("game-setting-controller", index),
+                    text,
+                    self.live.controller_input == mode,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_controller(mode, cx))),
+            );
+        }
+        let msync = self.live.msync;
+        menu = menu
+            .child(row("MetalFX", metal_fx))
+            .child(row("Controller input", controller))
+            .child(row(
+                "msync",
+                div().flex().child(
+                    option(
+                        ("game-setting-msync", 0),
+                        if msync { "On" } else { "Off" },
+                        msync,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
+                ),
+            ));
+        if game.installed && !game.has_native_build {
+            let executable_name = game
+                .executable_path
+                .as_deref()
+                .filter(|p| !p.is_empty())
+                .and_then(|path| path.rsplit(['/', '\\']).next())
+                .map(str::to_owned)
+                .unwrap_or_else(|| "Automatically detected".to_string());
             menu = menu.child(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
-                    .gap(px(10.0))
-                    .child(label)
-                    .child(options),
+                    .gap(px(12.0))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .child("Launch executable")
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(rgb(muted))
+                                    .child(executable_name),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("choose-game-executable")
+                            .flex_none()
+                            .cursor_pointer()
+                            .px(px(9.0))
+                            .py(px(6.0))
+                            .rounded(px(5.0))
+                            .border_1()
+                            .border_color(rgb(self.theme.border()))
+                            .bg(rgb(self.theme.menu_bg()))
+                            .child("Choose EXE")
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.choose_featured_executable(cx)),
+                            ),
+                    ),
             );
         }
-        let executable_name = prefs
-            .executable
-            .as_deref()
-            .and_then(|path| std::path::Path::new(path).file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Automatically detected".to_string());
-        menu.child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(12.0))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.0))
-                        .child("Launch executable")
-                        .child(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(rgb(if self.theme == PreviewTheme::Light {
-                                    0x000000
-                                } else {
-                                    0x939a9b
-                                }))
-                                .child(executable_name),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("choose-game-executable")
-                        .flex_none()
-                        .cursor_pointer()
-                        .px(px(9.0))
-                        .py(px(6.0))
-                        .rounded(px(5.0))
-                        .border_1()
-                        .border_color(rgb(self.theme.border()))
-                        .bg(rgb(self.theme.menu_bg()))
-                        .child("Choose EXE")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            // Store only the chosen path in preview memory; never execute it or save to the backend.
-                            cx.spawn(async move |this, cx| {
-                                let selected = rfd::AsyncFileDialog::new()
-                                    .set_title("Choose launch executable — local preview only")
-                                    .add_filter("Windows executable", &["exe"])
-                                    .pick_file()
-                                    .await;
-                                if let Some(file) = selected {
-                                    let path = file.path().to_string_lossy().into_owned();
-                                    let _ = this.update(cx, |this, cx| {
-                                        this.game_preferences[game].executable = Some(path);
-                                        cx.notify();
-                                    });
-                                }
-                            })
-                            .detach();
-                        })),
+        if !game.is_ubisoft() {
+            let active = self.live.steam_emu_active;
+            let enabled = game.installed && !self.live.steam_emu_busy;
+            menu = menu.child(row(
+                "Steam Emu",
+                div().flex().child(
+                    option(
+                        ("game-setting-steam-emu", 0),
+                        if active { "On" } else { "Off" },
+                        active,
+                    )
+                    .opacity(if enabled { 1.0 } else { 0.45 })
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_steam_emu(!active, cx))),
                 ),
-        )
-        .child(
-            div()
-                .text_size(px(10.0))
-                .text_color(rgb(if self.theme == PreviewTheme::Light {
-                    0x000000
-                } else {
-                    0x939a9b
-                }))
-                .child("Preview only · settings kept in memory, executable never launched"),
-        )
+            ));
+        }
+        menu
+    }
+
+    fn render_collection_menu(
+        &self,
+        game: &LibGame,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let current = library_model::effective_pipeline(game);
+        let mut menu = div()
+            .id(("collection-pipeline-menu", game.appid as usize))
+            .occlude()
+            .absolute()
+            .bottom(px(30.0))
+            .left(px(0.0))
+            .w(px(150.0))
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .p(px(5.0))
+            .rounded(px(7.0))
+            .border_1()
+            .border_color(rgb(self.theme.button_border()))
+            .bg(rgb(self.theme.menu_bg()))
+            .shadow_lg()
+            .text_size(px(11.5))
+            .text_color(rgb(self.theme.control_text()));
+        for (index, (id, label)) in library_model::game_pipeline_options(game)
+            .into_iter()
+            .enumerate()
+        {
+            let active = current == id;
+            let game = game.clone();
+            menu = menu.child(
+                div()
+                    .id(("collection-pipeline-option", index))
+                    .h(px(28.0))
+                    .px(px(8.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .rounded(px(5.0))
+                    .bg(rgb(if active {
+                        self.theme.menu_hover()
+                    } else {
+                        self.theme.menu_bg()
+                    }))
+                    .cursor_pointer()
+                    .hover(|style| style.bg(rgb(self.theme.menu_hover())))
+                    .child(label)
+                    .child(if active { "✓" } else { "" })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.collection_menu = None;
+                        this.save_pipeline(game.clone(), id.clone(), true, cx);
+                        cx.notify();
+                    })),
+            );
+        }
+        menu
     }
 
     fn render_library_collection(
@@ -2657,9 +3131,31 @@ impl MetalSharpApp {
             .flex_wrap()
             .gap(px(18.0))
             .max_w(px(1400.0));
-        let matches = self.matching_preview_games();
+        let matches = self.matching_games();
         for index in matches.iter().copied() {
-            let (name, cover, _) = LIBRARY_GAMES[index];
+            let game = self.games[index].clone();
+            let running = self.is_running(game.appid);
+            let launching = self.live.launching == Some(game.appid);
+            let saving = self.live.collection_saving.contains(&game.appid);
+            let art = self.art_path(&game, false, cx);
+            let pipeline = library_model::effective_pipeline(&game);
+            let pipeline_label = library_model::game_pipeline_options(&game)
+                .into_iter()
+                .find(|(id, _)| *id == pipeline)
+                .map(|(_, label)| label)
+                .unwrap_or_else(|| library_model::pipeline_label(&pipeline));
+            let menu_open = self.collection_menu == Some(game.key());
+            let menu = menu_open
+                .then(|| gpui::deferred(self.render_collection_menu(&game, cx)).with_priority(30));
+            let play_game = game.clone();
+            let key = game.key();
+            let badge = if game.is_ubisoft() {
+                Some("Ubisoft")
+            } else if game.has_native_build {
+                Some("Native macOS")
+            } else {
+                None
+            };
             grid = grid.child(
                 div()
                     .id(("collection-card", index))
@@ -2673,12 +3169,24 @@ impl MetalSharpApp {
                     .border_color(rgba(0xe0e2e03b))
                     .bg(rgb(0x242729))
                     .shadow_lg()
-                    .child(
-                        img(asset_path(cover))
+                    .child(match art {
+                        Some(art) => img(art)
                             .w_full()
                             .h_full()
-                            .object_fit(ObjectFit::Cover),
-                    )
+                            .object_fit(ObjectFit::Cover)
+                            .into_any_element(),
+                        None => div()
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                img(asset_path("metalsharp-logo.png"))
+                                    .size(px(card_width * 0.4))
+                                    .object_fit(ObjectFit::Contain),
+                            )
+                            .into_any_element(),
+                    })
                     .child(
                         div()
                             .absolute()
@@ -2706,28 +3214,58 @@ impl MetalSharpApp {
                                     .text_size(px(14.0))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(0xf0f0ed))
-                                    .child(name),
+                                    .child(game.name.clone()),
                             )
+                            .children(badge.map(|badge| {
+                                div()
+                                    .text_size(px(10.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(rgb(0xd8dad9))
+                                    .child(badge)
+                            }))
                             .child(
                                 div()
                                     .flex()
                                     .items_center()
                                     .gap(px(6.0))
-                                    .child(
+                                    .children((!game.has_native_build).then(|| {
                                         div()
-                                            .h(px(24.0))
-                                            .px(px(7.0))
-                                            .flex()
-                                            .items_center()
-                                            .rounded(px(5.0))
-                                            .border_1()
-                                            .border_color(rgb(theme.border()))
-                                            .bg(rgba(control_bg << 8 | 0xd8))
-                                            .text_size(px(10.5))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(rgb(self.theme.control_text()))
-                                            .child("D3DMetal  ⌄"),
-                                    )
+                                            .relative()
+                                            .child(
+                                                div()
+                                                    .id(("collection-bottle", index))
+                                                    .h(px(24.0))
+                                                    .px(px(7.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .rounded(px(5.0))
+                                                    .border_1()
+                                                    .border_color(rgb(theme.border()))
+                                                    .bg(rgba(control_bg << 8 | 0xd8))
+                                                    .text_size(px(10.5))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(rgb(self.theme.control_text()))
+                                                    .opacity(if saving { 0.5 } else { 1.0 })
+                                                    .cursor_pointer()
+                                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                                        cx.stop_propagation();
+                                                        if this
+                                                            .live
+                                                            .collection_saving
+                                                            .contains(&key.1)
+                                                        {
+                                                            return;
+                                                        }
+                                                        let open =
+                                                            this.collection_menu != Some(key);
+                                                        this.close_library_menus();
+                                                        this.collection_menu = open.then_some(key);
+                                                        cx.notify();
+                                                    }))
+                                                    .child(format!("{pipeline_label}  ⌄")),
+                                            )
+                                            .children(menu)
+                                    }))
                                     .child(
                                         div()
                                             .id(("collection-play", index))
@@ -2738,25 +3276,41 @@ impl MetalSharpApp {
                                             .gap(px(5.0))
                                             .rounded(px(6.0))
                                             .border_1()
-                                            .border_color(rgb(accent))
-                                            .bg(rgb(accent))
+                                            .border_color(rgb(if running {
+                                                0xa52d2d
+                                            } else {
+                                                accent
+                                            }))
+                                            .bg(rgb(if running { 0xa52d2d } else { accent }))
+                                            .opacity(if launching { 0.6 } else { 1.0 })
                                             .text_size(px(11.0))
                                             .font_weight(FontWeight::BOLD)
-                                            .text_color(rgb(control_bg))
+                                            .text_color(rgb(if running {
+                                                0xffffff
+                                            } else {
+                                                control_bg
+                                            }))
                                             .cursor_pointer()
                                             .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.select_preview_game(index);
-                                                this.active_tab = LibraryTab::Play;
-                                                this.running_game = Some(index);
-                                                this.log_preview_event(format!("[PREVIEW] [LAUNCHED] {name} · simulated collection action; no process launched"), cx);
+                                                let running = this.is_running(play_game.appid);
+                                                this.select_game(index, cx);
+                                                if !running {
+                                                    this.active_tab = LibraryTab::Play;
+                                                }
+                                                this.launch_game(play_game.clone(), cx);
                                                 cx.notify();
                                             }))
-                                            .child("▶ Play"),
+                                            .child(if running { "■ Stop" } else { "▶ Play" }),
                                     ),
                             ),
                     ),
             );
         }
+        let count = if self.live.enabled {
+            self.live.installed_count
+        } else {
+            matches.len()
+        };
 
         div()
             .id("library-collection-scroll")
@@ -2802,8 +3356,7 @@ impl MetalSharpApp {
                             .text_size(px(14.0))
                             .text_color(rgb(0xaeb3b2))
                             .child(format!(
-                                "{} preview games ready in your MetalSharp library.",
-                                matches.len()
+                                "{count} games installed and ready in your MetalSharp library."
                             )),
                     )
                     .child(
@@ -2831,14 +3384,502 @@ impl MetalSharpApp {
                             .child("⌂  Back to Play"),
                     ),
             )
-            .child(grid)
+            .child(if matches.is_empty() {
+                div()
+                    .w_full()
+                    .py(px(60.0))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(10.0))
+                    .text_color(rgb(0xaeb3b2))
+                    .child(div().text_size(px(36.0)).child("▦"))
+                    .child(
+                        div()
+                            .text_size(px(20.0))
+                            .text_color(rgb(0xeee9dd))
+                            .child("No installed games found"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .child("Install a Steam game and refresh the library to see it here."),
+                    )
+            } else {
+                grid
+            })
     }
+}
 
+impl MetalSharpApp {
+    fn render_streaming_overlay(
+        &self,
+        viewport: gpui::Size<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let live = self.live.enabled;
+        let stream = &self.live.streaming;
+        let status = stream.status.as_ref();
+        let installed = if live {
+            status.is_some_and(|status| status.installed)
+        } else {
+            self.streaming_installed
+        };
+        let running = if live {
+            status.is_some_and(|status| status.running)
+        } else {
+            self.streaming_running
+        };
+        let installing = status.is_some_and(|status| status.installing);
+        let title = |label: &'static str| {
+            div()
+                .text_size(px(14.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(0xe6e8e7))
+                .child(label)
+        };
+        let card = || {
+            div()
+                .flex_none()
+                .p(px(16.0))
+                .px(px(18.0))
+                .rounded(px(12.0))
+                .border_1()
+                .border_color(rgba(0xffffff12))
+                .bg(rgba(0xffffff05))
+                .text_color(rgb(0x9aa09e))
+        };
+        let button = |id: &'static str, label: &'static str, primary: bool| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(px(7.0))
+                .px(px(15.0))
+                .py(px(8.0))
+                .rounded(px(8.0))
+                .border_1()
+                .border_color(rgba(if primary { 0x74d2c8ff } else { 0xffffff24 }))
+                .bg(rgba(if primary { 0x74d2c8ff } else { 0xffffff0a }))
+                .text_color(rgb(if primary { 0x10201d } else { 0xe2e4e3 }))
+                .text_size(px(12.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .child(label)
+        };
+        let state_label = if live && status.is_none() {
+            "Checking…".to_owned()
+        } else if installing {
+            status
+                .and_then(|s| s.progress_status.clone())
+                .unwrap_or_else(|| "Installing…".into())
+        } else if running {
+            "Connected".into()
+        } else if installed {
+            "Installed — Offline".into()
+        } else {
+            "Not installed".into()
+        };
+        let mut host = card().child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(12.0))
+                .mb(px(10.0))
+                .child(title("Sunshine Host (this Mac)"))
+                .child(
+                    div()
+                        .px(px(9.0))
+                        .py(px(3.0))
+                        .rounded_full()
+                        .text_size(px(11.0))
+                        .text_color(rgb(if running {
+                            0x7ce0a3
+                        } else if installed {
+                            0xffd47f
+                        } else {
+                            0xb9bfbd
+                        }))
+                        .bg(rgba(if running {
+                            0x74d28a1f
+                        } else if installed {
+                            0xffc14d1a
+                        } else {
+                            0xffffff0f
+                        }))
+                        .child(state_label),
+                ),
+        );
+        if !installed {
+            host = host.child(div().mb(px(12.0)).line_height(px(19.4)).child("Sunshine captures this Mac's screen and streams it over your local network. Install it once — about a 40 MB download from LizardByte."));
+        }
+        let mut actions = div().flex().flex_wrap().gap(px(9.0));
+        if !installed && !installing {
+            actions = actions.child(
+                button(
+                    "stream-install",
+                    if stream.installing {
+                        "Starting download…"
+                    } else {
+                        "↓  Install Sunshine"
+                    },
+                    true,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.live.enabled {
+                        this.streaming_install(cx);
+                    } else {
+                        this.streaming_installed = true;
+                    }
+                    cx.notify();
+                })),
+            );
+        } else if !running && !installing {
+            actions = actions.child(
+                button(
+                    "stream-start",
+                    if stream.launching {
+                        "Starting…"
+                    } else {
+                        "▶  Start Streaming Host"
+                    },
+                    true,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.live.enabled {
+                        this.streaming_launch(cx);
+                    } else {
+                        this.streaming_running = true;
+                    }
+                    cx.notify();
+                })),
+            );
+        } else if running {
+            actions =
+                actions
+                    .child(
+                        button("stream-stop", "■  Stop", false).on_click(cx.listener(
+                            |this, _, _, cx| {
+                                if this.live.enabled {
+                                    this.streaming_stop(cx);
+                                } else {
+                                    this.streaming_running = false;
+                                }
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .child(button("stream-web", "↗  Sunshine Web UI", false).on_click(
+                        cx.listener(|this, _, _, cx| {
+                            let url = this
+                                .live
+                                .streaming
+                                .status
+                                .as_ref()
+                                .map(|s| s.web_url.clone())
+                                .filter(|u| !u.is_empty())
+                                .unwrap_or_else(|| "https://localhost:47990".into());
+                            cx.open_url(&url);
+                        }),
+                    ));
+        }
+        host = host.child(actions);
+        if let Some(status) = status {
+            if status.installing || status.progress_detail.is_some() {
+                host = host.child(div().mt(px(10.)).child(format!(
+                    "{} · {}",
+                    status.progress_status.as_deref().unwrap_or("Status"),
+                    status.progress_detail.as_deref().unwrap_or("")
+                )));
+            }
+        }
+        if installed {
+            host = host.child(
+                div()
+                    .mt(px(10.0))
+                    .text_size(px(11.5))
+                    .text_color(rgb(0x7d8381))
+                    .child(format!(
+                        "Version {} · {}",
+                        status
+                            .map(|status| status.version.as_str())
+                            .filter(|version| !version.is_empty())
+                            .unwrap_or("unknown"),
+                        status
+                            .map(|status| status.web_url.as_str())
+                            .filter(|url| !url.is_empty())
+                            .unwrap_or("https://localhost:47990")
+                    )),
+            );
+        }
+        let moonlight_instruction = "1. Install Moonlight on your phone or tablet — App Store / Google Play (Works best on the same Wi-Fi.)";
+        let links_start = moonlight_instruction.find("App Store").unwrap();
+        let moonlight_line = gpui::StyledText::new(moonlight_instruction).with_highlights(vec![(
+            links_start..links_start + "App Store / Google Play".len(),
+            gpui::HighlightStyle {
+                color: Some(rgb(0x74d2c8).into()),
+                ..Default::default()
+            },
+        )]);
+        let ready_to_pair = status.is_some_and(|s| s.running && s.creds_valid);
+        let pin = div()
+            .w(px(110.0))
+            .h(px(36.0))
+            .px(px(10.0))
+            .flex()
+            .items_center()
+            .rounded(px(8.0))
+            .border_1()
+            .border_color(rgba(0xffffff24))
+            .bg(rgba(0xffffff0a))
+            .children(self.streaming_pin.clone());
+        let mut pairing = card()
+            .opacity(if running { 1.0 } else { 0.55 })
+            .child(div().mb(px(10.0)).child(title("Pair your device")))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(5.0))
+                    .mb(px(14.0))
+                    .line_height(px(20.6))
+                    .child(div().child(moonlight_line))
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(9.))
+                            .child(button("stream-app-store", "↗ App Store", false).on_click(cx.listener(
+                                |_, _, _, cx| {
+                                    cx.open_url("https://apps.apple.com/app/moonlight-game-streaming/id1000551566")
+                                },
+                            )))
+                            .child(button("stream-play-store", "↗ Google Play", false).on_click(cx.listener(
+                                |_, _, _, cx| {
+                                    cx.open_url("https://play.google.com/store/apps/details?id=com.limelight")
+                                },
+                            ))),
+                    )
+                    .child("2. Start playing your game in MetalSharp on this Mac.")
+                    .child("3. Open Moonlight and tap this Mac — it shows a 4-digit PIN.")
+                    .child("4. Enter the PIN below to pair, then tap the game in Moonlight to start streaming."),
+            )
+            .child(
+                div().flex().gap(px(9.0)).child(pin).child(
+                    button(
+                        "stream-pair",
+                        if stream.pairing { "Pairing…" } else { "Pair Device" },
+                        true,
+                    )
+                    .opacity(if ready_to_pair { 1.0 } else { 0.5 })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let ready = this
+                            .live
+                            .streaming
+                            .status
+                            .as_ref()
+                            .is_some_and(|s| s.running && s.creds_valid);
+                        if this.live.enabled && ready {
+                            this.streaming_pair(cx);
+                        }
+                    })),
+                ),
+            );
+        if let Some(status) = status {
+            pairing = pairing.child(div().mt(px(10.)).child(
+                if status.running && !status.creds_valid {
+                    "Host is starting — pairing credentials are not ready yet".into()
+                } else if status.pairing_count > 0 {
+                    format!(
+                        "{} waiting to pair: {}",
+                        status.pairing_count, status.pairings_summary
+                    )
+                } else {
+                    String::new()
+                },
+            ));
+        }
+        let mut notes = card()
+            .child(div().mb(px(10.0)).child(title("Good to know")))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(5.0))
+                    .text_size(px(12.0))
+                    .line_height(px(20.4))
+                    .child("• Sunshine on macOS is experimental: gamepads aren't supported yet — use touch controls in Moonlight.")
+                    .child("• macOS asks for Screen Recording permission the first time you stream. Approve it once.")
+                    .child("• Keep both devices on the same network; ports 47984–48010 must be reachable."),
+            );
+        if installed {
+            notes = notes.child(
+                button(
+                    "stream-unpair",
+                    if self.streaming_unpair_confirm {
+                        "Confirm — unpair ALL devices"
+                    } else {
+                        "Unpair all devices"
+                    },
+                    false,
+                )
+                .mt(px(12.0))
+                .text_color(rgb(0xff9d9d))
+                .border_color(rgba(0xff7a7a4d))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if this.streaming_unpair_confirm
+                        && this
+                            .streaming_unpair_deadline
+                            .is_some_and(|deadline| std::time::Instant::now() < deadline)
+                    {
+                        this.streaming_unpair_confirm = false;
+                        this.streaming_unpair_all(cx);
+                    } else {
+                        this.streaming_unpair_confirm = true;
+                        this.streaming_unpair_deadline =
+                            Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+                    }
+                    cx.notify();
+                })),
+            );
+            if self.streaming_unpair_confirm {
+                notes = notes.child(
+                    button("stream-unpair-cancel", "Cancel unpair", false)
+                        .mt(px(8.))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.streaming_unpair_confirm = false;
+                            cx.notify();
+                        })),
+                );
+            }
+        }
+        div()
+            .id("streaming-overlay")
+            .occlude()
+            .absolute()
+            .top(px(0.0))
+            .left(px(0.0))
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p(px(24.0))
+            .bg(rgba(0x040608b8))
+            .on_click(cx.listener(|this, _, _, cx| this.close_streaming_panel(cx)))
+            .child(
+                div()
+                    .id("streaming-panel")
+                    .occlude()
+                    .w(px(680.0))
+                    .max_w_full()
+                    .h(px((f32::from(viewport.height) * 0.86).min(680.0)))
+                    .flex()
+                    .flex_col()
+                    .rounded(px(16.0))
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(rgba(0xffffff17))
+                    .bg(rgb(0x14171a))
+                    .shadow_lg()
+                    .text_size(px(12.5))
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(14.0))
+                            .py(px(18.0))
+                            .px(px(22.0))
+                            .border_b_1()
+                            .border_color(rgba(0xffffff12))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(13.0))
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .size(px(40.0))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px(11.0))
+                                            .border_1()
+                                            .border_color(rgba(0x74d2c859))
+                                            .bg(rgba(0x74d2c814))
+                                            .child(
+                                                gpui::svg()
+                                                    .path("stream-tv.svg")
+                                                    .size(px(20.0))
+                                                    .text_color(rgb(0x74d2c8)),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .flex()
+                                            .flex_col()
+                                            .gap(px(2.0))
+                                            .child(
+                                                div()
+                                                    .text_size(px(18.0))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(rgb(0xeef0ef))
+                                                    .child("Game Streaming"),
+                                            )
+                                            .child(div().text_size(px(12.0)).text_color(rgb(0x989e9c)).child(
+                                                "Stream your MetalSharp games to a phone or tablet with Sunshine + Moonlight",
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("stream-close")
+                                    .flex_none()
+                                    .size(px(30.0))
+                                    .rounded(px(8.0))
+                                    .border_1()
+                                    .border_color(rgba(0xffffff24))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(20.0))
+                                    .text_color(rgba(0xffffff99))
+                                    .cursor_pointer()
+                                    .child("×")
+                                    .on_click(cx.listener(|this, _, _, cx| this.close_streaming_panel(cx))),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("streaming-body")
+                            .min_h_0()
+                            .flex_1()
+                            .overflow_y_scroll()
+                            .flex()
+                            .flex_col()
+                            .gap(px(14.0))
+                            .pt(px(18.0))
+                            .px(px(22.0))
+                            .pb(px(22.0))
+                            .child(host)
+                            .child(pairing)
+                            .child(notes),
+                    ),
+            )
+    }
+}
+
+impl MetalSharpApp {
     fn render_setup_page(&mut self, cx: &mut Context<Self>) -> gpui::Div {
         let selected_language = self.selected_language;
         let copy = self.copy.clone();
         let current_step = self.step.min(2);
         let language_menu_open = self.language_menu_open;
+        let dismissible = self.live.setup.dismissible;
         let selected_name = LANGUAGES
             .iter()
             .find(|(code, _)| *code == selected_language)
@@ -2847,7 +3888,7 @@ impl MetalSharpApp {
         let mut language_picker = div()
             .absolute()
             .top(px(18.0))
-            .right(px(18.0))
+            .right(px(if dismissible { 60.0 } else { 18.0 }))
             .flex()
             .flex_col()
             .items_end()
@@ -2905,10 +3946,7 @@ impl MetalSharpApp {
                         .cursor_pointer()
                         .hover(|style| style.bg(rgb(0x303336)))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.selected_language = code;
-                            if let Some(copy) = this.locales.get(code).cloned() {
-                                this.copy = copy;
-                            }
+                            this.change_language(code, cx);
                             this.language_menu_open = false;
                             cx.notify();
                         }))
@@ -2924,18 +3962,12 @@ impl MetalSharpApp {
             .step_of
             .replace("{step}", &(current_step + 1).to_string())
             .replace("{total}", &copy.steps.len().to_string());
-        let can_advance = self.setup_can_advance(cx);
         let page_body = match current_step {
             0 => render_welcome_body(&copy),
             1 => self.render_runtime_body(cx, copy.clone()),
-            _ => render_done_body(
-                &copy,
-                self.connected
-                    .as_ref()
-                    .map(|session| session.read(cx).setup_inputs()),
-                self.connected.clone(),
-            ),
+            _ => render_done_body(&copy, self.setup_inputs.clone(), cx),
         };
+        let finishing = self.live.setup.finishing;
         let page_actions = if current_step == 0 {
             div().mt_auto().flex().justify_end().child(
                 div()
@@ -2989,9 +4021,9 @@ impl MetalSharpApp {
                         .child(copy.back.clone()),
                 )
                 .child(
+                    // Electron's Next is never disabled (SetupWizard.vue goToDoneStep).
                     div()
                         .id("setup-next")
-                        .opacity(if can_advance { 1.0 } else { 0.4 })
                         .flex()
                         .items_center()
                         .justify_center()
@@ -3005,7 +4037,9 @@ impl MetalSharpApp {
                         .cursor_pointer()
                         .hover(|style| style.bg(rgb(0xf7efdf)))
                         .on_click(cx.listener(|this, _, _, cx| {
-                            if this.setup_can_advance(cx) {
+                            if this.live.enabled {
+                                this.setup_go_to_done(cx);
+                            } else {
                                 this.step = 2;
                             }
                             cx.notify();
@@ -3016,7 +4050,7 @@ impl MetalSharpApp {
             div().mt_auto().flex().justify_end().child(
                 div()
                     .id("setup-launch")
-                    .opacity(if can_advance { 1.0 } else { 0.4 })
+                    .opacity(if finishing { 0.5 } else { 1.0 })
                     .flex()
                     .items_center()
                     .justify_center()
@@ -3030,14 +4064,18 @@ impl MetalSharpApp {
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xf7efdf)))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(session) = this.connected.clone() {
-                            session.update(cx, |session, cx| session.setup_finish(cx));
+                        if this.live.enabled {
+                            this.setup_finish(cx);
                         } else {
                             this.show_setup = false;
                         }
                         cx.notify();
                     }))
-                    .child(copy.launch.clone()),
+                    .child(if finishing {
+                        copy.preparing_steam.clone()
+                    } else {
+                        copy.launch.clone()
+                    }),
             )
         };
 
@@ -3093,34 +4131,71 @@ impl MetalSharpApp {
             )
             .child(page_actions)
             .child(language_picker)
+            .children(dismissible.then(|| {
+                div()
+                    .id("setup-close")
+                    .absolute()
+                    .top(px(18.0))
+                    .right(px(18.0))
+                    .size(px(32.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(8.0))
+                    .border_1()
+                    .border_color(rgb(0x343638))
+                    .bg(rgb(0x1a1d20))
+                    .text_color(rgb(0xc5c5c1))
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| this.setup_close(cx)))
+                    .child("✕")
+            }))
     }
 
     fn render_runtime_body(&mut self, cx: &mut Context<Self>, copy: SetupCopy) -> gpui::Div {
-        let runtime_ready = self.runtime_installed;
-        let runtime_installing = self.runtime_installing;
-        let runtime_progress = self.runtime_progress;
-        let runtime_started = self.runtime_started;
-        let install_log_open = self.install_log_open;
-        let setup_ready = self.connected.as_ref().is_none_or(|session| {
-            let state = session.read(cx).setup_view();
-            state.install_ready && state.action_available
-        });
-        let steam_installed = self.steam_installed;
-        let steam_installing = self.steam_installing;
+        let flow = &self.live.setup;
+        let runtime_ready = flow.runtime_ready();
+        let runtime_installing = flow.installing;
+        let runtime_progress = flow.install_progress;
+        let install_log_open = flow.log_open;
+        let has_logs = !flow.install_logs.is_empty();
+        let steam_installed = flow.steam_installed;
+        let steam_installing = flow.steam_installing;
+        // SetupWizard.vue installButtonLabel.
         let runtime_label = if runtime_ready {
             copy.install_complete.clone()
         } else if runtime_installing {
-            copy.preparing.clone()
+            // Polled /setup/install-progress: overall percent plus the current step.
+            if flow.install_current.is_empty() {
+                format!("Installing Runtime… {runtime_progress}%")
+            } else {
+                format!(
+                    "Installing Runtime… {runtime_progress}% · {}",
+                    flow.install_current
+                )
+            }
+        } else if flow.install_failed {
+            copy.install_failed.clone()
         } else {
             copy.install_runtime.clone()
         };
+        // steamButtonLabel / steamInstallLabel.
         let steam_label = if steam_installed {
             copy.steam_installed.clone()
         } else if steam_installing {
-            copy.installing_steam.clone()
+            match flow.steam_install_stage.as_str() {
+                "downloading" => copy.downloading_steam.clone(),
+                "creating-steam-prefix" => copy.creating_steam_prefix.clone(),
+                "installing-steam" => copy.installing_steam.clone(),
+                "failed" => copy.retry_steam.clone(),
+                _ => copy.preparing_steam.clone(),
+            }
+        } else if flow.steam_failed {
+            copy.steam_failed.clone()
         } else {
             copy.install_steam.clone()
         };
+        let logs: Vec<(String, LogClass)> = flow.install_logs.clone();
 
         div()
             .mt(px(8.0))
@@ -3180,7 +4255,7 @@ impl MetalSharpApp {
                                     runtime_installing,
                                     runtime_ready,
                                     runtime_progress,
-                                    setup_ready && !runtime_installing && !runtime_ready,
+                                    !runtime_installing && !runtime_ready,
                                 )
                                 .on_click(cx.listener(
                                     |this, _, _, cx| {
@@ -3188,7 +4263,7 @@ impl MetalSharpApp {
                                     },
                                 )),
                             )
-                            .child(if runtime_started {
+                            .child(if has_logs {
                                 div()
                                     .id("install-log-toggle")
                                     .h(px(38.0))
@@ -3211,7 +4286,7 @@ impl MetalSharpApp {
                                     }))
                                     .cursor_pointer()
                                     .on_click(cx.listener(|this, _, _, cx| {
-                                        this.install_log_open = !this.install_log_open;
+                                        this.live.setup.log_open = !this.live.setup.log_open;
                                         cx.notify();
                                     }))
                                     .child("▤")
@@ -3228,14 +4303,13 @@ impl MetalSharpApp {
                             .flex_col()
                             .gap(px(10.0))
                             .child(
-                                render_simple_install_button(
+                                render_install_button(
                                     "install-steam",
                                     steam_label,
+                                    steam_installing,
                                     steam_installed,
-                                    !setup_ready
-                                        || !runtime_ready
-                                        || steam_installing
-                                        || steam_installed,
+                                    0,
+                                    runtime_ready && !steam_installing && !steam_installed,
                                 )
                                 .on_click(cx.listener(
                                     |this, _, _, cx| {
@@ -3253,11 +4327,11 @@ impl MetalSharpApp {
                             }),
                     ),
             )
-            .child(if install_log_open {
-                div()
+            .child(if install_log_open && has_logs {
+                let mut log = div()
                     .id("setup-install-log")
                     .mt(px(14.0))
-                    .max_h(px(110.0))
+                    .max_h(px(160.0))
                     .overflow_y_scroll()
                     .rounded(px(10.0))
                     .border_1()
@@ -3268,30 +4342,38 @@ impl MetalSharpApp {
                     .text_size(px(11.5))
                     .line_height(px(18.0))
                     .font_family("SF Mono")
-                    .text_color(rgb(if runtime_ready { 0x7cbf6a } else { 0xefe6d3 }))
-                    .child(if runtime_ready {
-                        copy.install_complete.clone()
-                    } else {
-                        copy.install_runtime.clone()
-                    })
+                    .flex()
+                    .flex_col();
+                for (text, class) in logs {
+                    let color = match class {
+                        LogClass::Success => 0x7cbf6a,
+                        LogClass::Warn => 0xd8a84b,
+                        LogClass::Error => 0xd66a6a,
+                        LogClass::Active => 0xefe6d3,
+                        LogClass::Info => 0x9aa09e,
+                    };
+                    log = log.child(div().text_color(rgb(color)).child(text));
+                }
+                log
             } else {
                 div().id("setup-install-log-placeholder").h(px(0.0))
             })
     }
 
     fn start_runtime_install(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = self.connected.clone() {
-            session.update(cx, |session, cx| session.setup_install_runtime(cx));
+        if self.live.enabled {
+            self.setup_start_install(cx);
             return;
         }
-        if self.runtime_installing || self.runtime_installed {
+        let flow = &mut self.live.setup;
+        if flow.installing || flow.runtime_ready() {
             return;
         }
-        // This page is a UI preview: installation progress is simulated and
-        // never invokes the real runtime installer or modifies user data.
-        self.runtime_installing = true;
-        self.runtime_started = true;
-        self.runtime_progress = 0;
+        // Offline preview only: installation progress is simulated.
+        flow.installing = true;
+        flow.install_progress = 0;
+        flow.install_logs
+            .push(("Starting installation...".into(), LogClass::Info));
         cx.notify();
         cx.spawn(async move |this, cx| {
             for progress in [12, 27, 46, 68, 84, 100] {
@@ -3299,13 +4381,13 @@ impl MetalSharpApp {
                     .timer(std::time::Duration::from_millis(450))
                     .await;
                 let _ = this.update(cx, |this, cx| {
-                    this.runtime_progress = progress;
+                    this.live.setup.install_progress = progress;
                     cx.notify();
                 });
             }
             let _ = this.update(cx, |this, cx| {
-                this.runtime_installing = false;
-                this.runtime_installed = true;
+                this.live.setup.installing = false;
+                this.live.setup.install_status = "complete".into();
                 cx.notify();
             });
         })
@@ -3313,23 +4395,23 @@ impl MetalSharpApp {
     }
 
     fn start_steam_install(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = self.connected.clone() {
-            session.update(cx, |session, cx| session.setup_install_steam(cx));
+        if self.live.enabled {
+            self.setup_install_steam(cx);
             return;
         }
-        if !self.runtime_installed || self.steam_installing || self.steam_installed {
+        let flow = &mut self.live.setup;
+        if !flow.runtime_ready() || flow.steam_installing || flow.steam_installed {
             return;
         }
-        // Steam is likewise simulated; the preview never downloads or runs it.
-        self.steam_installing = true;
+        flow.steam_installing = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(2))
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.steam_installing = false;
-                this.steam_installed = true;
+                this.live.setup.steam_installing = false;
+                this.live.setup.steam_installed = true;
                 cx.notify();
             });
         })
@@ -3337,6 +4419,21 @@ impl MetalSharpApp {
     }
 }
 
+fn open_help(purpose: crate::mini_browser::BrowserPurpose, url: &'static str, cx: &mut App) {
+    #[cfg(target_os = "macos")]
+    {
+        if let (Ok(request), Some(mtm)) = (
+            crate::mini_browser::MiniBrowserRequest::new(purpose, url, "MetalSharp account help"),
+            objc2::MainThreadMarker::new(),
+        ) {
+            if crate::mini_browser::open_native(mtm, request, Box::new(|_| {})).is_ok() {
+                return;
+            }
+        }
+    }
+    let _ = purpose;
+    cx.open_url(url);
+}
 fn render_welcome_body(copy: &SetupCopy) -> gpui::Div {
     div()
         .mt(px(8.0))
@@ -3379,8 +4476,24 @@ fn render_welcome_body(copy: &SetupCopy) -> gpui::Div {
 fn render_done_body(
     copy: &SetupCopy,
     fields: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
-    session: Option<gpui::Entity<crate::connected::ConnectedApp>>,
+    _cx: &mut Context<MetalSharpApp>,
 ) -> gpui::Div {
+    let tip = |title: String, text: String| {
+        div()
+            .text_size(px(12.5))
+            .line_height(px(19.0))
+            .text_color(rgb(MUTED))
+            .child(
+                gpui::StyledText::new(format!("{title} — {text}")).with_highlights(vec![(
+                    0..title.len(),
+                    gpui::HighlightStyle {
+                        color: Some(rgb(0xeceae3).into()),
+                        font_weight: Some(FontWeight::SEMIBOLD),
+                        ..Default::default()
+                    },
+                )]),
+            )
+    };
     div()
         .mt(px(8.0))
         .flex()
@@ -3420,15 +4533,33 @@ fn render_done_body(
                     format!("{} steamcommunity.com/dev/apikey", copy.api_hint),
                     "steam-api-key",
                     fields.as_ref().map(|fields| fields[1].clone()),
-                    session.as_ref().map(|session| (session.clone(), false)),
+                    Some((
+                        crate::mini_browser::BrowserPurpose::SteamApiKeyHelp,
+                        "https://steamcommunity.com/dev/apikey",
+                    )),
                 ))
                 .child(render_done_form_group(
                     copy.the_games_db_api_key.clone(),
                     copy.the_games_db_api_placeholder.clone(),
-                    format!("{} api.thegamesdb.net/key.php", copy.the_games_db_api_hint),
+                    format!("{} TheGamesDB", copy.the_games_db_api_hint),
                     "thegamesdb-api-key",
                     fields.as_ref().map(|fields| fields[2].clone()),
-                    session.map(|session| (session, true)),
+                    Some((
+                        crate::mini_browser::BrowserPurpose::TheGamesDbHelp,
+                        "https://api.thegamesdb.net/key.php",
+                    )),
+                )),
+        )
+        .child(
+            div()
+                .mt(px(20.0))
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(tip(copy.start_steam.clone(), copy.start_steam_text.clone()))
+                .child(tip(
+                    copy.first_launch.clone(),
+                    copy.first_launch_text.clone(),
                 )),
         )
 }
@@ -3439,7 +4570,7 @@ fn render_done_form_group(
     hint: String,
     id: &'static str,
     input: Option<gpui::Entity<crate::search_input::SearchInput>>,
-    help: Option<(gpui::Entity<crate::connected::ConnectedApp>, bool)>,
+    help: Option<(crate::mini_browser::BrowserPurpose, &'static str)>,
 ) -> gpui::Div {
     let field = if let Some(input) = input {
         div().w_full().child(input)
@@ -3469,7 +4600,7 @@ fn render_done_form_group(
                 .bg(rgb(0x191c1f))
                 .px(px(12.0))
                 .text_size(px(13.0))
-                .text_color(rgb(0x777d7a))
+                .text_color(rgb(0xeceae3))
                 .child(field),
         )
         .child(
@@ -3479,8 +4610,8 @@ fn render_done_form_group(
                 .text_color(rgb(0x838987))
                 .when(help.is_some(), |style| style.cursor_pointer().underline())
                 .on_click(move |_, _, cx| {
-                    if let Some((session, gamesdb)) = &help {
-                        session.update(cx, |session, cx| session.setup_key_help(*gamesdb, cx));
+                    if let Some((purpose, url)) = help {
+                        open_help(purpose, url, cx);
                     }
                 })
                 .child(hint),
@@ -3559,36 +4690,6 @@ fn render_install_button(
     }))
 }
 
-fn render_simple_install_button(
-    id: &'static str,
-    label: String,
-    complete: bool,
-    disabled: bool,
-) -> gpui::Stateful<gpui::Div> {
-    let mut button = div()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .h(px(52.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(10.0))
-        .bg(rgb(if complete { 0x3d9a58 } else { 0xefe7d6 }))
-        .opacity(if disabled && !complete { 0.4 } else { 1.0 })
-        .text_size(px(14.0))
-        .font_weight(FontWeight::BOLD)
-        .text_color(rgb(if complete { 0xffffff } else { 0x14161a }));
-    if !disabled && !complete {
-        button = button.cursor_pointer();
-    }
-    button.child(if complete {
-        format!("✓  {label}")
-    } else {
-        label
-    })
-}
-
 fn render_feature(
     icon: &'static str,
     title: String,
@@ -3645,174 +4746,6 @@ mod tests {
     use super::{LANGUAGES, MetalSharpApp, SetupCopy};
     use std::collections::HashMap;
 
-    #[gpui::test]
-    fn connected_setup_never_falls_back_to_synthetic_installation(cx: &mut gpui::TestAppContext) {
-        let config = crate::backend_host::HostConfig {
-            port: 0,
-            home: "/should-not-create/gpui-virtual-fixture".into(),
-            binary: "/missing-fixture-backend".into(),
-            resources: "/missing-fixture-resources".into(),
-            validation: true,
-        };
-        // Invalid port is rejected before sockets, home creation or child spawn.
-        // The virtual GPUI window uses a mock platform, not the desktop.
-        let window = cx.add_window(|_, cx| MetalSharpApp::new_connected_setup(config, cx));
-        window
-            .update(cx, |app, _, cx| {
-                let fields = app.connected.as_ref().unwrap().read(cx).setup_inputs();
-                assert!(!fields[0].read(cx).secret);
-                assert!(fields[1].read(cx).secret && fields[2].read(cx).secret);
-                app.step = 1;
-                app.start_runtime_install(cx);
-                app.start_steam_install(cx);
-                assert!(!app.setup_can_advance(cx));
-            })
-            .unwrap();
-        cx.run_until_parked();
-        cx.executor()
-            .advance_clock(std::time::Duration::from_secs(5));
-        cx.run_until_parked();
-        window
-            .update(cx, |app, _, cx| {
-                assert!(app.show_setup);
-                assert!(!app.runtime_installing);
-                assert!(!app.runtime_installed);
-                assert!(!app.steam_installed);
-                assert_eq!(app.runtime_progress, 0);
-                assert!(!app.setup_can_advance(cx));
-            })
-            .unwrap();
-    }
-    #[gpui::test]
-    fn connected_streaming_never_simulates_unavailable_host_and_clears_pin(
-        cx: &mut gpui::TestAppContext,
-    ) {
-        let config = crate::backend_host::HostConfig {
-            port: 0,
-            home: "/should-not-create/streaming-fixture".into(),
-            binary: "/missing-fixture-backend".into(),
-            resources: "/missing-fixture-resources".into(),
-            validation: true,
-        };
-        let window = cx.add_window(|_, cx| MetalSharpApp::new_connected_workbench(config, cx));
-        cx.run_until_parked();
-        window
-            .update(cx, |app, _, cx| {
-                let session = app.connected.clone().unwrap();
-                session.update(cx, |session, cx| session.open_streaming(cx));
-                let pin = session.read(cx).streaming_view().2;
-                assert!(pin.read(cx).secret);
-                pin.update(cx, |input, cx| {
-                    input.content = "0042".into();
-                    cx.notify();
-                });
-                session.update(cx, |session, cx| {
-                    session.streaming_command(crate::streaming::StreamingAction::Install, cx);
-                    session.streaming_command(crate::streaming::StreamingAction::Start, cx);
-                    session.streaming_pair(cx);
-                    // A remembered successful state must become unavailable when
-                    // the retained owned host is absent, not stay actionable.
-                    session.fixture_streaming_status(
-                        Some(crate::streaming::StreamingStatus {
-                            installed: true,
-                            running: true,
-                            creds_valid: true,
-                            ..Default::default()
-                        }),
-                        cx,
-                    );
-                    session.streaming_command(crate::streaming::StreamingAction::Stop, cx);
-                });
-                assert!(session.read(cx).streaming_view().0.is_none());
-                assert!(!app.streaming_installed && !app.streaming_running);
-                app.close_streaming_panel(cx);
-                assert!(pin.read(cx).content.is_empty());
-            })
-            .unwrap();
-        cx.run_until_parked();
-        window
-            .update(cx, |app, _, cx| {
-                assert!(!app.streaming_open);
-                assert!(
-                    app.connected
-                        .as_ref()
-                        .unwrap()
-                        .read(cx)
-                        .streaming_view()
-                        .0
-                        .is_none()
-                );
-                assert!(!app.show_setup);
-            })
-            .unwrap();
-    }
-    #[gpui::test]
-    fn unpair_confirmation_is_revoked_on_status_loss_recovery_and_expiry(
-        cx: &mut gpui::TestAppContext,
-    ) {
-        let config = crate::backend_host::HostConfig {
-            port: 0,
-            home: "/should-not-create/unpair-fixture".into(),
-            binary: "/missing-fixture-backend".into(),
-            resources: "/missing-fixture-resources".into(),
-            validation: true,
-        };
-        let window = cx.add_window(|_, cx| MetalSharpApp::new_connected_workbench(config, cx));
-        cx.run_until_parked();
-        let ready = || {
-            Some(crate::streaming::StreamingStatus {
-                installed: true,
-                running: true,
-                creds_valid: true,
-                ..Default::default()
-            })
-        };
-        window
-            .update(cx, |app, _, cx| {
-                app.connected.as_ref().unwrap().update(cx, |session, cx| {
-                    session.fixture_streaming_status(ready(), cx)
-                });
-            })
-            .unwrap();
-        cx.run_until_parked();
-        window
-            .update(cx, |app, _, cx| {
-                app.streaming_unpair_confirm = true;
-                app.streaming_unpair_deadline =
-                    Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
-                app.connected
-                    .as_ref()
-                    .unwrap()
-                    .update(cx, |session, cx| session.fixture_streaming_status(None, cx));
-            })
-            .unwrap();
-        cx.run_until_parked();
-        window
-            .update(cx, |app, _, cx| {
-                assert!(!app.streaming_unpair_confirm);
-                app.connected.as_ref().unwrap().update(cx, |session, cx| {
-                    session.fixture_streaming_status(ready(), cx)
-                });
-            })
-            .unwrap();
-        cx.run_until_parked();
-        window
-            .update(cx, |app, _, cx| {
-                assert!(!app.streaming_unpair_confirm);
-                app.streaming_unpair_confirm = true;
-                app.streaming_unpair_deadline =
-                    Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
-                app.connected
-                    .as_ref()
-                    .unwrap()
-                    .update(cx, |_, cx| cx.notify());
-            })
-            .unwrap();
-        cx.run_until_parked();
-        window
-            .update(cx, |app, _, _| assert!(!app.streaming_unpair_confirm))
-            .unwrap();
-    }
     #[test]
     fn narrow_library_uses_short_search_copy() {
         assert_eq!(super::library_search_placeholder(720.0), "Search");
@@ -3823,6 +4756,7 @@ mod tests {
         );
         let app = MetalSharpApp::new();
         assert!(!app.streaming_open && !app.streaming_installed && !app.streaming_running);
+        assert!(!app.live.enabled);
     }
 
     #[test]
@@ -3846,84 +4780,34 @@ mod tests {
         assert_eq!(light.button_border(), 0xffffff);
         assert_eq!(light.border(), 0xffffff);
         assert_eq!(light.dock_glow(), 0xfff3dc);
-        for icon in ["theme-skeleton.svg", "theme-forest.svg", "theme-orange.svg"] {
-            assert!(
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("assets")
-                    .join(icon)
-                    .is_file()
-            );
+        for theme in super::PreviewTheme::ALL {
+            assert!(!theme.storage_id().is_empty());
         }
     }
 
     #[test]
-    fn preview_search_filters_games_and_scrolls_only_matching_results() {
+    fn search_filters_games_and_scrolls_only_matching_results() {
         let mut app = MetalSharpApp::new();
         app.search_query = "  PORTAL  ".into();
-        assert_eq!(app.matching_preview_games(), vec![5]);
-        app.select_preview_game(5);
-        app.scroll_preview_dock(1);
-        assert_eq!((app.selected_game, app.dock_start), (5, 0));
-        app.search_query = "e".into();
-        let matches = app.matching_preview_games();
-        app.select_preview_game(matches[0]);
-        for _ in 0..20 {
-            app.scroll_preview_dock(1);
-        }
-        assert_eq!(app.dock_start, matches.len().saturating_sub(5));
-        assert!(matches.contains(&app.selected_game));
+        assert_eq!(app.matching_games(), vec![5]);
         app.search_query = "no game matches this".into();
-        assert!(app.matching_preview_games().is_empty());
-        app.dock_start = 0;
-        app.scroll_preview_dock(1);
-        assert_eq!(app.dock_start, 0);
+        assert!(app.matching_games().is_empty());
+        app.search_query.clear();
+        assert_eq!(app.matching_games().len(), super::LIBRARY_GAMES.len());
     }
 
     #[test]
     fn sample_library_has_twenty_distinct_games_with_bundled_artwork() {
         let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
         let mut names = std::collections::HashSet::new();
-        let mut covers = std::collections::HashSet::new();
-        let mut heroes = std::collections::HashSet::new();
         for (name, cover, hero) in super::LIBRARY_GAMES {
             assert!(names.insert(name), "duplicate game name: {name}");
-            assert!(covers.insert(cover), "duplicate cover: {cover}");
-            assert!(heroes.insert(hero), "duplicate hero: {hero}");
             for file in [cover, hero] {
                 let bytes = std::fs::read(assets.join(file)).expect("bundled image missing");
                 assert!(bytes.starts_with(&[0xff, 0xd8]), "not a JPEG: {file}");
             }
         }
         assert_eq!(names.len(), 20);
-    }
-
-    #[test]
-    fn expanded_preview_dock_scrolls_both_directions_and_stops_at_ends() {
-        let mut app = MetalSharpApp::new();
-        let last_start = super::LIBRARY_GAMES.len() - super::DOCK_VISIBLE_CARDS;
-        assert!(last_start >= 10);
-        app.scroll_preview_dock(-1);
-        assert_eq!((app.dock_start, app.selected_game), (0, 0));
-        for expected in 1..=last_start {
-            app.scroll_preview_dock(1);
-            assert_eq!(app.dock_start, expected);
-            assert!(app.selected_game >= expected && app.selected_game < expected + 5);
-        }
-        let last_selected = app.selected_game;
-        app.scroll_preview_dock(1);
-        assert_eq!(
-            (app.dock_start, app.selected_game),
-            (last_start, last_selected)
-        );
-        for expected in (0..last_start).rev() {
-            app.scroll_preview_dock(-1);
-            assert_eq!(app.dock_start, expected);
-            assert!(app.selected_game >= expected && app.selected_game < expected + 5);
-        }
-        app.select_preview_game(super::LIBRARY_GAMES.len() - 1);
-        assert_eq!(app.dock_start, last_start);
-        app.select_preview_game(0);
-        assert_eq!(app.dock_start, 0);
     }
 
     #[test]
@@ -3935,53 +4819,10 @@ mod tests {
         }
         assert_eq!(super::dock_card_lift(2, 2), -16.0);
         assert_eq!(super::dock_card_lift(1, 2), super::dock_card_lift(3, 2));
-        assert!(super::dock_card_lift(0, 2) > super::dock_card_lift(1, 2));
-        assert_eq!(super::dock_card_angle(0), -super::dock_card_angle(4));
         assert_eq!(
             (0..5).map(super::dock_card_angle).collect::<Vec<_>>(),
             [-6, -3, 0, 3, 6]
         );
-        for selected in 0usize..5 {
-            for index in 0usize..5 {
-                let baseline = index.abs_diff(2) as f32 * 7.0;
-                assert_eq!(
-                    super::dock_card_lift(index, selected),
-                    baseline - if index == selected { 16.0 } else { 0.0 }
-                );
-            }
-        }
-        for (_, cover, _) in super::LIBRARY_GAMES {
-            for slot in 0..super::DOCK_VISIBLE_CARDS {
-                let angle = super::dock_card_angle(slot);
-                if angle == 0 {
-                    continue;
-                }
-                let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("assets/dock")
-                    .join(format!("{}-{angle}.png", cover.trim_end_matches(".jpg")));
-                assert!(path.is_file(), "missing tilted artwork: {}", path.display());
-            }
-        }
-    }
-
-    #[test]
-    fn preview_game_settings_are_independent_and_memory_only() {
-        let mut app = MetalSharpApp::new();
-        assert_eq!(app.game_preferences.len(), super::LIBRARY_GAMES.len());
-        app.game_preferences[0].pipeline = 5;
-        app.game_preferences[0].metal_fx = 0;
-        app.game_preferences[0].controller = 2;
-        app.game_preferences[0].msync = false;
-        app.game_preferences[0].executable = Some("preview-only.exe".to_string());
-        assert_eq!(app.game_preferences[1].pipeline, 0);
-        assert_eq!(app.game_preferences[1].metal_fx, 1);
-        assert_eq!(app.game_preferences[1].controller, 0);
-        assert!(app.game_preferences[1].msync);
-        assert!(app.game_preferences[1].executable.is_none());
-        let fresh = MetalSharpApp::new();
-        assert!(fresh.game_preferences[0].executable.is_none());
-        assert_eq!(fresh.game_preferences[0].pipeline, 0);
-        assert_eq!(fresh.game_preferences[0].metal_fx, 1);
     }
 
     #[test]
@@ -3994,28 +4835,20 @@ mod tests {
                 .get(code)
                 .unwrap_or_else(|| panic!("missing {code}"));
             assert_eq!(copy.titles.len(), 3, "invalid titles for {code}");
-            assert!(!copy.titles[0].is_empty(), "missing title for {code}");
-            assert!(
-                !copy.titles[1].is_empty(),
-                "missing runtime title for {code}"
-            );
             assert!(
                 !copy.runtime_lede.is_empty(),
                 "missing runtime copy for {code}"
             );
             assert!(
-                !copy.device_name.is_empty(),
-                "missing device label for {code}"
+                !copy.steam_install_timed_out.is_empty(),
+                "missing steam timeout for {code}"
             );
-            assert!(!copy.api_key.is_empty(), "missing API-key label for {code}");
             assert!(
-                !copy.the_games_db_api_key.is_empty(),
-                "missing GamesDB label for {code}"
+                !copy.downloading_steam.is_empty(),
+                "missing steam stage for {code}"
             );
             assert!(!copy.launch.is_empty(), "missing launch label for {code}");
-            assert!(!copy.get_started.is_empty(), "missing CTA for {code}");
             assert_eq!(copy.steps.len(), 3, "invalid step labels for {code}");
         }
-        assert_ne!(locales["en"].titles[0], locales["es"].titles[0]);
     }
 }

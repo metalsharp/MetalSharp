@@ -7,17 +7,31 @@ use gpui::{
 
 #[derive(Clone)]
 struct PreviewLogFile {
-    name: &'static str,
+    name: String,
     lines: Vec<String>,
 }
 #[derive(Clone)]
 struct PreviewCrash {
-    name: &'static str,
-    pipeline: &'static str,
-    source: &'static str,
-    timestamp: &'static str,
+    name: String,
+    pipeline: String,
+    source: String,
+    timestamp: String,
     bytes: usize,
-    file: &'static str,
+    file: String,
+}
+
+fn crash_pipeline(raw: &str) -> &'static str {
+    match raw.trim().to_lowercase().as_str() {
+        "vkd3d" => "VKD3D",
+        "d3d9" | "m9" | "dxvk" | "dxvk_32" => "D3D9",
+        "dxmt" | "m10" | "m11" => "DXMT",
+        "dxmt_32" | "m10_32" | "m11_32" => "DXMT(32)",
+        "fna_arm64" | "fna_x86" => "FNA/Mono",
+        "d3dmetal" => "D3DMetal",
+        "m13" => "M13",
+        "system" => "System",
+        _ => "Other",
+    }
 }
 
 pub struct LogsPreview {
@@ -28,9 +42,169 @@ pub struct LogsPreview {
     open: [bool; 3],
     live_scroll: gpui::ScrollHandle,
     notice: Option<&'static str>,
+    live: bool,
+    active: bool,
+    polling: bool,
+    line_count: u64,
 }
 
 impl LogsPreview {
+    pub fn attach_live(&mut self, cx: &mut gpui::Context<Self>) {
+        if crate::live::Live::get(cx).is_none() {
+            return;
+        }
+        self.live = true;
+        self.lines.clear();
+        self.files.clear();
+        self.crashes.clear();
+    }
+
+    /// LogsView mount/unmount: poll `/logs/stream` every 2 s while visible.
+    pub fn set_active(&mut self, active: bool, cx: &mut gpui::Context<Self>) {
+        if !self.live || self.active == active {
+            return;
+        }
+        self.active = active;
+        if !active {
+            return;
+        }
+        self.poll_logs(cx);
+        self.load_crash_reports(cx);
+        self.load_log_files(cx);
+        if self.polling {
+            return;
+        }
+        self.polling = true;
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(2))
+                    .await;
+                let keep = this.update(cx, |this, cx| {
+                    if !this.active {
+                        this.polling = false;
+                        return false;
+                    }
+                    this.poll_logs(cx);
+                    true
+                });
+                if !matches!(keep, Ok(true)) {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn poll_logs(&mut self, cx: &mut Context<Self>) {
+        let after = self.line_count;
+        crate::live::call(
+            cx,
+            "GET",
+            format!("/logs/stream?after={after}"),
+            None,
+            crate::live::DEFAULT_TIMEOUT,
+            |this, result, cx| {
+                let Some(result) = result.filter(crate::live::is_ok) else {
+                    return;
+                };
+                if let Some(lines) = result.get("lines").and_then(serde_json::Value::as_array) {
+                    if !lines.is_empty() {
+                        this.lines
+                            .extend(lines.iter().filter_map(|l| l.as_str().map(str::to_owned)));
+                        if this.open[0] {
+                            this.live_scroll.scroll_to_bottom();
+                        }
+                    }
+                }
+                if let Some(total) = result.get("total").and_then(serde_json::Value::as_u64) {
+                    this.line_count = total;
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    fn load_crash_reports(&mut self, cx: &mut Context<Self>) {
+        crate::live::call(
+            cx,
+            "GET",
+            "/logs/crash-reports",
+            None,
+            crate::live::DEFAULT_TIMEOUT,
+            |this, result, cx| {
+                let Some(result) = result.filter(crate::live::is_ok) else {
+                    return;
+                };
+                let Some(reports) = result.get("reports").and_then(serde_json::Value::as_array)
+                else {
+                    return;
+                };
+                if reports.is_empty() {
+                    return;
+                }
+                let text = |v: &serde_json::Value, k: &str| {
+                    v.get(k)
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("")
+                        .to_owned()
+                };
+                this.crashes = reports
+                    .iter()
+                    .take(20)
+                    .map(|r| PreviewCrash {
+                        name: text(r, "name"),
+                        pipeline: crash_pipeline(&text(r, "pipeline")).to_owned(),
+                        source: text(r, "source"),
+                        timestamp: text(r, "timestamp"),
+                        bytes: r
+                            .get("size_bytes")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0) as usize,
+                        file: text(r, "file"),
+                    })
+                    .collect();
+                cx.notify();
+            },
+        );
+    }
+
+    fn load_log_files(&mut self, cx: &mut Context<Self>) {
+        crate::live::call(
+            cx,
+            "GET",
+            "/logs",
+            None,
+            crate::live::DEFAULT_TIMEOUT,
+            |this, result, cx| {
+                let Some(result) = result.filter(crate::live::is_ok) else {
+                    return;
+                };
+                this.files = result
+                    .get("logs")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .map(|file| PreviewLogFile {
+                        name: file
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                            .to_owned(),
+                        lines: file
+                            .get("lines")
+                            .and_then(serde_json::Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|l| l.as_str().map(str::to_owned))
+                            .collect(),
+                    })
+                    .collect();
+                cx.notify();
+            },
+        );
+    }
+
     pub fn new() -> Self {
         let mut lines = vec![
             "[PREVIEW] Synthetic diagnostics only — no production logs are read.".into(),
@@ -47,11 +221,11 @@ impl LogsPreview {
         }
         let files = vec![
             PreviewLogFile {
-                name: "preview-runtime.log",
+                name: "preview-runtime.log".into(),
                 lines: lines.iter().take(8).cloned().collect(),
             },
             PreviewLogFile {
-                name: "preview-launch.log",
+                name: "preview-launch.log".into(),
                 lines: vec![
                     "[PREVIEW] engine: DXMT · synthetic launch diagnostics".into(),
                     "[PREVIEW] [LAUNCHED] Hades · simulated session".into(),
@@ -66,35 +240,40 @@ impl LogsPreview {
             open: [false; 3],
             live_scroll: gpui::ScrollHandle::new(),
             notice: None,
+            live: false,
+            active: false,
+            polling: false,
+            line_count: 0,
             crashes: vec![
                 PreviewCrash {
-                    name: "preview-vkd3d.ips",
-                    pipeline: "VKD3D",
-                    source: "Synthetic macOS report",
-                    timestamp: "2026-10-03 12:00:12",
+                    name: "preview-vkd3d.ips".into(),
+                    pipeline: "VKD3D".into(),
+                    source: "Synthetic macOS report".into(),
+                    timestamp: "2026-10-03 12:00:12".into(),
                     bytes: 18432,
-                    file: "preview://crash-reports/preview-vkd3d.ips",
+                    file: "preview://crash-reports/preview-vkd3d.ips".into(),
                 },
                 PreviewCrash {
-                    name: "preview-dxmt.ips",
-                    pipeline: "DXMT",
-                    source: "Synthetic Wine report",
-                    timestamp: "2026-10-03 11:59:45",
+                    name: "preview-dxmt.ips".into(),
+                    pipeline: "DXMT".into(),
+                    source: "Synthetic Wine report".into(),
+                    timestamp: "2026-10-03 11:59:45".into(),
                     bytes: 32768,
-                    file: "preview://crash-reports/preview-dxmt.ips",
+                    file: "preview://crash-reports/preview-dxmt.ips".into(),
                 },
                 PreviewCrash {
-                    name: "preview-d3dmetal.ips",
-                    pipeline: "D3DMetal",
-                    source: "Synthetic macOS report",
-                    timestamp: "2026-10-03 11:58:00",
+                    name: "preview-d3dmetal.ips".into(),
+                    pipeline: "D3DMetal".into(),
+                    source: "Synthetic macOS report".into(),
+                    timestamp: "2026-10-03 11:58:00".into(),
                     bytes: 8192,
-                    file: "preview://crash-reports/preview-d3dmetal.ips",
+                    file: "preview://crash-reports/preview-d3dmetal.ips".into(),
                 },
             ],
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn append_preview_event(&mut self, message: impl Into<String>) {
         self.lines.push(message.into());
         // Cap synthetic history so a long UI-review session does not accumulate unbounded memory.
@@ -107,6 +286,7 @@ impl LogsPreview {
     }
 
     fn clear_view(&mut self) {
+        self.line_count = 0;
         self.lines.clear();
         self.files.clear();
         self.crashes.clear();
@@ -247,6 +427,10 @@ impl Render for LogsPreview {
                 .child(self.section_button(0, "Live", cx)).child(self.section_button(1, "Crash Reports", cx)).child(self.section_button(2, "Log Files", cx)))
             .child(div().flex().items_center()
                 .child(action("logs-open-folder", "Open Logs").on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(live) = crate::live::Live::get(cx) {
+                        let _ = crate::host_actions::open_folder(&live.home().join("logs"));
+                        return;
+                    }
                     this.notice = Some("Isolated preview: Open Logs is simulated; no production log folder is accessed."); cx.notify();
                 })))
                 .child(action("logs-copy", "Copy").opacity(if self.lines.is_empty() { 0.4 } else { 1.0 })
@@ -375,7 +559,7 @@ impl Render for LogsPreview {
                     let reports: Vec<_> = self
                         .crashes
                         .iter()
-                        .filter(|report| report.pipeline == pipeline)
+                        .filter(|report| report.pipeline.as_str() == pipeline)
                         .collect();
                     if reports.is_empty() {
                         continue;
@@ -406,7 +590,7 @@ impl Render for LogsPreview {
                                     div()
                                         .font_weight(FontWeight::BOLD)
                                         .text_color(rgb(0xf0f0ed))
-                                        .child(report.name),
+                                        .child(report.name.clone()),
                                 )
                                 .child(div().text_color(rgb(0x8f958f)).child(format!(
                                     "{} - {} - {}",
@@ -418,7 +602,7 @@ impl Render for LogsPreview {
                                     div()
                                         .text_size(px(10.0))
                                         .text_color(rgb(0x8f958f))
-                                        .child(report.file),
+                                        .child(report.file.clone()),
                                 ),
                         );
                     }
@@ -454,7 +638,7 @@ impl Render for LogsPreview {
                                     .text_size(px(12.0))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(0xe6e8e6))
-                                    .child(file.name),
+                                    .child(file.name.clone()),
                             )
                             .child(
                                 div()

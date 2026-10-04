@@ -1,44 +1,43 @@
-# MetalSharp GPUI preview
+# MetalSharp GPUI app
 
-This is an isolated GPUI UI-parity preview for the main Library Play/Collection views, theme picker, and library header/footer. It opens on Play with a bundled 20-game sample library with distinct portrait covers and hero images; no Steam install, account, backend, production data, or network access is used at runtime. Header navigation, theme selection, local sample-game selection, and the setup preview are interactive. Header menus are button-relative overlays rendered above the hero, and search flexes within a 720 px maximum width with 20 px minimum space on both sides. Search is a native focusable text input with selection, clipboard editing, horizontal caret scrolling, and input-method handling; it filters the bundled preview games locally in Play and Collection. Light mode uses black input text/placeholder, white dropdowns with black text, white header/footer button outlines, and creamy-white dock glow. Skeleton, Forest, and Orange Peel use the original UI's Lucide bone, pine tree, and citrus icons. The hero settings popover provides per-sample-game MetalFX, controller input, and Msync selections plus a native Choose EXE picker. The Bottle control opens a selectable six-pipeline dropdown, with its selection stored per sample game. Card underglow uses blurred theme-colored shadows rather than solid rectangles. The hero image fills the resized hero bounds with aspect-preserving cover cropping. Dock cards scale to window width; selecting one raises it by 16 px from its normal slot. View All stays 32 px below the hero controls. The shallow arch and card angles are fixed around the dock's midpoint, independent of selection; selecting an end card does not tilt the rest of the row toward that end. Dock arrows scroll a five-card window through all 20 entries and stop at each end. The arch and artwork tilt are slot-relative, so adding entries does not reshape the fan. Choosing Play from Collection brings that game's dock window into view. Collection wraps proportionally sized cards into rows and scrolls independently of the fixed header/footer. The minimum preview window is 720×540. At narrow widths search displays only “Search”; Collection's Back to Play stays at the right of its heading. The footer Stream button opens the streaming panel, matching the Electron panel's Sunshine/Pair Device/Good to know sections, styles, copy, and scroll layout. Install/Start/Stop only change preview-memory state; PIN entry, pairing, web links, and device removal are disabled or inert. No Sunshine download, service launch, networking, or credential transmission occurs. Settings and selected paths exist only in preview memory; the picker never reads executable contents, runs the file, or saves to backend/production settings. Game launch, Steam actions, updater, search, and configuration controls do not call services or alter user data. Sharp Library now has all eight source previews, a button-anchored two-column source picker, source-local sample state, shared launch preferences, emulator overview/sidebar controls, and safe simulated dialogs. Its workspaces stretch vertically toward the footer; page-header controls use 12 px spacing. GameJolt's resizable browser frame is explicitly disabled offline. Logs has synthetic Live/Crash Reports/Recent Files drawers, nested scrolling, clipboard Copy, and memory-only Clear View. These pages still have documented visual and workflow gaps; see `PAGE-PARITY.md`. The approved eight-card Settings overlay opens directly from the header gear; credentials remain non-editable placeholders and dangerous actions require safe synthetic confirmations. See `SETTINGS-PARITY.md`. The three-page setup preview is available from Settings → Run Setup Wizard; its install actions are simulated and its fields remain visual placeholders.
+Native GPUI replacement for the Electron desktop app. A normal launch is the production app, exactly like Electron: it starts the packaged C backend on `127.0.0.1:9274` with `~/.metalsharp` (an orphaned or older `metalsharp-backend` on that port is terminated first, then a fresh one is spawned without a session token so `update.sh` and other local helpers can query `/status`), opens the setup wizard when `setup.json` is not completed or the runtime needs migration, and otherwise shows the library. Quitting the app stops the backend.
 
-Artwork for the additional 15 games comes from public Steam CDN library images; source URLs are recorded in `assets/preview-artwork-sources.json`. Artwork belongs to the respective game publishers and is bundled for this isolated local visual test, not a redistribution license or a runtime compatibility claim.
+Behaviour is ported 1:1 from the Electron renderer and main process:
+
+| Area | GPUI module | Electron source |
+|---|---|---|
+| Startup, migration mode, health polling, library load/merge, steamapps + grid-art watching, Play/Stop/running poll, hero settings (MetalFX, controller, msync, EXE, Steam Emu), Bottle selection, Steam/Ubisoft launchers, Fix Steam, setup wizard, updater, streaming, ⌘⌥Q force-quit | `src/ui.rs`, `src/ui_live.rs`, `src/library_model.rs` | `App.vue`, `LibraryView.vue`, `LibraryTopbar.vue`, `SetupWizard.vue`, `StreamingOverlay.vue`, `main/index.ts` |
+| Settings overlay | `src/settings_preview.rs` | `SettingsOverlay.vue` |
+| Sharp Library (Installers, GOG, Epic, GameJolt, PCSX2, RPCS3, shadPS4, SharpEmu) | `src/sharp_preview.rs`, `src/sharp_live.rs`, `src/sharp_live_view.rs`, `src/sharp_emu_live.rs` | `SharpView.vue`, `main/index.ts` OAuth/download handlers |
+| Logs | `src/logs_preview.rs` | `LogsView.vue` |
+| Backend lifecycle and requests | `src/backend_host.rs`, `src/live.rs` | `main/backend-bridge.ts`, `composables/useApi.ts` |
+| Updater handoff | `src/updater_bridge.rs` | `main/updater-bridge.ts` |
+| Artwork (Steam CDN, grid art, store details, SteamGridDB, tilted dock covers) | `src/artwork.rs` | `LibraryView.vue` artwork probing, `generate-dock-art.swift` |
+| Steam Art Manager, folders, data-access repair, uninstall, GameJolt download organizing | `src/host_actions.rs` | `main/index.ts` IPC handlers |
+| Launch overlay / global shortcut | `src/launch_overlay.rs`, `src/hotkeys.rs` | `showLaunchOverlay`, `registerForceQuitGamesShortcut` |
+| Toasts | `src/toast.rs` | `useToast.ts`, `Toast.vue` |
+
+GOG/Epic sign-in and the GameJolt store use the native WebKit browser in `src/mini_browser.rs`; GameJolt downloads are saved to `<GameJolt>/.downloads`, extracted into `<GameJolt>/<name>/` and synced, as Electron's `persist:gamejolt` session did.
 
 ## Build and run from the repository
 
 ```sh
-(cd app-gpui && swift generate-dock-art.swift)
-cargo run --locked --manifest-path app-gpui/Cargo.toml
-```
-
-This preview is deliberately isolated, does not access production app data, and does not require Steam to be installed. Main-library artwork and setup assets are bundled locally, so the preview makes no runtime requests for game art. Run it with:
-
-```sh
-cargo run --locked --manifest-path app-gpui/Cargo.toml
-```
-
-## Opt-in connected integration candidate (not full parity)
-
-The default app remains the approved offline preview. Explicit connected modes use a separate integration workbench, **not the final visual-parity UI**:
-
-```sh
 make -C app/src-c
-cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-validation
-# Approved setup layout, driven by the same real isolated backend:
-cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-setup-validation
+(cd app-gpui && swift generate-dock-art.swift)
+cargo run --locked --manifest-path app-gpui/Cargo.toml                          # production: :9274, ~/.metalsharp
+cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-validation   # isolated home on :9276
+cargo run --locked --manifest-path app-gpui/Cargo.toml -- --preview                # offline sample UI
 ```
 
-Validation defaults to port 9276 and a dedicated temporary data home. Override with `METALSHARP_GPUI_PORT`, `METALSHARP_GPUI_HOME` (absolute dedicated directory), and optionally `METALSHARP_GPUI_BACKEND`. Production port/home, parent traversal, and user-created symlink ancestors are rejected for validation. A distinct `--connected-production` flag opts into port 9274 and `~/.metalsharp`; **do not use it before backup and a user-approved acceptance plan**.
+Validation mode uses `METALSHARP_GPUI_PORT` (default 9276), `METALSHARP_GPUI_HOME` (absolute dedicated directory) and optionally `METALSHARP_GPUI_BACKEND`, and protects the owned backend with a per-launch session token. Production data and port are rejected for validation.
 
-Connected buttons send real C-backend requests for runtime/support installation and progress, Steam installation/status, Steam/Ubisoft start-stop, API-key save/sync, setup completion, library load, game install/launch-stop, and persisted pipeline/executable selections. They are not simulations. Isolating the data home is not OS sandboxing: installers and launchers can still interact with system dependencies. No installation, account login, API-key save or game launch has been exercised against real data during development.
+## Package
 
-GOG initialization/sign-in routes and the native callback-to-backend handoff are wired; Steam/TheGamesDB key-help links open the native browser. Epic support installation and automatic authorization-code completion are wired using the explicitly user-approved fixed, read-only extractor at the exact Epic JSON redirect endpoint; manual code submission remains a fallback. Native URL/document/generation checks reject stale or off-origin results, and bounded parsing rejects ambiguous code fields. Credentials clear from input controls after dispatch and errors do not print request/response bodies. Credential inputs are bullet-masked, IME queries return masked text, and secret copy/cut cannot export values. Provider live acceptance, progress/timeout UX, automatic host crash recovery (explicit owned-backend restart, child-liveness gating and isolated restart/crash ownership smoke tests are implemented), full Settings/Sharp/Logs integrations, production artwork and the approved library presentation remain required. The approved streaming panel now uses actual status/install/start/stop/PIN/unpair routes in connected modes; ordinary preview controls remain simulated. Its PIN is masked and cleared on dispatch/close; unpair requires a second confirmation. Polling is panel-scoped, and only an explicitly accepted installation can trigger one automatic host start on completion. Closing/reopening cancels that intent and stale responses. The fixed Sunshine Web UI opens in the system browser, never through a WebKit local-network-filter exception. Independent review led to fail-closed status invalidation after backend exit/mutation errors, expiring confirmation reset on lost readiness, and a post-completion polling cooldown (15 seconds normally, 3 during installation) so a slow Sunshine probe does not immediately monopolize the shared backend lane. A real-C isolated smoke read also verifies the streaming schema and session-header boundary without installing or starting Sunshine. Real service installation, permissions, credential recognition and device pairing remain unaccepted. Do not treat this workbench as parity completion or remove Electron.
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer app-gpui/package-app.sh
+```
 
-The connected setup command binds the approved three-page layout to real progress, dependency readiness, Steam status, editable device name, masked optional keys and backend completion. Missing readiness or migration requirements block advance/finalization; it never switches to the sample library on completion (the connected workbench follows until final-library integration is complete). Default launch remains unchanged and synthetic. Runtime preferences use partial `/config` updates that preserve unknown keys; connected diagnostics load on demand with bounded, credential-marker-redacted lines. Arbitrary third-party log safety is not guaranteed.
-
-GPUI-owned backend sessions require a fresh 256-bit per-launch header token. The backend consumes/unsets its token before helpers or games start, rejects unauthenticated requests before reading bodies/dispatching routes, and omits CORS permissions in this mode. Legacy standalone/Electron sessions retain their existing API behavior. Browser documents load only after WebKit resource-blocking rules compile/install: HTTP/WS, file resources, private IPv4, IPv6 literals and local DNS names are denied. This conservative filter does not inspect DNS-resolution results; backend authentication is the independent app-data boundary. No token enters pages, URLs or logs.
-
-Offline validation: 67 Rust tests passed (including authenticated streaming transport, nullable status/redaction, PIN rejection before transport, install-completion/cancellation and unavailable-host virtual-window checks), and the separately invoked ignored C-backend smoke test passed against a fresh temporary home (startup, PID/home ownership, empty Steam/Ubisoft libraries, graceful shutdown and port release, unauthenticated reads/writes rejected, session-token rotation, partial config persistence and unknown-key retention, bounded/redacted logs). Native connected SIGTERM also reaped its owned backend and closed its listener. Existing C tests passed; bundle-dependent runtime-ready simulation was skipped because archives were absent. These tests do not install Steam or validate real accounts/games.
+`package-app.sh` builds a release `MetalSharp.app` with the Electron app's identity (`com.metalsharp.app`, `Contents/MacOS/MetalSharp`, version from `app/package.json`, `metalsharp://` URL type), bundling the C backend, host runtime, tools, scripts/updater, configs and the six runtime archives from `app/bundles`. That identity is what `app/updater/update.sh` quits, verifies and replaces. The output is ad-hoc signed for local testing; release signing/notarization stays in the release workflow.
 
 ## Native browser acceptance harness
 
@@ -58,37 +57,9 @@ Local checks: native HTML rendered, read-only header verified, minimum resize cl
 
 The offline preview's macOS 13 bundle minimum is not proof of connected-mode deployment compatibility: the current C build targets macOS 14, and named GameJolt storage also requires 14. Resolve and test the production deployment target before release; no support-policy change is made by this preview.
 
-## Package a side-by-side local candidate
+## Side-by-side test package
 
-```sh
-app-gpui/package-local-preview.sh
-open app-gpui/target/MetalSharp-GPUI-Preview.app
-```
-
-To bundle the authoritative C backend, compression/icon tools, existing available runtime archives, config and updater resources for connected testing:
-
-```sh
-METALSHARP_GPUI_PACKAGE_BACKEND=1 app-gpui/package-local-preview.sh
-```
-
-This only builds/copies resources; it does not run installers or rebuild runtime archives. The connected package is ad-hoc signed and verified locally, but production resource completeness and release acceptance are still outstanding.
-
-The preview candidate has a separate `dev.metalsharp.gpui-preview` bundle identifier and is ad-hoc signed for local testing only. It is not notarized, published, or suitable for distribution. It bundles its UI image assets in `Contents/Resources/assets/` and makes no backend or production-data changes. The app icon source is `assets/metalsharp-liquid-glass.icon`, authored with Apple Icon Composer; packaging compiles its Liquid Glass `Assets.car` and legacy `.icns` with `actool` from full Xcode. If Xcode is not selected, set `DEVELOPER_DIR` to the Xcode bundle's `Contents/Developer` directory.
-
-## Build a connected GPUI test DMG
-
-This side-by-side local package is distinct from the synthetic preview: it bundles the C backend and the six verified runtime archives, launches the actual setup wizard, and uses the isolated validation home rather than `~/.metalsharp`. The backend is not started during packaging. Actions in the installed test app are real and run only after activation; setup's runtime/Steam installs write to the isolated test home. Other import or file actions can use explicitly selected destinations. It does not use the official app's data. The test app name and bundle ID are distinct so it can coexist with the official application.
-
-After the 0.77.0 release bundles have been downloaded and verified into `dist/bundles/metalsharp-bundle-manifest.tsv`, build the local DMG with full Xcode selected:
-
-```sh
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \\
-  app-gpui/package-local-testing-dmg.sh
-```
-
-The script checks all six bundle hashes against the manifest, rejects extra archives (including Electron and the D3D12 SDK), builds `MetalSharp-GPUI-Test.app` with the `connected-setup-default` Cargo feature, signs locally, creates the DMG, verifies the DMG checksum, and validates its bundled runtime assets. It does not install or launch the app. The output is `dist/gpui-testing/MetalSharp-GPUI-0.77.0-test-arm64.dmg`; this is an ad-hoc-signed local test artifact, not notarized or distributable.
-
-The native input in `src/search_input.rs` is adapted from GPUI 0.2.2's Apache-2.0 `examples/input.rs`; license included in `assets/gpui-input-LICENSE-APACHE`. Rethink Sans fonts retain their SIL Open Font License in `assets/RethinkSans-OFL.txt`. Theme SVGs come from Lucide's `bone`, `tree-pine`, and `citrus` icons under the ISC license in `assets/lucide-LICENSE.txt`.
+`package-local-preview.sh` (debug, `MetalSharp-GPUI-Preview.app`) and `package-local-testing-app.sh` / `package-local-testing-dmg.sh` (release, `MetalSharp-GPUI-Test.app`) build the same production app under separate bundle identities. They use the real `~/.metalsharp` and port 9274, so quit the Electron app first.
 
 ## Dock artwork
 
@@ -99,7 +70,7 @@ cd app-gpui
 swift generate-dock-art.swift
 ```
 
-This is a sample-artwork preview workaround, not a completed dynamic production-library rendering path.
+Real library covers get the same tilt at runtime: `artwork::render_tilted_card` reproduces this rotation for downloaded covers and caches the variants under `~/.metalsharp/cache/gpui-artwork/`.
 
 ## GPUI shader build
 
