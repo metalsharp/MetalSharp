@@ -17,7 +17,9 @@ CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo bu
 
 rm -rf "$BUNDLE"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/assets"
-ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-icon.XXXXXX").iconset"
+ICON_TMP="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-icon.XXXXXX")"
+ICONSET="$ICON_TMP/MetalSharp.iconset"
+trap 'rm -rf "$ICON_TMP"' EXIT
 mkdir -p "$ICONSET"
 for size in 16 32 128 256 512; do
   sips -s format png -z "$size" "$size" "$APP_DIR/assets/metalsharp-logo.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
@@ -27,7 +29,6 @@ for size in 16 32 128 256 512; do
   fi
 done
 iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/MetalSharp.icns"
-rm -rf "$ICONSET"
 install -m 0755 "$APP_DIR/target/debug/metalsharp-gpui" "$CONTENTS/MacOS/MetalSharp-GPUI"
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 
