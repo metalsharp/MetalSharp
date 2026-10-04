@@ -184,10 +184,6 @@
         ]
       },
       {
-        "from": "bundles/metalsharp-electron.tar.zst",
-        "to": "bundles/metalsharp-electron.tar.zst"
-      },
-      {
         "from": "bundles/metalsharp-graphics-dll.tar.zst",
         "to": "bundles/metalsharp-graphics-dll.tar.zst"
       },
@@ -210,10 +206,6 @@
       {
         "from": "bundles/metalsharp-steam.tar.zst",
         "to": "bundles/metalsharp-steam.tar.zst"
-      },
-      {
-        "from": "bundles/metalsharp-d3d12-developer-sdk.tar.zst",
-        "to": "bundles/metalsharp-d3d12-developer-sdk.tar.zst"
       },
       {
         "from": "tools/steam-art-manager",
