@@ -3179,12 +3179,18 @@ name = "metalsharp-gpui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block2",
  "gpui",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "rfd",
  "serde",
  "serde_json",
  "unicode-segmentation",
  "ureq",
+ "url",
 ]
 
 [[package]]
@@ -3582,6 +3588,20 @@ dependencies = [
  "objc2-core-foundation",
  "objc2-foundation",
  "objc2-metal",
+]
+
+[[package]]
+name = "objc2-web-kit"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91672909de8b1ce1c2252e95bbee8c1649c9ad9d14b9248b3d7b4c47903c47ad"
+dependencies = [
+ "bitflags 2.13.2",
+ "block2",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
 ]
 
 [[package]]
