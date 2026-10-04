@@ -4,7 +4,7 @@
 
 On 2026-10-03 the user reviewed the integrated preview and said: **“settings looks perfect now.”** Preserve this appearance; approval is not a pixel-diff certification or production-functionality claim.
 
-The authoritative view is `app/src/renderer/components/SettingsOverlay.vue`, opened by `LibraryTopbar.vue`, not the legacy standalone Settings view. `src/settings_preview.rs` implements its eight-card overlay, shared theme palette, fixed header, scrolling body, responsive card/row layout, source-backed labels, conditional controls and safe confirmation dialogs. The header gear opens it over the existing page without changing the page selection.
+The reference was the Electron `app/src/renderer/components/SettingsOverlay.vue`, opened by `LibraryTopbar.vue` (removed with the Electron app; see git history), not the legacy standalone Settings view. `src/settings_preview.rs` implements its eight-card overlay, shared theme palette, fixed header, scrolling body, responsive card/row layout, source-backed labels, conditional controls and safe confirmation dialogs. The header gear opens it over the existing page without changing the page selection.
 
 Wide-window capture: [approved Settings baseline](../docs/assets/gpui-preview-settings.png). Exhaustive minimum-window/seven-theme screenshot coverage remains pending; do not infer it from visual approval or source inspection. GPUI does not expose the original backdrop blur: translucent dimming is used. Preview safety messaging and synthetic values are intentional additions.
 
@@ -16,7 +16,7 @@ Run Setup Wizard opens the existing **simulated** setup flow. The independent re
 
 ## Localization
 
-`assets/settings-locales.json` contains 77 source-backed overlay/language-picker keys for 20 locales, retaining 19 existing English fallbacks. Regenerate with `node app-gpui/extract-settings-locales.cjs`, using the existing TypeScript compiler (`TYPESCRIPT_PATH` if needed). Extraction evaluates message definitions only, before `initialLocale()`; it does not instantiate Vue, access storage or call runtime APIs. Tests check every locale's key count, title/language labels and unsupported-locale English fallback.
+`assets/settings-locales.json` contains 77 source-backed overlay/language-picker keys for 20 locales, retaining 19 existing English fallbacks. It was extracted from the Electron renderer's i18n messages before that app was removed and is now maintained directly. Tests check every locale's key count, title/language labels and unsupported-locale English fallback.
 
 ## Validation and review
 

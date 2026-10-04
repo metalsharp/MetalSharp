@@ -4,16 +4,14 @@ on:
   pull_request:
     paths:
       - 'app-gpui/**'
-      - 'app/src-c/runtime/backend.c'
-      - 'app/src/renderer/**'
+      - 'app/src-c/**'
       - 'docs/architecture/gpui-backend-route-inventory.json'
       - '.github/workflows/gpui-preview.yml'
   push:
     branches: [main]
     paths:
       - 'app-gpui/**'
-      - 'app/src-c/runtime/backend.c'
-      - 'app/src/renderer/**'
+      - 'app/src-c/**'
       - 'docs/architecture/gpui-backend-route-inventory.json'
       - '.github/workflows/gpui-preview.yml'
 

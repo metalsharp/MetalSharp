@@ -124,8 +124,6 @@ STEAMPLIST
 /usr/bin/plutil -lint "$STEAM_HELPER/Info.plist" >/dev/null
 install -m 0755 "$CARGO_TARGET_DIR/$CARGO_PROFILE/metalsharp-gpui" "$CONTENTS/MacOS/$APP_EXECUTABLE"
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
-# First-launch intro video (App.vue startup overlay), shared with the Electron renderer.
-install -m 0644 "$ROOT/app/src/renderer/assets/MetalSharp-Startup.mp4" "$CONTENTS/Resources/assets/intro/MetalSharp-Startup.mp4"
 
 # Explicitly package the authoritative C backend/resources for connected testing.
 # This builds/copies only; it never launches the backend, installers or accounts.
@@ -154,7 +152,7 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   install -m 0755 "$ROOT/tools/install-homebrew.sh" "$CONTENTS/Resources/scripts/tools/install-homebrew.sh"
   cp -R "$ROOT/app/updater" "$CONTENTS/Resources/scripts/tools/"
   cp -R "$ROOT/configs" "$CONTENTS/Resources/"
-  # Do not rebuild archives or copy the Electron desktop payload or developer SDK.
+  # Do not rebuild archives or copy the developer SDK.
   BUNDLE_SOURCE="${METALSHARP_GPUI_BUNDLE_SOURCE:-$ROOT/app/bundles}"
   for archive in metalsharp-runtime metalsharp-assets metalsharp-graphics-dll metalsharp-scripts-tools metalsharp-steam fnalibs; do
     source="$BUNDLE_SOURCE/$archive.tar.zst"
@@ -212,7 +210,33 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 
 /usr/bin/plutil -lint "$CONTENTS/Info.plist"
-codesign --force --deep --sign - "$BUNDLE"
+
+# Ad-hoc by default. METALSHARP_GPUI_SIGN_IDENTITY (a Developer ID Application
+# identity) signs inside-out with the hardened runtime, a secure timestamp and
+# the release entitlements, as notarization requires; --deep is not used there.
+SIGN_IDENTITY="${METALSHARP_GPUI_SIGN_IDENTITY:--}"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  codesign --force --deep --sign - "$BUNDLE"
+else
+  ENTITLEMENTS="${METALSHARP_GPUI_ENTITLEMENTS:-$ROOT/tools/dmg/entitlements.mac.plist}"
+  [ -s "$ENTITLEMENTS" ] || { echo "Missing signing entitlements: $ENTITLEMENTS" >&2; exit 1; }
+  sign_code() {
+    codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" \
+      --sign "$SIGN_IDENTITY" "$1"
+  }
+  # Loose Mach-O code in Resources (backend, host runtime, native helpers,
+  # tools), deepest paths first; nested apps are signed as bundles below.
+  while IFS= read -r file; do
+    case "${file#"$CONTENTS/Resources/"}" in *.app/*) continue ;; esac
+    if file -b "$file" | grep -q 'Mach-O'; then
+      sign_code "$file"
+    fi
+  done < <(find "$CONTENTS/Resources" -type f | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
+  while IFS= read -r nested; do
+    sign_code "$nested"
+  done < <(find "$CONTENTS/Resources" -type d -name '*.app' | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
+  sign_code "$BUNDLE"
+fi
 codesign --verify --deep --strict --verbose=2 "$BUNDLE"
 echo "Built local-only GPUI app: $BUNDLE"
 echo "Bundle id: $APP_BUNDLE_ID"

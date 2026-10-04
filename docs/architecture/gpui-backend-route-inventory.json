@@ -4,7 +4,7 @@
   "router": "app/src-c/runtime/backend.c",
   "router_sha256": "3c6a275efb6cf52b0a1b900e1d853371b3d21245f266412b49291749a52aa0c9",
   "limitations": [
-    "This is a migration discovery inventory, not a full C/TypeScript parser or a parity report.",
+    "This is a migration discovery inventory, not a full C/Rust parser or a parity report.",
     "Dynamic/prefix routes and unmatched comparisons require manual expansion.",
     "Literal references may be comments or non-API code; computed routes require manual reconciliation.",
     "Request/response schemas and acceptance IDs must be reviewed against current callers and C handlers.",
@@ -18,11 +18,6 @@
         2100
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2104,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_tools.rs",
           "line": 134,
@@ -50,13 +45,7 @@
       "router_lines": [
         2108
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2105,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -78,13 +67,7 @@
       "router_lines": [
         2014
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2829,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -108,31 +91,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 274,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 282,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 261,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 269,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3188,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 800,
           "kind": "literal-candidate"
@@ -155,16 +113,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 95,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 82,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 276,
           "kind": "literal-candidate"
@@ -181,91 +129,6 @@
         316
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
-          "line": 40,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
-          "line": 63,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 81,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 348,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 369,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 386,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 55,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 94,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 112,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 113,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 814,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 878,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 887,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 68,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 335,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 356,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 373,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 326,
@@ -333,91 +196,6 @@
         323
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
-          "line": 40,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
-          "line": 63,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 81,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 348,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 369,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 386,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 55,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 94,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 112,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 113,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 814,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 878,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 887,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 68,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 335,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 356,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 373,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 326,
@@ -640,11 +418,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 726,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 440,
           "kind": "literal-candidate"
@@ -709,11 +482,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 682,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 752,
           "kind": "literal-candidate"
@@ -735,11 +503,6 @@
         1663
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 763,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1805,
@@ -769,11 +532,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 886,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 2068,
           "kind": "literal-candidate"
@@ -790,11 +548,6 @@
         1677
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 836,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1971,
@@ -813,11 +566,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 826,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_tools.rs",
           "line": 853,
           "kind": "literal-candidate"
@@ -834,11 +582,6 @@
         1684
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 876,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1936,
@@ -867,11 +610,6 @@
         1691
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 851,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 2002,
@@ -907,16 +645,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 766,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 807,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1831,
           "kind": "literal-candidate"
@@ -938,16 +666,6 @@
         1635
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 766,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 807,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1831,
@@ -971,11 +689,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 782,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1849,
           "kind": "literal-candidate"
@@ -997,11 +710,6 @@
         1656
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 862,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 2030,
@@ -1047,16 +755,6 @@
         1041
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/GameCard.vue",
-          "line": 561,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 843,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/ui_live.rs",
           "line": 1482,
@@ -1658,11 +1356,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 697,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 529,
           "kind": "literal-candidate"
@@ -1712,16 +1405,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/LogsView.vue",
-          "line": 90,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3126,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 314,
           "kind": "literal-candidate"
@@ -1748,16 +1431,6 @@
         824
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/LogsView.vue",
-          "line": 84,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3127,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/logs_preview.rs",
           "line": 132,
@@ -1798,26 +1471,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
-          "line": 41,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/ProcessManagerOverlay.vue",
-          "line": 28,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 62,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 815,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/process_manager.rs",
           "line": 232,
           "kind": "literal-candidate"
@@ -1845,31 +1498,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/GameLaunchSettingsPopover.vue",
-          "line": 90,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/ProcessManagerOverlay.vue",
-          "line": 39,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/ProcessManagerOverlay.vue",
-          "line": 54,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/Sidebar.vue",
-          "line": 74,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 867,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/process_manager.rs",
           "line": 275,
           "kind": "literal-candidate"
@@ -1896,13 +1524,7 @@
         775,
         979
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/components/GameCard.vue",
-          "line": 959,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -1913,13 +1535,7 @@
       "router_lines": [
         1009
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/components/GameCard.vue",
-          "line": 592,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -1978,16 +1594,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 329,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 316,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 598,
           "kind": "literal-candidate"
@@ -2020,11 +1626,6 @@
         896
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 248,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/ui_live.rs",
           "line": 893,
@@ -2073,26 +1674,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 156,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 228,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 102,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 143,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 376,
           "kind": "literal-candidate"
@@ -2114,21 +1695,6 @@
         403
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 108,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 78,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3162,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 346,
@@ -2167,16 +1733,6 @@
         367
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 128,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 82,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 349,
@@ -2233,21 +1789,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 159,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 248,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 146,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 339,
           "kind": "literal-candidate"
@@ -2279,21 +1820,6 @@
         345
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 494,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 558,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 103,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 335,
@@ -2333,11 +1859,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2103,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 216,
           "kind": "literal-candidate"
@@ -2366,11 +1887,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3103,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_tools.rs",
           "line": 425,
           "kind": "literal-candidate"
@@ -2387,11 +1903,6 @@
         1877
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1926,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 866,
@@ -2410,11 +1921,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2028,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1520,
           "kind": "literal-candidate"
@@ -2431,11 +1937,6 @@
         1856
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1874,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1189,
@@ -2459,11 +1960,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1980,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1560,
           "kind": "literal-candidate"
@@ -2480,11 +1976,6 @@
         1914
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1965,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1414,
@@ -2503,11 +1994,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1906,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1267,
           "kind": "literal-candidate"
@@ -2524,11 +2010,6 @@
         1900
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1938,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1316,
@@ -2547,11 +2028,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2062,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1618,
           "kind": "literal-candidate"
@@ -2568,11 +2044,6 @@
         1921
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2004,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1447,
@@ -2591,11 +2062,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1895,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1239,
           "kind": "literal-candidate"
@@ -2613,11 +2079,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2046,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1719,
           "kind": "literal-candidate"
@@ -2634,11 +2095,6 @@
         1849
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1857,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1172,
@@ -2661,11 +2117,6 @@
         1956
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2076,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1653,
@@ -2701,11 +2152,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1874,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1187,
           "kind": "literal-candidate"
@@ -2727,31 +2173,6 @@
         1884
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 68,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 143,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 267,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 63,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 130,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 380,
@@ -2785,31 +2206,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 68,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 143,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 267,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 63,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 130,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 380,
           "kind": "literal-candidate"
@@ -2842,11 +2238,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2090,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1686,
           "kind": "literal-candidate"
@@ -2864,11 +2255,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2298,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 837,
           "kind": "literal-candidate"
@@ -2885,21 +2271,6 @@
         1530
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2107,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2154,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2167,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 581,
@@ -2934,11 +2305,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2196,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 649,
           "kind": "literal-candidate"
@@ -2955,11 +2321,6 @@
         1572
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2337,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 980,
@@ -2978,11 +2339,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2252,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 740,
           "kind": "literal-candidate"
@@ -2999,11 +2355,6 @@
         1600
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2398,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1063,
@@ -3022,11 +2373,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2360,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1009,
           "kind": "literal-candidate"
@@ -3043,11 +2389,6 @@
         1558
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2233,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 712,
@@ -3066,11 +2407,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2382,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1730,
           "kind": "literal-candidate"
@@ -3087,16 +2423,6 @@
         1523
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2106,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2166,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 568,
@@ -3119,11 +2445,6 @@
         1607
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2423,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1096,
@@ -3159,11 +2480,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2316,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 931,
           "kind": "literal-candidate"
@@ -3181,11 +2497,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2440,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 1128,
           "kind": "literal-candidate"
@@ -3201,13 +2512,7 @@
       "router_lines": [
         2007
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2845,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3219,11 +2524,6 @@
         1842
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2534,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 355,
@@ -3242,11 +2542,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2951,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 397,
           "kind": "literal-candidate"
@@ -3262,13 +2557,7 @@
       "router_lines": [
         1460
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 967,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3279,18 +2568,7 @@
       "router_lines": [
         1467
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 970,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 993,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3301,18 +2579,7 @@
       "router_lines": [
         1453
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 964,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1004,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3323,13 +2590,7 @@
       "router_lines": [
         1474
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1012,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3340,13 +2601,7 @@
       "router_lines": [
         1495
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1079,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3357,13 +2612,7 @@
       "router_lines": [
         1488
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1044,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3374,13 +2623,7 @@
       "router_lines": [
         1481
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1012,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3391,13 +2634,7 @@
       "router_lines": [
         1502
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1115,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3409,11 +2646,6 @@
         2042
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3030,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_tools.rs",
           "line": 805,
@@ -3430,13 +2662,7 @@
       "router_lines": [
         1266
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1247,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3447,13 +2673,7 @@
       "router_lines": [
         1259
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1246,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3464,13 +2684,7 @@
       "router_lines": [
         1273
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1264,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3481,13 +2695,7 @@
       "router_lines": [
         1294
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1334,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3498,13 +2706,7 @@
       "router_lines": [
         1287
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1297,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3515,13 +2717,7 @@
       "router_lines": [
         1280
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1264,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3532,13 +2728,7 @@
       "router_lines": [
         1301
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1369,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3550,11 +2740,6 @@
         1977
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2904,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 316,
@@ -3573,11 +2758,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3045,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 483,
           "kind": "literal-candidate"
@@ -3595,11 +2775,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3060,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_tools.rs",
           "line": 922,
           "kind": "literal-candidate"
@@ -3616,11 +2791,6 @@
         2071
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2982,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_tools.rs",
           "line": 608,
@@ -3648,13 +2818,7 @@
       "router_lines": [
         1329
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1465,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3665,13 +2829,7 @@
       "router_lines": [
         1322
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1464,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3682,13 +2840,7 @@
       "router_lines": [
         1336
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1485,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3699,13 +2851,7 @@
       "router_lines": [
         1357
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1542,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3716,13 +2862,7 @@
       "router_lines": [
         1350
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1508,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3733,13 +2873,7 @@
       "router_lines": [
         1343
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1485,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3750,13 +2884,7 @@
       "router_lines": [
         1364
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1565,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3767,13 +2895,7 @@
       "router_lines": [
         1391
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1660,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3795,13 +2917,7 @@
       "router_lines": [
         1384
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1659,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3812,13 +2928,7 @@
       "router_lines": [
         1405
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1680,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3829,13 +2939,7 @@
       "router_lines": [
         1426
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1737,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3846,13 +2950,7 @@
       "router_lines": [
         1419
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1703,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3863,13 +2961,7 @@
       "router_lines": [
         1412
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1680,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3880,13 +2972,7 @@
       "router_lines": [
         1433
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 1760,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -3898,11 +2984,6 @@
         1991
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2971,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 446,
@@ -3943,11 +3024,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2935,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_tools.rs",
           "line": 341,
           "kind": "literal-candidate"
@@ -3965,11 +3041,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 2995,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/sharp_live.rs",
           "line": 513,
           "kind": "literal-candidate"
@@ -3986,26 +3057,6 @@
         298
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 264,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 456,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 42,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 111,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 311,
@@ -4038,16 +3089,6 @@
         944
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 420,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 105,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/ui_live.rs",
           "line": 458,
@@ -4110,11 +3151,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 243,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 392,
           "kind": "literal-candidate"
@@ -4136,16 +3172,6 @@
         2136
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 195,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 95,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 352,
@@ -4208,31 +3234,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/LibraryTopbar.vue",
-          "line": 142,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 176,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 899,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 163,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3169,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 435,
           "kind": "literal-candidate"
@@ -4259,11 +3260,6 @@
         2312
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 725,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 438,
@@ -4313,11 +3309,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 104,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 872,
           "kind": "literal-candidate"
@@ -4334,16 +3325,6 @@
         2285
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 187,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 174,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 458,
@@ -4362,16 +3343,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 222,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 209,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 523,
           "kind": "literal-candidate"
@@ -4388,11 +3359,6 @@
         2321
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 723,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 426,
@@ -4426,16 +3392,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 202,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 189,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 489,
           "kind": "literal-candidate"
@@ -4451,13 +3407,7 @@
       "router_lines": [
         2195
       ],
-      "literal_references": [
-        {
-          "file": "app/src/renderer/components/GameCard.vue",
-          "line": 628,
-          "kind": "literal-candidate"
-        }
-      ],
+      "literal_references": [],
       "request_contract": "manual-review",
       "response_contract": "manual-review",
       "acceptance": "not-verified"
@@ -4469,26 +3419,6 @@
         2339
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 120,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 255,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 106,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 107,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 376,
@@ -4517,11 +3447,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 755,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 512,
           "kind": "literal-candidate"
@@ -4544,21 +3469,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/App.vue",
-          "line": 184,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SetupWizard.vue",
-          "line": 167,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 99,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 791,
           "kind": "literal-candidate"
@@ -4580,41 +3490,6 @@
         2222
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/LibraryTopbar.vue",
-          "line": 138,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 166,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 213,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 895,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 153,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 200,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SharpView.vue",
-          "line": 3168,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 409,
@@ -4697,11 +3572,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/App.vue",
-          "line": 435,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 832,
           "kind": "literal-candidate"
@@ -4718,11 +3588,6 @@
         425
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/StreamingOverlay.vue",
-          "line": 92,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/streaming.rs",
           "line": 60,
@@ -4751,11 +3616,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/StreamingOverlay.vue",
-          "line": 107,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/streaming.rs",
           "line": 61,
           "kind": "literal-candidate"
@@ -4782,11 +3642,6 @@
         449
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/StreamingOverlay.vue",
-          "line": 142,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/streaming.rs",
           "line": 67,
@@ -4815,11 +3670,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/StreamingOverlay.vue",
-          "line": 47,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/streaming.rs",
           "line": 76,
           "kind": "literal-candidate"
@@ -4841,11 +3691,6 @@
         441
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/components/StreamingOverlay.vue",
-          "line": 130,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/streaming.rs",
           "line": 62,
@@ -4874,11 +3719,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/StreamingOverlay.vue",
-          "line": 154,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/streaming.rs",
           "line": 69,
           "kind": "literal-candidate"
@@ -4906,11 +3746,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/LibraryTopbar.vue",
-          "line": 128,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 1827,
           "kind": "literal-candidate"
@@ -4927,11 +3762,6 @@
         2247
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 721,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 421,
@@ -4960,11 +3790,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/App.vue",
-          "line": 218,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 878,
           "kind": "literal-candidate"
@@ -4981,11 +3806,6 @@
         2256
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 755,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/backend.rs",
           "line": 507,
@@ -5009,16 +3829,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 624,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/LibraryView.vue",
-          "line": 782,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/backend.rs",
           "line": 463,
           "kind": "literal-candidate"
@@ -5041,11 +3851,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/App.vue",
-          "line": 189,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 809,
           "kind": "literal-candidate"
@@ -5063,11 +3868,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/components/LibraryTopbar.vue",
-          "line": 123,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 1801,
           "kind": "literal-candidate"
@@ -5084,26 +3884,6 @@
         831
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 276,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/components/SettingsOverlay.vue",
-          "line": 291,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/composables/useApi.ts",
-          "line": 112,
-          "kind": "literal-candidate"
-        },
-        {
-          "file": "app/src/renderer/views/SettingsView.vue",
-          "line": 278,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/settings_preview.rs",
           "line": 829,
@@ -5217,11 +3997,6 @@
       ],
       "literal_references": [
         {
-          "file": "app/src/renderer/App.vue",
-          "line": 348,
-          "kind": "literal-candidate"
-        },
-        {
           "file": "app-gpui/src/ui_live.rs",
           "line": 2597,
           "kind": "literal-candidate"
@@ -5238,11 +4013,6 @@
         838
       ],
       "literal_references": [
-        {
-          "file": "app/src/renderer/App.vue",
-          "line": 335,
-          "kind": "literal-candidate"
-        },
         {
           "file": "app-gpui/src/ui_live.rs",
           "line": 2563,

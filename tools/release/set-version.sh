@@ -20,23 +20,6 @@ esac
 
 cd "$PROJECT_ROOT"
 
-node - "$VERSION" <<'NODE'
-const fs = require("fs");
-const version = process.argv[2];
-
-const packageJson = JSON.parse(fs.readFileSync("app/package.json", "utf8"));
-packageJson.version = version;
-fs.writeFileSync("app/package.json", `${JSON.stringify(packageJson, null, 2)}\n`);
-
-const packageLock = JSON.parse(fs.readFileSync("app/package-lock.json", "utf8"));
-packageLock.version = version;
-if (!packageLock.packages || !packageLock.packages[""]) {
-  throw new Error('app/package-lock.json is missing packages[""]');
-}
-packageLock.packages[""].version = version;
-fs.writeFileSync("app/package-lock.json", `${JSON.stringify(packageLock, null, 2)}\n`);
-NODE
-
 perl -0pi -e "s/project\(metalsharp VERSION \K[0-9]+\.[0-9]+\.[0-9]+/$VERSION/" CMakeLists.txt
 perl -0pi -e "s/^VERSION \?= \K[0-9]+\.[0-9]+\.[0-9]+/$VERSION/m" app/src-c/Makefile
 perl -0pi -e "s/#define MS_BACKEND_DEFAULT_VERSION \"\K[0-9]+\.[0-9]+\.[0-9]+/$VERSION/" \
@@ -48,67 +31,72 @@ perl -0pi -e "s/assert v\[\"version\"\] == \"\K[0-9]+\.[0-9]+\.[0-9]+/$VERSION/"
 perl -0pi -e "s{/releases/tag/v\K[0-9]+\.[0-9]+\.[0-9]+}{$VERSION}; s/filter=v\K[0-9]+\.[0-9]+\.[0-9]+/$VERSION/" \
   README.md
 
-node - "$VERSION" <<'NODE'
-const fs = require("fs");
-const version = process.argv[2];
-const [major, minor, patch] = version.split(".").map(Number);
-const syntheticTestVersion = `${major}.${minor}.${patch + 1}`;
+python3 - "$VERSION" <<'PY'
+import re
+import sys
 
-const replacements = [
-  ["app/src-c/runtime/migration.c", /(\\"version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
-  ["app/src-c/runtime/updater.c", /(\\"current_version\\":\\")[0-9]+\.[0-9]+\.[0-9]+/g],
-];
-for (const [path, pattern] of replacements) {
-  const source = fs.readFileSync(path, "utf8");
-  fs.writeFileSync(path, source.replace(pattern, `$1${version}`));
-}
-const updaterTestPath = "app/src-c/tests/updater_test.py";
-const updaterTest = fs.readFileSync(updaterTestPath, "utf8");
-fs.writeFileSync(
-  updaterTestPath,
-  updaterTest.replace(/(VERSION = ")[0-9]+\.[0-9]+\.[0-9]+/, `$1${syntheticTestVersion}`),
-);
-NODE
+version = sys.argv[1]
+major, minor, patch = (int(part) for part in version.split("."))
+synthetic_test_version = f"{major}.{minor}.{patch + 1}"
 
-node - "$VERSION" <<'NODE'
-const fs = require("fs");
-const version = process.argv[2];
-const packageJson = JSON.parse(fs.readFileSync("app/package.json", "utf8"));
-const packageLock = JSON.parse(fs.readFileSync("app/package-lock.json", "utf8"));
-const cmake = fs.readFileSync("CMakeLists.txt", "utf8");
-const cMakefile = fs.readFileSync("app/src-c/Makefile", "utf8");
-const backendHeader = fs.readFileSync("app/src-c/include/metalsharp_backend/backend.h", "utf8");
-const migration = fs.readFileSync("app/src-c/runtime/migration.c", "utf8");
-const updater = fs.readFileSync("app/src-c/runtime/updater.c", "utf8");
-const setup = fs.readFileSync("app/src-c/runtime/setup.c", "utf8");
-const smoke = fs.readFileSync("app/src-c/tests/smoke.sh", "utf8");
-const updaterTest = fs.readFileSync("app/src-c/tests/updater_test.py", "utf8");
-const readme = fs.readFileSync("README.md", "utf8");
-const [major, minor, patch] = version.split(".").map(Number);
-const syntheticTestVersion = `${major}.${minor}.${patch + 1}`;
+for path, pattern in [
+    ("app/src-c/runtime/migration.c", r'(\\"version\\":\\")[0-9]+\.[0-9]+\.[0-9]+'),
+    ("app/src-c/runtime/updater.c", r'(\\"current_version\\":\\")[0-9]+\.[0-9]+\.[0-9]+'),
+]:
+    with open(path, encoding="utf-8") as stream:
+        source = stream.read()
+    with open(path, "w", encoding="utf-8") as stream:
+        stream.write(re.sub(pattern, lambda match: match.group(1) + version, source))
 
-const checks = [
-  ["app/package.json version", packageJson.version === version],
-  ["app/package-lock.json top-level version", packageLock.version === version],
-  ['app/package-lock.json packages[""] version', packageLock.packages?.[""]?.version === version],
-  ["app/src-c/Makefile backend version", cMakefile.includes(`VERSION ?= ${version}`)],
-  ["CMakeLists.txt project version", cmake.includes(`project(metalsharp VERSION ${version} LANGUAGES C CXX OBJC OBJCXX)`)],
-  ["C backend default version", backendHeader.includes(`MS_BACKEND_DEFAULT_VERSION "${version}"`)],
-  ["migration version", migration.includes(`MIGRATION_VERSION "${version}"`)],
-  ["migration fallback version", migration.includes(`\\"version\\":\\"${version}\\"`)],
-  ["updater fallback version", updater.includes(`\\"current_version\\":\\"${version}\\"`)],
-  ["setup DXMT runtime contract", setup.includes('MS_BACKEND_VERSION "-dxmt-v0.80-baseline-v1"')],
-  ["C smoke expected version", smoke.includes(`assert v["version"] == "${version}"`)],
-  ["updater synthetic release remains newer than app version", updaterTest.includes(`VERSION = "${syntheticTestVersion}"`)],
-  ["README release link", readme.includes(`/releases/tag/v${version}`)],
-  ["README release badge", readme.includes(`filter=v${version}`)],
-];
+updater_test_path = "app/src-c/tests/updater_test.py"
+with open(updater_test_path, encoding="utf-8") as stream:
+    updater_test = stream.read()
+with open(updater_test_path, "w", encoding="utf-8") as stream:
+    stream.write(re.sub(r'(VERSION = ")[0-9]+\.[0-9]+\.[0-9]+', lambda match: match.group(1) + synthetic_test_version, updater_test, count=1))
+PY
 
-const failed = checks.filter(([, ok]) => !ok).map(([name]) => name);
-if (failed.length) {
-  console.error(`version bump verification failed for ${failed.length} location(s):`);
-  for (const name of failed) console.error(`- ${name}`);
-  process.exit(1);
-}
-console.log(`Version bump verified for ${version}: ${checks.length} metadata/contract checks passed.`);
-NODE
+python3 - "$VERSION" <<'PY'
+import sys
+
+version = sys.argv[1]
+major, minor, patch = (int(part) for part in version.split("."))
+synthetic_test_version = f"{major}.{minor}.{patch + 1}"
+
+
+def read(path):
+    with open(path, encoding="utf-8") as stream:
+        return stream.read()
+
+
+cmake = read("CMakeLists.txt")
+c_makefile = read("app/src-c/Makefile")
+backend_header = read("app/src-c/include/metalsharp_backend/backend.h")
+migration = read("app/src-c/runtime/migration.c")
+updater = read("app/src-c/runtime/updater.c")
+setup = read("app/src-c/runtime/setup.c")
+smoke = read("app/src-c/tests/smoke.sh")
+updater_test = read("app/src-c/tests/updater_test.py")
+readme = read("README.md")
+
+checks = [
+    ("app/src-c/Makefile backend version", f"VERSION ?= {version}" in c_makefile),
+    ("CMakeLists.txt project version", f"project(metalsharp VERSION {version} LANGUAGES C CXX OBJC OBJCXX)" in cmake),
+    ("C backend default version", f'MS_BACKEND_DEFAULT_VERSION "{version}"' in backend_header),
+    ("migration version", f'MIGRATION_VERSION "{version}"' in migration),
+    ("migration fallback version", f'\\"version\\":\\"{version}\\"' in migration),
+    ("updater fallback version", f'\\"current_version\\":\\"{version}\\"' in updater),
+    ("setup DXMT runtime contract", 'MS_BACKEND_VERSION "-dxmt-v0.80-baseline-v1"' in setup),
+    ("C smoke expected version", f'assert v["version"] == "{version}"' in smoke),
+    ("updater synthetic release remains newer than app version", f'VERSION = "{synthetic_test_version}"' in updater_test),
+    ("README release link", f"/releases/tag/v{version}" in readme),
+    ("README release badge", f"filter=v{version}" in readme),
+]
+
+failed = [name for name, ok in checks if not ok]
+if failed:
+    print(f"version bump verification failed for {len(failed)} location(s):", file=sys.stderr)
+    for name in failed:
+        print(f"- {name}", file=sys.stderr)
+    sys.exit(1)
+print(f"Version bump verified for {version}: {len(checks)} metadata/contract checks passed.")
+PY

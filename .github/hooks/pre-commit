@@ -32,13 +32,13 @@ fi
 # --- Pre-flight: which toolchains are required? ---
 
 NEED_CLANG_FORMAT=0
-NEED_NPM=0
+NEED_CARGO=0
 NEED_PYTHON=0
 
 for f in "${STAGED[@]}"; do
     case "$f" in
         *.c|*.cpp|*.h|*.hpp|*.mm|*.m)      NEED_CLANG_FORMAT=1 ;;
-        app/*.ts|app/*.tsx|app/*.js|app/*.jsx|app/*.json|app/*.css|app/*.html) NEED_NPM=1 ;;
+        app-gpui/*.rs)                      NEED_CARGO=1 ;;
     esac
 done
 if printf '%s\n' "${STAGED[@]}" | grep -q '^configs/mtsp-rules.toml$'; then
@@ -55,7 +55,7 @@ fail() { echo -e "\033[0;31m[pre-commit]\033[0m $*" >&2; exit 1; }
 
 missing=()
 [ "$NEED_CLANG_FORMAT" -eq 1 ] && ! command -v clang-format >/dev/null 2>&1 && missing+=("clang-format (required to format C/C++/Obj-C files)")
-[ "$NEED_NPM" -eq 1 ] && [ ! -d app/node_modules ] && missing+=("app/node_modules (run 'cd app && npm ci' to install)")
+[ "$NEED_CARGO" -eq 1 ] && ! command -v cargo >/dev/null 2>&1 && missing+=("cargo (required to rustfmt the GPUI app)")
 [ "$NEED_PYTHON" -eq 1 ] && ! command -v python3 >/dev/null 2>&1 && missing+=("python3 (required to validate the rules TOML)")
 
 if [ ${#missing[@]} -gt 0 ]; then
@@ -89,24 +89,11 @@ if [ "$NEED_CLANG_FORMAT" -eq 1 ]; then
     [ "$FAILED" -eq 0 ] || fail "clang-format failed; run 'clang-format -i <file>' on the listed files."
 fi
 
-# --- 2. TypeScript: tsc, biome, prettier --
+# --- 2. Rust: rustfmt for the GPUI app --
 
-if [ "$NEED_NPM" -eq 1 ]; then
-    if printf '%s\n' "${STAGED[@]}" | grep -qE '^app/.*\.tsx?$'; then
-        log "tsc --noEmit (app)"
-        (cd app && npx tsc --noEmit) || fail "tsc failed; fix the TypeScript errors before committing."
-    fi
-
-    if printf '%s\n' "${STAGED[@]}" | grep -qE '^app/src/(renderer|main|shared)/.*\.(ts|tsx|js|jsx)$'; then
-        log "biome (app)"
-        (cd app && npx @biomejs/biome ci src/main src/shared src/renderer 2>/dev/null || npx @biomejs/biome ci src/) || fail "biome failed; run 'cd app && npx @biomejs/biome ci --write' to auto-fix."
-    fi
-
-    log "prettier --check on staged app/ files"
-    TS_FILES=$(printf '%s\n' "${STAGED[@]}" | grep -E '^app/.*\.(ts|tsx|js|jsx|html|css|json)$' | sed 's#^app/##' | tr '\n' ' ')
-    if [ -n "$TS_FILES" ]; then
-        (cd app && npx prettier --check $TS_FILES) || fail "prettier failed; run 'cd app && npx prettier --write $TS_FILES'."
-    fi
+if [ "$NEED_CARGO" -eq 1 ]; then
+    log "cargo fmt --check (app-gpui)"
+    (cd app-gpui && cargo fmt --check) || fail "rustfmt failed; run 'cd app-gpui && cargo fmt'."
 fi
 
 # --- 3. Rules TOML validation --
@@ -135,7 +122,7 @@ if printf '%s\n' "${STAGED[@]}" | grep -qE '\.sh$'; then
         done
         [ "$FAILED" -eq 0 ] || fail "shellcheck failed; run 'shellcheck <file>' on the listed files."
     else
-        # shellcheck is optional; CI runs it.
+        # ShellCheck is optional; CI runs it.
         warn "shellcheck not installed; skipping (CI will catch it)"
     fi
 fi

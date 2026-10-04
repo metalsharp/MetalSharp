@@ -111,12 +111,8 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: app/package-lock.json
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Set version from tag
         run: |
@@ -134,14 +130,8 @@ jobs:
           cd ..
           METALSHARP_BUILD_DIR="$PWD/build" tools/package/create-host-runtime.sh
 
-      - name: Install Electron deps
-        run: cd app && npm ci
-
       - name: Build C backend
         run: make -C app/src-c
-
-      - name: Build TypeScript
-        run: cd app && npm run build
 
       - name: Download bundles for DMG
         run: |
@@ -199,23 +189,22 @@ jobs:
           done
           find app/native/host -type f \( -name '*.dylib' -o -name '*.so' \) -print0 | xargs -0 -I{} codesign --force --sign - "{}" 2>/dev/null || true
 
+      - name: Package GPUI app
+        # Developer ID (hardened runtime, release entitlements) when signing is
+        # ready; ad-hoc otherwise. Notarization happens on the final DMG.
+        run: |
+          set -euo pipefail
+          METALSHARP_GPUI_SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" app-gpui/package-app.sh
+
       - name: Package DMG
-        run: cd app && npx electron-builder --mac dmg --arm64 --publish never
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          METALSHARP_DEFER_NOTARIZATION_TO_DMG: ${{ steps.apple-signing.outputs.ready == 'true' && '1' || '0' }}
-          APPLE_ID: ${{ steps.apple-signing.outputs.ready == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ steps.apple-signing.outputs.ready == 'true' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.apple-signing.outputs.ready == 'true' && secrets.APPLE_TEAM_ID || '' }}
-          APPLE_API_KEY_ID: ${{ steps.apple-signing.outputs.ready == 'true' && secrets.APPLE_API_KEY_ID || '' }}
-          APPLE_API_ISSUER: ${{ steps.apple-signing.outputs.ready == 'true' && secrets.APPLE_API_ISSUER || '' }}
+        run: tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui
 
       - name: Verify DMG runtime assets
-        run: tools/dmg/verify-dmg-runtime-assets.sh dist/electron/MetalSharp-*-arm64.dmg
+        run: tools/dmg/verify-dmg-runtime-assets.sh dist/gpui/MetalSharp-*-arm64.dmg
 
       - name: Sign and notarize distributable DMG
         if: steps.apple-signing.outputs.ready == 'true'
-        run: tools/dmg/sign-notarize-dmg.sh dist/electron/MetalSharp-*-arm64.dmg
+        run: tools/dmg/sign-notarize-dmg.sh dist/gpui/MetalSharp-*-arm64.dmg
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -228,15 +217,15 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ steps.apple-signing.outputs.ready }}" = "true"
-          tools/dmg/verify-notarization.sh dist/electron/mac-arm64/MetalSharp.app
-          tools/dmg/verify-notarization.sh dist/electron/MetalSharp-*-arm64.dmg
+          tools/dmg/verify-notarization.sh app-gpui/target/MetalSharp.app
+          tools/dmg/verify-notarization.sh dist/gpui/MetalSharp-*-arm64.dmg
 
       - name: Mark signed DMG
         if: steps.apple-signing.outputs.ready == 'true'
         run: |
           printf '%s\n' \
             "MetalSharp DMG was packaged with Apple Developer ID signing and notarization." \
-            > dist/electron/DMG-SIGNING.txt
+            > dist/gpui/DMG-SIGNING.txt
 
       - name: Mark unsigned DMG
         if: steps.apple-signing.outputs.ready != 'true'
@@ -244,18 +233,18 @@ jobs:
           printf '%s\n' \
             "MetalSharp DMG was packaged without Apple Developer ID signing because release secrets are not configured." \
             "Configure MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, and one notarization credential set to produce a notarized DMG." \
-            > dist/electron/DMG-SIGNING.txt
+            > dist/gpui/DMG-SIGNING.txt
 
       - name: Record release identity
-        run: printf '%s\n' "$GITHUB_REF_NAME" > dist/electron/RELEASE-TAG.txt
+        run: printf '%s\n' "$GITHUB_REF_NAME" > dist/gpui/RELEASE-TAG.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: MetalSharp-dmg
           path: |
-            dist/electron/*.dmg
-            dist/electron/DMG-SIGNING.txt
-            dist/electron/RELEASE-TAG.txt
+            dist/gpui/*.dmg
+            dist/gpui/DMG-SIGNING.txt
+            dist/gpui/RELEASE-TAG.txt
             dist/bundles/metalsharp-bundle-manifest.tsv
 
   release:

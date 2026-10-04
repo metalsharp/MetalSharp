@@ -24,7 +24,8 @@ copy_doc "docs/runtime/darwin-sync-map.md"
 copy_doc "docs/runtime/steam-compatibility-tool-surface.md"
 copy_doc "docs/runtime/vendor-trust-kit.md"
 
-VERSION="$(node -e "console.log(require('$ROOT_DIR/app/package.json').version)" 2>/dev/null || echo unknown)"
+VERSION="$(sed -n 's/^project(metalsharp VERSION \([0-9][0-9.]*\) .*/\1/p' "$ROOT_DIR/CMakeLists.txt" | head -1)"
+VERSION="${VERSION:-unknown}"
 COMMIT="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 CREATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 

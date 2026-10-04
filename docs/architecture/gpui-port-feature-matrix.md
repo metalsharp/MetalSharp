@@ -1,6 +1,6 @@
 # GPUI Port Feature and Acceptance Matrix
-**Status:** Visual preview validated; native production replacement and Electron retirement remain pending.
-**Updated:** 2026-10-03
+**Status:** GPUI app wired to the production backend; the Electron desktop app (`app/src`, npm/Vite tooling) was removed on 2026-10-04 in PR #703. Electron file references below are historical (see git history). Launcher support for games built with Electron lives in the C backend and is unchanged.
+**Updated:** 2026-10-04
 
 **PR boundary:** the user directed that GPUI replacement and Electron app removal land in the same PR (#703). Keep it draft until all capabilities, data/backend integration and local acceptance pass. Electron is deleted only as the last migration change; it remains intact throughout port development. Preserve support for games implemented using Electron technology; that is unrelated to the desktop framework being retired.
 

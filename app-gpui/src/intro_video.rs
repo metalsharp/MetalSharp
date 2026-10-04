@@ -15,15 +15,13 @@ fn intro_page() -> PathBuf {
 }
 
 fn video_path() -> Option<PathBuf> {
-    let packaged = crate::ui::asset_path("intro/MetalSharp-Startup.mp4");
-    if packaged.is_file() {
-        return packaged.canonicalize().ok();
-    }
     // Canonical: WebKit's read-access root must really contain the file.
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../app/src/renderer/assets/MetalSharp-Startup.mp4")
-        .canonicalize()
-        .ok()
+    let video = crate::ui::asset_path("intro/MetalSharp-Startup.mp4");
+    if video.is_file() {
+        video.canonicalize().ok()
+    } else {
+        None
+    }
 }
 
 fn file_url(path: &Path) -> String {
@@ -189,9 +187,9 @@ mod tests {
         assert_eq!(
             common_ancestor(
                 Path::new("/r/app-gpui/assets/intro/intro.html"),
-                Path::new("/r/app/src/renderer/assets/v.mp4")
+                Path::new("/r/app-gpui/assets/intro/v.mp4")
             ),
-            PathBuf::from("/r")
+            PathBuf::from("/r/app-gpui/assets/intro")
         );
     }
 }
