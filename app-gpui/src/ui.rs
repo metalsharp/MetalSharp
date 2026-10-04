@@ -194,7 +194,7 @@ struct SetupCopy {
     exit: String,
 }
 
-fn asset_path(name: &str) -> PathBuf {
+pub(crate) fn asset_path(name: &str) -> PathBuf {
     let bundled = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from))
@@ -812,6 +812,9 @@ impl MetalSharpApp {
 impl Render for MetalSharpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_inputs(cx);
+        if self.live.intro_pending {
+            self.show_startup_video(window, cx);
+        }
         let toasts = crate::toast::hub(cx);
         let library_visible = !(self.live.enabled && self.live.booting)
             && self.live.boot_error.is_none()
@@ -1059,7 +1062,11 @@ impl MetalSharpApp {
         if let Some(sharp) = &self.sharp_preview {
             let palette = self.theme.page_palette();
             let active = self.active_tab == LibraryTab::SharpLibrary;
+            // App-level overlays cover the page; the native GameJolt view must hide.
+            let obscured =
+                self.settings_open || self.streaming_open || self.live.update_confirm.is_some();
             sharp.update(cx, |sharp, cx| {
+                sharp.set_obscured(obscured, cx);
                 if sharp.palette != palette {
                     sharp.palette = palette;
                     cx.notify();

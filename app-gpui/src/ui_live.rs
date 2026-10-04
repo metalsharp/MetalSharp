@@ -60,6 +60,10 @@ pub(super) struct StreamingState {
 /// App.vue + LibraryView.vue reactive state.
 pub(super) struct LiveState {
     pub enabled: bool,
+    /// App.vue `showStartupVideo`: attach the native overlay on next render.
+    pub intro_pending: bool,
+    /// LibraryView localStorage `defaultRulesAppliedKey`.
+    pub default_rules_applied: bool,
     pub booting: bool,
     pub boot_error: Option<String>,
     pub migration: bool,
@@ -118,6 +122,8 @@ impl Default for LiveState {
     fn default() -> Self {
         Self {
             enabled: false,
+            intro_pending: false,
+            default_rules_applied: false,
             booting: false,
             boot_error: None,
             migration: false,
@@ -279,6 +285,10 @@ impl MetalSharpApp {
             .get("startupVideoSeen")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        self.live.default_rules_applied = value
+            .get("defaultRulesApplied")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     }
 
     pub(super) fn save_ui_state(&self, cx: &App) {
@@ -289,7 +299,8 @@ impl MetalSharpApp {
             "language": self.selected_language,
             "developerMode": self.developer_mode,
             "lowPerformanceMode": self.low_performance,
-            "startupVideoSeen": true,
+            "startupVideoSeen": self.startup_video_seen,
+            "defaultRulesApplied": self.live.default_rules_applied,
         });
         let path = ui_state_path(&live.home());
         if let Some(parent) = path.parent() {
@@ -321,6 +332,9 @@ impl MetalSharpApp {
                     return;
                 }
                 let first_launch = is_first_launch(&home);
+                if first_launch && !this.startup_video_seen {
+                    this.live.intro_pending = true;
+                }
                 live::call(
                     cx,
                     "GET",
@@ -354,6 +368,32 @@ impl MetalSharpApp {
             });
         })
         .detach();
+    }
+
+    /// Attach the startup video (needs the window) and watch for its end.
+    pub(super) fn show_startup_video(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.live.intro_pending = false;
+        if !crate::intro_video::show(window) {
+            self.finish_startup_video(cx);
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(MS(50)).await;
+                if crate::intro_video::poll_finished() {
+                    let _ = this.update(cx, |this, cx| this.finish_startup_video(cx));
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// `finishStartupVideo`.
+    fn finish_startup_video(&mut self, cx: &mut Context<Self>) {
+        self.startup_video_seen = true;
+        self.save_ui_state(cx);
+        cx.notify();
     }
 
     pub(super) fn open_setup(&mut self, dismissible: bool, cx: &mut Context<Self>) {
@@ -847,6 +887,13 @@ impl MetalSharpApp {
                             this.live.library = games;
                             this.live.library_loaded = true;
                             this.rebuild_display_games(cx);
+                            // LibraryView-only: never while setup/migration covers it.
+                            if !this.live.library.is_empty()
+                                && !this.show_setup
+                                && !this.live.migration
+                            {
+                                this.apply_default_rules_once(cx);
+                            }
                         }
                         this.refresh_steam_status(cx);
                         let again = this.live.pending_force_reload;
@@ -863,6 +910,63 @@ impl MetalSharpApp {
                 }
                 refresh = true;
             }
+        })
+        .detach();
+    }
+
+    /// LibraryView `applyDefaultRulesOnce`: earlier builds seeded every Steam
+    /// bottle with an explicit vkd3d override that masked the backend's
+    /// recommended route. Reset untouched vkd3d seeds once per machine.
+    fn apply_default_rules_once(&mut self, cx: &mut Context<Self>) {
+        if self.live.default_rules_applied {
+            return;
+        }
+        self.live.default_rules_applied = true;
+        self.save_ui_state(cx);
+        let repairs: Vec<(String, String, String)> = self
+            .live
+            .library
+            .iter()
+            .filter(|g| !g.is_ubisoft() && g.installed && g.preferred_pipeline() == "vkd3d")
+            .filter_map(|g| {
+                let recommended = g
+                    .available_pipelines
+                    .as_ref()?
+                    .iter()
+                    .find(|p| p.recommended)?
+                    .id
+                    .clone()
+                    .filter(|id| !id.is_empty() && id != "vkd3d")?;
+                Some((g.bottle_id(), g.name.clone(), recommended))
+            })
+            .collect();
+        if repairs.is_empty() {
+            return;
+        }
+        let Some(live) = Live::get(cx) else { return };
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .spawn(async move {
+                    std::thread::scope(|scope| {
+                        for (id, name, pipeline) in &repairs {
+                            let live = &live;
+                            scope.spawn(move || {
+                                let _ = live.request(
+                                    "POST",
+                                    "/bottles/edit",
+                                    Some(&json!({
+                                        "id": id,
+                                        "name": name,
+                                        "preferredPipeline": pipeline,
+                                    })),
+                                    live::DEFAULT_TIMEOUT,
+                                );
+                            });
+                        }
+                    });
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| this.load_library(false, cx));
         })
         .detach();
     }

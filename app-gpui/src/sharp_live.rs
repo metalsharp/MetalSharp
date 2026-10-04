@@ -53,6 +53,23 @@ pub(super) struct SharpLive {
     pub oauth: Option<std::sync::mpsc::Receiver<crate::mini_browser::MiniBrowserResult>>,
     pub emu: [super::sharp_emu_live::EmuState; 4],
     pub emu_confirm: Option<super::sharp_emu_live::EmuConfirm>,
+    pub bottles: Vec<Value>,
+    pub d3d_states: HashMap<String, Value>,
+    pub d3d_actions: HashMap<String, Vec<Value>>,
+    pub bottle_loading: HashSet<String>,
+    pub doctor_open: HashSet<String>,
+    pub doctor_loading: HashSet<String>,
+    pub doctor_reports: HashMap<String, Value>,
+    pub diagnostics_open: HashSet<String>,
+    pub diagnostics_loading: HashSet<String>,
+    pub launch_errors: HashMap<String, String>,
+    pub recent_log_lines: HashMap<String, Vec<String>>,
+    pub recent_crashes: HashMap<String, Vec<Value>>,
+    pub name_edit: Option<super::sharp_tools::NameEdit>,
+    pub cover_drag: Option<(String, bool)>,
+    pub slider_bounds: std::rc::Rc<std::cell::RefCell<HashMap<String, gpui::Bounds<gpui::Pixels>>>>,
+    pub cover_dims: std::cell::RefCell<HashMap<std::path::PathBuf, Option<(u32, u32)>>>,
+    pub embed_obscured: bool,
     pub active: bool,
     pub loaded: bool,
     polling: bool,
@@ -102,6 +119,9 @@ impl SharpPreview {
             return;
         }
         live.active = active;
+        if !active {
+            crate::mini_browser::hide_embedded_gamejolt();
+        }
         if active {
             self.load(cx);
             if !self.live.as_ref().is_some_and(|l| l.polling) {
@@ -210,6 +230,7 @@ impl SharpPreview {
                 }
             },
         );
+        self.load_bottles(cx);
         self.refresh_gog(cx);
         self.load_gamejolt(cx, true);
         self.refresh_epic(false, cx);
@@ -359,6 +380,9 @@ impl SharpPreview {
     }
 
     pub(super) fn launch_app(&mut self, app: Value, cx: &mut Context<Self>) {
+        if self.launch_app_d3dmetal(&app, cx) {
+            return;
+        }
         let id = s(&app, "id").to_owned();
         let name = s(&app, "name").to_owned();
         let engine = app
@@ -380,7 +404,10 @@ impl SharpPreview {
                     .and_then(|r| r.get("pid"))
                     .and_then(Value::as_u64);
                 if let Some(pid) = pid {
-                    this.live_mut().sharp_running.insert(id.clone(), pid);
+                    let live = this.live_mut();
+                    live.sharp_running.insert(id.clone(), pid);
+                    live.launch_errors.insert(id.clone(), String::new());
+                    live.diagnostics_open.remove(&id);
                     let warning = r
                         .as_ref()
                         .and_then(|r| r.get("warnings"))
@@ -397,11 +424,13 @@ impl SharpPreview {
                         },
                     );
                 } else {
-                    toast::error(
-                        cx,
-                        error_text(r.as_ref())
-                            .unwrap_or_else(|| format!("Failed to launch {name}")),
-                    );
+                    let error = error_text(r.as_ref())
+                        .unwrap_or_else(|| format!("Failed to launch {name}"));
+                    this.live_mut()
+                        .launch_errors
+                        .insert(id.clone(), error.clone());
+                    toast::error(cx, error);
+                    this.open_diagnostics(app, cx);
                 }
                 cx.notify();
             },
@@ -434,26 +463,7 @@ impl SharpPreview {
     }
 
     pub(super) fn set_app_engine(&mut self, id: String, engine: String, cx: &mut Context<Self>) {
-        live::call(
-            cx,
-            "POST",
-            "/sharp-library/set-engine",
-            Some(json!({"id": id, "engine": engine})),
-            live::DEFAULT_TIMEOUT,
-            move |this, r, cx| {
-                if r.as_ref().is_some_and(is_ok) {
-                    if let Some(app) = this.live_mut().apps.iter_mut().find(|a| s(a, "id") == id) {
-                        app["engine"] = json!(engine);
-                    }
-                } else {
-                    toast::error(
-                        cx,
-                        error_text(r.as_ref()).unwrap_or_else(|| "Failed to set engine".into()),
-                    );
-                }
-                cx.notify();
-            },
-        );
+        self.update_engine_then(id, engine, cx, |_, _| {});
     }
 
     pub(super) fn set_app_cover(&mut self, id: String, cx: &mut Context<Self>) {
@@ -1909,30 +1919,6 @@ impl SharpPreview {
     }
 
     /// Open the GameJolt store in the native browser (Electron embeds it below the grid).
-    pub(super) fn open_gamejolt_browser(&mut self, cx: &mut Context<Self>) {
-        if let Some(live) = crate::live::Live::get(cx) {
-            crate::mini_browser::set_gamejolt_download_dir(
-                crate::host_actions::gamejolt_download_dir(&live.home()),
-            );
-        }
-        #[cfg(target_os = "macos")]
-        {
-            if let (Ok(request), Some(mtm)) = (
-                crate::mini_browser::MiniBrowserRequest::new(
-                    crate::mini_browser::BrowserPurpose::GameJolt,
-                    "https://gamejolt.com/games",
-                    "MetalSharp — GameJolt",
-                ),
-                objc2::MainThreadMarker::new(),
-            ) {
-                if crate::mini_browser::open_native(mtm, request, Box::new(|_| {})).is_ok() {
-                    return;
-                }
-            }
-        }
-        cx.open_url("https://gamejolt.com/games");
-    }
-
     fn refresh_gamejolt_running(&mut self, cx: &mut Context<Self>) {
         if !self.guarded("gj-running") {
             return;

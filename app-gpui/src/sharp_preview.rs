@@ -11,6 +11,10 @@ mod sharp_emu_live;
 mod sharp_live;
 #[path = "sharp_live_view.rs"]
 mod sharp_live_view;
+#[path = "sharp_tools.rs"]
+mod sharp_tools;
+#[path = "sharp_tools_view.rs"]
+mod sharp_tools_view;
 
 const BG: u32 = 0x111416;
 const PANEL: u32 = 0x121518;
@@ -2178,6 +2182,25 @@ impl Render for SharpPreview {
             .text_color(rgb(MUTED))
             .child(self.state.notice.clone());
         content = content.child(notice);
+        // Electron's `.gamejolt-panel`: fixed-height panel whose games pane
+        // scrolls above the resizable in-page browser.
+        let live_gamejolt = source == SharpSource::GameJolt && self.live.is_some();
+        let panel_height = (f32::from(window.viewport_size().height) - 310.0).max(180.0);
+        let gamejolt_frame = (panel_height * self.state.browser_height / 100.0).max(32.0);
+        let content: gpui::AnyElement = if live_gamejolt {
+            div()
+                .id("gamejolt-games-pane")
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .overflow_y_scroll()
+                .pr(px(4.0))
+                .pb(px(gamejolt_frame + 24.0))
+                .child(content)
+                .into_any_element()
+        } else {
+            content.into_any_element()
+        };
         let workspace = div()
             .relative()
             .w_full()
@@ -2208,7 +2231,94 @@ impl Render for SharpPreview {
                 }
             }));
         let mut workspace = workspace;
-        if source == SharpSource::GameJolt && self.live.is_none() {
+        if live_gamejolt {
+            let embed_visible = self.gamejolt_embed_visible();
+            if !embed_visible {
+                crate::mini_browser::hide_embedded_gamejolt();
+            }
+            if let Some(live) = crate::live::Live::get(cx) {
+                crate::mini_browser::set_gamejolt_download_dir(
+                    crate::host_actions::gamejolt_download_dir(&live.home()),
+                );
+            }
+            workspace = workspace.h(px(panel_height)).overflow_hidden().child(
+                div()
+                    .id("gamejolt-browser-frame")
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(gamejolt_frame))
+                    .rounded_t(px(8.0))
+                    .border_1()
+                    .border_color(rgb(0xffffff))
+                    .bg(rgb(0xffffff))
+                    .shadow(vec![gpui::BoxShadow {
+                        color: gpui::rgba(0xffffff1f).into(),
+                        offset: gpui::point(px(0.0), px(0.0)),
+                        blur_radius: px(18.0),
+                        spread_radius: px(0.0),
+                    }])
+                    .child(
+                        div()
+                            .absolute()
+                            .top(px(18.0))
+                            .left(px(5.0))
+                            .right(px(5.0))
+                            .bottom(px(5.0))
+                            .rounded(px(5.0))
+                            .bg(rgb(0xffffff))
+                            .child(
+                                gpui::canvas(
+                                    |_, _, _| (),
+                                    move |bounds, _, window, _| {
+                                        if embed_visible {
+                                            sharp_tools::place_gamejolt_embed(bounds, window);
+                                        }
+                                    },
+                                )
+                                .size_full(),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("gamejolt-browser-handle")
+                            .absolute()
+                            .top(px(-1.0))
+                            .left_0()
+                            .right_0()
+                            .h(px(18.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_ns_resize()
+                            .child(
+                                div()
+                                    .w(px(54.0))
+                                    .h(px(18.0))
+                                    .rounded_full()
+                                    .bg(rgb(0xffffff))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(15.0))
+                                    .font_weight(FontWeight::BLACK)
+                                    .text_color(rgb(0x222222))
+                                    .child("↕"),
+                            )
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|this, event: &gpui::MouseDownEvent, _, cx| {
+                                    this.state.browser_drag = Some((
+                                        f32::from(event.position.y),
+                                        this.state.browser_height,
+                                    ));
+                                    cx.notify();
+                                }),
+                            ),
+                    ),
+            );
+        } else if source == SharpSource::GameJolt && self.live.is_none() {
             let frame_height = ((f32::from(window.viewport_size().height) - 310.0).max(180.0)
                 * self.state.browser_height
                 / 100.0)
@@ -2264,7 +2374,6 @@ impl Render for SharpPreview {
             self.focus = Some(cx.focus_handle());
         }
         let focus = self.focus.as_ref().unwrap().clone();
-        let panel_height = (f32::from(window.viewport_size().height) - 310.0).max(180.0);
         let mut root = div()
             .relative()
             .size_full()
@@ -2314,10 +2423,15 @@ impl Render for SharpPreview {
             .on_mouse_move(
                 cx.listener(move |this, event: &gpui::MouseMoveEvent, _, cx| {
                     if let Some((y, height)) = this.state.browser_drag {
+                        // `updateGameJoltBrowserHeight`: 10–100 % of the panel.
+                        let max = if this.live.is_some() { 100.0 } else { 90.0 };
                         this.state.browser_height = (height
                             + (y - f32::from(event.position.y)) / panel_height * 100.0)
-                            .clamp(10.0, 90.0);
+                            .clamp(10.0, max);
                         cx.notify();
+                    }
+                    if this.live.as_ref().is_some_and(|l| l.cover_drag.is_some()) {
+                        this.drag_cover_position(f32::from(event.position.x), cx);
                     }
                 }),
             )
@@ -2325,6 +2439,7 @@ impl Render for SharpPreview {
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     this.state.browser_drag = None;
+                    this.finish_cover_drag(cx);
                     cx.notify();
                 }),
             )
@@ -2332,6 +2447,7 @@ impl Render for SharpPreview {
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     this.state.browser_drag = None;
+                    this.finish_cover_drag(cx);
                     cx.notify();
                 }),
             );

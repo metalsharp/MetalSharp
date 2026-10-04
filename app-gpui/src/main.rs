@@ -8,6 +8,7 @@ mod configuration;
 mod diagnostics;
 mod host_actions;
 mod hotkeys;
+mod intro_video;
 mod launch_overlay;
 mod library_model;
 mod lifecycle;
@@ -16,6 +17,7 @@ mod logs_preview;
 #[allow(dead_code)]
 mod mini_browser;
 mod page_palette;
+mod process_manager;
 mod search_input;
 mod settings_preview;
 mod sharp_preview;
@@ -109,6 +111,28 @@ fn main() -> Result<()> {
         });
         return Ok(());
     }
+    // Electron `isProcessManagerOnlyRuntime`: only the Cmd+P HUD, talking to
+    // whatever backend is already listening; no main window, no owned backend.
+    if std::env::var("METALSHARP_PROCESS_MANAGER_ONLY").as_deref() == Ok("1")
+        || args.iter().any(|arg| arg == "--process-manager-overlay")
+    {
+        let config = backend_host::HostConfig::from_environment(false)?;
+        Application::new()
+            .with_assets(PreviewIcons)
+            .run(move |cx: &mut App| {
+                cx.set_global(live::Live::new(config));
+                hotkeys::register();
+                process_manager::install(cx);
+                process_manager::toggle(cx);
+                cx.on_window_closed(|cx| {
+                    if cx.windows().is_empty() {
+                        cx.quit();
+                    }
+                })
+                .detach();
+            });
+        return Ok(());
+    }
     // Default launch is the production app (port 9274, ~/.metalsharp), like Electron.
     let connected = match args.as_slice() {
         [] => Some(backend_host::HostConfig::from_environment(false)?),
@@ -196,6 +220,7 @@ fn main() -> Result<()> {
             crate::artwork::install(cx);
             if let Some(config) = connected {
                 crate::hotkeys::register();
+                crate::process_manager::install(cx);
                 cx.open_window(options, move |window, cx| {
                     cx.new(|cx| ui::MetalSharpApp::new_live(config, window, cx))
                 })

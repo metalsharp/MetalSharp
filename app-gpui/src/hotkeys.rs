@@ -4,9 +4,14 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static FORCE_QUIT_GAMES: AtomicBool = AtomicBool::new(false);
+static TOGGLE_PROCESS_MANAGER: AtomicBool = AtomicBool::new(false);
 
 pub fn take_force_quit_request() -> bool {
     FORCE_QUIT_GAMES.swap(false, Ordering::Relaxed)
+}
+
+pub fn take_process_manager_toggle() -> bool {
+    TOGGLE_PROCESS_MANAGER.swap(false, Ordering::Relaxed)
 }
 
 #[cfg(target_os = "macos")]
@@ -65,7 +70,9 @@ mod carbon {
     pub const CMD_KEY: u32 = 1 << 8;
     pub const OPTION_KEY: u32 = 1 << 11;
     pub const KVK_ANSI_Q: u32 = 0x0C;
+    pub const KVK_ANSI_P: u32 = 0x23;
     pub const FORCE_QUIT_ID: u32 = 1;
+    pub const PROCESS_MANAGER_ID: u32 = 2;
 }
 
 #[cfg(target_os = "macos")]
@@ -87,13 +94,18 @@ extern "C" fn on_hot_key(
             (&mut id as *mut EventHotKeyId).cast(),
         )
     };
-    if status == 0 && id.signature == SIGNATURE && id.id == FORCE_QUIT_ID {
-        FORCE_QUIT_GAMES.store(true, Ordering::Relaxed);
+    if status == 0 && id.signature == SIGNATURE {
+        match id.id {
+            FORCE_QUIT_ID => FORCE_QUIT_GAMES.store(true, Ordering::Relaxed),
+            PROCESS_MANAGER_ID => TOGGLE_PROCESS_MANAGER.store(true, Ordering::Relaxed),
+            _ => {}
+        }
     }
     0
 }
 
-/// Register Cmd+Option+Q ("quit playing anytime", Electron `registerForceQuitGamesShortcut`).
+/// Register Cmd+Option+Q ("quit playing anytime", Electron
+/// `registerForceQuitGamesShortcut`) and Cmd+P (`registerProcessManagerShortcut`).
 pub fn register() {
     #[cfg(target_os = "macos")]
     unsafe {
@@ -116,20 +128,35 @@ pub fn register() {
             eprintln!("MetalSharp force-quit games shortcut handler not installed");
             return;
         }
-        let mut hot_key = std::ptr::null_mut();
-        let status = RegisterEventHotKey(
-            KVK_ANSI_Q,
-            CMD_KEY | OPTION_KEY,
-            EventHotKeyId {
-                signature: SIGNATURE,
-                id: FORCE_QUIT_ID,
-            },
-            target,
-            0,
-            &mut hot_key,
-        );
-        if status != 0 {
-            eprintln!("MetalSharp force-quit games shortcut not registered: Command+Option+Q");
+        for (key_code, modifiers, id, label) in [
+            (
+                KVK_ANSI_Q,
+                CMD_KEY | OPTION_KEY,
+                FORCE_QUIT_ID,
+                "MetalSharp force-quit games shortcut not registered: Command+Option+Q",
+            ),
+            (
+                KVK_ANSI_P,
+                CMD_KEY,
+                PROCESS_MANAGER_ID,
+                "MetalSharp Process Manager shortcut was not registered: Command+P",
+            ),
+        ] {
+            let mut hot_key = std::ptr::null_mut();
+            let status = RegisterEventHotKey(
+                key_code,
+                modifiers,
+                EventHotKeyId {
+                    signature: SIGNATURE,
+                    id,
+                },
+                target,
+                0,
+                &mut hot_key,
+            );
+            if status != 0 {
+                eprintln!("{label}");
+            }
         }
     }
 }
