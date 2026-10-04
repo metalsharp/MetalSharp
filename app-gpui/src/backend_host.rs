@@ -89,6 +89,11 @@ impl BackendHost {
         let reservation = TcpListener::bind(("127.0.0.1", config.port)).context(
             "Backend port is already occupied; no foreign process will be adopted or killed",
         )?;
+        let mut entropy = [0_u8; 32];
+        if unsafe { libc::getentropy(entropy.as_mut_ptr().cast(), entropy.len()) } != 0 {
+            bail!("Could not generate backend session authentication");
+        }
+        let token: String = entropy.iter().map(|byte| format!("{byte:02x}")).collect();
         std::fs::create_dir_all(&config.home)?;
         let mut command = Command::new(&config.binary);
         let installer = if config
@@ -107,6 +112,7 @@ impl BackendHost {
         command
             .env("METALSHARP_HOME", &config.home)
             .env("METALSHARP_PORT", config.port.to_string())
+            .env("METALSHARP_CLIENT_TOKEN", &token)
             .env("METALSHARP_BUNDLE_DIR", config.resources.join("bundles"))
             .env("METALSHARP_HOMEBREW_INSTALLER", installer)
             .env(
@@ -145,7 +151,7 @@ impl BackendHost {
         let child = command
             .spawn()
             .context("Could not spawn packaged C backend")?;
-        let client = BackendClient::for_port(config.port)?;
+        let client = BackendClient::for_port(config.port)?.with_client_token(token)?;
         // Construct RAII guard immediately, so ALL startup failures reap the child.
         let mut host = Self { child, client };
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -175,6 +181,10 @@ impl BackendHost {
             }
             thread::sleep(Duration::from_millis(100));
         }
+    }
+    #[cfg(feature = "browser-fixture")]
+    pub(crate) fn pid(&self) -> u32 {
+        self.child.id()
     }
     pub fn client(&self) -> BackendClient {
         self.client.clone()
@@ -284,6 +294,16 @@ mod tests {
         assert_eq!(client.status().unwrap().pid, Some(host.child.id()));
         let setup = client.setup_state().unwrap();
         assert!(!setup.completed);
+        let unauthorized = BackendClient::for_port(port).unwrap();
+        assert!(matches!(
+            unauthorized.status(),
+            Err(crate::backend::BackendError::Http(401))
+        ));
+        assert!(matches!(
+            unauthorized.save_preference(crate::configuration::PreferenceChange::Msync(false)),
+            Err(crate::backend::BackendError::Http(401))
+        ));
+        assert!(client.configuration().unwrap().msync);
         assert!(
             !client
                 .launcher_status(crate::backend::Launcher::Steam)
@@ -311,6 +331,41 @@ mod tests {
                 .games
                 .is_empty()
         );
+        assert!(!client.setup_dependencies().unwrap().all_installed);
+        std::fs::write(
+            home.join("logs/gpui-fixture.log"),
+            "runtime fixture ready\nAuthorization: Bearer fixture-private\n",
+        )
+        .unwrap();
+        let logs = client.diagnostic_logs().unwrap();
+        let fixture = logs
+            .logs
+            .iter()
+            .find(|file| file.name == "gpui-fixture.log")
+            .unwrap();
+        assert_eq!(fixture.lines[0], "runtime fixture ready");
+        assert!(!fixture.lines[1].contains("fixture-private"));
+        // Persist only a fixture preference and retain unknown future config keys.
+        let config_path = home.join("configs/config.json");
+        std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &config_path,
+            r#"{"msync":true,"futureFixture":{"keep":123}}"#,
+        )
+        .unwrap();
+        assert!(client.configuration().unwrap().msync);
+        client
+            .save_preference(crate::configuration::PreferenceChange::Msync(false))
+            .unwrap();
+        client
+            .save_preference(crate::configuration::PreferenceChange::ControllerInput(
+                crate::configuration::ControllerInput::XInput,
+            ))
+            .unwrap();
+        assert!(!client.configuration().unwrap().msync);
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap();
+        assert_eq!(saved["futureFixture"]["keep"], 123);
         let first_pid = host.child.id();
         assert!(host.is_running());
         host.stop();
@@ -323,6 +378,16 @@ mod tests {
             Some(restarted.child.id())
         );
         assert!(!restarted.client().setup_state().unwrap().completed);
+        assert!(matches!(
+            client.status(),
+            Err(crate::backend::BackendError::Http(401))
+        ));
+        let persisted = restarted.client().configuration().unwrap();
+        assert!(!persisted.msync);
+        assert_eq!(
+            persisted.controller_input,
+            crate::configuration::ControllerInput::XInput
+        );
         // Simulate a crash, then prove RAII cleanup cannot kill/adopt a replacement
         // listener that happens to occupy the old port.
         restarted.child.kill().unwrap();

@@ -8,6 +8,14 @@ The checked API is `MiniBrowserRequest::new(purpose, url, title)` followed on th
 
 Storage: Steam help, TheGamesDB help, GOG auth, and Epic auth each receive fresh nonpersistent stores. GameJolt uses the explicitly named persistent `WKWebsiteDataStore.dataStoreForIdentifier` store (`5C6F493A-2D9E-4A25-BEB0-7DC86791553A`), never the default store. That API requires macOS 14; since the preview bundle minimum is macOS 13, GameJolt browser launch fails closed on macOS 13. Camera/microphone, geolocation (on WebKit versions exposing the macOS 27 selector), JS alert/confirm/prompt, and file-open panels are denied; popup creation is left unimplemented so WebKit cancels it by default. Responses that WebKit cannot render and HTTP responses marked `Content-Disposition: attachment` are canceled.
 
+## Browser/backend security boundary
+
+The user explicitly approved two protections after review found wildcard CORS and CORS-simple JSON on the legacy backend. GPUI-owned sessions now use a random 256-bit per-launch header token; C consumes/unsets the environment value before startup helpers, rejects absent/wrong/duplicate tokens before body reads or route dispatch, and omits CORS permissions. Existing standalone/Electron behavior is unchanged when token mode is absent. Tokens never enter browser requests, pages, URLs, diagnostics or game environments.
+
+Every native WebView installs compiled resource-blocking rules before its first document load. Plain HTTP/WS (including numeric/DNS loopback aliases), file resources, private IPv4, IPv6 literal hosts and local DNS names are denied. WebKit's regex subset does not support alternation: the initial native check caught this, the rules were split into 41 compatible rules, and native compilation/HTML rendering then passed. Filters do not inspect DNS-resolution results; session authentication separately protects app data. Compilation failures leave navigation disabled, and closing during compilation prevents any later document load.
+
+Native script-free image probes recorded zero page-originated requests at a dedicated dummy loopback server; its separate positive control passed. Anonymous Steam still redirected/rendered with the policy installed. These checks do not prove every worker/WebSocket/private-network path or OAuth compatibility; full browser/security acceptance remains open.
+
 ## Integration steps
 
 1. Keep `mod mini_browser;` in `src/main.rs`. `ConnectedApp` uses this API for GOG sign-in and key-help actions; the default preview and its Settings placeholder credentials remain untouched.

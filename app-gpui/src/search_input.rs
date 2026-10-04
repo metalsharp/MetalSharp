@@ -36,6 +36,8 @@ pub struct SearchInput {
     pub placeholder: SharedString,
     pub text_color: u32,
     pub placeholder_color: u32,
+    /// Mask rendering/IME queries and prevent secret clipboard export.
+    pub secret: bool,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -53,6 +55,7 @@ impl SearchInput {
             placeholder: "Search".into(),
             text_color: 0xffffff,
             placeholder_color: 0xaaaaaa,
+            secret: false,
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -167,7 +170,7 @@ impl SearchInput {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected_range.is_empty() {
+        if !self.secret && !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
             ));
@@ -175,9 +178,11 @@ impl SearchInput {
     }
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                self.content[self.selected_range.clone()].to_string(),
-            ));
+            if !self.secret {
+                cx.write_to_clipboard(ClipboardItem::new_string(
+                    self.content[self.selected_range.clone()].to_string(),
+                ));
+            }
             self.replace_text_in_range(None, "", window, cx)
         }
     }
@@ -210,9 +215,8 @@ impl SearchInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        let mut index = line
-            .closest_index_for_x(position.x - bounds.left() + self.scroll_offset)
-            .min(self.content.len());
+        let displayed = line.closest_index_for_x(position.x - bounds.left() + self.scroll_offset);
+        let mut index = source_index(&self.content, self.secret, displayed);
         while !self.content.is_char_boundary(index) {
             index -= 1;
         }
@@ -296,7 +300,7 @@ impl EntityInputHandler for SearchInput {
     ) -> Option<String> {
         let range = self.range_from_utf16(&range_utf16);
         actual_range.replace(self.range_to_utf16(&range));
-        Some(self.content[range].to_string())
+        Some(ime_text(&self.content[range], self.secret))
     }
 
     fn selected_text_range(
@@ -339,9 +343,12 @@ impl EntityInputHandler for SearchInput {
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
+        let replacement =
+            self.content[0..range.start].to_owned() + new_text + &self.content[range.end..];
+        if self.secret && replacement.len() > 4096 {
+            return;
+        }
+        self.content = replacement.into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range.take();
         cx.notify();
@@ -361,9 +368,12 @@ impl EntityInputHandler for SearchInput {
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
 
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
+        let replacement =
+            self.content[0..range.start].to_owned() + new_text + &self.content[range.end..];
+        if self.secret && replacement.len() > 4096 {
+            return;
+        }
+        self.content = replacement.into();
         if !new_text.is_empty() {
             self.marked_range = Some(range.start..range.start + new_text.len());
         } else {
@@ -391,11 +401,19 @@ impl EntityInputHandler for SearchInput {
         let range = self.range_from_utf16(&range_utf16);
         Some(Bounds::from_corners(
             point(
-                bounds.left() + last_layout.x_for_index(range.start) - self.scroll_offset,
+                bounds.left()
+                    + last_layout.x_for_index(display_index(
+                        &self.content,
+                        self.secret,
+                        range.start,
+                    ))
+                    - self.scroll_offset,
                 bounds.top(),
             ),
             point(
-                bounds.left() + last_layout.x_for_index(range.end) - self.scroll_offset,
+                bounds.left()
+                    + last_layout.x_for_index(display_index(&self.content, self.secret, range.end))
+                    - self.scroll_offset,
                 bounds.bottom(),
             ),
         ))
@@ -413,7 +431,7 @@ impl EntityInputHandler for SearchInput {
         }
         let last_layout = self.last_layout.as_ref()?;
         let utf8_index = last_layout.index_for_x(local_point.x + self.scroll_offset)?;
-        Some(self.offset_to_utf16(utf8_index))
+        Some(self.offset_to_utf16(source_index(&self.content, self.secret, utf8_index)))
     }
 }
 
@@ -471,8 +489,9 @@ impl Element for TextElement {
     ) -> Self::PrepaintState {
         let input = self.input.read(cx);
         let content = input.content.clone();
-        let selected_range = input.selected_range.clone();
-        let cursor = input.cursor_offset();
+        let selected_range = display_index(&content, input.secret, input.selected_range.start)
+            ..display_index(&content, input.secret, input.selected_range.end);
+        let cursor = display_index(&content, input.secret, input.cursor_offset());
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
@@ -481,7 +500,14 @@ impl Element for TextElement {
                 rgb(input.placeholder_color).into(),
             )
         } else {
-            (content, rgb(input.text_color).into())
+            (
+                if input.secret {
+                    "•".repeat(content.chars().count()).into()
+                } else {
+                    content.clone()
+                },
+                rgb(input.text_color).into(),
+            )
         };
 
         let run = TextRun {
@@ -493,6 +519,8 @@ impl Element for TextElement {
             strikethrough: None,
         };
         let runs = if let Some(marked_range) = input.marked_range.as_ref() {
+            let marked_range = display_index(&content, input.secret, marked_range.start)
+                ..display_index(&content, input.secret, marked_range.end);
             vec![
                 TextRun {
                     len: marked_range.start,
@@ -675,6 +703,34 @@ pub fn register_keys(cx: &mut App) {
     ]);
 }
 
+fn ime_text(text: &str, secret: bool) -> String {
+    if secret {
+        text.chars().map(|ch| "•".repeat(ch.len_utf16())).collect()
+    } else {
+        text.to_owned()
+    }
+}
+
+/// Shaping uses displayed UTF-8 byte offsets, while editing retains source offsets.
+fn display_index(text: &str, secret: bool, source: usize) -> usize {
+    if !secret {
+        return source.min(text.len());
+    }
+    text.char_indices()
+        .take_while(|(index, _)| *index < source)
+        .count()
+        * "•".len()
+}
+fn source_index(text: &str, secret: bool, display: usize) -> usize {
+    if !secret {
+        return display.min(text.len());
+    }
+    text.char_indices()
+        .nth(display / "•".len())
+        .map(|(index, _)| index)
+        .unwrap_or(text.len())
+}
+
 fn utf16_to_utf8(text: &str, offset: usize) -> usize {
     let mut units = 0;
     let mut bytes = 0;
@@ -690,6 +746,85 @@ fn utf16_to_utf8(text: &str, offset: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[gpui::test]
+    fn secret_editing_masks_ime_and_never_exports_mock_clipboard(cx: &mut gpui::TestAppContext) {
+        use super::*;
+        // TestAppContext uses TestPlatform's in-memory clipboard and virtual
+        // window, never the user's system clipboard or account data.
+        let handle = cx.add_window(|_, cx| SearchInput::new(cx));
+        handle
+            .update(cx, |input, window, cx| {
+                input.secret = true;
+                input.replace_text_in_range(None, "ab🍊", window, cx);
+                input.backspace(&Backspace, window, cx);
+                assert_eq!(input.content.as_ref(), "ab");
+                input.replace_and_mark_text_in_range(Some(0..2), "🍊树", Some(2..3), window, cx);
+                assert_eq!(input.selected_range, 4..7);
+                assert_eq!(input.marked_range, Some(0..7));
+                let mut actual = None;
+                assert_eq!(
+                    input.text_for_range(0..3, &mut actual, window, cx).unwrap(),
+                    "•••"
+                );
+                assert_eq!(actual, Some(0..3));
+                cx.write_to_clipboard(ClipboardItem::new_string("mock-existing-clipboard".into()));
+                input.select_all(&SelectAll, window, cx);
+                input.copy(&Copy, window, cx);
+                assert_eq!(
+                    cx.read_from_clipboard().unwrap().text().unwrap(),
+                    "mock-existing-clipboard"
+                );
+                input.cut(&Cut, window, cx);
+                assert!(input.content.is_empty());
+                assert_eq!(
+                    cx.read_from_clipboard().unwrap().text().unwrap(),
+                    "mock-existing-clipboard"
+                );
+                input.replace_text_in_range(None, &"x".repeat(4097), window, cx);
+                assert!(input.content.is_empty());
+                input.secret = false;
+                input.replace_text_in_range(None, "plain fixture", window, cx);
+                input.select_all(&SelectAll, window, cx);
+                input.copy(&Copy, window, cx);
+                assert_eq!(
+                    cx.read_from_clipboard().unwrap().text().unwrap(),
+                    "plain fixture"
+                );
+                input.clear(cx);
+                assert_eq!(input.selected_range, 0..0);
+                assert!(input.marked_range.is_none());
+            })
+            .unwrap();
+    }
+    #[test]
+    fn secret_display_offsets_round_trip_unicode_and_endpoints() {
+        let text = "a🍊e\u{301}树";
+        for index in text
+            .char_indices()
+            .map(|(i, _)| i)
+            .chain(std::iter::once(text.len()))
+        {
+            assert_eq!(
+                super::source_index(text, true, super::display_index(text, true, index)),
+                index
+            );
+            assert_eq!(super::display_index(text, false, index), index);
+        }
+        assert_eq!(super::source_index(text, true, usize::MAX), text.len());
+        assert_eq!(
+            super::display_index(text, true, usize::MAX),
+            text.chars().count() * 3
+        );
+    }
+    #[test]
+    fn secret_ime_queries_hide_content_without_changing_utf16_extent() {
+        let text = "fixture-secret🍊树";
+        let masked = super::ime_text(text, true);
+        assert!(!masked.contains("fixture"));
+        assert!(masked.chars().all(|ch| ch == '•'));
+        assert_eq!(masked.encode_utf16().count(), text.encode_utf16().count());
+        assert_eq!(super::ime_text(text, false), text);
+    }
     #[test]
     fn composition_selection_uses_replacement_relative_utf16_offsets() {
         assert_eq!(super::utf16_to_utf8("a🍊树", 0), 0);

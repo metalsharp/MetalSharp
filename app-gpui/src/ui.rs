@@ -384,6 +384,8 @@ impl Default for PreviewGameSettings {
 }
 
 pub struct MetalSharpApp {
+    connected: Option<gpui::Entity<crate::connected::ConnectedApp>>,
+    connected_subscription: Option<gpui::Subscription>,
     show_setup: bool,
     theme: PreviewTheme,
     theme_menu_open: bool,
@@ -432,6 +434,8 @@ impl MetalSharpApp {
             .expect("English setup locale must be present")
             .clone();
         Self {
+            connected: None,
+            connected_subscription: None,
             show_setup: false,
             theme: PreviewTheme::Dark,
             theme_menu_open: false,
@@ -474,9 +478,45 @@ impl MetalSharpApp {
     }
 }
 
+impl MetalSharpApp {
+    /// Opt-in real setup; never substitutes fixture titles after completion.
+    pub fn new_connected_setup(
+        config: crate::backend_host::HostConfig,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let session = cx.new(|cx| crate::connected::ConnectedApp::new(config, cx));
+        let mut app = Self::new();
+        app.show_setup = true;
+        app.step = 0;
+        app.connected_subscription = Some(cx.observe(&session, |this, session, cx| {
+            let state = session.read(cx).setup_view();
+            this.runtime_installed = state.runtime_ready;
+            this.runtime_installing = state.runtime_installing;
+            this.runtime_started = state.runtime_started;
+            this.runtime_progress = state.percent;
+            this.steam_installed = state.steam_installed;
+            this.steam_installing = state.steam_installing;
+            if state.completed {
+                this.show_setup = false;
+            }
+            cx.notify();
+        }));
+        app.connected = Some(session);
+        app
+    }
+    fn setup_can_advance(&self, cx: &gpui::App) -> bool {
+        self.connected.as_ref().is_none_or(|session| {
+            let state = session.read(cx).setup_view();
+            state.ready && state.runtime_ready && state.steam_installed && !state.steam_installing
+        })
+    }
+}
 impl Render for MetalSharpApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.show_setup {
+            if let Some(session) = &self.connected {
+                return div().size_full().child(session.clone());
+            }
             return self.render_library(window.viewport_size(), cx);
         }
         let asset = |name: &str| asset_path(name);
@@ -2673,10 +2713,17 @@ impl MetalSharpApp {
             .step_of
             .replace("{step}", &(current_step + 1).to_string())
             .replace("{total}", &copy.steps.len().to_string());
+        let can_advance = self.setup_can_advance(cx);
         let page_body = match current_step {
             0 => render_welcome_body(&copy),
             1 => self.render_runtime_body(cx, copy.clone()),
-            _ => render_done_body(&copy),
+            _ => render_done_body(
+                &copy,
+                self.connected
+                    .as_ref()
+                    .map(|session| session.read(cx).setup_inputs()),
+                self.connected.clone(),
+            ),
         };
         let page_actions = if current_step == 0 {
             div().mt_auto().flex().justify_end().child(
@@ -2733,6 +2780,7 @@ impl MetalSharpApp {
                 .child(
                     div()
                         .id("setup-next")
+                        .opacity(if can_advance { 1.0 } else { 0.4 })
                         .flex()
                         .items_center()
                         .justify_center()
@@ -2746,7 +2794,9 @@ impl MetalSharpApp {
                         .cursor_pointer()
                         .hover(|style| style.bg(rgb(0xf7efdf)))
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.step = 2;
+                            if this.setup_can_advance(cx) {
+                                this.step = 2;
+                            }
                             cx.notify();
                         }))
                         .child(copy.next.clone()),
@@ -2755,6 +2805,7 @@ impl MetalSharpApp {
             div().mt_auto().flex().justify_end().child(
                 div()
                     .id("setup-launch")
+                    .opacity(if can_advance { 1.0 } else { 0.4 })
                     .flex()
                     .items_center()
                     .justify_center()
@@ -2768,7 +2819,11 @@ impl MetalSharpApp {
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(0xf7efdf)))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.show_setup = false;
+                        if let Some(session) = this.connected.clone() {
+                            session.update(cx, |session, cx| session.setup_finish(cx));
+                        } else {
+                            this.show_setup = false;
+                        }
                         cx.notify();
                     }))
                     .child(copy.launch.clone()),
@@ -2825,6 +2880,15 @@ impl MetalSharpApp {
                     .overflow_y_scroll()
                     .child(page_body),
             )
+            .child(if let Some(session)=&self.connected {
+                let state=session.read(cx).setup_view();
+                div().mt(px(12.)).text_size(px(11.)).text_color(rgb(MUTED))
+                    .child("Connected setup: install buttons perform real operations; no sample library will be shown.")
+                    .child(div().id("setup-connection-notice").max_h(px(60.)).overflow_y_scroll().child(state.notice))
+                    .child(div().id("setup-backend-retry").mt(px(6.)).cursor_pointer().child("Restart owned backend / retry connection").on_click(cx.listener(|this,_,_,cx|{
+                        if let Some(session)=this.connected.clone(){session.update(cx,|session,cx|session.setup_retry_backend(cx));}
+                    })))
+            }else{div()})
             .child(page_actions)
             .child(language_picker)
     }
@@ -3006,6 +3070,10 @@ impl MetalSharpApp {
     }
 
     fn start_runtime_install(&mut self, cx: &mut Context<Self>) {
+        if let Some(session) = self.connected.clone() {
+            session.update(cx, |session, cx| session.setup_install_runtime(cx));
+            return;
+        }
         if self.runtime_installing || self.runtime_installed {
             return;
         }
@@ -3035,6 +3103,10 @@ impl MetalSharpApp {
     }
 
     fn start_steam_install(&mut self, cx: &mut Context<Self>) {
+        if let Some(session) = self.connected.clone() {
+            session.update(cx, |session, cx| session.setup_install_steam(cx));
+            return;
+        }
         if !self.runtime_installed || self.steam_installing || self.steam_installed {
             return;
         }
@@ -3094,7 +3166,11 @@ fn render_welcome_body(copy: &SetupCopy) -> gpui::Div {
         )
 }
 
-fn render_done_body(copy: &SetupCopy) -> gpui::Div {
+fn render_done_body(
+    copy: &SetupCopy,
+    fields: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
+    session: Option<gpui::Entity<crate::connected::ConnectedApp>>,
+) -> gpui::Div {
     div()
         .mt(px(8.0))
         .flex()
@@ -3125,18 +3201,24 @@ fn render_done_body(copy: &SetupCopy) -> gpui::Div {
                     copy.device_placeholder.clone(),
                     copy.device_hint.clone(),
                     "device-name",
+                    fields.as_ref().map(|fields| fields[0].clone()),
+                    None,
                 ))
                 .child(render_done_form_group(
                     copy.api_key.clone(),
                     copy.api_placeholder.clone(),
                     format!("{} steamcommunity.com/dev/apikey", copy.api_hint),
                     "steam-api-key",
+                    fields.as_ref().map(|fields| fields[1].clone()),
+                    session.as_ref().map(|session| (session.clone(), false)),
                 ))
                 .child(render_done_form_group(
                     copy.the_games_db_api_key.clone(),
                     copy.the_games_db_api_placeholder.clone(),
                     format!("{} api.thegamesdb.net/key.php", copy.the_games_db_api_hint),
                     "thegamesdb-api-key",
+                    fields.as_ref().map(|fields| fields[2].clone()),
+                    session.map(|session| (session, true)),
                 )),
         )
 }
@@ -3146,7 +3228,14 @@ fn render_done_form_group(
     placeholder: String,
     hint: String,
     id: &'static str,
+    input: Option<gpui::Entity<crate::search_input::SearchInput>>,
+    help: Option<(gpui::Entity<crate::connected::ConnectedApp>, bool)>,
 ) -> gpui::Div {
+    let field = if let Some(input) = input {
+        div().w_full().child(input)
+    } else {
+        div().child(placeholder)
+    };
     div()
         .flex()
         .flex_col()
@@ -3171,12 +3260,19 @@ fn render_done_form_group(
                 .px(px(12.0))
                 .text_size(px(13.0))
                 .text_color(rgb(0x777d7a))
-                .child(placeholder),
+                .child(field),
         )
         .child(
             div()
+                .id(gpui::SharedString::from(format!("{id}-hint")))
                 .text_size(px(11.5))
                 .text_color(rgb(0x838987))
+                .when(help.is_some(), |style| style.cursor_pointer().underline())
+                .on_click(move |_, _, cx| {
+                    if let Some((session, gamesdb)) = &help {
+                        session.update(cx, |session, cx| session.setup_key_help(*gamesdb, cx));
+                    }
+                })
                 .child(hint),
         )
 }
@@ -3331,6 +3427,44 @@ mod tests {
     use super::{LANGUAGES, MetalSharpApp, SetupCopy};
     use std::collections::HashMap;
 
+    #[gpui::test]
+    fn connected_setup_never_falls_back_to_synthetic_installation(cx: &mut gpui::TestAppContext) {
+        let config = crate::backend_host::HostConfig {
+            port: 0,
+            home: "/should-not-create/gpui-virtual-fixture".into(),
+            binary: "/missing-fixture-backend".into(),
+            resources: "/missing-fixture-resources".into(),
+            validation: true,
+        };
+        // Invalid port is rejected before sockets, home creation or child spawn.
+        // The virtual GPUI window uses a mock platform, not the desktop.
+        let window = cx.add_window(|_, cx| MetalSharpApp::new_connected_setup(config, cx));
+        window
+            .update(cx, |app, _, cx| {
+                let fields = app.connected.as_ref().unwrap().read(cx).setup_inputs();
+                assert!(!fields[0].read(cx).secret);
+                assert!(fields[1].read(cx).secret && fields[2].read(cx).secret);
+                app.step = 1;
+                app.start_runtime_install(cx);
+                app.start_steam_install(cx);
+                assert!(!app.setup_can_advance(cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(5));
+        cx.run_until_parked();
+        window
+            .update(cx, |app, _, cx| {
+                assert!(app.show_setup);
+                assert!(!app.runtime_installing);
+                assert!(!app.runtime_installed);
+                assert!(!app.steam_installed);
+                assert_eq!(app.runtime_progress, 0);
+                assert!(!app.setup_can_advance(cx));
+            })
+            .unwrap();
+    }
     #[test]
     fn narrow_library_uses_short_search_copy() {
         assert_eq!(super::library_search_placeholder(720.0), "Search");
