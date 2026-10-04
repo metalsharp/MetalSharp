@@ -35,7 +35,7 @@ pub enum GameResolution {
     #[serde(rename = "3840x2160")]
     Uhd,
 }
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct RuntimePreferences {
     pub graphics_runtime_logs: bool,
@@ -59,7 +59,7 @@ impl Default for RuntimePreferences {
         }
     }
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PreferenceChange {
     GraphicsRuntimeLogs(bool),
     ControllerInput(ControllerInput),

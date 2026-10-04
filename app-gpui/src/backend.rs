@@ -1,6 +1,6 @@
 //! Local C-backend transport. Requests run on the background executor, never the UI thread.
 //! Mutating requests are sent exactly once: a timeout must not repeat an install/launch.
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::time::Duration;
 use ureq::Agent;
@@ -122,7 +122,7 @@ impl std::fmt::Display for BackendError {
 }
 impl std::error::Error for BackendError {}
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Game {
     pub appid: u64,
     pub name: String,
@@ -141,6 +141,14 @@ pub struct Game {
     pub game_dir: Option<String>,
     #[serde(default)]
     pub source: String,
+    #[serde(default)]
+    pub cover_url: Option<String>,
+    #[serde(default)]
+    pub header_url: Option<String>,
+    #[serde(default)]
+    pub ubisoft_artwork_url: Option<String>,
+    #[serde(default)]
+    pub embedded_icon_path: Option<String>,
 }
 fn nullable_string<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
@@ -190,9 +198,25 @@ impl BackendClient {
         body: Option<&Value>,
         timeout: Duration,
     ) -> Result<Value, BackendError> {
+        self.request_internal(method, path, body, timeout, false)
+    }
+    fn request_internal(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        timeout: Duration,
+        allow_update_query: bool,
+    ) -> Result<Value, BackendError> {
+        let safe_update_query = allow_update_query
+            && method == "GET"
+            && matches!(
+                path,
+                "/update/dmg-path?variant=regular" | "/update/dmg-path?variant=fex"
+            );
         if !path.starts_with('/')
             || path.starts_with("//")
-            || path.contains(['?', '#', '\\'])
+            || (path.contains(['?', '#', '\\']) && !safe_update_query)
             || path.chars().any(char::is_control)
             || !matches!(method, "GET" | "POST")
         {
@@ -244,6 +268,49 @@ impl BackendClient {
         }
         Ok(value.get("data").cloned().unwrap_or(value))
     }
+    pub(crate) fn update_dmg_path(
+        &self,
+        variant: crate::updater_connected::UpdateVariant,
+    ) -> Result<crate::updater_connected::DmgPath, BackendError> {
+        let path = format!("/update/dmg-path?variant={}", variant.as_str());
+        serde_json::from_value(self.request_internal(
+            "GET",
+            &path,
+            None,
+            Duration::from_secs(30),
+            true,
+        )?)
+        .map_err(|_| BackendError::InvalidJson)
+    }
+    pub fn steam_grid_art(&self, appid: u64, kind: &str) -> Result<Vec<u8>, BackendError> {
+        if appid == 0 || appid > i32::MAX as u64 || !matches!(kind, "hero" | "poster" | "header") {
+            return Err(BackendError::InvalidInput);
+        }
+        let url = format!("{}/art/grid/{appid}/{kind}", self.base_url);
+        let mut request = self.agent.get(&url);
+        if let Some(token) = self.client_token.as_deref() {
+            request = request.header("X-MetalSharp-Client-Token", token);
+        }
+        let mut response = request
+            .config()
+            .timeout_global(Some(Duration::from_secs(10)))
+            .build()
+            .call()
+            .map_err(|_| BackendError::Transport)?;
+        if response.status().as_u16() != 200 {
+            return Err(BackendError::Http(response.status().as_u16()));
+        }
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(8 * 1024 * 1024)
+            .read_to_vec()
+            .map_err(|_| BackendError::InvalidJson)?;
+        if bytes.is_empty() {
+            return Err(BackendError::InvalidJson);
+        }
+        Ok(bytes)
+    }
     pub fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, BackendError> {
         serde_json::from_value(self.request("GET", path, None, Duration::from_secs(30))?)
             .map_err(|_| BackendError::InvalidJson)
@@ -259,6 +326,53 @@ impl BackendClient {
         bundle.logs.truncate(8);
         Ok(bundle)
     }
+    pub fn log_stream(
+        &self,
+        after: u64,
+    ) -> Result<crate::logs_connected::LiveLogBatch, BackendError> {
+        let path = format!("/logs/stream?after={after}");
+        let url = format!("{}{path}", self.base_url);
+        let mut request = self.agent.get(&url);
+        if let Some(token) = self.client_token.as_deref() {
+            request = request.header("X-MetalSharp-Client-Token", token);
+        }
+        let mut response = request
+            .config()
+            .timeout_global(Some(Duration::from_secs(10)))
+            .build()
+            .call()
+            .map_err(|_| BackendError::Transport)?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            return Err(BackendError::Http(status));
+        }
+        let mut batch: crate::logs_connected::LiveLogBatch = response
+            .body_mut()
+            .with_config()
+            .limit(2 * 1024 * 1024)
+            .read_json()
+            .map_err(|_| BackendError::InvalidJson)?;
+        if !batch.ok {
+            return Err(BackendError::Rejected);
+        }
+        batch.lines.truncate(500);
+        for line in &mut batch.lines {
+            *line = crate::diagnostics::redact_line(line);
+        }
+        Ok(batch)
+    }
+    pub fn crash_reports(&self) -> Result<crate::logs_connected::CrashReports, BackendError> {
+        let mut result: crate::logs_connected::CrashReports = self.get("/logs/crash-reports")?;
+        result.reports.truncate(20);
+        Ok(result)
+    }
+    pub fn backend_home(&self) -> Result<std::path::PathBuf, BackendError> {
+        let status = self.status()?;
+        status
+            .metalsharp_home
+            .map(std::path::PathBuf::from)
+            .ok_or(BackendError::InvalidJson)
+    }
     pub fn configuration(&self) -> Result<crate::configuration::RuntimePreferences, BackendError> {
         self.get("/config")
     }
@@ -270,6 +384,11 @@ impl BackendClient {
     }
     pub fn setup_state(&self) -> Result<SetupState, BackendError> {
         self.get("/setup/state")
+    }
+    /// Update only the device-name field; the backend merges it into setup state.
+    pub fn save_device_name(&self, name: &str) -> Result<(), BackendError> {
+        self.post("/setup/save", json!({"deviceName":name.trim()}))
+            .map(|_| ())
     }
     pub fn setup_dependencies(&self) -> Result<SetupDependencies, BackendError> {
         self.get("/setup/dependencies")
