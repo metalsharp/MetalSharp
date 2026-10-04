@@ -81,19 +81,84 @@ pub struct BackendHost {
     child: Child,
     client: BackendClient,
 }
+
+/// PIDs of `metalsharp-backend` processes listening on `port` (Electron's
+/// `getListeningBackendPid`): never a foreign listener.
+fn listening_backend_pids(port: u16) -> Vec<libc::pid_t> {
+    let Ok(output) = Command::new("/usr/sbin/lsof")
+        .args(["-nP", &format!("-tiTCP:{port}"), "-sTCP:LISTEN"])
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .filter_map(|pid| pid.parse::<libc::pid_t>().ok())
+        .filter(|pid| *pid > 0)
+        .filter(|pid| {
+            Command::new("/bin/ps")
+                .args(["-o", "comm=", "-p", &pid.to_string()])
+                .output()
+                .map(|out| {
+                    String::from_utf8_lossy(&out.stdout)
+                        .trim()
+                        .ends_with("metalsharp-backend")
+                })
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Production launches own a freshly spawned packaged backend, exactly like
+/// Electron's BackendBridge.shouldRestart(): an orphan/older backend on the
+/// production port is terminated (SIGTERM, then SIGKILL after 3 s).
+fn terminate_stale_production_backend(port: u16) {
+    for pid in listening_backend_pids(port) {
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
+        }
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && unsafe { libc::kill(pid, 0) } == 0 {
+            thread::sleep(Duration::from_millis(200));
+        }
+        unsafe {
+            libc::kill(pid, libc::SIGKILL);
+        }
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline && TcpListener::bind(("127.0.0.1", port)).is_err() {
+        thread::sleep(Duration::from_millis(150));
+    }
+}
+
 impl BackendHost {
     pub fn start(config: &HostConfig) -> Result<Self> {
         if config.port == 0 {
             bail!("Invalid backend port");
         }
+        if !config.validation {
+            terminate_stale_production_backend(config.port);
+        }
         let reservation = TcpListener::bind(("127.0.0.1", config.port)).context(
             "Backend port is already occupied; no foreign process will be adopted or killed",
         )?;
-        let mut entropy = [0_u8; 32];
-        if unsafe { libc::getentropy(entropy.as_mut_ptr().cast(), entropy.len()) } != 0 {
-            bail!("Could not generate backend session authentication");
-        }
-        let token: String = entropy.iter().map(|byte| format!("{byte:02x}")).collect();
+        // Production matches Electron: no session token, because the updater
+        // script and other local helpers query :9274/status unauthenticated.
+        let token = if config.validation {
+            let mut entropy = [0_u8; 32];
+            if unsafe { libc::getentropy(entropy.as_mut_ptr().cast(), entropy.len()) } != 0 {
+                bail!("Could not generate backend session authentication");
+            }
+            Some(
+                entropy
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>(),
+            )
+        } else {
+            None
+        };
         std::fs::create_dir_all(&config.home)?;
         let mut command = Command::new(&config.binary);
         let installer = if config
@@ -109,10 +174,13 @@ impl BackendHost {
                 .join("tools/install-homebrew.sh")
         };
         command.current_dir(&config.resources);
+        command.env_remove("METALSHARP_CLIENT_TOKEN");
+        if let Some(token) = &token {
+            command.env("METALSHARP_CLIENT_TOKEN", token);
+        }
         command
             .env("METALSHARP_HOME", &config.home)
             .env("METALSHARP_PORT", config.port.to_string())
-            .env("METALSHARP_CLIENT_TOKEN", &token)
             .env("METALSHARP_BUNDLE_DIR", config.resources.join("bundles"))
             .env("METALSHARP_HOMEBREW_INSTALLER", installer)
             .env(
@@ -121,6 +189,7 @@ impl BackendHost {
                     config.resources.join("tools"),
                     PathBuf::from("/opt/homebrew/bin"),
                     PathBuf::from("/usr/local/bin"),
+                    PathBuf::from("/usr/local/sbin"),
                     PathBuf::from("/usr/bin"),
                     PathBuf::from("/bin"),
                     PathBuf::from("/usr/sbin"),
@@ -151,7 +220,10 @@ impl BackendHost {
         let child = command
             .spawn()
             .context("Could not spawn packaged C backend")?;
-        let client = BackendClient::for_port(config.port)?.with_client_token(token)?;
+        let client = match token {
+            Some(token) => BackendClient::for_port(config.port)?.with_client_token(token)?,
+            None => BackendClient::for_port(config.port)?,
+        };
         // Construct RAII guard immediately, so ALL startup failures reap the child.
         let mut host = Self { child, client };
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -182,7 +254,6 @@ impl BackendHost {
             thread::sleep(Duration::from_millis(100));
         }
     }
-    #[cfg(feature = "browser-fixture")]
     pub(crate) fn pid(&self) -> u32 {
         self.child.id()
     }
@@ -204,7 +275,8 @@ impl BackendHost {
         unsafe {
             libc::kill(self.child.id() as libc::pid_t, libc::SIGTERM);
         }
-        let deadline = Instant::now() + Duration::from_secs(2);
+        // Electron killProcess(): up to 3 s for graceful shutdown, then SIGKILL.
+        let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
             match self.child.try_wait() {
                 Ok(None) => {}
@@ -407,6 +479,43 @@ mod tests {
         drop(restarted);
         assert!(foreign.local_addr().is_ok());
         std::fs::remove_dir_all(home).unwrap();
+    }
+    #[test]
+    #[ignore = "requires freshly built app/src-c/build/metalsharp-backend; temp home only"]
+    fn production_spawn_is_unauthenticated_and_replaces_stale_backend() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let binary = repo.join("app/src-c/build/metalsharp-backend");
+        assert!(binary.is_file(), "build the C backend first");
+        let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+        let home =
+            std::env::temp_dir().join(format!("metalsharp-gpui-prod-smoke-{}", std::process::id()));
+        let config = HostConfig {
+            port,
+            home: home.clone(),
+            binary,
+            resources: repo.join("app"),
+            // Production behaviour (Electron parity) without touching ~/.metalsharp.
+            validation: false,
+        };
+        let first = BackendHost::start(&config).unwrap();
+        let first_pid = first.child.id();
+        // Electron-style: updater scripts can read /status without a token.
+        let anonymous = BackendClient::for_port(port).unwrap();
+        assert_eq!(anonymous.status().unwrap().pid, Some(first_pid));
+        // Leak the first host (simulating an orphan); a new launch must replace it.
+        std::mem::forget(first);
+        let mut second = BackendHost::start(&config).unwrap();
+        assert_ne!(second.child.id(), first_pid);
+        assert_eq!(anonymous.status().unwrap().pid, Some(second.child.id()));
+        // The leaked child was terminated by the second launch; reap it.
+        let mut wait_status = 0;
+        let reaped =
+            unsafe { libc::waitpid(first_pid as libc::pid_t, &mut wait_status, libc::WNOHANG) };
+        assert_eq!(reaped, first_pid as libc::pid_t, "stale backend survived");
+        second.stop();
+        let _ = std::fs::remove_dir_all(home);
     }
     #[test]
     fn occupied_port_is_never_adopted() {

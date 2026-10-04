@@ -8,6 +8,8 @@ APP_DISPLAY_NAME="${METALSHARP_GPUI_APP_DISPLAY_NAME:-MetalSharp GPUI Preview}"
 APP_BUNDLE_ID="${METALSHARP_GPUI_APP_BUNDLE_ID:-dev.metalsharp.gpui-preview}"
 APP_VERSION="${METALSHARP_GPUI_APP_VERSION:-0.1.0-preview}"
 APP_BUILD_VERSION="${METALSHARP_GPUI_APP_BUILD_VERSION:-${APP_VERSION%%-*}}"
+APP_EXECUTABLE="${METALSHARP_GPUI_APP_EXECUTABLE:-MetalSharp-GPUI}"
+CARGO_PROFILE="${METALSHARP_GPUI_CARGO_PROFILE:-debug}"
 BUNDLE="$APP_DIR/target/$APP_BUNDLE_NAME"
 CONTENTS="$BUNDLE/Contents"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP_DIR/target}"
@@ -21,7 +23,7 @@ if [[ ! "$APP_BUILD_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]; then
 fi
 DISPLAY_NAME_PATTERN='^[A-Za-z0-9][A-Za-z0-9 .-]*$'
 BUNDLE_ID_PATTERN='^[A-Za-z0-9.-]+$'
-if [[ ! "$APP_DISPLAY_NAME" =~ $DISPLAY_NAME_PATTERN ]] || [[ ! "$APP_BUNDLE_ID" =~ $BUNDLE_ID_PATTERN ]]; then
+if [[ ! "$APP_DISPLAY_NAME" =~ $DISPLAY_NAME_PATTERN ]] || [[ ! "$APP_BUNDLE_ID" =~ $BUNDLE_ID_PATTERN ]] || [[ ! "$APP_EXECUTABLE" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
   echo "Invalid local app display name or bundle identifier" >&2
   exit 1
 fi
@@ -36,11 +38,16 @@ command -v swift >/dev/null || { echo "swift is required to generate dock artwor
 # Derived tilt variants are generated locally, not committed to the repository.
 (cd "$APP_DIR" && swift generate-dock-art.swift)
 
-CARGO_FEATURE_ARGS=()
+CARGO_ARGS=(--locked --manifest-path "$APP_DIR/Cargo.toml")
 if [ -n "${METALSHARP_GPUI_CARGO_FEATURES:-}" ]; then
-  CARGO_FEATURE_ARGS=(--features "$METALSHARP_GPUI_CARGO_FEATURES")
+  CARGO_ARGS+=(--features "$METALSHARP_GPUI_CARGO_FEATURES")
 fi
-CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo build --locked --manifest-path "$APP_DIR/Cargo.toml" "${CARGO_FEATURE_ARGS[@]}"
+case "$CARGO_PROFILE" in
+  debug) ;;
+  release) CARGO_ARGS+=(--release) ;;
+  *) echo "METALSHARP_GPUI_CARGO_PROFILE must be debug or release" >&2; exit 1 ;;
+esac
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo build "${CARGO_ARGS[@]}"
 
 rm -rf "$BUNDLE"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/assets"
@@ -69,7 +76,7 @@ test -s "$ICON_OUTPUT/Assets.car" || { echo "actool did not produce Assets.car" 
 test -s "$ICON_OUTPUT/$ICON_NAME.icns" || { echo "actool did not produce the legacy ICNS icon" >&2; exit 1; }
 install -m 0644 "$ICON_OUTPUT/Assets.car" "$CONTENTS/Resources/Assets.car"
 install -m 0644 "$ICON_OUTPUT/$ICON_NAME.icns" "$CONTENTS/Resources/$ICON_NAME.icns"
-install -m 0755 "$CARGO_TARGET_DIR/debug/metalsharp-gpui" "$CONTENTS/MacOS/MetalSharp-GPUI"
+install -m 0755 "$CARGO_TARGET_DIR/$CARGO_PROFILE/metalsharp-gpui" "$CONTENTS/MacOS/$APP_EXECUTABLE"
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 
 # Explicitly package the authoritative C backend/resources for connected testing.
@@ -119,7 +126,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleExecutable</key><string>MetalSharp-GPUI</string>
+  <key>CFBundleExecutable</key><string>$APP_EXECUTABLE</string>
   <key>CFBundleIdentifier</key><string>$APP_BUNDLE_ID</string>
   <key>CFBundleName</key><string>$APP_DISPLAY_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_DISPLAY_NAME</string>
@@ -131,6 +138,14 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>MetalSharp Game</string>
+      <key>CFBundleURLSchemes</key><array><string>metalsharp</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

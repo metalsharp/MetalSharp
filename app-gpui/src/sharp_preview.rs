@@ -5,6 +5,13 @@ use std::{
     path::PathBuf,
 };
 
+#[path = "sharp_emu_live.rs"]
+mod sharp_emu_live;
+#[path = "sharp_live.rs"]
+mod sharp_live;
+#[path = "sharp_live_view.rs"]
+mod sharp_live_view;
+
 const BG: u32 = 0x111416;
 const PANEL: u32 = 0x121518;
 const TEXT: u32 = 0xf1eee6;
@@ -289,6 +296,7 @@ pub struct SharpPreview {
     pub asset_root: PathBuf,
     state: PreviewState,
     focus: Option<gpui::FocusHandle>,
+    live: Option<sharp_live::SharpLive>,
 }
 impl SharpPreview {
     pub fn new() -> Self {
@@ -297,6 +305,7 @@ impl SharpPreview {
             asset_root: PathBuf::new(),
             state: PreviewState::default(),
             focus: None,
+            live: None,
         }
     }
     fn source_menu(
@@ -342,6 +351,21 @@ impl SharpPreview {
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.state.choose(choice);
+                        if this.live.is_some() {
+                            this.state.notice.clear();
+                            if choice == SharpSource::Epic {
+                                this.refresh_epic(false, cx);
+                            } else if sharp_emu_live::emu_index(choice).is_some() {
+                                this.emu_refresh(choice, false, cx);
+                                let has_update =
+                                    sharp_emu_live::emu_index(choice).is_some_and(|i| {
+                                        this.live.as_ref().unwrap().emu[i].update.is_some()
+                                    });
+                                if !has_update {
+                                    this.emu_check_update(choice, false, false, |_, _, _| {}, cx);
+                                }
+                            }
+                        }
                         cx.notify();
                     }))
                     .child(
@@ -444,7 +468,7 @@ impl SharpPreview {
                     ),
             )
             .child(options)
-            .child(fixture);
+            .children(self.live.is_none().then_some(fixture));
         overlay
     }
     fn launch_settings_control(
@@ -474,6 +498,9 @@ impl SharpPreview {
                     this.state.launch_settings_open = !this.state.launch_settings_open;
                     this.state.picker = false;
                     this.state.resolution_open = false;
+                    if this.state.launch_settings_open && this.live.is_some() {
+                        this.load_launch_preferences(cx);
+                    }
                     cx.notify();
                 })),
         );
@@ -568,14 +595,16 @@ impl SharpPreview {
                         .text_size(px(11.0))
                         .rounded(px(7.0))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.launch_preferences[index] = if index == 2 {
+                            let value = if index == 2 {
                                 1 - this.state.launch_preferences[index]
                             } else {
                                 choice
                             };
-                            this.state.notice =
-                                "Shared preview launch preference changed · not saved".into();
-                            cx.notify();
+                            if this.live.is_none() {
+                                this.state.notice =
+                                    "Shared preview launch preference changed · not saved".into();
+                            }
+                            this.save_launch_preference(index, value, cx);
                         })),
                 );
             }
@@ -641,16 +670,15 @@ impl SharpPreview {
                         .border_0()
                         .text_size(px(11.0))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.state.launch_preferences[4] = index;
                             this.state.resolution_open = false;
-                            cx.notify();
+                            this.save_launch_preference(4, index, cx);
                         })),
                 );
             }
             resolution = resolution.child(gpui::deferred(choices).with_priority(80));
         }
         panel = panel.child(div().flex().items_center().justify_between().gap(px(10.0)).child(div().text_size(px(11.0)).font_weight(FontWeight::BOLD).text_color(rgb(muted)).child("RESOLUTION")).child(resolution))
-            .child(div().text_size(px(11.0)).line_height(px(16.5)).text_color(rgb(muted)).child("Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch. Preview changes are never persisted."));
+            .child(div().text_size(px(11.0)).line_height(px(16.5)).text_color(rgb(muted)).child(if self.live.is_some() {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch."} else {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch. Preview changes are never persisted."}));
         control = control.child(gpui::deferred(panel).with_priority(50));
         control
     }
@@ -1835,8 +1863,20 @@ impl Render for SharpPreview {
             SharpSource::ShadPs4 => vec![("install", "↻  Check shadPS4", true, true)],
             SharpSource::SharpEmu => vec![("install", "↻  Check SharpEmu", true, true)],
         };
-        let mut controls = div().flex().items_center();
-        for (index, (action, label, primary, enabled)) in actions.into_iter().enumerate() {
+        let live_pc = self.live.is_some() && source.index() < SharpSource::Pcsx2.index();
+        let live_emu = self.live.is_some() && source.index() >= SharpSource::Pcsx2.index();
+        let mut controls = if live_pc {
+            self.live_header_controls(cx)
+        } else if live_emu {
+            self.live_emulator_header(cx)
+        } else {
+            div().flex().items_center()
+        };
+        for (index, (action, label, primary, enabled)) in actions
+            .into_iter()
+            .enumerate()
+            .filter(|_| !live_pc && !live_emu)
+        {
             // Each string comes from a static literal above.
             let action: &'static str = match action {
                 "installer" => "installer",
@@ -1877,7 +1917,7 @@ impl Render for SharpPreview {
                 }));
             controls = controls.child(button);
         }
-        if source.index() >= SharpSource::Pcsx2.index() && installed {
+        if source.index() >= SharpSource::Pcsx2.index() && installed && !live_emu {
             let running = self.state.running[i];
             controls = controls.child(
                 self.palette
@@ -1962,7 +2002,11 @@ impl Render for SharpPreview {
         let mut content = div().min_w_0().flex_1().flex().flex_col().gap(px(14.0));
         let mut grid = div().flex().flex_wrap().gap(px(14.));
         if emulator {
-            content = content.child(self.emulator_overview(library_width));
+            content = content.child(if live_emu {
+                self.live_emulator_overview(library_width)
+            } else {
+                self.emulator_overview(library_width)
+            });
         }
         let gate = if self.state.samples[source.index()] {
             None
@@ -2020,7 +2064,11 @@ impl Render for SharpPreview {
                 )),
             }
         };
-        if !emulator || self.state.samples[i] {
+        if live_pc {
+            content = content.child(self.live_content(card_width, cx));
+        } else if live_emu {
+            content = content.child(self.live_emulator_content(card_width, cx));
+        } else if !emulator || self.state.samples[i] {
             if let Some((heading, desc, _button)) = gate {
                 if source == SharpSource::Installers {
                     content = content.child(
@@ -2152,9 +2200,15 @@ impl Render for SharpPreview {
             .flex()
             .gap(px(gap))
             .child(content)
-            .children(emulator.then(|| self.emulator_sidebar(sidebar_width, width <= 920.0, cx)));
+            .children(emulator.then(|| {
+                if live_emu {
+                    self.live_emulator_sidebar(sidebar_width, width <= 920.0, cx)
+                } else {
+                    self.emulator_sidebar(sidebar_width, width <= 920.0, cx)
+                }
+            }));
         let mut workspace = workspace;
-        if source == SharpSource::GameJolt {
+        if source == SharpSource::GameJolt && self.live.is_none() {
             let frame_height = ((f32::from(window.viewport_size().height) - 310.0).max(180.0)
                 * self.state.browser_height
                 / 100.0)
@@ -2307,6 +2361,14 @@ impl Render for SharpPreview {
         if let Some(kind) = self.state.dialog {
             let modal = self.preview_dialog(kind, window.viewport_size(), cx);
             root = root.child(gpui::deferred(modal).with_priority(100));
+        }
+        if let Some(action) = self.live.as_ref().and_then(|live| live.emu_confirm.clone()) {
+            let modal = self.live_emu_confirm_overlay(action, window.viewport_size(), cx);
+            root = root.child(gpui::deferred(modal).with_priority(110));
+        }
+        if let Some(action) = self.live.as_ref().and_then(|live| live.confirm.clone()) {
+            let modal = self.live_confirm_overlay(action, window.viewport_size(), cx);
+            root = root.child(gpui::deferred(modal).with_priority(110));
         }
         // Keep a persistent status note inside body, no shared application chrome is rendered.
         root

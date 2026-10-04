@@ -2072,6 +2072,9 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
         result = strdup("game executable not found while preparing bottle route");
         goto done;
     }
+    /* Switching routes removes the previous route's bundled DLLs immediately
+     * (byte-identical matches only) before staging the newly selected route. */
+    remove_stale_route_dlls(home, canonical, game_dir, executable);
     if (!stage_route_dlls(home, (unsigned)appid, canonical, executable))
         result = strdup("selected bottle route runtime DLLs are incomplete");
 done:
