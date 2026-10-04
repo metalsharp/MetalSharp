@@ -635,7 +635,7 @@ impl SharpPreview {
             "1440p — 2560 × 1440",
             "2160p / 4K — 3840 × 2160",
         ];
-        let mut resolution = div().relative().flex_none().child(
+        let resolution = div().relative().flex_none().child(
             self.palette
                 .button(
                     "launch-resolution-trigger",
@@ -649,13 +649,13 @@ impl SharpPreview {
                     cx.notify();
                 })),
         );
+        // The panel is already deferred; GPUI aborts on a nested defer, so the
+        // choices render inline under the resolution row.
+        let mut resolution_choices = None;
         if self.state.resolution_open {
             let mut choices = div()
                 .id("launch-resolution-menu")
                 .occlude()
-                .absolute()
-                .top(gpui::relative(1.0))
-                .right_0()
                 .mt(px(4.0))
                 .w(px(226.0))
                 .rounded(px(8.0))
@@ -679,9 +679,10 @@ impl SharpPreview {
                         })),
                 );
             }
-            resolution = resolution.child(gpui::deferred(choices).with_priority(80));
+            resolution_choices = Some(div().flex().justify_end().child(choices));
         }
         panel = panel.child(div().flex().items_center().justify_between().gap(px(10.0)).child(div().text_size(px(11.0)).font_weight(FontWeight::BOLD).text_color(rgb(muted)).child("RESOLUTION")).child(resolution))
+            .children(resolution_choices)
             .child(div().text_size(px(11.0)).line_height(px(16.5)).text_color(rgb(muted)).child(if self.live.is_some() {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch."} else {"Windowed mode uses a Wine virtual desktop. Resolution uses it unless Fullscreen is selected; fullscreen behavior remains game-controlled. Applies on next launch. Preview changes are never persisted."}));
         control = control.child(gpui::deferred(panel).with_priority(50));
         control

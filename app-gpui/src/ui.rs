@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 #[path = "ui_live.rs"]
 mod live_impl;
-use live_impl::{LiveState, LogClass, MigrationViewState};
+use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending};
 
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
@@ -1294,6 +1294,7 @@ impl MetalSharpApp {
             steam_menu = Some(gpui::deferred(menu.id("steam_menu").occlude()).with_priority(10));
         }
 
+        let steam_pending = self.live.steam_pending;
         let steam_running = if self.live.enabled {
             self.live.wine_steam_running
         } else {
@@ -1350,16 +1351,18 @@ impl MetalSharpApp {
                             .text_size(px(13.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(rgb(0xffffff))
-                            .cursor_pointer()
+                            .when(steam_pending.is_some(), |d| d.opacity(0.7))
+                            .when(steam_pending.is_none(), |d| d.cursor_pointer())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.close_library_menus();
                                 this.toggle_steam(false, cx);
                             }))
                             .child("◉")
-                            .child(if steam_running {
-                                "Stop Steam"
-                            } else {
-                                "Start Steam"
+                            .child(match steam_pending {
+                                Some(SteamPending::Starting) => "Starting Steam…",
+                                Some(SteamPending::Stopping) => "Stopping Steam…",
+                                None if steam_running => "Stop Steam",
+                                None => "Start Steam",
                             }),
                     )
                     .child(
@@ -1957,6 +1960,7 @@ impl MetalSharpApp {
         let theme = self.theme;
         let hero_height = (f32::from(viewport.height) * 0.54).clamp(300.0, 520.0);
         let searching = !self.search_query.trim().is_empty() && !self.games.is_empty();
+        let starting = self.live.steam_pending == Some(SteamPending::Starting);
         div()
             .id("library-empty-scroll")
             .flex_1()
@@ -2027,11 +2031,18 @@ impl MetalSharpApp {
                                     .text_size(px(15.0))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(theme.control_text()))
-                                    .cursor_pointer()
-                                    .hover(|style| style.bg(rgb(theme.control_hover())))
-                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_steam(true, cx)))
+                                    .when(starting, |d| d.opacity(0.7))
+                                    .when(!starting, |d| {
+                                        d.cursor_pointer()
+                                            .hover(|style| style.bg(rgb(theme.control_hover())))
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| this.start_steam(true, cx)))
                                     .child("◉")
-                                    .child("Start Steam"),
+                                    .child(if starting {
+                                        "Starting Steam…"
+                                    } else {
+                                        "Start Steam"
+                                    }),
                             )
                     }),
             )

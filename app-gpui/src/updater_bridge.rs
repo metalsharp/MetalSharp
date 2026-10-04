@@ -123,6 +123,7 @@ pub fn spawn_install(
     let home = live.home();
     let _ = std::fs::create_dir_all(&home);
     let mut command = std::process::Command::new("/bin/bash");
+    crate::lifecycle::unmask_child_signals(&mut command);
     command.arg(script);
     if variant == "regular" {
         command.arg("--recover");

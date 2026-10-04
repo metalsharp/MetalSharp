@@ -47,7 +47,10 @@ case "$CARGO_PROFILE" in
   release) CARGO_ARGS+=(--release) ;;
   *) echo "METALSHARP_GPUI_CARGO_PROFILE must be debug or release" >&2; exit 1 ;;
 esac
-CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo build "${CARGO_ARGS[@]}"
+# No MACOSX_DEPLOYMENT_TARGET here: with the macOS 27 linker it also applies to
+# host proc-macro dylibs and produces ones dyld rejects ("mis-aligned LINKEDIT
+# string pool" -> E0463). Info.plist's LSMinimumSystemVersion sets the floor.
+CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" cargo build "${CARGO_ARGS[@]}"
 
 rm -rf "$BUNDLE"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/assets"
@@ -121,6 +124,19 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
     fi
     cp "$source" "$CONTENTS/Resources/bundles/"
   done
+  # Bundle builds silently drop the Vulkan lanes when the build machine has no
+  # ~/.metalsharp/vkd3d; never ship a graphics bundle that cannot serve VKD3D.
+  graphics="$CONTENTS/Resources/bundles/metalsharp-graphics-dll.tar.zst"
+  if [ "${METALSHARP_GPUI_REQUIRE_BUNDLES:-0}" = "1" ] && [ -s "$graphics" ]; then
+    members="$("$ROOT/app/tools/zstd" -dc "$graphics" | tar -t)"
+    for lane in vkd3d-proton/x86_64-windows/d3d12.dll vkd3d-proton/x86_64-windows/d3d12core.dll \
+      dxvk/x86_64-windows/d3d11.dll dxmt/x86_64-windows/d3d11.dll; do
+      if ! grep -qx "Graphics/dll/$lane" <<<"$members"; then
+        echo "Graphics bundle is missing Graphics/dll/$lane: $graphics" >&2
+        exit 1
+      fi
+    done
+  fi
 fi
 
 cat > "$CONTENTS/Info.plist" <<PLIST

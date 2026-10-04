@@ -38,6 +38,8 @@ pub(super) struct SetupFlow {
     /// Reopened from Settings: may be closed without finishing.
     pub dismissible: bool,
     pub generation: u64,
+    /// Steam installer Wine processes already brought to the front once.
+    pub installer_fronted: HashSet<i64>,
 }
 
 impl SetupFlow {
@@ -58,12 +60,20 @@ pub(super) struct StreamingState {
 }
 
 /// App.vue + LibraryView.vue reactive state.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SteamPending {
+    Starting,
+    Stopping,
+}
+
 pub(super) struct LiveState {
     pub enabled: bool,
     /// App.vue `showStartupVideo`: attach the native overlay on next render.
     pub intro_pending: bool,
     /// LibraryView localStorage `defaultRulesAppliedKey`.
     pub default_rules_applied: bool,
+    /// Run the startup update check once the first library load returns.
+    pub update_check_after_library: bool,
     pub booting: bool,
     pub boot_error: Option<String>,
     pub migration: bool,
@@ -71,6 +81,8 @@ pub(super) struct LiveState {
     pub backend_version: Option<String>,
     pub wine_steam_installed: bool,
     pub wine_steam_running: bool,
+    /// A Start/Stop Steam request is in flight; buttons show it and ignore clicks.
+    pub steam_pending: Option<SteamPending>,
     pub mac_steam_installed: bool,
     pub mac_steam_running: bool,
     pub ubisoft_installed: bool,
@@ -124,6 +136,7 @@ impl Default for LiveState {
             enabled: false,
             intro_pending: false,
             default_rules_applied: false,
+            update_check_after_library: false,
             booting: false,
             boot_error: None,
             migration: false,
@@ -131,6 +144,7 @@ impl Default for LiveState {
             backend_version: None,
             wine_steam_installed: false,
             wine_steam_running: false,
+            steam_pending: None,
             mac_steam_installed: false,
             mac_steam_running: false,
             ubisoft_installed: false,
@@ -216,9 +230,10 @@ impl MetalSharpApp {
         })
         .detach();
         cx.on_app_quit(|_, cx| {
-            // Electron cleanup(): terminate the owned backend before exiting.
+            // Electron cleanup(): terminate the owned backend before exiting,
+            // without holding the closing window open while it shuts down.
             if let Some(live) = Live::get(cx) {
-                live.stop_backend();
+                live.stop_backend_detached();
             }
             async {}
         })
@@ -359,8 +374,11 @@ impl MetalSharpApp {
                         if first_launch || migration_required {
                             this.open_setup(false, cx);
                         } else {
+                            // App.vue awaits initApp (library load) before
+                            // checkForUpdates; on the single-threaded backend a
+                            // network update check must not delay the library.
+                            this.live.update_check_after_library = true;
                             this.init_app(cx);
-                            this.check_for_updates(cx);
                         }
                         cx.notify();
                     },
@@ -487,7 +505,7 @@ impl MetalSharpApp {
                 let alive = this.update(cx, |this, cx| {
                     if crate::lifecycle::quit_requested() {
                         if let Some(live) = Live::get(cx) {
-                            live.stop_backend();
+                            live.stop_backend_detached();
                         }
                         cx.quit();
                         return;
@@ -896,6 +914,9 @@ impl MetalSharpApp {
                             }
                         }
                         this.refresh_steam_status(cx);
+                        if std::mem::take(&mut this.live.update_check_after_library) {
+                            this.check_for_updates(cx);
+                        }
                         let again = this.live.pending_force_reload;
                         this.live.pending_force_reload = false;
                         if !again {
@@ -1675,6 +1696,7 @@ impl MetalSharpApp {
     // ───────────────────────── Steam / Ubisoft ─────────────────────────
 
     /// LibraryTopbar / empty-hero `toggleSteam`.
+    /// LibraryTopbar `toggleSteam`: stop when running, otherwise start.
     pub(super) fn toggle_steam(&mut self, reload: bool, cx: &mut Context<Self>) {
         if !self.live.enabled {
             self.steam_running = !self.steam_running;
@@ -1682,61 +1704,88 @@ impl MetalSharpApp {
             return;
         }
         if self.live.wine_steam_running {
-            live::call(
-                cx,
-                "POST",
-                "/steam/stop",
-                None,
-                live::DEFAULT_TIMEOUT,
-                move |this, result, cx| {
-                    let ok = result.as_ref().is_some_and(is_ok);
-                    if ok {
-                        this.live.wine_steam_running = false;
-                    }
-                    toast::show(
-                        cx,
-                        error_text(result.as_ref()).unwrap_or_else(|| "Wine Steam stopped".into()),
-                        if ok {
-                            toast::ToastKind::Success
-                        } else {
-                            toast::ToastKind::Error
-                        },
-                    );
-                    if reload {
-                        this.load_library(false, cx);
-                    }
-                    cx.notify();
-                },
-            );
+            self.stop_steam(reload, cx);
         } else {
-            live::call(
-                cx,
-                "POST",
-                "/steam/launch",
-                None,
-                live::DEFAULT_TIMEOUT,
-                move |this, result, cx| {
-                    let ok = result.as_ref().is_some_and(is_ok);
-                    if ok {
-                        this.live.wine_steam_running = true;
-                    }
-                    toast::show(
-                        cx,
-                        error_text(result.as_ref())
-                            .unwrap_or_else(|| "Starting Wine Steam...".into()),
-                        if ok {
-                            toast::ToastKind::Success
-                        } else {
-                            toast::ToastKind::Error
-                        },
-                    );
-                    if reload {
-                        this.load_library(false, cx);
-                    }
-                    cx.notify();
-                },
-            );
+            self.start_steam(reload, cx);
         }
+    }
+
+    /// Start (or bring forward) Wine Steam. The library's empty-state button
+    /// is labelled "Start Steam", so it always starts; toggling there stopped
+    /// an already-running Steam behind a success toast.
+    pub(super) fn start_steam(&mut self, reload: bool, cx: &mut Context<Self>) {
+        if !self.live.enabled {
+            self.steam_running = true;
+            cx.notify();
+            return;
+        }
+        if self.live.steam_pending.is_some() {
+            return;
+        }
+        self.live.steam_pending = Some(SteamPending::Starting);
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/steam/launch",
+            None,
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                this.live.steam_pending = None;
+                let ok = result.as_ref().is_some_and(is_ok);
+                if ok {
+                    this.live.wine_steam_running = true;
+                }
+                toast::show(
+                    cx,
+                    error_text(result.as_ref()).unwrap_or_else(|| "Starting Wine Steam...".into()),
+                    if ok {
+                        toast::ToastKind::Success
+                    } else {
+                        toast::ToastKind::Error
+                    },
+                );
+                if reload {
+                    this.load_library(false, cx);
+                }
+                cx.notify();
+            },
+        );
+    }
+
+    fn stop_steam(&mut self, reload: bool, cx: &mut Context<Self>) {
+        if self.live.steam_pending.is_some() {
+            return;
+        }
+        self.live.steam_pending = Some(SteamPending::Stopping);
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/steam/stop",
+            None,
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                this.live.steam_pending = None;
+                let ok = result.as_ref().is_some_and(is_ok);
+                if ok {
+                    this.live.wine_steam_running = false;
+                }
+                toast::show(
+                    cx,
+                    error_text(result.as_ref()).unwrap_or_else(|| "Wine Steam stopped".into()),
+                    if ok {
+                        toast::ToastKind::Success
+                    } else {
+                        toast::ToastKind::Error
+                    },
+                );
+                if reload {
+                    this.load_library(false, cx);
+                }
+                cx.notify();
+            },
+        );
     }
 
     /// LibraryTopbar `toggleUbisoft`.
@@ -2119,17 +2168,7 @@ impl MetalSharpApp {
                         // Steam is marked installed: end the Wine Steam session
                         // (the backend's pkill-equivalent) instead of leaving
                         // the freshly installed client running.
-                        live::call(
-                            cx,
-                            "POST",
-                            "/steam/stop",
-                            None,
-                            live::DEFAULT_TIMEOUT,
-                            |this, _, cx| {
-                                this.live.wine_steam_running = false;
-                                cx.notify();
-                            },
-                        );
+                        this.stop_installed_steam_session(0, cx);
                         cx.notify();
                     } else if started.elapsed() > MS(300_000) {
                         let flow = &mut this.live.setup;
@@ -2139,12 +2178,81 @@ impl MetalSharpApp {
                         toast::error(cx, this.copy.steam_install_timed_out.clone());
                         cx.notify();
                     } else {
+                        this.bring_steam_installer_forward(cx);
                         this.poll_steam_install(generation, started, cx);
                     }
                 });
             });
         })
         .detach();
+    }
+
+    /// Wine windows open behind MetalSharp (macOS will not let a background
+    /// process take focus), so hand activation to each Steam installer GUI
+    /// process until it has been frontmost once; after that the user decides.
+    fn bring_steam_installer_forward(&mut self, cx: &mut Context<Self>) {
+        live::call(
+            cx,
+            "GET",
+            "/steam/stop-targets",
+            None,
+            MS(5000),
+            |this, targets, _| {
+                let flow = &mut this.live.setup;
+                if !flow.steam_installing {
+                    return;
+                }
+                let pids = targets
+                    .as_ref()
+                    .and_then(|t| t.get("targeted"))
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|t| t.get("pid").and_then(Value::as_i64));
+                for pid in pids {
+                    if !flow.installer_fronted.contains(&pid) && activate_wine_app(pid) {
+                        flow.installer_fronted.insert(pid);
+                    }
+                }
+            },
+        );
+    }
+
+    /// End the Wine session SteamSetup left behind and confirm it is gone
+    /// (`running: false`), retrying so a stray wineserver cannot block the
+    /// first Start Steam.
+    fn stop_installed_steam_session(&mut self, attempt: u32, cx: &mut Context<Self>) {
+        live::call(
+            cx,
+            "POST",
+            "/steam/stop",
+            None,
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                let stopped = result.as_ref().is_some_and(|r| {
+                    is_ok(r) && r.get("running").and_then(Value::as_bool) == Some(false)
+                });
+                if stopped {
+                    this.live.wine_steam_running = false;
+                } else if attempt < 3 {
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(MS(1000)).await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.stop_installed_steam_session(attempt + 1, cx)
+                        });
+                    })
+                    .detach();
+                } else {
+                    toast::error(
+                        cx,
+                        error_text(result.as_ref()).unwrap_or_else(|| {
+                            "Wine processes from the Steam install are still running".into()
+                        }),
+                    );
+                }
+                cx.notify();
+            },
+        );
     }
 
     /// SetupWizard `goToDoneStep`.
@@ -3026,6 +3134,55 @@ impl MetalSharpApp {
 // ───────────────────────────── host helpers ─────────────────────────────
 
 /// main `isFirstLaunch`: `setup.json` missing, unparsable or not completed.
+/// `metalsharp-activate-pid` in-process: bring a regular GUI app's windows to
+/// the front. Returns true once that process is the active application.
+/// Non-GUI Wine processes (wineserver, services) have no running application.
+#[cfg(target_os = "macos")]
+fn activate_wine_app(pid: i64) -> bool {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject, Bool, Sel};
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    let Some(class) = AnyClass::get(c"NSRunningApplication") else {
+        return false;
+    };
+    unsafe {
+        let app: *mut AnyObject = msg_send![class, runningApplicationWithProcessIdentifier: pid];
+        let Some(app) = app.as_ref() else {
+            return false;
+        };
+        // NSApplicationActivationPolicyRegular only: skip Wine's background agents.
+        let policy: isize = msg_send![app, activationPolicy];
+        if policy != 0 {
+            return false;
+        }
+        let active: Bool = msg_send![app, isActive];
+        if active.as_bool() {
+            return true;
+        }
+        // macOS 14 cooperative activation: the active app yields first.
+        if let Some(ns_app_class) = AnyClass::get(c"NSApplication") {
+            let ns_app: *mut AnyObject = msg_send![ns_app_class, sharedApplication];
+            if let Some(ns_app) = ns_app.as_ref() {
+                let yield_sel = Sel::register(c"yieldActivationToApplication:");
+                let responds: Bool = msg_send![ns_app, respondsToSelector: yield_sel];
+                if responds.as_bool() {
+                    let _: () = msg_send![ns_app, yieldActivationToApplication: app];
+                }
+            }
+        }
+        // NSApplicationActivateAllWindows
+        let _: Bool = msg_send![app, activateWithOptions: 1usize << 0];
+    }
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+fn activate_wine_app(_pid: i64) -> bool {
+    true
+}
+
 fn is_first_launch(home: &std::path::Path) -> bool {
     std::fs::read_to_string(home.join("setup.json"))
         .ok()
@@ -3119,7 +3276,9 @@ pub(super) fn run_bash_script(script: &str, live: &Live) -> Result<String, Strin
             .chain(std::env::var("PATH").ok()),
     )
     .map_err(|e| e.to_string())?;
-    let mut child = std::process::Command::new("/bin/bash")
+    let mut command = std::process::Command::new("/bin/bash");
+    crate::lifecycle::unmask_child_signals(&mut command);
+    let mut child = command
         .env("PATH", path)
         .env("METALSHARP_HOME", live.home())
         .stdin(std::process::Stdio::piped())
@@ -3183,6 +3342,7 @@ fn relaunch_after_exit() {
     );
     let mut command = std::process::Command::new("/bin/sh");
     command.arg("-c").arg(script);
+    crate::lifecycle::unmask_child_signals(&mut command);
     unsafe {
         use std::os::unix::process::CommandExt;
         command.pre_exec(|| {
@@ -3212,7 +3372,9 @@ pub(super) fn relaunch_self() {
                     .spawn();
             }
             None => {
-                let _ = std::process::Command::new(exe).spawn();
+                let mut command = std::process::Command::new(exe);
+                crate::lifecycle::unmask_child_signals(&mut command);
+                let _ = command.spawn();
             }
         }
     }

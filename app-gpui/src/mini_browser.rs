@@ -1014,23 +1014,34 @@ mod native {
         mtm: MainThreadMarker,
         completion: Box<dyn FnOnce(Result<(), String>) + 'static>,
     ) -> anyhow::Result<()> {
+        close_embedded();
+        remove_store(mtm, BrowserPurpose::GameJolt, completion)
+    }
+
+    /// Drop one provider's named store (sign-out). Refuses while a browser
+    /// window for a purpose sharing that store is open.
+    pub fn remove_store(
+        mtm: MainThreadMarker,
+        purpose: BrowserPurpose,
+        completion: Box<dyn FnOnce(Result<(), String>) + 'static>,
+    ) -> anyhow::Result<()> {
         if !WKWebsiteDataStore::class()
             .metaclass()
             .responds_to(sel!(removeDataStoreForIdentifier:completionHandler:))
         {
-            anyhow::bail!("named GameJolt store cleanup requires macOS 14 or newer");
+            anyhow::bail!("named browser store cleanup requires macOS 14 or newer");
         }
-        close_embedded();
+        let identifier = store_identifier(purpose)?;
         let active = DELEGATES.with(|items| {
             items.borrow().iter().any(|delegate| {
-                delegate.ivars().purpose.get() == Some(&BrowserPurpose::GameJolt)
-                    && delegate.ivars().window.borrow().is_some()
+                delegate.ivars().purpose.get().is_some_and(|open| {
+                    store_identifier(*open).is_ok_and(|id| id.isEqual(Some(&identifier)))
+                }) && delegate.ivars().window.borrow().is_some()
             })
         });
         if active {
-            anyhow::bail!("close GameJolt browser windows before removing their store");
+            anyhow::bail!("close the browser window before removing its stored sign-in");
         }
-        let identifier = gamejolt_store_identifier()?;
         let completion = Mutex::new(Some(completion));
         let callback = RcBlock::new(move |error: *mut objc2_foundation::NSError| {
             let result = if error.is_null() {
@@ -1060,11 +1071,30 @@ mod native {
     }
 
     fn gamejolt_store_identifier() -> anyhow::Result<Retained<NSUUID>> {
-        NSUUID::initWithUUIDString(
-            NSUUID::alloc(),
-            &objc2_foundation::NSString::from_str("5C6F493A-2D9E-4A25-BEB0-7DC86791553A"),
-        )
-        .ok_or_else(|| anyhow::anyhow!("GameJolt persistent store identifier is invalid"))
+        store_identifier(BrowserPurpose::GameJolt)
+    }
+
+    /// One named persistent WebKit store per provider so logins survive app
+    /// restarts (Electron kept Steam/GOG in its persistent default session)
+    /// while providers never share cookies with each other.
+    fn store_identifier(purpose: BrowserPurpose) -> anyhow::Result<Retained<NSUUID>> {
+        let uuid = match purpose {
+            BrowserPurpose::GameJolt => "5C6F493A-2D9E-4A25-BEB0-7DC86791553A",
+            BrowserPurpose::SteamStore | BrowserPurpose::SteamApiKeyHelp => {
+                "D193A9F3-1A0B-4731-89F0-A4F964B5FF17"
+            }
+            BrowserPurpose::GogAuth => "E08B96B5-FF6C-4BAD-AB75-2D46E0C99E4B",
+            BrowserPurpose::EpicAuth => "D6C35A0C-B3BE-4271-A3CE-05E8E37CFB22",
+            BrowserPurpose::TheGamesDbHelp => "B65C38C2-26AF-42F4-A270-5841858F08D2",
+        };
+        NSUUID::initWithUUIDString(NSUUID::alloc(), &objc2_foundation::NSString::from_str(uuid))
+            .ok_or_else(|| anyhow::anyhow!("persistent browser store identifier is invalid"))
+    }
+
+    fn named_stores_supported() -> bool {
+        WKWebsiteDataStore::class()
+            .metaclass()
+            .responds_to(sel!(dataStoreForIdentifier:))
     }
     // Electron's in-page `<webview partition="persist:gamejolt">`: one WKWebView
     // hosted in the main window above the GPUI view, sharing the GameJolt store
@@ -1345,14 +1375,15 @@ mod native {
             window.setReleasedWhenClosed(false);
         }
         let config = unsafe { WKWebViewConfiguration::new(mtm) };
-        let store = if request.purpose == BrowserPurpose::GameJolt {
-            let identifier = gamejolt_store_identifier()?;
+        // macOS 13 has no named stores: sign-ins there stay per-window, as before.
+        let store = if named_stores_supported() {
+            let identifier = store_identifier(request.purpose)?;
             unsafe { WKWebsiteDataStore::dataStoreForIdentifier(&identifier, mtm) }
         } else {
             unsafe { WKWebsiteDataStore::nonPersistentDataStore(mtm) }
         };
-        if request.purpose == BrowserPurpose::GameJolt && !unsafe { store.isPersistent() } {
-            anyhow::bail!("WebKit did not create the isolated persistent GameJolt data store");
+        if named_stores_supported() && !unsafe { store.isPersistent() } {
+            anyhow::bail!("WebKit did not create the isolated persistent browser data store");
         }
         unsafe {
             config.setWebsiteDataStore(&store);
@@ -1603,6 +1634,27 @@ pub fn embedded_gamejolt_rect() -> Option<[f64; 4]> {
     return native::embedded_rect();
     #[cfg(not(target_os = "macos"))]
     None
+}
+
+/// Forget a provider's stored browser sign-in (GOG disconnect, Epic logout).
+/// Best effort: on macOS 13 there is no named store to remove.
+pub fn forget_browser_sign_in(purpose: BrowserPurpose) {
+    #[cfg(target_os = "macos")]
+    if let Some(mtm) = objc2::MainThreadMarker::new() {
+        if let Err(error) = native::remove_store(
+            mtm,
+            purpose,
+            Box::new(|result| {
+                if let Err(error) = result {
+                    eprintln!("MetalSharp could not clear browser sign-in: {error}");
+                }
+            }),
+        ) {
+            eprintln!("MetalSharp could not clear browser sign-in: {error}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = purpose;
 }
 
 /// Explicit integration seam for an app-owned GameJolt data-removal action.

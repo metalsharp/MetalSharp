@@ -272,18 +272,19 @@ pub fn remove_path(path: &Path) -> bool {
 }
 
 /// After the app exits, move the enclosing `/Applications/*.app` to the Trash.
-pub fn schedule_bundle_trash() {
+/// Returns whether the bundle will be moved to the Trash after exit.
+pub fn schedule_bundle_trash() -> bool {
     let Ok(exe) = std::env::current_exe() else {
-        return;
+        return false;
     };
     let Some(bundle) = exe
         .ancestors()
         .find(|p| p.extension().is_some_and(|e| e == "app"))
     else {
-        return;
+        return false;
     };
     if !bundle.starts_with("/Applications") {
-        return;
+        return false;
     }
     let pid = std::process::id();
     let escaped = bundle.to_string_lossy().replace('"', "\\\"");
@@ -291,6 +292,7 @@ pub fn schedule_bundle_trash() {
         "while kill -0 {pid} 2>/dev/null; do sleep 0.5; done; osascript -e 'tell application \"Finder\" to delete POSIX file \"{escaped}\"' >/dev/null 2>&1"
     );
     let mut command = std::process::Command::new("/bin/bash");
+    crate::lifecycle::unmask_child_signals(&mut command);
     command.arg("-c").arg(script);
     #[cfg(unix)]
     unsafe {
@@ -300,11 +302,12 @@ pub fn schedule_bundle_trash() {
             Ok(())
         });
     }
-    let _ = command
+    command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .spawn();
+        .spawn()
+        .is_ok()
 }
 
 /// main `gameJoltDirectoryForDownloads`.

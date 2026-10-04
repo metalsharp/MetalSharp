@@ -76,6 +76,13 @@ impl Live {
         }
     }
 
+    /// Non-blocking stop for app quit (see `BackendHost::terminate_detached`).
+    pub fn stop_backend_detached(&self) {
+        if let Some(host) = self.0.host.lock().unwrap().take() {
+            host.terminate_detached();
+        }
+    }
+
     pub fn backend_pid(&self) -> Option<u32> {
         self.0.host.lock().unwrap().as_ref().map(BackendHost::pid)
     }

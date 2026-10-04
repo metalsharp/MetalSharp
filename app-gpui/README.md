@@ -53,7 +53,7 @@ cargo run --manifest-path app-gpui/Cargo.toml --locked --features browser-fixtur
 
 The offline command supplies fixed compiled HTML with a restrictive CSP; subsequent navigation is denied, the header explicitly says OFFLINE, and no backend/account/data home is opened. The optional `--browser-network-fixture` command requires `METALSHARP_BROWSER_PROBE_PORT` pointing at a dedicated dummy HTTP server (not a backend port). Its fixed, script-free HTML probes loopback/localhost/numeric-alias image requests; native testing recorded zero page requests and a successful separate server-positive-control request. It must not target a real service.
 
-The live command opens `https://steampowered.com` with a fresh nonpersistent store and an exact three-host Steam Store navigation policy, separate from API-key help. Quit the test app afterward.
+The live command opens `https://steampowered.com` with the persistent Steam browser store and an exact three-host Steam Store navigation policy, separate from API-key help. Quit the test app afterward.
 
 Local checks: native HTML rendered, read-only header verified, minimum resize clamped to 720×540, offline reload and close exercised. Live Steam Store redirected/rendered at `https://store.steampowered.com/`, including with compiled resource-blocking rules installed; the user approved the browser's look. No account login or backend/install action was performed. This does not establish OAuth/provider or full production parity.
 
