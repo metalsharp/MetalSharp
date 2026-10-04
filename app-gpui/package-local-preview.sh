@@ -6,6 +6,16 @@ APP_DIR="$ROOT/app-gpui"
 BUNDLE="$APP_DIR/target/MetalSharp-GPUI-Preview.app"
 CONTENTS="$BUNDLE/Contents"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP_DIR/target}"
+PREVIEW_VERSION="${METALSHARP_GPUI_PREVIEW_VERSION:-0.1.0-preview}"
+PREVIEW_BUILD_VERSION="${METALSHARP_GPUI_PREVIEW_BUILD_VERSION:-${PREVIEW_VERSION%%-*}}"
+if [[ ! "$PREVIEW_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}(-[A-Za-z0-9.-]+)?$ ]]; then
+  echo "Invalid METALSHARP_GPUI_PREVIEW_VERSION: $PREVIEW_VERSION" >&2
+  exit 1
+fi
+if [[ ! "$PREVIEW_BUILD_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]; then
+  echo "Invalid METALSHARP_GPUI_PREVIEW_BUILD_VERSION: $PREVIEW_BUILD_VERSION" >&2
+  exit 1
+fi
 mkdir -p "$CARGO_TARGET_DIR"
 CARGO_TARGET_DIR="$(cd "$CARGO_TARGET_DIR" && pwd)"
 export CARGO_TARGET_DIR
@@ -71,7 +81,7 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   done
 fi
 
-cat > "$CONTENTS/Info.plist" <<'PLIST'
+cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -83,8 +93,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>metalsharp-liquid-glass</string>
   <key>CFBundleIconName</key><string>metalsharp-liquid-glass</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0-preview</string>
-  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>$PREVIEW_VERSION</string>
+  <key>CFBundleVersion</key><string>$PREVIEW_BUILD_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
