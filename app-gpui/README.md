@@ -2,7 +2,7 @@
 
 Native GPUI replacement for the Electron desktop app. A normal launch is the production app, exactly like Electron: it starts the packaged C backend on `127.0.0.1:9274` with `~/.metalsharp` (an orphaned or older `metalsharp-backend` on that port is terminated first, then a fresh one is spawned without a session token so `update.sh` and other local helpers can query `/status`), opens the setup wizard when `setup.json` is not completed or the runtime needs migration, and otherwise shows the library. Quitting the app stops the backend.
 
-Behaviour is ported 1:1 from the Electron renderer and main process:
+Behaviour is ported 1:1 from the Electron renderer and main process (removed from the repository once the port was complete; the sources below are in git history):
 
 | Area | GPUI module | Electron source |
 |---|---|---|
@@ -39,7 +39,7 @@ Validation mode uses `METALSHARP_GPUI_PORT` (default 9276), `METALSHARP_GPUI_HOM
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer app-gpui/package-app.sh
 ```
 
-`package-app.sh` builds a release `MetalSharp.app` with the Electron app's identity (`com.metalsharp.app`, `Contents/MacOS/MetalSharp`, version from `app/package.json`, `metalsharp://` URL type), bundling the C backend, host runtime, tools, scripts/updater, configs and the six runtime archives from `app/bundles`. That identity is what `app/updater/update.sh` quits, verifies and replaces. The output is ad-hoc signed for local testing; release signing/notarization stays in the release workflow.
+`package-app.sh` builds a release `MetalSharp.app` with the Electron app's identity (`com.metalsharp.app`, `Contents/MacOS/MetalSharp`, version from `CMakeLists.txt`, `metalsharp://` URL type), bundling the C backend, host runtime, tools, scripts/updater, configs and the six runtime archives from `app/bundles`. That identity is what `app/updater/update.sh` quits, verifies and replaces. The output is ad-hoc signed for local testing; release signing/notarization stays in the release workflow.
 
 ## Native browser acceptance harness
 

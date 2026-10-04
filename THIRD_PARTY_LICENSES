@@ -210,8 +210,16 @@ source folders, or the referenced upstream/runtime packages.
 - Used as: Optional local runtime asset for selected offline Steam-emulation
   investigation paths.
 
-## Electron, Node, and npm dependencies
+## Rust crate dependencies
 
-- Source: `app/package-lock.json`
-- Licenses: package-specific open-source licenses as declared by each package.
-- Used as: Application shell, renderer build, and packaging tooling.
+- Source: `app-gpui/Cargo.lock`
+- Licenses: crate-specific open-source licenses as declared by each crate.
+- Used as: The GPUI desktop application.
+
+## FAudio (Windows build)
+
+- Source: FAudio 20.07 MinGW builds (https://github.com/Kron4ek/FAudio-Builds),
+  shipped in `metalsharp-assets.tar.zst` under `assets/faudio/`.
+- Licenses: FAudio and SDL2 zlib; FFmpeg 4.3.1 GPL-3.0-or-later; mingw-w64
+  winpthreads MIT/ZPL. See `LICENSES/FAUDIO-NOTICES.md`.
+- Used as: xWMA audio decoding for selected games in their Wine prefix.

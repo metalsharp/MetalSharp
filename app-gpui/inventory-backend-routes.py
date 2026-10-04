@@ -25,7 +25,7 @@ def line_number(text, offset):
 def inventory():
     source = SOURCE.read_text()
     candidates = []
-    for directory, extensions in [('app/src/renderer', {'.vue', '.ts', '.js'}), ('app-gpui/src', {'.rs'})]:
+    for directory, extensions in [('app-gpui/src', {'.rs'})]:
         for path in sorted((ROOT / directory).rglob('*')):
             if path.suffix in extensions:
                 candidates.append((str(path.relative_to(ROOT)), path.read_text()))
@@ -52,7 +52,7 @@ def inventory():
         'router': 'app/src-c/runtime/backend.c',
         'router_sha256': hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
         'limitations': [
-            'This is a migration discovery inventory, not a full C/TypeScript parser or a parity report.',
+            'This is a migration discovery inventory, not a full C/Rust parser or a parity report.',
             'Dynamic/prefix routes and unmatched comparisons require manual expansion.',
             'Literal references may be comments or non-API code; computed routes require manual reconciliation.',
             'Request/response schemas and acceptance IDs must be reviewed against current callers and C handlers.',

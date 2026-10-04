@@ -1,7 +1,7 @@
 # GPUI Desktop Port Roadmap
-**Status:** In progress — approved visual preview preserved; opt-in connected backend/setup/launcher/key/GOG integration started. Full production parity and acceptance are incomplete.
+**Status:** Electron desktop app removed on 2026-10-04 (PR #703); the GPUI app in `app-gpui/` is the application. This roadmap is kept as the port's design record; Electron paths below are historical (see git history).
 **Scope:** Full replacement of the Electron desktop app with a native GPUI app. The current app remains the production app until the new app passes the local-machine acceptance gate.
-**Updated:** 2026-10-03
+**Updated:** 2026-10-04
 
 ## Objective and non-goals
 

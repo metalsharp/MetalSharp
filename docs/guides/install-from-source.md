@@ -1,5 +1,5 @@
 # Install from Source
-**Updated:** 2026-09-08
+**Updated:** 2026-10-04
 
 
 Build MetalSharp from source without using the DMG. Requires macOS 14+ on Apple Silicon.
@@ -15,8 +15,13 @@ xcode-select --install
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
 # Build dependencies
-brew install cmake node zstd
+brew install cmake zstd
+
+# Rust toolchain (the app is Rust/GPUI)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
+Packaging the `.app` also needs full Xcode (for `actool`, which compiles the Liquid Glass app icon).
 
 ## Clone
 
@@ -36,8 +41,8 @@ cmake --build build --parallel $(sysctl -n hw.ncpu)
 # C backend
 make -C app/src-c
 
-# Electron frontend
-cd app && npm install && npm run build && cd ..
+# GPUI app
+cargo build --release --manifest-path app-gpui/Cargo.toml
 ```
 
 ## Fetch Runtime Bundles
@@ -55,28 +60,35 @@ Building the app does not compile Wine. To rebuild the patched Wine runtime itse
 ## Run
 
 ```bash
-cd app && npx electron .
+cargo run --release --manifest-path app-gpui/Cargo.toml
 ```
+
+This starts the app against `~/.metalsharp` on port 9274, like the installed app. Quit any other MetalSharp first.
 
 ## Build a Signed App
 
 For an ad-hoc signed `.app` (no Apple Developer account needed):
 
 ```bash
-cd app && npx electron-builder --dir --mac --arm64
-codesign --force --deep --sign - ../dist/electron/mac-arm64/MetalSharp.app
-open ../dist/electron/mac-arm64/MetalSharp.app
+ACTOOL=/Applications/Xcode.app/Contents/Developer/usr/bin/actool \
+CARGO_TARGET_DIR=/tmp/metalsharp-target \
+  app-gpui/package-app.sh
+open app-gpui/target/MetalSharp.app
 ```
 
-For a distributable DMG with hardened runtime (requires Apple Developer certificate):
+Keep `CARGO_TARGET_DIR` on the internal disk; release builds can fail when it is on an external volume.
+
+For a DMG (`MetalSharp-<version>-arm64.dmg`):
 
 ```bash
-cd app && npm run dmg
+tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui
 ```
+
+For a Developer ID signed, hardened-runtime app, set `METALSHARP_GPUI_SIGN_IDENTITY` to your "Developer ID Application" identity when running `package-app.sh`; see [Release Signing](../release/release-signing.md).
 
 ## Troubleshooting
 
 - **`cmake` fails**: Ensure Xcode CLI tools are installed (`xcode-select -p` should return a path)
-- **`npm install` fails**: Make sure Node 18+ is installed (`brew install node`)
+- **Release build fails with `can't find crate`**: Put `CARGO_TARGET_DIR` on the internal disk
 - **Missing bundles**: Run `./tools/dmg/create-bundles.sh` — this downloads MetalSharp-owned runtime assets from GitHub. Use the matched managed D3DMetal payload with the matching runtime.
 - **App won't open**: If you see a Gatekeeper warning, run `xattr -cr /path/to/MetalSharp.app`

@@ -18,7 +18,6 @@ OUT_DIR = PROJECT_ROOT / "dist" / "bundles"
 X87SIDECAR_SHA256 = "30c151a7f5b583ca2a2b51f57b1b52d5ad3a3ede7b87d782c27c950486e9a10f"
 
 SPLIT_BUNDLES = {
-    "electron": "metalsharp-electron.tar.zst",
     "graphics": "metalsharp-graphics-dll.tar.zst",
     "runtime": "metalsharp-runtime.tar.zst",
     "assets": "metalsharp-assets.tar.zst",
@@ -220,7 +219,6 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     extract_zst(SOURCE_BUNDLES / "dxmt.tar.zst", source_dxmt)
 
     roots = {
-        "electron": tmp / "electron-root",
         "graphics": tmp / "graphics-root",
         "runtime": tmp / "runtime-root",
         "assets": tmp / "assets-root",
@@ -230,9 +228,6 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     }
     for root in roots.values():
         root.mkdir(parents=True, exist_ok=True)
-
-    copy_tree(APP_DIR / "dist", roots["electron"] / "dist")
-    copy_file(APP_DIR / "package.json", roots["electron"] / "package.json")
 
     wine_src = source1 / "wine-11.5"
     copy_tree(wine_src, roots["runtime"] / "wine")
@@ -383,7 +378,6 @@ def main() -> None:
         roots = build_staging(Path(tmp_name))
         manifest_lines = ["asset\troot\tsha256\tsize\tnotes"]
         arc_roots = {
-            "electron": "electron",
             "graphics": "Graphics/dll",
             "runtime": "runtime",
             "assets": "assets",
