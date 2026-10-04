@@ -65,6 +65,8 @@ app-gpui/package-local-preview.sh
 open app-gpui/target/MetalSharp-GPUI-Preview.app
 ```
 
+For a versioned local preview, set `METALSHARP_GPUI_PREVIEW_VERSION` (for example, `0.77.0`); this only changes the local app bundle's version metadata.
+
 To bundle the authoritative C backend, compression/icon tools, existing available runtime archives, config and updater resources for connected testing:
 
 ```sh
