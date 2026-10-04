@@ -1,5 +1,7 @@
 build/
 .cache/
+app-gpui/target/
+app-gpui/assets/dock/
 out/
 *.o
 *.d
