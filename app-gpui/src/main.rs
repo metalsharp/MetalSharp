@@ -14,6 +14,7 @@ mod page_palette;
 mod search_input;
 mod settings_preview;
 mod sharp_preview;
+mod streaming;
 mod ui;
 
 use anyhow::Result;
