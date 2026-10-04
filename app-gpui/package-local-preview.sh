@@ -78,6 +78,8 @@ install -m 0644 "$ICON_OUTPUT/Assets.car" "$CONTENTS/Resources/Assets.car"
 install -m 0644 "$ICON_OUTPUT/$ICON_NAME.icns" "$CONTENTS/Resources/$ICON_NAME.icns"
 install -m 0755 "$CARGO_TARGET_DIR/$CARGO_PROFILE/metalsharp-gpui" "$CONTENTS/MacOS/$APP_EXECUTABLE"
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
+# First-launch intro video (App.vue startup overlay), shared with the Electron renderer.
+install -m 0644 "$ROOT/app/src/renderer/assets/MetalSharp-Startup.mp4" "$CONTENTS/Resources/assets/intro/MetalSharp-Startup.mp4"
 
 # Explicitly package the authoritative C backend/resources for connected testing.
 # This builds/copies only; it never launches the backend, installers or accounts.

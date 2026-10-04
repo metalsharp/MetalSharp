@@ -23,7 +23,7 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn live_pill(text: String) -> gpui::Div {
+pub(super) fn live_pill(text: String) -> gpui::Div {
     div()
         .px(px(8.))
         .py(px(4.))
@@ -163,27 +163,16 @@ impl SharpPreview {
                 }
             }
             SharpSource::GameJolt => {
-                controls = controls
-                    .child(
-                        button(
-                            self,
-                            "sharp-gj-storage",
-                            "Open GameJolt".into(),
-                            false,
-                            true,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.choose_gamejolt_storage(cx))),
+                controls = controls.child(
+                    button(
+                        self,
+                        "sharp-gj-storage",
+                        "Open GameJolt".into(),
+                        false,
+                        true,
                     )
-                    .child(
-                        button(
-                            self,
-                            "sharp-gj-browser",
-                            "Browse GameJolt".into(),
-                            false,
-                            true,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.open_gamejolt_browser(cx))),
-                    );
+                    .on_click(cx.listener(|this, _, _, cx| this.choose_gamejolt_storage(cx))),
+                );
             }
             _ => {}
         }
@@ -307,7 +296,7 @@ impl SharpPreview {
         field
     }
 
-    fn bottle_panel(&self, title: &'static str, content: gpui::Div) -> gpui::Div {
+    pub(super) fn bottle_panel(&self, title: &'static str, content: gpui::Div) -> gpui::Div {
         div()
             .p(px(10.0))
             .rounded(px(8.0))
@@ -336,6 +325,36 @@ impl SharpPreview {
         body: gpui::Div,
     ) -> gpui::Stateful<gpui::Div> {
         let banner_height = width * ratio;
+        let banner = match art {
+            Some(art) => img(art)
+                .w_full()
+                .h(px(banner_height))
+                .object_fit(ObjectFit::Cover)
+                .into_any_element(),
+            None => div()
+                .w_full()
+                .h(px(banner_height))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(rgb(0x15181a))
+                .child(
+                    img(self.asset_root.join("metalsharp-logo.png"))
+                        .size(px(banner_height * 0.55))
+                        .object_fit(ObjectFit::Contain),
+                )
+                .into_any_element(),
+        };
+        self.card_frame(key, width, banner, body)
+    }
+
+    fn card_frame(
+        &self,
+        key: &str,
+        width: f32,
+        banner: gpui::AnyElement,
+        body: gpui::Div,
+    ) -> gpui::Stateful<gpui::Div> {
         div()
             .id(gpui::SharedString::from(format!("sharp-live-card-{key}")))
             .w(px(width))
@@ -351,32 +370,13 @@ impl SharpPreview {
                 gpui::linear_color_stop(rgb(0x202427), 0.0),
                 gpui::linear_color_stop(rgb(0x171a1c), 1.0),
             ))
-            .child(match art {
-                Some(art) => img(art)
-                    .w_full()
-                    .h(px(banner_height))
-                    .object_fit(ObjectFit::Cover)
-                    .into_any_element(),
-                None => div()
-                    .w_full()
-                    .h(px(banner_height))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(rgb(0x15181a))
-                    .child(
-                        img(self.asset_root.join("metalsharp-logo.png"))
-                            .size(px(banner_height * 0.55))
-                            .object_fit(ObjectFit::Contain),
-                    )
-                    .into_any_element(),
-            })
+            .child(banner)
             .child(body)
     }
 
     fn card_body(
         &self,
-        title: String,
+        title: impl IntoElement,
         pill: String,
         meta: String,
         progress: Option<f64>,
@@ -547,6 +547,7 @@ impl SharpPreview {
                         size.map(|b| format!(" · {}", format_bytes(b)))
                             .unwrap_or_default()
                     );
+                    let bottle = self.bottle_for_app(&app);
                     let open = live.open_bottle.contains(&id);
                     let play_app = app.clone();
                     let mut actions = div().flex().items_center().gap(px(8.0)).child(
@@ -586,8 +587,9 @@ impl SharpPreview {
                             cx.notify();
                         })),
                     );
+                    let title = self.name_title(false, &id, s(&app, "name"), cx);
                     let mut body = self.card_body(
-                        s(&app, "name").to_owned(),
+                        title,
                         if running {
                             "Running".into()
                         } else {
@@ -596,6 +598,26 @@ impl SharpPreview {
                         meta,
                         None,
                     );
+                    if let Some(bottle) = &bottle {
+                        body = body.child(div().flex().child(live_pill(
+                            super::sharp_tools::bottle_badge_label(bottle).into(),
+                        )));
+                        let log = s(bottle, "last_launch_log").to_owned();
+                        if s(bottle, "last_launch_status") == "exited" && !log.is_empty() {
+                            body = body.child(
+                                div()
+                                    .id(gpui::SharedString::from(format!("app-launch-log-{id}")))
+                                    .text_size(px(10.0))
+                                    .text_color(rgb(self.palette.accent))
+                                    .cursor_pointer()
+                                    .hover(|style| style.underline())
+                                    .child("Open launch log")
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.open_bottle_launch_log(log.clone(), cx)
+                                    })),
+                            );
+                        }
+                    }
                     body = body.child(actions);
                     if open {
                         let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
@@ -606,8 +628,9 @@ impl SharpPreview {
                         );
                         let engine_id = id.clone();
                         let cover_id = id.clone();
+                        let folder_app = app.clone();
                         let uninstall = (id.clone(), s(&app, "name").to_owned());
-                        let content = div()
+                        let mut content = div()
                             .flex()
                             .flex_col()
                             .gap(px(8.0))
@@ -621,47 +644,73 @@ impl SharpPreview {
                                 cx,
                             ))
                             .child(
-                                self.action(
-                                    format!("app-cover-{id}"),
-                                    "Change Image",
-                                    false,
-                                    false,
-                                    true,
-                                )
-                                .w_full()
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| this.set_app_cover(cover_id.clone(), cx),
-                                )),
-                            )
-                            .child(
-                                self.action(
-                                    format!("app-uninstall-{id}"),
-                                    "Uninstall",
-                                    false,
-                                    true,
-                                    !running,
-                                )
-                                .w_full()
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.live.as_mut().unwrap().confirm =
-                                            Some(SharpConfirm::UninstallApp(
-                                                uninstall.0.clone(),
-                                                uninstall.1.clone(),
-                                            ));
-                                        cx.notify();
-                                    },
-                                )),
+                                div()
+                                    .flex()
+                                    .gap(px(8.0))
+                                    .child(
+                                        self.action(
+                                            format!("app-cover-{id}"),
+                                            "Change Image",
+                                            false,
+                                            false,
+                                            true,
+                                        )
+                                        .flex_1()
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.set_app_cover(cover_id.clone(), cx)
+                                            }),
+                                        ),
+                                    )
+                                    .child(
+                                        self.action(
+                                            format!("app-folder-{id}"),
+                                            "Open Folder",
+                                            false,
+                                            false,
+                                            bottle.is_some(),
+                                        )
+                                        .flex_1()
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.open_app_bottle_folder(&folder_app, cx)
+                                            }),
+                                        ),
+                                    ),
                             );
+                        let has_cover = app
+                            .get("cover")
+                            .is_some_and(|c| !c.is_null() && c != &Value::Bool(false) && c != "");
+                        if has_cover {
+                            content = content.child(self.cover_sliders(&app, cx));
+                        }
+                        content = content.child(
+                            self.action(
+                                format!("app-uninstall-{id}"),
+                                "Uninstall",
+                                false,
+                                true,
+                                !running,
+                            )
+                            .w_full()
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.live.as_mut().unwrap().confirm =
+                                        Some(SharpConfirm::UninstallApp(
+                                            uninstall.0.clone(),
+                                            uninstall.1.clone(),
+                                        ));
+                                    cx.notify();
+                                },
+                            )),
+                        );
                         body = body.child(self.bottle_panel("GRAPHICS BACKEND", content));
                     }
-                    grid = grid.child(self.card_shell(
-                        &format!("app-{id}"),
-                        card_width,
-                        self.cover_path(&format!("sharp-app-{id}"), cx),
-                        9.0 / 16.0,
-                        body,
-                    ));
+                    body = body.child(self.app_diagnostics(&app, cx));
+                    let banner =
+                        self.app_banner(&app, card_width, card_width * 9.0 / 16.0, running, cx);
+                    grid =
+                        grid.child(self.card_frame(&format!("app-{id}"), card_width, banner, body));
                 }
                 div().w_full().child(grid)
             }
@@ -1148,8 +1197,9 @@ impl SharpPreview {
                     let id = s(&game, "id").to_owned();
                     let running = live.gj_running.contains_key(&id);
                     let native = b(&game, "native");
+                    let title = self.name_title(true, &id, s(&game, "name"), cx);
                     let mut body = self.card_body(
-                        s(&game, "name").to_owned(),
+                        title,
                         if running {
                             "Running".into()
                         } else {

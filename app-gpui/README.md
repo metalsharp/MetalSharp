@@ -8,7 +8,7 @@ Behaviour is ported 1:1 from the Electron renderer and main process:
 |---|---|---|
 | Startup, migration mode, health polling, library load/merge, steamapps + grid-art watching, Play/Stop/running poll, hero settings (MetalFX, controller, msync, EXE, Steam Emu), Bottle selection, Steam/Ubisoft launchers, Fix Steam, setup wizard, updater, streaming, ⌘⌥Q force-quit | `src/ui.rs`, `src/ui_live.rs`, `src/library_model.rs` | `App.vue`, `LibraryView.vue`, `LibraryTopbar.vue`, `SetupWizard.vue`, `StreamingOverlay.vue`, `main/index.ts` |
 | Settings overlay | `src/settings_preview.rs` | `SettingsOverlay.vue` |
-| Sharp Library (Installers, GOG, Epic, GameJolt, PCSX2, RPCS3, shadPS4, SharpEmu) | `src/sharp_preview.rs`, `src/sharp_live.rs`, `src/sharp_live_view.rs`, `src/sharp_emu_live.rs` | `SharpView.vue`, `main/index.ts` OAuth/download handlers |
+| Sharp Library (Installers incl. Launch Doctor/D3DMetal launch, GOG, Epic, GameJolt split view, PCSX2, RPCS3, shadPS4, SharpEmu) | `src/sharp_preview.rs`, `src/sharp_live.rs`, `src/sharp_live_view.rs`, `src/sharp_tools.rs`, `src/sharp_tools_view.rs`, `src/sharp_emu_live.rs` | `SharpView.vue`, `main/index.ts` OAuth/download handlers |
 | Logs | `src/logs_preview.rs` | `LogsView.vue` |
 | Backend lifecycle and requests | `src/backend_host.rs`, `src/live.rs` | `main/backend-bridge.ts`, `composables/useApi.ts` |
 | Updater handoff | `src/updater_bridge.rs` | `main/updater-bridge.ts` |
@@ -16,8 +16,10 @@ Behaviour is ported 1:1 from the Electron renderer and main process:
 | Steam Art Manager, folders, data-access repair, uninstall, GameJolt download organizing | `src/host_actions.rs` | `main/index.ts` IPC handlers |
 | Launch overlay / global shortcut | `src/launch_overlay.rs`, `src/hotkeys.rs` | `showLaunchOverlay`, `registerForceQuitGamesShortcut` |
 | Toasts | `src/toast.rs` | `useToast.ts`, `Toast.vue` |
+| First-launch intro video | `src/intro_video.rs`, `assets/intro/intro.html` | `App.vue` startup video |
+| ⌘P Process Manager HUD (`--process-manager-overlay` opens only the HUD) | `src/process_manager.rs` | `ProcessManagerOverlay.vue`, `process-manager:*` IPC |
 
-GOG/Epic sign-in and the GameJolt store use the native WebKit browser in `src/mini_browser.rs`; GameJolt downloads are saved to `<GameJolt>/.downloads`, extracted into `<GameJolt>/<name>/` and synced, as Electron's `persist:gamejolt` session did.
+GOG/Epic sign-in use the native WebKit browser window in `src/mini_browser.rs`, and the GameJolt store is the same WebKit view embedded in the Sharp page; GameJolt downloads are saved to `<GameJolt>/.downloads`, extracted into `<GameJolt>/<name>/` and synced, as Electron's `persist:gamejolt` session did.
 
 ## Build and run from the repository
 

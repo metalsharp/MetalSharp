@@ -143,15 +143,20 @@ pub fn finish_download(cx: &mut App, id: u64, text: impl Into<String>, success: 
 }
 
 impl Render for ToastHub {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let mut stack = div()
-            .absolute()
-            .bottom(px(20.0))
-            .right(px(20.0))
-            .flex()
-            .flex_col()
-            .items_end()
-            .gap(px(8.0));
+    fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        // The embedded GameJolt browser is a native view that GPUI cannot draw
+        // over; keep the stack visible just above it (or at the top if it
+        // fills the page), where Electron's DOM toasts overlaid the <webview>.
+        let viewport = f32::from(window.viewport_size().height);
+        let stack = div().absolute().right(px(20.0));
+        let stack = match crate::mini_browser::embedded_gamejolt_rect() {
+            Some([_, top, _, _]) if top > 160.0 => {
+                stack.bottom(px((viewport - top as f32 + 12.0).max(20.0)))
+            }
+            Some(_) => stack.top(px(20.0)),
+            None => stack.bottom(px(20.0)),
+        };
+        let mut stack = stack.flex().flex_col().items_end().gap(px(8.0));
         for toast in &self.toasts {
             let (bg, fg) = match toast.kind {
                 ToastKind::Success => (0x6bbf7a, 0xffffff),

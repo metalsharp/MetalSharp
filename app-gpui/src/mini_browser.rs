@@ -1020,6 +1020,7 @@ mod native {
         {
             anyhow::bail!("named GameJolt store cleanup requires macOS 14 or newer");
         }
+        close_embedded();
         let active = DELEGATES.with(|items| {
             items.borrow().iter().any(|delegate| {
                 delegate.ivars().purpose.get() == Some(&BrowserPurpose::GameJolt)
@@ -1065,6 +1066,249 @@ mod native {
         )
         .ok_or_else(|| anyhow::anyhow!("GameJolt persistent store identifier is invalid"))
     }
+    // Electron's in-page `<webview partition="persist:gamejolt">`: one WKWebView
+    // hosted in the main window above the GPUI view, sharing the GameJolt store
+    // and download delegate with the standalone browser.
+    struct Embedded {
+        web: Retained<WKWebView>,
+        delegate: Retained<Delegate>,
+        gpui_view: Retained<objc2_app_kit::NSView>,
+        monitor: Option<Retained<AnyObject>>,
+    }
+    thread_local! { static EMBEDDED: RefCell<Option<Embedded>> = const { RefCell::new(None) }; }
+    thread_local! { static EMBEDDED_RECT: Cell<Option<[f64; 4]>> = const { Cell::new(None) }; }
+
+    fn responder_inside(web: &WKWebView) -> bool {
+        let Some(window) = web.window() else {
+            return false;
+        };
+        let Some(responder) = window.firstResponder() else {
+            return false;
+        };
+        if !responder.isKindOfClass(objc2_app_kit::NSView::class()) {
+            return false;
+        }
+        let view = unsafe { &*(Retained::as_ptr(&responder) as *const objc2_app_kit::NSView) };
+        view.isDescendantOf(web)
+    }
+
+    fn restore_gpui_responder(embed: &Embedded) {
+        if responder_inside(&embed.web) {
+            if let Some(window) = embed.gpui_view.window() {
+                window.makeFirstResponder(Some(&embed.gpui_view));
+            }
+        }
+    }
+
+    fn create_embedded(
+        mtm: MainThreadMarker,
+        gpui_view: Retained<objc2_app_kit::NSView>,
+    ) -> anyhow::Result<()> {
+        if !WKWebsiteDataStore::class()
+            .metaclass()
+            .responds_to(sel!(dataStoreForIdentifier:))
+        {
+            anyhow::bail!("persistent GameJolt browser sessions require macOS 14 or newer");
+        }
+        let privacy_store = unsafe { WKContentRuleListStore::defaultStore(mtm) }
+            .ok_or_else(|| anyhow::anyhow!("WebKit privacy rule store unavailable"))?;
+        let request = MiniBrowserRequest::new(
+            BrowserPurpose::GameJolt,
+            "https://gamejolt.com/games",
+            "GameJolt",
+        )
+        .map_err(|_| anyhow::anyhow!("GameJolt URL rejected"))?;
+        let config = unsafe { WKWebViewConfiguration::new(mtm) };
+        let identifier = gamejolt_store_identifier()?;
+        let store = unsafe { WKWebsiteDataStore::dataStoreForIdentifier(&identifier, mtm) };
+        if !unsafe { store.isPersistent() } {
+            anyhow::bail!("WebKit did not create the isolated persistent GameJolt data store");
+        }
+        unsafe { config.setWebsiteDataStore(&store) };
+        let web = unsafe {
+            WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), NSRect::ZERO, &config)
+        };
+        let delegate = Delegate::new(mtm, &request, Box::new(|_| {}), false);
+        *delegate.ivars().web_view.borrow_mut() = Some(web.clone());
+        unsafe {
+            web.setNavigationDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            web.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        }
+        web.setHidden(true);
+        web.setWantsLayer(true);
+        unsafe {
+            let layer: *mut AnyObject = objc2::msg_send![&*web, layer];
+            if !layer.is_null() {
+                let _: () = objc2::msg_send![layer, setCornerRadius: 5.0f64];
+                let _: () = objc2::msg_send![layer, setMasksToBounds: objc2::runtime::Bool::YES];
+            }
+        }
+        // GPUI's view never becomes first responder again by itself; hand
+        // keyboard focus back when the user clicks outside the browser.
+        let monitor_web = web.clone();
+        let monitor_view = gpui_view.clone();
+        let handler = RcBlock::new(move |event: *mut AnyObject| -> *mut AnyObject {
+            if event.is_null() || monitor_web.isHidden() {
+                return event;
+            }
+            let event_window: *mut AnyObject = unsafe { objc2::msg_send![event, window] };
+            let same_window = monitor_web.window().is_some_and(|w| {
+                std::ptr::eq(Retained::as_ptr(&w) as *const AnyObject, event_window)
+            });
+            if same_window {
+                let location: NSPoint = unsafe { objc2::msg_send![event, locationInWindow] };
+                let point = monitor_web.convertPoint_fromView(location, None);
+                let bounds = monitor_web.bounds();
+                let inside = point.x >= bounds.origin.x
+                    && point.y >= bounds.origin.y
+                    && point.x < bounds.origin.x + bounds.size.width
+                    && point.y < bounds.origin.y + bounds.size.height;
+                if !inside && responder_inside(&monitor_web) {
+                    if let Some(window) = monitor_view.window() {
+                        window.makeFirstResponder(Some(&monitor_view));
+                    }
+                }
+            }
+            event
+        });
+        // NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown
+        let mask: u64 = (1 << 1) | (1 << 3);
+        let monitor: Option<Retained<AnyObject>> = unsafe {
+            objc2::msg_send![
+                objc2::class!(NSEvent),
+                addLocalMonitorForEventsMatchingMask: mask,
+                handler: &*handler
+            ]
+        };
+        EMBEDDED.with(|slot| {
+            *slot.borrow_mut() = Some(Embedded {
+                web: web.clone(),
+                delegate: delegate.clone(),
+                gpui_view,
+                monitor,
+            })
+        });
+        let url = NSURL::URLWithString(&NSString::from_str(request.initial_url.as_str()))
+            .ok_or_else(|| anyhow::anyhow!("initial URL could not be represented by NSURL"))?;
+        let controller = unsafe { config.userContentController() };
+        let pending = web.clone();
+        let completion = RcBlock::new(
+            move |rule: *mut WKContentRuleList, error: *mut objc2_foundation::NSError| {
+                // A browser torn down while compilation was pending must never load.
+                let current = EMBEDDED.with(|slot| {
+                    slot.borrow()
+                        .as_ref()
+                        .is_some_and(|embed| std::ptr::eq::<WKWebView>(&*embed.web, &*pending))
+                });
+                let rule = unsafe { rule.as_ref() };
+                if !current || !error.is_null() || rule.is_none() {
+                    return;
+                }
+                unsafe {
+                    controller.addContentRuleList(rule.unwrap());
+                    pending.loadRequest(&NSURLRequest::requestWithURL(&url));
+                }
+            },
+        );
+        // No remote document is loaded until compilation and installation succeed.
+        unsafe {
+            privacy_store
+                .compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(
+                    Some(&NSString::from_str("MetalSharp-NoLocalNetworking-v1")),
+                    Some(&NSString::from_str(&network_rules_json())),
+                    Some(&completion),
+                );
+        }
+        Ok(())
+    }
+
+    /// Show the embedded browser at `rect` (GPUI logical, top-left origin).
+    pub fn show_embedded(
+        mtm: MainThreadMarker,
+        ns_view: *mut core::ffi::c_void,
+        rect: [f64; 4],
+    ) -> anyhow::Result<()> {
+        let exists = EMBEDDED.with(|slot| slot.borrow().is_some());
+        if !exists {
+            let gpui_view = unsafe { Retained::retain(ns_view.cast::<objc2_app_kit::NSView>()) }
+                .ok_or_else(|| anyhow::anyhow!("GPUI view unavailable"))?;
+            create_embedded(mtm, gpui_view)?;
+        }
+        EMBEDDED.with(|slot| {
+            let slot = slot.borrow();
+            let Some(embed) = slot.as_ref() else { return };
+            let Some(parent) = (unsafe { embed.gpui_view.superview() }) else {
+                return;
+            };
+            if !unsafe { embed.web.superview() }
+                .is_some_and(|view| std::ptr::eq::<objc2_app_kit::NSView>(&*view, &*parent))
+            {
+                parent.addSubview_positioned_relativeTo(
+                    &embed.web,
+                    objc2_app_kit::NSWindowOrderingMode::Above,
+                    Some(&embed.gpui_view),
+                );
+            }
+            let [x, y, w, h] = rect;
+            let bounds = embed.gpui_view.bounds();
+            let local_y = if embed.gpui_view.isFlipped() {
+                y
+            } else {
+                bounds.size.height - y - h
+            };
+            let local = NSRect::new(NSPoint::new(x, local_y), NSSize::new(w, h));
+            let frame = embed.gpui_view.convertRect_toView(local, Some(&parent));
+            let current = embed.web.frame();
+            if current.origin.x != frame.origin.x
+                || current.origin.y != frame.origin.y
+                || current.size.width != frame.size.width
+                || current.size.height != frame.size.height
+            {
+                embed.web.setFrame(frame);
+            }
+            if embed.web.isHidden() {
+                embed.web.setHidden(false);
+            }
+        });
+        EMBEDDED_RECT.with(|r| r.set(Some(rect)));
+        Ok(())
+    }
+
+    pub fn hide_embedded() {
+        EMBEDDED.with(|slot| {
+            if let Some(embed) = slot.borrow().as_ref() {
+                if !embed.web.isHidden() {
+                    restore_gpui_responder(embed);
+                    embed.web.setHidden(true);
+                }
+            }
+        });
+        EMBEDDED_RECT.with(|r| r.set(None));
+    }
+
+    pub fn embedded_rect() -> Option<[f64; 4]> {
+        EMBEDDED_RECT.with(|r| r.get())
+    }
+
+    /// Tear the embedded browser down (GameJolt data removal).
+    pub fn close_embedded() {
+        let embed = EMBEDDED.with(|slot| slot.borrow_mut().take());
+        EMBEDDED_RECT.with(|r| r.set(None));
+        let Some(embed) = embed else { return };
+        restore_gpui_responder(&embed);
+        unsafe {
+            embed.web.stopLoading();
+            embed.web.setNavigationDelegate(None);
+            embed.web.setUIDelegate(None);
+        }
+        embed.web.removeFromSuperview();
+        embed.delegate.ivars().web_view.borrow_mut().take();
+        if let Some(monitor) = embed.monitor {
+            let _: () =
+                unsafe { objc2::msg_send![objc2::class!(NSEvent), removeMonitor: &*monitor] };
+        }
+    }
+
     fn open_inner(
         mtm: MainThreadMarker,
         request: MiniBrowserRequest,
@@ -1325,6 +1569,42 @@ pub fn open_native(
 ) -> anyhow::Result<()> {
     native::open(mtm, request, completion)
 }
+/// Show Electron's in-page GameJolt browser over `rect` (window logical
+/// coordinates, top-left origin). Call from paint on the AppKit main thread.
+#[cfg(target_os = "macos")]
+pub fn show_embedded_gamejolt(window: &gpui::Window, rect: [f64; 4]) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Some(mtm) = objc2::MainThreadMarker::new() else {
+        return;
+    };
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return;
+    };
+    if let Err(error) = native::show_embedded(mtm, appkit.ns_view.as_ptr(), rect) {
+        eprintln!("MetalSharp GameJolt browser unavailable: {error}");
+    }
+}
+#[cfg(not(target_os = "macos"))]
+pub fn show_embedded_gamejolt(_window: &gpui::Window, _rect: [f64; 4]) {}
+
+/// Hide the embedded GameJolt browser (it keeps its page and downloads).
+pub fn hide_embedded_gamejolt() {
+    #[cfg(target_os = "macos")]
+    native::hide_embedded();
+}
+
+/// Window-space rect of the visible embedded GameJolt browser, if shown. App
+/// overlays drawn by GPUI (toasts) sit beneath it and can avoid this area.
+pub fn embedded_gamejolt_rect() -> Option<[f64; 4]> {
+    #[cfg(target_os = "macos")]
+    return native::embedded_rect();
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 /// Explicit integration seam for an app-owned GameJolt data-removal action.
 /// This never touches WebKit's default store and fails if a GameJolt window is open.
 #[cfg(target_os = "macos")]
