@@ -41,8 +41,15 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --manifest-path app-gpui/Cargo.toml --check
       - name: Generate ignored dock-artwork fixtures
-        run: swift app-gpui/generate-dock-art.swift
+        working-directory: app-gpui
+        run: swift generate-dock-art.swift
       - name: Test preview and compile isolated backend scaffolding
         run: cargo test --locked --manifest-path app-gpui/Cargo.toml
+      - name: Build authoritative C backend for isolated ownership smoke test
+        run: make -C app/src-c
+      - name: Verify connected startup and shutdown in a fresh isolated home
+        run: cargo test --locked --manifest-path app-gpui/Cargo.toml backend_host::tests::isolated_c_backend_smoke -- --ignored
       - name: Package and verify side-by-side candidate
+        env:
+          METALSHARP_GPUI_PACKAGE_BACKEND: '1'
         run: app-gpui/package-local-preview.sh

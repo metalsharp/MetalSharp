@@ -14,6 +14,7 @@ ureq = { version = "3.4", default-features = false, features = ["json"] }
 rfd = "0.15"
 unicode-segmentation = "1"
 url = "2"
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.4"

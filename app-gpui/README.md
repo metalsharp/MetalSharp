@@ -17,12 +17,37 @@ This preview is deliberately isolated, does not access production app data, and 
 cargo run --locked --manifest-path app-gpui/Cargo.toml
 ```
 
+## Opt-in connected integration candidate (not full parity)
+
+The default app remains the approved offline preview. Explicit connected modes use a separate integration workbench, **not the final visual-parity UI**:
+
+```sh
+make -C app/src-c
+cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-validation
+```
+
+Validation defaults to port 9276 and a dedicated temporary data home. Override with `METALSHARP_GPUI_PORT`, `METALSHARP_GPUI_HOME` (absolute dedicated directory), and optionally `METALSHARP_GPUI_BACKEND`. Production port/home, parent traversal, and user-created symlink ancestors are rejected for validation. A distinct `--connected-production` flag opts into port 9274 and `~/.metalsharp`; **do not use it before backup and a user-approved acceptance plan**.
+
+Connected buttons send real C-backend requests for runtime/support installation and progress, Steam installation/status, Steam/Ubisoft start-stop, API-key save/sync, setup completion, library load and game launch-stop. They are not simulations. Isolating the data home is not OS sandboxing: installers and launchers can still interact with system dependencies. No installation, account login, API-key save or game launch has been exercised against real data during development.
+
+GOG initialization/sign-in routes and the native callback-to-backend handoff are wired; Steam/TheGamesDB key-help links open the native browser. Epic support installation and manual authorization-code submission are wired; automatic Epic result extraction is still missing. Credentials clear from input controls after dispatch and errors do not print request/response bodies. Provider live acceptance, credential masking, progress/timeout UX, host restart/recovery, full Settings/Sharp/Logs/streaming integrations, production artwork and the approved library/setup presentation remain required. Do not treat this workbench as parity completion or remove Electron.
+
+Offline validation: 38 Rust tests passed, and the separately invoked ignored C-backend smoke test passed against a fresh temporary home (startup, PID/home ownership, empty Steam/Ubisoft libraries, graceful shutdown and port release). Existing C tests passed; bundle-dependent runtime-ready simulation was skipped because archives were absent. These tests do not install Steam or validate real accounts/games.
+
 ## Package a side-by-side local candidate
 
 ```sh
 app-gpui/package-local-preview.sh
 open app-gpui/target/MetalSharp-GPUI-Preview.app
 ```
+
+To bundle the authoritative C backend, compression/icon tools, existing available runtime archives, config and updater resources for connected testing:
+
+```sh
+METALSHARP_GPUI_PACKAGE_BACKEND=1 app-gpui/package-local-preview.sh
+```
+
+This only builds/copies resources; it does not run installers or rebuild runtime archives. The connected package is ad-hoc signed and verified locally, but production resource completeness and release acceptance are still outstanding.
 
 The candidate has a separate `dev.metalsharp.gpui-preview` bundle identifier and is ad-hoc signed for local testing only. It is not notarized, published, or suitable for distribution. It bundles its UI image assets in `Contents/Resources/assets/` and makes no backend or production-data changes.
 

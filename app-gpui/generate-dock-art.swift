@@ -3,13 +3,18 @@
 // Run from app-gpui: swift generate-dock-art.swift
 import AppKit
 import Foundation
-let assets = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("assets")
+// Resolve relative to this script, not the caller's cwd (CI runs at repo root).
+let assets = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("assets")
 let output = assets.appendingPathComponent("dock")
 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 // Each root JPEG that isn't a hero is a sample game's portrait cover.
 let covers = try FileManager.default.contentsOfDirectory(at: assets, includingPropertiesForKeys: nil)
     .filter { $0.pathExtension == "jpg" && !$0.lastPathComponent.hasSuffix("-hero.jpg") }
     .sorted { $0.lastPathComponent < $1.lastPathComponent }
+guard !covers.isEmpty else {
+    throw NSError(domain: "MetalSharpDockArtwork", code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "No portrait covers found in \(assets.path)"])
+}
 for cover in covers {
     let name = cover.deletingPathExtension().lastPathComponent
     let source = NSImage(contentsOf: assets.appendingPathComponent("\(name).jpg"))!
