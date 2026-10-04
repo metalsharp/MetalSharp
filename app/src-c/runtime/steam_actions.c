@@ -5435,6 +5435,15 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         close(exec_pipe[1]);
         return strdup("Wine ntdll route variant is missing or could not be installed");
     }
+    /* Settings -> Graphics runtime logs: keep Wine's stderr for every game
+     * (errors, DLL loads, exceptions) instead of discarding it. */
+    char runtime_log[PATH_MAX] = "";
+    if (ms_config_graphics_runtime_logs_enabled(home)) {
+        char runtime_log_dir[PATH_MAX];
+        snprintf(runtime_log_dir, sizeof(runtime_log_dir), "%s/logs/%s/%u", home, pipeline, id);
+        if (ensure_directory(runtime_log_dir))
+            snprintf(runtime_log, sizeof(runtime_log), "%s/launch.stderr.log", runtime_log_dir);
+    }
     child = fork();
     if (child < 0) {
         char* error = strdup(strerror(errno));
@@ -5466,6 +5475,17 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         ms_steam_apply_launch_preferences(home);
         set_game_opengl_env(id, pipeline);
         set_launch_cache_env(home, id, pipeline);
+        if (runtime_log[0]) {
+            int log_fd = open(runtime_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (log_fd >= 0) {
+                setenv("WINEDEBUG", "err+all,+loaddll,+seh", 1);
+                (void)dup2(log_fd, STDERR_FILENO);
+                (void)dup2(log_fd, STDOUT_FILENO);
+                close(log_fd);
+                dprintf(STDERR_FILENO, "\n--- MetalSharp launch appid=%u pipeline=%s ---\nexecutable=%s\n", id,
+                        pipeline, executable);
+            }
+        }
         if (id == 312520 || id == 2357570) {
             char diagnostic_path[PATH_MAX];
             int diagnostic_fd;

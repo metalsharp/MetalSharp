@@ -228,6 +228,21 @@ bool ms_config_retina_enabled(const char* metalsharp_home) {
     return enabled;
 }
 
+bool ms_config_graphics_runtime_logs_enabled(const char* metalsharp_home) {
+    const char* env_logs = getenv("METALSHARP_GRAPHICS_RUNTIME_LOGS");
+    char* path;
+    ms_json* config;
+    bool enabled;
+    if (env_logs != NULL)
+        return truthy(env_logs);
+    path = config_path(metalsharp_home);
+    config = path == NULL ? NULL : read_json_file(path);
+    enabled = config_bool(config, "graphicsRuntimeLogs", config_bool(config, "graphics_runtime_logs", false));
+    free(path);
+    ms_json_free(config);
+    return enabled;
+}
+
 bool ms_config_exclude_native_mac_steam_games(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
