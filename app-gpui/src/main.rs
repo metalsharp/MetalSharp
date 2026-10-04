@@ -2,7 +2,11 @@
 #[allow(dead_code)]
 mod backend;
 mod backend_host;
+#[allow(dead_code)]
+mod configuration;
 mod connected;
+mod diagnostics;
+mod lifecycle;
 mod logs_preview;
 #[allow(dead_code)]
 mod mini_browser;
@@ -81,20 +85,39 @@ fn main() -> Result<()> {
     let browser_fixture = matches!(args.as_slice(),[mode] if mode=="--browser-fixture");
     #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
     let browser_steam_test = matches!(args.as_slice(),[mode] if mode=="--browser-steam-test");
+    #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+    if matches!(args.as_slice(),[mode] if mode=="--browser-network-fixture") {
+        let port: u16 = std::env::var("METALSHARP_BROWSER_PROBE_PORT")?.parse()?;
+        gpui::Application::new().run(move |cx| {
+            let mtm = objc2::MainThreadMarker::new().expect("GPUI runs on main thread");
+            if let Err(error) = mini_browser::open_network_fixture(mtm, port) {
+                eprintln!("Network fixture failed: {error}");
+                cx.quit();
+                return;
+            }
+            println!("NETWORK_BROWSER_FIXTURE_OPENED");
+            cx.activate(true);
+        });
+        return Ok(());
+    }
+    let connected_setup = matches!(args.as_slice(),[mode] if mode=="--connected-setup-validation");
     let connected = match args.as_slice() {
         [] => None,
         #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
         [mode] if mode == "--browser-fixture" || mode == "--browser-steam-test" => None,
-        [mode] if mode == "--connected-validation" => {
+        [mode] if mode == "--connected-validation" || mode == "--connected-setup-validation" => {
             Some(backend_host::HostConfig::from_environment(true)?)
         }
         [mode] if mode == "--connected-production" => {
             Some(backend_host::HostConfig::from_environment(false)?)
         }
         _ => anyhow::bail!(
-            "Use no arguments for offline preview, --connected-validation for an isolated backend, or --connected-production for explicit production-data access"
+            "Use no arguments for offline preview, --connected-validation for an isolated workbench, --connected-setup-validation for the real setup UI with isolated data, or --connected-production for explicit production-data access"
         ),
     };
+    if connected.is_some() {
+        lifecycle::install_connected_signal_handlers()?;
+    }
     Application::new()
         .with_assets(PreviewIcons)
         .run(move |cx: &mut App| {
@@ -143,10 +166,17 @@ fn main() -> Result<()> {
                 ..Default::default()
             };
             if let Some(config) = connected {
-                cx.open_window(options, move |_, cx| {
-                    cx.new(|cx| connected::ConnectedApp::new(config, cx))
-                })
-                .expect("failed to open connected GPUI candidate");
+                if connected_setup {
+                    cx.open_window(options, move |_, cx| {
+                        cx.new(|cx| ui::MetalSharpApp::new_connected_setup(config, cx))
+                    })
+                    .expect("failed to open connected setup candidate");
+                } else {
+                    cx.open_window(options, move |_, cx| {
+                        cx.new(|cx| connected::ConnectedApp::new(config, cx))
+                    })
+                    .expect("failed to open connected GPUI candidate");
+                }
             } else {
                 cx.open_window(options, |_, cx| cx.new(|_| ui::MetalSharpApp::new()))
                     .expect("failed to open GPUI offline preview");

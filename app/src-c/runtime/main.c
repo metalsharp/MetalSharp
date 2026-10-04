@@ -19,12 +19,11 @@ extern char** environ;
 static volatile sig_atomic_t stop_requested = 0;
 
 static bool inherited_runtime_variable(const char* name, size_t name_length) {
-    static const char* const prefixes[] = {"WINE", "PROTON_", "STEAM_COMPAT_", "DXVK_", "VKD3D_", "DXMT_",
-                                           "DYLD_", "VK_"};
-    static const char* const exact_names[] = {"STEAM_RUNTIME",   "SteamAppId", "SteamGameId",
-                                              "SteamOverlayGameId", "SteamPath",  "GRAPHICS_BACKEND",
-                                              "MS_GRAPHICS_BACKEND", "METALSHARP_PIPELINE", "LD_LIBRARY_PATH",
-                                              "LD_PRELOAD"};
+    static const char* const prefixes[] = {"WINE",   "PROTON_", "STEAM_COMPAT_", "DXVK_",
+                                           "VKD3D_", "DXMT_",   "DYLD_",         "VK_"};
+    static const char* const exact_names[] = {
+        "STEAM_RUNTIME",    "SteamAppId",          "SteamGameId",         "SteamOverlayGameId", "SteamPath",
+        "GRAPHICS_BACKEND", "MS_GRAPHICS_BACKEND", "METALSHARP_PIPELINE", "LD_LIBRARY_PATH",    "LD_PRELOAD"};
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
         size_t prefix_length = strlen(prefixes[i]);
         if (name_length >= prefix_length && strncasecmp(name, prefixes[i], prefix_length) == 0)
@@ -94,6 +93,12 @@ int main(void) {
     unsigned short port;
     ms_backend_context context;
     unsigned attempt;
+    char client_token[65];
+    int token_mode = ms_http_take_client_token(client_token);
+    if (token_mode < 0) {
+        fprintf(stderr, "invalid backend client authentication configuration\n");
+        return EXIT_FAILURE;
+    }
 
     sanitize_inherited_runtime_environment();
     port = configured_port();
@@ -118,7 +123,8 @@ int main(void) {
     ms_epic_sync_on_startup(context.metalsharp_home);
 
     for (attempt = 1; attempt <= 30 && !stop_requested; ++attempt) {
-        if (ms_http_serve(port, &stop_requested, ms_backend_handle, &context) == 0) {
+        if (ms_http_serve_authenticated(port, &stop_requested, ms_backend_handle, &context,
+                                        token_mode == 1 ? client_token : NULL) == 0) {
             break;
         }
         if (attempt == 30) {

@@ -2,9 +2,13 @@
 //! this view, a backend host, or any credential field.
 use crate::{
     backend::{
-        BackendClient, BackendError, Game, InstallProgress, Launcher, LauncherStatus, SetupState,
+        BackendClient, BackendError, Game, InstallProgress, Launcher, LauncherStatus,
+        SetupDependencies, SetupState,
     },
     backend_host::{BackendHost, HostConfig},
+    configuration::{
+        ControllerInput, GameResolution, PreferenceChange, RuntimePreferences, WindowMode,
+    },
     search_input::SearchInput,
 };
 use gpui::{AppContext, Context, Render, Window, div, prelude::*, px, rgb};
@@ -17,6 +21,8 @@ struct Snapshot {
     steam: LauncherStatus,
     ubisoft: LauncherStatus,
     progress: InstallProgress,
+    preferences: RuntimePreferences,
+    dependencies: SetupDependencies,
     games: Vec<Game>,
     running: std::collections::HashSet<u64>,
 }
@@ -26,6 +32,7 @@ impl Snapshot {
         let steam = client.launcher_status(Launcher::Steam)?;
         let ubisoft = client.launcher_status(Launcher::Ubisoft)?;
         let progress = client.install_progress()?;
+        let preferences = client.configuration()?;
         let result: Value = client.get("/game/running")?;
         let running = result
             .get("running")
@@ -39,12 +46,15 @@ impl Snapshot {
             steam,
             ubisoft,
             progress,
+            preferences,
+            dependencies: Default::default(),
             running,
             games: Vec::new(),
         })
     }
     fn load(client: &BackendClient) -> Result<Self, BackendError> {
         let mut snapshot = Self::load_status(client)?;
+        snapshot.dependencies = client.setup_dependencies()?;
         let mut games = client.library(Launcher::Steam)?.games;
         let mut ubisoft_games = client.library(Launcher::Ubisoft)?.games;
         for game in &mut ubisoft_games {
@@ -70,6 +80,8 @@ enum Operation {
     InstallGame(u64),
     SavePipeline(Game, String),
     SaveExecutable(Game, String),
+    Preference(PreferenceChange),
+    ReadDiagnostics,
     Stop(u64),
     GogLogin,
     EpicLogin,
@@ -100,6 +112,10 @@ impl Operation {
             Self::SaveExecutable(game, path) => {
                 client.save_executable(&game, &path).map(|_| json!({}))
             }
+            Self::Preference(change) => client.save_preference(change).map(|_| json!({})),
+            Self::ReadDiagnostics => client
+                .diagnostic_logs()
+                .and_then(|logs| serde_json::to_value(logs).map_err(|_| BackendError::InvalidJson)),
             Self::Stop(appid) => client.stop_game(appid).map(|_| json!({})),
             Self::GogLogin => client.get("/sharp-library/gog/status"),
             Self::EpicLogin => {
@@ -123,7 +139,20 @@ impl Operation {
     }
 }
 
+pub(crate) struct SetupViewState {
+    pub ready: bool,
+    pub completed: bool,
+    pub runtime_ready: bool,
+    pub runtime_installing: bool,
+    pub runtime_started: bool,
+    pub percent: usize,
+    pub steam_installed: bool,
+    pub steam_installing: bool,
+    pub notice: String,
+}
+
 pub struct ConnectedApp {
+    has_snapshot: bool,
     config: HostConfig,
     host: Option<BackendHost>,
     snapshot: Snapshot,
@@ -136,36 +165,44 @@ pub struct ConnectedApp {
     epic_code: gpui::Entity<SearchInput>,
     oauth_rx: Option<std::sync::mpsc::Receiver<crate::mini_browser::MiniBrowserResult>>,
     oauth_active: bool,
+    diagnostics: crate::diagnostics::DiagnosticLogs,
 }
 impl ConnectedApp {
     pub fn new(config: HostConfig, cx: &mut Context<Self>) -> Self {
-        let input = |placeholder: &str, cx: &mut Context<Self>| {
+        let input = |placeholder: &str, secret: bool, cx: &mut Context<Self>| {
             cx.new(|cx| {
                 let mut input = SearchInput::new(cx);
                 input.placeholder = placeholder.to_owned().into();
+                input.secret = secret;
                 input
             })
         };
         let view = Self {
+            has_snapshot: false,
             config: config.clone(),
             validation: config.validation,
             host: None,
             snapshot: Snapshot::default(),
             busy: true,
             notice: "Starting owned C backend…".into(),
-            device: input("Device name", cx),
-            steam_key: input("Steam Web API key (optional)", cx),
-            gamesdb_key: input("TheGamesDB key (optional)", cx),
-            epic_code: input("Epic authorization code", cx),
+            device: input("Device name", false, cx),
+            steam_key: input("Steam Web API key (optional)", true, cx),
+            gamesdb_key: input("TheGamesDB key (optional)", true, cx),
+            epic_code: input("Epic authorization code", true, cx),
             oauth_rx: None,
             oauth_active: false,
+            diagnostics: Default::default(),
         };
         cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move { BackendHost::start(&config).map_err(|_| "Could not start the owned C backend. Check resources and port ownership.".to_owned()) }).await;
             let _ = this.update(cx, |this, cx| {
                 this.busy = false;
                 match result {
-                    Ok(host) => { this.host = Some(host); this.dispatch(Operation::Refresh,cx); }
+                    Ok(host) => {
+                        #[cfg(feature="browser-fixture")]
+                        println!("GPUI_OWNED_BACKEND_READY {}",host.pid());
+                        this.host = Some(host); this.notice="Owned C backend ready".into();this.dispatch(Operation::Refresh,cx);
+                    }
                     Err(error) => this.notice = error,
                 }
                 cx.notify();
@@ -175,6 +212,7 @@ impl ConnectedApp {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 ticks=ticks.wrapping_add(1);
                 if this.update(cx, |this, cx| {
+                    if crate::lifecycle::quit_requested() {cx.quit();return;}
                     if this.busy { return; }
                     if let Some(result) = this.oauth_rx.as_ref().and_then(|rx|rx.try_recv().ok()) {
                         this.oauth_rx = None; this.oauth_active = false;
@@ -205,6 +243,95 @@ impl ConnectedApp {
         .detach();
         view
     }
+    pub(crate) fn setup_view(&self) -> SetupViewState {
+        let migration = self.snapshot.setup.runtime_migration_required;
+        SetupViewState {
+            ready: self.has_snapshot && self.host.is_some() && !self.busy && !migration,
+            completed: self.has_snapshot && self.snapshot.setup.completed,
+            runtime_ready: !migration
+                && (self.snapshot.dependencies.all_installed
+                    || self.snapshot.progress.status == "complete"),
+            runtime_installing: matches!(
+                self.snapshot.progress.status.as_str(),
+                "running" | "installing"
+            ),
+            runtime_started: self.snapshot.progress.status != "idle"
+                && !self.snapshot.progress.status.is_empty(),
+            percent: self.snapshot.progress.percent(),
+            steam_installed: self.snapshot.steam.installed,
+            steam_installing: self.snapshot.steam.installing,
+            notice: if migration {
+                "Runtime migration required; native migration acceptance is still pending. No repair is performed automatically.".into()
+            } else if let Some(error) = self
+                .snapshot
+                .progress
+                .error
+                .as_deref()
+                .filter(|error| !error.is_empty())
+            {
+                format!(
+                    "Installer error: {}",
+                    crate::diagnostics::redact_line(error)
+                )
+            } else if !self.snapshot.progress.current.is_empty() {
+                format!(
+                    "{} — {}",
+                    self.notice,
+                    crate::diagnostics::redact_line(&self.snapshot.progress.current)
+                )
+            } else {
+                self.notice.clone()
+            },
+        }
+    }
+    pub(crate) fn setup_key_help(&mut self, gamesdb: bool, cx: &mut Context<Self>) {
+        if gamesdb {
+            self.help(
+                crate::mini_browser::BrowserPurpose::TheGamesDbHelp,
+                "https://api.thegamesdb.net/key.php",
+                cx,
+            );
+        } else {
+            self.help(
+                crate::mini_browser::BrowserPurpose::SteamApiKeyHelp,
+                "https://steamcommunity.com/dev/apikey",
+                cx,
+            );
+        }
+    }
+    pub(crate) fn setup_inputs(&self) -> [gpui::Entity<SearchInput>; 3] {
+        [
+            self.device.clone(),
+            self.steam_key.clone(),
+            self.gamesdb_key.clone(),
+        ]
+    }
+    pub(crate) fn setup_install_runtime(&mut self, cx: &mut Context<Self>) {
+        let state = self.setup_view();
+        if state.ready && !state.runtime_ready && !state.runtime_installing {
+            self.dispatch(Operation::InstallRuntime, cx);
+        }
+    }
+    pub(crate) fn setup_install_steam(&mut self, cx: &mut Context<Self>) {
+        let state = self.setup_view();
+        if state.ready && state.runtime_ready && !state.steam_installing && !state.steam_installed {
+            self.dispatch(Operation::InstallSteam, cx);
+        }
+    }
+    pub(crate) fn setup_finish(&mut self, cx: &mut Context<Self>) {
+        let state = self.setup_view();
+        if !state.ready || !state.runtime_ready || !state.steam_installed || state.steam_installing
+        {
+            return;
+        }
+        let device = self.device.read(cx).content.to_string();
+        let steam = self.steam_key.read(cx).content.to_string();
+        let gamesdb = self.gamesdb_key.read(cx).content.to_string();
+        self.dispatch(Operation::Finish(device, steam, gamesdb), cx);
+    }
+    pub(crate) fn setup_retry_backend(&mut self, cx: &mut Context<Self>) {
+        self.restart_backend(cx);
+    }
     fn choose_executable(&mut self, game: Game, cx: &mut Context<Self>) {
         if self.busy || game.has_native_build || !game.installed {
             return;
@@ -233,6 +360,16 @@ impl ConnectedApp {
         if self.busy {
             return;
         }
+        let active = matches!(
+            self.snapshot.progress.status.as_str(),
+            "running" | "installing"
+        ) || self.snapshot.steam.installing
+            || !self.snapshot.running.is_empty();
+        if active && self.host.as_mut().is_some_and(BackendHost::is_running) {
+            self.notice="Finish the active installation or stop tracked games before restarting the owned backend".into();
+            cx.notify();
+            return;
+        }
         self.busy = true;
         self.notice = "Restarting owned C backend…".into();
         let previous = self.host.take();
@@ -251,6 +388,7 @@ impl ConnectedApp {
                 match result {
                     Ok(host) => {
                         this.host = Some(host);
+                        this.notice = "Owned C backend ready".into();
                         this.dispatch(Operation::Refresh, cx);
                     }
                     Err(_) => {
@@ -281,6 +419,7 @@ impl ConnectedApp {
         }
         let client = host.client();
         let poll = matches!(operation, Operation::Poll);
+        let logs = matches!(operation, Operation::ReadDiagnostics);
         let refresh = poll || matches!(operation, Operation::Refresh);
         let login_purpose = match &operation {
             Operation::GogLogin => Some(crate::mini_browser::BrowserPurpose::GogAuth),
@@ -310,7 +449,7 @@ impl ConnectedApp {
         cx.spawn(async move |this,cx| {
             let result = cx.background_executor().spawn(async move {
                 let response = operation.run(&client)?;
-                let snapshot = if poll {Snapshot::load_status(&client)}else{Snapshot::load(&client)};
+                let snapshot = if poll || logs {Snapshot::load_status(&client)}else{Snapshot::load(&client)};
                 Ok::<_,BackendError>((response,snapshot))
             }).await;
             let _ = this.update(cx, |this,cx| {
@@ -320,7 +459,8 @@ impl ConnectedApp {
                         let snapshot_failed = snapshot.is_err();
                         match snapshot {
                             Ok(mut snapshot) => {
-                                if poll {snapshot.games=std::mem::take(&mut this.snapshot.games);}
+                                if poll || logs {snapshot.games=std::mem::take(&mut this.snapshot.games);snapshot.dependencies=this.snapshot.dependencies.clone();}
+                                this.has_snapshot=true;
                                 let device = snapshot.setup.device_name.clone();
                                 this.snapshot = snapshot;
                                 if this.device.read(cx).content.is_empty() && !device.is_empty() { this.device.update(cx,|input,cx|{input.content=device.into();cx.notify();}); }
@@ -332,6 +472,12 @@ impl ConnectedApp {
                         }
                         if let Some(purpose)=login_purpose {
                             if let Some(url) = response.get("authUrl").and_then(Value::as_str) { this.open_auth(purpose,url,cx); } else { this.notice = "Provider status did not provide an authorization URL".into(); }
+                        }
+                        if logs {
+                            match serde_json::from_value(response) {
+                                Ok(bundle)=>{this.diagnostics=bundle;if !snapshot_failed {this.notice="Diagnostics refreshed; credential-bearing lines redacted".into();}},
+                                Err(_)=>this.notice="Diagnostics response could not be decoded".into(),
+                            }
                         }
                     }
                     Err(error) => this.notice = error.to_string(),
@@ -471,10 +617,111 @@ impl Render for ConnectedApp {
             .child(div().child("Epic sign-in reads only the approved JSON result endpoint. Manual one-time-code submission remains a fallback."))
             .child(Self::field(&self.epic_code))
             .child(Self::button("epic-code","Submit Epic authorization code",enabled).on_click(cx.listener(|this,_,_,cx|{let code=this.epic_code.read(cx).content.to_string();if !code.trim().is_empty(){this.dispatch(Operation::EpicCode(code),cx);}})))
+            ;
+        let prefs = &self.snapshot.preferences;
+        let controller = match prefs.controller_input {
+            ControllerInput::Off => ControllerInput::XInput,
+            ControllerInput::XInput => ControllerInput::DInput,
+            ControllerInput::DInput => ControllerInput::Off,
+        };
+        let window = match prefs.window_mode {
+            WindowMode::Default => WindowMode::Windowed,
+            WindowMode::Windowed => WindowMode::Fullscreen,
+            WindowMode::Fullscreen => WindowMode::Default,
+        };
+        let resolution = match prefs.game_resolution {
+            GameResolution::Default => GameResolution::Hd,
+            GameResolution::Hd => GameResolution::FullHd,
+            GameResolution::FullHd => GameResolution::Qhd,
+            GameResolution::Qhd => GameResolution::Uhd,
+            GameResolution::Uhd => GameResolution::Default,
+        };
+        let changes = [
+            (
+                "config-logs",
+                format!("Runtime logs: {}", prefs.graphics_runtime_logs),
+                PreferenceChange::GraphicsRuntimeLogs(!prefs.graphics_runtime_logs),
+            ),
+            (
+                "config-msync",
+                format!("Msync: {}", prefs.msync),
+                PreferenceChange::Msync(!prefs.msync),
+            ),
+            (
+                "config-retina",
+                format!("Retina: {}", prefs.retina_mode),
+                PreferenceChange::RetinaMode(!prefs.retina_mode),
+            ),
+            (
+                "config-native",
+                format!(
+                    "Exclude native Mac titles: {}",
+                    prefs.exclude_native_mac_steam_games
+                ),
+                PreferenceChange::ExcludeNativeMacSteamGames(!prefs.exclude_native_mac_steam_games),
+            ),
+            (
+                "config-controller",
+                format!(
+                    "Controller: {:?} → {:?}",
+                    prefs.controller_input, controller
+                ),
+                PreferenceChange::ControllerInput(controller),
+            ),
+            (
+                "config-window",
+                format!("Window: {:?} → {:?}", prefs.window_mode, window),
+                PreferenceChange::WindowMode(window),
+            ),
+            (
+                "config-resolution",
+                format!("Resolution: {:?} → {:?}", prefs.game_resolution, resolution),
+                PreferenceChange::GameResolution(resolution),
+            ),
+        ];
+        let mut settings = div().flex().flex_wrap().gap(px(12.));
+        for (id, label, change) in changes {
+            settings = settings.child(Self::button(id, label, enabled).on_click(
+                cx.listener(move |this, _, _, cx| this.dispatch(Operation::Preference(change), cx)),
+            ));
+        }
+        root=root.child(div().text_size(px(18.)).child("Persisted runtime preferences"))
+            .child(div().child("Changes apply to subsequent launches. Restart Steam/titles yourself when required; these controls never silently terminate them."))
+            .child(settings)
             .child(div().text_size(px(18.)).child(format!("Steam / Ubisoft library — {} games",self.snapshot.games.len())));
         if self.snapshot.games.is_empty() {
             root=root.child(div().child("No library entries returned. Install/sign in to Steam or Ubisoft and refresh; sample titles are never substituted."));
         }
+        root = root
+            .child(
+                div()
+                    .text_size(px(18.))
+                    .child("Backend diagnostics — on demand"),
+            )
+            .child(
+                Self::button("read-diagnostics", "Refresh diagnostics", enabled).on_click(
+                    cx.listener(|this, _, _, cx| this.dispatch(Operation::ReadDiagnostics, cx)),
+                ),
+            );
+        let mut logs = div()
+            .id("connected-diagnostics")
+            .max_h(px(300.))
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap(px(8.));
+        for file in &self.diagnostics.logs {
+            logs = logs.child(div().child(file.name.clone()));
+            for line in &file.lines {
+                logs = logs.child(
+                    div()
+                        .font_family("Menlo")
+                        .text_size(px(12.))
+                        .child(line.clone()),
+                );
+            }
+        }
+        root = root.child(logs);
         for (index, game) in self.snapshot.games.iter().enumerate() {
             let launch = game.clone();
             let appid = game.appid;

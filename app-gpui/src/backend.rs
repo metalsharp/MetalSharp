@@ -9,6 +9,7 @@ use ureq::Agent;
 pub struct BackendClient {
     base_url: String,
     agent: Agent,
+    client_token: Option<std::sync::Arc<str>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -32,6 +33,12 @@ pub struct SetupState {
     pub runtime_migration_required: bool,
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupDependencies {
+    #[serde(default)]
+    pub all_installed: bool,
+}
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct InstallProgress {
     #[serde(default)]
@@ -159,7 +166,19 @@ impl BackendClient {
         Ok(Self {
             base_url: format!("http://127.0.0.1:{port}"),
             agent: config.into(),
+            client_token: None,
         })
+    }
+    pub(crate) fn with_client_token(mut self, token: String) -> Result<Self, BackendError> {
+        if token.len() != 64
+            || !token
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        {
+            return Err(BackendError::InvalidInput);
+        }
+        self.client_token = Some(token.into());
+        Ok(self)
     }
     pub fn base_url(&self) -> &str {
         &self.base_url
@@ -181,19 +200,26 @@ impl BackendClient {
         }
         let url = format!("{}{path}", self.base_url);
         let response = match method {
-            "GET" => self
-                .agent
-                .get(&url)
-                .config()
-                .timeout_global(Some(timeout))
-                .build()
-                .call(),
+            "GET" => {
+                let mut request = self.agent.get(&url);
+                if let Some(token) = self.client_token.as_deref() {
+                    request = request.header("X-MetalSharp-Client-Token", token);
+                }
+                request
+                    .config()
+                    .timeout_global(Some(timeout))
+                    .build()
+                    .call()
+            }
             "POST" => {
                 // C HTTP server expects Content-Length, not chunked transfer.
                 let payload = serde_json::to_vec(body.unwrap_or(&json!({})))
                     .map_err(|_| BackendError::InvalidInput)?;
-                self.agent
-                    .post(&url)
+                let mut request = self.agent.post(&url);
+                if let Some(token) = self.client_token.as_deref() {
+                    request = request.header("X-MetalSharp-Client-Token", token);
+                }
+                request
                     .header("Content-Type", "application/json")
                     .config()
                     .timeout_global(Some(timeout))
@@ -228,8 +254,25 @@ impl BackendClient {
     pub fn status(&self) -> Result<BackendStatus, BackendError> {
         self.get("/status")
     }
+    pub fn diagnostic_logs(&self) -> Result<crate::diagnostics::DiagnosticLogs, BackendError> {
+        let mut bundle: crate::diagnostics::DiagnosticLogs = self.get("/logs")?;
+        bundle.logs.truncate(8);
+        Ok(bundle)
+    }
+    pub fn configuration(&self) -> Result<crate::configuration::RuntimePreferences, BackendError> {
+        self.get("/config")
+    }
+    pub fn save_preference(
+        &self,
+        change: crate::configuration::PreferenceChange,
+    ) -> Result<(), BackendError> {
+        self.post("/config", change.body()).map(|_| ())
+    }
     pub fn setup_state(&self) -> Result<SetupState, BackendError> {
         self.get("/setup/state")
+    }
+    pub fn setup_dependencies(&self) -> Result<SetupDependencies, BackendError> {
+        self.get("/setup/dependencies")
     }
     pub fn install_runtime(&self) -> Result<(), BackendError> {
         self.post("/setup/install-all", json!({})).map(|_| ())

@@ -3,6 +3,46 @@
 use std::sync::Mutex;
 use url::Url;
 
+// Applied to every web resource, not just navigation. Plain HTTP/WS is denied
+// (including numeric/DNS aliases of the loopback backend); HTTPS/WSS literal
+// private IPv4, IPv6 literals and local DNS names are also denied. Backend
+// session authentication independently protects app data against filter gaps.
+fn network_rules_json() -> String {
+    // WebKit's content-blocker regex subset does not support alternation.
+    let mut patterns = vec![
+        "^http://".to_owned(),
+        "^ws://".to_owned(),
+        "^file:".to_owned(),
+    ];
+    let hosts = [
+        r"0\.",
+        r"10\.",
+        r"127\.",
+        r"169\.254\.",
+        r"172\.1[6-9]\.",
+        r"172\.2[0-9]\.",
+        r"172\.3[01]\.",
+        r"192\.168\.",
+        r"100\.6[4-9]\.",
+        r"100\.[7-9][0-9]\.",
+        r"100\.1[01][0-9]\.",
+        r"100\.12[0-7]\.",
+        r"198\.1[89]\.",
+        r"\[",
+        r"localhost[:/]",
+        r"localhost\.[:/]",
+        r"[^/]*\.local[:/]",
+        r"[^/]*\.localhost[.:/]",
+        r"[^/]*\.internal[:/]",
+    ];
+    for scheme in ["https", "wss"] {
+        for host in hosts {
+            patterns.push(format!("^{scheme}://([^/]*@)?{host}"));
+        }
+    }
+    serde_json::Value::Array(patterns.into_iter().map(|pattern|serde_json::json!({"trigger":{"url-filter":pattern},"action":{"type":"block"}})).collect()).to_string()
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BrowserPurpose {
     GogAuth,
@@ -188,6 +228,7 @@ pub enum MiniBrowserError {
     NavigationFailed,
     InvalidCallback,
     EpicDenied,
+    PrivacyPolicyUnavailable,
 }
 impl std::fmt::Debug for MiniBrowserResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -274,8 +315,8 @@ mod native {
         NSURLRequest, NSUUID,
     };
     use objc2_web_kit::{
-        WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction,
-        WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
+        WKContentRuleList, WKContentRuleListStore, WKFrameInfo, WKMediaCaptureType, WKNavigation,
+        WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationResponse,
         WKNavigationResponsePolicy, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate,
         WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
     };
@@ -742,7 +783,7 @@ mod native {
         mtm: MainThreadMarker,
         request: MiniBrowserRequest,
         completion: MiniBrowserCompletion,
-        fixture: Option<&'static str>,
+        fixture: Option<String>,
     ) -> anyhow::Result<()> {
         validate_navigation(request.purpose, request.initial_url.as_str())
             .map_err(|_| anyhow::anyhow!("initial browser URL rejected"))?;
@@ -759,6 +800,8 @@ mod native {
         {
             anyhow::bail!("persistent GameJolt browser sessions require macOS 14 or newer");
         }
+        let privacy_store = unsafe { WKContentRuleListStore::defaultStore(mtm) }
+            .ok_or_else(|| anyhow::anyhow!("WebKit privacy rule store unavailable"))?;
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
                 NSWindow::alloc(mtm),
@@ -899,9 +942,8 @@ mod native {
         web.heightAnchor()
             .constraintGreaterThanOrEqualToConstant(200.0)
             .setActive(true);
-        // The native delegate is weakly held by WebKit; retain it on the main thread
-        // for the lifetime of the process (small per-window object; close cancels callback).
-        DELEGATES.with(|items| items.borrow_mut().push(delegate));
+        // WebKit's delegate property is weak; retain the per-window delegate.
+        DELEGATES.with(|items| items.borrow_mut().push(delegate.clone()));
         window.setTitle(&objc2_foundation::NSString::from_str(&request.title));
         window.setMinSize(NSSize::new(720., 540.));
         window.center();
@@ -910,14 +952,71 @@ mod native {
             request.initial_url.as_str(),
         ))
         .ok_or_else(|| anyhow::anyhow!("initial URL could not be represented by NSURL"))?;
+        header.setStringValue(&NSString::from_str("Applying browser privacy policy…"));
+        let controller = unsafe { config.userContentController() };
+        let completion = block2::RcBlock::new(
+            move |rule: *mut WKContentRuleList, error: *mut objc2_foundation::NSError| {
+                // A window closed while compilation was pending must never load.
+                if delegate.ivars().window.borrow().is_none() {
+                    return;
+                }
+                let rule = unsafe { rule.as_ref() };
+                if !error.is_null() || rule.is_none() {
+                    header.setStringValue(&NSString::from_str(
+                        "Privacy policy unavailable — navigation disabled",
+                    ));
+                    delegate.finish(MiniBrowserResult::Error(
+                        MiniBrowserError::PrivacyPolicyUnavailable,
+                    ));
+                    return;
+                }
+                unsafe {
+                    controller.addContentRuleList(rule.unwrap());
+                    #[cfg(feature = "browser-fixture")]
+                    println!("NATIVE_BROWSER_PRIVACY_POLICY_READY");
+                    if let Some(html) = fixture.as_deref() {
+                        web.loadHTMLString_baseURL(&NSString::from_str(html), Some(&req_url));
+                    } else {
+                        web.loadRequest(&NSURLRequest::requestWithURL(&req_url));
+                    }
+                }
+            },
+        );
+        // No remote document is loaded until compilation and installation succeed.
         unsafe {
-            if let Some(html) = fixture {
-                web.loadHTMLString_baseURL(&NSString::from_str(html), Some(&req_url));
-            } else {
-                web.loadRequest(&NSURLRequest::requestWithURL(&req_url));
-            }
+            privacy_store
+                .compileContentRuleListForIdentifier_encodedContentRuleList_completionHandler(
+                    Some(&NSString::from_str("MetalSharp-NoLocalNetworking-v1")),
+                    Some(&NSString::from_str(&network_rules_json())),
+                    Some(&completion),
+                );
         }
         Ok(())
+    }
+    #[cfg(feature = "browser-fixture")]
+    pub fn open_network_fixture(mtm: MainThreadMarker, port: u16) -> anyhow::Result<()> {
+        if port < 1024 || matches!(port, 9274 | 9276) {
+            anyhow::bail!("network fixture requires a dedicated non-backend probe port");
+        }
+        let mut html = String::from(
+            r#"<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src http:"><style>body{font:20px system-ui;margin:40px;background:#f2f4f8;color:#202633}</style><h1>Local-network blocking fixture</h1><p>These synthetic images must never reach the dedicated local probe server. No scripts, accounts or backend.</p>"#,
+        );
+        for host in ["127.0.0.1", "localhost", "2130706433", "0x7f000001"] {
+            html.push_str(&format!(
+                "<img alt='blocked local probe' src='http://{host}:{port}/probe'>"
+            ));
+        }
+        open_inner(
+            mtm,
+            MiniBrowserRequest::new(
+                BrowserPurpose::SteamApiKeyHelp,
+                "https://steamcommunity.com/dev/apikey",
+                "MetalSharp — NETWORK BLOCKING fixture",
+            )
+            .map_err(|_| anyhow::anyhow!("fixture URL rejected"))?,
+            Box::new(|_| {}),
+            Some(html),
+        )
     }
     #[cfg(feature = "browser-fixture")]
     pub fn open_fixture(mtm: MainThreadMarker) -> anyhow::Result<()> {
@@ -931,7 +1030,7 @@ mod native {
             )
             .map_err(|_| anyhow::anyhow!("fixture URL rejected"))?,
             Box::new(|_| {}),
-            Some(HTML),
+            Some(HTML.to_owned()),
         )
     }
 }
@@ -955,10 +1054,30 @@ pub fn open_native(
 pub fn open_offline_fixture(mtm: objc2::MainThreadMarker) -> anyhow::Result<()> {
     native::open_fixture(mtm)
 }
+#[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+pub fn open_network_fixture(mtm: objc2::MainThreadMarker, port: u16) -> anyhow::Result<()> {
+    native::open_network_fixture(mtm, port)
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn network_rules_only_block_and_use_webkit_supported_regex_subset() {
+        let rules: serde_json::Value = serde_json::from_str(&network_rules_json()).unwrap();
+        let rules = rules.as_array().unwrap();
+        assert_eq!(rules.len(), 41);
+        for rule in rules {
+            assert_eq!(rule["action"]["type"], "block");
+            assert!(
+                !rule["trigger"]["url-filter"]
+                    .as_str()
+                    .unwrap()
+                    .contains('|')
+            );
+        }
+        assert_eq!(rules[0]["trigger"]["url-filter"], "^http://");
+    }
     #[test]
     fn steam_store_navigation_stays_separate_from_key_help() {
         for url in [

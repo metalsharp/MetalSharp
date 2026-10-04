@@ -34,6 +34,7 @@ void ms_http_request_free(ms_http_request* request) {
     free(request->target);
     free(request->path);
     free(request->query);
+    free(request->client_token);
     free(request->body);
     memset(request, 0, sizeof(*request));
 }
@@ -71,7 +72,36 @@ static bool send_all(int fd, const void* data, size_t length) {
     return true;
 }
 
-static bool receive_request(int fd, ms_http_request* request) {
+int ms_http_take_client_token(char token[65]) {
+    const char* value = getenv("METALSHARP_CLIENT_TOKEN");
+    token[0] = '\0';
+    if (value == NULL)
+        return 0;
+    bool valid = strlen(value) == 64;
+    if (valid) {
+        for (size_t i = 0; i < 64; ++i)
+            if (!((value[i] >= '0' && value[i] <= '9') || (value[i] >= 'a' && value[i] <= 'f')))
+                valid = false;
+    }
+    if (valid)
+        memcpy(token, value, 65);
+    if (unsetenv("METALSHARP_CLIENT_TOKEN") != 0 || !valid) {
+        token[0] = '\0';
+        return -1;
+    }
+    return 1;
+}
+
+static bool token_matches(const char* supplied, const char* expected) {
+    if (supplied == NULL || strlen(supplied) != 64)
+        return false;
+    volatile unsigned char difference = 0;
+    for (size_t i = 0; i < 64; ++i)
+        difference |= (unsigned char)supplied[i] ^ (unsigned char)expected[i];
+    return difference == 0;
+}
+
+static bool receive_request(int fd, ms_http_request* request, const char* token, bool* unauthorized) {
     unsigned char* buffer = NULL;
     size_t length = 0;
     size_t capacity = 8192;
@@ -173,11 +203,30 @@ static bool receive_request(int fd, ms_http_request* request) {
             }
             content_length = (size_t)parsed;
             content_length_seen = true;
+        } else if (strcmp(name, "x-metalsharp-client-token") == 0) {
+            size_t size = strlen(value);
+            while (size > 0 && (value[size - 1] == ' ' || value[size - 1] == '\t'))
+                --size;
+            if (request->client_token != NULL || size != 64) {
+                free(name);
+                goto fail;
+            }
+            request->client_token = copy_range(value, size);
+            if (request->client_token == NULL) {
+                free(name);
+                goto fail;
+            }
         }
         free(name);
     }
     free(header_copy);
     header_copy = NULL;
+    /* Reject before reading a body or dispatching any route. A CORS-simple
+     * request, even one with a large/incomplete body, gains no app capability. */
+    if (token != NULL && !token_matches(request->client_token, token)) {
+        *unauthorized = true;
+        goto fail;
+    }
 
     {
         const char* query = strchr(request->target, '?');
@@ -224,6 +273,8 @@ static const char* reason_phrase(int status) {
         return "OK";
     case 400:
         return "Bad Request";
+    case 401:
+        return "Unauthorized";
     case 404:
         return "Not Found";
     case 405:
@@ -239,13 +290,14 @@ static const char* reason_phrase(int status) {
     }
 }
 
-static void send_response(int fd, const ms_http_response* response) {
+static void send_response(int fd, const ms_http_response* response, bool legacy_cors) {
     char header[512];
     const char* content_type = response->content_type == NULL ? "application/json" : response->content_type;
     int written = snprintf(header, sizeof(header),
                            "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
-                           "Access-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
-                           response->status, reason_phrase(response->status), content_type, response->body_length);
+                           "%sConnection: close\r\n\r\n",
+                           response->status, reason_phrase(response->status), content_type, response->body_length,
+                           legacy_cors ? "Access-Control-Allow-Origin: *\r\n" : "");
     if (written > 0 && (size_t)written < sizeof(header)) {
         (void)send_all(fd, header, (size_t)written);
         if (response->body_length > 0 && response->body != NULL)
@@ -254,7 +306,16 @@ static void send_response(int fd, const ms_http_response* response) {
 }
 
 int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler, void* context) {
+    return ms_http_serve_authenticated(port, stop_flag, handler, context, NULL);
+}
+
+int ms_http_serve_authenticated(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler,
+                                void* context, const char* token) {
     int server_fd;
+    if (token != NULL && strlen(token) != 64) {
+        errno = EINVAL;
+        return -1;
+    }
     int reuse = 1;
     struct sockaddr_in address;
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -317,19 +378,25 @@ int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http
         {
             ms_http_request request;
             ms_http_response response = {500, "application/json", NULL, 0, false};
-            if (receive_request(client_fd, &request)) {
+            bool unauthorized = false;
+            if (receive_request(client_fd, &request, token, &unauthorized)) {
                 if (!handler(&request, &response, context)) {
                     response.status = 500;
                     response.content_type = "application/json";
                 }
                 ms_http_request_free(&request);
+            } else if (unauthorized) {
+                static const unsigned char denied[] = "{\"ok\":false,\"error\":\"unauthorized client\"}";
+                response.status = 401;
+                response.body = denied;
+                response.body_length = sizeof(denied) - 1;
             } else {
                 static const unsigned char bad_request[] = "{\"ok\":false,\"error\":\"bad request\"}";
                 response.status = 400;
                 response.body = bad_request;
                 response.body_length = sizeof(bad_request) - 1;
             }
-            send_response(client_fd, &response);
+            send_response(client_fd, &response, token == NULL);
             if (response.owns_body)
                 free((void*)response.body);
         }

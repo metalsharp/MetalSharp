@@ -13,6 +13,13 @@ This is a full desktop-app port, not a rewrite of the graphics engine or C backe
 
 **Current PR #703 scope decision (2026-10-03):** at the user's explicit direction, the GPUI replacement and removal of the Electron desktop application are to be delivered in this same umbrella PR, not left as a later Electron-removal PR. Keep #703 in draft while production-equivalent GPUI host/browser/backend capabilities are implemented and verified. Remove Electron app code/dependencies only as the final migration change, after GPUI owns every required capability and passes the target-machine/local acceptance gates. Do not delete Electron early or allow this preview-only state to merge. This changes the implementation/PR boundary, not the requirement for local acceptance and an explicit release go/no-go. Preserve runtime/backend/data contracts and Electron-game compatibility (the latter means games built with Electron, not MetalSharp's desktop framework).
 
+## Latest verified checkpoint
+
+- Approved setup layout now has an explicit isolated connected mode with real readiness/progress, guarded completion and masked key inputs. Completion uses the real connected workbench, not fixture titles; full artwork-led shell integration remains pending.
+- Connected preferences use partial config updates, preserving unknown keys; bounded backend diagnostics redact credential-marker-bearing lines before view state.
+- User-approved security hardening adds per-launch authentication to GPUI-owned backend sessions and compiled WebKit resource blocking before document load. Legacy standalone/Electron endpoint/body behavior remains unchanged; the token is unset before helpers/games start.
+- 54 Rust tests, the separately invoked real-C ownership/config/log/auth smoke, and the C suite pass. Native checks confirmed compiled browser rules, zero local probe requests with a positive server control, anonymous Steam rendering, isolated setup window rendering and SIGTERM owned-child cleanup. Runtime-ready simulation remains skipped without archives; no real accounts, installs, launches or production-home writes were exercised.
+
 ## Current boundary and port inventory
 
 - The renderer is Vue 3 (`app/src/renderer`); `SharpView.vue` is about 7,900 lines, `LibraryView.vue` about 2,550, and the app includes setup, migration, settings, logs, streaming, process manager, overlays, themes, and localization.
