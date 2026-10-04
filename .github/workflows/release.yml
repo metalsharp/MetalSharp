@@ -41,7 +41,7 @@ jobs:
           submodules: recursive
 
       - name: Download and verify release split bundles
-        run: METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REQUIRE_X87SIDECAR=1 METALSHARP_SKIP_DEVELOPER_SDK_BUNDLE=1 tools/dmg/create-bundles.sh
+        run: METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REQUIRE_X87SIDECAR=1 tools/dmg/create-bundles.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           METALSHARP_BUNDLE_REPO: ${{ github.repository }}
@@ -84,7 +84,6 @@ jobs:
         run: |
           set -euo pipefail
           METALSHARP_REQUIRE_X87SIDECAR=1 tools/bundles/verify-bundles.sh --bundle-dir dist/bundles --require mac \
-            metalsharp-electron.tar.zst \
             metalsharp-graphics-dll.tar.zst \
             metalsharp-runtime.tar.zst \
             metalsharp-assets.tar.zst \
@@ -149,7 +148,6 @@ jobs:
           METALSHARP_REPAIR_BUNDLES=0 METALSHARP_REQUIRE_X87SIDECAR=1 METALSHARP_REPAIR_M12=0 tools/dmg/create-bundles.sh
           tools/dmg/stage-release-bundles.sh app/bundles dist/staged-bundles
           for required in \
-            metalsharp-electron.tar.zst \
             metalsharp-graphics-dll.tar.zst \
             metalsharp-runtime.tar.zst \
             metalsharp-assets.tar.zst \
