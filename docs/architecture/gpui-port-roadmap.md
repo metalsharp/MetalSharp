@@ -49,7 +49,7 @@ GPUI app (Rust)
 
 Keep UI code from spawning arbitrary processes or constructing unrestricted filesystem paths. Define narrow Rust service interfaces for OS actions, validate paths and URLs at those boundaries, and make services injectable for tests. Keep backend request/response types in a dedicated crate/module with contract tests. GPUI is pre-1.0; pin a tested revision/version and isolate framework-specific code behind a small UI layer so framework updates do not infect domain and backend modules.
 
-For OAuth, first evaluate external-browser authorization with registered/deep-link callbacks. If the provider flow requires an embedded browser, build a narrowly scoped native WebKit/WebView adapter or retain a small helper component temporarily; do not assume GPUI itself supplies Electron's BrowserWindow/webview behavior. Decide this during the spike, not during the late parity phase.
+The browser investigation selected a purpose-scoped native macOS WebKit window rather than bundling upstream Min (which is Electron-based). `app-gpui/src/mini_browser.rs` now provides a standalone `WKWebView`/`NSWindow`, a read-only URL header, navigation controls, HTTPS host policy, ephemeral auth/help stores, and a distinct persistent GameJolt store. This is an integration foundation only: it is not wired to GPUI actions or the offline preview, has no Epic result extraction, and has not been opened or exercised against live provider redirects. Complete callback/session design, data cleanup, security review, and local native-window acceptance before treating browser parity as done.
 
 ## Phased plan and exit criteria
 
@@ -68,7 +68,7 @@ For OAuth, first evaluate external-browser authorization with registered/deep-li
 2. Validate GPUI on this machine: text/glyph rendering, input/IME, resizing, scrolling, high-DPI, keyboard navigation, native menus/dialogs, accessibility basics, and required macOS deployment target.
 3. Launch the existing backend from the Rust host, wait for readiness, send typed requests to `/status` and a representative data route, and shut it down safely. Use isolated validation data; do not claim Steam-library end-to-end behavior when the test machine has no Steam/account data.
 4. Prototype one visually representative, data-heavy interaction (recommended: the setup-to-library journey with deterministic mock state and representative game cards; use a real backend route separately for integration) plus a native file-picker action.
-5. Resolve the OAuth approach, app lifecycle/reopen behavior, app signing/notarization path, framework pinning, and dependency/license review.
+5. Continue the selected native WKWebView integration: verify the standalone window visually/behaviorally with safe test fixtures, complete callback/session design and cleanup, and review lifecycle/reopen behavior, app signing/notarization, framework pinning, and dependency licenses.
 
 **Exit:** the app works on this machine against the existing backend; the core native integration is proven; the OAuth strategy and build/distribution approach are documented. Stop and reassess if GPUI or a required native integration cannot meet product needs.
 

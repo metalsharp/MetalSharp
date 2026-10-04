@@ -6,6 +6,8 @@ mod backend;
 #[allow(dead_code)]
 mod backend_host;
 mod logs_preview;
+#[allow(dead_code)]
+mod mini_browser;
 mod page_palette;
 mod search_input;
 mod settings_preview;
