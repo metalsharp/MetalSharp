@@ -1,5 +1,5 @@
 # GPUI Port Feature and Acceptance Matrix
-**Status:** Isolated UI preview milestone; production integration and release gates remain pending.  
+**Status:** Isolated UI preview milestone; production integration and release gates remain pending.
 **Updated:** 2026-10-03
 
 This matrix is the tracked parity checklist for the [GPUI port roadmap](gpui-port-roadmap.md). `Not started` means no GPUI parity implementation; it does not mean the current Electron feature is absent. Do not mark a row complete based only on compilation: record automated/manual evidence in the verification column.
