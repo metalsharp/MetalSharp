@@ -167,11 +167,12 @@ impl MiniBrowserRequest {
     }
 }
 
-/// Completion is delivered once on native window close/callback. Only GOG can yield
-/// a code; help/browser closes yield Cancelled. Invoke from GPUI's AppKit main thread.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Authentication completion is delivered once on native window close/result.
+/// Help/GameJolt callbacks are not invoked. Invoke from GPUI's AppKit main thread.
+#[derive(Clone, Eq, PartialEq)]
 pub enum MiniBrowserResult {
     GogCode(String),
+    EpicCode(String),
     Error(MiniBrowserError),
     Cancelled,
 }
@@ -180,14 +181,73 @@ pub enum MiniBrowserError {
     Gog(String),
     NavigationFailed,
     InvalidCallback,
+    EpicDenied,
+}
+impl std::fmt::Debug for MiniBrowserResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::GogCode(_) => "GogCode([redacted])",
+            Self::EpicCode(_) => "EpicCode([redacted])",
+            Self::Error(_) => "Error([redacted])",
+            Self::Cancelled => "Cancelled",
+        })
+    }
+}
+
+/// Only Epic's documented JSON redirect endpoint may be inspected. Federation
+/// hosts and arbitrary pages on approved domains must never yield login results.
+fn epic_result_endpoint(raw: &str) -> bool {
+    validate_navigation(BrowserPurpose::EpicAuth, raw).is_ok_and(|url| {
+        matches!(url.host_str(), Some("www.epicgames.com" | "epicgames.com"))
+            && url.path() == "/id/api/redirect"
+            && url.fragment().is_none()
+    })
+}
+#[derive(serde::Deserialize)]
+struct EpicDocument {
+    #[serde(rename = "authorizationCode")]
+    authorization_code: Option<String>,
+    code: Option<String>,
+    error: Option<String>,
+}
+fn parse_epic_document(raw_url: &str, text: &str) -> Result<MiniBrowserResult, CallbackError> {
+    if !epic_result_endpoint(raw_url) {
+        return Err(CallbackError::NotExactCallback);
+    }
+    if text.len() > 16384 {
+        return Err(CallbackError::InvalidValue);
+    }
+    let document: EpicDocument =
+        serde_json::from_str(text).map_err(|_| CallbackError::InvalidValue)?;
+    let count = usize::from(document.authorization_code.is_some())
+        + usize::from(document.code.is_some())
+        + usize::from(document.error.is_some());
+    if count == 0 {
+        return Err(CallbackError::MissingResult);
+    }
+    if count != 1 {
+        return Err(CallbackError::AmbiguousResult);
+    }
+    let code = document.authorization_code.or(document.code);
+    if let Some(code) = code {
+        if code.is_empty()
+            || code.len() > 4096
+            || code.chars().any(|c| c.is_control() || c.is_whitespace())
+        {
+            return Err(CallbackError::InvalidValue);
+        }
+        Ok(MiniBrowserResult::EpicCode(code))
+    } else {
+        Ok(MiniBrowserResult::Error(MiniBrowserError::EpicDenied))
+    }
 }
 pub type MiniBrowserCompletion = Box<dyn FnOnce(MiniBrowserResult) + 'static>;
 
 #[cfg(target_os = "macos")]
 mod native {
     use super::*;
-    use block2::DynBlock;
-    use core::cell::{OnceCell, RefCell};
+    use block2::{DynBlock, RcBlock};
+    use core::cell::{Cell, OnceCell, RefCell};
     use objc2::{
         AnyThread, ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class,
         rc::Retained,
@@ -195,9 +255,9 @@ mod native {
         sel,
     };
     use objc2_app_kit::{
-        NSBackingStoreType, NSButton, NSColor, NSLayoutAttribute, NSStackView,
-        NSStackViewDistribution, NSTextField, NSUserInterfaceLayoutOrientation, NSWindow,
-        NSWindowDelegate, NSWindowStyleMask,
+        NSBackingStoreType, NSButton, NSColor, NSLayoutAttribute, NSLayoutConstraintOrientation,
+        NSStackView, NSStackViewDistribution, NSTextField, NSUserInterfaceLayoutOrientation,
+        NSWindow, NSWindowDelegate, NSWindowStyleMask,
     };
     use objc2_foundation::{
         NSHTTPURLResponse, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL,
@@ -217,6 +277,8 @@ mod native {
         window: RefCell<Option<Retained<NSWindow>>>,
         completion: Mutex<Option<MiniBrowserCompletion>>,
         callback: GogCallbackParser,
+        navigation_epoch: Cell<u64>,
+        epic_inspection_pending: Cell<bool>,
     }
     define_class!(
         #[unsafe(super(NSObject))]
@@ -245,8 +307,8 @@ mod native {
                 let is_main_frame = unsafe { action.targetFrame() }
                     .is_some_and(|frame| unsafe { frame.isMainFrame() });
                 let req = unsafe { action.request() };
-                let raw = unsafe { req.URL() }
-                    .and_then(|u| unsafe { u.absoluteString() })
+                let raw = req.URL()
+                    .and_then(|u| u.absoluteString())
                     .map(|s| s.to_string());
                 let mut allow = false;
                 if is_main_frame {
@@ -279,13 +341,11 @@ mod native {
                         }
                     }
                 }
-                unsafe {
-                    handler.call((if allow {
-                        WKNavigationActionPolicy::Allow
-                    } else {
-                        WKNavigationActionPolicy::Cancel
-                    },));
-                }
+                handler.call((if allow {
+                    WKNavigationActionPolicy::Allow
+                } else {
+                    WKNavigationActionPolicy::Cancel
+                },));
             }
             #[unsafe(method(webView:decidePolicyForNavigationResponse:decisionHandler:))]
             #[allow(non_snake_case)]
@@ -304,13 +364,11 @@ mod native {
                 } else { false };
                 let allow = !is_attachment && unsafe { response.canShowMIMEType() }
                     && response_url.as_deref().is_some_and(|url| validate_navigation(*self.ivars().purpose.get().unwrap(), url).is_ok());
-                unsafe {
-                    handler.call((if allow {
-                        WKNavigationResponsePolicy::Allow
-                    } else {
-                        WKNavigationResponsePolicy::Cancel
-                    },));
-                }
+                handler.call((if allow {
+                    WKNavigationResponsePolicy::Allow
+                } else {
+                    WKNavigationResponsePolicy::Cancel
+                },));
             }
             #[unsafe(method(webView:didFailProvisionalNavigation:withError:))]
             #[allow(non_snake_case)]
@@ -325,6 +383,7 @@ mod native {
                 web_view: &WKWebView,
                 _navigation: Option<&WKNavigation>,
             ) {
+                self.ivars().navigation_epoch.set(self.ivars().navigation_epoch.get().wrapping_add(1));
                 self.update_url(web_view);
             }
             #[unsafe(method(webView:didReceiveServerRedirectForProvisionalNavigation:))]
@@ -377,6 +436,7 @@ mod native {
                 _navigation: Option<&WKNavigation>,
             ) {
                 self.update_url(web_view);
+                self.inspect_epic_result(web_view);
             }
         }
         impl Delegate {
@@ -396,7 +456,7 @@ mod native {
                 _f: &WKFrameInfo,
                 h: &DynBlock<dyn Fn()>,
             ) {
-                unsafe { h.call(()) }
+                h.call(())
             }
             #[unsafe(method(webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:))]
             #[allow(non_snake_case)]
@@ -407,7 +467,7 @@ mod native {
                 _f: &WKFrameInfo,
                 h: &DynBlock<dyn Fn(objc2::runtime::Bool)>,
             ) {
-                unsafe { h.call((objc2::runtime::Bool::NO,)) }
+                h.call((objc2::runtime::Bool::NO,))
             }
             #[unsafe(method(webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:))]
             #[allow(non_snake_case)]
@@ -419,7 +479,7 @@ mod native {
                 _f: &WKFrameInfo,
                 h: &DynBlock<dyn Fn(*mut objc2::runtime::AnyObject)>,
             ) {
-                unsafe { h.call((core::ptr::null_mut(),)) }
+                h.call((core::ptr::null_mut(),))
             }
             #[unsafe(method(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:))]
             #[allow(non_snake_case)]
@@ -431,7 +491,7 @@ mod native {
                 _t: WKMediaCaptureType,
                 h: &DynBlock<dyn Fn(WKPermissionDecision)>,
             ) {
-                unsafe { h.call((WKPermissionDecision::Deny,)) }
+                h.call((WKPermissionDecision::Deny,))
             }
         }
     );
@@ -458,6 +518,8 @@ mod native {
                     },
                 ),
                 callback: GogCallbackParser::default(),
+                navigation_epoch: Cell::new(0),
+                epic_inspection_pending: Cell::new(false),
             });
             unsafe { objc2::msg_send![super(this), init] }
         }
@@ -505,6 +567,102 @@ mod native {
                 }
             }
         }
+        fn inspect_epic_result(&self, web_view: &WKWebView) {
+            if self.ivars().purpose.get() != Some(&BrowserPurpose::EpicAuth)
+                || self.ivars().epic_inspection_pending.get()
+                || self.ivars().window.borrow().is_none()
+            {
+                return;
+            }
+            let Some(before) = unsafe { web_view.URL() }
+                .and_then(|url| url.absoluteString())
+                .map(|url| url.to_string())
+            else {
+                return;
+            };
+            if !epic_result_endpoint(&before) {
+                return;
+            }
+            let Some(delegate) = DELEGATES.with(|items| {
+                items
+                    .borrow()
+                    .iter()
+                    .find(|item| std::ptr::eq(&***item, self))
+                    .cloned()
+            }) else {
+                return;
+            };
+            // SAFETY: WebKit supplied a live main-thread object. The retained
+            // reference keeps it alive until its copied completion block finishes.
+            let Some(web) =
+                (unsafe { Retained::retain(web_view as *const WKWebView as *mut WKWebView) })
+            else {
+                return;
+            };
+            let epoch = self.ivars().navigation_epoch.get();
+            self.ivars().epic_inspection_pending.set(true);
+            let completion = RcBlock::new(
+                move |object: *mut AnyObject, error: *mut objc2_foundation::NSError| {
+                    delegate.ivars().epic_inspection_pending.set(false);
+                    if !error.is_null()
+                        || delegate.ivars().window.borrow().is_none()
+                        || delegate.ivars().navigation_epoch.get() != epoch
+                    {
+                        return;
+                    }
+                    let current = unsafe { web.URL() }
+                        .and_then(|url| url.absoluteString())
+                        .map(|url| url.to_string());
+                    if current.as_deref() != Some(before.as_str()) {
+                        return;
+                    }
+                    // SAFETY: The result pointer is valid only for this callback.
+                    let Some(result) = (unsafe { object.as_ref() })
+                        .and_then(|value| value.downcast_ref::<NSString>())
+                    else {
+                        return;
+                    };
+                    #[derive(serde::Deserialize)]
+                    struct Envelope {
+                        href: String,
+                        text: Option<String>,
+                    }
+                    let raw = result.to_string();
+                    if raw.len() > 32768 {
+                        return;
+                    }
+                    let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
+                        return;
+                    };
+                    if envelope.href != before {
+                        return;
+                    }
+                    let Some(text) = envelope.text else {
+                        return;
+                    };
+                    match parse_epic_document(&before, &text) {
+                        Ok(result) => {
+                            delegate.finish(result);
+                            delegate.close();
+                        }
+                        Err(_) => {
+                            delegate.finish(MiniBrowserResult::Error(
+                                MiniBrowserError::InvalidCallback,
+                            ));
+                            delegate.close();
+                        }
+                    }
+                },
+            );
+            // User-approved, fixed read-only extractor. No network request, DOM
+            // mutation, user-supplied script, injected object or app/Node bridge.
+            let script = NSString::from_str(
+                "JSON.stringify({href:location.href,text:document.body && document.body.innerText.length <= 16384 ? document.body.innerText : null})",
+            );
+            unsafe {
+                web_view.evaluateJavaScript_completionHandler(&script, Some(&completion));
+            }
+        }
         fn close(&self) {
             // Closing synchronously invokes windowWillClose, which mutates this
             // RefCell. Release the borrow before calling AppKit.
@@ -548,12 +706,10 @@ mod native {
         }
         let config = unsafe { WKWebViewConfiguration::new(mtm) };
         let store = if request.purpose == BrowserPurpose::GameJolt {
-            let identifier = unsafe {
-                NSUUID::initWithUUIDString(
-                    NSUUID::alloc(),
-                    &objc2_foundation::NSString::from_str("5C6F493A-2D9E-4A25-BEB0-7DC86791553A"),
-                )
-            }
+            let identifier = NSUUID::initWithUUIDString(
+                NSUUID::alloc(),
+                &objc2_foundation::NSString::from_str("5C6F493A-2D9E-4A25-BEB0-7DC86791553A"),
+            )
             .ok_or_else(|| anyhow::anyhow!("GameJolt persistent store identifier is invalid"))?;
             unsafe { WKWebsiteDataStore::dataStoreForIdentifier(&identifier, mtm) }
         } else {
@@ -569,13 +725,15 @@ mod native {
             WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), NSRect::ZERO, &config)
         };
         let delegate = Delegate::new(mtm, &request, completion);
-        let header = unsafe { NSTextField::initWithFrame(NSTextField::alloc(mtm), NSRect::ZERO) };
-        unsafe {
-            header.setEditable(false);
-            header.setSelectable(true);
-            header.setDrawsBackground(true);
-            header.setBackgroundColor(Some(&NSColor::whiteColor()));
-        }
+        let header = NSTextField::initWithFrame(NSTextField::alloc(mtm), NSRect::ZERO);
+        header.setEditable(false);
+        header.setSelectable(true);
+        header.setDrawsBackground(true);
+        header.setBackgroundColor(Some(&NSColor::whiteColor()));
+        header.setContentCompressionResistancePriority_forOrientation(
+            250.0,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
         *delegate.ivars().header.borrow_mut() = Some(header.clone());
         *delegate.ivars().window.borrow_mut() = Some(window.clone());
         let navigation_delegate: &ProtocolObject<dyn WKNavigationDelegate> =
@@ -588,13 +746,11 @@ mod native {
             web.setUIDelegate(Some(ui_delegate));
             window.setDelegate(Some(window_delegate));
         }
-        let bar = unsafe { NSStackView::initWithFrame(NSStackView::alloc(mtm), NSRect::ZERO) };
-        unsafe {
-            bar.setOrientation(NSUserInterfaceLayoutOrientation::Horizontal);
-            bar.setAlignment(NSLayoutAttribute::Height);
-            bar.setDistribution(NSStackViewDistribution::Fill);
-            bar.setSpacing(5.);
-        }
+        let bar = NSStackView::initWithFrame(NSStackView::alloc(mtm), NSRect::ZERO);
+        bar.setOrientation(NSUserInterfaceLayoutOrientation::Horizontal);
+        bar.setAlignment(NSLayoutAttribute::Height);
+        bar.setDistribution(NSStackViewDistribution::Fill);
+        bar.setSpacing(5.);
         let buttons = [
             ("←", sel!(goBack)),
             ("→", sel!(goForward)),
@@ -615,29 +771,35 @@ mod native {
                     mtm,
                 )
             };
-            unsafe {
-                bar.addArrangedSubview(&b);
-            }
+            bar.addArrangedSubview(&b);
         }
-        unsafe {
-            bar.addArrangedSubview(&header);
-        }
-        let content = unsafe { NSStackView::initWithFrame(NSStackView::alloc(mtm), frame) };
-        unsafe {
-            content.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
-            content.setAlignment(NSLayoutAttribute::Width);
-            content.setDistribution(NSStackViewDistribution::Fill);
-            content.setSpacing(0.);
-            content.addArrangedSubview(&bar);
-            content.addArrangedSubview(&web);
-            window.setContentView(Some(&content));
-        }
+        bar.addArrangedSubview(&header);
+        let content = NSStackView::initWithFrame(NSStackView::alloc(mtm), frame);
+        content.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
+        content.setAlignment(NSLayoutAttribute::Width);
+        content.setDistribution(NSStackViewDistribution::Fill);
+        content.setSpacing(0.);
+        content.addArrangedSubview(&bar);
+        content.addArrangedSubview(&web);
+        window.setContentView(Some(&content));
+        // WebKit has no intrinsic content size. Explicit chrome height and full
+        // widths prevent an ambiguous stack from collapsing the web surface.
+        bar.heightAnchor()
+            .constraintEqualToConstant(48.0)
+            .setActive(true);
+        bar.widthAnchor()
+            .constraintEqualToAnchor(&content.widthAnchor())
+            .setActive(true);
+        web.widthAnchor()
+            .constraintEqualToAnchor(&content.widthAnchor())
+            .setActive(true);
+        web.heightAnchor()
+            .constraintGreaterThanOrEqualToConstant(200.0)
+            .setActive(true);
         // The native delegate is weakly held by WebKit; retain it on the main thread
         // for the lifetime of the process (small per-window object; close cancels callback).
         DELEGATES.with(|items| items.borrow_mut().push(delegate));
-        unsafe {
-            window.setTitle(&objc2_foundation::NSString::from_str(&request.title));
-        }
+        window.setTitle(&objc2_foundation::NSString::from_str(&request.title));
         window.setMinSize(NSSize::new(720., 540.));
         window.center();
         window.makeKeyAndOrderFront(None);
@@ -670,6 +832,61 @@ pub fn open_native(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn epic_extraction_is_scoped_to_exact_result_endpoint() {
+        let callback = "https://www.epicgames.com/id/api/redirect?clientId=fixture";
+        assert_eq!(
+            parse_epic_document(callback, r#"{"authorizationCode":"fixture-code"}"#),
+            Ok(MiniBrowserResult::EpicCode("fixture-code".into()))
+        );
+        for url in [
+            "http://www.epicgames.com/id/api/redirect",
+            "https://www.epicgames.com.evil.test/id/api/redirect",
+            "https://evil.epicgames.com/id/api/redirect",
+            "https://www.epicgames.com/id/login",
+            "https://accounts.google.com/id/api/redirect",
+            "https://user@www.epicgames.com/id/api/redirect",
+            "https://www.epicgames.com:444/id/api/redirect",
+            "https://www.epicgames.com/id/api/redirect#spoof",
+        ] {
+            assert_eq!(
+                parse_epic_document(url, r#"{"authorizationCode":"fixture-code"}"#),
+                Err(CallbackError::NotExactCallback),
+                "{url}"
+            );
+        }
+    }
+    #[test]
+    fn epic_document_rejects_ambiguous_invalid_and_oversized_results() {
+        let callback = "https://www.epicgames.com/id/api/redirect";
+        for body in [
+            r#"{}"#,
+            r#"{"authorizationCode":""}"#,
+            r#"{"authorizationCode":"bad code"}"#,
+            r#"{"authorizationCode":"first","code":"second"}"#,
+            r#"{"authorizationCode":"first","error":"denied"}"#,
+            r#"{"authorizationCode":"first","authorizationCode":"second"}"#,
+            r#"{"authorizationCode":123}"#,
+            "<html>not a result</html>",
+        ] {
+            assert!(parse_epic_document(callback, body).is_err());
+        }
+        assert!(parse_epic_document(callback, &"x".repeat(16385)).is_err());
+        assert_eq!(
+            parse_epic_document(callback, r#"{"error":"denied"}"#),
+            Ok(MiniBrowserResult::Error(MiniBrowserError::EpicDenied))
+        );
+    }
+    #[test]
+    fn typed_auth_results_redact_debug_output() {
+        for result in [
+            MiniBrowserResult::GogCode("fixture-secret".into()),
+            MiniBrowserResult::EpicCode("fixture-secret".into()),
+            MiniBrowserResult::Error(MiniBrowserError::Gog("fixture-secret".into())),
+        ] {
+            assert!(!format!("{result:?}").contains("fixture-secret"));
+        }
+    }
     #[test]
     fn purpose_allowlist_is_exact_secure_and_scoped() {
         assert!(validate_navigation(BrowserPurpose::GogAuth, "https://auth.gog.com/").is_ok());

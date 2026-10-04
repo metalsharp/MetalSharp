@@ -179,6 +179,9 @@ impl BackendHost {
     pub fn client(&self) -> BackendClient {
         self.client.clone()
     }
+    pub fn is_running(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
     pub fn stop(&mut self) {
         match self.child.try_wait() {
             Ok(None) => {}
@@ -308,9 +311,26 @@ mod tests {
                 .games
                 .is_empty()
         );
+        let first_pid = host.child.id();
+        assert!(host.is_running());
         host.stop();
-        assert!(host.child.try_wait().unwrap().is_some());
-        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
+        assert!(!host.is_running());
+        drop(host);
+        let mut restarted = BackendHost::start(&config).unwrap();
+        assert_ne!(first_pid, restarted.child.id());
+        assert_eq!(
+            restarted.client().status().unwrap().pid,
+            Some(restarted.child.id())
+        );
+        assert!(!restarted.client().setup_state().unwrap().completed);
+        // Simulate a crash, then prove RAII cleanup cannot kill/adopt a replacement
+        // listener that happens to occupy the old port.
+        restarted.child.kill().unwrap();
+        restarted.child.wait().unwrap();
+        assert!(!restarted.is_running());
+        let foreign = TcpListener::bind(("127.0.0.1", port)).unwrap();
+        drop(restarted);
+        assert!(foreign.local_addr().is_ok());
         std::fs::remove_dir_all(home).unwrap();
     }
     #[test]

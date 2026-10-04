@@ -18,32 +18,48 @@ struct Snapshot {
     ubisoft: LauncherStatus,
     progress: InstallProgress,
     games: Vec<Game>,
+    running: std::collections::HashSet<u64>,
 }
 impl Snapshot {
-    fn load(client: &BackendClient) -> Result<Self, BackendError> {
+    fn load_status(client: &BackendClient) -> Result<Self, BackendError> {
         let setup = client.setup_state()?;
         let steam = client.launcher_status(Launcher::Steam)?;
         let ubisoft = client.launcher_status(Launcher::Ubisoft)?;
         let progress = client.install_progress()?;
+        let result: Value = client.get("/game/running")?;
+        let running = result
+            .get("running")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|game| game.get("appid").and_then(Value::as_u64))
+            .collect();
+        Ok(Self {
+            setup,
+            steam,
+            ubisoft,
+            progress,
+            running,
+            games: Vec::new(),
+        })
+    }
+    fn load(client: &BackendClient) -> Result<Self, BackendError> {
+        let mut snapshot = Self::load_status(client)?;
         let mut games = client.library(Launcher::Steam)?.games;
         let mut ubisoft_games = client.library(Launcher::Ubisoft)?.games;
         for game in &mut ubisoft_games {
             game.source = "ubisoft".into();
         }
         games.extend(ubisoft_games);
-        Ok(Self {
-            setup,
-            steam,
-            ubisoft,
-            progress,
-            games,
-        })
+        snapshot.games = games;
+        Ok(snapshot)
     }
 }
 
 // Never derive Debug: variants may transiently carry secrets.
 enum Operation {
     Refresh,
+    Poll,
     InstallRuntime,
     InstallSteam,
     Launcher(Launcher, bool),
@@ -51,8 +67,12 @@ enum Operation {
     SaveGamesDbKey(String),
     Finish(String, String, String),
     Launch(Game),
+    InstallGame(u64),
+    SavePipeline(Game, String),
+    SaveExecutable(Game, String),
     Stop(u64),
     GogLogin,
+    EpicLogin,
     GogInitialize,
     EpicInstallSupport,
     GogCode(String),
@@ -61,7 +81,7 @@ enum Operation {
 impl Operation {
     fn run(self, client: &BackendClient) -> Result<Value, BackendError> {
         match self {
-            Self::Refresh => Ok(json!({})),
+            Self::Refresh | Self::Poll => Ok(json!({})),
             Self::InstallRuntime => client.install_runtime().map(|_| json!({})),
             Self::InstallSteam => client.install_steam().map(|_| json!({})),
             Self::Launcher(launcher, running) => client
@@ -73,8 +93,22 @@ impl Operation {
                 .complete_setup(&device, &steam, &gamesdb)
                 .map(|_| json!({})),
             Self::Launch(game) => client.launch_game(&game),
+            Self::InstallGame(appid) => client.install_game(appid).map(|_| json!({})),
+            Self::SavePipeline(game, pipeline) => {
+                client.save_pipeline(&game, &pipeline).map(|_| json!({}))
+            }
+            Self::SaveExecutable(game, path) => {
+                client.save_executable(&game, &path).map(|_| json!({}))
+            }
             Self::Stop(appid) => client.stop_game(appid).map(|_| json!({})),
             Self::GogLogin => client.get("/sharp-library/gog/status"),
+            Self::EpicLogin => {
+                let status: Value = client.get("/sharp-library/epic/status")?;
+                if status.get("toolAvailable").and_then(Value::as_bool) != Some(true) {
+                    client.post("/sharp-library/epic/install-tool", json!({}))?;
+                }
+                Ok(json!({"authUrl":"https://legendary.gl/epiclogin"}))
+            }
             Self::GogInitialize => client.post("/sharp-library/gog/initialize-prefix", json!({})),
             Self::EpicInstallSupport => client.post("/sharp-library/epic/install-tool", json!({})),
             Self::GogCode(code) => {
@@ -90,6 +124,7 @@ impl Operation {
 }
 
 pub struct ConnectedApp {
+    config: HostConfig,
     host: Option<BackendHost>,
     snapshot: Snapshot,
     busy: bool,
@@ -112,6 +147,7 @@ impl ConnectedApp {
             })
         };
         let view = Self {
+            config: config.clone(),
             validation: config.validation,
             host: None,
             snapshot: Snapshot::default(),
@@ -134,21 +170,26 @@ impl ConnectedApp {
                 }
                 cx.notify();
             });
+            let mut ticks=0u64;
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
+                ticks=ticks.wrapping_add(1);
                 if this.update(cx, |this, cx| {
                     if this.busy { return; }
                     if let Some(result) = this.oauth_rx.as_ref().and_then(|rx|rx.try_recv().ok()) {
                         this.oauth_rx = None; this.oauth_active = false;
                         match result {
                             crate::mini_browser::MiniBrowserResult::GogCode(code) => this.dispatch(Operation::GogCode(code),cx),
+                            crate::mini_browser::MiniBrowserResult::EpicCode(code) => this.dispatch(Operation::EpicCode(code),cx),
                             crate::mini_browser::MiniBrowserResult::Cancelled => this.notice = "Sign-in cancelled".into(),
                             _ => this.notice = "Sign-in failed".into(),
                         }
                         cx.notify();
                     }
                     if !this.busy && this.host.is_some() {
-                        this.dispatch(Operation::Refresh,cx);
+                        // Progress/status remain lightweight. The single-threaded C
+                        // server must not be monopolized by a full library scan every second.
+                        this.dispatch(if ticks%15==0 {Operation::Refresh}else{Operation::Poll},cx);
                     }
                 }).is_err() { break; }
             }
@@ -164,19 +205,89 @@ impl ConnectedApp {
         .detach();
         view
     }
+    fn choose_executable(&mut self, game: Game, cx: &mut Context<Self>) {
+        if self.busy || game.has_native_build || !game.installed {
+            return;
+        }
+        self.busy = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let file = rfd::AsyncFileDialog::new()
+                .add_filter("Windows executable", &["exe"])
+                .pick_file()
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                if let Some(file) = file {
+                    this.dispatch(
+                        Operation::SaveExecutable(game, file.path().to_string_lossy().into_owned()),
+                        cx,
+                    );
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+    fn restart_backend(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.busy = true;
+        self.notice = "Restarting owned C backend…".into();
+        let previous = self.host.take();
+        let config = self.config.clone();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    drop(previous); // graceful owned-child shutdown, never a port/PID search
+                    BackendHost::start(&config)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.busy = false;
+                match result {
+                    Ok(host) => {
+                        this.host = Some(host);
+                        this.dispatch(Operation::Refresh, cx);
+                    }
+                    Err(_) => {
+                        this.notice =
+                            "Backend restart failed; check resources and port ownership".into()
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
     fn dispatch(&mut self, operation: Operation, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
-        let Some(host) = &self.host else {
+        let Some(host) = self.host.as_mut() else {
             self.notice = "Backend unavailable; restart connected candidate".into();
             cx.notify();
             return;
         };
+        if !host.is_running() {
+            self.host = None;
+            self.notice =
+                "Owned backend exited; restart it explicitly before sending operations".into();
+            cx.notify();
+            return;
+        }
         let client = host.client();
-        let refresh = matches!(operation, Operation::Refresh);
-        let gog_login = matches!(operation, Operation::GogLogin);
-        if gog_login && self.oauth_active {
+        let poll = matches!(operation, Operation::Poll);
+        let refresh = poll || matches!(operation, Operation::Refresh);
+        let login_purpose = match &operation {
+            Operation::GogLogin => Some(crate::mini_browser::BrowserPurpose::GogAuth),
+            Operation::EpicLogin => Some(crate::mini_browser::BrowserPurpose::EpicAuth),
+            _ => None,
+        };
+        if login_purpose.is_some() && self.oauth_active {
             return;
         }
         match &operation {
@@ -199,7 +310,7 @@ impl ConnectedApp {
         cx.spawn(async move |this,cx| {
             let result = cx.background_executor().spawn(async move {
                 let response = operation.run(&client)?;
-                let snapshot = Snapshot::load(&client);
+                let snapshot = if poll {Snapshot::load_status(&client)}else{Snapshot::load(&client)};
                 Ok::<_,BackendError>((response,snapshot))
             }).await;
             let _ = this.update(cx, |this,cx| {
@@ -208,7 +319,8 @@ impl ConnectedApp {
                     Ok((response,snapshot)) => {
                         let snapshot_failed = snapshot.is_err();
                         match snapshot {
-                            Ok(snapshot) => {
+                            Ok(mut snapshot) => {
+                                if poll {snapshot.games=std::mem::take(&mut this.snapshot.games);}
                                 let device = snapshot.setup.device_name.clone();
                                 this.snapshot = snapshot;
                                 if this.device.read(cx).content.is_empty() && !device.is_empty() { this.device.update(cx,|input,cx|{input.content=device.into();cx.notify();}); }
@@ -218,8 +330,8 @@ impl ConnectedApp {
                         if !refresh && !snapshot_failed {
                             this.notice = if response.get("sync").and_then(|s|s.get("steam_id_detected")).and_then(Value::as_bool)==Some(false) { "Key saved; sign in to Steam before ownership sync can populate the library".into() } else { "Operation accepted; status reflects the backend, not a simulation".into() };
                         }
-                        if gog_login {
-                            if let Some(url) = response.get("authUrl").and_then(Value::as_str) { this.open_gog(url,cx); } else { this.notice = "GOG status did not provide an authorization URL".into(); }
+                        if let Some(purpose)=login_purpose {
+                            if let Some(url) = response.get("authUrl").and_then(Value::as_str) { this.open_auth(purpose,url,cx); } else { this.notice = "Provider status did not provide an authorization URL".into(); }
                         }
                     }
                     Err(error) => this.notice = error.to_string(),
@@ -228,11 +340,16 @@ impl ConnectedApp {
             });
         }).detach();
     }
-    fn open_gog(&mut self, url: &str, cx: &mut Context<Self>) {
+    fn open_auth(
+        &mut self,
+        purpose: crate::mini_browser::BrowserPurpose,
+        url: &str,
+        cx: &mut Context<Self>,
+    ) {
         #[cfg(target_os = "macos")]
         {
-            use crate::mini_browser::{BrowserPurpose, MiniBrowserRequest, open_native};
-            let request = MiniBrowserRequest::new(BrowserPurpose::GogAuth, url, "Sign in to GOG");
+            use crate::mini_browser::{MiniBrowserRequest, open_native};
+            let request = MiniBrowserRequest::new(purpose, url, "MetalSharp account sign-in");
             if let (Ok(request), Some(mtm)) = (request, objc2::MainThreadMarker::new()) {
                 let (tx, rx) = std::sync::mpsc::channel();
                 match open_native(
@@ -245,12 +362,12 @@ impl ConnectedApp {
                     Ok(()) => {
                         self.oauth_rx = Some(rx);
                         self.oauth_active = true;
-                        self.notice = "Complete sign-in in the native GOG window".into();
+                        self.notice = "Complete sign-in in the native account window".into();
                     }
-                    Err(_) => self.notice = "Could not open native GOG sign-in".into(),
+                    Err(_) => self.notice = "Could not open native account sign-in".into(),
                 }
             } else {
-                self.notice = "GOG authorization URL rejected".into();
+                self.notice = "Provider authorization URL rejected".into();
             }
         }
         cx.notify();
@@ -324,7 +441,8 @@ impl Render for ConnectedApp {
         root=root.child(div().text_size(px(22.)).child("MetalSharp — connected candidate"))
             .child(div().text_color(rgb(0xc2bda9)).child(if self.validation {"Isolated data home. Install/start/launch buttons perform real operations when clicked; they are not simulations."} else {"Production data mode explicitly enabled. Operations use the existing C backend and ~/.metalsharp."}))
             .child(div().child(self.notice.clone()))
-            .child(Self::button("refresh","Refresh status",enabled).on_click(cx.listener(|this,_,_,cx|this.dispatch(Operation::Refresh,cx))));
+            .child(Self::button("refresh","Refresh status",enabled).on_click(cx.listener(|this,_,_,cx|this.dispatch(Operation::Refresh,cx))))
+            .child(Self::button("backend-restart","Restart owned backend",!self.busy).on_click(cx.listener(|this,_,_,cx|this.restart_backend(cx))));
         root=root.child(div().text_size(px(18.)).child(if self.snapshot.setup.completed {"Setup complete — repair / reinstall"}else{"First-run setup"}))
             .child(div().flex().gap(px(12.))
                 .child(Self::button("runtime-install","Install runtime + support assets",enabled).on_click(cx.listener(|this,_,_,cx|this.dispatch(Operation::InstallRuntime,cx))))
@@ -349,7 +467,8 @@ impl Render for ConnectedApp {
             .child(Self::button("gog-initialize","Initialize GOG support",enabled).on_click(cx.listener(|this,_,_,cx|this.dispatch(Operation::GogInitialize,cx))))
             .child(Self::button("epic-install-support","Install Epic support",enabled).on_click(cx.listener(|this,_,_,cx|this.dispatch(Operation::EpicInstallSupport,cx))))
             .child(Self::button("gog-login","Sign in to GOG (native browser)",enabled&&!self.oauth_active).on_click(cx.listener(|this,_,_,cx|this.dispatch(Operation::GogLogin,cx))))
-            .child(div().child("Epic automatic callback is not ready. Authorize in the provider flow and submit its one-time code manually; no page-script extraction is used."))
+            .child(Self::button("epic-login","Sign in to Epic (native browser)",enabled&&!self.oauth_active).on_click(cx.listener(|this,_,_,cx|this.dispatch(Operation::EpicLogin,cx))))
+            .child(div().child("Epic sign-in reads only the approved JSON result endpoint. Manual one-time-code submission remains a fallback."))
             .child(Self::field(&self.epic_code))
             .child(Self::button("epic-code","Submit Epic authorization code",enabled).on_click(cx.listener(|this,_,_,cx|{let code=this.epic_code.read(cx).content.to_string();if !code.trim().is_empty(){this.dispatch(Operation::EpicCode(code),cx);}})))
             .child(div().text_size(px(18.)).child(format!("Steam / Ubisoft library — {} games",self.snapshot.games.len())));
@@ -359,27 +478,78 @@ impl Render for ConnectedApp {
         for (index, game) in self.snapshot.games.iter().enumerate() {
             let launch = game.clone();
             let appid = game.appid;
+            let pipeline_game = game.clone();
+            let executable_game = game.clone();
+            let choices = if game.source == "ubisoft" {
+                &["d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9"][..]
+            } else {
+                &["d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9", "fna_arm64"][..]
+            };
+            let effective = if game.preferred_pipeline.is_empty() {
+                &game.launch_method
+            } else {
+                &game.preferred_pipeline
+            };
+            let next = choices
+                [(choices.iter().position(|id| *id == effective).unwrap_or(0) + 1) % choices.len()]
+            .to_owned();
             root = root.child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .child(div().flex_1().child(format!(
+                    .flex_wrap()
+                    .child(div().flex_1().min_w(px(140.)).child(format!(
                         "{} · {}",
                         game.name,
-                        if game.installed {
+                        if self.snapshot.running.contains(&game.appid) {
+                            "Running"
+                        } else if game.installed {
                             "Installed"
                         } else {
                             "Not installed"
                         }
                     )))
                     .child(
-                        Self::button(("game-launch", index), "Launch", enabled && game.installed)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if launch.installed {
-                                    this.dispatch(Operation::Launch(launch.clone()), cx);
-                                }
-                            })),
+                        Self::button(
+                            ("game-launch", index),
+                            if game.installed {
+                                "Launch"
+                            } else {
+                                "Install via Steam"
+                            },
+                            enabled,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if launch.installed {
+                                this.dispatch(Operation::Launch(launch.clone()), cx);
+                            } else if launch.source != "ubisoft" {
+                                this.dispatch(Operation::InstallGame(launch.appid), cx);
+                            }
+                        })),
+                    )
+                    .child(
+                        Self::button(
+                            ("game-pipeline", index),
+                            format!("Pipeline: {} → {}", effective, next),
+                            enabled && !game.has_native_build,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.dispatch(
+                                Operation::SavePipeline(pipeline_game.clone(), next.clone()),
+                                cx,
+                            )
+                        })),
+                    )
+                    .child(
+                        Self::button(
+                            ("game-executable", index),
+                            "Choose EXE",
+                            enabled && game.installed && !game.has_native_build,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.choose_executable(executable_game.clone(), cx)
+                        })),
                     )
                     .child(
                         Self::button(("game-stop", index), "Stop", enabled).on_click(cx.listener(
