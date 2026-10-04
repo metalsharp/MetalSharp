@@ -77,8 +77,14 @@ impl gpui::AssetSource for PreviewIcons {
 
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+    let browser_fixture = matches!(args.as_slice(),[mode] if mode=="--browser-fixture");
+    #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+    let browser_steam_test = matches!(args.as_slice(),[mode] if mode=="--browser-steam-test");
     let connected = match args.as_slice() {
         [] => None,
+        #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+        [mode] if mode == "--browser-fixture" || mode == "--browser-steam-test" => None,
         [mode] if mode == "--connected-validation" => {
             Some(backend_host::HostConfig::from_environment(true)?)
         }
@@ -100,6 +106,32 @@ fn main() -> Result<()> {
                 ])
                 .expect("failed to register MetalSharp setup fonts");
 
+            #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+            if browser_fixture {
+                mini_browser::open_offline_fixture(
+                    objc2::MainThreadMarker::new().expect("AppKit main thread required"),
+                )
+                .expect("failed to open offline browser fixture");
+                println!("OFFLINE_NATIVE_BROWSER_OPENED");
+                cx.activate(true);
+                return;
+            }
+            #[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+            if browser_steam_test {
+                mini_browser::open_native(
+                    objc2::MainThreadMarker::new().expect("AppKit main thread required"),
+                    mini_browser::MiniBrowserRequest::new(
+                        mini_browser::BrowserPurpose::SteamStore,
+                        "https://steampowered.com",
+                        "MetalSharp — Steam browser test",
+                    )
+                    .expect("Steam URL policy"),
+                    Box::new(|_| {}),
+                )
+                .expect("failed to open native Steam browser");
+                cx.activate(true);
+                return;
+            }
             let bounds = Bounds::centered(None, size(px(1360.0), px(860.0)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),

@@ -5,6 +5,10 @@ edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
 description = "Native GPUI desktop app prototype for MetalSharp"
 
+[features]
+# Explicit local acceptance harness; never enabled in packaging/default builds.
+browser-fixture = []
+
 [dependencies]
 anyhow = "1"
 gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
