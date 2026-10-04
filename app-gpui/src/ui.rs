@@ -598,12 +598,7 @@ impl Render for MetalSharpApp {
                     .border_color(rgb(0x292b2d))
                     .bg(rgb(PANEL_BG))
                     .shadow_lg()
-                    .child(render_visual(
-                        asset,
-                        self.copy.steps.clone(),
-                        self.step,
-                        self.connected.is_none(),
-                    ))
+                    .child(render_visual(asset, self.copy.steps.clone(), self.step))
                     .child(self.render_setup_page(cx)),
             )
     }
@@ -613,7 +608,6 @@ fn render_visual(
     asset: impl Fn(&str) -> PathBuf,
     steps: Vec<String>,
     current_step: usize,
-    show_sample_games: bool,
 ) -> gpui::Div {
     let cover = |name: &str| {
         img(asset(name))
@@ -623,7 +617,7 @@ fn render_visual(
             .rounded(px(6.0))
     };
 
-    let mut visual = div()
+    div()
         .relative()
         .w(relative(0.52))
         .flex_none()
@@ -658,9 +652,9 @@ fn render_visual(
                         .h(px(330.0))
                         .object_fit(ObjectFit::Contain),
                 ),
-        );
-    if show_sample_games {
-        visual = visual.child(
+        )
+        // These covers are decorative setup artwork, not installed-library data.
+        .child(
             div()
                 .relative()
                 .mt_auto()
@@ -679,9 +673,8 @@ fn render_visual(
                 )
                 .child(cover("hades.jpg").mb(px(5.0)))
                 .child(cover("stray.jpg").mt(px(8.0))),
-        );
-    }
-    visual.child(render_steps(steps, current_step))
+        )
+        .child(render_steps(steps, current_step))
 }
 
 fn render_steps(labels: Vec<String>, current_step: usize) -> gpui::Div {
@@ -3098,15 +3091,6 @@ impl MetalSharpApp {
                     .overflow_y_scroll()
                     .child(page_body),
             )
-            .child(if let Some(session)=&self.connected {
-                let state=session.read(cx).setup_view();
-                div().mt(px(12.)).text_size(px(11.)).text_color(rgb(MUTED))
-                    .child("Connected setup: install buttons perform real operations; no sample library will be shown.")
-                    .child(div().id("setup-connection-notice").max_h(px(60.)).overflow_y_scroll().child(state.notice))
-                    .child(div().id("setup-backend-retry").mt(px(6.)).cursor_pointer().child("Restart owned backend / retry connection").on_click(cx.listener(|this,_,_,cx|{
-                        if let Some(session)=this.connected.clone(){session.update(cx,|session,cx|session.setup_retry_backend(cx));}
-                    })))
-            }else{div()})
             .child(page_actions)
             .child(language_picker)
     }
@@ -3117,6 +3101,10 @@ impl MetalSharpApp {
         let runtime_progress = self.runtime_progress;
         let runtime_started = self.runtime_started;
         let install_log_open = self.install_log_open;
+        let setup_ready = self.connected.as_ref().is_none_or(|session| {
+            let state = session.read(cx).setup_view();
+            state.install_ready && state.action_available
+        });
         let steam_installed = self.steam_installed;
         let steam_installing = self.steam_installing;
         let runtime_label = if runtime_ready {
@@ -3192,6 +3180,7 @@ impl MetalSharpApp {
                                     runtime_installing,
                                     runtime_ready,
                                     runtime_progress,
+                                    setup_ready && !runtime_installing && !runtime_ready,
                                 )
                                 .on_click(cx.listener(
                                     |this, _, _, cx| {
@@ -3243,7 +3232,10 @@ impl MetalSharpApp {
                                     "install-steam",
                                     steam_label,
                                     steam_installed,
-                                    !runtime_ready || steam_installing || steam_installed,
+                                    !setup_ready
+                                        || !runtime_ready
+                                        || steam_installing
+                                        || steam_installed,
                                 )
                                 .on_click(cx.listener(
                                     |this, _, _, cx| {
@@ -3528,6 +3520,7 @@ fn render_install_button(
     installing: bool,
     complete: bool,
     progress: usize,
+    enabled: bool,
 ) -> gpui::Stateful<gpui::Div> {
     let mut button = div()
         .id(id)
@@ -3541,9 +3534,13 @@ fn render_install_button(
         .overflow_hidden()
         .rounded(px(10.0))
         .bg(rgb(if complete { 0x3d9a58 } else { 0xefe7d6 }))
+        .opacity(if enabled || complete { 1.0 } else { 0.45 })
         .text_size(px(14.0))
         .font_weight(FontWeight::BOLD)
         .text_color(rgb(if complete { 0xffffff } else { 0x14161a }));
+    if enabled {
+        button = button.cursor_pointer();
+    }
     if installing && progress > 0 {
         button = button.child(
             div()
@@ -3568,7 +3565,7 @@ fn render_simple_install_button(
     complete: bool,
     disabled: bool,
 ) -> gpui::Stateful<gpui::Div> {
-    div()
+    let mut button = div()
         .id(id)
         .w_full()
         .min_w_0()
@@ -3581,12 +3578,15 @@ fn render_simple_install_button(
         .opacity(if disabled && !complete { 0.4 } else { 1.0 })
         .text_size(px(14.0))
         .font_weight(FontWeight::BOLD)
-        .text_color(rgb(if complete { 0xffffff } else { 0x14161a }))
-        .child(if complete {
-            format!("✓  {label}")
-        } else {
-            label
-        })
+        .text_color(rgb(if complete { 0xffffff } else { 0x14161a }));
+    if !disabled && !complete {
+        button = button.cursor_pointer();
+    }
+    button.child(if complete {
+        format!("✓  {label}")
+    } else {
+        label
+    })
 }
 
 fn render_feature(

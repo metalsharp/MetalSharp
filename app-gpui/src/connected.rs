@@ -27,6 +27,15 @@ struct Snapshot {
     running: std::collections::HashSet<u64>,
 }
 impl Snapshot {
+    fn load_setup(client: &BackendClient) -> Result<Self, BackendError> {
+        Ok(Self {
+            setup: client.setup_state()?,
+            steam: client.launcher_status(Launcher::Steam)?,
+            progress: client.install_progress()?,
+            dependencies: client.setup_dependencies()?,
+            ..Default::default()
+        })
+    }
     fn load_status(client: &BackendClient) -> Result<Self, BackendError> {
         let setup = client.setup_state()?;
         let steam = client.launcher_status(Launcher::Steam)?;
@@ -391,6 +400,8 @@ impl Operation {
 
 pub(crate) struct SetupViewState {
     pub ready: bool,
+    pub install_ready: bool,
+    pub action_available: bool,
     pub completed: bool,
     pub runtime_ready: bool,
     pub runtime_installing: bool,
@@ -398,7 +409,6 @@ pub(crate) struct SetupViewState {
     pub percent: usize,
     pub steam_installed: bool,
     pub steam_installing: bool,
-    pub notice: String,
 }
 
 pub(crate) enum ConnectedEvent {
@@ -415,6 +425,8 @@ pub struct ConnectedApp {
     host: Option<BackendHost>,
     snapshot: Snapshot,
     busy: bool,
+    busy_is_poll: bool,
+    pending_setup_action: Option<PendingSetupAction>,
     notice: String,
     validation: bool,
     device: gpui::Entity<SearchInput>,
@@ -435,6 +447,26 @@ pub struct ConnectedApp {
     process_panel: gpui::Entity<crate::process_manager_connected::ProcessManagerView>,
     library_panel: gpui::Entity<crate::connected_library::ConnectedLibraryView>,
     sharp_panel: gpui::Entity<crate::sharp_connected::SharpConnectedView>,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PendingSetupAction {
+    InstallRuntime,
+    InstallSteam,
+}
+fn queue_setup_action(
+    busy: bool,
+    busy_is_poll: bool,
+    pending: Option<PendingSetupAction>,
+    operation: &Operation,
+) -> Option<PendingSetupAction> {
+    if !busy || !busy_is_poll || pending.is_some() {
+        return pending;
+    }
+    match operation {
+        Operation::InstallRuntime => Some(PendingSetupAction::InstallRuntime),
+        Operation::InstallSteam => Some(PendingSetupAction::InstallSteam),
+        _ => None,
+    }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConnectedPanel {
@@ -503,6 +535,8 @@ impl ConnectedApp {
             host: None,
             snapshot: Snapshot::default(),
             busy: true,
+            busy_is_poll: false,
+            pending_setup_action: None,
             notice: "Starting owned C backend…".into(),
             device: input("Device name", false, cx),
             steam_key: input("Steam Web API key (optional)", true, cx),
@@ -593,7 +627,7 @@ impl ConnectedApp {
                     Ok(host) => {
                         #[cfg(feature="browser-fixture")]
                         println!("GPUI_OWNED_BACKEND_READY {}",host.pid());
-                        this.host = Some(host); this.notice="Owned C backend ready".into();this.dispatch(Operation::Refresh,cx);
+                        this.host = Some(host); this.notice.clear();this.dispatch(Operation::Poll,cx);
                     }
                     Err(error) => this.notice = error,
                 }
@@ -836,6 +870,9 @@ impl ConnectedApp {
         let migration = self.snapshot.setup.runtime_migration_required;
         SetupViewState {
             ready: self.has_snapshot && self.host.is_some() && !self.busy && !migration,
+            install_ready: self.has_snapshot && self.host.is_some() && !migration,
+            action_available: !self.busy
+                || (self.busy_is_poll && self.pending_setup_action.is_none()),
             completed: self.has_snapshot && self.snapshot.setup.completed,
             runtime_ready: !migration
                 && (self.snapshot.dependencies.all_installed
@@ -849,28 +886,6 @@ impl ConnectedApp {
             percent: self.snapshot.progress.percent(),
             steam_installed: self.snapshot.steam.installed,
             steam_installing: self.snapshot.steam.installing,
-            notice: if migration {
-                "Runtime migration required; native migration acceptance is still pending. No repair is performed automatically.".into()
-            } else if let Some(error) = self
-                .snapshot
-                .progress
-                .error
-                .as_deref()
-                .filter(|error| !error.is_empty())
-            {
-                format!(
-                    "Installer error: {}",
-                    crate::diagnostics::redact_line(error)
-                )
-            } else if !self.snapshot.progress.current.is_empty() {
-                format!(
-                    "{} — {}",
-                    self.notice,
-                    crate::diagnostics::redact_line(&self.snapshot.progress.current)
-                )
-            } else {
-                self.notice.clone()
-            },
         }
     }
     pub(crate) fn setup_key_help(&mut self, gamesdb: bool, cx: &mut Context<Self>) {
@@ -897,13 +912,17 @@ impl ConnectedApp {
     }
     pub(crate) fn setup_install_runtime(&mut self, cx: &mut Context<Self>) {
         let state = self.setup_view();
-        if state.ready && !state.runtime_ready && !state.runtime_installing {
+        if state.install_ready && !state.runtime_ready && !state.runtime_installing {
             self.dispatch(Operation::InstallRuntime, cx);
         }
     }
     pub(crate) fn setup_install_steam(&mut self, cx: &mut Context<Self>) {
         let state = self.setup_view();
-        if state.ready && state.runtime_ready && !state.steam_installing && !state.steam_installed {
+        if state.install_ready
+            && state.runtime_ready
+            && !state.steam_installing
+            && !state.steam_installed
+        {
             self.dispatch(Operation::InstallSteam, cx);
         }
     }
@@ -917,9 +936,6 @@ impl ConnectedApp {
         let steam = self.steam_key.read(cx).content.to_string();
         let gamesdb = self.gamesdb_key.read(cx).content.to_string();
         self.dispatch(Operation::Finish(device, steam, gamesdb), cx);
-    }
-    pub(crate) fn setup_retry_backend(&mut self, cx: &mut Context<Self>) {
-        self.restart_backend(cx);
     }
     fn choose_executable(&mut self, game: Game, cx: &mut Context<Self>) {
         if self.busy || game.has_native_build || !game.installed {
@@ -984,7 +1000,7 @@ impl ConnectedApp {
                 match result {
                     Ok(host) => {
                         this.host = Some(host);
-                        this.notice = "Owned C backend ready".into();
+                        this.notice.clear();
                         this.dispatch(Operation::Refresh, cx);
                     }
                     Err(_) => {
@@ -1006,13 +1022,23 @@ impl ConnectedApp {
     }
     fn dispatch(&mut self, operation: Operation, cx: &mut Context<Self>) {
         if self.busy {
+            let pending = queue_setup_action(
+                self.busy,
+                self.busy_is_poll,
+                self.pending_setup_action,
+                &operation,
+            );
+            if pending != self.pending_setup_action {
+                self.pending_setup_action = pending;
+                cx.notify();
+            }
             return;
         }
         let Some(host) = self.host.as_mut() else {
             self.streaming_status = None;
             self.streaming_watch
                 .failed(self.streaming_watch.generation());
-            self.notice = "Backend unavailable; restart connected candidate".into();
+            self.notice = "Owned backend unavailable".into();
             cx.notify();
             return;
         };
@@ -1028,6 +1054,7 @@ impl ConnectedApp {
         }
         let client = host.client();
         let poll = matches!(operation, Operation::Poll);
+        let setup_bootstrap = poll && !self.has_snapshot;
         let settings_read = matches!(operation, Operation::ReadSettings);
         let recovery_operation = matches!(operation, Operation::Recovery(..));
         let sharp_operation = matches!(operation, Operation::Sharp(_));
@@ -1094,6 +1121,7 @@ impl ConnectedApp {
             _ => {}
         }
         self.busy = true;
+        self.busy_is_poll = poll;
         if sharp_operation {
             self.sharp_panel
                 .update(cx, |panel, cx| panel.set_busy(true, cx));
@@ -1116,12 +1144,13 @@ impl ConnectedApp {
         cx.spawn(async move |this,cx| {
             let result = cx.background_executor().spawn(async move {
                 let response = operation.run(&client)?;
-                let snapshot = if streaming||connected_logs||settings_read||recovery_operation||sharp_operation||process_operation||library_operation {None}else{Some(if poll || logs || settings_operation {Snapshot::load_status(&client)}else{Snapshot::load(&client)})};
+                let snapshot = if streaming||connected_logs||settings_read||recovery_operation||sharp_operation||process_operation||library_operation {None}else if setup_bootstrap {Some(Snapshot::load_setup(&client))} else {Some(if poll || logs || settings_operation {Snapshot::load_status(&client)}else{Snapshot::load(&client)})};
                 let stream_status=if streaming {Some(client.streaming_status())}else{None};
                 Ok::<_,BackendError>((response,snapshot,stream_status))
             }).await;
             let _ = this.update(cx, |this,cx| {
                 this.busy = false;
+                this.busy_is_poll = false;
                 if streaming&&!this.streaming_watch.accepts(stream_generation) {cx.notify();return;}
                 let mut auto_launch=false;
                 match result {
@@ -1129,7 +1158,7 @@ impl ConnectedApp {
                         let snapshot_failed = snapshot.as_ref().is_some_and(Result::is_err)||stream_status.as_ref().is_some_and(Result::is_err);
                         match snapshot {
                             Some(Ok(mut snapshot)) => {
-                                if poll || logs {snapshot.games=std::mem::take(&mut this.snapshot.games);snapshot.dependencies=this.snapshot.dependencies.clone();}
+                                if poll || logs {snapshot.games=std::mem::take(&mut this.snapshot.games);if !setup_bootstrap{snapshot.dependencies=this.snapshot.dependencies.clone();}}
                                 this.has_snapshot=true;
                                 let device = snapshot.setup.device_name.clone();
                                 this.snapshot = snapshot;
@@ -1139,7 +1168,7 @@ impl ConnectedApp {
                                 this.settings_panel.update(cx,|panel,cx|panel.apply_preferences(preferences,&device,cx));
                                 if this.device.read(cx).content.is_empty() && !device.is_empty() { this.device.update(cx,|input,cx|{input.content=device.into();cx.notify();}); }
                             }
-                            Some(Err(error)) => this.notice = if refresh {error.to_string()} else {"Operation accepted, but refreshed status is unavailable; do not repeat the operation automatically".into()},
+                            Some(Err(error)) => this.notice = if refresh || poll {error.to_string()} else {"Operation accepted, but refreshed status is unavailable; do not repeat the operation automatically".into()},
                             None=>{},
                         }
                         if stream_install {this.streaming_watch.accepted_install(stream_generation);}
@@ -1153,7 +1182,7 @@ impl ConnectedApp {
                         if recovery_operation {match serde_json::from_value::<(crate::migration_connected::MigrationSession,Option<crate::updater_connected::UpdateSnapshot>,String)>(response.clone()){Ok((migration,update,notice))=>{this.recovery_migration=migration;this.recovery_update=update;if !notice.is_empty(){this.notice=notice;}this.update_recovery_panel(cx);},Err(_)=>this.notice="Recovery response could not be decoded".into()}}
                         if settings_read {match serde_json::from_value::<crate::settings_connected::SettingsSnapshot>(response.clone()){Ok(mut snapshot)=>{snapshot.device_name=this.snapshot.setup.device_name.clone();this.settings_panel.update(cx,|panel,cx|{panel.apply_snapshot(snapshot,cx);panel.host_operation_finished(Ok("Settings loaded from the owned backend".into()),cx);});},Err(_)=>this.settings_panel.update(cx,|panel,cx|panel.host_operation_finished(Err("Settings response could not be decoded".into()),cx))}}
                         if settings_operation {let accepted=response.get("ok").and_then(Value::as_bool)!=Some(false);this.settings_panel.update(cx,|panel,cx|{panel.host_operation_finished(if accepted{Ok("Settings operation completed".into())}else{Err(response.get("error").and_then(Value::as_str).unwrap_or("Settings operation failed").to_owned())},cx);if accepted{if let Some((steam,configured))=settings_key_update{panel.mark_configured_key(steam,configured,cx);}}});}
-                        if !refresh && !snapshot_failed {
+                        if !refresh && !poll && !snapshot_failed {
                             this.notice = if response.get("sync").and_then(|s|s.get("steam_id_detected")).and_then(Value::as_bool)==Some(false) { "Key saved; sign in to Steam before ownership sync can populate the library".into() } else { "Operation accepted; status reflects the backend, not a simulation".into() };
                         }
                         if let Some(purpose)=login_purpose {
@@ -1170,6 +1199,12 @@ impl ConnectedApp {
                 }
                 if streaming {this.streaming_watch.defer_poll(std::time::Instant::now(),this.streaming_status.as_ref().is_some_and(|status|status.installing));}
                 if auto_launch {this.streaming_command(crate::streaming::StreamingAction::Start,cx);}
+                if let Some(pending) = this.pending_setup_action.take() {
+                    match pending {
+                        PendingSetupAction::InstallRuntime => this.setup_install_runtime(cx),
+                        PendingSetupAction::InstallSteam => this.setup_install_steam(cx),
+                    }
+                }
                 cx.notify();
             });
         }).detach();
@@ -1254,6 +1289,40 @@ impl ConnectedApp {
             .text_color(rgb(if enabled { 0xf2efe6 } else { 0x777d7b }))
             .cursor_pointer()
             .child(label.into())
+    }
+}
+
+#[cfg(test)]
+mod setup_install_dispatch_tests {
+    use super::{Operation, PendingSetupAction, queue_setup_action};
+
+    #[test]
+    fn setup_install_actions_queue_behind_status_polls() {
+        assert_eq!(
+            queue_setup_action(true, true, None, &Operation::InstallRuntime),
+            Some(PendingSetupAction::InstallRuntime)
+        );
+        assert_eq!(
+            queue_setup_action(true, true, None, &Operation::InstallSteam),
+            Some(PendingSetupAction::InstallSteam)
+        );
+    }
+
+    #[test]
+    fn setup_install_actions_do_not_queue_behind_other_work_or_duplicate() {
+        assert_eq!(
+            queue_setup_action(true, false, None, &Operation::InstallRuntime),
+            None
+        );
+        assert_eq!(
+            queue_setup_action(
+                true,
+                true,
+                Some(PendingSetupAction::InstallSteam),
+                &Operation::InstallRuntime
+            ),
+            Some(PendingSetupAction::InstallSteam)
+        );
     }
 }
 impl Render for ConnectedApp {
