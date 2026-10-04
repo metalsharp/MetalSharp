@@ -1,5 +1,5 @@
 # GPUI Desktop Port Roadmap
-**Status:** In progress — Phase 1 local GPUI spike; product workflow details below are confirmed against the current Electron/Vue/C implementation.
+**Status:** In progress — GPUI visual preview is validated; production capability replacement has not yet started.
 **Scope:** Full replacement of the Electron desktop app with a native GPUI app. The current app remains the production app until the new app passes the local-machine acceptance gate.
 **Updated:** 2026-10-03
 
@@ -9,7 +9,9 @@ Replace MetalSharp's Electron/Vue desktop shell with a Rust/GPUI native applicat
 
 This is a full desktop-app port, not a rewrite of the graphics engine or C backend. The initial architecture should keep `app/src-c` as the backend process and preserve its HTTP API; keep the existing engine, runtime bundles, launch behavior, and user-data layout unless a concrete blocker requires a separately reviewed change. The Electron app remains buildable and usable as the fallback throughout development and local validation.
 
-**Hard release boundary:** the GPUI app must be built, installed, exercised, and accepted on Avery's current machine before any GPUI release artifact is published, uploaded, or offered to users. Passing CI, compiling on another runner, or producing a signed DMG is not a substitute. Do not change the release workflow to publish the GPUI app before the local gate is recorded and explicitly approved.
+**Hard release boundary:** the GPUI app must be built, installed, exercised, and accepted on the target machine before any GPUI release artifact is published or offered to users. Passing CI, compiling on another runner, or producing a signed DMG is not a substitute.
+
+**Current PR #703 scope decision (2026-10-03):** at the user's explicit direction, the GPUI replacement and removal of the Electron desktop application are to be delivered in this same umbrella PR, not left as a later Electron-removal PR. Keep #703 in draft while production-equivalent GPUI host/browser/backend capabilities are implemented and verified. Remove Electron app code/dependencies only as the final migration change, after GPUI owns every required capability and passes the target-machine/local acceptance gates. Do not delete Electron early or allow this preview-only state to merge. This changes the implementation/PR boundary, not the requirement for local acceptance and an explicit release go/no-go. Preserve runtime/backend/data contracts and Electron-game compatibility (the latter means games built with Electron, not MetalSharp's desktop framework).
 
 ## Current boundary and port inventory
 
@@ -109,7 +111,7 @@ Port behavior in user-journey order, reusing backend APIs rather than duplicatin
 2. Replace Electron payload assumptions in app packaging, bundle creation/manifests/verifiers, installer scripts, docs, and release artifact naming. Keep runtime, graphics, assets, Steam and script-tools bundles separate and unchanged where possible.
 3. Preserve the C backend and native engine build/package steps. Test resource lookup from both development build and installed `.app`; confirm executables, dylibs, helper tools, licenses, permissions, hashes, and bundle roots.
 4. Add Rust formatting/lint/unit tests and GPUI integration tests to CI. Add a packaging smoke test, but keep publication gated separately.
-5. Keep Electron CI/build available until the GPUI local acceptance gate and post-gate decision are complete. Do not delete Electron source or its fallback artifact early.
+5. Keep Electron CI/build available while GPUI parity is being implemented. For PR #703, after production GPUI replacements and local acceptance pass, remove the Electron desktop application source/dependencies/build integration in a final, separately reviewable commit within this same draft umbrella PR; delete nothing early. Retain Electron CI only as long as other branches need it, then remove/update it with the app migration.
 
 **Exit:** a clean checkout can build the app; the packaged app launches without a development tree; static bundle/signing/notarization verifiers pass; no release upload is enabled for the GPUI artifact.
 
@@ -126,9 +128,9 @@ This phase must happen on Avery's current machine using the actual packaged GPUI
 
 **Exit:** signed acceptance record includes machine/OS/build/commit identifiers, test results, known limitations, soak dates, data-integrity checks, backup/restore result, and explicit owner approval. No unresolved blocker or data-loss/security issue remains. Without this record, do not release.
 
-### Phase 7 — Release decision and controlled cutover (separate approval)
+### Phase 7 — Release decision and controlled cutover (separate approval; distinct from code-removal timing)
 
-Only after Phase 6 passes, make a separate go/no-go decision. Review app identity, URL scheme ownership, update channel, artifact/bundle compatibility, support/rollback plan, versioning, and whether Electron fallback remains downloadable for one transition release. Enable GPUI publication only in this phase, with an explicit workflow review and a fresh end-to-end release-candidate test. Preserve the ability to reinstall the previous Electron build and use existing `~/.metalsharp` data.
+Only after Phase 6 passes, make a separate go/no-go decision. Review app identity, URL scheme ownership, update channel, artifact/bundle compatibility, support/rollback plan, and versioning. The user's same-PR Electron removal request does not itself authorize release/publication. Enable GPUI publication only in this phase, with explicit workflow review and fresh end-to-end release-candidate testing. Preserve a tested rollback to the last known-good Electron release and existing `~/.metalsharp` data.
 
 **Exit:** explicit approval to publish; release workflow is intentionally changed and reviewed; published artifact matches the locally accepted commit and configuration. If approval is not given, retain the GPUI app as a local/test build and keep Electron as the released application.
 

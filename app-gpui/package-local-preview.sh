@@ -17,6 +17,17 @@ CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" MACOSX_DEPLOYMENT_TARGET=13.0 cargo bu
 
 rm -rf "$BUNDLE"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/assets"
+ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-icon.XXXXXX").iconset"
+mkdir -p "$ICONSET"
+for size in 16 32 128 256 512; do
+  sips -s format png -z "$size" "$size" "$APP_DIR/assets/metalsharp-logo.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  if [ "$size" -lt 512 ]; then
+    double=$((size * 2))
+    sips -s format png -z "$double" "$double" "$APP_DIR/assets/metalsharp-logo.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  fi
+done
+iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/MetalSharp.icns"
+rm -rf "$ICONSET"
 install -m 0755 "$APP_DIR/target/debug/metalsharp-gpui" "$CONTENTS/MacOS/MetalSharp-GPUI"
 cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 
@@ -30,6 +41,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>MetalSharp GPUI Preview</string>
   <key>CFBundleDisplayName</key><string>MetalSharp GPUI Preview</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>MetalSharp</string>
   <key>CFBundleShortVersionString</key><string>0.1.0-preview</string>
   <key>CFBundleVersion</key><string>0.1.0</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
