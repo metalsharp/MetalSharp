@@ -50,6 +50,8 @@ void ms_steam_cleanup_route_dlls(const char*, const char*, const char*, const ch
 /* Stage the selected route beside an arbitrary installed Windows game's executable. */
 bool ms_steam_stage_route_for_executable(const char*, const char*, const char*, const char*);
 char* ms_steam_prepare_bottle_route_json(const char*, const char*);
+void ms_steam_stage_route_on_discovery(const char*, unsigned);
+bool ms_steam_ensure_game_audio_fix(const char*, unsigned);
 /* Create the default manifest for a Steam app when a route is saved before launch. */
 bool ms_steam_ensure_bottle_manifest(const char*, unsigned, const char*);
 /* Canonical MTSP recipe/prepare/doctor inspection.  mode: 0 prepare, 1 recipe, 2 doctor. */
