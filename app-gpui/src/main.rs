@@ -1,10 +1,8 @@
-// Backend spike scaffolding is type-checked/tested, never linked into the offline preview.
-#[cfg(test)]
+// Connected mode is explicit; the default preview never constructs these services.
 #[allow(dead_code)]
 mod backend;
-#[cfg(test)]
-#[allow(dead_code)]
 mod backend_host;
+mod connected;
 mod logs_preview;
 #[allow(dead_code)]
 mod mini_browser;
@@ -78,9 +76,22 @@ impl gpui::AssetSource for PreviewIcons {
 }
 
 fn main() -> Result<()> {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let connected = match args.as_slice() {
+        [] => None,
+        [mode] if mode == "--connected-validation" => {
+            Some(backend_host::HostConfig::from_environment(true)?)
+        }
+        [mode] if mode == "--connected-production" => {
+            Some(backend_host::HostConfig::from_environment(false)?)
+        }
+        _ => anyhow::bail!(
+            "Use no arguments for offline preview, --connected-validation for an isolated backend, or --connected-production for explicit production-data access"
+        ),
+    };
     Application::new()
         .with_assets(PreviewIcons)
-        .run(|cx: &mut App| {
+        .run(move |cx: &mut App| {
             search_input::register_keys(cx);
             cx.text_system()
                 .add_fonts(vec![
@@ -90,19 +101,24 @@ fn main() -> Result<()> {
                 .expect("failed to register MetalSharp setup fonts");
 
             let bounds = Bounds::centered(None, size(px(1360.0), px(860.0)), cx);
-            cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    window_min_size: Some(size(px(720.0), px(540.0))),
-                    titlebar: Some(gpui::TitlebarOptions {
-                        title: Some("MetalSharp".into()),
-                        ..Default::default()
-                    }),
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(720.0), px(540.0))),
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some("MetalSharp".into()),
                     ..Default::default()
-                },
-                |_, cx| cx.new(|_| ui::MetalSharpApp::new()),
-            )
-            .expect("failed to open MetalSharp GPUI preview");
+                }),
+                ..Default::default()
+            };
+            if let Some(config) = connected {
+                cx.open_window(options, move |_, cx| {
+                    cx.new(|cx| connected::ConnectedApp::new(config, cx))
+                })
+                .expect("failed to open connected GPUI candidate");
+            } else {
+                cx.open_window(options, |_, cx| cx.new(|_| ui::MetalSharpApp::new()))
+                    .expect("failed to open GPUI offline preview");
+            }
             cx.activate(true);
         });
     Ok(())

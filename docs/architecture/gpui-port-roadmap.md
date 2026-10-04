@@ -1,5 +1,5 @@
 # GPUI Desktop Port Roadmap
-**Status:** In progress — GPUI visual preview is validated; production capability replacement has not yet started.
+**Status:** In progress — approved visual preview preserved; opt-in connected backend/setup/launcher/key/GOG integration started. Full production parity and acceptance are incomplete.
 **Scope:** Full replacement of the Electron desktop app with a native GPUI app. The current app remains the production app until the new app passes the local-machine acceptance gate.
 **Updated:** 2026-10-03
 
@@ -49,7 +49,11 @@ GPUI app (Rust)
 
 Keep UI code from spawning arbitrary processes or constructing unrestricted filesystem paths. Define narrow Rust service interfaces for OS actions, validate paths and URLs at those boundaries, and make services injectable for tests. Keep backend request/response types in a dedicated crate/module with contract tests. GPUI is pre-1.0; pin a tested revision/version and isolate framework-specific code behind a small UI layer so framework updates do not infect domain and backend modules.
 
-The browser investigation selected a purpose-scoped native macOS WebKit window rather than bundling upstream Min (which is Electron-based). `app-gpui/src/mini_browser.rs` now provides a standalone `WKWebView`/`NSWindow`, a read-only URL header, navigation controls, HTTPS host policy, ephemeral auth/help stores, and a distinct persistent GameJolt store. This is an integration foundation only: it is not wired to GPUI actions or the offline preview, has no Epic result extraction, and has not been opened or exercised against live provider redirects. Complete callback/session design, data cleanup, security review, and local native-window acceptance before treating browser parity as done.
+The browser investigation selected a purpose-scoped native macOS WebKit window rather than bundling upstream Min (which is Electron-based). `app-gpui/src/mini_browser.rs` now provides a standalone `WKWebView`/`NSWindow`, a read-only URL header, navigation controls, HTTPS host policy, ephemeral auth/help stores, and a distinct persistent GameJolt store. This remains an integration foundation: explicit connected-mode GOG/key-help actions now call it, but the default offline preview does not. Automatic Epic result extraction is missing, and browser windows/live provider redirects have not been exercised. Complete callback/session design, data cleanup, security review, and local native-window acceptance before treating browser parity as done.
+
+## Current connected integration evidence
+
+`app-gpui/src/connected.rs` is an opt-in integration workbench, not the approved final UI. It uses the authoritative C backend for runtime/support and Steam installation/progress, Steam/Ubisoft start-stop, real library load and game launch-stop, setup/key saving, GOG support/native callback handoff and Epic support/manual-code submission. No production install/account/game actions were run. The default visual preview remains offline. Thirty-eight Rust tests passed; a separately invoked isolated C-backend smoke test passed for owned startup, status/PID/home identity, empty libraries and graceful shutdown/port release. Existing C tests passed (bundle-dependent runtime-ready simulation skipped). The optional connected-resource package passed plist/ad-hoc deep-signature verification. These are integration checks, not full parity, provider login acceptance, release readiness or permission to remove Electron.
 
 ## Phased plan and exit criteria
 

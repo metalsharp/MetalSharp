@@ -179,6 +179,7 @@ pub enum MiniBrowserResult {
 pub enum MiniBrowserError {
     Gog(String),
     NavigationFailed,
+    InvalidCallback,
 }
 pub type MiniBrowserCompletion = Box<dyn FnOnce(MiniBrowserResult) + 'static>;
 
@@ -258,6 +259,10 @@ mod native {
                                 }
                                 Ok(GogCallback::Error(error)) => {
                                     self.finish(MiniBrowserResult::Error(MiniBrowserError::Gog(error)));
+                                    self.close();
+                                }
+                                Err(error) if error != CallbackError::NotExactCallback => {
+                                    self.finish(MiniBrowserResult::Error(MiniBrowserError::InvalidCallback));
                                     self.close();
                                 }
                                 _ => {
@@ -345,6 +350,11 @@ mod native {
                             }
                             Ok(GogCallback::Error(error)) => {
                                 self.finish(MiniBrowserResult::Error(MiniBrowserError::Gog(error)));
+                                self.close();
+                                allowed = false;
+                            }
+                            Err(error) if error != CallbackError::NotExactCallback => {
+                                self.finish(MiniBrowserResult::Error(MiniBrowserError::InvalidCallback));
                                 self.close();
                                 allowed = false;
                             }
@@ -475,12 +485,31 @@ mod native {
         fn update_url(&self, web_view: &WKWebView) {
             if let Some(url) = unsafe { web_view.URL() }.and_then(|u| u.absoluteString()) {
                 if let Some(header) = self.ivars().header.borrow().as_ref() {
-                    header.setStringValue(&url);
+                    // OAuth query/fragment values can contain codes, tokens and
+                    // state. Show the origin/path, not transient account secrets.
+                    let display = if matches!(
+                        self.ivars().purpose.get(),
+                        Some(BrowserPurpose::GogAuth | BrowserPurpose::EpicAuth)
+                    ) {
+                        Url::parse(&url.to_string())
+                            .map(|mut url| {
+                                url.set_query(None);
+                                url.set_fragment(None);
+                                url.to_string()
+                            })
+                            .unwrap_or_default()
+                    } else {
+                        url.to_string()
+                    };
+                    header.setStringValue(&NSString::from_str(&display));
                 }
             }
         }
         fn close(&self) {
-            if let Some(w) = self.ivars().window.borrow().as_ref() {
+            // Closing synchronously invokes windowWillClose, which mutates this
+            // RefCell. Release the borrow before calling AppKit.
+            let window = self.ivars().window.borrow().clone();
+            if let Some(w) = window {
                 w.close()
             }
         }
@@ -490,6 +519,8 @@ mod native {
         request: MiniBrowserRequest,
         completion: MiniBrowserCompletion,
     ) -> anyhow::Result<()> {
+        validate_navigation(request.purpose, request.initial_url.as_str())
+            .map_err(|_| anyhow::anyhow!("initial browser URL rejected"))?;
         let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(900., 650.));
         let style =
             NSWindowStyleMask::Titled | NSWindowStyleMask::Closable | NSWindowStyleMask::Resizable;
@@ -512,6 +543,9 @@ mod native {
                 false,
             )
         };
+        unsafe {
+            window.setReleasedWhenClosed(false);
+        }
         let config = unsafe { WKWebViewConfiguration::new(mtm) };
         let store = if request.purpose == BrowserPurpose::GameJolt {
             let identifier = unsafe {
