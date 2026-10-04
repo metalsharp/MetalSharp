@@ -1,6 +1,6 @@
 # GPUI Desktop Port Roadmap
 **Status:** In progress — Phase 1 local GPUI spike; product workflow details below are confirmed against the current Electron/Vue/C implementation.
-**Scope:** Full replacement of the Electron desktop app with a native GPUI app. The current app remains the production app until the new app passes the local-machine acceptance gate.  
+**Scope:** Full replacement of the Electron desktop app with a native GPUI app. The current app remains the production app until the new app passes the local-machine acceptance gate.
 **Updated:** 2026-10-03
 
 ## Objective and non-goals
