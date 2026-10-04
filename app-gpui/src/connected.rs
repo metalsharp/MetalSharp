@@ -242,7 +242,7 @@ impl ConnectedApp {
                     if !this.busy && this.host.is_some() {
                         // Progress/status remain lightweight. The single-threaded C
                         // server must not be monopolized by a full library scan every second.
-                        this.dispatch(if full_refresh_due {full_refresh_due=false;Operation::Refresh}else if this.streaming_watch.is_open()&&ticks%3==0 {Operation::ReadStreaming}else{Operation::Poll},cx);
+                        this.dispatch(if full_refresh_due {full_refresh_due=false;Operation::Refresh}else if this.streaming_watch.poll_due(std::time::Instant::now()) {Operation::ReadStreaming}else{Operation::Poll},cx);
                     }
                 }).is_err() { break; }
             }
@@ -257,6 +257,15 @@ impl ConnectedApp {
         })
         .detach();
         view
+    }
+    #[cfg(test)]
+    pub(crate) fn fixture_streaming_status(
+        &mut self,
+        status: Option<crate::streaming::StreamingStatus>,
+        cx: &mut Context<Self>,
+    ) {
+        self.streaming_status = status;
+        cx.notify();
     }
     pub(crate) fn streaming_visible(&self) -> bool {
         self.streaming_watch.is_open()
@@ -483,11 +492,17 @@ impl ConnectedApp {
             return;
         }
         let Some(host) = self.host.as_mut() else {
+            self.streaming_status = None;
+            self.streaming_watch
+                .failed(self.streaming_watch.generation());
             self.notice = "Backend unavailable; restart connected candidate".into();
             cx.notify();
             return;
         };
         if !host.is_running() {
+            self.streaming_status = None;
+            self.streaming_watch
+                .failed(self.streaming_watch.generation());
             self.host = None;
             self.notice =
                 "Owned backend exited; restart it explicitly before sending operations".into();
@@ -577,8 +592,9 @@ impl ConnectedApp {
                             }
                         }
                     }
-                    Err(error) => {if streaming&&!refresh {this.streaming_watch.failed(stream_generation);}this.notice = error.to_string();},
+                    Err(error) => {if streaming {this.streaming_status=None;if !refresh {this.streaming_watch.failed(stream_generation);}}this.notice = error.to_string();},
                 }
+                if streaming {this.streaming_watch.defer_poll(std::time::Instant::now(),this.streaming_status.as_ref().is_some_and(|status|status.installing));}
                 if auto_launch {this.streaming_command(crate::streaming::StreamingAction::Start,cx);}
                 cx.notify();
             });

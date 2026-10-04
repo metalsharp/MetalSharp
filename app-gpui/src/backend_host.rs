@@ -332,6 +332,16 @@ mod tests {
                 .is_empty()
         );
         assert!(!client.setup_dependencies().unwrap().all_installed);
+        // Read-only Sunshine contract check; never installs, starts, stops or pairs.
+        // Its app path is global, so do not assume this machine lacks Sunshine.
+        let streaming = client.streaming_status().unwrap();
+        assert!(!streaming.creds_configured);
+        assert!(!streaming.can_pair());
+        assert!(streaming.creds_username.is_empty());
+        assert!(matches!(
+            unauthorized.streaming_status(),
+            Err(crate::backend::BackendError::Http(401))
+        ));
         std::fs::write(
             home.join("logs/gpui-fixture.log"),
             "runtime fixture ready\nAuthorization: Bearer fixture-private\n",

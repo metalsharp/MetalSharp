@@ -388,6 +388,7 @@ pub struct MetalSharpApp {
     connected_subscription: Option<gpui::Subscription>,
     connected_events: Option<gpui::Subscription>,
     streaming_unpair_confirm: bool,
+    streaming_unpair_deadline: Option<std::time::Instant>,
     show_setup: bool,
     theme: PreviewTheme,
     theme_menu_open: bool,
@@ -440,6 +441,7 @@ impl MetalSharpApp {
             connected_subscription: None,
             connected_events: None,
             streaming_unpair_confirm: false,
+            streaming_unpair_deadline: None,
             show_setup: false,
             theme: PreviewTheme::Dark,
             theme_menu_open: false,
@@ -494,6 +496,18 @@ impl MetalSharpApp {
         app.step = 0;
         app.connected_subscription = Some(cx.observe(&session, |this, session, cx| {
             let state = session.read(cx).setup_view();
+            if !session
+                .read(cx)
+                .streaming_view()
+                .0
+                .is_some_and(|status| status.can_pair())
+                || this
+                    .streaming_unpair_deadline
+                    .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+            {
+                this.streaming_unpair_confirm = false;
+                this.streaming_unpair_deadline = None;
+            }
             this.runtime_installed = state.runtime_ready;
             this.runtime_installing = state.runtime_installing;
             this.runtime_started = state.runtime_started;
@@ -531,6 +545,7 @@ impl MetalSharpApp {
     fn close_streaming_panel(&mut self, cx: &mut Context<Self>) {
         self.streaming_open = false;
         self.streaming_unpair_confirm = false;
+        self.streaming_unpair_deadline = None;
         if let Some(session) = self.connected.clone() {
             session.update(cx, |session, cx| session.close_streaming(cx));
         }
@@ -1999,7 +2014,11 @@ impl MetalSharpApp {
                             0xffffff0f
                         }))
                         .child(if live.is_some() && status.is_none() {
-                            "Checking…"
+                            if live.as_ref().is_some_and(|(_, busy, _, _)| *busy) {
+                                "Checking…"
+                            } else {
+                                "Status unavailable"
+                            }
                         } else if installing {
                             "Installing…"
                         } else if running {
@@ -2194,7 +2213,11 @@ impl MetalSharpApp {
                     if let Some(session) = this.connected.clone() {
                         let (status, busy, _, _) = session.read(cx).streaming_view();
                         if !busy && status.is_some_and(|status| status.can_pair()) {
-                            if this.streaming_unpair_confirm {
+                            if this.streaming_unpair_confirm
+                                && this
+                                    .streaming_unpair_deadline
+                                    .is_some_and(|deadline| std::time::Instant::now() < deadline)
+                            {
                                 this.streaming_unpair_confirm = false;
                                 session.update(cx, |session, cx| {
                                     session.streaming_command(
@@ -2204,6 +2227,9 @@ impl MetalSharpApp {
                                 });
                             } else {
                                 this.streaming_unpair_confirm = true;
+                                this.streaming_unpair_deadline = Some(
+                                    std::time::Instant::now() + std::time::Duration::from_secs(10),
+                                );
                             }
                         }
                     }
@@ -3655,6 +3681,7 @@ mod tests {
             validation: true,
         };
         let window = cx.add_window(|_, cx| MetalSharpApp::new_connected_workbench(config, cx));
+        cx.run_until_parked();
         window
             .update(cx, |app, _, cx| {
                 let session = app.connected.clone().unwrap();
@@ -3669,6 +3696,18 @@ mod tests {
                     session.streaming_command(crate::streaming::StreamingAction::Install, cx);
                     session.streaming_command(crate::streaming::StreamingAction::Start, cx);
                     session.streaming_pair(cx);
+                    // A remembered successful state must become unavailable when
+                    // the retained owned host is absent, not stay actionable.
+                    session.fixture_streaming_status(
+                        Some(crate::streaming::StreamingStatus {
+                            installed: true,
+                            running: true,
+                            creds_valid: true,
+                            ..Default::default()
+                        }),
+                        cx,
+                    );
+                    session.streaming_command(crate::streaming::StreamingAction::Stop, cx);
                 });
                 assert!(session.read(cx).streaming_view().0.is_none());
                 assert!(!app.streaming_installed && !app.streaming_running);
@@ -3691,6 +3730,73 @@ mod tests {
                 );
                 assert!(!app.show_setup);
             })
+            .unwrap();
+    }
+    #[gpui::test]
+    fn unpair_confirmation_is_revoked_on_status_loss_recovery_and_expiry(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let config = crate::backend_host::HostConfig {
+            port: 0,
+            home: "/should-not-create/unpair-fixture".into(),
+            binary: "/missing-fixture-backend".into(),
+            resources: "/missing-fixture-resources".into(),
+            validation: true,
+        };
+        let window = cx.add_window(|_, cx| MetalSharpApp::new_connected_workbench(config, cx));
+        cx.run_until_parked();
+        let ready = || {
+            Some(crate::streaming::StreamingStatus {
+                installed: true,
+                running: true,
+                creds_valid: true,
+                ..Default::default()
+            })
+        };
+        window
+            .update(cx, |app, _, cx| {
+                app.connected.as_ref().unwrap().update(cx, |session, cx| {
+                    session.fixture_streaming_status(ready(), cx)
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |app, _, cx| {
+                app.streaming_unpair_confirm = true;
+                app.streaming_unpair_deadline =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+                app.connected
+                    .as_ref()
+                    .unwrap()
+                    .update(cx, |session, cx| session.fixture_streaming_status(None, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |app, _, cx| {
+                assert!(!app.streaming_unpair_confirm);
+                app.connected.as_ref().unwrap().update(cx, |session, cx| {
+                    session.fixture_streaming_status(ready(), cx)
+                });
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |app, _, cx| {
+                assert!(!app.streaming_unpair_confirm);
+                app.streaming_unpair_confirm = true;
+                app.streaming_unpair_deadline =
+                    Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+                app.connected
+                    .as_ref()
+                    .unwrap()
+                    .update(cx, |_, cx| cx.notify());
+            })
+            .unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |app, _, _| assert!(!app.streaming_unpair_confirm))
             .unwrap();
     }
     #[test]
