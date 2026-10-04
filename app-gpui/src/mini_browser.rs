@@ -1,5 +1,5 @@
-//! Purpose-scoped native WebKit mini-browser. This module is deliberately not wired
-//! into preview settings/runtime; call `open_native` from the AppKit/GPUI main thread.
+//! Purpose-scoped native WebKit mini-browser. The ordinary preview stays offline;
+//! connected account/help actions call `open_native` on the AppKit/GPUI main thread.
 use std::sync::Mutex;
 use url::Url;
 
@@ -9,6 +9,7 @@ pub enum BrowserPurpose {
     EpicAuth,
     GameJolt,
     SteamApiKeyHelp,
+    SteamStore,
     TheGamesDbHelp,
 }
 impl BrowserPurpose {
@@ -39,6 +40,11 @@ impl BrowserPurpose {
             }
             Self::GameJolt => suffix(&["gamejolt.com"]),
             Self::SteamApiKeyHelp => exact(&["steamcommunity.com", "www.steamcommunity.com"]),
+            Self::SteamStore => exact(&[
+                "steampowered.com",
+                "www.steampowered.com",
+                "store.steampowered.com",
+            ]),
             Self::TheGamesDbHelp => {
                 exact(&["thegamesdb.net", "www.thegamesdb.net", "api.thegamesdb.net"])
             }
@@ -243,6 +249,10 @@ fn parse_epic_document(raw_url: &str, text: &str) -> Result<MiniBrowserResult, C
 }
 pub type MiniBrowserCompletion = Box<dyn FnOnce(MiniBrowserResult) + 'static>;
 
+fn expected_navigation_cancel(domain: &str, code: i64) -> bool {
+    domain == "NSURLErrorDomain" && code == -999
+}
+
 #[cfg(target_os = "macos")]
 mod native {
     use super::*;
@@ -279,6 +289,9 @@ mod native {
         callback: GogCallbackParser,
         navigation_epoch: Cell<u64>,
         epic_inspection_pending: Cell<bool>,
+        fixture_initial_url: Option<String>,
+        fixture_started: Cell<bool>,
+        history_buttons: RefCell<[Option<Retained<NSButton>>; 2]>,
     }
     define_class!(
         #[unsafe(super(NSObject))]
@@ -293,6 +306,7 @@ mod native {
                 self.finish(MiniBrowserResult::Cancelled);
                 self.ivars().header.borrow_mut().take();
                 self.ivars().window.borrow_mut().take();
+                self.ivars().history_buttons.replace([None,None]);
             }
         }
         unsafe impl WKNavigationDelegate for Delegate {
@@ -310,6 +324,15 @@ mod native {
                 let raw = req.URL()
                     .and_then(|u| u.absoluteString())
                     .map(|s| s.to_string());
+                if let Some(initial)=self.ivars().fixture_initial_url.as_deref() {
+                    // Only the first native loadHTMLString action is admitted. No
+                    // subsequent reload/link/back action may issue a network request.
+                    let allow=is_main_frame && !self.ivars().fixture_started.get()
+                        && raw.as_deref().is_some_and(|url|url==initial||url=="about:blank");
+                    if allow {self.ivars().fixture_started.set(true);}
+                    handler.call((if allow {WKNavigationActionPolicy::Allow}else{WKNavigationActionPolicy::Cancel},));
+                    return;
+                }
                 let mut allow = false;
                 if is_main_frame {
                     if let Some(raw) = raw {
@@ -363,7 +386,10 @@ mod native {
                         .is_some_and(|value| value.to_string().split(';').next().is_some_and(|token| token.trim().eq_ignore_ascii_case("attachment")))
                 } else { false };
                 let allow = !is_attachment && unsafe { response.canShowMIMEType() }
-                    && response_url.as_deref().is_some_and(|url| validate_navigation(*self.ivars().purpose.get().unwrap(), url).is_ok());
+                    && response_url.as_deref().is_some_and(|url| match self.ivars().fixture_initial_url.as_deref() {
+                        Some(initial)=>url==initial || url=="about:blank",
+                        None=>validate_navigation(*self.ivars().purpose.get().unwrap(), url).is_ok(),
+                    });
                 handler.call((if allow {
                     WKNavigationResponsePolicy::Allow
                 } else {
@@ -372,10 +398,10 @@ mod native {
             }
             #[unsafe(method(webView:didFailProvisionalNavigation:withError:))]
             #[allow(non_snake_case)]
-            unsafe fn webView_didFailProvisionalNavigation_withError(&self, _web_view: &WKWebView, _navigation: Option<&WKNavigation>, _error: &objc2_foundation::NSError) { self.finish(MiniBrowserResult::Error(MiniBrowserError::NavigationFailed)); self.close(); }
+            unsafe fn webView_didFailProvisionalNavigation_withError(&self, _web_view: &WKWebView, _navigation: Option<&WKNavigation>, error: &objc2_foundation::NSError) { self.navigation_failed(error); }
             #[unsafe(method(webView:didFailNavigation:withError:))]
             #[allow(non_snake_case)]
-            unsafe fn webView_didFailNavigation_withError(&self, _web_view: &WKWebView, _navigation: Option<&WKNavigation>, _error: &objc2_foundation::NSError) { self.finish(MiniBrowserResult::Error(MiniBrowserError::NavigationFailed)); self.close(); }
+            unsafe fn webView_didFailNavigation_withError(&self, _web_view: &WKWebView, _navigation: Option<&WKNavigation>, error: &objc2_foundation::NSError) { self.navigation_failed(error); }
             #[unsafe(method(webView:didStartProvisionalNavigation:))]
             #[allow(non_snake_case)]
             unsafe fn webView_didStartProvisionalNavigation(
@@ -437,6 +463,8 @@ mod native {
             ) {
                 self.update_url(web_view);
                 self.inspect_epic_result(web_view);
+                #[cfg(feature="browser-fixture")]
+                if self.ivars().fixture_initial_url.is_some() {println!("OFFLINE_BROWSER_FIXTURE_READY");} else {println!("NATIVE_BROWSER_NAVIGATION_FINISHED");}
             }
         }
         impl Delegate {
@@ -500,6 +528,7 @@ mod native {
             mtm: MainThreadMarker,
             request: &MiniBrowserRequest,
             completion: MiniBrowserCompletion,
+            fixture: bool,
         ) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(Ivars {
                 purpose: OnceCell::from(request.purpose),
@@ -510,6 +539,7 @@ mod native {
                         request.purpose,
                         BrowserPurpose::GameJolt
                             | BrowserPurpose::SteamApiKeyHelp
+                            | BrowserPurpose::SteamStore
                             | BrowserPurpose::TheGamesDbHelp
                     ) {
                         None
@@ -520,6 +550,9 @@ mod native {
                 callback: GogCallbackParser::default(),
                 navigation_epoch: Cell::new(0),
                 epic_inspection_pending: Cell::new(false),
+                fixture_initial_url: fixture.then(|| request.initial_url.to_string()),
+                fixture_started: Cell::new(false),
+                history_buttons: RefCell::default(),
             });
             unsafe { objc2::msg_send![super(this), init] }
         }
@@ -529,6 +562,7 @@ mod native {
                 Some(
                     BrowserPurpose::GameJolt
                         | BrowserPurpose::SteamApiKeyHelp
+                        | BrowserPurpose::SteamStore
                         | BrowserPurpose::TheGamesDbHelp
                 )
             ) {
@@ -544,7 +578,32 @@ mod native {
                 cb(result);
             }
         }
+        fn navigation_failed(&self, error: &objc2_foundation::NSError) {
+            // Policy denials and user back/reload cancellation are not auth failures.
+            if expected_navigation_cancel(&error.domain().to_string(), error.code() as i64) {
+                return;
+            }
+            #[cfg(feature = "browser-fixture")]
+            println!("NATIVE_BROWSER_NAVIGATION_FAILED ({})", error.code());
+            self.finish(MiniBrowserResult::Error(MiniBrowserError::NavigationFailed));
+            self.close();
+        }
         fn update_url(&self, web_view: &WKWebView) {
+            let history = self.ivars().history_buttons.borrow();
+            if let Some(back) = &history[0] {
+                back.setEnabled(unsafe { web_view.canGoBack() });
+            }
+            if let Some(forward) = &history[1] {
+                forward.setEnabled(unsafe { web_view.canGoForward() });
+            }
+            if self.ivars().fixture_initial_url.is_some() {
+                if let Some(header) = self.ivars().header.borrow().as_ref() {
+                    header.setStringValue(&NSString::from_str(
+                        "OFFLINE browser fixture — no remote page",
+                    ));
+                }
+                return;
+            }
             if let Some(url) = unsafe { web_view.URL() }.and_then(|u| u.absoluteString()) {
                 if let Some(header) = self.ivars().header.borrow().as_ref() {
                     // OAuth query/fragment values can contain codes, tokens and
@@ -677,6 +736,14 @@ mod native {
         request: MiniBrowserRequest,
         completion: MiniBrowserCompletion,
     ) -> anyhow::Result<()> {
+        open_inner(mtm, request, completion, None)
+    }
+    fn open_inner(
+        mtm: MainThreadMarker,
+        request: MiniBrowserRequest,
+        completion: MiniBrowserCompletion,
+        fixture: Option<&'static str>,
+    ) -> anyhow::Result<()> {
         validate_navigation(request.purpose, request.initial_url.as_str())
             .map_err(|_| anyhow::anyhow!("initial browser URL rejected"))?;
         let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(900., 650.));
@@ -724,12 +791,24 @@ mod native {
         let web = unsafe {
             WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), NSRect::ZERO, &config)
         };
-        let delegate = Delegate::new(mtm, &request, completion);
+        let delegate = Delegate::new(mtm, &request, completion, fixture.is_some());
         let header = NSTextField::initWithFrame(NSTextField::alloc(mtm), NSRect::ZERO);
         header.setEditable(false);
         header.setSelectable(true);
         header.setDrawsBackground(true);
-        header.setBackgroundColor(Some(&NSColor::whiteColor()));
+        header.setBezeled(false);
+        header.setBordered(false);
+        header.setBackgroundColor(Some(&NSColor::textBackgroundColor()));
+        header.setTextColor(Some(&NSColor::textColor()));
+        header.setMaximumNumberOfLines(1);
+        header.setContentHuggingPriority_forOrientation(
+            1.0,
+            NSLayoutConstraintOrientation::Horizontal,
+        );
+        header
+            .heightAnchor()
+            .constraintEqualToConstant(32.0)
+            .setActive(true);
         header.setContentCompressionResistancePriority_forOrientation(
             250.0,
             NSLayoutConstraintOrientation::Horizontal,
@@ -748,7 +827,7 @@ mod native {
         }
         let bar = NSStackView::initWithFrame(NSStackView::alloc(mtm), NSRect::ZERO);
         bar.setOrientation(NSUserInterfaceLayoutOrientation::Horizontal);
-        bar.setAlignment(NSLayoutAttribute::Height);
+        bar.setAlignment(NSLayoutAttribute::CenterY);
         bar.setDistribution(NSStackViewDistribution::Fill);
         bar.setSpacing(5.);
         let buttons = [
@@ -771,12 +850,36 @@ mod native {
                     mtm,
                 )
             };
+            if action == sel!(goBack) {
+                *delegate
+                    .ivars()
+                    .history_buttons
+                    .borrow_mut()
+                    .get_mut(0)
+                    .unwrap() = Some(b.clone());
+                b.setEnabled(false);
+            }
+            if action == sel!(goForward) {
+                *delegate
+                    .ivars()
+                    .history_buttons
+                    .borrow_mut()
+                    .get_mut(1)
+                    .unwrap() = Some(b.clone());
+                b.setEnabled(false);
+            }
+            b.widthAnchor()
+                .constraintEqualToConstant(36.0)
+                .setActive(true);
+            b.heightAnchor()
+                .constraintEqualToConstant(28.0)
+                .setActive(true);
             bar.addArrangedSubview(&b);
         }
         bar.addArrangedSubview(&header);
         let content = NSStackView::initWithFrame(NSStackView::alloc(mtm), frame);
         content.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
-        content.setAlignment(NSLayoutAttribute::Width);
+        content.setAlignment(NSLayoutAttribute::CenterX);
         content.setDistribution(NSStackViewDistribution::Fill);
         content.setSpacing(0.);
         content.addArrangedSubview(&bar);
@@ -808,9 +911,28 @@ mod native {
         ))
         .ok_or_else(|| anyhow::anyhow!("initial URL could not be represented by NSURL"))?;
         unsafe {
-            web.loadRequest(&NSURLRequest::requestWithURL(&req_url));
+            if let Some(html) = fixture {
+                web.loadHTMLString_baseURL(&NSString::from_str(html), Some(&req_url));
+            } else {
+                web.loadRequest(&NSURLRequest::requestWithURL(&req_url));
+            }
         }
         Ok(())
+    }
+    #[cfg(feature = "browser-fixture")]
+    pub fn open_fixture(mtm: MainThreadMarker) -> anyhow::Result<()> {
+        const HTML: &str = r#"<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>body{font:20px system-ui;margin:40px;color:#202633;background:#f2f4f8}h1{font-size:28px}</style><h1>Offline native browser fixture</h1><p>This is bundled HTML, not a remote Steam page.</p><p>No backend, accounts, scripts, links, images or network loads.</p><p>Resize the window; test the read-only header, navigation controls and close.</p>"#;
+        open_inner(
+            mtm,
+            MiniBrowserRequest::new(
+                BrowserPurpose::SteamApiKeyHelp,
+                "https://steamcommunity.com/dev/apikey",
+                "MetalSharp — OFFLINE browser fixture",
+            )
+            .map_err(|_| anyhow::anyhow!("fixture URL rejected"))?,
+            Box::new(|_| {}),
+            Some(HTML),
+        )
     }
 }
 #[cfg(target_os = "macos")]
@@ -829,9 +951,45 @@ pub fn open_native(
     anyhow::bail!("native MiniBrowser is available only on macOS")
 }
 
+#[cfg(all(target_os = "macos", feature = "browser-fixture"))]
+pub fn open_offline_fixture(mtm: objc2::MainThreadMarker) -> anyhow::Result<()> {
+    native::open_fixture(mtm)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn steam_store_navigation_stays_separate_from_key_help() {
+        for url in [
+            "https://steampowered.com",
+            "https://www.steampowered.com",
+            "https://store.steampowered.com/",
+        ] {
+            assert!(validate_navigation(BrowserPurpose::SteamStore, url).is_ok());
+        }
+        for url in [
+            "http://steampowered.com",
+            "https://steampowered.com.attacker.invalid",
+            "https://attacker.steampowered.com",
+            "https://steamcommunity.com/dev/apikey",
+        ] {
+            assert!(validate_navigation(BrowserPurpose::SteamStore, url).is_err());
+        }
+        assert!(
+            validate_navigation(
+                BrowserPurpose::SteamApiKeyHelp,
+                "https://store.steampowered.com"
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn policy_or_user_cancellation_does_not_abort_auth() {
+        assert!(expected_navigation_cancel("NSURLErrorDomain", -999));
+        assert!(!expected_navigation_cancel("NSURLErrorDomain", -1001));
+        assert!(!expected_navigation_cancel("UnrelatedError", -999));
+    }
     #[test]
     fn epic_extraction_is_scoped_to_exact_result_endpoint() {
         let callback = "https://www.epicgames.com/id/api/redirect?clientId=fixture";
