@@ -1977,8 +1977,12 @@ impl Render for SharpPreview {
         let workspace_pad = (width * 0.018).clamp(14.0, 22.0);
         let sidebar_width = if width <= 920.0 { 176.0 } else { 238.0 };
         let gap = if width <= 920.0 { 10.0 } else { 14.0 };
-        let library_width =
-            content_width - 2.0 * workspace_pad - if emulator { sidebar_width + gap } else { 0.0 };
+        // The workspace panel's 1px border also comes out of the row; without it
+        // the last column overflows by 2px and wraps, leaving an empty column.
+        let library_width = content_width
+            - 2.0 * workspace_pad
+            - 2.0
+            - if emulator { sidebar_width + gap } else { 0.0 };
         let minimum = if emulator {
             240.0
         } else if source == SharpSource::Installers {
@@ -1987,7 +1991,7 @@ impl Render for SharpPreview {
             224.0
         };
         let columns = ((library_width + 14.0) / (minimum + 14.0)).floor().max(1.0);
-        let card_width = (library_width - (columns - 1.0) * 14.0) / columns;
+        let card_width = ((library_width - (columns - 1.0) * 14.0) / columns).floor();
         let card_width = if emulator || source == SharpSource::Installers {
             card_width.min(320.0)
         } else {
