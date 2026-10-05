@@ -79,22 +79,34 @@ impl BrowserPurpose {
                 .any(|d| host == *d || host.strip_suffix(d).is_some_and(|p| p.ends_with('.')))
         };
         match self {
-            Self::GogAuth => exact(&["auth.gog.com", "gog.com", "www.gog.com", "embed.gog.com"]),
+            // auth.gog.com redirects to login.gog.com (2FA and "forgot password"
+            // stay there); the code comes back on embed.gog.com.
+            Self::GogAuth => suffix(&["gog.com"]),
+            // Epic plus every "Sign in with ..." provider it offers (Facebook,
+            // Google, Xbox, PlayStation, Nintendo, Steam, Apple, LEGO), including
+            // the hosts each provider redirects through.
             Self::EpicAuth => {
-                exact(&[
-                    "legendary.gl",
-                    "appleid.apple.com",
-                    "www.facebook.com",
-                    "facebook.com",
-                    "login.live.com",
-                    "steamcommunity.com",
-                ]) || suffix(&[
-                    "epicgames.com",
-                    "google.com",
-                    "playstation.com",
-                    "sonyentertainmentnetwork.com",
-                    "nintendo.net",
-                ])
+                exact(&["legendary.gl"])
+                    || suffix(&[
+                        "epicgames.com",
+                        "google.com",
+                        "youtube.com",
+                        "facebook.com",
+                        "apple.com",
+                        "live.com",
+                        "microsoftonline.com",
+                        "microsoft.com",
+                        "xbox.com",
+                        "xboxlive.com",
+                        "playstation.com",
+                        "sonyentertainmentnetwork.com",
+                        "sony.com",
+                        "nintendo.net",
+                        "nintendo.com",
+                        "steamcommunity.com",
+                        "steampowered.com",
+                        "lego.com",
+                    ])
             }
             // Store pages plus the GameJolt download/CDN hosts that serve builds.
             Self::GameJolt => suffix(&["gamejolt.com", "gamejolt.net", "gjcdn.net"]),
@@ -143,6 +155,46 @@ pub fn validate_navigation(purpose: BrowserPurpose, raw: &str) -> Result<Url, Ur
         return Err(UrlPolicyError::HostForbidden);
     }
     Ok(url)
+}
+/// Embedded frames inside sign-in windows: HTTPS only (the content rule list
+/// still blocks private and local hosts).
+fn subframe_allowed(raw: &str) -> bool {
+    raw == "about:blank"
+        || raw.starts_with("about:srcdoc")
+        || Url::parse(raw).is_ok_and(|url| url.scheme() == "https" && !has_userinfo(raw))
+}
+/// "Sign in with Steam/Xbox/Google/Discord" on GOG's login page opens a popup
+/// that walks through the provider and posts the result back to the opener.
+/// Popups may only show GOG and those providers in their main frame.
+pub fn sign_in_popup_allows(purpose: BrowserPurpose, raw: &str) -> bool {
+    const GOG_PROVIDERS: &[&str] = &[
+        "gog.com",
+        "steamcommunity.com",
+        "steampowered.com",
+        "google.com",
+        "youtube.com",
+        "live.com",
+        "microsoftonline.com",
+        "microsoft.com",
+        "xbox.com",
+        "xboxlive.com",
+        "discord.com",
+        "discordapp.com",
+    ];
+    let Ok(url) = Url::parse(raw) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let secure =
+        url.scheme() == "https" && !has_userinfo(raw) && url.port().is_none_or(|p| p == 443);
+    secure
+        && match purpose {
+            BrowserPurpose::GogAuth => GOG_PROVIDERS
+                .iter()
+                .any(|d| host == *d || host.strip_suffix(d).is_some_and(|p| p.ends_with('.'))),
+            BrowserPurpose::EpicAuth => purpose.allows_host(&host),
+            _ => false,
+        }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GogCallback {
@@ -412,7 +464,7 @@ mod native {
         WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
         WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy,
         WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView, WKWebViewConfiguration,
-        WKWebsiteDataStore,
+        WKWebsiteDataStore, WKWindowFeatures,
     };
     thread_local! { static DELEGATES: RefCell<Vec<Retained<Delegate>>> = const { RefCell::new(Vec::new()) }; }
     // Downloads awaiting a destination: WebKit holds delegates weakly, so keep
@@ -434,6 +486,8 @@ mod native {
         fixture_initial_url: Option<String>,
         fixture_started: Cell<bool>,
         history_buttons: RefCell<[Option<Retained<NSButton>>; 2]>,
+        /// A provider sign-in window opened by the page (window.open).
+        popup: Cell<bool>,
     }
     define_class!(
         #[unsafe(super(NSObject))]
@@ -494,6 +548,18 @@ mod native {
                     handler.call((if allow {WKNavigationActionPolicy::Allow}else{WKNavigationActionPolicy::Cancel},));
                     return;
                 }
+                if self.ivars().popup.get() {
+                    // Provider pages embed their own captcha/consent frames.
+                    let allow = raw.as_deref().is_some_and(|raw| {
+                        if is_main_frame {
+                            sign_in_popup_allows(*self.ivars().purpose.get().unwrap(), raw)
+                        } else {
+                            subframe_allowed(raw)
+                        }
+                    });
+                    handler.call((if allow { WKNavigationActionPolicy::Allow } else { WKNavigationActionPolicy::Cancel },));
+                    return;
+                }
                 let mut allow = false;
                 if is_main_frame {
                     if let Some(raw) = raw {
@@ -524,6 +590,10 @@ mod native {
                                 .is_ok();
                         }
                     }
+                } else if self.auth_window() {
+                    // Captcha/consent frames (reCAPTCHA, hCaptcha, Arkose) come
+                    // from their own hosts; the main frame stays on the allowlist.
+                    allow = raw.as_deref().is_some_and(subframe_allowed);
                 }
                 handler.call((if allow {
                     WKNavigationActionPolicy::Allow
@@ -552,9 +622,22 @@ mod native {
                     handler.call((WKNavigationResponsePolicy::Download,));
                     return;
                 }
+                if self.ivars().popup.get() {
+                    let allow = !is_attachment && unsafe { response.canShowMIMEType() }
+                        && response_url.as_deref().is_some_and(|url| {
+                            if unsafe { response.isForMainFrame() } {
+                                sign_in_popup_allows(*self.ivars().purpose.get().unwrap(), url)
+                            } else {
+                                subframe_allowed(url)
+                            }
+                        });
+                    handler.call((if allow { WKNavigationResponsePolicy::Allow } else { WKNavigationResponsePolicy::Cancel },));
+                    return;
+                }
                 let allow = !is_attachment && unsafe { response.canShowMIMEType() }
                     && response_url.as_deref().is_some_and(|url| match self.ivars().fixture_initial_url.as_deref() {
                         Some(initial)=>url==initial || url=="about:blank",
+                        None if !unsafe { response.isForMainFrame() } && self.auth_window() => subframe_allowed(url),
                         None=>validate_navigation(*self.ivars().purpose.get().unwrap(), url).is_ok(),
                     });
                 handler.call((if allow {
@@ -601,11 +684,18 @@ mod native {
                 let raw = unsafe { web_view.URL() }
                     .and_then(|u| u.absoluteString())
                     .map(|u| u.to_string());
+                let purpose = *self.ivars().purpose.get().unwrap();
+                let popup = self.ivars().popup.get();
+                // Provider popups redirect through the provider's own hosts.
                 let mut allowed = raw.as_deref().is_some_and(|url| {
-                    validate_navigation(*self.ivars().purpose.get().unwrap(), url).is_ok()
+                    if popup {
+                        sign_in_popup_allows(purpose, url)
+                    } else {
+                        validate_navigation(purpose, url).is_ok()
+                    }
                 });
-                if let Some(url) = raw.as_deref() {
-                    if *self.ivars().purpose.get().unwrap() == BrowserPurpose::GogAuth {
+                if let Some(url) = raw.as_deref().filter(|_| !popup) {
+                    if purpose == BrowserPurpose::GogAuth {
                         match self.ivars().callback.parse_once(url) {
                             Ok(GogCallback::Code(code)) => {
                                 self.finish(MiniBrowserResult::GogCode(code));
@@ -703,6 +793,24 @@ mod native {
             }
         }
         unsafe impl WKUIDelegate for Delegate {
+            #[unsafe(method_id(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:))]
+            #[allow(non_snake_case)]
+            unsafe fn webView_createWebViewWithConfiguration_forNavigationAction_windowFeatures(
+                &self,
+                _web_view: &WKWebView,
+                configuration: &WKWebViewConfiguration,
+                action: &WKNavigationAction,
+                features: &WKWindowFeatures,
+            ) -> Option<Retained<WKWebView>> {
+                self.create_popup(configuration, action, features)
+            }
+            #[unsafe(method(webViewDidClose:))]
+            #[allow(non_snake_case)]
+            unsafe fn webViewDidClose(&self, _web_view: &WKWebView) {
+                if self.ivars().popup.get() {
+                    self.close();
+                }
+            }
             #[unsafe(method(webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))]
             #[allow(non_snake_case)]
             unsafe fn webView_runJavaScriptAlertPanelWithMessage_initiatedByFrame_completionHandler(
@@ -815,8 +923,53 @@ mod native {
                 fixture_initial_url: fixture.then(|| request.initial_url.to_string()),
                 fixture_started: Cell::new(false),
                 history_buttons: RefCell::default(),
+                popup: Cell::new(false),
             });
             unsafe { objc2::msg_send![super(this), init] }
+        }
+        fn auth_window(&self) -> bool {
+            self.ivars().fixture_initial_url.is_none()
+                && matches!(
+                    self.ivars().purpose.get(),
+                    Some(BrowserPurpose::GogAuth | BrowserPurpose::EpicAuth)
+                )
+        }
+        fn create_popup(
+            &self,
+            configuration: &WKWebViewConfiguration,
+            action: &WKNavigationAction,
+            features: &WKWindowFeatures,
+        ) -> Option<Retained<WKWebView>> {
+            let purpose = *self.ivars().purpose.get().unwrap();
+            if self.ivars().popup.get()
+                || self.ivars().fixture_initial_url.is_some()
+                || !matches!(purpose, BrowserPurpose::GogAuth | BrowserPurpose::EpicAuth)
+            {
+                return None;
+            }
+            let raw = unsafe { action.request() }
+                .URL()
+                .and_then(|u| u.absoluteString())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            if !(raw.is_empty() || raw == "about:blank" || sign_in_popup_allows(purpose, &raw)) {
+                return None;
+            }
+            let size = |value: Option<Retained<objc2_foundation::NSNumber>>, fallback: f64| {
+                value
+                    .map(|n| n.doubleValue())
+                    .filter(|v| *v >= 320.0 && *v <= 1400.0)
+                    .unwrap_or(fallback)
+            };
+            let width = size(unsafe { features.width() }, 520.0);
+            let height = size(unsafe { features.height() }, 700.0);
+            Some(open_sign_in_popup(
+                MainThreadMarker::from(self),
+                purpose,
+                configuration,
+                width,
+                height,
+            ))
         }
         fn finish(&self, result: MiniBrowserResult) {
             if matches!(
@@ -848,7 +1001,9 @@ mod native {
             // GameJolt is a browsing window: a response turned into a download
             // ends its navigation with WebKitErrorDomain 102, and other load
             // failures must not close the store either (Electron's webview).
-            if *self.ivars().purpose.get().unwrap() == BrowserPurpose::GameJolt {
+            if *self.ivars().purpose.get().unwrap() == BrowserPurpose::GameJolt
+                || self.ivars().popup.get()
+            {
                 return;
             }
             #[cfg(feature = "browser-fixture")]
@@ -999,6 +1154,53 @@ mod native {
             }
         }
     }
+    /// A page's window.open: WebKit requires the new web view to use the
+    /// configuration it hands us (same data store, and window.opener stays
+    /// connected so the provider can post the login back to GOG's page).
+    fn open_sign_in_popup(
+        mtm: MainThreadMarker,
+        purpose: BrowserPurpose,
+        configuration: &WKWebViewConfiguration,
+        width: f64,
+        height: f64,
+    ) -> Retained<WKWebView> {
+        let frame = NSRect::new(NSPoint::new(0., 0.), NSSize::new(width, height));
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+                NSWindow::alloc(mtm),
+                frame,
+                NSWindowStyleMask::Titled
+                    | NSWindowStyleMask::Closable
+                    | NSWindowStyleMask::Resizable,
+                NSBackingStoreType::Buffered,
+                false,
+            )
+        };
+        unsafe { window.setReleasedWhenClosed(false) };
+        window.setTitle(&NSString::from_str("Sign in"));
+        let web = unsafe {
+            WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, configuration)
+        };
+        let delegate = Delegate::alloc(mtm).set_ivars(Ivars {
+            purpose: OnceCell::from(purpose),
+            popup: Cell::new(true),
+            ..Default::default()
+        });
+        let delegate: Retained<Delegate> = unsafe { objc2::msg_send![super(delegate), init] };
+        *delegate.ivars().window.borrow_mut() = Some(window.clone());
+        *delegate.ivars().web_view.borrow_mut() = Some(web.clone());
+        unsafe {
+            web.setNavigationDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            web.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        }
+        window.setContentView(Some(&web));
+        window.center();
+        window.makeKeyAndOrderFront(None);
+        DELEGATES.with(|items| items.borrow_mut().push(delegate));
+        web
+    }
+
     pub fn open(
         mtm: MainThreadMarker,
         request: MiniBrowserRequest,
@@ -1840,6 +2042,58 @@ mod tests {
     #[test]
     fn purpose_allowlist_is_exact_secure_and_scoped() {
         assert!(validate_navigation(BrowserPurpose::GogAuth, "https://auth.gog.com/").is_ok());
+        assert!(
+            validate_navigation(
+                BrowserPurpose::GogAuth,
+                "https://login.gog.com/auth?layout=galaxy"
+            )
+            .is_ok()
+        );
+        assert!(validate_navigation(BrowserPurpose::GogAuth, "https://notgog.com/").is_err());
+        for raw in [
+            "https://external-accounts.gog.com/login/providers/steam/init",
+            "https://steamcommunity.com/openid/login?x=1",
+            "https://accounts.google.com/o/oauth2/v2/auth",
+            "https://login.live.com/oauth20_authorize.srf",
+            "https://discord.com/oauth2/authorize",
+        ] {
+            assert!(sign_in_popup_allows(BrowserPurpose::GogAuth, raw), "{raw}");
+        }
+        for raw in [
+            "http://steamcommunity.com/",
+            "https://steamcommunity.com.evil.test/",
+            "https://user@discord.com/",
+            "https://discord.com:444/",
+            "https://evil.test/",
+        ] {
+            assert!(!sign_in_popup_allows(BrowserPurpose::GogAuth, raw), "{raw}");
+        }
+        assert!(!sign_in_popup_allows(
+            BrowserPurpose::GameJolt,
+            "https://gamejolt.com/"
+        ));
+        for raw in [
+            "https://my.account.sony.com/central/signin/",
+            "https://accounts.nintendo.com/connect/1.0.0/authorize",
+            "https://store.steampowered.com/login/",
+            "https://login.microsoftonline.com/consumers/oauth2",
+            "https://idmsa.apple.com/appleauth/auth/authorize/signin",
+            "https://identity.lego.com/en-US/login",
+            "https://m.facebook.com/login",
+        ] {
+            assert!(
+                validate_navigation(BrowserPurpose::EpicAuth, raw).is_ok(),
+                "{raw}"
+            );
+            assert!(sign_in_popup_allows(BrowserPurpose::EpicAuth, raw), "{raw}");
+        }
+        assert!(
+            validate_navigation(BrowserPurpose::EpicAuth, "https://epicgames.com.evil.test/")
+                .is_err()
+        );
+        assert!(subframe_allowed("https://client-api.arkoselabs.com/fc/gc/"));
+        assert!(!subframe_allowed("http://client-api.arkoselabs.com/"));
+        assert!(!subframe_allowed("https://user@hcaptcha.com/"));
         assert!(
             validate_navigation(
                 BrowserPurpose::GogAuth,
