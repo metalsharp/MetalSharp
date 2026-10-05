@@ -51,6 +51,7 @@ SOURCES := \
 	runtime/epic.c \
 	runtime/gamejolt.c \
 	runtime/gog.c \
+	runtime/steamcmd.c \
 	runtime/ubisoft.c \
 	runtime/game.c \
 	runtime/diagnostics.c \

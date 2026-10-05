@@ -4,6 +4,7 @@
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/steamcmd.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -144,6 +145,8 @@ int main(void) {
                 strerror(errno));
         sleep_half_second();
     }
+    /* steamcmd runs in its own process group; don't leave downloads orphaned. */
+    free(ms_steamcmd_stop_all_json());
     ms_steam_cancel_background_tasks();
     free((void*)context.metalsharp_home);
     return EXIT_SUCCESS;

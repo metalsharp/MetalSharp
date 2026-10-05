@@ -115,6 +115,9 @@ pub(super) struct LiveState {
     pub steam_emu_active: bool,
     pub steam_emu_busy: bool,
     pub collection_saving: HashSet<u64>,
+    /// steamcmd install jobs by appid (latest `/steamcmd/installs` entry).
+    pub steamcmd_installs: HashMap<u64, Value>,
+    pub steamcmd_polling: bool,
     pub play_history: HashMap<String, i64>,
     watch_in_flight: bool,
     health_started: bool,
@@ -177,6 +180,8 @@ impl Default for LiveState {
             steam_emu_active: false,
             steam_emu_busy: false,
             collection_saving: HashSet::new(),
+            steamcmd_installs: HashMap::new(),
+            steamcmd_polling: false,
             play_history: HashMap::new(),
             watch_in_flight: false,
             health_started: false,
@@ -1043,7 +1048,7 @@ impl MetalSharpApp {
         self.games.get(self.selected_game).map(LibGame::key)
     }
 
-    fn request_art(&self, game: &LibGame, cx: &mut Context<Self>) {
+    pub(super) fn request_art(&self, game: &LibGame, cx: &mut Context<Self>) {
         let Some(cache) = crate::artwork::cache(cx) else {
             return;
         };
