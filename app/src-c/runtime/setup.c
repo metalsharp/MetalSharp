@@ -289,7 +289,15 @@ static bool bundle_archive_paths_safe(const char* archive) {
     return safe;
 }
 
+static bool extract_archive_member_to(const char* destination, const char* archive, const char* member);
+
 static bool extract_archive_to(const char* destination, const char* archive) {
+    return extract_archive_member_to(destination, archive, NULL);
+}
+
+/* Stream `archive` through zstd into tar; `member` limits extraction to one
+ * path inside the archive (NULL extracts everything). */
+static bool extract_archive_member_to(const char* destination, const char* archive, const char* member) {
     int compressed[2];
     pid_t zstd_pid, tar_pid;
     int zstd_status = 0, tar_status = 0;
@@ -314,7 +322,10 @@ static bool extract_archive_to(const char* destination, const char* archive) {
         dup2(compressed[0], STDIN_FILENO);
         close(compressed[0]);
         close(compressed[1]);
-        execl("/usr/bin/tar", "tar", "-xf", "-", "-C", destination, (char*)NULL);
+        if (member)
+            execl("/usr/bin/tar", "tar", "-xf", "-", "-C", destination, member, (char*)NULL);
+        else
+            execl("/usr/bin/tar", "tar", "-xf", "-", "-C", destination, (char*)NULL);
         _exit(127);
     }
     close(compressed[0]);
@@ -724,6 +735,38 @@ static bool extract_split_bundle(const char* home, const char* archive_name, con
     }
     remove_path_tree(temp);
     free(archive);
+    return ok;
+}
+
+/* FAudio's Windows build (xWMA via FFmpeg) ships in metalsharp-assets under
+ * assets/faudio. Fresh installs stage it with the support assets; installs
+ * made before it was bundled extract just that folder the first time a game
+ * needs it. */
+bool ms_setup_ensure_faudio(const char* home) {
+    char* installed = home ? join_path(home, "runtime/faudio/x64/xaudio2_7.dll") : NULL;
+    char* archive = NULL;
+    char temp[PATH_MAX];
+    bool ok = installed && access(installed, R_OK) == 0;
+    if (ok || !installed)
+        goto done;
+    archive = find_bundle_archive(home, "metalsharp-assets.tar.zst");
+    if (!archive)
+        goto done;
+    snprintf(temp, sizeof(temp), "%s/.faudio-extract-%ld", home, (long)getpid());
+    remove_path_tree(temp);
+    if (extract_archive_member_to(temp, archive, "assets/faudio")) {
+        char* source = join_path(temp, "assets/faudio");
+        char* destination = join_path(home, "runtime/faudio");
+        if (source && destination)
+            (void)copy_directory_contents(source, destination);
+        free(source);
+        free(destination);
+        ok = access(installed, R_OK) == 0;
+    }
+    remove_path_tree(temp);
+done:
+    free(archive);
+    free(installed);
     return ok;
 }
 
@@ -1591,8 +1634,8 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
     ms_json_writer_string(&writer, "macos");
     ms_json_writer_key(&writer, "dependencies");
     ms_json_writer_array_begin(&writer);
-    dependency_begin(&writer, "homebrew", "Homebrew", "Optional package manager for fallback and extra tools",
-                     homebrew, false, "bash scripts/tools/install-homebrew.sh");
+    dependency_begin(&writer, "homebrew", "Homebrew", "Optional package manager for fallback and extra tools", homebrew,
+                     false, "bash scripts/tools/install-homebrew.sh");
     ms_json_writer_object_end(&writer);
     dependency_begin(&writer, "xcode_cli", "Xcode Command Line Tools",
                      "Provides clang for building native shims (CSteamworks, gdiplus stub)", xcode, true,
@@ -1780,9 +1823,9 @@ static void run_install_all_worker(const char* home) {
                                      configured_tool_available("lsar", "METALSHARP_LSAR_PATH") &&
                                      configured_tool_available("unar", "METALSHARP_UNAR_PATH");
         if (!bundled_archive_tools) {
-            write_install_progress(home, 1, total, "Bundled Tools", "error",
-                                   "MetalSharp bundled tools are missing or not executable",
-                                   "reinstall the application so zstd, icoutils, and The Unarchiver tools are restored");
+            write_install_progress(
+                home, 1, total, "Bundled Tools", "error", "MetalSharp bundled tools are missing or not executable",
+                "reinstall the application so zstd, icoutils, and The Unarchiver tools are restored");
             _exit(0);
         }
         write_install_progress(home, 1, total, "Bundled Tools", "done",
@@ -1820,7 +1863,8 @@ static void run_install_all_worker(const char* home) {
 
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "installing", "Checking zstd...", NULL);
     if (!fixed_zstd_path()) {
-        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error", "Bundled zstd is missing or not executable",
+        write_install_progress(home, 4, total, "Extract Tools (zstd)", "error",
+                               "Bundled zstd is missing or not executable",
                                "reinstall the application so zstd/unzstd are restored");
         _exit(0);
     }
@@ -1893,7 +1937,8 @@ static void run_install_all_worker(const char* home) {
         _exit(0);
     }
     write_install_progress(home, 6, total, "Runtime Assets", "installing", "Checking runtime assets...", NULL);
-    const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine", "runtime/host/manifest.json",
+    const char* runtime_files[] = {"runtime/wine/bin/metalsharp-wine",
+                                   "runtime/host/manifest.json",
                                    "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
                                    "runtime/wine/lib/wine/x86_64-unix/opengl32.so",
                                    "runtime/wine/lib/wine/x86_64-unix/winemac.so",
@@ -1947,6 +1992,7 @@ static void run_install_all_worker(const char* home) {
                                           {"assets/fnalibs", "runtime/fnalibs"},
                                           {"assets/fna-kickstart", "runtime/fna-kickstart"},
                                           {"assets/wine/etc", "runtime/wine/etc"},
+                                          {"assets/faudio", "runtime/faudio"},
                                           {"assets/shader-cache", "shader-cache"}};
         const char* support_dirs[] = {"runtime/mono-x86", "runtime/mono-arm64", "runtime/shims", "runtime/fnalibs",
                                       "runtime/fna-kickstart"};
@@ -2004,16 +2050,14 @@ static void run_install_all_worker(const char* home) {
             if (!temp || !extract_archive_to(temp, archive)) {
                 graphics_ok = false;
             } else {
-                char *src_dxmt = join_path(temp, "Graphics/dll/dxmt"),
-                     *src_dxvk = join_path(temp, "Graphics/dll/dxvk"),
+                char *src_dxmt = join_path(temp, "Graphics/dll/dxmt"), *src_dxvk = join_path(temp, "Graphics/dll/dxvk"),
                      *src_vkd3d = join_path(temp, "Graphics/dll/vkd3d-proton"),
                      *dst_dxmt = join_path(home, "runtime/wine/lib/dxmt"), *dst_dxvk = join_path(home, "vkd3d/dxvk"),
                      *dst_vkd3d = join_path(home, "vkd3d/vkd3d-proton");
                 struct stat dxvk_info, vkd3d_info;
                 bool has_dxvk = src_dxvk && stat(src_dxvk, &dxvk_info) == 0 && S_ISDIR(dxvk_info.st_mode);
                 bool has_vkd3d = src_vkd3d && stat(src_vkd3d, &vkd3d_info) == 0 && S_ISDIR(vkd3d_info.st_mode);
-                graphics_ok = src_dxmt && dst_dxmt &&
-                              copy_directory_contents(src_dxmt, dst_dxmt) &&
+                graphics_ok = src_dxmt && dst_dxmt && copy_directory_contents(src_dxmt, dst_dxmt) &&
                               (!has_dxvk || (dst_dxvk && copy_directory_contents(src_dxvk, dst_dxvk))) &&
                               (!has_vkd3d || (dst_vkd3d && copy_directory_contents(src_vkd3d, dst_vkd3d))) &&
                               sign_dxmt_native_bridges(dst_dxmt) && write_dxmt_manifest(dst_dxmt);
@@ -2530,9 +2574,8 @@ static void run_vcpp_install_worker(const char* home, bool x86) {
     /* ECHILD after the SIG_DFL reset means the exit status is genuinely gone;
      * treat it as indeterminate and let the DLL verification below decide. */
     wait_indeterminate = waited < 0 && errno == ECHILD;
-    if (!wait_indeterminate &&
-        (waited != pid || !WIFEXITED(child_status) ||
-         (WEXITSTATUS(child_status) != 0 && WEXITSTATUS(child_status) != 194))) {
+    if (!wait_indeterminate && (waited != pid || !WIFEXITED(child_status) ||
+                                (WEXITSTATUS(child_status) != 0 && WEXITSTATUS(child_status) != 194))) {
         write_vcpp_progress(home, arch, "error", x86 ? "VC++ x86 installer failed" : "VC++ x64 installer failed");
         _exit(1);
     }

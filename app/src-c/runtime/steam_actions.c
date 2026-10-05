@@ -12,6 +12,7 @@
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam.h"
 #include <ctype.h>
 #include <dirent.h>
@@ -1558,16 +1559,11 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
         files[file_count++] = "d3d10core.dll";
         files[file_count++] = "dxgi.dll";
         files[file_count++] = "winemetal.dll";
-        if (!strcmp(pipeline, "dxmt")) {
-            files[file_count++] = "metalsharp_ntdll_hook.dll";
-        }
     } else {
         goto done;
     }
     for (size_t i = 0; i < file_count; i++) {
-        const char* asset_source =
-            !strcmp(files[i], "metalsharp_ntdll_hook.dll") ? "lib/metalsharp/x86_64-windows" : source;
-        bool staged = stage_route_asset(home, asset_source, files[i], exe_dir);
+        bool staged = stage_route_asset(home, source, files[i], exe_dir);
         bool optional = !strncmp(files[i], "nvapi", 5) || !strncmp(files[i], "nvngx", 5);
         if (!staged && !optional)
             ok = false;
@@ -1584,8 +1580,10 @@ bool ms_steam_stage_route_for_executable(const char* home, const char* pipeline,
                                          const char* executable) {
     if (!home || !pipeline || !game_dir || !executable)
         return false;
+    /* Accept the same route names as bottles ("d3d11" -> dxmt); auto stages nothing. */
+    const char* canonical = canonical_pipeline(pipeline);
     ms_steam_cleanup_route_dlls(home, pipeline, game_dir, executable);
-    return stage_route_dlls(home, 0, pipeline, executable);
+    return stage_route_dlls(home, 0, canonical ? canonical : pipeline, executable);
 }
 
 static const char* default_pipeline_for_appid(const char* home, unsigned appid) {
@@ -2040,7 +2038,9 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
         if (!ms_json_as_string(ms_json_object_get(manifest, "runtime_profile"), &pipeline) || !pipeline)
             goto done;
     canonical = canonical_pipeline(pipeline);
-    if (!canonical || !strcmp(canonical, "auto") || !strcmp(canonical, "dxmt"))
+    /* A saved "dxmt" is an explicit choice (launch honours it the same way);
+     * only an unset/"auto" route falls back to the game's default. */
+    if (!canonical || !strcmp(canonical, "auto"))
         canonical = canonical_pipeline(default_pipeline_for_appid(home, (unsigned)appid));
     if (!canonical)
         goto done;
@@ -2072,6 +2072,9 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
         result = strdup("game executable not found while preparing bottle route");
         goto done;
     }
+    /* Switching routes removes the previous route's bundled DLLs immediately
+     * (byte-identical matches only) before staging the newly selected route. */
+    remove_stale_route_dlls(home, canonical, game_dir, executable);
     if (!stage_route_dlls(home, (unsigned)appid, canonical, executable))
         result = strdup("selected bottle route runtime DLLs are incomplete");
 done:
@@ -2084,6 +2087,49 @@ done:
     free(game_dir);
     ms_json_free(manifest);
     return result;
+}
+
+/* Stage the bottle's route DLLs the first time an installed game is seen
+ * (fresh install, reinstall, or a game detected before the runtime existed),
+ * not only on first launch or an explicit Bottle save. A marker records
+ * success; failures retry on a later library load, once per backend run. */
+void ms_steam_stage_route_on_discovery(const char* home, unsigned id) {
+    static pthread_mutex_t attempted_lock = PTHREAD_MUTEX_INITIALIZER;
+    static unsigned attempted[512];
+    static size_t attempted_count = 0;
+    char bottle_id[64];
+    char* bottles = home ? join(home, "bottles") : NULL;
+    char* dir = NULL;
+    char* marker = NULL;
+    char* error_text = NULL;
+    bool tried = false;
+    if (!bottles || id == 0)
+        goto done;
+    snprintf(bottle_id, sizeof(bottle_id), "steam_%u", id);
+    dir = join(bottles, bottle_id);
+    marker = dir ? join(dir, ".route-staged") : NULL;
+    if (!marker || access(marker, F_OK) == 0)
+        goto done;
+    pthread_mutex_lock(&attempted_lock);
+    for (size_t i = 0; i < attempted_count; i++)
+        if (attempted[i] == id)
+            tried = true;
+    if (!tried && attempted_count < sizeof(attempted) / sizeof(attempted[0]))
+        attempted[attempted_count++] = id;
+    pthread_mutex_unlock(&attempted_lock);
+    if (tried)
+        goto done;
+    error_text = ms_steam_prepare_bottle_route_json(home, bottle_id);
+    if (!error_text) {
+        FILE* file = fopen(marker, "wb");
+        if (file)
+            fclose(file);
+    }
+done:
+    free(error_text);
+    free(marker);
+    free(dir);
+    free(bottles);
 }
 
 static bool mark_steam_bottle_launch(const char* home, unsigned id, pid_t pid) {
@@ -2298,6 +2344,25 @@ static bool executable_helper_name(const char* name) {
     return false;
 }
 
+/* "<Name>Launcher.exe" next to "<Name>.exe" (Bethesda: SkyrimSELauncher /
+ * SkyrimSE, Fallout4Launcher / Fallout4) is a settings launcher, not the game.
+ * Directory order must not decide which one runs. */
+static char* sibling_game_for_launcher(const char* directory, const char* name) {
+    static const char suffix[] = "launcher.exe";
+    size_t length = strlen(name), suffix_length = sizeof(suffix) - 1;
+    char game_name[256];
+    char* path;
+    if (length <= suffix_length || length - suffix_length + 4 >= sizeof(game_name) ||
+        strcasecmp(name + length - suffix_length, suffix))
+        return NULL;
+    snprintf(game_name, sizeof(game_name), "%.*s.exe", (int)(length - suffix_length), name);
+    path = join(directory, game_name);
+    if (path && access(path, R_OK) == 0)
+        return path;
+    free(path);
+    return NULL;
+}
+
 static char* find_game_executable(const char* directory, unsigned depth) {
     DIR* dir;
     struct dirent* entry;
@@ -2317,7 +2382,12 @@ static char* find_game_executable(const char* directory, unsigned depth) {
         if (S_ISREG(info.st_mode)) {
             length = strlen(path);
             if (length > 4 && !strcasecmp(path + length - 4, ".exe") && !executable_helper_name(entry->d_name)) {
+                char* game = sibling_game_for_launcher(directory, entry->d_name);
                 closedir(dir);
+                if (game) {
+                    free(path);
+                    return game;
+                }
                 return path;
             }
         } else if (S_ISDIR(info.st_mode)) {
@@ -2499,6 +2569,8 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
         preferred[count++] = "Overwatch.exe";
     else if (id == 321040)
         preferred[count++] = "dirt3_game.exe";
+    else if (id == 489830)
+        preferred[count++] = "SkyrimSE.exe";
     for (size_t i = 0; i < count; i++) {
         char* path = join(game_dir, preferred[i]);
         if (path && access(path, R_OK) == 0)
@@ -3293,13 +3365,18 @@ static void signal_wine_steam_processes(const char* home, int signal_number) {
 /* SteamSetup may start Steam as soon as its payload is committed.  The setup
  * flow must remain in control until prerequisite installers have run, so tear
  * down every process owned by the Steam prefix, including a wineserver whose
- * command line no longer mentions Steam. */
+ * command line no longer mentions Steam.
+ *
+ * `wineserver -k` goes first so a healthy server kills its whole client tree
+ * at once; a wedged server is bounded to 1 s and then SIGKILLed with every
+ * other prefix-owned process. Returns once nothing owned by the prefix is
+ * left (or after ~3 s), so callers can report `running` without a fixed
+ * sleep. */
 static void terminate_wine_steam_session(const char* home) {
     char* wineserver = join(home, "runtime/wine/bin/wineserver");
     char* prefix = join(home, "prefix-steam");
     pid_t child = -1;
 
-    signal_wine_steam_processes(home, SIGTERM);
     if (wineserver && prefix && access(wineserver, X_OK) == 0 && (child = fork()) == 0) {
         setenv("WINEPREFIX", prefix, 1);
         execl(wineserver, wineserver, "-k", (char*)NULL);
@@ -3307,11 +3384,11 @@ static void terminate_wine_steam_session(const char* home) {
     }
     if (child > 0) {
         int status;
-        for (unsigned i = 0; i < 20; i++) {
+        for (unsigned i = 0; i < 50; i++) {
             pid_t waited = waitpid(child, &status, WNOHANG);
             if (waited == child || (waited < 0 && errno != EINTR))
                 break;
-            usleep(100000);
+            usleep(20000);
         }
         if (waitpid(child, &status, WNOHANG) == 0) {
             (void)kill(child, SIGKILL);
@@ -3320,7 +3397,12 @@ static void terminate_wine_steam_session(const char* home) {
     }
     free(wineserver);
     free(prefix);
-    signal_wine_steam_processes(home, SIGKILL);
+    for (unsigned i = 0; i < 30; i++) {
+        signal_wine_steam_processes(home, SIGKILL);
+        if (!managed_wine_process_running(home, false))
+            break;
+        usleep(100000);
+    }
     clear_wine_steam_route_marker(home);
 }
 
@@ -3380,6 +3462,68 @@ static char* spawn_wine(const char* home, const char* first, const char* second,
     return NULL;
 }
 
+/* The Wine Steam client is started through a tiny LaunchServices helper app
+ * ("MetalSharp Steam.app", shipped in the app's Resources). macOS attributes
+ * a process's first window to the app that launched it, so a direct child of
+ * the backend showed the MetalSharp icon; via the helper it shows the
+ * MetalSharp Steam icon. Returns NULL (direct launch) when the helper is absent. */
+static char* steam_helper_app_path(void) {
+    const char* bundle_dir = getenv("METALSHARP_BUNDLE_DIR");
+    char* candidates[2] = {bundle_dir ? join(bundle_dir, "../MetalSharp Steam.app") : NULL,
+                           strdup("/Applications/MetalSharp.app/Contents/Resources/MetalSharp Steam.app")};
+    char* found = NULL;
+    for (size_t i = 0; i < 2; i++) {
+        char* launcher = candidates[i] ? join(candidates[i], "Contents/MacOS/metalsharp-steam") : NULL;
+        if (!found && launcher && access(launcher, X_OK) == 0) {
+            found = candidates[i];
+            candidates[i] = NULL;
+        }
+        free(launcher);
+        free(candidates[i]);
+    }
+    return found;
+}
+
+static bool is_steam_client_executable(const char* path) {
+    size_t length = path ? strlen(path) : 0;
+    return length >= 9 && !strcasecmp(path + length - 9, "Steam.exe") &&
+           (length == 9 || path[length - 10] == '/' || path[length - 10] == '\\');
+}
+
+/* Child side of the fork: exec `open` on the helper, forwarding the prepared
+ * environment (minus MetalSharp's own launch identity) and the Wine argv.
+ * Returns only if exec failed, so the caller falls back to a direct exec. */
+static void exec_via_steam_helper(const char* helper, const char* cwd, char* const* wine_argv) {
+    extern char** environ;
+    size_t env_count = 0, argc = 0, index = 0;
+    char** argv;
+    setenv("METALSHARP_LAUNCH_CWD", cwd ? cwd : "", 1);
+    while (environ[env_count])
+        env_count++;
+    while (wine_argv[argc])
+        argc++;
+    argv = calloc(env_count * 2 + argc + 8, sizeof(*argv));
+    if (!argv)
+        return;
+    argv[index++] = "/usr/bin/open";
+    argv[index++] = "-n";
+    argv[index++] = "-a";
+    argv[index++] = (char*)helper;
+    for (size_t i = 0; i < env_count; i++) {
+        if (!strncmp(environ[i], "__CFBundleIdentifier=", 21) || !strncmp(environ[i], "XPC_SERVICE_NAME=", 17) ||
+            !strncmp(environ[i], "XPC_FLAGS=", 10))
+            continue;
+        argv[index++] = "--env";
+        argv[index++] = environ[i];
+    }
+    argv[index++] = "--args";
+    for (size_t i = 0; i < argc; i++)
+        argv[index++] = wine_argv[i];
+    argv[index] = NULL;
+    execv("/usr/bin/open", argv);
+    free(argv);
+}
+
 static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, unsigned id, const char* first,
                                      const char* second, const char* third, const char* fourth, const char* fifth,
                                      pid_t* pid) {
@@ -3396,9 +3540,11 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
     redirect_wine_steam_desktop(home);
     ensure_steam_launch_ready(home, steam_dir);
     seed_steam_registry(home);
+    char* helper = id == 0 && is_steam_client_executable(first) ? steam_helper_app_path() : NULL;
     child = fork();
     if (child < 0) {
         char* error_text = strdup(strerror(errno));
+        free(helper);
         free(wine);
         free(prefix);
         free(steam_dir);
@@ -3427,9 +3573,14 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
             unsetenv("WINEDLLOVERRIDES");
         if (steam_dir)
             (void)chdir(steam_dir);
+        if (helper) {
+            char* wine_argv[] = {wine, (char*)first, (char*)second, (char*)third, (char*)fourth, (char*)fifth, NULL};
+            exec_via_steam_helper(helper, steam_dir, wine_argv);
+        }
         execl(wine, wine, first, second, third, fourth, fifth, (char*)NULL);
         _exit(127);
     }
+    free(helper);
     free(wine);
     free(prefix);
     free(steam_dir);
@@ -3545,6 +3696,105 @@ static char* launch_mode_waiting_result(unsigned id) {
     return ms_json_writer_take(&w);
 }
 
+/* Ask a running Wine Steam client to show its library. Returns false when
+ * there is no live client (only leftover helpers) or when the forwarding
+ * Wine process hangs, which means the session's wineserver is wedged; the
+ * caller then restarts Steam. `*error_text` is set only for spawn failures. */
+static bool activate_wine_steam(const char* home, const char* steam, pid_t* pid, char** error_text) {
+    pid_t child = -1;
+    if (wine_steam_client_pid(home) <= 0)
+        return false;
+    *error_text = spawn_wine_install(home, steam, "steam://open/library", NULL, &child);
+    if (*error_text)
+        return false;
+    *pid = child;
+    for (unsigned i = 0; i < 160; i++) {
+        int wait_status;
+        pid_t waited = waitpid(child, &wait_status, WNOHANG);
+        /* ECHILD: a process-wide SIGCHLD reaper collected it, so it exited. */
+        if (waited == child || (waited < 0 && errno == ECHILD))
+            return true;
+        if (waited < 0 && errno != EINTR)
+            return true;
+        usleep(50000);
+    }
+    (void)kill(child, SIGKILL);
+    (void)waitpid(child, NULL, 0);
+    return false;
+}
+
+/* Steam's CEF webhelper writes htmlcache/"First Run" once its UI has
+ * initialized. The very first launch under Wine can stall right after
+ * creating the cache (observed: no progress for 30+ s, while a relaunch
+ * finishes in about a second), so a cold start that has never initialized
+ * gets one automatic restart if the UI is not up within 10 s. */
+static bool steam_ui_initialized(const char* home) {
+    char* users = join(home, "prefix-steam/drive_c/users");
+    DIR* dir = users ? opendir(users) : NULL;
+    struct dirent* entry;
+    bool found = false;
+    while (dir && !found && (entry = readdir(dir)) != NULL) {
+        char path[PATH_MAX];
+        if (entry->d_name[0] == '.')
+            continue;
+        snprintf(path, sizeof(path), "%s/%s/AppData/Local/Steam/htmlcache/First Run", users, entry->d_name);
+        found = access(path, F_OK) == 0;
+    }
+    if (dir)
+        closedir(dir);
+    free(users);
+    return found;
+}
+
+static pthread_mutex_t steam_ui_watch_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool steam_ui_watch_active = false;
+static bool steam_ui_restart_used = false;
+
+static void* steam_ui_first_run_watchdog(void* opaque) {
+    char* home = opaque;
+    bool restart = false;
+    for (int i = 0; i < 100; i++) {
+        if (ms_process_background_shutdown_requested() || steam_ui_initialized(home) || !ms_steam_process_running(home))
+            goto done;
+        usleep(100000);
+    }
+    restart = !steam_ui_initialized(home) && ms_steam_process_running(home);
+done:
+    pthread_mutex_lock(&steam_ui_watch_lock);
+    steam_ui_watch_active = false;
+    if (restart)
+        steam_ui_restart_used = true;
+    pthread_mutex_unlock(&steam_ui_watch_lock);
+    if (restart && !ms_process_background_shutdown_requested()) {
+        ms_log_event(home, "Steam UI did not finish first-run setup; restarting Wine Steam");
+        terminate_wine_steam_session(home);
+        free(ms_steam_launch_json(home, NULL));
+    }
+    free(home);
+    return NULL;
+}
+
+static void watch_steam_ui_first_run(const char* home) {
+    pthread_t thread;
+    char* copy;
+    pthread_mutex_lock(&steam_ui_watch_lock);
+    if (steam_ui_watch_active || steam_ui_restart_used) {
+        pthread_mutex_unlock(&steam_ui_watch_lock);
+        return;
+    }
+    steam_ui_watch_active = true;
+    pthread_mutex_unlock(&steam_ui_watch_lock);
+    copy = strdup(home);
+    if (!copy || pthread_create(&thread, NULL, steam_ui_first_run_watchdog, copy) != 0) {
+        free(copy);
+        pthread_mutex_lock(&steam_ui_watch_lock);
+        steam_ui_watch_active = false;
+        pthread_mutex_unlock(&steam_ui_watch_lock);
+        return;
+    }
+    (void)pthread_detach(thread);
+}
+
 char* ms_steam_launch_json(const char* home, int* status) {
     char* steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
     char* ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
@@ -3572,30 +3822,39 @@ char* ms_steam_launch_json(const char* home, int* status) {
     if (ms_steam_process_running(home)) {
         if (wine_steam_route_marker_is_pending(home, "d3dmetal"))
             (void)write_wine_steam_route_marker(home, "d3dmetal");
-        errtext = spawn_wine_install(home, steam, "steam://open/library", NULL, &pid);
-        free(steam);
-        free(ui);
-        free(steam_dir);
+        errtext = NULL;
+        if (activate_wine_steam(home, steam, &pid, &errtext)) {
+            free(steam);
+            free(ui);
+            free(steam_dir);
+            if (status)
+                *status = 200;
+            return pid_result(pid, "pid", 0, false);
+        }
         if (errtext) {
             char* o = err(errtext);
             free(errtext);
+            free(steam);
+            free(ui);
+            free(steam_dir);
             return o;
         }
-        if (status)
-            *status = 200;
-        return pid_result(pid, "pid", 0, false);
+        /* Leftover helpers without a live client, or a wedged session that
+         * cannot forward the request: start over instead of reporting a
+         * launch that never shows Steam. */
+        terminate_wine_steam_session(home);
     }
-    ensure_steam_launch_ready(home, steam_dir);
-    seed_steam_registry(home);
     /* Start the shared Wine Steam client with D3DMetal available so Steam-
-     * launched games inherit the same verified environment. Never restart an
-     * already-running client here; the branch above only activates it. */
+     * launched games inherit the same verified environment. Never restart a
+     * responsive client here; the branch above only activates it.
+     * spawn_wine_for_pipeline prepares the webhelper wrappers and registry. */
+    bool ui_never_initialized = !steam_ui_initialized(home);
     errtext = spawn_wine_for_pipeline(home, "d3dmetal", 0, steam, "-no-cef-sandbox", "-cef-single-process",
                                       "-noverifyfiles", "-no-dwrite", &pid);
     if (!errtext) {
         (void)write_wine_steam_route_pending(home, "d3dmetal");
-        for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
-            sleep(1);
+        for (int i = 0; i < 120 && !ms_steam_process_running(home); i++)
+            usleep(100000);
     }
     free(steam);
     free(ui);
@@ -3609,6 +3868,8 @@ char* ms_steam_launch_json(const char* home, int* status) {
         return err("Wine Steam was started but did not become ready");
     if (!write_wine_steam_route_marker(home, "d3dmetal"))
         return err("Wine Steam is running, but its D3DMetal launch environment could not be verified");
+    if (ui_never_initialized)
+        watch_steam_ui_first_run(home);
     if (status)
         *status = 200;
     return pid_result(pid, "pid", 0, false);
@@ -3646,8 +3907,8 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
     free(steam_dir);
     if (error_text)
         return error_text;
-    for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
-        sleep(1);
+    for (int i = 0; i < 120 && !ms_steam_process_running(home); i++)
+        usleep(100000);
     if (!ms_steam_process_running(home))
         return strdup("Wine Steam was started but did not become ready for this graphics route");
     if (!write_wine_steam_route_marker(home, pipeline))
@@ -3659,7 +3920,6 @@ char* ms_steam_stop_json(const char* home, int* status) {
     if (status)
         *status = 200;
     terminate_wine_steam_session(home);
-    usleep(500000);
     {
         ms_json_writer w;
         bool running = managed_wine_process_running(home, false);
@@ -4302,6 +4562,68 @@ char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
     return ms_json_writer_take(&writer);
 }
 
+/* True when `section` (registry path as written in user.reg, e.g.
+ * `Software\\Wine\\Mac Driver`) exists in `text` and contains every line in
+ * `values`. Section names compare case-insensitively like the registry. */
+static bool user_reg_section_has(const char* text, const char* section, const char* const* values, size_t count) {
+    size_t section_length = strlen(section);
+    for (const char* line = text; line && *line;) {
+        const char* next = strchr(line, '\n');
+        if (line[0] == '[' && !strncasecmp(line + 1, section, section_length) && line[1 + section_length] == ']') {
+            const char* body = next ? next + 1 : NULL;
+            const char* end = body;
+            while (end && *end && *end != '[') {
+                const char* eol = strchr(end, '\n');
+                end = eol ? eol + 1 : end + strlen(end);
+            }
+            for (size_t i = 0; i < count; i++) {
+                size_t value_length = strlen(values[i]);
+                bool found = false;
+                for (const char* cursor = body; cursor && cursor < end;) {
+                    const char* eol = strchr(cursor, '\n');
+                    size_t length = eol ? (size_t)(eol - cursor) : strlen(cursor);
+                    if (length && cursor[length - 1] == '\r')
+                        length--;
+                    if (length == value_length && !strncmp(cursor, values[i], value_length)) {
+                        found = true;
+                        break;
+                    }
+                    cursor = eol ? eol + 1 : NULL;
+                }
+                if (!found)
+                    return false;
+            }
+            return true;
+        }
+        line = next ? next + 1 : NULL;
+    }
+    return false;
+}
+
+/* `wine reg import` cold-boots a wineserver and costs seconds on every Steam
+ * start. The values only change with the Retina setting, so skip the import
+ * when the prefix's user.reg already carries all of them. */
+static bool steam_registry_seeded(const char* prefix, bool retina) {
+    static const char* const overrides[] = {"\"d3d12\"=\"builtin\"", "\"d3d12core\"=\"builtin\"",
+                                            "\"d3d12SDKLayers\"=\"builtin\"", "\"dxcore\"=\"builtin\""};
+    static const char* const apps[] = {"steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe"};
+    const char* retina_line = retina ? "\"RetinaMode\"=\"Y\"" : "\"RetinaMode\"=\"N\"";
+    const char* dpi_line = retina ? "\"LogPixels\"=dword:000000c0" : "\"LogPixels\"=dword:00000060";
+    char* path = join(prefix, "user.reg");
+    char* text = path ? read_bounded_file(path) : NULL;
+    bool seeded = text != NULL;
+    for (size_t i = 0; seeded && i < sizeof(apps) / sizeof(apps[0]); i++) {
+        char section[256];
+        snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\DllOverrides", apps[i]);
+        seeded = user_reg_section_has(text, section, overrides, sizeof(overrides) / sizeof(overrides[0]));
+    }
+    seeded = seeded && user_reg_section_has(text, "Software\\\\Wine\\\\Mac Driver", &retina_line, 1) &&
+             user_reg_section_has(text, "Control Panel\\\\Desktop", &dpi_line, 1);
+    free(text);
+    free(path);
+    return seeded;
+}
+
 static void seed_steam_registry(const char* home) {
     char* prefix = join(home, "prefix-steam");
     char* drive_c = prefix ? join(prefix, "drive_c") : NULL;
@@ -4311,6 +4633,8 @@ static void seed_steam_registry(const char* home) {
     pid_t pid;
     char* error_text;
     if (!prefix || !drive_c || !reg_file || !ensure_directory(drive_c))
+        goto done;
+    if (steam_registry_seeded(prefix, retina))
         goto done;
     f = fopen(reg_file, "wb");
     if (!f)
@@ -4343,6 +4667,131 @@ done:
     free(prefix);
     free(drive_c);
     free(reg_file);
+}
+
+/* Games whose dialogue is xWMA. Wine decodes xWMA through winegstreamer, and
+ * the x86_64 runtime cannot load GStreamer on Apple Silicon, so NPC voices are
+ * silent. FAudio's Windows build (FFmpeg xWMA decoder, from the
+ * metalsharp-assets bundle) goes into the Steam prefix's system32, and only
+ * the game's own executable prefers it, so no other title changes audio. */
+static const struct {
+    unsigned appid;
+    const char* exe;
+} faudio_games[] = {{489830, "SkyrimSE.exe"}};
+static const char* const faudio_files[] = {"xaudio2_7.dll",    "x3daudio1_7.dll", "xapofx1_5.dll",
+                                           "FAudio.dll",       "avcodec-58.dll",  "avutil-56.dll",
+                                           "swresample-3.dll", "SDL2.dll",        "libwinpthread-1.dll"};
+static const char* const faudio_overrides[] = {"\"xaudio2_7\"=\"native,builtin\"", "\"x3daudio1_7\"=\"native,builtin\"",
+                                               "\"xapofx1_5\"=\"native,builtin\""};
+
+/* Unpacked from metalsharp-assets (assets/faudio -> runtime/faudio/x64). */
+static char* faudio_source_dir(const char* home) {
+    char* dir = join(home, "runtime/faudio/x64");
+    char* probe = dir ? join(dir, "xaudio2_7.dll") : NULL;
+    bool ready = probe && (access(probe, R_OK) == 0 || (ms_setup_ensure_faudio(home) && access(probe, R_OK) == 0));
+    free(probe);
+    if (!ready) {
+        free(dir);
+        return NULL;
+    }
+    return dir;
+}
+
+static bool same_file_size(const char* left, const char* right) {
+    struct stat a, b;
+    return stat(left, &a) == 0 && stat(right, &b) == 0 && a.st_size == b.st_size;
+}
+
+bool ms_steam_ensure_game_audio_fix(const char* home, unsigned appid) {
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static unsigned failed[64];
+    static size_t failed_count = 0;
+    const char* exe = NULL;
+    char marker[PATH_MAX];
+    char installed[PATH_MAX];
+    char section[256];
+    char* source = NULL;
+    char* prefix = home ? join(home, "prefix-steam") : NULL;
+    char* system32 = prefix ? join(prefix, "drive_c/windows/system32") : NULL;
+    char* user_reg = prefix ? join(prefix, "user.reg") : NULL;
+    char* text = NULL;
+    bool files_ready = true;
+    bool ok = false;
+    for (size_t i = 0; i < sizeof(faudio_games) / sizeof(faudio_games[0]); i++)
+        if (faudio_games[i].appid == appid)
+            exe = faudio_games[i].exe;
+    if (!exe) {
+        ok = true;
+        goto done;
+    }
+    if (!system32 || access(system32, F_OK) != 0)
+        goto done;
+    snprintf(marker, sizeof(marker), "%s/bottles/steam_%u/.audio-fix", home, appid);
+    snprintf(installed, sizeof(installed), "%s/xaudio2_7.dll", system32);
+    if (access(marker, F_OK) == 0 && access(installed, F_OK) == 0) {
+        ok = true;
+        goto done;
+    }
+    pthread_mutex_lock(&lock);
+    for (size_t i = 0; i < failed_count; i++)
+        if (failed[i] == appid) {
+            pthread_mutex_unlock(&lock);
+            goto done;
+        }
+    source = faudio_source_dir(home);
+    for (size_t i = 0; source && i < sizeof(faudio_files) / sizeof(faudio_files[0]); i++) {
+        char* from = join(source, faudio_files[i]);
+        char* to = join(system32, faudio_files[i]);
+        if (!from || !to || (!same_file_size(from, to) && !copy_file_path(from, to)))
+            files_ready = false;
+        free(from);
+        free(to);
+    }
+    snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\DllOverrides", exe);
+    text = user_reg ? read_bounded_file(user_reg) : NULL;
+    if (source && files_ready &&
+        !(text && user_reg_section_has(text, section, faudio_overrides,
+                                       sizeof(faudio_overrides) / sizeof(faudio_overrides[0])))) {
+        char* reg_file = join(prefix, "drive_c/metalsharp-faudio.reg");
+        FILE* f = reg_file ? fopen(reg_file, "wb") : NULL;
+        pid_t pid;
+        char* error_text;
+        if (f) {
+            fputs("Windows Registry Editor Version 5.00\r\n\r\n", f);
+            fprintf(f, "[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\%s\\DllOverrides]\r\n", exe);
+            for (size_t i = 0; i < sizeof(faudio_overrides) / sizeof(faudio_overrides[0]); i++)
+                fprintf(f, "%s\r\n", faudio_overrides[i]);
+            fclose(f);
+            error_text = spawn_wine_install(home, "reg", "import", "C:\\metalsharp-faudio.reg", &pid);
+            if (error_text)
+                files_ready = false;
+            else if (!wait_child_success(pid))
+                files_ready = false;
+            free(error_text);
+        } else {
+            files_ready = false;
+        }
+        free(reg_file);
+    }
+    ok = source && files_ready;
+    if (!ok && failed_count < sizeof(failed) / sizeof(failed[0]))
+        failed[failed_count++] = appid;
+    pthread_mutex_unlock(&lock);
+    if (ok) {
+        char message[160];
+        FILE* file = fopen(marker, "wb");
+        if (file)
+            fclose(file);
+        snprintf(message, sizeof(message), "FAudio xWMA audio fix installed for %s", exe);
+        ms_log_event(home, message);
+    }
+done:
+    free(text);
+    free(source);
+    free(user_reg);
+    free(system32);
+    free(prefix);
+    return ok;
 }
 
 static void write_steam_install_stage(const char* home, const char* stage) {
@@ -4983,6 +5432,15 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         close(exec_pipe[1]);
         return strdup("Wine ntdll route variant is missing or could not be installed");
     }
+    /* Settings -> Graphics runtime logs: keep Wine's stderr for every game
+     * (errors, DLL loads, exceptions) instead of discarding it. */
+    char runtime_log[PATH_MAX] = "";
+    if (ms_config_graphics_runtime_logs_enabled(home)) {
+        char runtime_log_dir[PATH_MAX];
+        snprintf(runtime_log_dir, sizeof(runtime_log_dir), "%s/logs/%s/%u", home, pipeline, id);
+        if (ensure_directory(runtime_log_dir))
+            snprintf(runtime_log, sizeof(runtime_log), "%s/launch.stderr.log", runtime_log_dir);
+    }
     child = fork();
     if (child < 0) {
         char* error = strdup(strerror(errno));
@@ -5014,6 +5472,17 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         ms_steam_apply_launch_preferences(home);
         set_game_opengl_env(id, pipeline);
         set_launch_cache_env(home, id, pipeline);
+        if (runtime_log[0]) {
+            int log_fd = open(runtime_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (log_fd >= 0) {
+                setenv("WINEDEBUG", "err+all,+loaddll,+seh", 1);
+                (void)dup2(log_fd, STDERR_FILENO);
+                (void)dup2(log_fd, STDOUT_FILENO);
+                close(log_fd);
+                dprintf(STDERR_FILENO, "\n--- MetalSharp launch appid=%u pipeline=%s ---\nexecutable=%s\n", id,
+                        pipeline, executable);
+            }
+        }
         if (id == 312520 || id == 2357570) {
             char diagnostic_path[PATH_MAX];
             int diagnostic_fd;
@@ -5444,6 +5913,14 @@ static bool ubisoft_connect_installed(const char* home) {
 
 static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline) {
     return id == 2767030 && pipeline && !strcmp(pipeline, "d3dmetal");
+}
+
+/* Games that must be started by the Wine Steam client on every route. AMID
+ * EVIL (673130) intermittently exits during startup when its shipping exe is
+ * launched directly, but starts reliably through Steam (AmidEvil.exe ->
+ * AmidEvil-Win64-Shipping.exe AmidEvil) with the same staged route DLLs. */
+static bool launches_through_steam_client(unsigned id) {
+    return id == 673130;
 }
 
 static bool baldurs_gate_3_uses_steam_bootstrap(unsigned id, const char* pipeline) {
@@ -5877,7 +6354,9 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                 *status = 400;
             return err("unknown pipeline");
         }
-        if (!strcmp(canonical, "auto") || !strcmp(canonical, "dxmt")) {
+        /* Only an unset/"auto" route defers to the saved bottle; an explicit
+         * route (including "dxmt") is launched as selected. */
+        if (!strcmp(canonical, "auto")) {
             if (bottle_pipeline_value(home, id, saved_pipeline, sizeof(saved_pipeline)) && saved_pipeline[0] &&
                 canonical_pipeline(saved_pipeline))
                 snprintf(pipeline, sizeof(pipeline), "%s", canonical_pipeline(saved_pipeline));
@@ -5957,6 +6436,7 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     }
     game_dir = ms_steam_game_dir(home, id);
     ms_steam_deploy_controller_input_shims(home, game_dir);
+    (void)ms_steam_ensure_game_audio_fix(home, id);
     prepare_real_steam_launch(home, game_dir, executable, id, pipeline);
     if (id == 8500) {
         char* eve_client = latest_eve_online_client_executable(game_dir);
@@ -5987,6 +6467,24 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
                 *status = 500;
             return err("required graphics runtime DLLs are missing");
         }
+    }
+    if (launches_through_steam_client(id)) {
+        pid_t steam_pid = 0;
+        int steam_status = 500;
+        char* result = launch_game_via_steam_json(home, id, &steam_status, &steam_pid);
+        free(game_dir);
+        free(executable);
+        if (!result || steam_status >= 400) {
+            if (status)
+                *status = steam_status;
+            return result ? result : err("Steam handoff failed");
+        }
+        free(result);
+        ms_process_register_pending_game(id, steam_pid, 15);
+        record_launch_timing(home, id, started_at, pipeline);
+        if (status)
+            *status = 200;
+        return launch_mode_pid_result(steam_pid, id, "steam_handoff");
     }
     if (marvel_rivals_uses_steam_bootstrap(id, pipeline)) {
         pid_t steam_pid = 0;
@@ -6265,7 +6763,7 @@ char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, si
                 *status = 400;
             return err("unknown pipeline");
         }
-        if (!strcmp(requested_canonical, "auto") || !strcmp(requested_canonical, "dxmt")) {
+        if (!strcmp(requested_canonical, "auto")) {
             const char* saved_canonical =
                 bottle_pipeline_value(home, id, saved, sizeof(saved)) ? canonical_pipeline(saved) : NULL;
             const char* default_canonical = canonical_pipeline(default_pipeline_for_appid(home, id));
@@ -6290,8 +6788,6 @@ char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, si
         snprintf(source_dir, sizeof(source_dir), "%s/runtime/wine/lib/dxmt/%s-windows", home, arch);
         for (size_t i = 0; i < sizeof(common) / sizeof(common[0]); i++)
             dlls[dll_count++] = common[i];
-        if (!strcmp(pipeline, "dxmt"))
-            dlls[dll_count++] = "metalsharp_ntdll_hook.dll";
         for (size_t i = 0; i < dll_count; i++) {
             char* source = join(source_dir, dlls[i]);
             bool present = source && access(source, R_OK) == 0;

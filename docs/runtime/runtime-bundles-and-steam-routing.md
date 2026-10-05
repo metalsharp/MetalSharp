@@ -9,20 +9,18 @@ The manifest-tracked assets are listed in `tools/bundles/asset-manifest.tsv`. Th
 
 | Asset | Contents |
 |---|---|
-| `metalsharp-electron.tar.zst` | `electron/`, the built Electron application payload |
 | `metalsharp-graphics-dll.tar.zst` | `Graphics/dll/`, the DXMT baseline surface and the isolated D3D12 surface |
 | `metalsharp-runtime.tar.zst` | `runtime/`, the patched Wine 11.17 runtime, host ABI, and managed payloads including D3DMetal |
 | `metalsharp-assets.tar.zst` | `assets/`, Mono, Goldberg, EAC toggle, shims, and compatibility support |
 | `metalsharp-scripts-tools.tar.zst` | `scripts/tools/`, updater scripts, configs, native tools, CEF helpers |
 | `metalsharp-steam.tar.zst` | `steam/`, the Steam installer and Steam CEF wrapper |
-| `metalsharp-d3d12-developer-sdk.tar.zst` | `developer-sdk/d3d12/`, D3D12 contracts, probes, scripts, docs, staged Wine runtime, DXMT DLLs, winemetal bridge files |
 
 Verification commands:
 
 ```bash
 tools/bundles/verify-bundles.sh --require mac
 tools/bundles/verify-bundles.sh --release
-tools/bundles/verify-developer-sdk.sh app/bundles/metalsharp-d3d12-developer-sdk.tar.zst
+tools/bundles/verify-developer-sdk.sh dist/developer-sdk/metalsharp-d3d12-developer-sdk.tar.zst
 ```
 
 ## Installer Acceptance

@@ -679,6 +679,52 @@ static char* epic_installed_game_path(const char* home, const char* app_name) {
     return install_path;
 }
 
+/* Put the bottle's graphics route DLLs next to the game's exe (the same staging
+ * Steam games get), or clear MetalSharp's route DLLs for Auto/Wine. */
+static bool epic_stage_route(const char* home, const char* app_name, const char* pipeline,
+                             const char* known_executable) {
+    char* path = epic_legendary_installed_path(home);
+    char* raw = path ? epic_read_text(path, LEGENDARY_MAX_OUTPUT) : NULL;
+    char error[160];
+    ms_json* installed = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
+    const ms_json* record = installed_for_app(installed, app_name);
+    char* install_path = json_string_field(record, "install_path");
+    char* relative = json_string_field(record, "executable");
+    char* executable = NULL;
+    bool ok = false;
+    free(path);
+    free(raw);
+    ms_json_free(installed);
+    if (!install_path)
+        goto done;
+    if (known_executable && known_executable[0])
+        executable = strdup(known_executable);
+    else if (ms_game_executable_override_load(home, "epic", app_name, install_path, &executable) == 0) {
+        executable = ms_witcher3_game_executable(install_path);
+        if (!executable && relative && relative[0]) {
+            executable = relative[0] == '/' ? strdup(relative) : epic_join(install_path, relative);
+            if (executable && access(executable, F_OK) != 0) {
+                free(executable);
+                executable = NULL;
+            }
+        }
+        if (!executable)
+            executable = ms_game_find_executable_in_directory(install_path);
+    }
+    if (!executable)
+        goto done;
+    if (!pipeline || !pipeline[0] || !strcmp(pipeline, "auto") || !strcmp(pipeline, "wine_bare")) {
+        ms_steam_cleanup_route_dlls(home, pipeline && pipeline[0] ? pipeline : "auto", install_path, executable);
+        ok = true;
+    } else
+        ok = ms_steam_stage_route_for_executable(home, pipeline, install_path, executable);
+done:
+    free(executable);
+    free(relative);
+    free(install_path);
+    return ok;
+}
+
 static char* epic_thegamesdb_key_path(const char* home) {
     return epic_join(home, "cache/thegamesdb_config.json");
 }
@@ -1791,6 +1837,8 @@ char* ms_epic_initialize_json(const char* home, const unsigned char* body, size_
         result = epic_failure("could not initialize the isolated Epic game bottle");
         goto done;
     }
+    /* Saving the bottle applies its route to the installed game right away. */
+    (void)epic_stage_route(home, app_name, pipeline, NULL);
     ms_json_writer writer;
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
@@ -1895,6 +1943,7 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
         }
         if (saved_executable_status == 0)
             override_exe = ms_witcher3_game_executable(install_path);
+        (void)epic_stage_route(home, app_name, pipeline, override_exe);
     }
     if (configure_epic_mouse(home, prefix, mouse_mode) != 0) {
         result = epic_failure("could not apply Epic game mouse settings");

@@ -13,6 +13,7 @@ typedef struct {
     char* target;
     char* path;
     char* query;
+    char* client_token;
     unsigned char* body;
     size_t body_length;
 } ms_http_request;
@@ -31,5 +32,10 @@ void ms_http_request_free(ms_http_request* request);
 
 /* Serve loopback HTTP/1.1 requests until stop_flag becomes non-zero. */
 int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler, void* context);
+/* Capture and unset the optional per-launch token before any helper is started.
+ * Returns 0 for legacy mode, 1 for authenticated mode, -1 for invalid configuration. */
+int ms_http_take_client_token(char token[65]);
+int ms_http_serve_authenticated(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler,
+                                void* context, const char* client_token);
 
 #endif

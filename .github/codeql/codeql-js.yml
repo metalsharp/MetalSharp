@@ -1,4 +1,0 @@
-paths:
-  - app/src/main
-  - app/src/shared
-  - app/vite.config.ts

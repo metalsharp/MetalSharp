@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -39,32 +38,37 @@ def manifest_assets() -> list[str]:
 
 
 def check_package_resources(assets: list[str]) -> None:
-    package = json.loads(read("app/package.json"))
-    build = package.get("build", {})
-    resources = build.get("extraResources", [])
-    if not isinstance(resources, list):
-        fail("app/package.json build.extraResources must be a list")
+    """The GPUI release package must carry the same runtime payload the
+    Electron extraResources did."""
+    packaging = read("app-gpui/package-local-preview.sh")
+    for needle in [
+        "app/src-c/build/metalsharp-backend\" \"$CONTENTS/Resources/runtime/metalsharp-backend",
+        "app/native/host\" \"$CONTENTS/Resources/runtime/host",
+        "app/updater\" \"$CONTENTS/Resources/scripts/tools/",
+        'cp "$source" "$CONTENTS/Resources/bundles/"',
+        "METALSHARP_GPUI_REQUIRE_BUNDLES",
+    ]:
+        if needle not in packaging:
+            fail(f"GPUI packaging no longer stages {needle}")
+    bundle_loop = next((line for line in packaging.splitlines() if line.strip().startswith("for archive in")), "")
+    for asset in assets:
+        if asset == "metalsharp-d3d12-developer-sdk.tar.zst":
+            continue
+        if asset.removesuffix(".tar.zst") not in {word.strip(";") for word in bundle_loop.split()}:
+            fail(f"GPUI packaging no longer bundles {asset}")
 
-    pairs = {
-        (entry.get("from"), entry.get("to"))
-        for entry in resources
-        if isinstance(entry, dict)
-    }
-    required_pairs = {
-        ("src-c/build/metalsharp-backend", "runtime/metalsharp-backend"),
-        ("native/host", "runtime/host"),
-        ("updater", "scripts/tools/updater"),
-    }
-    required_pairs.update((f"bundles/{asset}", f"bundles/{asset}") for asset in assets)
-
-    missing = sorted(required_pairs - pairs)
-    if missing:
-        fail(f"app/package.json missing extraResources entries: {missing}")
-
-    if build.get("afterPack") != "build/adhoc-deep-sign.cjs":
-        fail("app/package.json must keep afterPack=build/adhoc-deep-sign.cjs")
-    if build.get("afterSign") != "build/notarize.cjs":
-        fail("app/package.json must keep afterSign=build/notarize.cjs")
+    release_package = read("app-gpui/package-app.sh")
+    for needle in [
+        'METALSHARP_GPUI_APP_BUNDLE_NAME="MetalSharp.app"',
+        'METALSHARP_GPUI_APP_BUNDLE_ID="com.metalsharp.app"',
+        'METALSHARP_GPUI_APP_EXECUTABLE="MetalSharp"',
+        "METALSHARP_GPUI_CARGO_PROFILE=release",
+        "METALSHARP_GPUI_PACKAGE_BACKEND=1",
+        'METALSHARP_GPUI_REQUIRE_BUNDLES="${METALSHARP_GPUI_REQUIRE_BUNDLES:-1}"',
+        "CMakeLists.txt",
+    ]:
+        if needle not in release_package:
+            fail(f"app-gpui/package-app.sh lost release identity/contract: {needle}")
 
 
 def check_dmg_verifier(assets: list[str]) -> None:
@@ -97,13 +101,13 @@ def check_updater_handoff() -> None:
             if needle not in updater:
                 fail(f"{path} no longer mounts the downloaded DMG on a private update mount point before install")
 
-    bridge = read("app/src/main/updater-bridge.ts")
-    renderer = read("app/src/renderer/App.vue")
-    if 'variant === "regular"' not in bridge or '[this.scriptPath, "--recover"]' not in bridge:
+    bridge = read("app-gpui/src/updater_bridge.rs")
+    controller = read("app-gpui/src/ui_live.rs")
+    if 'variant == "regular"' not in bridge or 'command.arg("--recover")' not in bridge:
         fail("stable in-app updates must hand off to update.sh --recover")
-    if '"--app-pid"' not in bridge:
+    if '.arg("--app-pid")' not in bridge:
         fail("FEX in-app updates must pass the MetalSharp PID to the updater")
-    if "backend.updaterSpawnInstall(dmgResult.path, pid, targetVersion, variant)" not in renderer:
+    if "updater_bridge::spawn_install(" not in controller or "&path, pid, &target, variant," not in controller:
         fail("the selected update variant must reach the updater handoff")
 
 
@@ -140,7 +144,7 @@ def check_workflows() -> None:
         if forbidden in pr:
             fail(f"PR CI should not run the full DMG build path: {forbidden}")
 
-    for required in ["Shell CI", "Metal CI", "Vue CI", "Electron CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
+    for required in ["Shell CI", "Metal CI", "C/C++/Obj-C CI", "DMG Workflow CI"]:
         if required not in main:
             fail(f"main CI missing validation job: {required}")
     for workflow_name, workflow in [("PR CI", pr), ("main CI", main)]:
@@ -171,6 +175,11 @@ def check_workflows() -> None:
         "Record release identity",
         "RELEASE-TAG.txt",
         "METALSHARP_BUNDLE_REPO: ${{ github.repository }}",
+        "Package GPUI app",
+        "app-gpui/package-app.sh",
+        'METALSHARP_GPUI_SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"',
+        "tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui",
+        "tools/dmg/verify-dmg-runtime-assets.sh dist/gpui/MetalSharp-*-arm64.dmg",
     ]:
         if required not in release:
             fail(f"release workflow missing publish step: {required}")
@@ -181,16 +190,25 @@ def check_workflows() -> None:
     ]:
         if required not in release:
             fail(f"release workflow missing signing fallback contract: {required}")
-    if "CSC_IDENTITY_AUTO_DISCOVERY=false" not in read("tools/dmg/check-apple-signing-readiness.sh"):
-        fail("unsigned DMG fallback must disable Electron Builder certificate discovery")
+
+    dmg_job = release.split("\n  build:\n", 1)[1].split("\n  release:\n", 1)[0]
+    for excluded in [
+        "metalsharp-electron.tar.zst",
+        "metalsharp-d3d12-developer-sdk.tar.zst",
+    ]:
+        if excluded in dmg_job:
+            fail(f"DMG release job must not package or check excluded bundle: {excluded}")
+    if "METALSHARP_UNSIGNED_DMG=1" not in read("tools/dmg/check-apple-signing-readiness.sh"):
+        fail("unsigned DMG fallback must mark the build as unsigned")
+    for forbidden in ["electron-builder", "npm ", "setup-node", "app/package.json", "dist/electron"]:
+        if forbidden in release:
+            fail(f"release workflow must not use the retired Electron toolchain: {forbidden}")
     signing_preparation = read("tools/dmg/prepare-apple-signing.sh")
     if "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" not in signing_preparation:
         fail("Apple signing preparation must export the Developer ID identity for DMG signing")
-    notarization_hook = read("app/build/notarize.cjs")
-    if 'METALSHARP_DEFER_NOTARIZATION_TO_DMG === "1"' not in notarization_hook:
-        fail("release packaging must defer notarization to the outermost DMG")
-    if "METALSHARP_DEFER_NOTARIZATION_TO_DMG:" not in release:
-        fail("release packaging must defer app notarization until the final DMG is built")
+    # The app is signed during packaging; only the finished DMG is notarized.
+    if not (release.index("Package GPUI app") < release.index("Package DMG") < release.index("Sign and notarize distributable DMG")):
+        fail("release must package and sign the app, build the DMG, then notarize the DMG")
     signing_script = read("tools/dmg/sign-notarize-dmg.sh")
     for required in [
         "codesign --force --sign",
@@ -207,16 +225,31 @@ def check_workflows() -> None:
             fail(f"DMG signing pipeline missing required operation: {required}")
     if release.index("Sign and notarize distributable DMG") > release.index("Verify Apple notarization"):
         fail("the completed DMG must be signed and notarized before notarization verification")
-    adhoc_sign = read("app/build/adhoc-deep-sign.cjs")
+    packaging = read("app-gpui/package-local-preview.sh")
     for required in [
-        "METALSHARP_UNSIGNED_DMG",
-        "codesign",
-        "--deep",
-        "--timestamp=none",
-        "--verify",
+        'SIGN_IDENTITY="${METALSHARP_GPUI_SIGN_IDENTITY:--}"',
+        "codesign --force --deep --sign -",
+        "--options runtime",
+        "--timestamp",
+        "--entitlements",
+        "tools/dmg/entitlements.mac.plist",
+        "codesign --verify --deep --strict",
     ]:
-        if required not in adhoc_sign:
-            fail(f"ad-hoc deep-sign hook missing hardening contract: {required}")
+        if required not in packaging:
+            fail(f"GPUI packaging missing signing/hardening contract: {required}")
+    entitlements = read("tools/dmg/entitlements.mac.plist")
+    for key in [
+        "com.apple.security.cs.allow-jit",
+        "com.apple.security.cs.allow-unsigned-executable-memory",
+        "com.apple.security.cs.disable-library-validation",
+        "com.apple.security.cs.allow-dyld-environment-variables",
+    ]:
+        if key not in entitlements:
+            fail(f"release entitlements missing {key}")
+    dmg_builder = read("tools/dmg/package-gpui-dmg.sh")
+    for required in ["com.metalsharp.app", "MetalSharp-$VERSION-arm64.dmg", "/Applications", "hdiutil create", "hdiutil verify"]:
+        if required not in dmg_builder:
+            fail(f"GPUI DMG builder missing {required}")
     if (ROOT / ".github/workflows/virustotal-release.yml").exists():
         fail("VirusTotal release workflow must be removed")
     if (ROOT / "tools/ci/virustotal-release.py").exists():

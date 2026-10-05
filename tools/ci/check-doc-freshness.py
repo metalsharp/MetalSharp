@@ -8,7 +8,7 @@ Two checks:
      the `Updated:` line is older than `STALE_DAYS`.
 
   2. CHANGELOG in sync: `CHANGELOG.md` must contain a section header for
-     the current version reported by `app/package.json`. Catches the
+     the current version declared in `CMakeLists.txt`. Catches the
      failure mode where a `chore(release): bump version to X.Y.Z` commit
      bumps the 5 version surfaces but forgets to update the changelog.
 
@@ -23,7 +23,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from datetime import date
@@ -34,7 +33,7 @@ DOCS = ROOT / "docs"
 README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
-PACKAGE_JSON = ROOT / "app/package.json"
+CMAKE_LISTS = ROOT / "CMakeLists.txt"
 
 DATE_RE = re.compile(
     r"(?i)(?:updated|created|last\s+updated|date|modified)[^0-9\n]{0,15}(\d{4}-\d{2}-\d{2})"
@@ -68,21 +67,17 @@ def doc_date(path: Path) -> str | None:
 
 
 def get_current_version() -> str | None:
-    """Read the current app version from app/package.json."""
-    if not PACKAGE_JSON.exists():
+    """Read the current app version from CMakeLists.txt's project() call."""
+    if not CMAKE_LISTS.exists():
         return None
-    try:
-        data = json.loads(PACKAGE_JSON.read_text())
-        version = data.get("version")
-        return str(version) if version else None
-    except (json.JSONDecodeError, ValueError):
-        return None
+    match = re.search(r"project\(metalsharp VERSION ([0-9]+\.[0-9]+\.[0-9]+)", CMAKE_LISTS.read_text())
+    return match.group(1) if match else None
 
 
 def check_changelog() -> tuple[str | None, bool, str | None]:
     """Return (current_version, section_found, section_date).
 
-    - current_version: the version reported by `app/package.json`, or None
+    - current_version: the version declared in `CMakeLists.txt`, or None
       if the file is missing or unparseable.
     - section_found: True if a `## v<version>` header was located.
     - section_date: the date stamp embedded in the section header

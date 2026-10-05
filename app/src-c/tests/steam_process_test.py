@@ -69,9 +69,20 @@ def main() -> int:
         (steamapps / "appmanifest_1.acf").write_text(
             '"AppState"\n{\n\t"appid"\t"1"\n\t"name"\t"Test Game"\n\t"installdir"\t"Test Game"\n}\n'
         )
+        # A cold Steam start (-no-cef-sandbox) becomes a long-lived stand-in
+        # for the Windows client; every invocation's first argument is logged.
+        steam_stand_in = (
+            f'exec "{sys.executable}" -c \'import os; '
+            'os.execv("/bin/sleep", [r"C:\\Program Files (x86)\\Steam\\steam.exe", "120"])\''
+        )
         for name in ("wine", "metalsharp-wine"):
             target = wine_bin / name
-            target.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$METALSHARP_HOME/steam-launch.args"\n')
+            target.write_text(
+                "#!/bin/sh\n"
+                'printf "%s\\n" "$@" > "$METALSHARP_HOME/steam-launch.args"\n'
+                'printf "%s\\n" "$1" >> "$METALSHARP_HOME/wine-calls.log"\n'
+                f'case "$2" in -no-cef-sandbox) {steam_stand_in};; esac\n'
+            )
             target.chmod(0o755)
 
         port = free_port()
@@ -123,7 +134,41 @@ def main() -> int:
             assert native.poll() is None, "Wine Steam shutdown targeted native macOS Steam"
             assert foreign_wine.poll() is None, "Wine Steam shutdown targeted another Wine prefix"
             wait_status(port, False)
+
+            # Leftover helpers with no live client (e.g. after an interrupted
+            # session) must not be "activated": the session restarts cleanly.
+            # A user.reg that already carries the Steam registry seed skips
+            # the slow `wine reg import`.
+            seed = "\n".join(
+                f"[Software\\\\Wine\\\\AppDefaults\\\\{app}\\\\DllOverrides] 1\n"
+                '"d3d12"="builtin"\n"d3d12core"="builtin"\n"d3d12SDKLayers"="builtin"\n"dxcore"="builtin"\n'
+                for app in ("Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe")
+            )
+            (home / "prefix-steam/user.reg").write_text(
+                seed + '\n[Software\\\\Wine\\\\Mac Driver] 1\n"RetinaMode"="N"\n'
+                '\n[Control Panel\\\\Desktop] 1\n"LogPixels"=dword:00000060\n'
+            )
+            calls = home / "wine-calls.log"
+            calls.unlink(missing_ok=True)
+            stale_helper = fake_process(steam_dir, r"C:\Program Files (x86)\Steam\bin\cef\steamwebhelper.exe")
+            wait_status(port, True)
+            launched = request_json(port, "/steam/launch", method="POST")
+            assert launched.get("ok") is True, launched
+            stale_helper.wait(timeout=5)
+            args = launch_args.read_text().splitlines()
+            assert "-no-cef-sandbox" in args and "steam://open/library" not in args, args
+            assert "reg" not in calls.read_text().splitlines(), calls.read_text()
+            stopped = request_json(port, "/steam/stop", method="POST")
+            assert stopped.get("ok") is True and stopped.get("running") is False, stopped
+            wait_status(port, False)
         finally:
+            # Backend-spawned Wine stand-ins are not our children; a failed
+            # assertion must not leak them, so let the backend tear them down.
+            if server.poll() is None:
+                try:
+                    request_json(port, "/steam/stop", method="POST")
+                except Exception:
+                    pass
             processes = (wine_steam, managed_service, foreign_wine, native, server)
             for process in processes:
                 if process is not None and process.poll() is None:
@@ -136,7 +181,7 @@ def main() -> int:
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-    print("Steam process detection, activation, and migration handoff shutdown verified")
+    print("Steam process detection, activation, stale-session restart, and migration handoff shutdown verified")
     return 0
 
 
