@@ -61,9 +61,13 @@ security import "$CERT_PATH" \
   -T /usr/bin/security \
   -k "$KEYCHAIN_PATH"
 
+# `security list-keychains` indents each quoted path; strip both, or the paths
+# are re-added relative to ~/Library/Keychains and the login keychain (with the
+# Developer ID intermediate on self-hosted runners) drops out of the search list.
 existing_keychains=()
-while IFS= read -r keychain; do
+while read -r keychain; do
   keychain="${keychain//\"/}"
+  [ -n "$keychain" ] && [ "$keychain" != "$KEYCHAIN_PATH" ] || continue
   existing_keychains+=("$keychain")
 done < <(security list-keychains -d user)
 security list-keychains -d user -s "$KEYCHAIN_PATH" "${existing_keychains[@]}"
