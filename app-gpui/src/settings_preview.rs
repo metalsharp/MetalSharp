@@ -1251,11 +1251,15 @@ impl SettingsPreview {
         url: &'static str,
     ) -> gpui::Div {
         let p = self.palette;
+        // A column, not a wrapping row: the text must shrink and wrap inside
+        // the description column instead of running under the controls.
         div()
+            .w_full()
+            .min_w_0()
             .flex()
-            .flex_wrap()
-            .gap_x(px(4.))
-            .child(desc.into())
+            .flex_col()
+            .gap(px(2.))
+            .child(div().w_full().min_w_0().child(desc.into()))
             .child(
                 div()
                     .id(id)
