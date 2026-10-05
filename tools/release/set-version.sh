@@ -41,7 +41,6 @@ synthetic_test_version = f"{major}.{minor}.{patch + 1}"
 
 for path, pattern in [
     ("app/src-c/runtime/migration.c", r'(\\"version\\":\\")[0-9]+\.[0-9]+\.[0-9]+'),
-    ("app/src-c/runtime/updater.c", r'(\\"current_version\\":\\")[0-9]+\.[0-9]+\.[0-9]+'),
 ]:
     with open(path, encoding="utf-8") as stream:
         source = stream.read()
@@ -84,7 +83,7 @@ checks = [
     ("C backend default version", f'MS_BACKEND_DEFAULT_VERSION "{version}"' in backend_header),
     ("migration version", f'MIGRATION_VERSION "{version}"' in migration),
     ("migration fallback version", f'\\"version\\":\\"{version}\\"' in migration),
-    ("updater fallback version", f'\\"current_version\\":\\"{version}\\"' in updater),
+    ("updater fallback version", '\\"current_version\\":\\"" MS_BACKEND_VERSION' in updater),
     ("setup DXMT runtime contract", 'MS_BACKEND_VERSION "-dxmt-v0.80-baseline-v1"' in setup),
     ("C smoke expected version", f'assert v["version"] == "{version}"' in smoke),
     ("updater synthetic release remains newer than app version", f'VERSION = "{synthetic_test_version}"' in updater_test),

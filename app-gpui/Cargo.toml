@@ -1,6 +1,6 @@
 [package]
 name = "metalsharp-gpui"
-version = "0.1.0"
+version = "0.77.0"
 edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
 description = "Native GPUI desktop app prototype for MetalSharp"
