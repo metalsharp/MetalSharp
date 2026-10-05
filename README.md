@@ -1,9 +1,3 @@
-<div align="center"> 
-  
-**I'm looking for Input! Please leave a comment;(https://github.com/metalsharp/MetalSharp/discussions/692)**
-
-</div>
-
 <div align="center">
 
 <h1><img src="docs/assets/metalsharp-transparent.png" alt="MetalSharp logo" width="40" height="40" /> MetalSharp</h1>
