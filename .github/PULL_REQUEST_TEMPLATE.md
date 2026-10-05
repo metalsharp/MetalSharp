@@ -36,7 +36,7 @@
 >
 > The hook **fails the commit** if any required toolchain is missing — it will
 > not silently skip `clang-format`, `cargo fmt`, `shellcheck`, etc.
-> See [`.github/hooks/README.md`](../.github/hooks/README.md) for details.
+> See [Development](../docs/development.md#pre-commit-hook) for details.
 
 > Run locally before pushing. All of these also run automatically in CI.
 

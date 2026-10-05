@@ -1,6 +1,6 @@
 # AGENTS.md
 
-**Updated:** 2026-10-04
+**Updated:** 2026-10-05
 
 Guide for AI agents working on MetalSharp.
 
@@ -40,15 +40,7 @@ The C backend is the only backend. The GPUI app's packaging builds it from `app/
 
 Steam games use `steam_<appid>` bottles. Wine Steam stays the background client; game launches run through the selected route with the shared prefix, route env, cache paths, and Steam identity variables.
 
-| Route | Purpose |
-|---|---|
-| `D3DMetal` | D3D12/11/10 through the managed D3DMetal framework |
-| `DXMT` | D3D11/D3D10 translation |
-| `DXMT(32)` | 32-bit D3D11/D3D10 translation |
-| `VKD3D` | D3D12/11/10/9 through vkd3d-proton/DXVK and MoltenVK |
-| `Mono/FNA` | XNA/FNA through Mono and native shims |
-
-Internal lane names (`m9`, `m10`, `m11`, `m12`) map to the DXMT family in configs, cache paths, and route IDs; see [Graphics Routes](docs/architecture/graphics-routes.md).
+Routes (D3DMetal, DXMT, DXMT(32), D3D9, VKD3D, Mono/FNA) and their internal lane names (`m9`–`m12`) are documented in [Architecture](docs/architecture.md).
 
 Important runtime paths:
 
@@ -97,7 +89,7 @@ cargo fmt --check && cargo test
 ACTOOL=/path/to/Xcode.app/Contents/Developer/usr/bin/actool ./package-app.sh
 ```
 
-`package-app.sh` builds the C backend and the release GPUI app into `app-gpui/target/MetalSharp.app` (bundle id `com.metalsharp.app`). Release builds need a `CARGO_TARGET_DIR` on the internal disk. See `app-gpui/README.md`.
+`package-app.sh` builds the C backend and the release GPUI app into `app-gpui/target/MetalSharp.app` (bundle id `com.metalsharp.app`). Release builds need a `CARGO_TARGET_DIR` on the internal disk. See [Development](docs/development.md).
 
 ### Native engine
 

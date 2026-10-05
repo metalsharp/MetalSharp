@@ -50,7 +50,7 @@ For Direct Access to What is Installed During Setup, See Here: [Dependency Bundl
 
 ## Launching Games and Graphics Routes
 
-To launch a game, install it through Steam and launch it through MetalSharp. Choose between the below backends from the bottle dropdown if the game does not originally run. MetalSharp scans the game folder for DLL's and automatically assigns it to a backend pipeline, tested games are automatically assigned their compatible pipeline from the `mtsp-rules.toml`. See [Game Compatibility](docs/compatibility/GAMES-SUPPORTED.md) for a list of tested and verified games.
+To launch a game, install it through Steam and launch it through MetalSharp. Choose between the below backends from the bottle dropdown if the game does not originally run. MetalSharp scans the game folder for DLL's and automatically assigns it to a backend pipeline, tested games are automatically assigned their compatible pipeline from the `mtsp-rules.toml`. See [Game Compatibility](docs/games-supported.md) for a list of tested and verified games.
 
 | Route | Engine | Notes |
 |---|---|---|
@@ -92,11 +92,11 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 ## Documentation
 
-- [Install from Source](docs/guides/install-from-source.md)
-- [How to Use MetalSharp](docs/guides/how-to-use-metalsharp.md)
-- [Launch Architecture](docs/architecture/launch-architecture.md)
-- [Ubisoft Connect Guide](https://github.com/metalsharp/MetalSharp/blob/main/Ubisoft%20Connect%20Guide.md)
-- [Docs Map](docs/README.md)
+- [Development](docs/development.md)
+- [User Guide](docs/user-guide.md)
+- [Architecture](docs/architecture.md)
+- [Ubisoft Connect Guide](docs/ubisoft-connect.md)
+- [All Docs](docs/README.md)
 
 ## License
 

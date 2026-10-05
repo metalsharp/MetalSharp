@@ -1,10 +1,10 @@
 //! Compatibility hints for Steam games, built into the app from the repo's
-//! compatibility sources: confirmed games in GAMES-SUPPORTED.md, launch rules
+//! compatibility sources: confirmed games in games-supported.md, launch rules
 //! in mtsp-rules.toml, and titles whose kernel-level anti-cheat can't run.
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-const SUPPORTED_GAMES: &str = include_str!("../../docs/compatibility/GAMES-SUPPORTED.md");
+const SUPPORTED_GAMES: &str = include_str!("../../docs/games-supported.md");
 const LAUNCH_RULES: &str = include_str!("../../configs/mtsp-rules.toml");
 
 /// Kernel-level anti-cheat (EA AntiCheat, Easy Anti-Cheat kernel mode, ...).
@@ -19,7 +19,7 @@ const KERNEL_ANTI_CHEAT_NAMES: &[&str] = &["fortnite"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Compat {
-    /// Listed in GAMES-SUPPORTED.md.
+    /// Listed in games-supported.md.
     Playable,
     /// Has a launch rule, but isn't confirmed playable yet.
     MayRun,

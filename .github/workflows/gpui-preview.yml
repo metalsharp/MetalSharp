@@ -5,14 +5,14 @@ on:
     paths:
       - 'app-gpui/**'
       - 'app/src-c/**'
-      - 'docs/architecture/gpui-backend-route-inventory.json'
+      - 'app-gpui/backend-route-inventory.json'
       - '.github/workflows/gpui-preview.yml'
   push:
     branches: [main]
     paths:
       - 'app-gpui/**'
       - 'app/src-c/**'
-      - 'docs/architecture/gpui-backend-route-inventory.json'
+      - 'app-gpui/backend-route-inventory.json'
       - '.github/workflows/gpui-preview.yml'
 
 permissions:
