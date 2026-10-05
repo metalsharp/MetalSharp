@@ -33,7 +33,7 @@ MetalSharp Is An Application Designed To Run Windows Applications and Windows Ga
 
 ## Quick Start
 
-Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
+Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it. Open it and the setup wizard handles the remaining runtime dependencies. Installed games automatically sync into the User Library.
 
 Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 
@@ -41,7 +41,7 @@ Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 brew install --cask metalsharp/tap/metalsharp
 ```
 
-Homebrew installs MetalSharp.app in /Applications. Open it and the setup wizard handles the remaining runtime dependencies.
+Homebrew installs MetalSharp.app in /Applications. Updates are handled in-app with the included updater. 
 
 
 For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
@@ -72,12 +72,13 @@ To launch a game, install it through Steam and launch it through MetalSharp. Cho
 | **_Runtime Bottles_** | Select your launch method, Enable / Disable Msync / Controller Input / and MetalFX |
 | **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
 | **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
+| **_Steam Art Manager_** | Set custom artwork for any game in your Steam-Library(s) |
 | **_Game Streaming_** | Streams games to a phone or tablet with Sunshine + Moonlight |
 
 ## Requirements
 
 - Apple Silicon Mac M1-M5, MacOS 15+
-- About 2 GB free space
+- About ~8 GB free space
 
 ## Developer Setup
 
