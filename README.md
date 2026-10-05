@@ -33,7 +33,7 @@ MetalSharp Is An Application Designed To Run Windows Applications and Windows Ga
 
 ## Quick Start
 
-Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it.
+Download the DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it.
 
 The setup wizard handles installing the remaining runtime dependencies. Installed games automatically sync into the User Library.
 
