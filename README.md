@@ -33,9 +33,9 @@ MetalSharp Is An Application Designed To Run Windows Applications and Windows Ga
 
 ## Quick Start
 
-- Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
+Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it.
 
-- Open it and the setup wizard handles the remaining runtime dependencies. Installed games automatically sync into the User Library.
+The setup wizard handles installing the remaining runtime dependencies. Installed games automatically sync into the User Library.
 
 Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 
@@ -43,7 +43,7 @@ Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 brew install --cask metalsharp/tap/metalsharp
 ```
 
-- Homebrew installs MetalSharp.app in /Applications. Updates are handled in-app with the included updater. 
+Homebrew installs MetalSharp.app in `/Applications`. Updates are handled in-app with the included updater. 
 
 
 For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
@@ -88,7 +88,7 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 - Apple M4 Macbook Air, 10-core CPU (4 performance, 6 efficiency)
 - 16 GB memory
-- macOS Golden Gate, Version 27.2
+- macOS Golden Gate, Version `27.2`
 
 ## Documentation
 
@@ -100,7 +100,7 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 ## License
 
-Licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). Third-party components keep their original licenses; see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
+Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-or-later). Third-party components keep their original licenses; see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
 
 ## Star History
 
