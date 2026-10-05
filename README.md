@@ -55,7 +55,7 @@ To launch a game, install it through Steam and launch it through MetalSharp. Cho
 | Route | Engine | Notes |
 |---|---|---|
 | **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework | |
-| **_VKD3D_** | D3D12/D3D11/D3D10 Through Vulkan -> Metal | D3D12 still in development |
+| **_VKD3D_** | D3D12/D3D11/D3D10 Through Vulkan -> Metal | D3D12-Proton / Custom MoltenVK still in development |
 | **_DXMT_** | D3D11, D3D10 to Metal | |
 | **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal | |
 | **_D3D9_** | D3D9 With x87 Acceleration for Older Titles | |
