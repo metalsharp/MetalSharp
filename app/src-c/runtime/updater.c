@@ -17,7 +17,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define MS_RELEASE_API "https://api.github.com/repos/aaf2tbz/metalsharp/releases/latest"
+#define MS_RELEASE_API "https://api.github.com/repos/metalsharp/MetalSharp/releases/latest"
 
 static char* join_path(const char* left, const char* right) {
     size_t a = strlen(left), b = strlen(right);
@@ -294,11 +294,13 @@ char* ms_update_check_json(void) {
     ms_json_writer writer;
     char* result;
     if (text == NULL)
-        return strdup("{\"ok\":false,\"error\":\"failed to fetch release\",\"current_version\":\"0.76.0\"}");
+        return strdup("{\"ok\":false,\"error\":\"failed to fetch release\",\"current_version\":\"" MS_BACKEND_VERSION
+                      "\"}");
     release = ms_json_parse(text, strlen(text), error, sizeof(error));
     free(text);
     if (release == NULL)
-        return strdup("{\"ok\":false,\"error\":\"failed to parse release\",\"current_version\":\"0.76.0\"}");
+        return strdup("{\"ok\":false,\"error\":\"failed to parse release\",\"current_version\":\"" MS_BACKEND_VERSION
+                      "\"}");
     tag = release_field_json(release, "tag_name");
     latest = clean_version(tag);
     name = release_field_json(release, "name");
