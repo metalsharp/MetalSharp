@@ -5915,6 +5915,14 @@ static bool ubisoft_connect_installed(const char* home) {
                           home);
     return length > 0 && (size_t)length < sizeof(path) && access(path, R_OK) == 0;
 }
+/* Games that must be started by the Wine Steam client on every route. AMID
+ * EVIL (673130) intermittently exits during startup when its shipping exe is
+ * launched directly, but starts reliably through Steam (AmidEvil.exe ->
+ * AmidEvil-Win64-Shipping.exe AmidEvil) with the same staged route DLLs. */
+static bool launches_through_steam_client(unsigned id) {
+    return id == 673130;
+}
+
 
 static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline) {
     return id == 2767030 && pipeline && !strcmp(pipeline, "d3dmetal");
@@ -6460,6 +6468,24 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         if (!stage_route_dlls(home, id, pipeline, executable)) {
             free(game_dir);
             free(executable);
+    if (launches_through_steam_client(id)) {
+        pid_t steam_pid = 0;
+        int steam_status = 500;
+        char* result = launch_game_via_steam_json(home, id, &steam_status, &steam_pid);
+        free(game_dir);
+        free(executable);
+        if (!result || steam_status >= 400) {
+            if (status)
+                *status = steam_status;
+            return result ? result : err("Steam handoff failed");
+        }
+        free(result);
+        ms_process_register_pending_game(id, steam_pid, 15);
+        record_launch_timing(home, id, started_at, pipeline);
+        if (status)
+            *status = 200;
+        return launch_mode_pid_result(steam_pid, id, "steam_handoff");
+    }
             if (status)
                 *status = 500;
             return err("required graphics runtime DLLs are missing");
