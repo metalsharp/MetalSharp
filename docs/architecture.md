@@ -27,7 +27,7 @@ Pipeline endpoints: `GET /mtsp/pipelines`, `POST /mtsp/prepare`.
 | DXMT (32) | 32-bit D3D11 / 10 | DirectX -> DXMT i386 -> Metal | i386 DXMT payload |
 | D3D9 | D3D9 | Wine i386 D3D9 with x87 acceleration (DXMT launch/cache family) | `lib/dxmt` |
 | VKD3D | D3D12 / 11 / 10 / 9 | DirectX -> vkd3d-proton / DXVK -> MoltenVK -> Metal | `d3d12.dll`, `d3d12core.dll` (vkd3d-proton); `d3d11.dll`, `d3d10core.dll`, `d3d9.dll`, `dxgi.dll` (DXVK); `MoltenVK.dylib`, `MoltenVK_icd.json` |
-| Mono/FNA | XNA / FNA / MonoGame | Managed code -> native Mono + FNA -> Metal (no Wine) | See [Mono/FNA](#monofna) |
+| Mono/FNA | XNA / FNA / MonoGame | Managed code -> native Mono + FNA -> Metal (no Wine) | See Mono/FNA below |
 
 Internal route and lane IDs used in code, configs, and cache paths:
 
