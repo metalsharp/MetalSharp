@@ -1559,16 +1559,11 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
         files[file_count++] = "d3d10core.dll";
         files[file_count++] = "dxgi.dll";
         files[file_count++] = "winemetal.dll";
-        if (!strcmp(pipeline, "dxmt")) {
-            files[file_count++] = "metalsharp_ntdll_hook.dll";
-        }
     } else {
         goto done;
     }
     for (size_t i = 0; i < file_count; i++) {
-        const char* asset_source =
-            !strcmp(files[i], "metalsharp_ntdll_hook.dll") ? "lib/metalsharp/x86_64-windows" : source;
-        bool staged = stage_route_asset(home, asset_source, files[i], exe_dir);
+        bool staged = stage_route_asset(home, source, files[i], exe_dir);
         bool optional = !strncmp(files[i], "nvapi", 5) || !strncmp(files[i], "nvngx", 5);
         if (!staged && !optional)
             ok = false;
@@ -5915,17 +5910,17 @@ static bool ubisoft_connect_installed(const char* home) {
                           home);
     return length > 0 && (size_t)length < sizeof(path) && access(path, R_OK) == 0;
 }
+
+static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline) {
+    return id == 2767030 && pipeline && !strcmp(pipeline, "d3dmetal");
+}
+
 /* Games that must be started by the Wine Steam client on every route. AMID
  * EVIL (673130) intermittently exits during startup when its shipping exe is
  * launched directly, but starts reliably through Steam (AmidEvil.exe ->
  * AmidEvil-Win64-Shipping.exe AmidEvil) with the same staged route DLLs. */
 static bool launches_through_steam_client(unsigned id) {
     return id == 673130;
-}
-
-
-static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline) {
-    return id == 2767030 && pipeline && !strcmp(pipeline, "d3dmetal");
 }
 
 static bool baldurs_gate_3_uses_steam_bootstrap(unsigned id, const char* pipeline) {
@@ -6468,6 +6463,11 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         if (!stage_route_dlls(home, id, pipeline, executable)) {
             free(game_dir);
             free(executable);
+            if (status)
+                *status = 500;
+            return err("required graphics runtime DLLs are missing");
+        }
+    }
     if (launches_through_steam_client(id)) {
         pid_t steam_pid = 0;
         int steam_status = 500;
@@ -6485,11 +6485,6 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         if (status)
             *status = 200;
         return launch_mode_pid_result(steam_pid, id, "steam_handoff");
-    }
-            if (status)
-                *status = 500;
-            return err("required graphics runtime DLLs are missing");
-        }
     }
     if (marvel_rivals_uses_steam_bootstrap(id, pipeline)) {
         pid_t steam_pid = 0;
@@ -6793,8 +6788,6 @@ char* ms_steam_mtsp_inspect_json(const char* home, const unsigned char* body, si
         snprintf(source_dir, sizeof(source_dir), "%s/runtime/wine/lib/dxmt/%s-windows", home, arch);
         for (size_t i = 0; i < sizeof(common) / sizeof(common[0]); i++)
             dlls[dll_count++] = common[i];
-        if (!strcmp(pipeline, "dxmt"))
-            dlls[dll_count++] = "metalsharp_ntdll_hook.dll";
         for (size_t i = 0; i < dll_count; i++) {
             char* source = join(source_dir, dlls[i]);
             bool present = source && access(source, R_OK) == 0;

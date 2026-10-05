@@ -815,12 +815,10 @@ static char* launch_diagnostic_report(const char* query, int* status) {
         {"vkd3d-proton/x86_64-windows", "d3d12.dll", false}, {"vkd3d-proton/x86_64-windows", "d3d12core.dll", false},
         {"vkd3d-proton/x86_64-windows", "dxgi.dll", false},  {"dxvk/x86_64-windows", "d3d11.dll", false},
         {"dxvk/x86_64-windows", "d3d10core.dll", false},     {"dxvk/x86_64-windows", "d3d9.dll", false}};
-    static const launch_artifact dxmt_artifacts[] = {
-        {"lib/dxmt/x86_64-windows", "d3d11.dll", false},
-        {"lib/dxmt/x86_64-windows", "d3d10core.dll", false},
-        {"lib/dxmt/x86_64-windows", "dxgi.dll", false},
-        {"lib/dxmt/x86_64-windows", "winemetal.dll", false},
-        {"lib/metalsharp/x86_64-windows", "metalsharp_ntdll_hook.dll", false}};
+    static const launch_artifact dxmt_artifacts[] = {{"lib/dxmt/x86_64-windows", "d3d11.dll", false},
+                                                     {"lib/dxmt/x86_64-windows", "d3d10core.dll", false},
+                                                     {"lib/dxmt/x86_64-windows", "dxgi.dll", false},
+                                                     {"lib/dxmt/x86_64-windows", "winemetal.dll", false}};
     static const launch_artifact dxmt32_artifacts[] = {{"lib/dxmt/i386-windows", "d3d11.dll", false},
                                                        {"lib/dxmt/i386-windows", "d3d10core.dll", false},
                                                        {"lib/dxmt/i386-windows", "dxgi.dll", false},
