@@ -55,6 +55,10 @@ jobs:
         run: make -C app/src-c
       - name: Verify connected startup and shutdown in a fresh isolated home
         run: cargo test --locked --manifest-path app-gpui/Cargo.toml backend_host::tests -- --ignored
+      - name: Build C++ host runtime for packaging
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build build --target metalsharp_host_runtime --parallel 3
       - name: Package and verify side-by-side candidate
         env:
           METALSHARP_GPUI_PACKAGE_BACKEND: '1'
