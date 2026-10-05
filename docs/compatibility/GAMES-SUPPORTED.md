@@ -78,6 +78,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Among Us | 945360 | Steam online play. |
 | Dwarf Fortress | 975370 | | 
 | Caves Of Qud | 333640 | |
+| Skyrim: Special Edition | 489830 | |
 
 ---
 
