@@ -9,7 +9,10 @@ use std::path::PathBuf;
 
 #[path = "ui_live.rs"]
 mod live_impl;
+#[path = "ui_steamcmd.rs"]
+mod steamcmd_impl;
 use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending};
+use steamcmd_impl::{CollectionView, SteamcmdModal};
 
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
@@ -461,6 +464,9 @@ pub struct MetalSharpApp {
     dock_start: usize,
     pipeline_menu_open: bool,
     collection_menu: Option<(bool, u64)>,
+    collection_view: CollectionView,
+    steamcmd_modal: Option<SteamcmdModal>,
+    steamcmd_inputs: Option<[gpui::Entity<crate::search_input::SearchInput>; 3]>,
     game_settings_open: bool,
     hovered_card: Option<usize>,
     active_tab: LibraryTab,
@@ -512,6 +518,9 @@ impl MetalSharpApp {
             dock_start: 0,
             pipeline_menu_open: false,
             collection_menu: None,
+            collection_view: CollectionView::Installed,
+            steamcmd_modal: None,
+            steamcmd_inputs: None,
             game_settings_open: false,
             hovered_card: None,
             active_tab: LibraryTab::Play,
@@ -870,6 +879,11 @@ impl Render for MetalSharpApp {
             .children(self.live.update_confirm.map(|variant| {
                 gpui::deferred(self.render_update_confirm(variant, cx)).with_priority(300)
             }))
+            .children(
+                self.steamcmd_modal
+                    .is_some()
+                    .then(|| gpui::deferred(self.render_steamcmd_modal(cx)).with_priority(310)),
+            )
             .children(toasts.map(|hub| gpui::deferred(hub).with_priority(400)))
     }
 }
@@ -3132,6 +3146,56 @@ impl MetalSharpApp {
         menu
     }
 
+    fn render_collection_tabs(&self, uninstalled_view: bool, cx: &mut Context<Self>) -> gpui::Div {
+        let installed = self.live.installed_count;
+        let uninstalled = self
+            .live
+            .library
+            .iter()
+            .filter(|g| !g.installed && !g.is_ubisoft() && g.appid != 0)
+            .count();
+        let tab = |id: &'static str, label: String, selected: bool| {
+            div()
+                .id(id)
+                .h(px(32.0))
+                .px(px(14.0))
+                .flex()
+                .items_center()
+                .rounded(px(7.0))
+                .border_1()
+                .border_color(rgba(if selected { 0xefe7d6ff } else { 0xe7eaec3b }))
+                .bg(rgb(if selected { 0xefe7d6 } else { 0x1f2325 }))
+                .text_size(px(12.5))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(if selected { 0x14161a } else { 0xe1e3e2 }))
+                .cursor_pointer()
+                .child(label)
+        };
+        div()
+            .mt(px(18.0))
+            .flex()
+            .gap(px(8.0))
+            .child(
+                tab(
+                    "collection-tab-installed",
+                    format!("Installed  {installed}"),
+                    !uninstalled_view,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.collection_view = CollectionView::Installed;
+                    cx.notify();
+                })),
+            )
+            .child(
+                tab(
+                    "collection-tab-uninstalled",
+                    format!("Uninstalled  {uninstalled}"),
+                    uninstalled_view,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.show_uninstalled(cx))),
+            )
+    }
+
     fn render_library_collection(
         &mut self,
         viewport: gpui::Size<gpui::Pixels>,
@@ -3150,7 +3214,19 @@ impl MetalSharpApp {
             .gap(px(18.0))
             .max_w(px(1400.0));
         let matches = self.matching_games();
-        for index in matches.iter().copied() {
+        let uninstalled_view =
+            self.live.enabled && self.collection_view == CollectionView::Uninstalled;
+        let uninstalled = if uninstalled_view {
+            self.uninstalled_games()
+        } else {
+            Vec::new()
+        };
+        for (index, game) in uninstalled.iter().enumerate() {
+            // Artwork resolves once per game; repeat requests are no-ops.
+            self.request_art(game, cx);
+            grid = grid.child(self.render_uninstalled_card(game, index, card_width, cx));
+        }
+        for index in matches.iter().copied().filter(|_| !uninstalled_view) {
             let game = self.games[index].clone();
             let running = self.is_running(game.appid);
             let launching = self.live.launching == Some(game.appid);
@@ -3366,17 +3442,29 @@ impl MetalSharpApp {
                             .line_height(px(54.0))
                             .font_family("Georgia")
                             .text_color(rgb(0xeee9dd))
-                            .child("Installed games"),
+                            .child(if uninstalled_view {
+                                "Uninstalled games"
+                            } else {
+                                "Installed games"
+                            }),
                     )
                     .child(
                         div()
                             .mt(px(13.0))
                             .text_size(px(14.0))
                             .text_color(rgb(0xaeb3b2))
-                            .child(format!(
-                                "{count} games installed and ready in your MetalSharp library."
-                            )),
+                            .child(if uninstalled_view {
+                                format!(
+                                    "{} games in your Steam library aren't installed yet. Install them with steamcmd.",
+                                    uninstalled.len()
+                                )
+                            } else {
+                                format!("{count} games installed and ready in your MetalSharp library.")
+                            }),
                     )
+                    .when(self.live.enabled, |heading| {
+                        heading.child(self.render_collection_tabs(uninstalled_view, cx))
+                    })
                     .child(
                         div()
                             .id("collection-back-to-play")
@@ -3402,7 +3490,26 @@ impl MetalSharpApp {
                             .child("⌂  Back to Play"),
                     ),
             )
-            .child(if matches.is_empty() {
+            .child(if uninstalled_view && uninstalled.is_empty() {
+                div()
+                    .w_full()
+                    .py(px(60.0))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(10.0))
+                    .text_color(rgb(0xaeb3b2))
+                    .child(div().text_size(px(36.0)).child("▦"))
+                    .child(
+                        div()
+                            .text_size(px(20.0))
+                            .text_color(rgb(0xeee9dd))
+                            .child("No uninstalled games"),
+                    )
+                    .child(div().text_size(px(13.0)).child(
+                        "Everything you own is installed, or add your Steam API key in Settings to load your full Steam library.",
+                    ))
+            } else if !uninstalled_view && matches.is_empty() {
                 div()
                     .w_full()
                     .py(px(60.0))

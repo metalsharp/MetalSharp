@@ -3,6 +3,7 @@ mod artwork;
 #[allow(dead_code)]
 mod backend;
 mod backend_host;
+mod compat;
 #[allow(dead_code)]
 mod configuration;
 mod diagnostics;
