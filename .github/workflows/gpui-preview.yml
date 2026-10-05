@@ -32,6 +32,8 @@ jobs:
       CARGO_BUILD_JOBS: '3'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
