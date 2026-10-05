@@ -1,0 +1,61 @@
+name: GPUI Preview
+
+on:
+  pull_request:
+    paths:
+      - 'app-gpui/**'
+      - 'app/src-c/**'
+      - 'docs/architecture/gpui-backend-route-inventory.json'
+      - '.github/workflows/gpui-preview.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app-gpui/**'
+      - 'app/src-c/**'
+      - 'docs/architecture/gpui-backend-route-inventory.json'
+      - '.github/workflows/gpui-preview.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpui-preview-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Format, test and package offline GPUI preview
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      CARGO_BUILD_JOBS: '3'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app-gpui/target
+          key: ${{ runner.os }}-${{ runner.arch }}-gpui-${{ hashFiles('app-gpui/Cargo.lock') }}
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path app-gpui/Cargo.toml --check
+      - name: Check source-derived backend migration inventory
+        run: python3 app-gpui/inventory-backend-routes.py --check
+      - name: Generate ignored dock-artwork fixtures
+        working-directory: app-gpui
+        run: swift generate-dock-art.swift
+      - name: Test preview and compile isolated backend scaffolding
+        run: cargo test --locked --manifest-path app-gpui/Cargo.toml
+      - name: Build authoritative C backend for isolated ownership smoke test
+        run: make -C app/src-c
+      - name: Verify connected startup and shutdown in a fresh isolated home
+        run: cargo test --locked --manifest-path app-gpui/Cargo.toml backend_host::tests -- --ignored
+      - name: Package and verify side-by-side candidate
+        env:
+          METALSHARP_GPUI_PACKAGE_BACKEND: '1'
+        run: app-gpui/package-local-preview.sh

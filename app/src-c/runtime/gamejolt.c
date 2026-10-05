@@ -658,8 +658,8 @@ static char* native_app_cover(const char* game_directory, const char* app_path) 
 static const char* find_tool(const char* name) {
     static const char* const prefixes[] = {"/opt/homebrew/bin/", "/usr/local/bin/", "/usr/bin/"};
     static char paths[2][PATH_MAX];
-    const char* bundled = strcmp(name, "icotool") == 0 ? getenv("METALSHARP_ICOTOOL_PATH")
-                                                       : getenv("METALSHARP_WRESTOOL_PATH");
+    const char* bundled =
+        strcmp(name, "icotool") == 0 ? getenv("METALSHARP_ICOTOOL_PATH") : getenv("METALSHARP_WRESTOOL_PATH");
     size_t slot = strcmp(name, "icotool") == 0 ? 1 : 0;
     if (bundled && access(bundled, X_OK) == 0)
         return bundled;
@@ -762,7 +762,6 @@ static void prepare_native_app(const char* app_path) {
     free(macos);
 }
 
-
 static bool contains_case_insensitive(const char* value, const char* needle) {
     size_t needle_length = strlen(needle);
     for (const char* p = value; p && *p; ++p)
@@ -773,9 +772,9 @@ static bool contains_case_insensitive(const char* value, const char* needle) {
 
 static bool preferred_game_executable(const char* name) {
     return !contains_case_insensitive(name, "unitycrashhandler") && !contains_case_insensitive(name, "crashreport") &&
-           !contains_case_insensitive(name, "crashreportclient") && !contains_case_insensitive(name, "unrealcefsubprocess") &&
-           !contains_case_insensitive(name, "uninstall") && !contains_case_insensitive(name, "ue4prereq") &&
-           !contains_case_insensitive(name, "setup");
+           !contains_case_insensitive(name, "crashreportclient") &&
+           !contains_case_insensitive(name, "unrealcefsubprocess") && !contains_case_insensitive(name, "uninstall") &&
+           !contains_case_insensitive(name, "ue4prereq") && !contains_case_insensitive(name, "setup");
 }
 
 static void find_game_assets(const char* directory, unsigned depth, char** executable, bool* native, char** cover) {
@@ -805,10 +804,9 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
         if (is_regular_file(path)) {
             if (has_suffix(entry->d_name, ".png") || has_suffix(entry->d_name, ".jpg") ||
                 has_suffix(entry->d_name, ".jpeg") || has_suffix(entry->d_name, ".webp")) {
-                bool preferred = strncasecmp(entry->d_name, "cover", 5) == 0 ||
-                                 strncasecmp(entry->d_name, "icon", 4) == 0 ||
-                                 strncasecmp(entry->d_name, "art", 3) == 0 ||
-                                 strncasecmp(entry->d_name, "banner", 6) == 0;
+                bool preferred =
+                    strncasecmp(entry->d_name, "cover", 5) == 0 || strncasecmp(entry->d_name, "icon", 4) == 0 ||
+                    strncasecmp(entry->d_name, "art", 3) == 0 || strncasecmp(entry->d_name, "banner", 6) == 0;
                 if (!*cover || preferred) {
                     free(*cover);
                     *cover = strdup(path);
@@ -817,7 +815,8 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
             if (has_suffix(entry->d_name, ".exe") && preferred_game_executable(entry->d_name)) {
                 const char* current_name = *executable ? strrchr(*executable, '/') : NULL;
                 current_name = current_name ? current_name + 1 : *executable;
-                if (!*executable || (!preferred_game_executable(current_name) && preferred_game_executable(entry->d_name))) {
+                if (!*executable ||
+                    (!preferred_game_executable(current_name) && preferred_game_executable(entry->d_name))) {
                     free(*executable);
                     *executable = path;
                     *native = false;
@@ -836,9 +835,8 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
 }
 
 static void write_pipeline_options(ms_json_writer* writer) {
-    static const char* const options[][2] = {{"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D"},
-                                             {"dxmt", "DXMT"},         {"dxmt_32", "DXMT(32)"},
-                                             {"d3d9", "D3D9"}};
+    static const char* const options[][2] = {
+        {"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D"}, {"dxmt", "DXMT"}, {"dxmt_32", "DXMT(32)"}, {"d3d9", "D3D9"}};
     ms_json_writer_array_begin(writer);
     for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
         ms_json_writer_object_begin(writer);
@@ -923,8 +921,8 @@ char* ms_gamejolt_storage_json(const char* home) {
 
 char* ms_gamejolt_set_storage_json(const char* home, const unsigned char* body, size_t length) {
     char error[96];
-    ms_json* request = ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2,
-                                      error, sizeof(error));
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
     char* root = field(request, "rootPath", "");
     char* config_dir = join_path(home, "gamejolt");
     char* config_path = config_dir ? join_path(config_dir, "storage.json") : NULL;
@@ -961,8 +959,8 @@ char* ms_gamejolt_set_storage_json(const char* home, const unsigned char* body, 
 
 char* ms_gamejolt_set_name_json(const char* home, const unsigned char* body, size_t length) {
     char error[96];
-    ms_json* request = ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2,
-                                     error, sizeof(error));
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
     char* id = field(request, "id", "");
     char* name = field(request, "name", "");
     char* config_path = names_config_path(home);
@@ -1048,10 +1046,38 @@ char* ms_gamejolt_set_name_json(const char* home, const unsigned char* body, siz
     }
 }
 
+/* Put the chosen route's DLLs next to the game's exe right away (launches
+ * stage too, through the shared external-launch path). */
+static void gamejolt_stage_route(const char* home, const char* id, const char* engine) {
+    char* games = ms_gamejolt_json(home);
+    char error[96];
+    ms_json* root = games ? ms_json_parse(games, strlen(games), error, sizeof(error)) : NULL;
+    const ms_json* array = root ? ms_json_object_get(root, "games") : NULL;
+    for (size_t i = 0; array && i < ms_json_array_length(array); ++i) {
+        const ms_json* game = ms_json_array_get(array, i);
+        char* item_id = field(game, "id", "");
+        bool match = !strcmp(item_id, id);
+        free(item_id);
+        if (!match)
+            continue;
+        bool native = false;
+        (void)ms_json_as_bool(ms_json_object_get(game, "native"), &native);
+        char* executable = field(game, "exe_path", "");
+        char* install_dir = field(game, "install_dir", "");
+        if (!native && executable[0] && install_dir[0])
+            (void)ms_steam_stage_route_for_executable(home, engine, install_dir, executable);
+        free(executable);
+        free(install_dir);
+        break;
+    }
+    ms_json_free(root);
+    free(games);
+}
+
 char* ms_gamejolt_set_engine_json(const char* home, const unsigned char* body, size_t length) {
     char error[96];
-    ms_json* request = ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2,
-                                     error, sizeof(error));
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
     char* id = field(request, "id", "");
     char* engine = field(request, "engine", "");
     char* path = engines_config_path(home);
@@ -1065,7 +1091,13 @@ char* ms_gamejolt_set_engine_json(const char* home, const unsigned char* body, s
                  !strcmp(engine, "dxmt_32") || !strcmp(engine, "d3d9");
     bool found = false;
     if (!request || !id[0] || !engine[0] || !valid || !path || !dir || !mkdir_p(dir)) {
-        ms_json_free(request); ms_json_free(previous); free(id); free(engine); free(path); free(dir); free(raw);
+        ms_json_free(request);
+        ms_json_free(previous);
+        free(id);
+        free(engine);
+        free(path);
+        free(dir);
+        free(raw);
         return error_json("invalid GameJolt engine");
     }
     ms_json_writer_init(&writer);
@@ -1092,25 +1124,44 @@ char* ms_gamejolt_set_engine_json(const char* home, const unsigned char* body, s
     serialized = ms_json_writer_take(&writer);
     file = fopen(path, "wb");
     if (!file || !serialized || fputs(serialized, file) < 0) {
-        if (file) fclose(file);
-        free(serialized); ms_json_free(request); ms_json_free(previous); free(id); free(engine); free(path); free(dir); free(raw);
+        if (file)
+            fclose(file);
+        free(serialized);
+        ms_json_free(request);
+        ms_json_free(previous);
+        free(id);
+        free(engine);
+        free(path);
+        free(dir);
+        free(raw);
         return error_json("failed to save GameJolt engine");
     }
-    fclose(file); free(serialized); ms_json_free(request); ms_json_free(previous); free(path); free(dir); free(raw);
+    fclose(file);
+    free(serialized);
+    ms_json_free(request);
+    ms_json_free(previous);
+    free(path);
+    free(dir);
+    free(raw);
+    gamejolt_stage_route(home, id, engine);
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
-    ms_json_writer_key(&writer, "ok"); ms_json_writer_bool(&writer, true);
-    ms_json_writer_key(&writer, "id"); ms_json_writer_string(&writer, id);
-    ms_json_writer_key(&writer, "engine"); ms_json_writer_string(&writer, engine);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "id");
+    ms_json_writer_string(&writer, id);
+    ms_json_writer_key(&writer, "engine");
+    ms_json_writer_string(&writer, engine);
     ms_json_writer_object_end(&writer);
-    free(id); free(engine);
+    free(id);
+    free(engine);
     return ms_json_writer_take(&writer);
 }
 
 char* ms_gamejolt_uninstall_json(const char* home, const unsigned char* body, size_t length) {
     char error[96];
-    ms_json* request = ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2,
-                                     error, sizeof(error));
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
     char* target = field(request, "installDir", "");
     char* directory = gamejolt_dir(home);
     char* root = configured_root(home);
@@ -1131,7 +1182,12 @@ char* ms_gamejolt_uninstall_json(const char* home, const unsigned char* body, si
         free(resolved_root);
     }
     if (!request || !target[0] || !valid) {
-        ms_json_free(request); free(target); free(directory); free(root); free(resolved_target); free(resolved_directory);
+        ms_json_free(request);
+        free(target);
+        free(directory);
+        free(root);
+        free(resolved_target);
+        free(resolved_directory);
         return error_json("invalid GameJolt uninstall path");
     }
     pid_t pid = fork();
@@ -1140,14 +1196,20 @@ char* ms_gamejolt_uninstall_json(const char* home, const unsigned char* body, si
         _exit(127);
     }
     bool removed = wait_success(pid);
-    ms_json_free(request); free(target); free(directory); free(root); free(resolved_target); free(resolved_directory);
+    ms_json_free(request);
+    free(target);
+    free(directory);
+    free(root);
+    free(resolved_target);
+    free(resolved_directory);
     if (!removed)
         return error_json("failed to uninstall GameJolt game");
     {
         ms_json_writer writer;
         ms_json_writer_init(&writer);
         ms_json_writer_object_begin(&writer);
-        ms_json_writer_key(&writer, "ok"); ms_json_writer_bool(&writer, true);
+        ms_json_writer_key(&writer, "ok");
+        ms_json_writer_bool(&writer, true);
         ms_json_writer_object_end(&writer);
         return ms_json_writer_take(&writer);
     }
@@ -1395,8 +1457,8 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
 
 char* ms_gamejolt_pid_status_json(const unsigned char* body, size_t length) {
     char error[96];
-    ms_json* request = ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2,
-                                     error, sizeof(error));
+    ms_json* request =
+        ms_json_parse((const char*)(body ? body : (const unsigned char*)"{}"), body ? length : 2, error, sizeof(error));
     long long pid_value = 0;
     bool running = false;
     ms_json_writer writer;
@@ -1409,8 +1471,8 @@ char* ms_gamejolt_pid_status_json(const unsigned char* body, size_t length) {
         pid_t pid = (pid_t)pid_value;
         pid_t child_state = waitpid(pid, NULL, WNOHANG);
         bool group_running = kill(-pid, 0) == 0 || errno == EPERM;
-        bool leader_running = child_state == 0 ||
-                              (child_state < 0 && errno == ECHILD && (kill(pid, 0) == 0 || errno == EPERM));
+        bool leader_running =
+            child_state == 0 || (child_state < 0 && errno == ECHILD && (kill(pid, 0) == 0 || errno == EPERM));
         running = group_running || leader_running;
     }
     ms_json_free(request);

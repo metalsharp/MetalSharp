@@ -33,6 +33,8 @@ Use this page as the repo map before changing launch/runtime code.
 
 - [Launch Architecture](architecture/launch-architecture.md) - route resolution and launch ownership.
 - [Graphics Routes](architecture/graphics-routes.md) - the five launch routes, DLL sets, and cache paths.
+- [GPUI Desktop Port Roadmap](architecture/gpui-port-roadmap.md) - phased Electron replacement plan and local-machine release gate.
+- [GPUI Feature Matrix](architecture/gpui-port-feature-matrix.md) - parity, native capability, data-safety and local-validation checklist.
 - [D3D12 Developer Runtime Package](../tools/d3d12-metal-sdk/docs/developer-runtime.md) - self-contained developer SDK tarball layout and publish flow.
 
 ## Release

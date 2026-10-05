@@ -1,0 +1,186 @@
+{
+  "purpose": "Local isolated visual preview only; artwork belongs to the respective game publishers. Not a production game compatibility claim.",
+  "downloaded_at": "2026-10-03",
+  "assets": [
+    {
+      "game": "Portal 2",
+      "steam_app_id": 620,
+      "file": "portal-2.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/620/library_600x900.jpg"
+    },
+    {
+      "game": "Portal 2",
+      "steam_app_id": 620,
+      "file": "portal-2-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/620/library_hero.jpg"
+    },
+    {
+      "game": "Hollow Knight",
+      "steam_app_id": 367520,
+      "file": "hollow-knight.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/367520/library_600x900.jpg"
+    },
+    {
+      "game": "Hollow Knight",
+      "steam_app_id": 367520,
+      "file": "hollow-knight-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/367520/library_hero.jpg"
+    },
+    {
+      "game": "Stardew Valley",
+      "steam_app_id": 413150,
+      "file": "stardew-valley.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/413150/library_600x900.jpg"
+    },
+    {
+      "game": "Stardew Valley",
+      "steam_app_id": 413150,
+      "file": "stardew-valley-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/413150/library_hero.jpg"
+    },
+    {
+      "game": "The Witcher 3",
+      "steam_app_id": 292030,
+      "file": "witcher-3.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/292030/library_600x900.jpg"
+    },
+    {
+      "game": "The Witcher 3",
+      "steam_app_id": 292030,
+      "file": "witcher-3-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/292030/library_hero.jpg"
+    },
+    {
+      "game": "No Man’s Sky",
+      "steam_app_id": 275850,
+      "file": "no-mans-sky.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/275850/library_600x900.jpg"
+    },
+    {
+      "game": "No Man’s Sky",
+      "steam_app_id": 275850,
+      "file": "no-mans-sky-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/275850/library_hero.jpg"
+    },
+    {
+      "game": "Baldur’s Gate 3",
+      "steam_app_id": 1086940,
+      "file": "baldurs-gate-3.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1086940/library_600x900.jpg"
+    },
+    {
+      "game": "Baldur’s Gate 3",
+      "steam_app_id": 1086940,
+      "file": "baldurs-gate-3-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1086940/library_hero.jpg"
+    },
+    {
+      "game": "Red Dead Redemption 2",
+      "steam_app_id": 1174180,
+      "file": "red-dead-redemption-2.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1174180/library_600x900.jpg"
+    },
+    {
+      "game": "Red Dead Redemption 2",
+      "steam_app_id": 1174180,
+      "file": "red-dead-redemption-2-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1174180/library_hero.jpg"
+    },
+    {
+      "game": "Skyrim Special Edition",
+      "steam_app_id": 489830,
+      "file": "skyrim.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/489830/library_600x900.jpg"
+    },
+    {
+      "game": "Skyrim Special Edition",
+      "steam_app_id": 489830,
+      "file": "skyrim-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/489830/library_hero.jpg"
+    },
+    {
+      "game": "Dead Cells",
+      "steam_app_id": 588650,
+      "file": "dead-cells.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/588650/library_600x900.jpg"
+    },
+    {
+      "game": "Dead Cells",
+      "steam_app_id": 588650,
+      "file": "dead-cells-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/588650/library_hero.jpg"
+    },
+    {
+      "game": "Celeste",
+      "steam_app_id": 504230,
+      "file": "celeste.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/504230/library_600x900.jpg"
+    },
+    {
+      "game": "Celeste",
+      "steam_app_id": 504230,
+      "file": "celeste-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/504230/library_hero.jpg"
+    },
+    {
+      "game": "Cuphead",
+      "steam_app_id": 268910,
+      "file": "cuphead.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/268910/library_600x900.jpg"
+    },
+    {
+      "game": "Cuphead",
+      "steam_app_id": 268910,
+      "file": "cuphead-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/268910/library_hero.jpg"
+    },
+    {
+      "game": "Ori and the Blind Forest",
+      "steam_app_id": 261570,
+      "file": "ori.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/261570/library_600x900.jpg"
+    },
+    {
+      "game": "Ori and the Blind Forest",
+      "steam_app_id": 261570,
+      "file": "ori-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/261570/library_hero.jpg"
+    },
+    {
+      "game": "DOOM Eternal",
+      "steam_app_id": 782330,
+      "file": "doom-eternal.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/782330/library_600x900.jpg"
+    },
+    {
+      "game": "DOOM Eternal",
+      "steam_app_id": 782330,
+      "file": "doom-eternal-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/782330/library_hero.jpg"
+    },
+    {
+      "game": "Disco Elysium",
+      "steam_app_id": 632470,
+      "file": "disco-elysium.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/632470/library_600x900.jpg"
+    },
+    {
+      "game": "Disco Elysium",
+      "steam_app_id": 632470,
+      "file": "disco-elysium-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/632470/library_hero.jpg"
+    },
+    {
+      "game": "Terraria",
+      "steam_app_id": 105600,
+      "file": "terraria.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/105600/library_600x900.jpg"
+    },
+    {
+      "game": "Terraria",
+      "steam_app_id": 105600,
+      "file": "terraria-hero.jpg",
+      "source": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/105600/library_hero.jpg"
+    }
+  ]
+}

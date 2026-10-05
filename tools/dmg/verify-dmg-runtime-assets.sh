@@ -38,7 +38,6 @@ for required in \
   "$HOST/HostRuntimeABI.h" \
   "$RESOURCES/scripts/tools/updater/update.py" \
   "$RESOURCES/scripts/tools/updater/update.sh" \
-  "$BUNDLES/metalsharp-electron.tar.zst" \
   "$BUNDLES/metalsharp-graphics-dll.tar.zst" \
   "$BUNDLES/metalsharp-runtime.tar.zst" \
   "$BUNDLES/metalsharp-assets.tar.zst" \
@@ -61,7 +60,6 @@ fi
 
 cp "$BUNDLES"/*.tar.zst "$LIST_DIR"/
 METALSHARP_REQUIRE_X87SIDECAR=1 "$PROJECT_ROOT/tools/bundles/verify-bundles.sh" --bundle-dir "$LIST_DIR" --require mac \
-  metalsharp-electron.tar.zst \
   metalsharp-graphics-dll.tar.zst \
   metalsharp-runtime.tar.zst \
   metalsharp-assets.tar.zst \

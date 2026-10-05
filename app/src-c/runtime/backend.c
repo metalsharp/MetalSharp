@@ -36,6 +36,7 @@
 #include "metalsharp_backend/sharpemu.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/steamcmd.h"
 #include "metalsharp_backend/streaming.h"
 #include "metalsharp_backend/thread.h"
 #include "metalsharp_backend/ubisoft.h"
@@ -1520,6 +1521,69 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
             return true;
         }
     }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/steamcmd/status") == 0) {
+        body = ms_steamcmd_status_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/steamcmd/libraries") == 0) {
+        body = ms_steamcmd_libraries_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steamcmd/login") == 0) {
+        body = ms_steamcmd_login_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steamcmd/login-code") == 0) {
+        body = ms_steamcmd_login_code_json(request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steamcmd/login-cancel") == 0) {
+        body = ms_steamcmd_login_cancel_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steamcmd/install") == 0) {
+        body = ms_steamcmd_install_json(context->metalsharp_home, request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/steamcmd/installs") == 0) {
+        body = ms_steamcmd_installs_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steamcmd/cancel") == 0) {
+        body = ms_steamcmd_cancel_json(request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/steamcmd/stop-all") == 0) {
+        body = ms_steamcmd_stop_all_json();
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/sharp-library/gog/status") == 0) {
         body = ms_gog_status_json(context->metalsharp_home);
         if (body == NULL)
@@ -1585,6 +1649,13 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/progress") == 0) {
         body = ms_gog_action_json(context->metalsharp_home, "progress", request->body, request->body_length);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/sharp-library/gog/set-engine") == 0) {
+        body = ms_gog_action_json(context->metalsharp_home, "set-engine", request->body, request->body_length);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

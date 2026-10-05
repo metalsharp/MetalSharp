@@ -45,8 +45,5 @@ write_output ready false
 } >&2
 
 if [ -n "${GITHUB_ENV:-}" ]; then
-  {
-    echo "CSC_IDENTITY_AUTO_DISCOVERY=false"
-    echo "METALSHARP_UNSIGNED_DMG=1"
-  } >>"$GITHUB_ENV"
+  echo "METALSHARP_UNSIGNED_DMG=1" >>"$GITHUB_ENV"
 fi

@@ -1,12 +1,12 @@
 # AGENTS.md
 
-**Updated:** 2026-08-28
+**Updated:** 2026-10-04
 
 Guide for AI agents working on MetalSharp.
 
 ## Project
 
-MetalSharp is a macOS Electron app that runs Windows games and programs through Wine and Metal translation. The application uses a C HTTP backend, a C/C++/Objective-C native graphics engine, runtime bottles, per-game MTSP routing, and packaged runtime assets.
+MetalSharp is a native macOS app (Rust/GPUI, in `app-gpui/`) that runs Windows games and programs through Wine and Metal translation. The application uses a C HTTP backend, a C/C++/Objective-C native graphics engine, runtime bottles, per-game MTSP routing, and packaged runtime assets.
 
 ## Repository Structure
 
@@ -17,11 +17,13 @@ app/
 │   ├── runtime/                Routes, launch/runtime orchestration, providers, setup, migration
 │   ├── tests/                  C unit, transaction, and HTTP smoke tests
 │   └── Makefile                Backend build and test entry point
-├── src/main/                   Electron main process and backend supervision
-├── src/renderer/               Vue renderer, library, settings, and setup UI
+├── native/                     Native helpers packaged into Resources/scripts/tools/native
+├── tools/                      Bundled CLI tools (zstd, unar, wrestool, ...)
 ├── bundles/                    Packaged runtime assets
-├── updater/                    Updater scripts
-└── package.json                Electron build and packaging configuration
+├── updater/                    Updater scripts (update.sh)
+└── tests/                      Node source-contract tests for the backend
+
+app-gpui/                       GPUI desktop app: UI, backend supervision, packaging
 
 src/                            Native D3D/Metal, audio, input, runtime, Wine, and FNA code
 include/                        Native public headers
@@ -32,7 +34,7 @@ docs/                           Architecture, runtime, emulator, and compatibili
 CMakeLists.txt                  Native engine build
 ```
 
-The C backend is the only backend. Electron builds it from `app/src-c` and packages `app/src-c/build/metalsharp-backend` as `Contents/Resources/runtime/metalsharp-backend`.
+The C backend is the only backend. The GPUI app's packaging builds it from `app/src-c` and packages `app/src-c/build/metalsharp-backend` as `Contents/Resources/runtime/metalsharp-backend`; the app supervises it on port 9274.
 
 ## Runtime and Routing
 
@@ -87,16 +89,15 @@ Representative endpoints:
 make -C app/src-c test
 ```
 
-### Electron
+### GPUI app
 
 ```bash
-cd app
-npm ci
-npm run build
-npm run pack
+cd app-gpui
+cargo fmt --check && cargo test
+ACTOOL=/path/to/Xcode.app/Contents/Developer/usr/bin/actool ./package-app.sh
 ```
 
-`npm run pack` builds the C backend and Electron app before packaging.
+`package-app.sh` builds the C backend and the release GPUI app into `app-gpui/target/MetalSharp.app` (bundle id `com.metalsharp.app`). Release builds need a `CARGO_TARGET_DIR` on the internal disk. See `app-gpui/README.md`.
 
 ### Native engine
 
@@ -110,25 +111,24 @@ ctest --test-dir build-native --output-on-failure
 
 ```bash
 tools/dmg/create-bundles.sh
-cd app && npm run dmg
+tools/dmg/build-dmg.sh   # packages the GPUI app and builds MetalSharp-<version>-arm64.dmg
 ```
 
 Do not rebuild the runtime archive unless explicitly requested.
 
 ## CI
 
-- `pr-ci.yml`: shell, rules, docs, Metal, Vue, Electron, C backend, native, and DMG workflow checks.
+- `pr-ci.yml`: shell, rules, docs, Metal, C backend, native, and DMG workflow checks.
+- `gpui-preview.yml`: GPUI app format, tests, route inventory, and backend smoke tests.
 - `ci.yml`: equivalent main-branch validation.
-- `release.yml`: native build, C backend/Electron packaging, DMG verification, signing, and publication.
+- `release.yml`: native build, C backend and GPUI app packaging, DMG verification, signing, and publication.
 
 ## Versioning
 
 Keep these synchronized:
 
-- `CMakeLists.txt`
+- `CMakeLists.txt` (packaging reads the app version from here)
 - `app/src-c/Makefile`
-- `app/package.json`
-- `app/package-lock.json`
 
 Use `tools/release/set-version.sh X.Y.Z`.
 
@@ -137,9 +137,9 @@ Use `tools/release/set-version.sh X.Y.Z`.
 - The packaged C backend is authoritative.
 - Use port 9274 for normal operation; temporary ports are validation-only.
 - Package and atomically install backend/frontend changes before final validation.
-- Do not preview Electron against a temporary `METALSHARP_HOME`.
+- Do not preview the GPUI app against a temporary `METALSHARP_HOME` except with `--connected-validation`.
 - Preserve firmware, saves, configuration, profiles, caches, and external games during emulator updates.
 - Never log or persist launcher secrets.
 - Never use AppleScript to quit a possibly closed MetalSharp app; addressing it launches it first.
 - Leave `/Applications/MetalSharp.app` closed after final validation unless the user requests otherwise.
-- Validate C formatting, C tests, TypeScript, packaging, hashes, and deep code signing for release-facing changes.
+- Validate C formatting, C tests, Rust formatting/tests, packaging, hashes, and deep code signing for release-facing changes.

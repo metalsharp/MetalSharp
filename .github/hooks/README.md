@@ -20,9 +20,7 @@ The `pre-commit` hook runs these checks only when the relevant files are staged:
 | Files staged | Check | Behavior if tool missing |
 |--------------|-------|---------------------------|
 | `*.c`, `*.cpp`, `*.h`, `*.hpp`, `*.mm`, `*.m` | `clang-format --dry-run --Werror` | **FAIL** — no silent skip |
-| `app/**/*.tsx?` | `tsc --noEmit` | **FAIL** — no silent skip |
-| `app/src/{renderer,main,shared}/**/*.{ts,tsx,js,jsx}` | `biome ci` | **FAIL** — no silent skip |
-| `app/**/*.{ts,tsx,js,jsx,html,css,json}` | `prettier --check` | **FAIL** — no silent skip |
+| `app-gpui/**/*.rs` | `cargo fmt --check` | **FAIL** — no silent skip |
 | `configs/mtsp-rules.toml` | `python3 tools/ci/validate-rules-toml.py` | **FAIL** — no silent skip |
 | `*.sh` | `shellcheck` | warn only (optional CI check) |
 | `*.md`, `README.md`, `AGENTS.md` | `python3 tools/ci/check-doc-freshness.py` | warn only (already a soft check) |

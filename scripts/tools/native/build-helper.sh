@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the MetalSharp Process Manager telemetry helper into app/native/ so
-# electron-builder ships it at Resources/scripts/tools/native/, and also into
+# app packaging ships it at Resources/scripts/tools/native/, and also into
 # scripts/tools/native/ so the scripts-tools bundle carries it for the runtime
 # install path. Produces a thin arm64 Mach-O (adhoc-signed at packaging time).
 set -euo pipefail
@@ -26,7 +26,7 @@ echo "Compiling metalsharp-process-manager-helper with $CXX ..."
 cp "$APP_NATIVE/metalsharp-process-manager-helper" "$BUNDLE_NATIVE/metalsharp-process-manager-helper"
 
 echo "Built:"
-echo "  $APP_NATIVE/metalsharp-process-manager-helper   (electron-builder extraResources)"
+echo "  $APP_NATIVE/metalsharp-process-manager-helper   (app packaging)"
 echo "  $BUNDLE_NATIVE/metalsharp-process-manager-helper (scripts-tools bundle)"
 
 # Also build activate-pid helper for bringing Steam to front
