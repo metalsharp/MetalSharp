@@ -22,8 +22,6 @@ tar --use-compress-program=unzstd -xf "$ARCHIVE" -C "$TMP_DIR"
 
 required=(
   "$ROOT/README.md"
-  "$ROOT/docs/developer-runtime.md"
-  "$ROOT/runtime/README.md"
   "$ROOT/runtime/manifest.json"
   "$ROOT/runtime/wine/bin/wine"
   "$ROOT/runtime/wine/bin/x87sidecar"
