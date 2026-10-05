@@ -245,8 +245,8 @@ jobs:
       # Self-hosted runners persist between jobs, so drop the temporary
       # signing keychain from the user's keychain search list.
       - name: Remove signing keychain
-        if: always() && env.CSC_KEYCHAIN != ''
-        run: security delete-keychain "$CSC_KEYCHAIN" || true
+        if: always() && steps.apple-signing.outputs.ready == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/metalsharp-signing.keychain-db" || true
 
       - uses: actions/upload-artifact@v4
         with:
