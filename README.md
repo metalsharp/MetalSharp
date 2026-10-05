@@ -33,9 +33,9 @@ MetalSharp Is An Application Designed To Run Windows Applications and Windows Ga
 
 ## Quick Start
 
-1) Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
+- Download the latest DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into /Applications, and open it.
 
-2) Open it and the setup wizard handles the remaining runtime dependencies. Installed games automatically sync into the User Library.
+- Open it and the setup wizard handles the remaining runtime dependencies. Installed games automatically sync into the User Library.
 
 Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 
@@ -43,7 +43,7 @@ Alternatively, Install MetalSharp from the official **_Homebrew_** tap:
 brew install --cask metalsharp/tap/metalsharp
 ```
 
-Homebrew installs MetalSharp.app in /Applications. Updates are handled in-app with the included updater. 
+- Homebrew installs MetalSharp.app in /Applications. Updates are handled in-app with the included updater. 
 
 
 For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
