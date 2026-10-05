@@ -2,7 +2,7 @@
 name = "metalsharp-gpui"
 version = "0.77.0"
 edition = "2024"
-license = "PolyForm-Noncommercial-1.0.0"
+license = "AGPL-3.0-or-later"
 description = "Native GPUI desktop app prototype for MetalSharp"
 
 [features]

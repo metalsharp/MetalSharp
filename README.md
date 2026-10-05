@@ -12,7 +12,7 @@
 
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.77.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.77.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
-<a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-purple.svg?style=for-the-badge" alt="License"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-purple.svg?style=for-the-badge" alt="License"></a>
 <a href="https://discord.gg/VVtNAQxBu"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="DISCORD"></a>
 
 </div>
@@ -103,7 +103,7 @@ Current maintainer validation is happening on this hardware/software setup. This
 
 ## License
 
-PolyForm Noncommercial 1.0.0 licensed. Third-party components keep their original licenses; see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
+Licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). Third-party components keep their original licenses; see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
 
 ## Star History
 
