@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'app/src-c/runtime/backend.c'
-DESTINATION = ROOT / 'docs/architecture/gpui-backend-route-inventory.json'
+DESTINATION = ROOT / 'app-gpui/backend-route-inventory.json'
 EXACT = re.compile(r'strcmp\s*\(\s*request->method\s*,\s*"(GET|POST|PUT|DELETE)"\s*\)\s*==\s*0\s*&&\s*strcmp\s*\(\s*request->path\s*,\s*"([^"\n]+)"\s*\)\s*==\s*0')
 PATH = re.compile(r'(strcmp|strncmp)\s*\(\s*request->path\s*,\s*"([^"\n]+)"')
 
