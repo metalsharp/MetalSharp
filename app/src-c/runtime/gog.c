@@ -1852,6 +1852,38 @@ static char* gog_stop_all_json(const char* home) {
     }
 }
 
+/* Put the chosen graphics route's DLLs next to the game's exe (the same staging
+ * Steam games get), or clear MetalSharp's route DLLs for Auto/Wine. */
+static bool gog_stage_route(const char* home, const char* product_id, const char* engine,
+                            const char* known_executable) {
+    char *title = NULL, *platform = NULL, *install_root = NULL, *folder = NULL, *executable = NULL;
+    bool ok = false;
+    if (!gog_launch_record(home, product_id, &title, &platform, &install_root, &folder) || !platform ||
+        strcmp(platform, "windows"))
+        goto done;
+    if (known_executable && known_executable[0])
+        executable = strdup(known_executable);
+    else if (ms_game_executable_override_load(home, "gog", product_id, folder, &executable) == 0) {
+        executable = ms_witcher3_game_executable(folder);
+        if (!executable)
+            executable = ms_game_find_executable_in_directory(folder);
+    }
+    if (!executable)
+        goto done;
+    if (!engine || !engine[0] || !strcmp(engine, "auto") || !strcmp(engine, "wine_bare")) {
+        ms_steam_cleanup_route_dlls(home, engine && engine[0] ? engine : "auto", folder, executable);
+        ok = true;
+    } else
+        ok = ms_steam_stage_route_for_executable(home, engine, folder, executable);
+done:
+    free(executable);
+    free(title);
+    free(platform);
+    free(install_root);
+    free(folder);
+    return ok;
+}
+
 char* ms_gog_action_json(const char* home, const char* action, const unsigned char* body, size_t len) {
     char e[96];
     ms_json* j = NULL;
@@ -1934,7 +1966,7 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
         return ms_gog_games_json(home);
     bool needs_id = !strcmp(action, "install") || !strcmp(action, "import") || !strcmp(action, "progress") ||
                     !strcmp(action, "play") || !strcmp(action, "stop") || !strcmp(action, "uninstall") ||
-                    !strcmp(action, "save-executable");
+                    !strcmp(action, "save-executable") || !strcmp(action, "set-engine");
     if (needs_id) {
         j = ms_json_parse(body ? (const char*)body : "", body ? len : 0, e, sizeof(e));
         v = j ? ms_json_object_get(j, "productId") : NULL;
@@ -1944,6 +1976,16 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             free(s);
             ms_json_free(j);
             return err("missing productId");
+        }
+        if (!strcmp(action, "set-engine")) {
+            char* engine = field(j, "engine", "auto");
+            bool staged = gog_stage_route(home, s, engine, NULL);
+            free(engine);
+            free(s);
+            ms_json_free(j);
+            if (!staged)
+                return err("could not stage the graphics route for this game");
+            return strdup("{\"ok\":true}");
         }
         if (!strcmp(action, "save-executable")) {
             char *title = NULL, *platform = NULL, *install_root = NULL, *folder = NULL;
@@ -2128,6 +2170,8 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 if (override_status == 0)
                     override_exe = ms_witcher3_game_executable(folder);
             }
+            if (!strcmp(platform, "windows"))
+                (void)gog_stage_route(home, s, engine, override_exe);
             bool started = prefix && mkdir_p(prefix) &&
                            spawn_gogdl_launch(home, s, platform, folder, engine, override_exe, &launch_pid, &log_path);
             free(override_exe);

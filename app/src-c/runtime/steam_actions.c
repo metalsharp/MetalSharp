@@ -1585,8 +1585,10 @@ bool ms_steam_stage_route_for_executable(const char* home, const char* pipeline,
                                          const char* executable) {
     if (!home || !pipeline || !game_dir || !executable)
         return false;
+    /* Accept the same route names as bottles ("d3d11" -> dxmt); auto stages nothing. */
+    const char* canonical = canonical_pipeline(pipeline);
     ms_steam_cleanup_route_dlls(home, pipeline, game_dir, executable);
-    return stage_route_dlls(home, 0, pipeline, executable);
+    return stage_route_dlls(home, 0, canonical ? canonical : pipeline, executable);
 }
 
 static const char* default_pipeline_for_appid(const char* home, unsigned appid) {

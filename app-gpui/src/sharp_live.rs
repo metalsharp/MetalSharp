@@ -208,8 +208,9 @@ impl SharpPreview {
         }
     }
 
-    /// SharpView `load()`.
-    pub(super) fn load(&mut self, cx: &mut Context<Self>) {
+    /// Sharp Library apps only (also after an installer exits and the backend
+    /// adds what it installed).
+    fn load_apps(&mut self, cx: &mut Context<Self>) {
         live::call(
             cx,
             "GET",
@@ -230,6 +231,11 @@ impl SharpPreview {
                 }
             },
         );
+    }
+
+    /// SharpView `load()`.
+    pub(super) fn load(&mut self, cx: &mut Context<Self>) {
+        self.load_apps(cx);
         self.load_bottles(cx);
         self.refresh_gog(cx);
         self.load_gamejolt(cx, true);
@@ -329,7 +335,15 @@ impl SharpPreview {
                         })
                         .collect();
                     if next != this.live_mut().sharp_running {
+                        let exited = this
+                            .live_mut()
+                            .sharp_running
+                            .keys()
+                            .any(|id| !next.contains_key(id));
                         this.live_mut().sharp_running = next;
+                        if exited {
+                            this.load_apps(cx);
+                        }
                         cx.notify();
                     }
                 }
@@ -1153,11 +1167,38 @@ impl SharpPreview {
     }
 
     pub(super) fn set_gog_engine(&mut self, id: String, engine: String, cx: &mut Context<Self>) {
-        self.live_mut().gog_engines.insert(id, engine);
+        self.live_mut()
+            .gog_engines
+            .insert(id.clone(), engine.clone());
         if let Some(live) = crate::live::Live::get(cx) {
             let _ = std::fs::write(
                 live.home().join("gpui-gog-engines.json"),
                 serde_json::to_vec(&self.live_mut().gog_engines).unwrap_or_default(),
+            );
+        }
+        // Stage the route's DLLs beside the game now, like Steam bottles do,
+        // instead of waiting for the next launch.
+        let installed = self
+            .live_mut()
+            .gog_games
+            .iter()
+            .any(|game| s(game, "productId") == id && b(game, "installed"));
+        if installed {
+            live::call(
+                cx,
+                "POST",
+                "/sharp-library/gog/set-engine",
+                Some(json!({"productId": id, "engine": engine})),
+                MS(30_000),
+                |_, r, cx| {
+                    if !r.as_ref().is_some_and(is_ok) {
+                        toast::error(
+                            cx,
+                            error_text(r.as_ref())
+                                .unwrap_or_else(|| "Could not stage the graphics route".into()),
+                        );
+                    }
+                },
             );
         }
         cx.notify();

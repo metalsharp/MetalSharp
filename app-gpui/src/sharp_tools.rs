@@ -88,24 +88,33 @@ fn steam_app_id(bottle: &Value) -> Option<u64> {
 }
 
 /// main `app:open-in-finder`: only paths under the home directory.
-pub(super) fn open_in_finder(path: &str) {
-    let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else {
-        return;
-    };
-    let resolved = match path.strip_prefix('~') {
-        Some(rest) => format!("{}{rest}", home.display()),
-        None => path.to_owned(),
-    };
-    let full = std::path::PathBuf::from(&resolved);
-    if !full.is_absolute() || !full.starts_with(&home) {
-        return;
+fn install_assets(
+    sources: &[std::path::PathBuf],
+    target: &std::path::Path,
+) -> Result<usize, String> {
+    let mut count = 0;
+    for source in sources {
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| format!("{} has no file name", source.display()))?;
+        let destination = target.join(file_name);
+        if destination == *source {
+            continue;
+        }
+        if destination.is_file() {
+            let mut backup = destination.clone().into_os_string();
+            backup.push(".metalsharp-backup");
+            let backup = std::path::PathBuf::from(backup);
+            if !backup.exists() {
+                std::fs::rename(&destination, &backup)
+                    .map_err(|e| format!("{}: {e}", destination.display()))?;
+            }
+        }
+        std::fs::copy(source, &destination)
+            .map_err(|e| format!("{}: {e}", destination.display()))?;
+        count += 1;
     }
-    if !full.exists() {
-        let _ = std::fs::create_dir_all(&full);
-    }
-    let _ = std::process::Command::new("/usr/bin/open")
-        .arg(&full)
-        .spawn();
+    Ok(count)
 }
 
 impl SharpPreview {
@@ -385,14 +394,48 @@ impl SharpPreview {
     }
 
     /// `openAppBottleFolder`.
-    pub(super) fn open_app_bottle_folder(&mut self, app: &Value, cx: &mut Context<Self>) {
-        match self.bottle_for_app(app) {
-            Some(bottle) => open_in_finder(s(&bottle, "prefix_path")),
-            None => toast::error(
-                cx,
-                format!("{} is not associated with an app bottle", s(app, "name")),
-            ),
-        }
+    /// "Add Asset": pick files from the MetalSharp assets (the unpacked
+    /// metalsharp-assets bundle under `runtime/`: FAudio, Goldberg, DXVK 1.10,
+    /// FNA libs, shims...) and copy them next to the app's exe. A game file
+    /// that gets replaced is kept once as `<name>.metalsharp-backup`.
+    pub(super) fn add_app_asset(&mut self, app: &Value, cx: &mut Context<Self>) {
+        let name = s(app, "name").to_owned();
+        let Some(target) = std::path::Path::new(s(app, "exe_path"))
+            .parent()
+            .filter(|dir| dir.is_dir())
+            .map(std::path::Path::to_path_buf)
+        else {
+            toast::error(cx, format!("{name}'s folder was not found"));
+            return;
+        };
+        let assets = crate::live::Live::get(cx).map(|live| live.home().join("runtime"));
+        cx.spawn(async move |this, cx| {
+            let mut dialog = rfd::AsyncFileDialog::new().set_title(format!("Add asset to {name}"));
+            if let Some(assets) = assets.filter(|dir| dir.is_dir()) {
+                dialog = dialog.set_directory(assets);
+            }
+            let Some(files) = dialog.pick_files().await else {
+                return;
+            };
+            let sources: Vec<std::path::PathBuf> =
+                files.iter().map(|file| file.path().to_path_buf()).collect();
+            let copied = cx
+                .background_executor()
+                .spawn(async move { install_assets(&sources, &target).map(|n| (n, target)) })
+                .await;
+            let _ = this.update(cx, move |_, cx| match copied {
+                Ok((count, target)) => toast::success(
+                    cx,
+                    format!(
+                        "Added {count} asset{} to {}",
+                        if count == 1 { "" } else { "s" },
+                        target.display()
+                    ),
+                ),
+                Err(error) => toast::error(cx, format!("Could not add asset: {error}")),
+            });
+        })
+        .detach();
     }
 
     // ───────────────────────────── Launch Doctor ─────────────────────────────

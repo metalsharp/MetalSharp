@@ -628,7 +628,7 @@ impl SharpPreview {
                         );
                         let engine_id = id.clone();
                         let cover_id = id.clone();
-                        let folder_app = app.clone();
+                        let asset_app = app.clone();
                         let uninstall = (id.clone(), s(&app, "name").to_owned());
                         let mut content = div()
                             .flex()
@@ -664,16 +664,16 @@ impl SharpPreview {
                                     )
                                     .child(
                                         self.action(
-                                            format!("app-folder-{id}"),
-                                            "Open Folder",
+                                            format!("app-asset-{id}"),
+                                            "Add Asset",
                                             false,
                                             false,
-                                            bottle.is_some(),
+                                            !running,
                                         )
                                         .flex_1()
                                         .on_click(
                                             cx.listener(move |this, _, _, cx| {
-                                                this.open_app_bottle_folder(&folder_app, cx)
+                                                this.add_app_asset(&asset_app, cx)
                                             }),
                                         ),
                                     ),
