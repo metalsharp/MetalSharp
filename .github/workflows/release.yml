@@ -12,6 +12,10 @@ on:
         type: choice
         options: ['0', '1']
 
+# Set the repository variable METALSHARP_RELEASE_RUNNER to `local` to run on
+# the self-hosted runner labelled `metalsharp-release`; otherwise GitHub's
+# macos-14 runners are used.
+
 concurrency:
   group: release-ci-${{ github.ref }}
   cancel-in-progress: false
@@ -31,7 +35,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.developer_sdk == '1') ||
       vars.METALSHARP_BUILD_DEVELOPER_SDK == '1'
-    runs-on: macos-14
+    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-14' }}
     concurrency:
       group: metalsharp-developer-sdk-bundles
       cancel-in-progress: false
@@ -105,7 +109,7 @@ jobs:
     name: Build DMG
     # Decoupled from developer-sdk: the DMG must build and the GitHub Release
     # must publish even when the D3D12 developer SDK build is disabled (=0).
-    runs-on: macos-14
+    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-14' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -238,6 +242,12 @@ jobs:
       - name: Record release identity
         run: printf '%s\n' "$GITHUB_REF_NAME" > dist/gpui/RELEASE-TAG.txt
 
+      # Self-hosted runners persist between jobs, so drop the temporary
+      # signing keychain from the user's keychain search list.
+      - name: Remove signing keychain
+        if: always() && env.CSC_KEYCHAIN != ''
+        run: security delete-keychain "$CSC_KEYCHAIN" || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: MetalSharp-dmg
@@ -250,7 +260,7 @@ jobs:
   release:
     name: Release
     needs: [build]
-    runs-on: macos-14
+    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-14' }}
     permissions:
       contents: write
     steps:
