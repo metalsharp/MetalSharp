@@ -4437,7 +4437,11 @@ impl MetalSharpApp {
     }
 }
 
-fn open_help(purpose: crate::mini_browser::BrowserPurpose, url: &'static str, cx: &mut App) {
+pub(crate) fn open_help(
+    purpose: crate::mini_browser::BrowserPurpose,
+    url: &'static str,
+    cx: &mut App,
+) {
     #[cfg(target_os = "macos")]
     {
         if let (Ok(request), Some(mtm)) = (

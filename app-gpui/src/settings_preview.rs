@@ -1238,6 +1238,40 @@ impl SettingsPreview {
         desc: impl Into<gpui::SharedString>,
         control: impl IntoElement,
     ) -> gpui::Div {
+        self.row_with_desc(title, desc.into(), control)
+    }
+    /// Description text followed by a link that opens the key page in the
+    /// mini browser (same as the setup screen's API key hints).
+    fn help_desc(
+        &self,
+        desc: impl Into<gpui::SharedString>,
+        id: &'static str,
+        link: &'static str,
+        purpose: crate::mini_browser::BrowserPurpose,
+        url: &'static str,
+    ) -> gpui::Div {
+        let p = self.palette;
+        div()
+            .flex()
+            .flex_wrap()
+            .gap_x(px(4.))
+            .child(desc.into())
+            .child(
+                div()
+                    .id(id)
+                    .text_color(rgb(p.control_text))
+                    .underline()
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| crate::ui::open_help(purpose, url, cx))
+                    .child(link),
+            )
+    }
+    fn row_with_desc(
+        &self,
+        title: impl Into<gpui::SharedString>,
+        desc: impl IntoElement,
+        control: impl IntoElement,
+    ) -> gpui::Div {
         let p = self.palette;
         div()
             .flex()
@@ -1268,7 +1302,7 @@ impl SettingsPreview {
                             .text_color(rgba((p.control_text << 8) | 0x9e))
                             .text_size(px(11.5))
                             .line_height(px(16.675))
-                            .child(desc.into()),
+                            .child(desc),
                     ),
             )
             .child(
@@ -1408,11 +1442,14 @@ impl Render for SettingsPreview {
         let p = self.palette;
         self.narrow = f32::from(window.viewport_size().width) <= 900.0;
         let app = self.app.clone();
-        let steam_row = self.row(
+        let steam_row = self.row_with_desc(
             self.tr("ui.settings.apiKey"),
-            format!(
-                "{} steamcommunity.com/dev/apikey.",
-                self.tr("ui.settingsDesc.apiKey")
+            self.help_desc(
+                self.tr("ui.settingsDesc.apiKey"),
+                "settings-steam-api-key-link",
+                "steamcommunity.com/dev/apikey",
+                crate::mini_browser::BrowserPurpose::SteamApiKeyHelp,
+                "https://steamcommunity.com/dev/apikey",
             ),
             self.credential_control(false, cx),
         );
@@ -1445,11 +1482,14 @@ impl Render for SettingsPreview {
             )
             .border_b_0();
         let epic_row = self
-            .row(
+            .row_with_desc(
                 self.tr("ui.settings.theGamesDbApiKey"),
-                format!(
-                    "{} TheGamesDB.",
-                    self.tr("ui.settingsDesc.theGamesDbApiKey")
+                self.help_desc(
+                    self.tr("ui.settingsDesc.theGamesDbApiKey"),
+                    "settings-thegamesdb-api-key-link",
+                    "TheGamesDB",
+                    crate::mini_browser::BrowserPurpose::TheGamesDbHelp,
+                    "https://api.thegamesdb.net/key.php",
                 ),
                 self.credential_control(true, cx),
             )
