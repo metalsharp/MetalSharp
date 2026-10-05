@@ -1,8 +1,7 @@
-# Games Supported
+# Supported Games
+**Updated:** 2026-10-05
 
-Updated: 2026-09-30
-
-Tested and working games organized by launch route. Only games confirmed playable are listed, either by users who use MetalSharp or by the Developer. Many more games likely work beyond this default list.
+Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M4 MacBook Air (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#launching-games-and-graphics-routes).
 
 ## Sharp Library Sources
 
@@ -10,21 +9,6 @@ Tested and working games organized by launch route. Only games confirmed playabl
 |---|---|---|
 | GameJolt | The Joy of Creation: Reborn | DXMT |
 | GOG | Fall of Porcupine: Prologue | DXMT |
-
-## Test System
-
-Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an M4 MacBook Air with 16GB RAM.
-
-## Routes
-
-| Route | Use |
-|---|---|
-| **D3DMetal** | D3D12/D3D11/D3D10 through the managed D3DMetal framework and MetalSharp Wine 11.17 |
-| **VKD3D** | D3D12/D3D11/D3D10/D3D9 -> Vulkan -> Metal |
-| **DXMT** | D3D11, D3D10 to Metal |
-| **DXMT (32-bit)** | D3D11, D3D10 32-bit to Metal |
-| **D3D9** | Wine i386 D3D9 With x87 Acceleration |
-| **Mono/FNA** | XNA/FNA/MonoGame via native Mono |
 
 ---
 
@@ -50,7 +34,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Borderlands 3 | 397540 | Online Play |
 | The Witcher 3: Wild Hunt | 292030 | Online Play |
 | Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
-| Palworld | 1623730 | Online Play| 
+| Palworld | 1623730 | Online Play|
 | Hogwarts Legacy | 990080 | Online Play |
 | HELLDIVERS 2 | 553850 | Online Play, Medium Settings |
 | Assassin's Creed Odyssey | 812140 | |
@@ -76,7 +60,7 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Mirror's Edge | 17410 | Sync-loading mitigation active. |
 | Half-Life 2 | 220 | |
 | Among Us | 945360 | Steam online play. |
-| Dwarf Fortress | 975370 | | 
+| Dwarf Fortress | 975370 | |
 | Caves Of Qud | 333640 | |
 | Skyrim: Special Edition | 489830 | |
 
@@ -105,15 +89,14 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Insurgency | 222880 | Launch with `-steam -secure` flags. |
 | Graveyard Keeper | 599140 | |
 | Brawlhalla | 291550 | |
-| PlateUp! | 1599600 | | 
+| PlateUp! | 1599600 | |
 | Nine Sols | 1809540 | |
-| Dave The Diver | 1868140 | |
 | Besiege | 346010 | |
 | AmongUs | 945360 | |
 | Team Fortress 2 | 440 | |
 | Amid Evil | 673130 | |
-| Octopath Traveler II | 	1971650 | |
-| Mind Scanners | 1389550 | | 
+| Octopath Traveler II | 1971650 | |
+| Mind Scanners | 1389550 | |
 | Dredge | 1562430 | |
 | Blasphemous 2 | 2114740 | |
 
@@ -124,22 +107,22 @@ Games were tested from an external 1TB M.2 SSD (~5000 MB/s over USB-C 3.1) on an
 | Game | AppID | Notes |
 |---|---:|---|
 | Hades | 1145360 | |
-| The Binding Of Isaac: Rebirth | 250900 | | 
+| The Binding Of Isaac: Rebirth | 250900 | |
 | Ori and the Blind Forest: Definitive Edition | 387290 | |
 | Nidhogg 2 | 535520 | |
-| Balatro | 2379780 | | 
+| Balatro | 2379780 | |
 
 ---
 
 ## D3D9 - Wine i386 D3D9 W/ x87 Acceleration
 
-| Game | AppID | Notes | 
+| Game | AppID | Notes |
 |---|---|---|
 | Portal 2 | 620 | Steam-Emu Required |
 | Half Life 2 | 220 | |
-| Undertale | 391540 | | 
+| Undertale | 391540 | |
 
-___
+---
 
 ## Mono/FNA — XNA/FNA/MonoGame
 
@@ -147,11 +130,3 @@ ___
 |---|---:|---|
 | Celeste | 504230 | FNA/XNA assets, FMOD shims, Steamworks shim. x86_64 Mono. Install wizard fallback paths for `steam_api` detection. |
 | Terraria | 105600 | TerrariaLauncher/patcher support, x86_64 Mono, XNA/FNA assemblies. |
-
----
-
-## Notes
-
-- Game cards can be tested through the route dropdown in each game's bottle workspace.
-- Shader caches are per-appid and can be cleared from Settings.
-- Wine Steam stays alive as the background client; installed Wine Steam games create `steam_<appid>` bottle records for runtime preflight, and env-dependent launches run the game executable directly with the selected route, bottle prefix, route env, and Steam identity variables.

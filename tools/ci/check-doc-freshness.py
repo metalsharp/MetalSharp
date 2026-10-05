@@ -45,7 +45,7 @@ DEFAULT_STALE_DAYS = 120
 # Files that are exempt from this check
 EXEMPT = {
     "docs/README.md",  # Repo map
-    "docs/compatibility/GAMES-SUPPORTED.md",  # Updated frequently
+    "docs/games-supported.md",  # Updated frequently
 }
 
 
