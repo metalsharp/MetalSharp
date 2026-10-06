@@ -567,7 +567,7 @@ impl MetalSharpApp {
             .bg(rgb(0x242729))
             .shadow_lg()
             .child(match art {
-                Some(art) => img(art)
+                Some(art) => crate::artwork::art_img(art)
                     .w_full()
                     .h_full()
                     .object_fit(ObjectFit::Cover)

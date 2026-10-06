@@ -21,6 +21,9 @@ url = "2"
 libc = "0.2"
 raw-window-handle = "0.6"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+futures = "0.3"
+# Same version and features as gpui's own resvg, so it is shared, not rebuilt.
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.4"

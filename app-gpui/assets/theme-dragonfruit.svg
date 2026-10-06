@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Pitaya: a flame-shaped fruit with upturned bracts, a leafy crown and seeds. -->
+  <path d="M12 6.8c3.9.4 6.4 3.6 6.4 7.4 0 4-2.9 7.3-6.4 7.3s-6.4-3.3-6.4-7.3c0-3.8 2.5-7 6.4-7.4Z" />
+  <path d="M12 6.8 9.4 2.6l3.1 2.2L14.8 2l-.6 3.4 2.9-.7-3.6 2.4" fill="currentColor" />
+  <path d="M5.9 11.8C3.9 11.7 2.7 10.3 2.4 8.4c1.8.4 3.1 1.4 4 2.9M18.1 11.8c2-.1 3.2-1.5 3.5-3.4-1.8.4-3.1 1.4-4 2.9M6 17.2c-2 .3-3.4-.6-4.2-2.2 1.7-.1 3.1.4 4.2 1.4M18 17.2c2 .3 3.4-.6 4.2-2.2-1.7-.1-3.1.4-4.2 1.4" fill="currentColor" stroke-width="1.2" />
+  <g fill="currentColor" stroke="none">
+    <circle cx="10" cy="12" r=".95" /><circle cx="14.1" cy="11.6" r=".95" /><circle cx="12.1" cy="14.6" r=".95" />
+    <circle cx="9.4" cy="16.4" r=".95" /><circle cx="14.7" cy="16.1" r=".95" /><circle cx="12" cy="18.7" r=".95" />
+  </g>
+</svg>

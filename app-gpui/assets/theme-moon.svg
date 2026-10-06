@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+  <!-- A full crescent with two small stars. -->
+  <path d="M13.1 2.6a9.6 9.6 0 1 0 8.3 13.9 7.6 7.6 0 0 1-8.3-13.9Z" />
+  <path d="m18.4 3.2.55 1.45 1.45.55-1.45.55-.55 1.45-.55-1.45-1.45-.55 1.45-.55Z" />
+  <path d="m21.3 8.6.38 1 1 .38-1 .38-.38 1-.38-1-1-.38 1-.38Z" />
+</svg>
