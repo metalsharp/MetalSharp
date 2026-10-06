@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!-- Steam-style mark (original drawing): a disc with a valve wheel and piston rod knocked out. -->
+  <defs>
+    <mask id="piston">
+      <rect width="24" height="24" fill="#fff" />
+      <circle cx="15.4" cy="8.9" r="4" fill="#000" />
+      <circle cx="15.4" cy="8.9" r="2.3" fill="#fff" />
+      <path d="M13.4 11.3 8.9 14.1" stroke="#000" stroke-width="3" stroke-linecap="round" />
+      <circle cx="8.2" cy="15.8" r="2.9" fill="#000" />
+      <circle cx="8.2" cy="15.8" r="1.5" fill="#fff" />
+      <path d="M0 14.6 5.6 16.9" stroke="#000" stroke-width="3.2" stroke-linecap="round" />
+    </mask>
+  </defs>
+  <circle cx="12" cy="12" r="10.5" fill="currentColor" mask="url(#piston)" />
+</svg>
