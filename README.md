@@ -80,7 +80,7 @@ To launch a game, install it through Steam and launch it through MetalSharp. Cho
 ## Requirements
 
 - Apple Silicon Mac M1-M5, MacOS 15+
-- About ~8 GB free space
+- About ~12 GB free space (9 GB Installed Runtime and 3 GB for Steam-Prefix Setup)
 
 ## Developer Setup
 
