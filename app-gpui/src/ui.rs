@@ -2219,17 +2219,9 @@ impl MetalSharpApp {
                     .bottom(px(0.0))
                     .left(px(0.0))
                     .object_fit(ObjectFit::Cover)
-                    .opacity(0.62)
             }))
-            .child(
-                div()
-                    .absolute()
-                    .top(px(0.0))
-                    .right(px(0.0))
-                    .bottom(px(0.0))
-                    .left(px(0.0))
-                    .bg(rgba(0x06080950)),
-            )
+            // Scrim only where the title and Play button sit; the rest of the
+            // art shows at full brightness.
             .child(
                 div()
                     .absolute()
@@ -2239,8 +2231,8 @@ impl MetalSharpApp {
                     .left(px(0.0))
                     .bg(linear_gradient(
                         90.0,
-                        linear_color_stop(rgba(0x060809d8), 0.0),
-                        linear_color_stop(rgba(0x06080925), 1.0),
+                        linear_color_stop(rgba(0x060809c0), 0.0),
+                        linear_color_stop(rgba(0x06080900), 0.72),
                     )),
             )
             .child(
