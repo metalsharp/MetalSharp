@@ -22,8 +22,7 @@ MetalSharp Is An Application Designed To Run Windows Applications and Windows Ga
 
 
 
-
-<img width="893" height="648" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/5fb80466-1125-4701-8a48-85ca37865652" />
+<img width="892" height="685" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/03539f26-ce8b-4169-996b-7e89c5590aad" />
 
 
 
