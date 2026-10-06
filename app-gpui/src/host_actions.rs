@@ -159,6 +159,24 @@ pub fn grid_art_signature(home: &Path) -> Vec<(PathBuf, u128)> {
     out
 }
 
+/// Steam appids whose grid files (`<appid>p.png`, `<appid>_hero.gif`, ...)
+/// were added, removed, or rewritten between two `grid_art_signature`s.
+pub fn grid_art_changed_appids(before: &[(PathBuf, u128)], after: &[(PathBuf, u128)]) -> Vec<u64> {
+    let before: std::collections::HashSet<_> = before.iter().collect();
+    let after_set: std::collections::HashSet<_> = after.iter().collect();
+    let mut appids: Vec<u64> = before
+        .symmetric_difference(&after_set)
+        .filter_map(|(path, _)| {
+            let name = path.file_name()?.to_str()?;
+            let digits: String = name.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse().ok()
+        })
+        .collect();
+    appids.sort_unstable();
+    appids.dedup();
+    appids
+}
+
 /// `shell.openPath` equivalent after `mkdir -p`.
 pub fn open_folder(path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
