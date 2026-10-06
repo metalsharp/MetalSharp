@@ -246,10 +246,13 @@ impl PreviewTheme {
 
     fn render_icon(self, color: u32) -> gpui::AnyElement {
         let asset = match self {
+            Self::Dark => Some("theme-moon.svg"),
+            Self::Light => Some("theme-sun.svg"),
             Self::Skeleton => Some("theme-skeleton.svg"),
             Self::Forest => Some("theme-forest.svg"),
             Self::OrangePeel => Some("theme-orange.svg"),
-            _ => None,
+            Self::Dragonfruit => Some("theme-dragonfruit.svg"),
+            Self::Lava => None,
         };
         if let Some(asset) = asset {
             gpui::svg()
@@ -261,9 +264,6 @@ impl PreviewTheme {
             div()
                 .text_color(rgb(color))
                 .child(match self {
-                    Self::Dark => "☾",
-                    Self::Light => "☼",
-                    Self::Dragonfruit => "✦",
                     Self::Lava => "♨",
                     _ => unreachable!(),
                 })
@@ -389,6 +389,26 @@ impl PreviewTheme {
         }
     }
 
+    /// The website's chrome spectrum (cyan → blue → violet) for the default
+    /// theme; other themes re-hue it around their own accent.
+    fn spectrum(self) -> [gpui::Hsla; 3] {
+        if self == Self::Dark {
+            return [
+                rgb(0x5fe1ff).into(),
+                rgb(0x3d7bff).into(),
+                rgb(0x9b7bff).into(),
+            ];
+        }
+        let base: gpui::Hsla = rgb(self.accent()).into();
+        let shift = |hue: f32, lightness: f32| gpui::Hsla {
+            h: (base.h + hue).rem_euclid(1.0),
+            s: base.s,
+            l: (base.l + lightness).clamp(0.0, 0.88),
+            a: 1.0,
+        };
+        [shift(-0.05, 0.12), base, shift(0.06, -0.06)]
+    }
+
     fn hero_title(self) -> u32 {
         if self == Self::Skeleton {
             0xeeeeee
@@ -413,12 +433,93 @@ impl PreviewTheme {
     }
 }
 
+/// Website-style bar surface: deep ink, a hue wash from each end, and a
+/// spectrum hairline on the edge that meets the page.
+fn chrome_bar(theme: PreviewTheme, hairline_at_bottom: bool) -> gpui::Div {
+    let [first, middle, last] = theme.spectrum();
+    let (top, bottom) = if hairline_at_bottom {
+        (0x0d1018, 0x07080d)
+    } else {
+        (0x07080d, 0x0d1018)
+    };
+    let wash = |color: gpui::Hsla, strength: f32, from_left: bool| {
+        let (a, b) = if from_left {
+            (color.opacity(strength), color.opacity(0.0))
+        } else {
+            (color.opacity(0.0), color.opacity(strength))
+        };
+        div().h_full().bg(linear_gradient(
+            90.,
+            linear_color_stop(a, 0.),
+            linear_color_stop(b, 1.),
+        ))
+    };
+    let segment = |from: gpui::Hsla, to: gpui::Hsla, share: f32| {
+        div().h_full().w(relative(share)).bg(linear_gradient(
+            90.,
+            linear_color_stop(from, 0.),
+            linear_color_stop(to, 1.),
+        ))
+    };
+    let hairline = div()
+        .absolute()
+        .left(px(0.))
+        .right(px(0.))
+        .h(px(1.))
+        .flex()
+        .opacity(0.9)
+        .child(segment(first.opacity(0.0), first, 0.12))
+        .child(segment(first, middle, 0.38))
+        .child(segment(middle, last, 0.38))
+        .child(segment(last, last.opacity(0.0), 0.12));
+    let hairline = if hairline_at_bottom {
+        hairline.bottom(px(0.))
+    } else {
+        hairline.top(px(0.))
+    };
+    div()
+        .relative()
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(rgb(top), 0.),
+            linear_color_stop(rgb(bottom), 1.),
+        ))
+        .child(
+            div()
+                .absolute()
+                .top(px(0.))
+                .left(px(0.))
+                .right(px(0.))
+                .bottom(px(0.))
+                .flex()
+                .child(wash(middle, 0.16, true).w(relative(0.45)))
+                .child(div().flex_1())
+                .child(wash(last, 0.11, false).w(relative(0.35))),
+        )
+        .child(hairline)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LibraryTab {
     Play,
     Collection,
     SharpLibrary,
     Logs,
+}
+
+impl LibraryTab {
+    fn icon(self, size: f32, color: u32) -> gpui::Svg {
+        gpui::svg()
+            .path(match self {
+                Self::Play => "icon-gamepad.svg",
+                Self::Collection => "icon-collection.svg",
+                Self::SharpLibrary => "icon-sharp.svg",
+                Self::Logs => "icon-logs.svg",
+            })
+            .flex_none()
+            .size(px(size))
+            .text_color(rgb(color))
+    }
 }
 
 fn preview_games() -> Vec<LibGame> {
@@ -1200,10 +1301,10 @@ impl MetalSharpApp {
 
         if self.tab_menu_open {
             let options = [
-                (LibraryTab::Play, "⌂", "Play"),
-                (LibraryTab::Collection, "▦", "Collection"),
-                (LibraryTab::SharpLibrary, "⬇", "Sharp Library"),
-                (LibraryTab::Logs, "▤", "Logs"),
+                (LibraryTab::Play, "Play"),
+                (LibraryTab::Collection, "Collection"),
+                (LibraryTab::SharpLibrary, "Sharp Library"),
+                (LibraryTab::Logs, "Logs"),
             ];
             let mut menu = div()
                 .absolute()
@@ -1219,7 +1320,7 @@ impl MetalSharpApp {
                 .bg(rgb(theme.menu_bg()))
                 .shadow_lg()
                 .p(px(6.0));
-            for (index, (tab, icon, label)) in options.into_iter().enumerate() {
+            for (index, (tab, label)) in options.into_iter().enumerate() {
                 let selected = tab == self.active_tab;
                 menu = menu.child(
                     div()
@@ -1244,7 +1345,7 @@ impl MetalSharpApp {
                             this.tab_menu_open = false;
                             cx.notify();
                         }))
-                        .child(icon)
+                        .child(tab.icon(15.0, control_text))
                         .child(label),
                 );
             }
@@ -1286,6 +1387,7 @@ impl MetalSharpApp {
                     .h(px(30.0))
                     .flex()
                     .items_center()
+                    .gap(px(8.0))
                     .px(px(10.0))
                     .rounded(px(5.0))
                     .text_size(px(12.5))
@@ -1303,6 +1405,13 @@ impl MetalSharpApp {
                         this.steam_options_open = false;
                         cx.notify();
                     }))
+                    .children(is_launcher.then(|| {
+                        gpui::svg()
+                            .path("icon-ubisoft.svg")
+                            .flex_none()
+                            .size(px(15.0))
+                            .text_color(rgb(control_text))
+                    }))
                     .child(label.to_owned()),
             );
             steam_menu = Some(gpui::deferred(menu.id("steam_menu").occlude()).with_priority(10));
@@ -1314,8 +1423,7 @@ impl MetalSharpApp {
         } else {
             self.steam_running
         };
-        let mut header = div()
-            .relative()
+        let mut header = chrome_bar(theme, true)
             .w_full()
             .flex_none()
             .h(px(56.0))
@@ -1323,10 +1431,7 @@ impl MetalSharpApp {
             .flex()
             .items_center()
             .gap(px(10.0))
-            .px(px(16.0))
-            .bg(rgb(0x191c1f))
-            .border_b_1()
-            .border_color(rgba(0xe7eaec24));
+            .px(px(16.0));
 
         header = header
             .child(
@@ -1337,7 +1442,7 @@ impl MetalSharpApp {
                     .gap(px(10.0))
                     .text_size(px(15.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(0xf2f2f1))
+                    .text_color(rgb(0xe9edf7))
                     .child(
                         img(asset_path("metalsharp-logo.png"))
                             .size(px(27.0))
@@ -1371,7 +1476,13 @@ impl MetalSharpApp {
                                 this.close_library_menus();
                                 this.toggle_steam(false, cx);
                             }))
-                            .child("◉")
+                            .child(
+                                gpui::svg()
+                                    .path("icon-steam.svg")
+                                    .flex_none()
+                                    .size(px(17.0))
+                                    .text_color(rgb(0xffffff)),
+                            )
                             .child(match steam_pending {
                                 Some(SteamPending::Starting) => "Starting Steam…",
                                 Some(SteamPending::Stopping) => "Stopping Steam…",
@@ -1526,12 +1637,7 @@ impl MetalSharpApp {
                                 this.theme_menu_open = false;
                                 cx.notify();
                             }))
-                            .child(match self.active_tab {
-                                LibraryTab::Play => "⌂",
-                                LibraryTab::Collection => "▦",
-                                LibraryTab::SharpLibrary => "⬇",
-                                LibraryTab::Logs => "▤",
-                            })
+                            .child(self.active_tab.icon(16.0, 0xffffff))
                             .child(current_tab_label)
                             .child("⌄"),
                     )
@@ -1770,7 +1876,8 @@ impl MetalSharpApp {
                 "Preview build · updater disabled".to_owned(),
             )
         };
-        div()
+        let stream_hue = theme.spectrum()[0];
+        chrome_bar(theme, false)
             .h(px(68.0))
             .min_h(px(68.0))
             .flex()
@@ -1778,13 +1885,6 @@ impl MetalSharpApp {
             .justify_between()
             .gap(px(22.0))
             .px(px(26.0))
-            .border_t_1()
-            .border_color(rgba(if theme == PreviewTheme::Light {
-                0xffffffff
-            } else {
-                0xe7eaec24
-            }))
-            .bg(rgb(0x1b1e20))
             .text_color(rgb(0xd8dad9))
             .child(
                 div()
@@ -1830,23 +1930,15 @@ impl MetalSharpApp {
                     .py(px(7.0))
                     .rounded(px(10.0))
                     .border_1()
-                    .border_color(rgba(if theme == PreviewTheme::Light {
-                        0xffffffff
-                    } else {
-                        0xe7eaec24
-                    }))
+                    .border_color(rgba(0xaabeff1f))
                     .bg(rgba(0xffffff08))
                     .text_color(rgb(0xd8dad9))
                     .id("footer-stream")
                     .cursor_pointer()
-                    .hover(|style| {
+                    .hover(move |style| {
                         style
-                            .border_color(rgba(if theme == PreviewTheme::Light {
-                                0xffffffff
-                            } else {
-                                0x74d2c873
-                            }))
-                            .bg(rgba(0x74d2c80f))
+                            .border_color(stream_hue.opacity(0.45))
+                            .bg(stream_hue.opacity(0.06))
                     })
                     .on_click(cx.listener(|this, _, _, cx| this.open_streaming_panel(cx)))
                     .child(
@@ -1857,7 +1949,7 @@ impl MetalSharpApp {
                                 gpui::svg()
                                     .path("stream-tv.svg")
                                     .size(px(18.0))
-                                    .text_color(rgb(0x74d2c8)),
+                                    .text_color(stream_hue),
                             )
                             .child(
                                 div()
@@ -1869,7 +1961,7 @@ impl MetalSharpApp {
                                     .items_center()
                                     .justify_center()
                                     .rounded_full()
-                                    .bg(rgb(0x74d2c8))
+                                    .bg(stream_hue)
                                     .child(
                                         gpui::svg()
                                             .path("stream-wifi.svg")
@@ -1911,13 +2003,7 @@ impl MetalSharpApp {
                             .justify_center()
                             .rounded_full()
                             .border_1()
-                            .border_color(rgba(if available {
-                                0x74d28aff
-                            } else if theme == PreviewTheme::Light {
-                                0xffffffff
-                            } else {
-                                0xe7eaec2e
-                            }))
+                            .border_color(rgba(if available { 0x74d28aff } else { 0xaabeff2e }))
                             .bg(rgb(if available { 0x1f3a28 } else { 0x282c2d }))
                             .text_size(px(16.0))
                             .text_color(rgb(if available { 0x74d28a } else { 0x777d7b }))
@@ -2051,7 +2137,13 @@ impl MetalSharpApp {
                                             .hover(|style| style.bg(rgb(theme.control_hover())))
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| this.start_steam(true, cx)))
-                                    .child("◉")
+                                    .child(
+                                        gpui::svg()
+                                            .path("icon-steam.svg")
+                                            .flex_none()
+                                            .size(px(20.0))
+                                            .text_color(rgb(theme.control_text())),
+                                    )
                                     .child(if starting {
                                         "Starting Steam…"
                                     } else {

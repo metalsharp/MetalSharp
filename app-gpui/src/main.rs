@@ -66,6 +66,19 @@ impl gpui::AssetSource for PreviewIcons {
             "launch-settings.svg" => Some(Cow::Borrowed(include_bytes!(
                 "../assets/launch-settings.svg"
             ))),
+            "icon-steam.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-steam.svg"))),
+            "icon-ubisoft.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-ubisoft.svg"))),
+            "icon-gamepad.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-gamepad.svg"))),
+            "icon-sharp.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-sharp.svg"))),
+            "icon-collection.svg" => Some(Cow::Borrowed(include_bytes!(
+                "../assets/icon-collection.svg"
+            ))),
+            "icon-logs.svg" => Some(Cow::Borrowed(include_bytes!("../assets/icon-logs.svg"))),
+            "theme-moon.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-moon.svg"))),
+            "theme-sun.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-sun.svg"))),
+            "theme-dragonfruit.svg" => Some(Cow::Borrowed(include_bytes!(
+                "../assets/theme-dragonfruit.svg"
+            ))),
             _ => None,
         })
     }
@@ -87,6 +100,15 @@ impl gpui::AssetSource for PreviewIcons {
             "source-shadps4.svg".into(),
             "source-sharpemu.svg".into(),
             "source-empty-monitor.svg".into(),
+            "icon-steam.svg".into(),
+            "icon-ubisoft.svg".into(),
+            "icon-gamepad.svg".into(),
+            "icon-sharp.svg".into(),
+            "icon-collection.svg".into(),
+            "icon-logs.svg".into(),
+            "theme-moon.svg".into(),
+            "theme-sun.svg".into(),
+            "theme-dragonfruit.svg".into(),
         ])
     }
 }
