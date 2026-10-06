@@ -102,6 +102,9 @@ struct Entry {
     /// Won by a backend or local-file candidate: cheap to recheck each session.
     #[serde(default)]
     local: bool,
+    /// Animated GIF/WebP/APNG, kept as-is: never replaced by a static tilt.
+    #[serde(default)]
+    animated: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -204,6 +207,15 @@ struct Fetched {
     path: PathBuf,
     hash: u64,
     local: bool,
+    animated: bool,
+}
+
+/// Artwork image with a stable element id. GPUI only advances the frames of
+/// an animated GIF/WebP when the `img` has an id to keep its frame state in.
+pub fn art_img(path: PathBuf) -> gpui::Stateful<gpui::Img> {
+    let id = gpui::SharedString::from(format!("art:{}", path.display()));
+    use gpui::InteractiveElement;
+    gpui::img(path).id(id)
 }
 
 impl ArtCache {
@@ -217,6 +229,13 @@ impl ArtCache {
             Some(ArtState::Ready(path)) => Some(path.clone()),
             _ => None,
         }
+    }
+
+    fn is_animated(&self, key: &str) -> bool {
+        self.index
+            .entries
+            .get(key)
+            .is_some_and(|entry| entry.animated)
     }
 
     /// Drop one entry so the next `resolve` refetches it (cover changed).
@@ -415,6 +434,7 @@ impl ArtCache {
                         full,
                         hash: fetched.hash,
                         local: fetched.local,
+                        animated: fetched.animated,
                     },
                 );
                 self.states.insert(key, ArtState::Ready(fetched.path));
@@ -436,6 +456,7 @@ impl ArtCache {
                         full,
                         hash: 0,
                         local: false,
+                        animated: false,
                     },
                 );
                 self.states.insert(key, ArtState::Missing);
@@ -618,6 +639,7 @@ fn fetch_first(job: &Job) -> Option<Fetched> {
                         path: path.to_path_buf(),
                         hash: fnv(&bytes, FNV_OFFSET),
                         local: true,
+                        animated: animated(&bytes),
                     });
                 }
                 (Some(bytes), true)
@@ -634,17 +656,25 @@ fn fetch_first(job: &Job) -> Option<Fetched> {
         };
         let Some(bytes) = bytes else { continue };
         let hash = fnv(&bytes, FNV_OFFSET);
+        // Animated art is stored byte-for-byte, so the source tells.
+        let animated = animated(&bytes);
         if let Some((known_hash, known_path)) = &job.known {
             if *known_hash == hash && known_path.is_file() {
                 return Some(Fetched {
                     path: known_path.clone(),
                     hash,
                     local,
+                    animated,
                 });
             }
         }
         if let Some(path) = store(&job.dir, &job.key, &bytes, job.kind) {
-            return Some(Fetched { path, hash, local });
+            return Some(Fetched {
+                path,
+                hash,
+                local,
+                animated,
+            });
         }
     }
     None
@@ -707,6 +737,10 @@ fn is_animated(bytes: &[u8], format: image::ImageFormat) -> bool {
             .unwrap_or(false),
         _ => false,
     }
+}
+
+fn animated(bytes: &[u8]) -> bool {
+    image::guess_format(bytes).is_ok_and(|format| gpui_native(format) && is_animated(bytes, format))
 }
 
 fn within_budget(width: u32, height: u32, kind: ArtKind) -> bool {
@@ -1137,6 +1171,11 @@ impl ArtCache {
         angle: i32,
         cx: &mut Context<Self>,
     ) -> Option<PathBuf> {
+        // A pre-rendered tilt is one still frame; animated covers stay
+        // straight (GPUI can't rotate raster images) so they keep moving.
+        if self.is_animated(card_key) {
+            return None;
+        }
         let base = self.path(card_key)?;
         let dir = self.dir.clone()?;
         let key = format!("{card_key}-tilt{angle}");
@@ -1267,6 +1306,11 @@ mod tests {
         let (stored, ext) = normalize(&bytes, ArtKind::Card).unwrap();
         assert_eq!(ext, "gif");
         assert_eq!(stored, bytes);
+        assert!(
+            super::animated(&bytes),
+            "flagged so the dock skips the static tilt"
+        );
+        assert!(!super::animated(&png(10, 10, 255)));
     }
 
     #[test]

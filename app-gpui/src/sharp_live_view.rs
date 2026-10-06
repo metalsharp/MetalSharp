@@ -326,7 +326,7 @@ impl SharpPreview {
     ) -> gpui::Stateful<gpui::Div> {
         let banner_height = width * ratio;
         let banner = match art {
-            Some(art) => img(art)
+            Some(art) => crate::artwork::art_img(art)
                 .w_full()
                 .h(px(banner_height))
                 .object_fit(ObjectFit::Cover)

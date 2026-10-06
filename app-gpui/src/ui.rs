@@ -2210,7 +2210,7 @@ impl MetalSharpApp {
             .overflow_hidden()
             .bg(rgb(0x242629))
             .children(hero_art.map(|art| {
-                img(art)
+                crate::artwork::art_img(art)
                     .w_full()
                     .h_full()
                     .absolute()
@@ -2557,7 +2557,7 @@ impl MetalSharpApp {
                                 .shadow_lg()
                         })
                         .child(match card_art {
-                            Some(art) => img(art)
+                            Some(art) => crate::artwork::art_img(art)
                                 .w_full()
                                 .h_full()
                                 .object_fit(ObjectFit::Cover)
@@ -3356,7 +3356,7 @@ impl MetalSharpApp {
                     .bg(rgb(0x242729))
                     .shadow_lg()
                     .child(match art {
-                        Some(art) => img(art)
+                        Some(art) => crate::artwork::art_img(art)
                             .w_full()
                             .h_full()
                             .object_fit(ObjectFit::Cover)
