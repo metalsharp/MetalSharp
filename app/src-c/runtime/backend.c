@@ -199,24 +199,43 @@ static unsigned char* read_binary(const char* path, size_t* length) {
     *length = used;
     return data;
 }
-static const char* image_type(const char* path) {
+/* Extensions Steam Art Manager can leave in config/grid: it keeps the source
+ * file's extension (and renames .webp to .jpg without converting it), so
+ * clients sniff the bytes rather than trusting the name. */
+static const struct {
+    const char* extension;
+    const char* content_type;
+} grid_art_types[] = {
+    {".png", "image/png"},    {".jpg", "image/jpeg"},  {".jpeg", "image/jpeg"},   {".gif", "image/gif"},
+    {".webp", "image/webp"},  {".apng", "image/apng"}, {".svg", "image/svg+xml"}, {".bmp", "image/bmp"},
+    {".ico", "image/x-icon"}, {".avif", "image/avif"}, {".heic", "image/heic"},   {".tif", "image/tiff"},
+    {".tiff", "image/tiff"},
+};
+
+static const char* known_image_type(const char* path) {
     const char* dot = strrchr(path, '.');
-    if (dot && (!strcasecmp(dot, ".png")))
-        return "image/png";
-    if (dot && (!strcasecmp(dot, ".svg")))
-        return "image/svg+xml";
-    if (dot && (!strcasecmp(dot, ".webp")))
-        return "image/webp";
-    return "image/jpeg";
+    if (dot == NULL)
+        return NULL;
+    for (size_t i = 0; i < sizeof(grid_art_types) / sizeof(grid_art_types[0]); i++) {
+        if (!strcasecmp(dot, grid_art_types[i].extension))
+            return grid_art_types[i].content_type;
+    }
+    return NULL;
+}
+
+static const char* image_type(const char* path) {
+    const char* type = known_image_type(path);
+    return type ? type : "image/jpeg";
 }
 
 /* Serve user-authored Steam grid artwork for the library UI. Steam Art
  * Manager (and Steam's own "Set Custom Image") writes custom art to
  * <userdata>/<account>/config/grid/ using Steam's grid file naming:
- *   hero:   <appid>_hero.png/.jpg
- *   poster: <appid>p.png/.jpg
- *   header: <appid>.png/.jpg (wide capsule)
- * When present, these override fetched CDN artwork. */
+ *   hero:   <appid>_hero.<ext>
+ *   poster: <appid>p.<ext>
+ *   header: <appid>.<ext> (wide capsule)
+ * where <ext> is any image type in grid_art_types. When present, these
+ * override fetched CDN artwork. */
 static bool handle_grid_art(const ms_http_request* request, ms_http_response* response, const char* metalsharp_home) {
     long appid = 0;
     char kind[16] = {0};
@@ -224,36 +243,33 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"invalid grid art request\"}"));
         return true;
     }
-    static const char* const hero_names[] = {"%ld_hero.png", "%ld_hero.jpg", NULL};
-    static const char* const poster_names[] = {"%ldp.png", "%ldp.jpg", NULL};
-    static const char* const header_names[] = {"%ld.png", "%ld.jpg", NULL};
-    const char* const* names = NULL;
+    const char* stem_format = NULL;
     if (!strcmp(kind, "hero"))
-        names = hero_names;
+        stem_format = "%ld_hero.*";
     else if (!strcmp(kind, "poster"))
-        names = poster_names;
+        stem_format = "%ldp.*";
     else if (!strcmp(kind, "header"))
-        names = header_names;
-    if (!names) {
+        stem_format = "%ld.*";
+    if (!stem_format) {
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"unknown grid art kind\"}"));
         return true;
     }
+    char filename[64];
+    snprintf(filename, sizeof(filename), stem_format, appid);
+    char pattern[PATH_MAX];
+    snprintf(pattern, sizeof(pattern), "%s/prefix-steam/drive_c/Program Files (x86)/Steam/userdata/*/config/grid/%s",
+             metalsharp_home, filename);
     char newest[PATH_MAX] = {0};
     struct stat newest_stat;
     memset(&newest_stat, 0, sizeof(newest_stat));
-    for (size_t i = 0; names[i] != NULL; i++) {
-        char filename[64];
-        snprintf(filename, sizeof(filename), names[i], appid);
-        char pattern[PATH_MAX];
-        snprintf(pattern, sizeof(pattern),
-                 "%s/prefix-steam/drive_c/Program Files (x86)/Steam/userdata/*/config/grid/%s", metalsharp_home,
-                 filename);
-        glob_t results;
-        memset(&results, 0, sizeof(results));
-        if (glob(pattern, GLOB_NOSORT, NULL, &results) != 0)
-            continue;
+    glob_t results;
+    memset(&results, 0, sizeof(results));
+    if (glob(pattern, GLOB_NOSORT, NULL, &results) == 0) {
         for (size_t m = 0; m < (size_t)results.gl_pathc; m++) {
             struct stat st;
+            /* <appid>.* also matches the <appid>.json logo-position file. */
+            if (known_image_type(results.gl_pathv[m]) == NULL)
+                continue;
             if (stat(results.gl_pathv[m], &st) != 0 || !S_ISREG(st.st_mode))
                 continue;
             if (newest[0] == '\0' || st.st_mtime > newest_stat.st_mtime) {
@@ -261,8 +277,8 @@ static bool handle_grid_art(const ms_http_request* request, ms_http_response* re
                 newest_stat = st;
             }
         }
-        globfree(&results);
     }
+    globfree(&results);
     if (newest[0] == '\0') {
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"no custom grid art\"}"));
         return true;
