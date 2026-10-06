@@ -104,12 +104,12 @@ Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-o
 
 ## Special Thanks To; 
 
-[DXMT](https://github.com/3Shain/dxmt) [Wine](https://www.winehq.org/)
-[DXVK-MacOS From GcenX](https://github.com/Gcenx/DXVK-macOS)
-[Tormak9970 For Steam Art Manager](https://github.com/Tormak9970/Steam-Art-Manager)
-[ZED For GPUI](https://github.com/zed-industries/zed)
-[Wine-Mono](https://github.com/wine-mono/wine-mono) 
-[Legendary](https://github.com/legendary-gl/legendary)
+[DXMT](https://github.com/3Shain/dxmt),  [Wine](https://www.winehq.org/), 
+[DXVK-MacOS From GcenX](https://github.com/Gcenx/DXVK-macOS), 
+[Tormak9970 For Steam Art Manager](https://github.com/Tormak9970/Steam-Art-Manager), 
+[ZED For GPUI](https://github.com/zed-industries/zed), 
+[Wine-Mono](https://github.com/wine-mono/wine-mono), 
+[Legendary](https://github.com/legendary-gl/legendary), 
 [Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher)
 
 Without their work, this project would not have been possible. 
