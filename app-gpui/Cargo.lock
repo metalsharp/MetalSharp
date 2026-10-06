@@ -3251,6 +3251,7 @@ version = "0.77.0"
 dependencies = [
  "anyhow",
  "block2",
+ "futures",
  "gpui",
  "image",
  "libc",
@@ -3260,6 +3261,7 @@ dependencies = [
  "objc2-web-kit",
  "raw-window-handle",
  "regex",
+ "resvg",
  "rfd",
  "serde",
  "serde_json",

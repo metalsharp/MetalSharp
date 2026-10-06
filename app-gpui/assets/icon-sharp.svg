@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round">
+  <!-- A musical sharp: upright staggered stems, heavy rising bars. -->
+  <path d="M9 4.6v17M15 2.4v17" stroke-width="2" />
+  <path d="M4.6 10.4 19.4 6.8M4.6 17.4l14.8-3.6" stroke-width="3.4" />
+</svg>

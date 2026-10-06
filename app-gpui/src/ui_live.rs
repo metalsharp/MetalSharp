@@ -1919,21 +1919,30 @@ impl MetalSharpApp {
 
     fn poll_grid_art(&mut self, cx: &mut Context<Self>) {
         let Some(live) = Live::get(cx) else { return };
+        let Some(cache) = crate::artwork::cache(cx) else {
+            return;
+        };
         let signature = crate::host_actions::grid_art_signature(&live.home());
-        let changed = self
-            .live
-            .grid_art_signature
-            .as_ref()
-            .is_some_and(|previous| *previous != signature);
-        self.live.grid_art_signature = Some(signature);
-        if changed {
-            if let Some(cache) = crate::artwork::cache(cx) {
-                cache.update(cx, |cache, cx| cache.invalidate(cx));
-            }
-            for game in self.games.clone() {
-                self.request_art(&game, cx);
-            }
+        // First poll of a session compares against the signature saved with
+        // the artwork cache, so art changed while MetalSharp was closed counts.
+        let previous = match self.live.grid_art_signature.take() {
+            Some(previous) => Some(previous),
+            None => cache.update(cx, |cache, cx| cache.saved_grid_signature(cx)),
+        };
+        if let Some(previous) = previous.filter(|previous| *previous != signature) {
+            let appids = crate::host_actions::grid_art_changed_appids(&previous, &signature);
+            cache.update(cx, |cache, cx| {
+                for appid in appids {
+                    for kind in ["card", "hero"] {
+                        cache.revalidate(&format!("steam-{appid}-{kind}"), cx);
+                    }
+                }
+            });
         }
+        cache.update(cx, |cache, cx| {
+            cache.save_grid_signature(signature.clone(), cx)
+        });
+        self.live.grid_art_signature = Some(signature);
     }
 
     // ─────────────────────────── setup wizard ───────────────────────────

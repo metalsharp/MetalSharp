@@ -1926,7 +1926,7 @@ impl SharpPreview {
                         gpui::linear_color_stop(rgb(0x171a1c), 1.0),
                     ))
                     .child(match art {
-                        Some(art) => img(art)
+                        Some(art) => crate::artwork::art_img(art)
                             .w_full()
                             .h(px(card_width * 9.0 / 16.0))
                             .object_fit(ObjectFit::Cover)

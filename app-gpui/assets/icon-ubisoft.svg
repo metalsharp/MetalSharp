@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Ubisoft Connect-style swirl (original drawing): one stroke spiralling in to an off-centre dot. -->
+  <path d="M19.6 16.4A9 9 0 1 1 20.8 9.6C19.4 6.5 16.5 4.9 13.4 5.1 9.1 5.4 6.2 9.3 6.8 13.4c.5 3.4 3.6 5.6 6.8 5.1 2.7-.4 4.6-2.8 4.4-5.4-.2-2.3-2.2-4-4.4-3.8" stroke-width="2.2" />
+  <circle cx="13.3" cy="13.5" r="2" fill="currentColor" stroke="none" />
+</svg>
