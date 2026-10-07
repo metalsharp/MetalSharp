@@ -1284,6 +1284,17 @@ int main(int argc, char** argv) {
         free(found);
         assert(!rockstar_launcher_executable(home, 1174180, "dxmt"));
         assert(!rockstar_launcher_executable(home, 271590, "d3dmetal"));
+        found = rockstar_launcher_executable(home, 3240220, "vkd3d");
+        assert(found && !strcmp(found, launcher));
+        free(found);
+        assert(rockstar_launcher_game_for(1174180, "vkd3d")->launcher_on_d3dmetal);
+        assert(rockstar_launcher_game_for(1174180, "d3dmetal")->dx12_settings);
+        assert(!rockstar_launcher_game_for(3240220, "vkd3d")->launcher_on_d3dmetal);
+        assert(!strcmp(rockstar_launcher_game_for(3240220, "d3dmetal")->client, "GTA5_Enhanced.exe"));
+        assert(rockstar_launcher_game_for(3240220, "d3dmetal")->agility_frontend);
+        assert(!strcmp(default_pipeline_for_appid(home, 1174180), "d3dmetal"));
+        assert(!strcmp(default_pipeline_for_appid(home, 3240220), "d3dmetal"));
+        assert(!rockstar_launcher_game_for(1174180, "d3dmetal")->agility_frontend);
         assert(is_rockstar_launcher_executable(launcher));
         assert(!is_rockstar_launcher_executable("/games/Red Dead Redemption 2/RDR2.exe"));
         assert(format_wine_host_path(wine_path, sizeof(wine_path), home));
@@ -1292,6 +1303,42 @@ int main(int argc, char** argv) {
         assert(!format_wine_host_path(wine_path, sizeof(wine_path), "/nonexistent/metalsharp/path"));
         assert(unlink(launcher) == 0);
         free(launcher);
+    }
+    {
+        /* Anti-cheat stub swap: back up the stub once, copy the real exe over
+         * it, and refresh the copy after a game update or a restored stub. */
+        const protected_exe_swap* gta = NULL;
+        char* dir = join(home, "swap-test");
+        char *real = join(dir, "GTA5_Enhanced.exe"), *stub = join(dir, "GTA5_Enhanced_BE.exe"),
+             *backup = join(dir, "GTA5_Enhanced_BE.old");
+        char* text;
+        for (size_t i = 0; i < sizeof(PROTECTED_EXE_SWAPS) / sizeof(PROTECTED_EXE_SWAPS[0]); i++)
+            if (PROTECTED_EXE_SWAPS[i].appid == 3240220)
+                gta = &PROTECTED_EXE_SWAPS[i];
+        assert(gta && gta->vkd3d && !strcmp(gta->stub, "GTA5_Enhanced_BE.exe"));
+        fixture(home, "swap-test/GTA5_Enhanced.exe", "game v1");
+        fixture(home, "swap-test/GTA5_Enhanced_BE.exe", "battleye");
+        assert(apply_protected_exe_swap_in(dir, gta));
+        text = read_bounded_file(backup);
+        assert(text && !strcmp(text, "battleye"));
+        free(text);
+        assert(files_match(stub, real));
+        assert(apply_protected_exe_swap_in(dir, gta));
+        fixture(home, "swap-test/GTA5_Enhanced.exe", "game v2");
+        assert(apply_protected_exe_swap_in(dir, gta) && files_match(stub, real));
+        fixture(home, "swap-test/GTA5_Enhanced_BE.exe", "battleye restored by verify");
+        assert(apply_protected_exe_swap_in(dir, gta) && files_match(stub, real));
+        text = read_bounded_file(backup);
+        assert(text && !strcmp(text, "battleye"));
+        free(text);
+        assert(unlink(real) == 0);
+        assert(!apply_protected_exe_swap_in(dir, gta));
+        assert(apply_protected_exe_swap(home, 1245620, "vkd3d"));
+        assert(remove_tree(dir));
+        free(dir);
+        free(real);
+        free(stub);
+        free(backup);
     }
     {
         const char* vulkan_xml = "<x>\n  <advancedGraphics>\n    <API>kSettingAPI_Vulkan</API>\n    <locked "
@@ -1348,6 +1395,18 @@ int main(int argc, char** argv) {
         assert(getenv("WFDXCOMPAT_RUNTIME_DIR") && !strcmp(getenv("WFDXCOMPAT_RUNTIME_DIR"), runtime));
         set_wfdxcompat_runtime_env(home, "dxmt");
         assert(!getenv("WFDXCOMPAT_RUNTIME_DIR"));
+        /* The Agility lane is opt-in per game and only when its frontend is staged. */
+        set_wfdxcompat_agility_env(home);
+        assert(!getenv("WFDXCOMPAT_RUNTIME_DIR"));
+        fixture(home, "runtime/wfdxcompat-agility/x86_64-windows/d3d12.dll", "agility frontend");
+        set_wfdxcompat_agility_env(home);
+        {
+            char* agility = join(home, "runtime/wfdxcompat-agility");
+            assert(getenv("WFDXCOMPAT_RUNTIME_DIR") && !strcmp(getenv("WFDXCOMPAT_RUNTIME_DIR"), agility));
+            assert(remove_tree(agility));
+            free(agility);
+        }
+        unsetenv("WFDXCOMPAT_RUNTIME_DIR");
         assert(remove_tree(runtime));
         free(runtime);
     }

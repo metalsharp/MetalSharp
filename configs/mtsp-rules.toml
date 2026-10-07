@@ -6605,15 +6605,25 @@ components = ["vcrun2019", "directx_jun2010"]
 [overrides.3215050.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
+[overrides.1174180]
+pipeline = "d3dmetal"
+name = "Red Dead Redemption 2"
+
+[overrides.1174180.dependencies]
+components = ["vcrun2019", "directx_jun2010"]
+
+[overrides.1174180.diagnostics]
+check_dlls = ["d3d12.dll", "d3d11.dll", "dxgi.dll"]
+
 [overrides.3240220]
-pipeline = "dxmt"
-name = "AppID 3240220"
+pipeline = "d3dmetal"
+name = "Grand Theft Auto V Enhanced"
 
 [overrides.3240220.dependencies]
 components = ["vcrun2019", "directx_jun2010"]
 
 [overrides.3240220.diagnostics]
-check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
+check_dlls = ["d3d12.dll", "d3d11.dll", "dxgi.dll"]
 
 [overrides.3259600]
 pipeline = "dxmt"
