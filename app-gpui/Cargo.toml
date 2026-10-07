@@ -1,6 +1,6 @@
 [package]
 name = "metalsharp-gpui"
-version = "0.77.0"
+version = "0.78.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 description = "Native GPUI desktop app prototype for MetalSharp"
