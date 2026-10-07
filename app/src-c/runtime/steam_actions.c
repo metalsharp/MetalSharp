@@ -42,9 +42,37 @@
 #define STEAMWEBHELPER_WRAPPER_MAX_BYTES 100000ULL
 #define STEAMWEBHELPER_WRAPPER_SHA256    "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9"
 
-static const char EVE_ONLINE_CHROMIUM_FLAGS[] =
+/* Steam launch arguments that let a Chromium-based launcher start under
+ * D3DMetal: no sandbox, GPU off, software WebGL through ANGLE. */
+static const char D3DMETAL_LAUNCHER_STEAM_ARGS[] =
     "--no-sandbox%20--in-process-gpu%20--disable-gpu%20--disable-d3d11%20--enable-unsafe-swiftshader%20"
     "--use-gl=angle%20--use-angle=swiftshader-webgl";
+
+/* Steam games whose own launcher (EVE Launcher, Ubisoft Connect) must be
+ * started by Steam with D3DMETAL_LAUNCHER_STEAM_ARGS
+ * on the D3DMetal route. `launcher` is Steam's launch target and `client` the
+ * game executable that receives the D3DMetal DLLs, both relative to the game
+ * directory; EVE's client lives in a versioned folder and is found at launch. */
+typedef struct {
+    unsigned appid;
+    const char* name;
+    const char* launcher;
+    const char* client;
+} d3dmetal_steam_launcher_game;
+
+static const d3dmetal_steam_launcher_game D3DMETAL_STEAM_LAUNCHER_GAMES[] = {
+    {8500, "EVE Online", "Launcher/evelauncher.exe", NULL},
+    {812140, "Assassin's Creed Odyssey", "ACOdyssey.exe", "ACOdyssey.exe"},
+};
+
+static const d3dmetal_steam_launcher_game* d3dmetal_steam_launcher_game_for(unsigned id, const char* pipeline) {
+    if (!pipeline || strcmp(pipeline, "d3dmetal"))
+        return NULL;
+    for (size_t i = 0; i < sizeof(D3DMETAL_STEAM_LAUNCHER_GAMES) / sizeof(D3DMETAL_STEAM_LAUNCHER_GAMES[0]); i++)
+        if (D3DMETAL_STEAM_LAUNCHER_GAMES[i].appid == id)
+            return &D3DMETAL_STEAM_LAUNCHER_GAMES[i];
+    return NULL;
+}
 static const char MARVEL_RIVALS_STEAM_ARGS[] = "-windowed";
 
 static char* join(const char* a, const char* b) {
@@ -73,7 +101,8 @@ static bool executable_is_32bit(const char* executable);
 static bool body_id(const char* body, size_t len, unsigned* id);
 static void string_field(ms_json_writer* writer, const char* key, const char* value);
 static bool copy_file_path_new(const char* source, const char* destination);
-static char* launch_eve_d3dmetal_via_steam_json(const char* home, int* status);
+static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3dmetal_steam_launcher_game* game,
+                                                     int* status);
 
 char* ms_steam_wine_launch_wrapper_path(const char* home) {
     static const char wrapper[] =
@@ -3682,20 +3711,6 @@ static char* launch_mode_pid_result(pid_t pid, unsigned id, const char* launch_m
     return ms_json_writer_take(&w);
 }
 
-static char* launch_mode_waiting_result(unsigned id) {
-    ms_json_writer w;
-    ms_json_writer_init(&w);
-    ms_json_writer_object_begin(&w);
-    ms_json_writer_key(&w, "ok");
-    ms_json_writer_bool(&w, true);
-    ms_json_writer_key(&w, "appid");
-    ms_json_writer_u64(&w, id);
-    ms_json_writer_key(&w, "launch_mode");
-    ms_json_writer_string(&w, "ubisoft_first_run_waiting");
-    ms_json_writer_object_end(&w);
-    return ms_json_writer_take(&w);
-}
-
 /* Ask a running Wine Steam client to show its library. Returns false when
  * there is no live client (only leftover helpers) or when the forwarding
  * Wine process hangs, which means the session's wineserver is wedged; the
@@ -5675,13 +5690,13 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
             *status = 400;
         return err("D3DMetal game executable not found");
     }
-    if (id == 8500) {
+    if (d3dmetal_steam_launcher_game_for(id, "d3dmetal")) {
         if (!ms_steam_ensure_bottle_manifest(home, id, "d3dmetal")) {
             if (status)
                 *status = 500;
-            return err("failed to prepare EVE Online D3DMetal bottle manifest");
+            return err("failed to prepare D3DMetal bottle manifest");
         }
-        return launch_eve_d3dmetal_via_steam_json(home, status);
+        return launch_d3dmetal_launcher_via_steam_json(home, d3dmetal_steam_launcher_game_for(id, "d3dmetal"), status);
     }
     /* Use the same Steam-prefix direct launcher as every routed Steam
      * pipeline. It preserves SteamAppId/SteamGameId/SteamOverlayGameId and
@@ -5831,10 +5846,14 @@ static char* latest_eve_online_client_executable(const char* game_dir) {
     return best;
 }
 
-static char* launch_eve_d3dmetal_via_steam_json(const char* home, int* status) {
-    char* game_dir = ms_steam_game_dir(home, 8500);
-    char* launcher = game_dir ? join(game_dir, "Launcher/evelauncher.exe") : NULL;
-    char* executable = game_dir ? latest_eve_online_client_executable(game_dir) : NULL;
+static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3dmetal_steam_launcher_game* game,
+                                                     int* status) {
+    char* game_dir = ms_steam_game_dir(home, game->appid);
+    char* launcher = game_dir ? join(game_dir, game->launcher) : NULL;
+    char* executable = !game_dir      ? NULL
+                       : game->client ? join(game_dir, game->client)
+                                      : latest_eve_online_client_executable(game_dir);
+    char message[256];
     char* error_text;
     char* result;
     pid_t pid = 0;
@@ -5848,18 +5867,24 @@ static char* launch_eve_d3dmetal_via_steam_json(const char* home, int* status) {
         free(executable);
         if (status)
             *status = 404;
-        return err("EVE Online Steam launcher was not found");
+        snprintf(message, sizeof(message), "%s Steam launcher was not found", game->name);
+        return err(message);
+    }
+    if (executable && access(executable, F_OK) != 0) {
+        free(executable);
+        executable = NULL;
     }
 
     ms_steam_deploy_controller_input_shims(home, game_dir);
     remove_stale_route_dlls(home, "d3dmetal", game_dir, launcher);
     if (executable) {
         remove_stale_route_dlls(home, "d3dmetal", game_dir, executable);
-        if (!stage_route_dlls(home, 8500, "d3dmetal", executable)) {
+        if (!stage_route_dlls(home, game->appid, "d3dmetal", executable)) {
             free(game_dir);
             free(launcher);
             free(executable);
-            return err("required D3DMetal runtime DLLs are missing for EVE Online");
+            snprintf(message, sizeof(message), "required D3DMetal runtime DLLs are missing for %s", game->name);
+            return err(message);
         }
     }
     free(game_dir);
@@ -5874,17 +5899,18 @@ static char* launch_eve_d3dmetal_via_steam_json(const char* home, int* status) {
         free(error_text);
         return result;
     }
-    result = launch_game_via_steam_args_json(home, 8500, EVE_ONLINE_CHROMIUM_FLAGS, &launch_status, &pid);
+    result = launch_game_via_steam_args_json(home, game->appid, D3DMETAL_LAUNCHER_STEAM_ARGS, &launch_status, &pid);
     if (!result || launch_status >= 400) {
         if (status)
             *status = launch_status;
-        return result ? result : err("EVE Online Steam handoff failed");
+        snprintf(message, sizeof(message), "%s Steam handoff failed", game->name);
+        return result ? result : err(message);
     }
     free(result);
-    ms_process_register_pending_game(8500, pid, 15);
+    ms_process_register_pending_game(game->appid, pid, 15);
     if (status)
         *status = 200;
-    return pipeline_pid_result(pid, 8500, "d3dmetal", home);
+    return pipeline_pid_result(pid, game->appid, "d3dmetal", home);
 }
 
 static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
@@ -5900,15 +5926,6 @@ static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
             return true;
     }
     return false;
-}
-
-static bool ubisoft_connect_installed(const char* home) {
-    char path[PATH_MAX];
-    int length = snprintf(path, sizeof(path),
-                          "%s/prefix-steam/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/"
-                          "UbisoftConnect.exe",
-                          home);
-    return length > 0 && (size_t)length < sizeof(path) && access(path, R_OK) == 0;
 }
 
 static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline) {
@@ -5927,23 +5944,12 @@ static bool baldurs_gate_3_uses_steam_bootstrap(unsigned id, const char* pipelin
     return id == 1086940 && pipeline && !strcmp(pipeline, "d3dmetal");
 }
 
-static bool odyssey_uses_steam_bootstrap(unsigned id, const char* pipeline) {
-    /* Odyssey must always enter through Steam first. Ubisoft Connect's
-     * presence must not route later attempts into the legacy direct launcher. */
-    return id == 812140 && pipeline && !strcmp(pipeline, "d3dmetal");
-}
-
 static bool ubisoft_connect_command(const char* command) {
     return contains_ci(command, "ubisoftconnect.exe") || contains_ci(command, "ubisoftgamelauncher.exe") ||
            contains_ci(command, "upc.exe");
 }
 
-static bool ubisoft_crash_reporter_command(const char* command) {
-    return contains_ci(command, "uplaycrashreporter.exe") || contains_ci(command, "ubisoftcrashreporter.exe") ||
-           contains_ci(command, "uplaycrashreport.exe");
-}
-
-static pid_t ubisoft_owned_process_pid(const char* home, bool crash_reporter) {
+static pid_t ubisoft_connect_process_pid(const char* home) {
     char prefix[PATH_MAX], runtime[PATH_MAX];
     FILE* pipe;
     char line[4096];
@@ -5964,8 +5970,7 @@ static pid_t ubisoft_owned_process_pid(const char* home, bool crash_reporter) {
             continue;
         while (*end == ' ' || *end == '\t')
             end++;
-        if ((crash_reporter ? ubisoft_crash_reporter_command(end) : ubisoft_connect_command(end)) &&
-            wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
+        if (ubisoft_connect_command(end) && wine_process_owned((pid_t)raw_pid, end, prefix, runtime)) {
             pclose(pipe);
             return (pid_t)raw_pid;
         }
@@ -5975,11 +5980,7 @@ static pid_t ubisoft_owned_process_pid(const char* home, bool crash_reporter) {
 }
 
 static bool ubisoft_connect_running(const char* home) {
-    return ubisoft_owned_process_pid(home, false) > 0;
-}
-
-static bool ubisoft_crash_reporter_running(const char* home) {
-    return ubisoft_owned_process_pid(home, true) > 0;
+    return ubisoft_connect_process_pid(home) > 0;
 }
 
 static pid_t ubisoft_game_process_pid(const char* home, const char* executable) {
@@ -6014,35 +6015,11 @@ static pid_t ubisoft_game_process_pid(const char* home, const char* executable) 
     return 0;
 }
 
-static bool ubisoft_game_process_running(const char* home, const char* executable) {
-    return ubisoft_game_process_pid(home, executable) > 0;
-}
-
-typedef struct {
-    char* home;
-    char* executable;
-    char pipeline[32];
-    unsigned appid;
-    unsigned long task_generation;
-    unsigned long reservation_id;
-} ubisoft_first_run_job;
-
-static pthread_mutex_t ubisoft_first_run_mutex = PTHREAD_MUTEX_INITIALIZER;
-static bool ubisoft_first_run_active;
-static unsigned long ubisoft_first_run_next_reservation;
-static unsigned long ubisoft_first_run_active_reservation;
-
 pid_t ms_steam_odyssey_activity_pid(const char* home) {
     char* executable = find_steam_game_executable(home, 812140, "d3dmetal");
     pid_t pid = executable ? ubisoft_game_process_pid(home, executable) : 0;
-    bool monitor_active;
     free(executable);
-    pthread_mutex_lock(&ubisoft_first_run_mutex);
-    monitor_active = ubisoft_first_run_active;
-    pthread_mutex_unlock(&ubisoft_first_run_mutex);
-    /* Keep Stop available during the brief Steam-to-Ubisoft process handoff.
-     * The kill route treats this as an activity marker, not a signal target. */
-    return pid > 0 ? pid : (monitor_active ? getpid() : 0);
+    return pid;
 }
 
 static bool odyssey_process_command(const char* command, const char* executable) {
@@ -6103,150 +6080,8 @@ bool ms_steam_stop_odyssey_processes(const char* home) {
     return !failed;
 }
 
-static bool reserve_ubisoft_first_run(unsigned long* task_generation, unsigned long* reservation_id) {
-    bool reserved = false;
-    pthread_mutex_lock(&ubisoft_first_run_mutex);
-    if (!ubisoft_first_run_active && !ms_process_background_shutdown_requested()) {
-        ubisoft_first_run_active = true;
-        ubisoft_first_run_active_reservation = ++ubisoft_first_run_next_reservation;
-        *task_generation = ms_process_background_task_generation();
-        *reservation_id = ubisoft_first_run_active_reservation;
-        reserved = true;
-    }
-    pthread_mutex_unlock(&ubisoft_first_run_mutex);
-    return reserved;
-}
-
-static void release_ubisoft_first_run(unsigned long reservation_id) {
-    pthread_mutex_lock(&ubisoft_first_run_mutex);
-    if (ubisoft_first_run_active && reservation_id == ubisoft_first_run_active_reservation)
-        ubisoft_first_run_active = false;
-    pthread_mutex_unlock(&ubisoft_first_run_mutex);
-}
-
 void ms_steam_cancel_background_tasks(void) {
     ms_process_cancel_background_tasks();
-    pthread_mutex_lock(&ubisoft_first_run_mutex);
-    ubisoft_first_run_active = false;
-    pthread_mutex_unlock(&ubisoft_first_run_mutex);
-}
-
-static void* ubisoft_first_run_retry_worker(void* opaque) {
-    ubisoft_first_run_job* job = opaque;
-    bool retry_triggered = false;
-    bool monitor_finished = false;
-    bool game_seen = false;
-    unsigned long reservation_id = job->reservation_id;
-    unsigned exited_without_reporter = 0;
-    const unsigned timeout_seconds = 5 * 60;
-    ms_log_event(job->home,
-                 "Assassin's Creed Odyssey first-run: waiting for Ubisoft Connect and its crash reporter before "
-                 "retrying directly with D3DMetal.");
-    for (unsigned waited = 0; waited < timeout_seconds; waited++) {
-        if (ms_process_background_task_cancelled(job->task_generation)) {
-            monitor_finished = true;
-            ms_log_event(job->home, "Assassin's Creed Odyssey first-run retry monitor canceled.");
-            break;
-        }
-        if (ubisoft_connect_installed(job->home) && ubisoft_crash_reporter_running(job->home)) {
-            char* error;
-            pid_t pid;
-            unsigned long long retry_started_at = monotonic_millis();
-            retry_triggered = true;
-            monitor_finished = true;
-            ms_log_event(job->home,
-                         "Ubisoft crash reporter detected for Assassin's Creed Odyssey; retrying directly with "
-                         "D3DMetal.");
-            /* The first Steam-launched game should have exited before we start
-             * another copy. Give Wine a short grace period after the reporter
-             * appears rather than racing the original process teardown. */
-            for (unsigned exit_wait = 0; exit_wait < 60; exit_wait++) {
-                if (ms_process_background_task_cancelled(job->task_generation))
-                    break;
-                if (!ubisoft_game_process_running(job->home, job->executable))
-                    break;
-                sleep(1);
-            }
-            if (ms_process_background_task_cancelled(job->task_generation))
-                break;
-            if (ubisoft_game_process_running(job->home, job->executable)) {
-                ms_log_event(job->home,
-                             "Ubisoft crash reporter appeared, but Assassin's Creed Odyssey is still running; "
-                             "automatic D3DMetal retry was skipped.");
-                break;
-            }
-            if (!ms_process_background_task_begin(job->task_generation))
-                break;
-            error = spawn_direct_game(job->home, job->executable, job->appid, job->pipeline, &pid);
-            if (!error) {
-                ms_process_register_game(job->appid, pid);
-                /* SIGTERM can arrive while the spawn critical section is in
-                 * progress. In that case don't leave an untracked Wine child. */
-                if (ms_process_background_shutdown_requested())
-                    (void)kill(pid, SIGKILL);
-            }
-            ms_process_background_task_end();
-            if (error) {
-                char message[512];
-                snprintf(message, sizeof(message), "Assassin's Creed Odyssey D3DMetal retry failed: %.430s", error);
-                ms_log_event(job->home, message);
-                free(error);
-                break;
-            }
-            (void)mark_steam_bottle_launch(job->home, job->appid, pid);
-            record_launch_timing(job->home, job->appid, retry_started_at, job->pipeline);
-            ms_log_event(job->home,
-                         "Assassin's Creed Odyssey relaunched directly with D3DMetal after Ubisoft Connect first-run.");
-            break;
-        }
-        if (ubisoft_connect_installed(job->home)) {
-            if (ubisoft_game_process_running(job->home, job->executable)) {
-                game_seen = true;
-                exited_without_reporter = 0;
-            } else if (game_seen && ++exited_without_reporter >= 30) {
-                monitor_finished = true;
-                ms_log_event(job->home,
-                             "Assassin's Creed Odyssey exited after Ubisoft Connect setup without a crash reporter; "
-                             "automatic retry is no longer needed.");
-                break;
-            }
-        }
-        sleep(1);
-    }
-    if (!monitor_finished && !retry_triggered)
-        ms_log_event(job->home,
-                     "Assassin's Creed Odyssey first-run retry monitor timed out before Ubisoft's crash reporter "
-                     "appeared.");
-    free(job->home);
-    free(job->executable);
-    free(job);
-    release_ubisoft_first_run(reservation_id);
-    return NULL;
-}
-
-static bool start_ubisoft_first_run_retry(const char* home, unsigned id, const char* pipeline, const char* executable,
-                                          unsigned long task_generation, unsigned long reservation_id) {
-    ubisoft_first_run_job* job = calloc(1, sizeof(*job));
-    pthread_t thread;
-    if (!job) {
-        release_ubisoft_first_run(reservation_id);
-        return false;
-    }
-    job->home = strdup(home);
-    job->executable = strdup(executable);
-    job->appid = id;
-    job->task_generation = task_generation;
-    job->reservation_id = reservation_id;
-    snprintf(job->pipeline, sizeof(job->pipeline), "%s", pipeline);
-    if (!job->home || !job->executable || pthread_create(&thread, NULL, ubisoft_first_run_retry_worker, job) != 0) {
-        free(job->home);
-        free(job->executable);
-        free(job);
-        release_ubisoft_first_run(reservation_id);
-        return false;
-    }
-    pthread_detach(thread);
-    return true;
 }
 
 static char* launch_ubisoft_connect_steam_mode(const char* home, unsigned appid, pid_t* pid) {
@@ -6375,8 +6210,9 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             *status = 500;
         return err("failed to prepare Steam bottle manifest");
     }
-    if (id == 8500 && !strcmp(pipeline, "d3dmetal")) {
-        char* result = launch_eve_d3dmetal_via_steam_json(home, status);
+    if (d3dmetal_steam_launcher_game_for(id, pipeline)) {
+        char* result =
+            launch_d3dmetal_launcher_via_steam_json(home, d3dmetal_steam_launcher_game_for(id, pipeline), status);
         if (result && status && *status == 200)
             record_launch_timing(home, id, started_at, pipeline);
         return result;
@@ -6548,45 +6384,6 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         free(executable);
         return launch_mode_pid_result(steam_pid, id, "steam_handoff");
     }
-    if (odyssey_uses_steam_bootstrap(id, pipeline)) {
-        pid_t steam_pid = 0;
-        unsigned long task_generation = 0;
-        unsigned long reservation_id = 0;
-        int steam_status = 500;
-        char* result;
-        if (!reserve_ubisoft_first_run(&task_generation, &reservation_id)) {
-            free(game_dir);
-            free(executable);
-            if (status)
-                *status = 200;
-            return launch_mode_waiting_result(id);
-        }
-        result = launch_game_via_steam_json(home, id, &steam_status, &steam_pid);
-        if (!result || steam_status >= 400) {
-            release_ubisoft_first_run(reservation_id);
-            free(game_dir);
-            free(executable);
-            if (status)
-                *status = steam_status;
-            return result ? result : err("Steam first-run launch failed");
-        }
-        if (status)
-            *status = 200;
-        if (!start_ubisoft_first_run_retry(home, id, pipeline, executable, task_generation, reservation_id)) {
-            ms_log_event(home, "Assassin's Creed Odyssey was launched through Steam, but the automatic Ubisoft crash "
-                               "reporter retry monitor could not start.");
-            free(result);
-            result = launch_mode_pid_result(steam_pid, id, "ubisoft_first_run_monitor_failed");
-        } else {
-            ms_log_event(home, "Assassin's Creed Odyssey launched through Steam for Ubisoft Connect first-run; "
-                               "MetalSharp will retry directly with D3DMetal after the crash reporter appears.");
-            free(result);
-            result = launch_mode_pid_result(steam_pid, id, "ubisoft_first_run");
-        }
-        free(game_dir);
-        free(executable);
-        return result;
-    }
     if (steam_game_uses_ubisoft_connect(id, game_dir) && !ubisoft_connect_running(home)) {
         e = launch_ubisoft_connect_steam_mode(home, id, &pid);
         if (e) {
@@ -6667,14 +6464,14 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
         return err("unknown pipeline");
     }
     snprintf(pipeline, sizeof(pipeline), "%s", canonical_pipeline(pipeline));
-    if (id == 8500 && !strcmp(pipeline, "d3dmetal")) {
+    if (d3dmetal_steam_launcher_game_for(id, pipeline)) {
         free(executable);
         if (!ms_steam_ensure_bottle_manifest(home, id, pipeline)) {
             if (status)
                 *status = 500;
-            return err("failed to prepare EVE Online D3DMetal bottle manifest");
+            return err("failed to prepare D3DMetal bottle manifest");
         }
-        return launch_eve_d3dmetal_via_steam_json(home, status);
+        return launch_d3dmetal_launcher_via_steam_json(home, d3dmetal_steam_launcher_game_for(id, pipeline), status);
     }
     if (access(executable, F_OK) != 0) {
         free(executable);
