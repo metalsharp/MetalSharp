@@ -1352,8 +1352,32 @@ impl MetalSharpApp {
             tab_menu = Some(gpui::deferred(menu.id("tab_menu").occlude()).with_priority(10));
         }
 
+        let steam_pending = self.live.steam_pending;
+        let steam_running = if self.live.enabled {
+            self.live.wine_steam_running
+        } else {
+            self.steam_running
+        };
+        let steam_label = match steam_pending {
+            Some(SteamPending::Starting) => "Starting Steam…",
+            Some(SteamPending::Stopping) => "Stopping Steam…",
+            None if steam_running => "Stop Steam",
+            None => "Start Steam",
+        };
+        let (ubisoft_label, ubisoft_disabled): (&str, bool) = if self.live.ubisoft_installing {
+            ("Installing Ubisoft Connect…", true)
+        } else if self.live.ubisoft_running {
+            ("Stop Ubisoft", false)
+        } else {
+            ("Launch Ubisoft", false)
+        };
+        // After Launch Ubisoft, the primary button is Stop Ubisoft and the
+        // dropdown carries the Steam action until Connect stops or closes.
+        let ubisoft_primary = self.live.ubisoft_is_primary();
+
         if self.launcher_menu_open || self.steam_options_open {
             let is_launcher = self.launcher_menu_open;
+            let steam_in_menu = is_launcher && ubisoft_primary;
             let mut menu = div()
                 .absolute()
                 .top(px(42.0))
@@ -1368,14 +1392,10 @@ impl MetalSharpApp {
                 .bg(rgb(theme.menu_bg()))
                 .shadow_lg()
                 .p(px(5.0));
-            let (label, disabled): (&str, bool) = if is_launcher {
-                if self.live.ubisoft_installing {
-                    ("Installing Ubisoft Connect…", true)
-                } else if self.live.ubisoft_running {
-                    ("Stop Ubisoft", false)
-                } else {
-                    ("Launch Ubisoft", false)
-                }
+            let (label, disabled): (&str, bool) = if steam_in_menu {
+                (steam_label, steam_pending.is_some())
+            } else if is_launcher {
+                (ubisoft_label, ubisoft_disabled)
             } else if self.live.steam_fix_busy {
                 ("Fixing Steam...", true)
             } else {
@@ -1396,7 +1416,10 @@ impl MetalSharpApp {
                     .cursor_pointer()
                     .hover(|style| style.bg(rgb(theme.menu_hover())))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if is_launcher {
+                        if steam_in_menu {
+                            this.close_library_menus();
+                            this.toggle_steam(false, cx);
+                        } else if is_launcher {
                             this.toggle_ubisoft(cx);
                         } else {
                             this.run_steam_fix(cx);
@@ -1407,7 +1430,11 @@ impl MetalSharpApp {
                     }))
                     .children(is_launcher.then(|| {
                         gpui::svg()
-                            .path("icon-ubisoft.svg")
+                            .path(if steam_in_menu {
+                                "icon-steam.svg"
+                            } else {
+                                "icon-ubisoft.svg"
+                            })
                             .flex_none()
                             .size(px(15.0))
                             .text_color(rgb(control_text))
@@ -1417,12 +1444,6 @@ impl MetalSharpApp {
             steam_menu = Some(gpui::deferred(menu.id("steam_menu").occlude()).with_priority(10));
         }
 
-        let steam_pending = self.live.steam_pending;
-        let steam_running = if self.live.enabled {
-            self.live.wine_steam_running
-        } else {
-            self.steam_running
-        };
         let mut header = chrome_bar(theme, true)
             .w_full()
             .flex_none()
@@ -1470,24 +1491,45 @@ impl MetalSharpApp {
                             .text_size(px(13.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(rgb(0xffffff))
-                            .when(steam_pending.is_some(), |d| d.opacity(0.7))
-                            .when(steam_pending.is_none(), |d| d.cursor_pointer())
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .when(
+                                if ubisoft_primary {
+                                    ubisoft_disabled
+                                } else {
+                                    steam_pending.is_some()
+                                },
+                                |d| d.opacity(0.7),
+                            )
+                            .when(
+                                if ubisoft_primary {
+                                    !ubisoft_disabled
+                                } else {
+                                    steam_pending.is_none()
+                                },
+                                |d| d.cursor_pointer(),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
                                 this.close_library_menus();
-                                this.toggle_steam(false, cx);
+                                if ubisoft_primary {
+                                    this.toggle_ubisoft(cx);
+                                } else {
+                                    this.toggle_steam(false, cx);
+                                }
                             }))
                             .child(
                                 gpui::svg()
-                                    .path("icon-steam.svg")
+                                    .path(if ubisoft_primary {
+                                        "icon-ubisoft.svg"
+                                    } else {
+                                        "icon-steam.svg"
+                                    })
                                     .flex_none()
                                     .size(px(17.0))
                                     .text_color(rgb(0xffffff)),
                             )
-                            .child(match steam_pending {
-                                Some(SteamPending::Starting) => "Starting Steam…",
-                                Some(SteamPending::Stopping) => "Stopping Steam…",
-                                None if steam_running => "Stop Steam",
-                                None => "Start Steam",
+                            .child(if ubisoft_primary {
+                                ubisoft_label
+                            } else {
+                                steam_label
                             }),
                     )
                     .child(

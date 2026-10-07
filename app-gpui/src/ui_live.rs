@@ -88,6 +88,9 @@ pub(super) struct LiveState {
     pub ubisoft_installed: bool,
     pub ubisoft_running: bool,
     pub ubisoft_installing: bool,
+    /// Ubisoft Connect was started with Launch Ubisoft, so the header's
+    /// primary button is Stop Ubisoft until Connect stops or is seen closed.
+    pub ubisoft_primary: bool,
     pub library: Vec<LibGame>,
     pub library_loaded: bool,
     pub installed_count: usize,
@@ -133,6 +136,24 @@ pub(super) struct LiveState {
     pub setup: SetupFlow,
 }
 
+impl LiveState {
+    /// Header shows Stop Ubisoft as its primary button (Steam moves into the
+    /// dropdown) while Connect, started by Launch Ubisoft, runs or installs.
+    pub(super) fn ubisoft_is_primary(&self) -> bool {
+        self.ubisoft_primary && (self.ubisoft_running || self.ubisoft_installing)
+    }
+
+    /// Apply an Ubisoft Connect status poll; a closed Connect restores Start Steam.
+    fn apply_ubisoft_status(&mut self, installed: bool, running: bool, installing: bool) {
+        self.ubisoft_installed = installed;
+        self.ubisoft_running = running;
+        self.ubisoft_installing = installing;
+        if !running && !installing {
+            self.ubisoft_primary = false;
+        }
+    }
+}
+
 impl Default for LiveState {
     fn default() -> Self {
         Self {
@@ -153,6 +174,7 @@ impl Default for LiveState {
             ubisoft_installed: false,
             ubisoft_running: false,
             ubisoft_installing: false,
+            ubisoft_primary: false,
             library: Vec::new(),
             library_loaded: false,
             installed_count: 0,
@@ -817,9 +839,11 @@ impl MetalSharpApp {
             |this, status, cx| {
                 if let Some(status) = status {
                     let flag = |key: &str| status.get(key).and_then(Value::as_bool) == Some(true);
-                    this.live.ubisoft_installed = flag("installed");
-                    this.live.ubisoft_running = flag("running");
-                    this.live.ubisoft_installing = flag("installing");
+                    this.live.apply_ubisoft_status(
+                        flag("installed"),
+                        flag("running"),
+                        flag("installing"),
+                    );
                     cx.notify();
                 }
             },
@@ -1810,6 +1834,7 @@ impl MetalSharpApp {
                     let ok = result.as_ref().is_some_and(is_ok);
                     if ok {
                         this.live.ubisoft_running = false;
+                        this.live.ubisoft_primary = false;
                     }
                     toast::show(
                         cx,
@@ -1841,9 +1866,11 @@ impl MetalSharpApp {
                     == Some(true);
                 if ok && installing {
                     this.live.ubisoft_installing = true;
+                    this.live.ubisoft_primary = true;
                     toast::info(cx, "Downloading and installing Ubisoft Connect…");
                 } else if ok {
                     this.live.ubisoft_running = true;
+                    this.live.ubisoft_primary = true;
                     toast::success(cx, "Starting Ubisoft Connect with D3DMetal…");
                 } else {
                     toast::error(
@@ -3401,4 +3428,33 @@ pub(super) struct MigrationViewState {
     pub total: u64,
     pub message: String,
     pub error: String,
+}
+
+#[cfg(test)]
+mod ubisoft_header_tests {
+    use super::LiveState;
+
+    #[test]
+    fn launch_ubisoft_takes_the_primary_button_until_connect_closes() {
+        let mut live = LiveState::default();
+        assert!(!live.ubisoft_is_primary());
+
+        // Connect running without Launch Ubisoft (e.g. started for a game) keeps Start Steam.
+        live.apply_ubisoft_status(true, true, false);
+        assert!(!live.ubisoft_is_primary());
+
+        // Launch Ubisoft: the primary button becomes Stop Ubisoft, also while installing.
+        live.ubisoft_primary = true;
+        assert!(live.ubisoft_is_primary());
+        live.apply_ubisoft_status(false, false, true);
+        assert!(live.ubisoft_is_primary());
+        live.apply_ubisoft_status(true, true, false);
+        assert!(live.ubisoft_is_primary());
+
+        // Connect seen closed: Start Steam returns and stays after a later unrelated start.
+        live.apply_ubisoft_status(true, false, false);
+        assert!(!live.ubisoft_is_primary());
+        live.apply_ubisoft_status(true, true, false);
+        assert!(!live.ubisoft_is_primary());
+    }
 }
