@@ -106,13 +106,13 @@ Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-o
 
 ## Special Thanks To; 
 
-[DXMT](https://github.com/3Shain/dxmt),  [Wine](https://www.winehq.org/), 
-[DXVK-MacOS From GcenX](https://github.com/Gcenx/DXVK-macOS), 
-[Tormak9970](https://github.com/Tormak9970/Steam-Art-Manager) For Steam Art Manager, 
-[ZED](https://github.com/zed-industries/zed) For GPUI, 
+[DXMT](https://github.com/3Shain/dxmt) _For DirectX -> Metal_,  [Wine](https://www.winehq.org/) _For Tiny Windows VM_, 
+[DXVK-MacOS](https://github.com/Gcenx/DXVK-macOS) _For Vulkan On Mac_, 
+[Tormak9970](https://github.com/Tormak9970/Steam-Art-Manager) _For Steam Art Manager_, 
+[ZED](https://github.com/zed-industries/zed) _For GPUI_, 
 [Wine-Mono](https://github.com/wine-mono/wine-mono), 
-[Legendary](https://github.com/legendary-gl/legendary) For Headless Epic Login, 
-[Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher) For Headless GOG Login, and [WineForge](https://github.com/Alien4042x/WineForge) For WFDXCompat / WFSync
+[Legendary](https://github.com/legendary-gl/legendary) _For Headless Epic Login_, 
+[Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher) _For Headless GOG Login_, and [WineForge](https://github.com/Alien4042x/WineForge) _For WFDXCompat / WFSync_
 
 Without their work, this project would not have been possible. 
 
