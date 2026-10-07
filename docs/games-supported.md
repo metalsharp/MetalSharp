@@ -45,8 +45,8 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 | Marvel Rivals | 2767030 | Launches through Steam with -Windowed to avoid a mouse bug |
 | Baldur's Gate 3 | 1086940 | |
 | Watch Dogs Legions | Ubisoft | |
-| Red Dead Redemption 2 | 1174180 | Starts the Rockstar Games Launcher directly with WFDXCompat; also runs on VKD3D (Vulkan) |
-| Grand Theft Auto V Enhanced | 3240220 | Story mode. Starts the Rockstar Games Launcher directly; BattlEye launcher swapped for the game exe; Agility SDK D3D12 loading through WFDXCompat; also runs on VKD3D |
+| Red Dead Redemption 2 | 1174180 | Also runs on VKD3D (Vulkan) |
+| Grand Theft Auto V Enhanced | 3240220 | Story mode. Also runs on VKD3D |
 
 ---
 
