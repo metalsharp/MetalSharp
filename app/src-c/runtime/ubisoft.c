@@ -37,6 +37,22 @@
 #define UBISOFT_INSTALLER_URL    "https://ubi.li/4vxt9"
 #define UBISOFT_PIPELINE_DEFAULT "d3dmetal"
 
+/* Ubisoft Connect is a CEF app and runs much better under D3DMetal with its
+ * Chromium GPU process off, so start it with the same switches EVE Online's
+ * launcher gets through Steam (steam_actions.c): GPU off, software WebGL
+ * through ANGLE. */
+static const char* const UBISOFT_CONNECT_ARGS[] = {"-no-cef-sandbox",
+                                                   "-cef-single-process",
+                                                   "-noverifyfiles",
+                                                   "-no-dwrite",
+                                                   "--no-sandbox",
+                                                   "--in-process-gpu",
+                                                   "--disable-gpu",
+                                                   "--disable-d3d11",
+                                                   "--enable-unsafe-swiftshader",
+                                                   "--use-gl=angle",
+                                                   "--use-angle=swiftshader-webgl"};
+
 static pthread_mutex_t ubisoft_install_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool ubisoft_install_active;
 static pthread_mutex_t ubisoft_icon_jobs_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -491,8 +507,13 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
     }
     pid = fork();
     if (pid == 0) {
-        char* args[] = {wine, (char*)launcher, "-no-cef-sandbox", "-cef-single-process", "-noverifyfiles", "-no-dwrite",
-                        NULL};
+        char* args[2 + sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]) + 1];
+        size_t argc = 0;
+        args[argc++] = wine;
+        args[argc++] = (char*)launcher;
+        for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
+            args[argc++] = (char*)UBISOFT_CONNECT_ARGS[i];
+        args[argc] = NULL;
         (void)setpgid(0, 0);
         (void)chdir(prefix);
         setenv("WINEPREFIX", prefix, 1);
