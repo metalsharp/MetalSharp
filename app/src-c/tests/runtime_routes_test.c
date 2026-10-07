@@ -146,6 +146,18 @@ static void test_ubisoft_library(const char* home) {
         free(icotool);
         free(small_icon);
     }
+    {
+        /* Ubisoft Connect keeps its CEF launch switches and starts with the GPU off. */
+        static const char* const required[] = {"-no-cef-sandbox", "-cef-single-process",
+                                               "--disable-gpu",   "--in-process-gpu",
+                                               "--use-gl=angle",  "--use-angle=swiftshader-webgl"};
+        for (size_t r = 0; r < sizeof(required) / sizeof(required[0]); r++) {
+            bool found = false;
+            for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
+                found = found || !strcmp(UBISOFT_CONNECT_ARGS[i], required[r]);
+            assert(found);
+        }
+    }
     char* raw = ms_ubisoft_library_json(home);
     ms_json* root = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
     const ms_json* games = root ? ms_json_object_get(root, "games") : NULL;
