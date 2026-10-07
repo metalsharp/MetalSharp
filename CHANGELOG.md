@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Ubisoft Connect client performance** — start Ubisoft Connect with the same Chromium switches EVE Online's launcher uses (`--disable-gpu`, `--in-process-gpu`, software WebGL through ANGLE), so its CEF UI no longer runs a GPU process under D3DMetal. Applies to Launch Ubisoft, the post-install launch, and the client start before a Ubisoft game.
+
 ## v0.76.0 - Unreleased
 
 ### Changed
