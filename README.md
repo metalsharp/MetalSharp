@@ -48,6 +48,8 @@ Homebrew installs MetalSharp.app in `/Applications`. Updates are handled in-app 
 
 For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
 
+if an in-app update fails, please read [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
+
 ## Launching Games and Graphics Routes
 
 To launch a game, install it through Steam and launch it through MetalSharp. Choose between the below backends from the bottle dropdown if the game does not originally run. MetalSharp scans the game folder for DLL's and automatically assigns it to a backend pipeline, tested games are automatically assigned their compatible pipeline from the `mtsp-rules.toml`. See [Game Compatibility](docs/games-supported.md) for a list of tested and verified games.
