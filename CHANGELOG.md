@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Ubisoft Connect header button** — after **Launch Ubisoft**, the header's primary button becomes **Stop Ubisoft** (with the Ubisoft icon) and the Steam start/stop action moves into the dropdown, instead of leaving Stop Ubisoft hidden in the dropdown. Stopping Ubisoft, or the status poll seeing Connect closed, restores **Start Steam** as the primary button.
+
+### Fixed
+
+- **Ubisoft Connect client performance** — start Ubisoft Connect with the same Chromium switches EVE Online's launcher uses (`--disable-gpu`, `--in-process-gpu`, software WebGL through ANGLE), so its CEF UI no longer runs a GPU process under D3DMetal. Applies to Launch Ubisoft, the post-install launch, and the client start before a Ubisoft game.
+
 ## v0.76.0 - Unreleased
 
 ### Changed
