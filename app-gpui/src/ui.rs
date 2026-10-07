@@ -219,10 +219,11 @@ enum PreviewTheme {
     OrangePeel,
     Dragonfruit,
     Lava,
+    Space,
 }
 
 impl PreviewTheme {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Dark,
         Self::Light,
         Self::Skeleton,
@@ -230,6 +231,7 @@ impl PreviewTheme {
         Self::OrangePeel,
         Self::Dragonfruit,
         Self::Lava,
+        Self::Space,
     ];
 
     fn label(self) -> &'static str {
@@ -241,6 +243,7 @@ impl PreviewTheme {
             Self::OrangePeel => "Orange Peel",
             Self::Dragonfruit => "Dragonfruit",
             Self::Lava => "Lava",
+            Self::Space => "Space",
         }
     }
 
@@ -252,6 +255,7 @@ impl PreviewTheme {
             Self::Forest => Some("theme-forest.svg"),
             Self::OrangePeel => Some("theme-orange.svg"),
             Self::Dragonfruit => Some("theme-dragonfruit.svg"),
+            Self::Space => Some("theme-galaxy.svg"),
             Self::Lava => None,
         };
         if let Some(asset) = asset {
@@ -304,6 +308,7 @@ impl PreviewTheme {
             Self::OrangePeel => 0xff9a45,
             Self::Dragonfruit => 0xff66aa,
             Self::Lava => 0xff6b52,
+            Self::Space => 0xb48cff,
         }
     }
 
@@ -316,6 +321,8 @@ impl PreviewTheme {
             Self::OrangePeel => 0xff7a1a,
             Self::Dragonfruit => 0xff2e88,
             Self::Lava => 0xff4a3d,
+            // Purple underglow beneath the dock's cards.
+            Self::Space => 0x8a3dff,
         }
     }
 
@@ -328,6 +335,7 @@ impl PreviewTheme {
             Self::OrangePeel => 0x231610,
             Self::Dragonfruit => 0x2c182a,
             Self::Lava => 0x2b0d12,
+            Self::Space => 0x120d24,
         }
     }
 
@@ -340,6 +348,7 @@ impl PreviewTheme {
             Self::OrangePeel => 0x2b1b12,
             Self::Dragonfruit => 0x361e33,
             Self::Lava => 0x3b1117,
+            Self::Space => 0x1c1535,
         }
     }
 
@@ -351,6 +360,7 @@ impl PreviewTheme {
             Self::OrangePeel => 0xf2e4d8,
             Self::Dragonfruit => 0xf8e4f0,
             Self::Lava => 0xfff2ee,
+            Self::Space => 0xece6ff,
             Self::Dark => 0xffffff,
         }
     }
@@ -364,6 +374,7 @@ impl PreviewTheme {
             Self::OrangePeel => 0x65452f,
             Self::Dragonfruit => 0x70405e,
             Self::Lava => 0x713a34,
+            Self::Space => 0x4a3a78,
         }
     }
 
@@ -379,6 +390,7 @@ impl PreviewTheme {
                 Self::OrangePeel => 0xffaa783d,
                 Self::Dragonfruit => 0xffaad23d,
                 Self::Lava => 0xff6e5a4d,
+                Self::Space => 0xb48cff3d,
             },
             control_bg: self.control_bg(),
             control_text: self.control_text(),
@@ -399,6 +411,14 @@ impl PreviewTheme {
                 rgb(0x9b7bff).into(),
             ];
         }
+        // Galaxy: cosmic blue → violet → nebula magenta.
+        if self == Self::Space {
+            return [
+                rgb(0x6a7dff).into(),
+                rgb(0x9b5cff).into(),
+                rgb(0xe36bff).into(),
+            ];
+        }
         let base: gpui::Hsla = rgb(self.accent()).into();
         let shift = |hue: f32, lightness: f32| gpui::Hsla {
             h: (base.h + hue).rem_euclid(1.0),
@@ -409,11 +429,35 @@ impl PreviewTheme {
         [shift(-0.05, 0.12), base, shift(0.06, -0.06)]
     }
 
+    /// Page background behind the library and collection views.
+    fn page_bg(self) -> u32 {
+        match self {
+            Self::Space => 0x0a0818,
+            _ => 0x111416,
+        }
+    }
+
+    /// The lighter top of gradients that fade into `page_bg`.
+    fn page_bg_raised(self) -> u32 {
+        match self {
+            Self::Space => 0x140f2a,
+            _ => 0x1a1d20,
+        }
+    }
+
+    /// Chrome bar ink: (the lighter edge, the deep edge).
+    fn chrome_ink(self) -> (u32, u32) {
+        match self {
+            Self::Space => (0x110c26, 0x07051a),
+            _ => (0x0d1018, 0x07080d),
+        }
+    }
+
     fn hero_title(self) -> u32 {
-        if self == Self::Skeleton {
-            0xeeeeee
-        } else {
-            0xefcf9d
+        match self {
+            Self::Skeleton => 0xeeeeee,
+            Self::Space => 0xe4dcff,
+            _ => 0xefcf9d,
         }
     }
 }
@@ -429,6 +473,7 @@ impl PreviewTheme {
             Self::OrangePeel => "orange-peel",
             Self::Dragonfruit => "dragonfruit",
             Self::Lava => "lava",
+            Self::Space => "space",
         }
     }
 }
@@ -437,10 +482,11 @@ impl PreviewTheme {
 /// spectrum hairline on the edge that meets the page.
 fn chrome_bar(theme: PreviewTheme, hairline_at_bottom: bool) -> gpui::Div {
     let [first, middle, last] = theme.spectrum();
+    let (light, deep) = theme.chrome_ink();
     let (top, bottom) = if hairline_at_bottom {
-        (0x0d1018, 0x07080d)
+        (light, deep)
     } else {
-        (0x07080d, 0x0d1018)
+        (deep, light)
     };
     let wash = |color: gpui::Hsla, strength: f32, from_left: bool| {
         let (a, b) = if from_left {
@@ -1738,7 +1784,7 @@ impl MetalSharpApp {
             .flex_col()
             .overflow_hidden()
             .font_family("Rethink Sans")
-            .bg(rgb(0x111416))
+            .bg(rgb(self.theme.page_bg()))
             .children(update_banner)
             .child(header)
             .child(body)
@@ -2108,7 +2154,7 @@ impl MetalSharpApp {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .bg(rgb(0x111416))
+            .bg(rgb(self.theme.page_bg()))
             .flex()
             .flex_col()
             .child(
@@ -2121,8 +2167,8 @@ impl MetalSharpApp {
                     .justify_center()
                     .bg(linear_gradient(
                         180.0,
-                        linear_color_stop(rgb(0x1a1d20), 0.0),
-                        linear_color_stop(rgb(0x111416), 1.0),
+                        linear_color_stop(rgb(self.theme.page_bg_raised()), 0.0),
+                        linear_color_stop(rgb(self.theme.page_bg()), 1.0),
                     ))
                     .child(if searching {
                         div().text_color(rgb(0xd4d5d4)).child("No matching games")
@@ -2286,8 +2332,8 @@ impl MetalSharpApp {
                     .h(px(245.0))
                     .bg(linear_gradient(
                         180.0,
-                        linear_color_stop(rgba(0x11141600), 0.0),
-                        linear_color_stop(rgb(0x111416), 1.0),
+                        linear_color_stop(rgba(self.theme.page_bg() << 8), 0.0),
+                        linear_color_stop(rgb(self.theme.page_bg()), 1.0),
                     )),
             )
             .child(
@@ -2700,8 +2746,8 @@ impl MetalSharpApp {
             .pb(px(70.0))
             .bg(linear_gradient(
                 180.0,
-                linear_color_stop(rgba(0x11141600), 0.0),
-                linear_color_stop(rgb(0x111416), 1.0),
+                linear_color_stop(rgba(self.theme.page_bg() << 8), 0.0),
+                linear_color_stop(rgb(self.theme.page_bg()), 1.0),
             ))
             // Preserve dock spacing; View All is anchored to the hero controls above.
             .child(div().h(px(27.0)))
@@ -2766,7 +2812,7 @@ impl MetalSharpApp {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .bg(rgb(0x111416))
+            .bg(rgb(self.theme.page_bg()))
             .flex()
             .flex_col()
             .child(hero)
@@ -3539,7 +3585,7 @@ impl MetalSharpApp {
             .flex()
             .flex_col()
             .overflow_y_scroll()
-            .bg(rgb(0x111416))
+            .bg(rgb(self.theme.page_bg()))
             .px(px(32.0))
             .pt(px(36.0))
             .pb(px(60.0))
@@ -3553,7 +3599,7 @@ impl MetalSharpApp {
                     .flex()
                     .flex_col()
                     .items_start()
-                    .bg(rgb(0x111416))
+                    .bg(rgb(self.theme.page_bg()))
                     .mb(px(30.0))
                     .child(
                         div()
@@ -5024,6 +5070,26 @@ mod tests {
             assert!(
                 columns as f32 * card_width + (columns - 1) as f32 * 18.0 <= width - 64.0 + 0.01
             );
+        }
+    }
+
+    #[test]
+    fn space_theme_is_galaxy_purple_and_leaves_other_themes_unchanged() {
+        let space = super::PreviewTheme::Space;
+        assert!(super::PreviewTheme::ALL.contains(&space));
+        assert_eq!(space.label(), "Space");
+        assert_eq!(space.storage_id(), "space");
+        assert_eq!(space.dock_glow(), 0x8a3dff);
+        assert_eq!(space.page_bg(), 0x0a0818);
+        let icon = std::fs::read_to_string(super::asset_path("theme-galaxy.svg")).unwrap();
+        assert!(icon.starts_with("<svg") && icon.contains("currentColor"));
+        for theme in super::PreviewTheme::ALL {
+            if theme == space {
+                continue;
+            }
+            assert_eq!(theme.page_bg(), 0x111416);
+            assert_eq!(theme.page_bg_raised(), 0x1a1d20);
+            assert_eq!(theme.chrome_ink(), (0x0d1018, 0x07080d));
         }
     }
 

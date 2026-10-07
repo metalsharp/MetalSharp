@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.78.0 - Unreleased
+
+### Added
+
+- **Space theme** — a clean galaxy theme with its own spiral-galaxy picker icon: deep-space indigo surfaces and page background, starlight-violet accent and lavender text, a cosmic blue → violet → nebula magenta chrome spectrum on violet-black header and footer ink, and a purple underglow beneath the library dock's cards. Page background, hero/dock fades and chrome ink are now per-theme (`page_bg`, `page_bg_raised`, `chrome_ink`); every existing theme keeps its exact colors.
 
 ### Changed
 
@@ -10,6 +14,7 @@
 
 ### Fixed
 
+- **`grid` overflow (GHSA-38c5-483c-4qqp)** — GPUI's layout engine pins `grid` 0.18 (gpui 0.2.2 → taffy 0.9.0), and the fix shipped only in `grid` 1.0.1; a vendored `grid` 0.18.0 with the upstream fix backported is patched in.
 - **Grand Theft Auto V Enhanced on D3DMetal and VKD3D** — starts the Rockstar Games Launcher directly like RDR2. On D3DMetal the game crashed in System Init (`ERR_GFX_D3D_NOD3D12`) because D3DMetal's `d3d12.dll` never loads a `d3d12core.dll` and this Agility SDK title requires one; GTA now loads `d3d12.dll` through WFDXCompat's D3D12 frontend from a new per-game `wfdxcompat-agility` lane, patched to load `d3d12core.dll` at load time for apps that export `D3D12SDKVersion`/`D3D12SDKPath`. On VKD3D the game keeps its own route and WineForge's launcher policy moves only the launcher onto D3DMetal. `GTA5_Enhanced_BE.exe` is renamed to `GTA5_Enhanced_BE.old` and replaced by a copy of `GTA5_Enhanced.exe` so the launcher starts the game without BattlEye; the same anti-cheat stub swap is restored for Elden Ring and Armored Core VI (`start_protected_game.exe`, lost when the Rust backend was removed), and the copy is refreshed after game updates or Steam verify.
 - **Red Dead Redemption 2 and the Rockstar Games Launcher on D3DMetal and VKD3D** — the launcher draws its UI with D3D10.1 and exited about 3 s after start because D3DMetal lacks `DXGID3D10CreateDevice`. The graphics bundle now ships WFDXCompat's launcher companion (`Graphics/dll/wfdxcompat/`), setup stages it to `~/.metalsharp/runtime/wfdxcompat/`, and the D3DMetal route sets `WFDXCOMPAT_RUNTIME_DIR` so MetalSharp's Wine loads it for `Launcher.exe` and `SocialClubHelper.exe`. RDR2 now starts the launcher directly (with Wine Steam running) instead of through a Steam handoff that lost the route environment; both routes run the launcher on D3DMetal, VKD3D passes `-api Vulkan` with its MoltenVK lane, and D3DMetal switches `system.xml` to `kSettingAPI_DX12` before each launch.
 - **Ubisoft Connect client performance** — start Ubisoft Connect with the same Chromium switches EVE Online's launcher uses (`--disable-gpu`, `--in-process-gpu`, software WebGL through ANGLE), so its CEF UI no longer runs a GPU process under D3DMetal. Applies to Launch Ubisoft, the post-install launch, and the client start before a Ubisoft game.
