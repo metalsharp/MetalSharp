@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Space theme** — a clean galaxy theme with its own spiral-galaxy picker icon: deep-space indigo surfaces and page background, starlight-violet accent and lavender text, a cosmic blue → violet → nebula magenta chrome spectrum on violet-black header and footer ink, and a purple underglow beneath the library dock's cards. Page background, hero/dock fades and chrome ink are now per-theme (`page_bg`, `page_bg_raised`, `chrome_ink`); every existing theme keeps its exact colors.
+
 ### Changed
 
 - **Ubisoft Connect header button** — after **Launch Ubisoft**, the header's primary button becomes **Stop Ubisoft** (with the Ubisoft icon) and the Steam start/stop action moves into the dropdown, instead of leaving Stop Ubisoft hidden in the dropdown. Stopping Ubisoft, or the status poll seeing Connect closed, restores **Start Steam** as the primary button.

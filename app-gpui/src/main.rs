@@ -79,6 +79,7 @@ impl gpui::AssetSource for PreviewIcons {
             "theme-dragonfruit.svg" => Some(Cow::Borrowed(include_bytes!(
                 "../assets/theme-dragonfruit.svg"
             ))),
+            "theme-galaxy.svg" => Some(Cow::Borrowed(include_bytes!("../assets/theme-galaxy.svg"))),
             _ => None,
         })
     }
@@ -109,6 +110,7 @@ impl gpui::AssetSource for PreviewIcons {
             "theme-moon.svg".into(),
             "theme-sun.svg".into(),
             "theme-dragonfruit.svg".into(),
+            "theme-galaxy.svg".into(),
         ])
     }
 }
