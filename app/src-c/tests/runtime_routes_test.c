@@ -992,7 +992,7 @@ int main(int argc, char** argv) {
         assert(unlink(e_drive) == 0);
     }
     char eve_steam_url[512];
-    assert(format_steam_run_url(eve_steam_url, sizeof(eve_steam_url), 8500, EVE_ONLINE_CHROMIUM_FLAGS));
+    assert(format_steam_run_url(eve_steam_url, sizeof(eve_steam_url), 8500, D3DMETAL_LAUNCHER_STEAM_ARGS));
     assert(!strcmp(eve_steam_url,
                    "steam://run/8500//--no-sandbox%20--in-process-gpu%20--disable-gpu%20--disable-d3d11%20"
                    "--enable-unsafe-swiftshader%20--use-gl=angle%20--use-angle=swiftshader-webgl"));
@@ -1268,70 +1268,46 @@ int main(int argc, char** argv) {
     assert(steam_game_uses_ubisoft_connect(812140, NULL));
     assert(steam_game_uses_ubisoft_connect(999999, ubisoft_game_dir));
     assert(!steam_game_uses_ubisoft_connect(999999, home));
-    assert(odyssey_uses_steam_bootstrap(812140, "d3dmetal"));
-    assert(!odyssey_uses_steam_bootstrap(812140, "vkd3d"));
-    assert(!odyssey_uses_steam_bootstrap(999999, "d3dmetal"));
-    fixture(home, "prefix-steam/drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher/UbisoftConnect.exe",
-            "Ubisoft Connect");
-    assert(ubisoft_connect_installed(home));
-    assert(odyssey_uses_steam_bootstrap(812140, "d3dmetal"));
+    {
+        const d3dmetal_steam_launcher_game* eve = d3dmetal_steam_launcher_game_for(8500, "d3dmetal");
+        const d3dmetal_steam_launcher_game* odyssey = d3dmetal_steam_launcher_game_for(812140, "d3dmetal");
+        char odyssey_steam_url[512];
+        assert(eve && !strcmp(eve->launcher, "Launcher/evelauncher.exe") && !eve->client);
+        assert(odyssey && !strcmp(odyssey->launcher, "ACOdyssey.exe") && !strcmp(odyssey->client, "ACOdyssey.exe"));
+        assert(!d3dmetal_steam_launcher_game_for(1174180, "d3dmetal"));
+        assert(!d3dmetal_steam_launcher_game_for(812140, "dxmt"));
+        assert(!d3dmetal_steam_launcher_game_for(999999, "d3dmetal"));
+        assert(!d3dmetal_steam_launcher_game_for(8500, NULL));
+        assert(
+            format_steam_run_url(odyssey_steam_url, sizeof(odyssey_steam_url), 812140, D3DMETAL_LAUNCHER_STEAM_ARGS));
+        assert(!strncmp(odyssey_steam_url, "steam://run/812140//--no-sandbox%20", 35));
+        {
+            int status = 0;
+            char* missing = launch_d3dmetal_launcher_via_steam_json(home, odyssey, &status);
+            assert(missing && status == 404 &&
+                   strstr(missing, "Assassin's Creed Odyssey Steam launcher was not found"));
+            free(missing);
+        }
+    }
     assert(ubisoft_connect_command("C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\upc.exe"));
-    assert(ubisoft_crash_reporter_command(
-        "C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\UplayCrashReporter.exe"));
-    assert(!ubisoft_crash_reporter_command("C:\\Games\\game.exe"));
     assert(!odyssey_process_command("C:\\Program Files (x86)\\Ubisoft\\Ubisoft Game Launcher\\upc.exe",
                                     "C:\\Games\\ACOdyssey.exe"));
     assert(odyssey_process_command("C:\\Games\\ACOdyssey.exe", "C:\\Games\\ACOdyssey.exe"));
     assert(!odyssey_process_command("C:\\Games\\UplayCrashReporter.exe", "C:\\Games\\ACOdyssey.exe"));
     {
-        unsigned long generation_one, generation_two, generation_three;
-        unsigned long reservation_one, reservation_two, reservation_three;
-        assert(reserve_ubisoft_first_run(&generation_one, &reservation_one));
-        assert(!reserve_ubisoft_first_run(&generation_two, &reservation_two));
-        release_ubisoft_first_run(reservation_one);
-        assert(reserve_ubisoft_first_run(&generation_two, &reservation_two));
-        ms_steam_cancel_background_tasks();
-        assert(ms_process_background_task_cancelled(generation_two));
-        assert(!ms_process_background_task_begin(generation_two));
-        release_ubisoft_first_run(reservation_two);
-        assert(reserve_ubisoft_first_run(&generation_three, &reservation_three));
-        assert(!ms_process_background_task_cancelled(generation_three));
-        assert(ms_process_background_task_begin(generation_three));
-        ms_process_background_task_end();
-        {
-            char* running = ms_process_running_json(home);
-            char parse_error[96];
-            bool found_odyssey = false;
-            ms_json* parsed = ms_json_parse(running, strlen(running), parse_error, sizeof(parse_error));
-            const ms_json* games = parsed ? ms_json_object_get(parsed, "running") : NULL;
-            for (size_t i = 0; games && i < ms_json_array_length(games); i++) {
-                const ms_json* game = ms_json_array_get(games, i);
-                long long appid = 0, pid = 0;
-                if (ms_json_as_i64(ms_json_object_get(game, "appid"), &appid) && appid == 812140 &&
-                    ms_json_as_i64(ms_json_object_get(game, "pid"), &pid) && pid > 0)
-                    found_odyssey = true;
-            }
-            assert(found_odyssey);
-            ms_json_free(parsed);
-            free(running);
-        }
-        {
-            const char* stop_body = "{\"appid\":812140}";
-            int status = 500;
-            char* stopped = ms_process_kill_json(home, stop_body, strlen(stop_body), &status);
-            char parse_error[96];
-            assert(stopped);
-            bool ok = false;
-            ms_json* parsed = ms_json_parse(stopped, strlen(stopped), parse_error, sizeof(parse_error));
-            assert(status == 200 && parsed && ms_json_as_bool(ms_json_object_get(parsed, "ok"), &ok) && ok);
-            assert(ms_process_background_task_cancelled(generation_three));
-            ms_json_free(parsed);
-            free(stopped);
-        }
-        release_ubisoft_first_run(reservation_three);
+        const char* stop_body = "{\"appid\":812140}";
+        int status = 500;
+        char* stopped = ms_process_kill_json(home, stop_body, strlen(stop_body), &status);
+        char parse_error[96];
+        bool ok = false;
+        assert(stopped);
+        ms_json* parsed = ms_json_parse(stopped, strlen(stopped), parse_error, sizeof(parse_error));
+        assert(status == 200 && parsed && ms_json_as_bool(ms_json_object_get(parsed, "ok"), &ok) && ok);
+        ms_json_free(parsed);
+        free(stopped);
     }
     {
-        char* json = launch_mode_pid_result(42, 812140, "ubisoft_first_run");
+        char* json = launch_mode_pid_result(42, 673130, "steam_handoff");
         char* launch_mode = NULL;
         long long number = 0;
         bool ok = false;
@@ -1339,20 +1315,9 @@ int main(int argc, char** argv) {
         ms_json* parsed = ms_json_parse(json, strlen(json), parse_error, sizeof(parse_error));
         assert(parsed && ms_json_as_bool(ms_json_object_get(parsed, "ok"), &ok) && ok);
         assert(ms_json_as_i64(ms_json_object_get(parsed, "pid"), &number) && number == 42);
-        assert(ms_json_as_i64(ms_json_object_get(parsed, "appid"), &number) && number == 812140);
+        assert(ms_json_as_i64(ms_json_object_get(parsed, "appid"), &number) && number == 673130);
         assert(ms_json_as_string(ms_json_object_get(parsed, "launch_mode"), &launch_mode));
-        assert(!strcmp(launch_mode, "ubisoft_first_run"));
-        free(launch_mode);
-        ms_json_free(parsed);
-        free(json);
-
-        json = launch_mode_waiting_result(812140);
-        parsed = ms_json_parse(json, strlen(json), parse_error, sizeof(parse_error));
-        assert(parsed && ms_json_as_bool(ms_json_object_get(parsed, "ok"), &ok) && ok);
-        assert(ms_json_as_i64(ms_json_object_get(parsed, "appid"), &number) && number == 812140);
-        assert(ms_json_object_get(parsed, "pid") == NULL);
-        assert(ms_json_as_string(ms_json_object_get(parsed, "launch_mode"), &launch_mode));
-        assert(!strcmp(launch_mode, "ubisoft_first_run_waiting"));
+        assert(!strcmp(launch_mode, "steam_handoff"));
         free(launch_mode);
         ms_json_free(parsed);
         free(json);

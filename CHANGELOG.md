@@ -5,6 +5,7 @@
 ### Changed
 
 - **Ubisoft Connect header button** — after **Launch Ubisoft**, the header's primary button becomes **Stop Ubisoft** (with the Ubisoft icon) and the Steam start/stop action moves into the dropdown, instead of leaving Stop Ubisoft hidden in the dropdown. Stopping Ubisoft, or the status poll seeing Connect closed, restores **Start Steam** as the primary button.
+- **D3DMetal Steam launcher handoff** — EVE Online's launch path (start Wine Steam with the D3DMetal environment, stage D3DMetal DLLs next to the game client, hand off through `steam://run/<appid>//` with Chromium GPU-off switches) is now a small table of launcher-gated games instead of EVE-only code. Assassin's Creed Odyssey (812140) now uses it too, replacing its Ubisoft Connect first-run crash-reporter retry monitor. Odyssey's running detection and Stop (which also stops Ubisoft Connect) are unchanged.
 
 ### Fixed
 
