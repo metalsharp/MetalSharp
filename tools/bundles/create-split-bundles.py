@@ -301,6 +301,14 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     vkd3d_root = Path(vkd3d_root_env).expanduser() if vkd3d_root_env else Path.home() / ".metalsharp" / "vkd3d" / "vkd3d-proton"
     if vkd3d_root.exists():
         copy_tree(vkd3d_root, roots["graphics"] / "vkd3d-proton")
+    # WFDXCompat ships only its launcher companion; its D3D12 frontend would
+    # route every D3DMetal D3D12 game through it.
+    wfdx_root_env = os.environ.get("METALSHARP_WFDXCOMPAT_ROOT")
+    wfdx_root = Path(wfdx_root_env).expanduser() if wfdx_root_env else Path.home() / ".metalsharp" / "runtime" / "wfdxcompat"
+    wfdx_companion = wfdx_root / "x86_64-windows" / "wfdx-launchers-v1.dll"
+    require_file(wfdx_companion, "WFDXCompat launcher companion")
+    (roots["graphics"] / "wfdxcompat" / "x86_64-windows").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(wfdx_companion, roots["graphics"] / "wfdxcompat" / "x86_64-windows" / "wfdx-launchers-v1.dll")
 
     for name in ["mono-arm64", "goldberg", "shims", "shader-cache"]:
         copy_tree(source2 / name, roots["assets"] / name)

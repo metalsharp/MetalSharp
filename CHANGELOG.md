@@ -5,10 +5,12 @@
 ### Changed
 
 - **Ubisoft Connect header button** — after **Launch Ubisoft**, the header's primary button becomes **Stop Ubisoft** (with the Ubisoft icon) and the Steam start/stop action moves into the dropdown, instead of leaving Stop Ubisoft hidden in the dropdown. Stopping Ubisoft, or the status poll seeing Connect closed, restores **Start Steam** as the primary button.
+- **Bundle tars come only from the `bundles` release** — stop tracking the stale `app/bundles/metalsharp-graphics-dll.tar.zst` (an M12-era build) and `app/bundles/fnalibs.tar.zst` (an older build than the release), which were force-added past the `app/bundles/*.tar.zst` ignore rule. Because CI only downloads a bundle when `app/bundles/<asset>` is missing, the tracked copies meant CI never tested the published assets. PR CI's D3D12 gate no longer copies the retired `dxmt-m12` lane.
 - **D3DMetal Steam launcher handoff** — EVE Online's launch path (start Wine Steam with the D3DMetal environment, stage D3DMetal DLLs next to the game client, hand off through `steam://run/<appid>//` with Chromium GPU-off switches) is now a small table of launcher-gated games instead of EVE-only code. Assassin's Creed Odyssey (812140) now uses it too, replacing its Ubisoft Connect first-run crash-reporter retry monitor. Odyssey's running detection and Stop (which also stops Ubisoft Connect) are unchanged.
 
 ### Fixed
 
+- **Red Dead Redemption 2 and the Rockstar Games Launcher on D3DMetal and VKD3D** — the launcher draws its UI with D3D10.1 and exited about 3 s after start because D3DMetal lacks `DXGID3D10CreateDevice`. The graphics bundle now ships WFDXCompat's launcher companion (`Graphics/dll/wfdxcompat/`), setup stages it to `~/.metalsharp/runtime/wfdxcompat/`, and the D3DMetal route sets `WFDXCOMPAT_RUNTIME_DIR` so MetalSharp's Wine loads it for `Launcher.exe` and `SocialClubHelper.exe`. RDR2 now starts the launcher directly (with Wine Steam running) instead of through a Steam handoff that lost the route environment; both routes run the launcher on D3DMetal, VKD3D passes `-api Vulkan` with its MoltenVK lane, and D3DMetal switches `system.xml` to `kSettingAPI_DX12` before each launch.
 - **Ubisoft Connect client performance** — start Ubisoft Connect with the same Chromium switches EVE Online's launcher uses (`--disable-gpu`, `--in-process-gpu`, software WebGL through ANGLE), so its CEF UI no longer runs a GPU process under D3DMetal. Applies to Launch Ubisoft, the post-install launch, and the client start before a Ubisoft game.
 
 ## v0.76.0 - Unreleased

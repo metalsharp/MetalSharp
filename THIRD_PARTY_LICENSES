@@ -93,6 +93,10 @@ source folders, or the referenced upstream/runtime packages.
 - Used as: WineForge-derived process-local DXCompat loader and frontend
   integration in the Wine runtime. The optional external WFDXCompat runtime
   is only used when its matching runtime directory is explicitly staged.
+- Bundled binary: `wfdx-launchers-v1.dll` (the D3D11 launcher companion) in
+  `metalsharp-graphics-dll.tar.zst` under `Graphics/dll/wfdxcompat/`, staged to
+  `~/.metalsharp/runtime/wfdxcompat/`. Built unmodified from commit `0061adc`;
+  see `tools/bundles/wfdxcompat-runtime-hashes.tsv`.
 - Notes: WFDXCompat remains separately attributable from Wine and WineForge;
   its source and license are preserved at the repository URL and in the
   distributed license file.
