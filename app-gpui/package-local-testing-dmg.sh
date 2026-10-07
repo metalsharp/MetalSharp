@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${METALSHARP_GPUI_TEST_VERSION:-0.77.0}"
+VERSION="${METALSHARP_GPUI_TEST_VERSION:-0.78.0}"
 BUNDLE_SOURCE="${METALSHARP_GPUI_BUNDLE_SOURCE:-$ROOT/dist/bundles}"
 OUT_DIR="$ROOT/dist/gpui-testing"
 APP="$ROOT/app-gpui/target/MetalSharp-GPUI-Test.app"
