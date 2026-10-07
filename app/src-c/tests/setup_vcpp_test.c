@@ -110,6 +110,34 @@ int main(int argc, char** argv) {
     assert(status_json && strstr(status_json, "\"ok\":true"));
     free(status_json);
 
+    {
+        /* Graphics bundle staging: the WFDXCompat launcher companion lands in
+         * runtime/wfdxcompat, and a bundle without that lane still stages. */
+        char* root = join_path(home, "graphics-root");
+        char* winemetal = join_path(root, "Graphics/dll/dxmt/x86_64-unix/winemetal.so");
+        char* companion = join_path(home, "runtime/wfdxcompat/x86_64-windows/wfdx-launchers-v1.dll");
+        char* wfdx_lane = join_path(root, "Graphics/dll/wfdxcompat");
+        char* wfdx_home = join_path(home, "runtime/wfdxcompat");
+        char copy_macho[PATH_MAX * 2];
+        fixture(home, "graphics-root/Graphics/dll/dxmt/x86_64-windows/d3d11.dll", "dxmt d3d11");
+        fixture(home, "graphics-root/Graphics/dll/wfdxcompat/x86_64-windows/wfdx-launchers-v1.dll", "companion");
+        /* DXMT staging ad-hoc signs winemetal.so, so it must be a real Mach-O. */
+        snprintf(copy_macho, sizeof(copy_macho), "cp /bin/echo \"%s\"", winemetal);
+        fixture(home, "graphics-root/Graphics/dll/dxmt/x86_64-unix/winemetal.so", "");
+        assert(system(copy_macho) == 0);
+        assert(stage_graphics_lanes(home, root));
+        assert(access(companion, R_OK) == 0);
+        remove_path_tree(wfdx_lane);
+        remove_path_tree(wfdx_home);
+        assert(stage_graphics_lanes(home, root));
+        assert(access(wfdx_home, F_OK) != 0);
+        free(root);
+        free(winemetal);
+        free(companion);
+        free(wfdx_lane);
+        free(wfdx_home);
+    }
+
     printf("vcpp installer progress regression tests passed\n");
     return 0;
 }

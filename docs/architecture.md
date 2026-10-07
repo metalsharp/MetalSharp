@@ -1,5 +1,5 @@
 # MetalSharp Architecture
-**Updated:** 2026-10-05
+**Updated:** 2026-10-06
 
 How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md); emulator providers are in [emulators.md](emulators.md).
 
@@ -110,7 +110,7 @@ Assets come from the [`bundles` release](https://github.com/metalsharp/MetalShar
 
 | Asset | Contents |
 |---|---|
-| `metalsharp-graphics-dll.tar.zst` | `Graphics/dll/dxmt/` (DXMT v0.80 baseline) and `Graphics/dll/dxmt-m12/`; the only source for DXMT payloads |
+| `metalsharp-graphics-dll.tar.zst` | `Graphics/dll/dxmt/` (DXMT v0.80 baseline, the only source for DXMT payloads), `dxvk/`, `vkd3d-proton/`, `d3dmetal/`, and `wfdxcompat/` (the WFDXCompat launcher companion, staged to `~/.metalsharp/runtime/wfdxcompat/`) |
 | `metalsharp-runtime.tar.zst` | Patched Wine 11.17, host ABI, managed payloads including D3DMetal |
 | `metalsharp-assets.tar.zst` | Mono, Goldberg, EAC toggle, shims |
 | `metalsharp-scripts-tools.tar.zst` | Updater scripts, configs, native tools, CEF helpers |

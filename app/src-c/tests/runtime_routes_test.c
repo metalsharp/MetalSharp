@@ -1262,6 +1262,95 @@ int main(int argc, char** argv) {
         assert(!strcmp(args[1], "data"));
         assert(!strcmp(args[2], "--release"));
     }
+    {
+        char* args[8] = {0};
+        size_t count = 0;
+        build_launch_args(1174180, "d3dmetal", args, &count, sizeof(args) / sizeof(args[0]));
+        assert(count == 0);
+        build_launch_args(1174180, "vkd3d", args, &count, sizeof(args) / sizeof(args[0]));
+        assert(count == 2 && !strcmp(args[0], "-api") && !strcmp(args[1], "Vulkan"));
+    }
+    {
+        char* launcher = join(home, "prefix-steam/drive_c/Program Files/Rockstar Games/Launcher/Launcher.exe");
+        char wine_path[PATH_MAX + 3];
+        char resolved[PATH_MAX];
+        assert(!rockstar_launcher_executable(home, 1174180, "d3dmetal"));
+        fixture(home, "prefix-steam/drive_c/Program Files/Rockstar Games/Launcher/Launcher.exe", "launcher");
+        char* found = rockstar_launcher_executable(home, 1174180, "d3dmetal");
+        assert(found && !strcmp(found, launcher));
+        free(found);
+        found = rockstar_launcher_executable(home, 1174180, "vkd3d");
+        assert(found && !strcmp(found, launcher));
+        free(found);
+        assert(!rockstar_launcher_executable(home, 1174180, "dxmt"));
+        assert(!rockstar_launcher_executable(home, 271590, "d3dmetal"));
+        assert(is_rockstar_launcher_executable(launcher));
+        assert(!is_rockstar_launcher_executable("/games/Red Dead Redemption 2/RDR2.exe"));
+        assert(format_wine_host_path(wine_path, sizeof(wine_path), home));
+        assert(realpath(home, resolved));
+        assert(!strncmp(wine_path, "Z:\\", 3) && strlen(wine_path) == strlen(resolved) + 2 && !strchr(wine_path, '/'));
+        assert(!format_wine_host_path(wine_path, sizeof(wine_path), "/nonexistent/metalsharp/path"));
+        assert(unlink(launcher) == 0);
+        free(launcher);
+    }
+    {
+        const char* vulkan_xml = "<x>\n  <advancedGraphics>\n    <API>kSettingAPI_Vulkan</API>\n    <locked "
+                                 "value=\"true\" />\n  </advancedGraphics>\n</x>\n";
+        char* settings = join(home, "prefix-steam/drive_c/users/alice/Documents/Rockstar Games/Red Dead Redemption "
+                                    "2/Settings/system.xml");
+        char* fresh_dir = join(home, "prefix-steam/drive_c/users/bob/Documents");
+        char* fresh = join(home, "prefix-steam/drive_c/users/bob/Documents/Rockstar Games/Red Dead Redemption "
+                                 "2/Settings/system.xml");
+        char* public_settings = join(home, "prefix-steam/drive_c/users/Public/Documents/Rockstar Games");
+        char* text;
+        fixture(home,
+                "prefix-steam/drive_c/users/alice/Documents/Rockstar Games/Red Dead Redemption 2/Settings/system.xml",
+                vulkan_xml);
+        fixture(home, "prefix-steam/drive_c/users/Public/Documents/.keep", "");
+        assert(ensure_directory(fresh_dir));
+        assert(ensure_rdr2_dx12_settings(home));
+        text = read_bounded_file(settings);
+        assert(text && strstr(text, "<API>kSettingAPI_DX12</API>") && !strstr(text, "kSettingAPI_Vulkan") &&
+               strstr(text, "<locked value=\"true\" />"));
+        free(text);
+        assert(ensure_rdr2_dx12_settings(home));
+        text = read_bounded_file(fresh);
+        assert(text && strstr(text, "<API>kSettingAPI_DX12</API>") && strstr(text, "<version value=\"37\" />"));
+        free(text);
+        assert(access(public_settings, F_OK) != 0);
+        {
+            /* A NUL in videoCardDescription must survive the API swap. */
+            static const char binary_xml[] = "<API>kSettingAPI_Vulkan</API>\n<v>\xc0\x00\x10</v>\n";
+            static const char binary_expected[] = "<API>kSettingAPI_DX12</API>\n<v>\xc0\x00\x10</v>\n";
+            unsigned char buffer[128];
+            size_t got;
+            FILE* file = fopen(settings, "wb");
+            assert(file && fwrite(binary_xml, 1, sizeof(binary_xml) - 1, file) == sizeof(binary_xml) - 1);
+            fclose(file);
+            assert(ensure_rdr2_dx12_settings(home));
+            file = fopen(settings, "rb");
+            assert(file);
+            got = fread(buffer, 1, sizeof(buffer), file);
+            fclose(file);
+            assert(got == sizeof(binary_expected) - 1 && !memcmp(buffer, binary_expected, got));
+        }
+        free(settings);
+        free(fresh_dir);
+        free(fresh);
+        free(public_settings);
+    }
+    {
+        char* runtime = join(home, "runtime/wfdxcompat");
+        set_wfdxcompat_runtime_env(home, "d3dmetal");
+        assert(!getenv("WFDXCOMPAT_RUNTIME_DIR"));
+        fixture(home, "runtime/wfdxcompat/x86_64-windows/wfdx-launchers-v1.dll", "launcher companion");
+        set_wfdxcompat_runtime_env(home, "d3dmetal");
+        assert(getenv("WFDXCOMPAT_RUNTIME_DIR") && !strcmp(getenv("WFDXCOMPAT_RUNTIME_DIR"), runtime));
+        set_wfdxcompat_runtime_env(home, "dxmt");
+        assert(!getenv("WFDXCOMPAT_RUNTIME_DIR"));
+        assert(remove_tree(runtime));
+        free(runtime);
+    }
 
     fixture(home, "ubisoft/odyssey/uplay_r1_loader64.dll", "Ubisoft Connect marker");
     char* ubisoft_game_dir = join(home, "ubisoft/odyssey");
