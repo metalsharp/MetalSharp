@@ -1302,15 +1302,7 @@ impl MetalSharpApp {
                         .unwrap_or(0);
                     this.live.play_history.insert(game.appid.to_string(), now);
                     this.save_ui_state(cx);
-                    if result
-                        .get("launch_mode")
-                        .and_then(Value::as_str)
-                        .is_some_and(|mode| mode.starts_with("ubisoft_first_run"))
-                    {
-                        toast::success(cx, "Launching Through Steam with D3DMetal");
-                    } else {
-                        toast::success(cx, format!("Launched {}", game.name));
-                    }
+                    toast::success(cx, format!("Launched {}", game.name));
                     show_launch_quit_hint(game.name.clone(), cx);
                 } else {
                     toast::error(
