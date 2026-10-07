@@ -171,7 +171,9 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   if [ "${METALSHARP_GPUI_REQUIRE_BUNDLES:-0}" = "1" ] && [ -s "$graphics" ]; then
     members="$("$ROOT/app/tools/zstd" -dc "$graphics" | tar -t)"
     for lane in vkd3d-proton/x86_64-windows/d3d12.dll vkd3d-proton/x86_64-windows/d3d12core.dll \
-      dxvk/x86_64-windows/d3d11.dll dxmt/x86_64-windows/d3d11.dll; do
+      dxvk/x86_64-windows/d3d11.dll dxmt/x86_64-windows/d3d11.dll \
+      wfdxcompat/x86_64-windows/wfdx-launchers-v1.dll \
+      wfdxcompat-agility/x86_64-windows/d3d12.dll; do
       if ! grep -qx "Graphics/dll/$lane" <<<"$members"; then
         echo "Graphics bundle is missing Graphics/dll/$lane: $graphics" >&2
         exit 1

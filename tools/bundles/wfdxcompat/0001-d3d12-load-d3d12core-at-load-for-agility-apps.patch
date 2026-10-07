@@ -1,0 +1,26 @@
+diff --git a/src/frontend/proxy.c b/src/frontend/proxy.c
+index e6c5f3b..51c269b 100644
+--- a/src/frontend/proxy.c
++++ b/src/frontend/proxy.c
+@@ -698,6 +698,21 @@ HRESULT WINAPI D3D12GetInterface(REFCLSID clsid, REFIID iid, void **object)
+     return wfdx_agility_get_interface(clsid, iid, object);
+ }
+ 
++/* Agility SDK applications (GTA V Enhanced) require d3d12core.dll to be loaded
++ * as soon as d3d12.dll is, before D3D12CreateDevice; native d3d12.dll loads its
++ * core at load time. For applications that export D3D12SDKVersion and
++ * D3D12SDKPath, load the system d3d12core.dll now. The frontend's own module
++ * name can be the application's local D3D12.DLL, so resolve the core from
++ * system32 rather than next to this module. */
++static void __attribute__((constructor)) wfdx_agility_load_time_core(void)
++{
++    HMODULE application = GetModuleHandleW(NULL);
++
++    if (application && GetProcAddress(application, "D3D12SDKVersion") &&
++        GetProcAddress(application, "D3D12SDKPath") && !GetModuleHandleW(L"d3d12core.dll"))
++        LoadLibraryExW(L"d3d12core.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
++}
++
+ HRESULT WINAPI D3D12CreateDevice(IUnknown *adapter,
+         D3D_FEATURE_LEVEL minimum_level, REFIID iid, void **device)
+ {

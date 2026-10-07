@@ -269,11 +269,18 @@ verify_graphics_core() {
     Graphics/dll/dxvk/x86_64-windows/dxgi.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12.dll \
     Graphics/dll/vkd3d-proton/x86_64-windows/d3d12core.dll \
-    Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll &&
+    Graphics/dll/vkd3d-proton/x86_64-windows/dxgi.dll \
+    Graphics/dll/wfdxcompat/x86_64-windows/wfdx-launchers-v1.dll \
+    Graphics/dll/wfdxcompat-agility/x86_64-windows/d3d12.dll \
+    Graphics/dll/wfdxcompat-agility/x86_64-windows/d3d12core.dll \
+    Graphics/dll/wfdxcompat-agility/x86_64-windows/wfdxbackend-d3d12.dll \
+    Graphics/dll/wfdxcompat-agility/x86_64-windows/wfdx-launchers-v1.dll &&
     archive_not_contains "$path" 'Graphics/dll/dxmt-m12|Graphics/dll/dxmt_m12' &&
     verify_hash_manifest "$path" "GRAPHICS DXMT" "Graphics/dll/dxmt" "$SCRIPT_DIR/dxmt-runtime-hashes.tsv" &&
     verify_hash_manifest "$path" "GRAPHICS DXVK" "Graphics/dll/dxvk" "$SCRIPT_DIR/dxvk-runtime-hashes.tsv" &&
-    verify_hash_manifest "$path" "GRAPHICS VKD3D" "Graphics/dll/vkd3d-proton" "$SCRIPT_DIR/vkd3d-proton-runtime-hashes.tsv"
+    verify_hash_manifest "$path" "GRAPHICS VKD3D" "Graphics/dll/vkd3d-proton" "$SCRIPT_DIR/vkd3d-proton-runtime-hashes.tsv" &&
+    verify_hash_manifest "$path" "GRAPHICS WFDXCOMPAT" "Graphics/dll/wfdxcompat" "$SCRIPT_DIR/wfdxcompat-runtime-hashes.tsv" &&
+    verify_hash_manifest "$path" "GRAPHICS WFDXCOMPAT AGILITY" "Graphics/dll/wfdxcompat-agility" "$SCRIPT_DIR/wfdxcompat-agility-runtime-hashes.tsv"
 }
 
 verify_hash_manifest() {

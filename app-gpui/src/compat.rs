@@ -93,6 +93,14 @@ mod tests {
     #[test]
     fn shipped_sources_classify_known_games() {
         assert_eq!(compat(1245620, "ELDEN RING"), Some(Compat::Playable));
+        assert_eq!(
+            compat(1174180, "Red Dead Redemption 2"),
+            Some(Compat::Playable)
+        );
+        assert_eq!(
+            compat(3240220, "Grand Theft Auto V Enhanced"),
+            Some(Compat::Playable)
+        );
         assert_eq!(compat(1097150, "Fall Guys"), Some(Compat::AntiCheat));
         assert_eq!(compat(0, "Fortnite"), Some(Compat::AntiCheat));
         assert_eq!(compat(105600, "Terraria").is_some(), true);

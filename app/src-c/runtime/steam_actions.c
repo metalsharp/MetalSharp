@@ -65,6 +65,78 @@ static const d3dmetal_steam_launcher_game D3DMETAL_STEAM_LAUNCHER_GAMES[] = {
     {812140, "Assassin's Creed Odyssey", "ACOdyssey.exe", "ACOdyssey.exe"},
 };
 
+/* Rockstar titles on D3DMetal or VKD3D start the Rockstar Games Launcher
+ * directly with the arguments Steam's Play*.exe would pass: a Steam handoff
+ * does not carry MetalSharp's route environment into the launcher. The
+ * launcher itself always runs on D3DMetal with WFDXCompat; its Steam API
+ * still needs a running Wine Steam client.
+ * - launcher_on_d3dmetal: VKD3D also runs the launcher and game on D3DMetal
+ *   (RDR2 renders with Vulkan via -api Vulkan). Otherwise VKD3D keeps its
+ *   route and WineForge's launcher policy moves only the launcher.
+ * - dx12_settings: D3DMetal switches system.xml from Vulkan to DX12.
+ * - agility_frontend: on D3DMetal the game loads d3d12.dll through
+ *   WFDXCompat's Agility-aware frontend (runtime/wfdxcompat-agility), which
+ *   loads d3d12core.dll with d3d12.dll as native D3D12 does; D3DMetal never
+ *   loads a core, and GTA V Enhanced fails with ERR_GFX_D3D_NOD3D12. */
+typedef struct {
+    unsigned appid;
+    const char* name;
+    const char* client;
+    bool launcher_on_d3dmetal;
+    bool dx12_settings;
+    bool agility_frontend;
+} rockstar_launcher_game;
+
+static const rockstar_launcher_game ROCKSTAR_LAUNCHER_GAMES[] = {
+    {1174180, "Red Dead Redemption 2", "RDR2.exe", true, true, false},
+    {3240220, "Grand Theft Auto V Enhanced", "GTA5_Enhanced.exe", false, false, true},
+};
+static const char ROCKSTAR_LAUNCHER_PATH[] = "prefix-steam/drive_c/Program Files/Rockstar Games/Launcher/Launcher.exe";
+
+static char* join(const char* a, const char* b);
+
+static const rockstar_launcher_game* rockstar_launcher_game_for(unsigned id, const char* pipeline) {
+    if (!pipeline || (strcmp(pipeline, "d3dmetal") && strcmp(pipeline, "vkd3d")))
+        return NULL;
+    for (size_t i = 0; i < sizeof(ROCKSTAR_LAUNCHER_GAMES) / sizeof(ROCKSTAR_LAUNCHER_GAMES[0]); i++)
+        if (ROCKSTAR_LAUNCHER_GAMES[i].appid == id)
+            return &ROCKSTAR_LAUNCHER_GAMES[i];
+    return NULL;
+}
+
+static char* rockstar_launcher_executable(const char* home, unsigned id, const char* pipeline) {
+    char* launcher;
+    if (!rockstar_launcher_game_for(id, pipeline))
+        return NULL;
+    launcher = join(home, ROCKSTAR_LAUNCHER_PATH);
+    if (launcher && access(launcher, R_OK) == 0)
+        return launcher;
+    free(launcher);
+    return NULL;
+}
+
+static bool is_rockstar_launcher_executable(const char* executable) {
+    static const char suffix[] = "/Rockstar Games/Launcher/Launcher.exe";
+    size_t length = executable ? strlen(executable) : 0;
+    return length >= sizeof(suffix) - 1 && !strcasecmp(executable + length - (sizeof(suffix) - 1), suffix);
+}
+
+/* Wine maps the host filesystem at Z:, so any resolved host path is a valid
+ * Windows path once its separators are flipped. */
+static bool format_wine_host_path(char* out, size_t out_size, const char* host_path) {
+    char resolved[PATH_MAX];
+    int written;
+    if (!host_path || !realpath(host_path, resolved))
+        return false;
+    written = snprintf(out, out_size, "Z:%s", resolved);
+    if (written < 0 || (size_t)written >= out_size)
+        return false;
+    for (char* p = out; *p; p++)
+        if (*p == '/')
+            *p = '\\';
+    return true;
+}
+
 static const d3dmetal_steam_launcher_game* d3dmetal_steam_launcher_game_for(unsigned id, const char* pipeline) {
     if (!pipeline || strcmp(pipeline, "d3dmetal"))
         return NULL;
@@ -103,6 +175,9 @@ static void string_field(ms_json_writer* writer, const char* key, const char* va
 static bool copy_file_path_new(const char* source, const char* destination);
 static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3dmetal_steam_launcher_game* game,
                                                      int* status);
+static char* launch_rockstar_via_launcher_json(const char* home, const rockstar_launcher_game* game,
+                                               const char* launcher, const char* pipeline, int* status);
+static bool apply_protected_exe_swap(const char* home, unsigned id, const char* pipeline);
 
 char* ms_steam_wine_launch_wrapper_path(const char* home) {
     static const char wrapper[] =
@@ -531,6 +606,62 @@ static void set_rosetta_avx_env(void) {
 #endif
 }
 
+/* VKD3D's dedicated MoltenVK lane: its ICD plus the MoltenVK settings the
+ * route was tuned with. */
+static void set_moltenvk_vkmt_env(const char* home) {
+    char icd[PATH_MAX];
+    snprintf(icd, sizeof(icd), "%s/runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", home);
+    setenv("VK_ICD_FILENAMES", icd, 1);
+    setenv("VK_DRIVER_FILES", icd, 1);
+    setenv("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", "1", 1);
+    setenv("MVK_PRESENT_MODE", "1", 1);
+    setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1", 1);
+    setenv("MVK_CONFIG_RESUME_LOST_DEVICE", "1", 1);
+    setenv("MVK_CONFIG_USE_METAL_PRIVATE_API", "1", 1);
+    setenv("MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS", "1", 1);
+}
+
+/* WineForge runs the Rockstar Games Launcher and SocialClubHelper through the
+ * WFDXCompat launcher companion on D3DMetal (its D3D10 device bridge covers
+ * DXGID3D10CreateDevice, which D3DMetal lacks). The PE-side loader only
+ * activates it when WFDXCOMPAT_RUNTIME_DIR is set explicitly. */
+static void set_wfdxcompat_runtime_env(const char* home, const char* pipeline) {
+    char runtime[PATH_MAX];
+    char companion[PATH_MAX];
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wfdxcompat", home);
+    snprintf(companion, sizeof(companion), "%s/x86_64-windows/wfdx-launchers-v1.dll", runtime);
+    if (pipeline && !strcmp(pipeline, "d3dmetal") && access(companion, R_OK) == 0)
+        setenv("WFDXCOMPAT_RUNTIME_DIR", runtime, 1);
+    else
+        unsetenv("WFDXCOMPAT_RUNTIME_DIR");
+}
+
+/* WFDXCompat runtime with its D3D12 frontend (Agility SDK titles only). Any
+ * WFDXCompat d3d12.dll staged in the default runtime would front every
+ * D3DMetal D3D12 game, so this lane is selected per game. */
+static void set_wfdxcompat_agility_env(const char* home) {
+    char runtime[PATH_MAX];
+    char frontend[PATH_MAX];
+    snprintf(runtime, sizeof(runtime), "%s/runtime/wfdxcompat-agility", home);
+    snprintf(frontend, sizeof(frontend), "%s/x86_64-windows/d3d12.dll", runtime);
+    if (access(frontend, R_OK) == 0)
+        setenv("WFDXCOMPAT_RUNTIME_DIR", runtime, 1);
+}
+
+/* Lets WineForge's Rockstar launcher policy move only Launcher.exe and
+ * SocialClubHelper.exe onto D3DMetal with WFDXCompat while the game keeps
+ * another route (GTA V Enhanced on VKD3D). */
+static void set_rockstar_launcher_policy_env(const char* home) {
+    char framework[PATH_MAX];
+    char runtime[PATH_MAX];
+    snprintf(framework, sizeof(framework), "%s/runtime/d3dmetal-gptk4-beta2/external/D3DMetal.framework/D3DMetal",
+             home);
+    snprintf(runtime, sizeof(runtime), "%s/runtime/d3dmetal-gptk4-beta2", home);
+    setenv("D3DMETAL_FRAMEWORK_PATH", framework, 1);
+    setenv("D3DMETAL_RUNTIME_DIR", runtime, 1);
+    set_wfdxcompat_runtime_env(home, "d3dmetal");
+}
+
 static void set_route_paths(const char* home, const char* pipeline) {
     char dllpath[PATH_MAX * 3];
     char unixpath[PATH_MAX * 3];
@@ -635,11 +766,9 @@ static void set_route_paths(const char* home, const char* pipeline) {
         unsetenv("D3DMETAL_FRAMEWORK_PATH");
         unsetenv("D3DMETAL_RUNTIME_DIR");
     }
+    set_wfdxcompat_runtime_env(home, pipeline);
     if (!strcmp(pipeline, "vkd3d")) {
-        char icd[PATH_MAX];
-        snprintf(icd, sizeof(icd), "%s/runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", home);
-        setenv("VK_ICD_FILENAMES", icd, 1);
-        setenv("VK_DRIVER_FILES", icd, 1);
+        set_moltenvk_vkmt_env(home);
         unsetenv("ROSETTA_X87_PATH");
     } else if (pipeline_is_d3d9(pipeline)) {
         char x87sidecar[PATH_MAX];
@@ -718,14 +847,8 @@ static void set_route_default_env(const char* home, const char* pipeline) {
         unsetenv("DXMT_D3D12_PSO_WORKERS");
         unsetenv("DXMT_CONFIG");
     }
-    if (!strcmp(pipeline, "vkd3d")) {
-        setenv("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", "1", 1);
-        setenv("MVK_PRESENT_MODE", "1", 1);
-        setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1", 1);
-        setenv("MVK_CONFIG_RESUME_LOST_DEVICE", "1", 1);
-        setenv("MVK_CONFIG_USE_METAL_PRIVATE_API", "1", 1);
-        setenv("MVK_CONFIG_FORCE_RETAINED_COMMAND_BUFFERS", "1", 1);
-    }
+    if (!strcmp(pipeline, "vkd3d"))
+        set_moltenvk_vkmt_env(home);
 }
 
 static void ensure_x87_wow64_loader(const char* home) {
@@ -801,7 +924,8 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "-vulkan");
     if (id == 949230)
         append_launch_arg(argv, count, max, "-force-vulkan");
-    if (id == 1174180) {
+    /* RDR2's Vulkan renderer is for VKD3D's MoltenVK lane; D3DMetal has no Vulkan. */
+    if (id == 1174180 && !strcmp(pipeline, "vkd3d")) {
         append_launch_arg(argv, count, max, "-api");
         append_launch_arg(argv, count, max, "Vulkan");
     }
@@ -2712,6 +2836,7 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
         setenv("WINEDLLOVERRIDES", "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b", 1);
         backend = "d3dmetal";
     }
+    set_wfdxcompat_runtime_env(home, pipeline);
     if (pipeline_is_dxmt(pipeline)) {
         char runtime_dir[PATH_MAX];
         const char* route = "dxmt/x86_64-unix";
@@ -5414,6 +5539,12 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
     char* exe_name = executable_relative;
     pid_t child;
     int exec_pipe[2];
+    /* The Rockstar Games Launcher always runs on D3DMetal with WFDXCompat; the
+     * selected route still picks the game's arguments (RDR2's VKD3D adds -api
+     * Vulkan) or, for other titles, the game's own route. */
+    const rockstar_launcher_game* rockstar =
+        is_rockstar_launcher_executable(executable) ? rockstar_launcher_game_for(id, pipeline) : NULL;
+    const char* env_pipeline = rockstar && rockstar->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
     if (!wine || access(wine, X_OK) != 0) {
         free(wine);
         wine = join(home, "runtime/wine/bin/wine");
@@ -5439,7 +5570,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         return error;
     }
     (void)fcntl(exec_pipe[1], F_SETFD, FD_CLOEXEC);
-    if (!select_wine_ntdll(home, pipeline)) {
+    if (!select_wine_ntdll(home, env_pipeline)) {
         free(wine);
         free(prefix);
         free(cwd);
@@ -5481,12 +5612,18 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         setenv("SteamAppId", app_id, 1);
         setenv("SteamGameId", app_id, 1);
         setenv("SteamOverlayGameId", app_id, 1);
-        setenv("METALSHARP_PIPELINE", pipeline, 1);
-        set_route_paths(home, pipeline);
-        set_route_default_env(home, pipeline);
+        setenv("METALSHARP_PIPELINE", env_pipeline, 1);
+        set_route_paths(home, env_pipeline);
+        set_route_default_env(home, env_pipeline);
+        if (rockstar && rockstar->launcher_on_d3dmetal && !strcmp(pipeline, "vkd3d"))
+            set_moltenvk_vkmt_env(home);
+        if (rockstar && !strcmp(env_pipeline, "vkd3d"))
+            set_rockstar_launcher_policy_env(home);
+        if (rockstar && rockstar->agility_frontend && !strcmp(env_pipeline, "d3dmetal"))
+            set_wfdxcompat_agility_env(home);
         ms_steam_apply_launch_preferences(home);
-        set_game_opengl_env(id, pipeline);
-        set_launch_cache_env(home, id, pipeline);
+        set_game_opengl_env(id, env_pipeline);
+        set_launch_cache_env(home, id, env_pipeline);
         if (runtime_log[0]) {
             int log_fd = open(runtime_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
             if (log_fd >= 0) {
@@ -5512,8 +5649,8 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
                 dprintf(STDERR_FILENO, "pipeline=%s\\nexecutable=%s\\n", pipeline, executable);
             }
         }
-        if (pipeline_overrides(pipeline))
-            setenv("WINEDLLOVERRIDES", pipeline_overrides(pipeline), 1);
+        if (pipeline_overrides(env_pipeline))
+            setenv("WINEDLLOVERRIDES", pipeline_overrides(env_pipeline), 1);
         else
             unsetenv("WINEDLLOVERRIDES");
         if (pipeline_needs_legacy_game_args(pipeline) && (id == 774361 || id == 17410 || id == 49520)) {
@@ -5550,6 +5687,19 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         argv[argc++] = (char*)(launch_wrapper && access(launch_wrapper, X_OK) == 0 ? launch_wrapper : wine);
         argv[argc++] = exe_name;
         build_launch_args(id, pipeline, argv, &argc, sizeof(argv) / sizeof(argv[0]));
+        if (rockstar) {
+            static char steam_app_id[32];
+            static char steam_location[PATH_MAX + 3];
+            char* rockstar_dir = ms_steam_game_dir(home, id);
+            snprintf(steam_app_id, sizeof(steam_app_id), "-steamAppId=%u", id);
+            append_launch_arg(argv, &argc, sizeof(argv) / sizeof(argv[0]), "-skipPatcherCheck");
+            append_launch_arg(argv, &argc, sizeof(argv) / sizeof(argv[0]), steam_app_id);
+            if (format_wine_host_path(steam_location, sizeof(steam_location), rockstar_dir)) {
+                append_launch_arg(argv, &argc, sizeof(argv) / sizeof(argv[0]), "-steamLocation");
+                append_launch_arg(argv, &argc, sizeof(argv) / sizeof(argv[0]), steam_location);
+            }
+            free(rockstar_dir);
+        }
         if (id == 312520 || id == 2357570) {
             dprintf(STDERR_FILENO, "command=");
             for (size_t i = 0; i < argc; i++)
@@ -5690,6 +5840,8 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
             *status = 400;
         return err("D3DMetal game executable not found");
     }
+    if (!apply_protected_exe_swap(home, id, "d3dmetal"))
+        ms_log_event(home, "Could not replace this game's anti-cheat launcher stub with its real executable.");
     if (d3dmetal_steam_launcher_game_for(id, "d3dmetal")) {
         if (!ms_steam_ensure_bottle_manifest(home, id, "d3dmetal")) {
             if (status)
@@ -5697,6 +5849,22 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
             return err("failed to prepare D3DMetal bottle manifest");
         }
         return launch_d3dmetal_launcher_via_steam_json(home, d3dmetal_steam_launcher_game_for(id, "d3dmetal"), status);
+    }
+    {
+        char* launcher = rockstar_launcher_executable(home, id, "d3dmetal");
+        if (launcher) {
+            char* result;
+            if (!ms_steam_ensure_bottle_manifest(home, id, "d3dmetal")) {
+                free(launcher);
+                if (status)
+                    *status = 500;
+                return err("failed to prepare D3DMetal bottle manifest");
+            }
+            result = launch_rockstar_via_launcher_json(home, rockstar_launcher_game_for(id, "d3dmetal"), launcher,
+                                                       "d3dmetal", status);
+            free(launcher);
+            return result;
+        }
     }
     /* Use the same Steam-prefix direct launcher as every routed Steam
      * pipeline. It preserves SteamAppId/SteamGameId/SteamOverlayGameId and
@@ -5742,28 +5910,37 @@ static bool format_steam_run_url(char* url, size_t url_size, unsigned id, const 
     return written >= 0 && (size_t)written < url_size;
 }
 
+/* Start the Wine Steam client if it is not running. Returns an error result,
+ * or NULL once the client is up. */
+static char* ensure_wine_steam_running(const char* home, int* status) {
+    char* steam_result;
+    int steam_status = 500;
+    if (ms_steam_process_running(home))
+        return NULL;
+    steam_result = ms_steam_launch_json(home, &steam_status);
+    free(steam_result);
+    if (steam_status >= 400) {
+        if (status)
+            *status = steam_status;
+        return err("Wine Steam could not be started for this game");
+    }
+    for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
+        sleep(1);
+    if (!ms_steam_process_running(home)) {
+        if (status)
+            *status = 500;
+        return err("Wine Steam was started but did not become ready for game launch");
+    }
+    return NULL;
+}
+
 static char* launch_game_via_steam_args_json(const char* home, unsigned id, const char* encoded_args, int* status,
                                              pid_t* launched_pid) {
     char url[1024];
-    char *steam_result, *error_text;
+    char* error_text;
     pid_t pid;
-    if (!ms_steam_process_running(home)) {
-        int steam_status = 500;
-        steam_result = ms_steam_launch_json(home, &steam_status);
-        free(steam_result);
-        if (steam_status >= 400) {
-            if (status)
-                *status = steam_status;
-            return err("Wine Steam could not be started for this game");
-        }
-        for (int i = 0; i < 12 && !ms_steam_process_running(home); i++)
-            sleep(1);
-        if (!ms_steam_process_running(home)) {
-            if (status)
-                *status = 500;
-            return err("Wine Steam was started but did not become ready for game launch");
-        }
-    }
+    if ((error_text = ensure_wine_steam_running(home, status)))
+        return error_text;
     if (!format_steam_run_url(url, sizeof(url), id, encoded_args)) {
         if (status)
             *status = 500;
@@ -5911,6 +6088,215 @@ static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3d
     if (status)
         *status = 200;
     return pipeline_pid_result(pid, game->appid, "d3dmetal", home);
+}
+
+/* RDR2 defaults to its Vulkan renderer, which D3DMetal cannot back: the game
+ * compiles shaders and then crashes. Before each D3DMetal launch, switch every
+ * prefix user's RDR2 settings to DX12; on a first launch, seed a settings file
+ * that only selects DX12 so the game's own first write keeps it. */
+static const char RDR2_SETTINGS_PATH[] = "Documents/Rockstar Games/Red Dead Redemption 2/Settings";
+static const char RDR2_API_VULKAN[] = "<API>kSettingAPI_Vulkan</API>";
+static const char RDR2_API_DX12[] = "<API>kSettingAPI_DX12</API>";
+static const char RDR2_DX12_SEED[] = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\n"
+                                     "<rage__fwuiSystemSettingsCollection>\n"
+                                     "  <version value=\"37\" />\n"
+                                     "  <advancedGraphics>\n"
+                                     "    <API>kSettingAPI_DX12</API>\n"
+                                     "  </advancedGraphics>\n"
+                                     "</rage__fwuiSystemSettingsCollection>\n";
+
+static bool write_file_replacing(const char* path, const char* text, size_t length) {
+    char temp[PATH_MAX];
+    FILE* file;
+    bool ok;
+    if (snprintf(temp, sizeof(temp), "%s.metalsharp-tmp", path) >= (int)sizeof(temp))
+        return false;
+    file = fopen(temp, "wb");
+    if (!file)
+        return false;
+    ok = fwrite(text, 1, length, file) == length;
+    ok = fclose(file) == 0 && ok;
+    if (ok && rename(temp, path) == 0)
+        return true;
+    (void)unlink(temp);
+    return false;
+}
+
+/* system.xml can hold raw bytes (RDR2 writes the adapter name unencoded into
+ * videoCardDescription), so the API swap works on lengths, not C strings. */
+static bool ensure_rdr2_dx12_settings_file(const char* settings_dir) {
+    const size_t vulkan_length = sizeof(RDR2_API_VULKAN) - 1;
+    const size_t dx12_length = sizeof(RDR2_API_DX12) - 1;
+    char path[PATH_MAX];
+    struct stat info;
+    FILE* file;
+    char* current;
+    char* updated;
+    size_t length, at;
+    bool ok;
+    if (snprintf(path, sizeof(path), "%s/system.xml", settings_dir) >= (int)sizeof(path))
+        return false;
+    if (stat(path, &info) != 0)
+        return ensure_directory(settings_dir) && write_file_replacing(path, RDR2_DX12_SEED, sizeof(RDR2_DX12_SEED) - 1);
+    if (!S_ISREG(info.st_mode) || info.st_size <= 0 || info.st_size > 1024 * 1024)
+        return false;
+    length = (size_t)info.st_size;
+    current = malloc(length);
+    file = current ? fopen(path, "rb") : NULL;
+    ok = file && fread(current, 1, length, file) == length;
+    if (file)
+        fclose(file);
+    if (!ok) {
+        free(current);
+        return false;
+    }
+    for (at = 0; at + vulkan_length <= length; at++)
+        if (!memcmp(current + at, RDR2_API_VULKAN, vulkan_length))
+            break;
+    if (at + vulkan_length > length) {
+        free(current);
+        return true;
+    }
+    updated = malloc(length - vulkan_length + dx12_length);
+    ok = updated != NULL;
+    if (updated) {
+        memcpy(updated, current, at);
+        memcpy(updated + at, RDR2_API_DX12, dx12_length);
+        memcpy(updated + at + dx12_length, current + at + vulkan_length, length - at - vulkan_length);
+        ok = write_file_replacing(path, updated, length - vulkan_length + dx12_length);
+    }
+    free(updated);
+    free(current);
+    return ok;
+}
+
+static bool ensure_rdr2_dx12_settings(const char* home) {
+    char* users = join(home, "prefix-steam/drive_c/users");
+    DIR* directory = users ? opendir(users) : NULL;
+    struct dirent* entry;
+    bool ok = directory != NULL;
+    while (directory && (entry = readdir(directory)) != NULL) {
+        char documents[PATH_MAX], settings_dir[PATH_MAX];
+        struct stat info;
+        if (entry->d_name[0] == '.' || !strcmp(entry->d_name, "Public"))
+            continue;
+        snprintf(documents, sizeof(documents), "%s/%s/Documents", users, entry->d_name);
+        if (stat(documents, &info) != 0 || !S_ISDIR(info.st_mode))
+            continue;
+        snprintf(settings_dir, sizeof(settings_dir), "%s/%s/%s", users, entry->d_name, RDR2_SETTINGS_PATH);
+        ok = ensure_rdr2_dx12_settings_file(settings_dir) && ok;
+    }
+    if (directory)
+        closedir(directory);
+    free(users);
+    return ok;
+}
+
+/* Anti-cheat bootstrappers that Steam or a launcher starts in place of the
+ * game: the stub is renamed to its backup name and replaced by a copy of the
+ * real executable, so the game starts without the anti-cheat layer. Restores
+ * the Rust backend's start_protected_game bypass and adds GTA V Enhanced's
+ * BattlEye launcher. The copy is refreshed whenever it differs from the real
+ * executable (game update, or Steam restoring the stub on verify). */
+typedef struct {
+    unsigned appid;
+    const char* subdir;
+    const char* stub;
+    const char* backup;
+    const char* real;
+    bool vkd3d;
+} protected_exe_swap;
+
+static const protected_exe_swap PROTECTED_EXE_SWAPS[] = {
+    {1245620, "Game", "start_protected_game.exe", "start_protected_game.old", "eldenring.exe", false},
+    {1888160, "Game", "start_protected_game.exe", "start_protected_game.old", "armoredcore6.exe", false},
+    {3240220, "", "GTA5_Enhanced_BE.exe", "GTA5_Enhanced_BE.old", "GTA5_Enhanced.exe", true},
+};
+
+static bool apply_protected_exe_swap_in(const char* dir, const protected_exe_swap* swap) {
+    char real[PATH_MAX], stub[PATH_MAX], backup[PATH_MAX];
+    bool have_backup;
+    snprintf(real, sizeof(real), "%s/%s", dir, swap->real);
+    snprintf(stub, sizeof(stub), "%s/%s", dir, swap->stub);
+    snprintf(backup, sizeof(backup), "%s/%s", dir, swap->backup);
+    if (access(real, R_OK) != 0)
+        return false;
+    if (access(stub, F_OK) == 0 && files_match(stub, real))
+        return true;
+    have_backup = access(backup, F_OK) == 0;
+    if (!have_backup && access(stub, F_OK) == 0 && rename(stub, backup) != 0)
+        return false;
+    return copy_file_path(real, stub);
+}
+
+static bool apply_protected_exe_swap(const char* home, unsigned id, const char* pipeline) {
+    for (size_t i = 0; i < sizeof(PROTECTED_EXE_SWAPS) / sizeof(PROTECTED_EXE_SWAPS[0]); i++) {
+        const protected_exe_swap* swap = &PROTECTED_EXE_SWAPS[i];
+        char dir[PATH_MAX];
+        char* game_dir;
+        bool ok;
+        if (swap->appid != id || !pipeline ||
+            (strcmp(pipeline, "d3dmetal") && !(swap->vkd3d && !strcmp(pipeline, "vkd3d"))))
+            continue;
+        game_dir = ms_steam_game_dir(home, id);
+        if (!game_dir)
+            return false;
+        snprintf(dir, sizeof(dir), "%s%s%s", game_dir, swap->subdir[0] ? "/" : "", swap->subdir);
+        ok = apply_protected_exe_swap_in(dir, swap);
+        free(game_dir);
+        return ok;
+    }
+    return true;
+}
+
+static char* launch_rockstar_via_launcher_json(const char* home, const rockstar_launcher_game* game,
+                                               const char* launcher, const char* pipeline, int* status) {
+    char* game_dir = ms_steam_game_dir(home, game->appid);
+    char* client = game_dir ? join(game_dir, game->client) : NULL;
+    const char* stage_pipeline = game->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
+    char message[256];
+    char* error_text;
+    pid_t pid = 0;
+
+    if (status)
+        *status = 500;
+    if (!client || access(client, F_OK) != 0) {
+        free(game_dir);
+        free(client);
+        if (status)
+            *status = 404;
+        snprintf(message, sizeof(message), "%s was not found", game->name);
+        return err(message);
+    }
+    ms_steam_deploy_controller_input_shims(home, game_dir);
+    remove_stale_route_dlls(home, stage_pipeline, game_dir, client);
+    if (!stage_route_dlls(home, game->appid, stage_pipeline, client)) {
+        free(game_dir);
+        free(client);
+        snprintf(message, sizeof(message), "required graphics runtime DLLs are missing for %s", game->name);
+        return err(message);
+    }
+    free(game_dir);
+    free(client);
+    if (!apply_protected_exe_swap(home, game->appid, pipeline)) {
+        snprintf(message, sizeof(message), "%s: could not replace the anti-cheat launcher stub.", game->name);
+        ms_log_event(home, message);
+    }
+    /* RDR2 runs the launcher identically on both routes; its VKD3D keeps the
+     * Vulkan renderer (-api Vulkan, forwarded by the launcher) instead. */
+    if (game->dx12_settings && !strcmp(pipeline, "d3dmetal") && !ensure_rdr2_dx12_settings(home))
+        ms_log_event(home, "Red Dead Redemption 2: could not switch system.xml to DX12 for D3DMetal.");
+    if ((error_text = ensure_wine_steam_running(home, status)))
+        return error_text;
+    if ((error_text = spawn_direct_game(home, launcher, game->appid, pipeline, &pid))) {
+        char* result = err(error_text);
+        free(error_text);
+        return result;
+    }
+    ms_process_register_game(game->appid, pid);
+    if (status)
+        *status = 200;
+    return pipeline_pid_result(pid, game->appid, pipeline, home);
 }
 
 static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
@@ -6210,12 +6596,25 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             *status = 500;
         return err("failed to prepare Steam bottle manifest");
     }
+    if (!apply_protected_exe_swap(home, id, pipeline))
+        ms_log_event(home, "Could not replace this game's anti-cheat launcher stub with its real executable.");
     if (d3dmetal_steam_launcher_game_for(id, pipeline)) {
         char* result =
             launch_d3dmetal_launcher_via_steam_json(home, d3dmetal_steam_launcher_game_for(id, pipeline), status);
         if (result && status && *status == 200)
             record_launch_timing(home, id, started_at, pipeline);
         return result;
+    }
+    {
+        char* launcher = rockstar_launcher_executable(home, id, pipeline);
+        if (launcher) {
+            char* result = launch_rockstar_via_launcher_json(home, rockstar_launcher_game_for(id, pipeline), launcher,
+                                                             pipeline, status);
+            free(launcher);
+            if (result && status && *status == 200)
+                record_launch_timing(home, id, started_at, pipeline);
+            return result;
+        }
     }
     if (!strcmp(pipeline, "fna_arm64")) {
         game_dir = ms_steam_game_dir(home, id);

@@ -1,0 +1,5 @@
+# WFDXCompat launcher companion built from https://github.com/Alien4042x/WFDXCompat
+# at commit 0061adc with llvm-mingw 20260922 (ucrt) and Wine 11.17 winebuild.
+# Paths are relative to Graphics/dll/wfdxcompat.
+path	sha256
+x86_64-windows/wfdx-launchers-v1.dll	73a62d5f3d32accfb0cc6a97a68db4c5af42cd039858c30bbc8af818ab613ae5
