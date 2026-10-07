@@ -196,8 +196,8 @@ run_recovery_update() {
 
     # Reuse the DMG left by the in-app updater when it is intact. Otherwise
     # fetch the latest official stable release. At the time this rescue script
-    # is published that is 0.76.0; once 0.77.0 is released, the same script
-    # will repair/install 0.77.0 directly.
+    # is published that is 0.77.0; once 0.78.0 is released, the same script
+    # will repair/install 0.78.0 directly.
     if [ -s "$existing_dmg" ] && hdiutil verify "$existing_dmg" >/dev/null 2>&1; then
         dmg_path="$existing_dmg"
     elif [ -s "$recovery_dmg" ] && hdiutil verify "$recovery_dmg" >/dev/null 2>&1; then
