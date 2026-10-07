@@ -1798,19 +1798,25 @@ static bool stage_graphics_lanes(const char* home, const char* root) {
     bool ok;
     char *src_dxmt = join_path(root, "Graphics/dll/dxmt"), *src_dxvk = join_path(root, "Graphics/dll/dxvk"),
          *src_vkd3d = join_path(root, "Graphics/dll/vkd3d-proton"),
-         *src_wfdx = join_path(root, "Graphics/dll/wfdxcompat"), *dst_dxmt = join_path(home, "runtime/wine/lib/dxmt"),
-         *dst_dxvk = join_path(home, "vkd3d/dxvk"), *dst_vkd3d = join_path(home, "vkd3d/vkd3d-proton"),
-         *dst_wfdx = join_path(home, "runtime/wfdxcompat");
-    struct stat dxvk_info, vkd3d_info, wfdx_info;
+         *src_wfdx = join_path(root, "Graphics/dll/wfdxcompat"),
+         *src_agility = join_path(root, "Graphics/dll/wfdxcompat-agility"),
+         *dst_dxmt = join_path(home, "runtime/wine/lib/dxmt"), *dst_dxvk = join_path(home, "vkd3d/dxvk"),
+         *dst_vkd3d = join_path(home, "vkd3d/vkd3d-proton"), *dst_wfdx = join_path(home, "runtime/wfdxcompat"),
+         *dst_agility = join_path(home, "runtime/wfdxcompat-agility");
+    struct stat dxvk_info, vkd3d_info, wfdx_info, agility_info;
     bool has_dxvk = src_dxvk && stat(src_dxvk, &dxvk_info) == 0 && S_ISDIR(dxvk_info.st_mode);
     bool has_vkd3d = src_vkd3d && stat(src_vkd3d, &vkd3d_info) == 0 && S_ISDIR(vkd3d_info.st_mode);
     /* WFDXCompat's launcher companion: the D3D10 device bridge the
      * Rockstar Games Launcher needs on D3DMetal. Older bundles lack it. */
     bool has_wfdx = src_wfdx && stat(src_wfdx, &wfdx_info) == 0 && S_ISDIR(wfdx_info.st_mode);
+    /* WFDXCompat with its D3D12 frontend, selected per game for Agility SDK
+     * titles (GTA V Enhanced) that need d3d12core.dll loaded with d3d12.dll. */
+    bool has_agility = src_agility && stat(src_agility, &agility_info) == 0 && S_ISDIR(agility_info.st_mode);
     ok = src_dxmt && dst_dxmt && copy_directory_contents(src_dxmt, dst_dxmt) &&
          (!has_dxvk || (dst_dxvk && copy_directory_contents(src_dxvk, dst_dxvk))) &&
          (!has_vkd3d || (dst_vkd3d && copy_directory_contents(src_vkd3d, dst_vkd3d))) &&
          (!has_wfdx || (dst_wfdx && copy_directory_contents(src_wfdx, dst_wfdx))) &&
+         (!has_agility || (dst_agility && copy_directory_contents(src_agility, dst_agility))) &&
          sign_dxmt_native_bridges(dst_dxmt) && write_dxmt_manifest(dst_dxmt);
     /* Gatekeeper hygiene: freshly staged lanes must never carry
      * quarantine provenance from the source archive. */
@@ -1819,14 +1825,18 @@ static bool stage_graphics_lanes(const char* home, const char* root) {
     ms_clear_quarantine_tree(dst_vkd3d);
     if (has_wfdx)
         ms_clear_quarantine_tree(dst_wfdx);
+    if (has_agility)
+        ms_clear_quarantine_tree(dst_agility);
     free(src_dxmt);
     free(src_dxvk);
     free(src_vkd3d);
     free(src_wfdx);
+    free(src_agility);
     free(dst_dxmt);
     free(dst_dxvk);
     free(dst_vkd3d);
     free(dst_wfdx);
+    free(dst_agility);
     return ok;
 }
 

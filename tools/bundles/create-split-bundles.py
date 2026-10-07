@@ -309,6 +309,17 @@ def build_staging(tmp: Path) -> dict[str, Path]:
     require_file(wfdx_companion, "WFDXCompat launcher companion")
     (roots["graphics"] / "wfdxcompat" / "x86_64-windows").mkdir(parents=True, exist_ok=True)
     shutil.copy2(wfdx_companion, roots["graphics"] / "wfdxcompat" / "x86_64-windows" / "wfdx-launchers-v1.dll")
+    # The full WFDXCompat runtime (D3D12 frontend + Agility core loading) is a
+    # separate lane that MetalSharp selects per game.
+    agility_root_env = os.environ.get("METALSHARP_WFDXCOMPAT_AGILITY_ROOT")
+    agility_root = (
+        Path(agility_root_env).expanduser()
+        if agility_root_env
+        else Path.home() / ".metalsharp" / "runtime" / "wfdxcompat-agility"
+    )
+    for name in ["d3d12.dll", "d3d12core.dll", "wfdxbackend-d3d12.dll", "wfdx-launchers-v1.dll"]:
+        require_file(agility_root / "x86_64-windows" / name, f"WFDXCompat Agility {name}")
+    copy_tree(agility_root / "x86_64-windows", roots["graphics"] / "wfdxcompat-agility" / "x86_64-windows")
 
     for name in ["mono-arm64", "goldberg", "shims", "shader-cache"]:
         copy_tree(source2 / name, roots["assets"] / name)

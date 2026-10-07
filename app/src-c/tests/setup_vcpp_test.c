@@ -121,12 +121,18 @@ int main(int argc, char** argv) {
         char copy_macho[PATH_MAX * 2];
         fixture(home, "graphics-root/Graphics/dll/dxmt/x86_64-windows/d3d11.dll", "dxmt d3d11");
         fixture(home, "graphics-root/Graphics/dll/wfdxcompat/x86_64-windows/wfdx-launchers-v1.dll", "companion");
+        fixture(home, "graphics-root/Graphics/dll/wfdxcompat-agility/x86_64-windows/d3d12.dll", "agility frontend");
         /* DXMT staging ad-hoc signs winemetal.so, so it must be a real Mach-O. */
         snprintf(copy_macho, sizeof(copy_macho), "cp /bin/echo \"%s\"", winemetal);
         fixture(home, "graphics-root/Graphics/dll/dxmt/x86_64-unix/winemetal.so", "");
         assert(system(copy_macho) == 0);
         assert(stage_graphics_lanes(home, root));
         assert(access(companion, R_OK) == 0);
+        {
+            char* agility = join_path(home, "runtime/wfdxcompat-agility/x86_64-windows/d3d12.dll");
+            assert(access(agility, R_OK) == 0);
+            free(agility);
+        }
         remove_path_tree(wfdx_lane);
         remove_path_tree(wfdx_home);
         assert(stage_graphics_lanes(home, root));

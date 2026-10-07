@@ -1,0 +1,10 @@
+# WFDXCompat runtime with its D3D12 frontend, for Agility SDK titles (GTA V Enhanced).
+# Built from https://github.com/Alien4042x/WFDXCompat commit 0061adc plus
+# tools/bundles/wfdxcompat/0001-d3d12-load-d3d12core-at-load-for-agility-apps.patch,
+# with llvm-mingw 20260922 (ucrt) and Wine 11.17 winebuild.
+# Paths are relative to Graphics/dll/wfdxcompat-agility.
+path	sha256
+x86_64-windows/d3d12.dll	9e42361105a953d8cfd6ee2ec4922efe2e3a16c606744d203938d1c75e01aad7
+x86_64-windows/d3d12core.dll	da33561c84b956896d88985100f65b4aab97bac21ae31c5b59f4be3529cc6efa
+x86_64-windows/wfdxbackend-d3d12.dll	6c3bf9e646b8311a5cb7056d6c868958f269ca3a73c99aa18216415f503f9fe7
+x86_64-windows/wfdx-launchers-v1.dll	73a62d5f3d32accfb0cc6a97a68db4c5af42cd039858c30bbc8af818ab613ae5

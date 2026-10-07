@@ -110,7 +110,7 @@ Assets come from the [`bundles` release](https://github.com/metalsharp/MetalShar
 
 | Asset | Contents |
 |---|---|
-| `metalsharp-graphics-dll.tar.zst` | `Graphics/dll/dxmt/` (DXMT v0.80 baseline, the only source for DXMT payloads), `dxvk/`, `vkd3d-proton/`, `d3dmetal/`, and `wfdxcompat/` (the WFDXCompat launcher companion, staged to `~/.metalsharp/runtime/wfdxcompat/`) |
+| `metalsharp-graphics-dll.tar.zst` | `Graphics/dll/dxmt/` (DXMT v0.80 baseline, the only source for DXMT payloads), `dxvk/`, `vkd3d-proton/`, `d3dmetal/`, `wfdxcompat/` (the WFDXCompat launcher companion, staged to `~/.metalsharp/runtime/wfdxcompat/`), and `wfdxcompat-agility/` (WFDXCompat with its D3D12 frontend for Agility SDK titles, staged to `~/.metalsharp/runtime/wfdxcompat-agility/`) |
 | `metalsharp-runtime.tar.zst` | Patched Wine 11.17, host ABI, managed payloads including D3DMetal |
 | `metalsharp-assets.tar.zst` | Mono, Goldberg, EAC toggle, shims |
 | `metalsharp-scripts-tools.tar.zst` | Updater scripts, configs, native tools, CEF helpers |
