@@ -77,8 +77,12 @@ unmount_stale_metalsharp_images() {
     done <<< "$mounted_paths"
 }
 
+# The first stop reports progress. Later sweeps catch anything that respawned
+# while Steam/Wine shut down or the DMG verified; they stay silent so the
+# progress the app polls never jumps back to an earlier step.
 force_stop_old_runtime() {
-    write_status "stopping_old_runtime" 5 "Force-stopping the old MetalSharp app and backend..."
+    local report="${1:-report}"
+    [ "$report" = "quiet" ] || write_status "stopping_old_runtime" 24 "Force-stopping the old MetalSharp app and backend..."
     kill_pid "$BACKEND_PID" 5 || true
     pkill -x metalsharp-backend 2>/dev/null || true
     sleep 1
@@ -123,8 +127,39 @@ force_stop_old_runtime() {
     kill_pid "$APP_PID" 5 || true
     force_kill_process_names 2 "MetalSharp" "MetalSharp Helper" "MetalSharp Helper (GPU)" "MetalSharp Helper (Renderer)" "MetalSharp Helper (Plugin)"
 
-    write_status "unmounting_old_runtime" 28 "Unmounting stale MetalSharp disk images..."
+    [ "$report" = "quiet" ] || write_status "unmounting_old_runtime" 26 "Unmounting stale MetalSharp disk images..."
     unmount_stale_metalsharp_images
+}
+
+stop_steam_and_wine() {
+    for pat in steam steam.exe steamwebhelper steamwebhelper.exe wine wine64 wineserver wineloader; do
+        pkill -x "$pat" 2>/dev/null || true
+    done
+    for pat in Steam.exe steamwebhelper.exe wineserver wineloader; do
+        pkill -f "$pat" 2>/dev/null || true
+    done
+    sleep 1
+}
+
+# Recovery reports 2-20% before it hands off here, so installation progress
+# starts above it and only moves forward.
+prepare_install() {
+    write_status "starting" 22 "Starting update..."
+    force_stop_old_runtime
+    write_status "killing_steam" 28 "Stopping Steam and Wine processes..."
+    stop_steam_and_wine
+    force_stop_old_runtime quiet
+
+    write_status "verifying_dmg" 30 "Verifying DMG..."
+    if [ ! -f "$DMG_PATH" ]; then
+        write_status "error" 30 "DMG not found: $DMG_PATH" "dmg_not_found"
+        exit 1
+    fi
+    if ! hdiutil verify "$DMG_PATH" >/dev/null 2>&1; then
+        write_status "error" 30 "DMG failed verification: $DMG_PATH" "dmg_verify_failed"
+        exit 1
+    fi
+    force_stop_old_runtime quiet
 }
 
 # Let tests source the updater functions without running the installer.
@@ -429,32 +464,7 @@ if [ -z "$TARGET_VERSION_CLEAN" ]; then
     exit 1
 fi
 
-write_status "starting" 0 "Starting update..."
-
-force_stop_old_runtime
-
-write_status "killing_steam" 15 "Stopping Steam and Wine processes..."
-for pat in steam steam.exe steamwebhelper steamwebhelper.exe wine wine64 wineserver wineloader; do
-    pkill -x "$pat" 2>/dev/null || true
-done
-for pat in Steam.exe steamwebhelper.exe wineserver wineloader; do
-    pkill -f "$pat" 2>/dev/null || true
-done
-sleep 1
-
-force_stop_old_runtime
-
-write_status "verifying_dmg" 30 "Verifying DMG..."
-if [ ! -f "$DMG_PATH" ]; then
-    write_status "error" 30 "DMG not found: $DMG_PATH" "dmg_not_found"
-    exit 1
-fi
-if ! hdiutil verify "$DMG_PATH" >/dev/null 2>&1; then
-    write_status "error" 30 "DMG failed verification: $DMG_PATH" "dmg_verify_failed"
-    exit 1
-fi
-
-force_stop_old_runtime
+prepare_install
 
 write_status "mounting" 35 "Mounting update disk image..."
 MOUNT_POINT="$(mktemp -d "${TMPDIR:-/tmp}/metalsharp-update-mount.XXXXXX")" || {
