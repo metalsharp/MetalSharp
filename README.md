@@ -48,7 +48,7 @@ Homebrew installs MetalSharp.app in `/Applications`. Updates are handled in-app 
 
 For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
 
-if an in-app update fails, please read [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
+If an in-app update fails, please read [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
 
 ## Launching Games and Graphics Routes
 
