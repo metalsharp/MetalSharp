@@ -1,6 +1,5 @@
 ## Fix a Broken Update
 
-___
 
 If your updater fails, you can fix it by doing the following:
 
