@@ -5,7 +5,7 @@
 // clang-format off
 // clang-format off
 static const char* const chunks[] = {
-    "{\"count\":715,\"ok\":true,\"rules\":[{\"appid\":50,\"check_dlls\":[\"d3d9.dll\",\"d3dx9_43.dll\",\"D3DCompiler_43.dll\",\"xinput1_3.dll\"",
+    "{\"count\":716,\"ok\":true,\"rules\":[{\"appid\":50,\"check_dlls\":[\"d3d9.dll\",\"d3dx9_43.dll\",\"D3DCompiler_43.dll\",\"xinput1_3.dll\"",
     ",\"winemetal.dll\"],\"components\":[\"vcrun2019_x86\",\"directx_jun2010\"],\"custom_exe_fix\":false,\"default_pipeline\":\"d3d9\",\"def",
     "ault_pipeline_name\":\"D3D9\",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[{\"arch\":\"64-bit\",\"dest_filename\":null,",
     "\"filename\":\"d3d9.dll\",\"source_subpath\":\"lib/wine/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"dxgi",
@@ -7528,19 +7528,12 @@ static const char* const chunks[] = {
     "name\":null,\"filename\":\"metalsharp_ntdll_hook.dll\",\"source_subpath\":\"lib/metalsharp/x86_64-windows\"}],\"dyld_paths\":[\"lib/",
     "wine/x86_64-unix\",\"lib/dxmt/x86_64-unix\"],\"wine_overrides\":\"winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameo",
     "verlayrenderer64=d\",\"winedllpath_dirs\":[\"lib/dxmt/x86_64-windows\",\"lib/metalsharp/x86_64-windows\"]},\"name\":\"Surviving Ma",
-    "rs: Relaunched\",\"offline_capable\":false},{\"appid\":3240220,\"check_dlls\":[\"d3d11.dll\",\"dxgi.dll\",\"winemetal.dll\"],\"compone",
-    "nts\":[\"vcrun2019\",\"directx_jun2010\"],\"custom_exe_fix\":false,\"default_pipeline\":\"m11\",\"default_pipeline_name\":\"M11\",\"env\"",
-    ":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d11.dll\",\"source_s",
-    "ubpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"dxgi.dll\",\"source_subpath\":\"lib/dxm",
-    "t/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"dxgi_dxmt.dll\",\"source_subpath\":\"lib/dxmt/x86_64-wi",
-    "ndows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d10core.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"a",
-    "rch\":\"64-bit\",\"dest_filename\":null,\"filename\":\"winemetal.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\":\"64-bi",
-    "t\",\"dest_filename\":null,\"filename\":\"nvapi64.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_file",
-    "name\":null,\"filename\":\"nvngx.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,\"fil",
-    "ename\":\"metalsharp_ntdll_hook.dll\",\"source_subpath\":\"lib/metalsharp/x86_64-windows\"}],\"dyld_paths\":[\"lib/wine/x86_64-uni",
-    "x\",\"lib/dxmt/x86_64-unix\"],\"wine_overrides\":\"winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer6",
-    "4=d\",\"winedllpath_dirs\":[\"lib/dxmt/x86_64-windows\",\"lib/metalsharp/x86_64-windows\"]},\"name\":\"AppID 3240220\",\"offline_cap",
-    "able\":false},{\"appid\":3241660,\"check_dlls\":[\"d3d11.dll\",\"dxgi.dll\",\"winemetal.dll\"],\"components\":[],\"custom_exe_fix\":fal",
+    "rs: Relaunched\",\"offline_capable\":false},{\"appid\":3240220,\"check_dlls\":[\"d3d12.dll\",\"d3d11.dll\",\"dxgi.dll\"],\"components\"",
+    ":[\"vcrun2019\",\"directx_jun2010\"],\"custom_exe_fix\":false,\"default_pipeline\":\"d3dmetal\",\"default_pipeline_name\":\"D3DMetal\"",
+    ",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[],\"dyld_paths\":[],\"wine_overrides\":\"d3d10,d3d11,d3d12,dxgi,nvapi",
+    "64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d\",\"winedllpath_dirs\":[]},\"name\":\"Grand Theft Auto V E",
+    "nhanced\",\"offline_capable\":false},{\"appid\":3241660,\"check_dlls\":[\"d3d11.dll\",\"dxgi.dll\",\"winemetal.dll\"],\"components\":[]",
+    ",\"custom_exe_fix\":fal",
     "se,\"default_pipeline\":\"m11\",\"default_pipeline_name\":\"M11\",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[{\"arch\"",
     ":\"64-bit\",\"dest_filename\":null,\"filename\":\"d3d11.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest",
     "_filename\":null,\"filename\":\"dxgi.dll\",\"source_subpath\":\"lib/dxmt/x86_64-windows\"},{\"arch\":\"64-bit\",\"dest_filename\":null,",
@@ -7782,7 +7775,11 @@ static const char* const chunks[] = {
     "indows\"},{\"arch\":\"32-bit\",\"dest_filename\":null,\"filename\":\"dxgi.dll\",\"source_subpath\":\"lib/wine/i386-windows\"}],\"dyld_pa",
     "ths\":[\"lib/wine/x86_64-unix\",\"lib/dxmt/x86_64-unix\"],\"wine_overrides\":\"d3d9,dxgi=n,b;gameoverlayrenderer,gameoverlayrend",
     "erer64=d\",\"winedllpath_dirs\":[\"lib/dxmt/x86_64-windows\",\"lib/wine/x86_64-windows\",\"lib/wine/i386-windows\",\"lib/metalshar",
-    "p/x86_64-windows\"]},\"name\":\"DiRT 3 Complete Edition\",\"offline_capable\":false}]}",
+    "p/x86_64-windows\"]},\"name\":\"DiRT 3 Complete Edition\",\"offline_capable\":false},{\"appid\":1174180,\"check_dlls\":[\"d3d12.dll\"",
+    ",\"d3d11.dll\",\"dxgi.dll\"],\"components\":[\"vcrun2019\",\"directx_jun2010\"],\"custom_exe_fix\":false,\"default_pipeline\":\"d3dmeta",
+    "l\",\"default_pipeline_name\":\"D3DMetal\",\"env\":{},\"exe_names\":[],\"launch_shape\":{\"deploy_dlls\":[],\"dyld_paths\":[],\"wine_ove",
+    "rrides\":\"d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d\",\"winedllpath_d",
+    "irs\":[]},\"name\":\"Red Dead Redemption 2\",\"offline_capable\":false}]}",
 };
 // clang-format on
 // clang-format on
