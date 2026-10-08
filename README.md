@@ -15,7 +15,7 @@
 
 <div align="center">
   
-MetalSharp is a Free Wine 11.17 Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon.
+MetalSharp is a Free Wine 11.17 Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
 
 </div>
 
