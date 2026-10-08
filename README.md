@@ -15,21 +15,11 @@
 
 <div align="center">
   
-MetalSharp Is An Application Designed To Run Windows Applications and Windows Games on Apple Silicon MacOS. Easily Select Between Different Launch Methods, Change Artwork For Games, And More. Works with Steam, Epic, GOG, Ubisoft Connect, and Gamejolt. 
+MetalSharp is a Free Wine 11.17 Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon.
 
 </div>
 
-
-
-
 <img width="892" height="685" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/03539f26-ce8b-4169-996b-7e89c5590aad" />
-
-
-
-
-
-
-
 
 ## Quick Start
 
@@ -48,7 +38,7 @@ Homebrew installs MetalSharp.app in `/Applications`. Updates are handled in-app 
 
 For Direct Access to What is Installed During Setup, See Here: [Dependency Bundles](https://github.com/metalsharp/MetalSharp/releases/tag/bundles).
 
-If an in-app update fails, please read [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
+If an In-App update fails, please use [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
 
 ## Launching Games and Graphics Routes
 
