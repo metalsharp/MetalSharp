@@ -32,7 +32,7 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 | Sonic Frontiers | 1237320 | Online Play |
 | Black Myth: Wukong | 2358720 | Online Play |
 | Borderlands 3 | 397540 | Online Play |
-| The Witcher 3: Wild Hunt | 292030 | Online Play |
+| The Witcher 3: Wild Hunt | 292030 | Online Play (Remastered not running yet, must choose classic option in steam options before downloading and playing) |
 | Yu-Gi-Oh! Master Duel | 1449850 | Online Play |
 | Palworld | 1623730 | Online Play|
 | Hogwarts Legacy | 990080 | Online Play |
