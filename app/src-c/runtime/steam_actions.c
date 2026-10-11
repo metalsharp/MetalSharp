@@ -4743,6 +4743,14 @@ static bool user_reg_section_has(const char* text, const char* section, const ch
     return false;
 }
 
+/* Executables whose OpenGL loader needs entry points of GL versions above the
+ * context's (Wine patch: AppDefaults\<app.exe>\OpenGL LaterEntryPoints). Dead
+ * Cells' HashLink loader refuses to start on WineMetalGL's 3.3 context without
+ * glDispatchCompute, glMemoryBarrier, glBindImageTexture and
+ * glMultiDrawElementsIndirect, which Windows drivers always return. */
+static const char* const later_gl_entry_point_apps[] = {"deadcells_gl.exe"};
+static const char* const later_entry_points_line = "\"LaterEntryPoints\"=\"Y\"";
+
 /* `wine reg import` cold-boots a wineserver and costs seconds on every Steam
  * start. The values only change with the Retina setting, so skip the import
  * when the prefix's user.reg already carries all of them. */
@@ -4759,6 +4767,12 @@ static bool steam_registry_seeded(const char* prefix, bool retina) {
         char section[256];
         snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\DllOverrides", apps[i]);
         seeded = user_reg_section_has(text, section, overrides, sizeof(overrides) / sizeof(overrides[0]));
+    }
+    for (size_t i = 0; seeded && i < sizeof(later_gl_entry_point_apps) / sizeof(later_gl_entry_point_apps[0]); i++) {
+        char section[256];
+        snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\OpenGL",
+                 later_gl_entry_point_apps[i]);
+        seeded = user_reg_section_has(text, section, &later_entry_points_line, 1);
     }
     seeded = seeded && user_reg_section_has(text, "Software\\\\Wine\\\\Mac Driver", &retina_line, 1) &&
              user_reg_section_has(text, "Control Panel\\\\Desktop", &dpi_line, 1);
@@ -4795,6 +4809,9 @@ static void seed_steam_registry(const char* home) {
     fputs("\"d3d12\"=\"builtin\"\r\n\"d3d12core\"=\"builtin\"\r\n\"d3d12SDKLayers\"=\"builtin\"\r\n\"dxcore\"="
           "\"builtin\"\r\n",
           f);
+    for (size_t i = 0; i < sizeof(later_gl_entry_point_apps) / sizeof(later_gl_entry_point_apps[0]); i++)
+        fprintf(f, "\r\n[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\%s\\OpenGL]\r\n%s\r\n",
+                later_gl_entry_point_apps[i], later_entry_points_line);
     fputs("\r\n[HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver]\r\n", f);
     fprintf(f, "\"RetinaMode\"=\"%c\"\r\n", retina ? 'Y' : 'N');
     fputs("\r\n[HKEY_CURRENT_USER\\Control Panel\\Desktop]\r\n", f);
