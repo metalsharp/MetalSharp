@@ -5902,7 +5902,7 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
             *status = 500;
         return result;
     }
-    ms_process_register_game(id, pid);
+    ms_process_register_game_executable(id, pid, executable);
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "pid");
@@ -6831,13 +6831,14 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         e = spawn_direct_game(home, executable, id, pipeline, &pid);
     else
         e = spawn_direct_game(home, executable, id, pipeline, &pid);
-    free(executable);
     if (e) {
         char* o = err(e);
         free(e);
+        free(executable);
         return o;
     }
-    ms_process_register_game(id, pid);
+    ms_process_register_game_executable(id, pid, executable);
+    free(executable);
     (void)mark_steam_bottle_launch(home, id, pid);
     record_launch_timing(home, id, started_at, pipeline);
     if (status)
@@ -6925,15 +6926,16 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
     else
         error_text = spawn_direct_game(home, executable, id, pipeline, &pid);
     free(game_dir);
-    free(executable);
     if (error_text) {
         char* result = err(error_text);
         free(error_text);
+        free(executable);
         if (status)
             *status = 500;
         return result;
     }
-    ms_process_register_game(id, pid);
+    ms_process_register_game_executable(id, pid, executable);
+    free(executable);
     record_launch_timing(home, id, started_at, pipeline);
     if (status)
         *status = 200;
