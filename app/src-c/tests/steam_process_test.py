@@ -144,6 +144,10 @@ def main() -> int:
                 '"d3d12"="builtin"\n"d3d12core"="builtin"\n"d3d12SDKLayers"="builtin"\n"dxcore"="builtin"\n'
                 for app in ("Steam.exe", "steamwebhelper.exe", "steamwebhelper_real.exe")
             )
+            seed += (
+                '\n[Software\\\\Wine\\\\AppDefaults\\\\deadcells_gl.exe\\\\OpenGL] 1\n'
+                '"LaterEntryPoints"="Y"\n'
+            )
             (home / "prefix-steam/user.reg").write_text(
                 seed + '\n[Software\\\\Wine\\\\Mac Driver] 1\n"RetinaMode"="N"\n'
                 '\n[Control Panel\\\\Desktop] 1\n"LogPixels"=dword:00000060\n'
