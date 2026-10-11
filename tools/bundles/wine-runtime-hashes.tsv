@@ -3,11 +3,13 @@
 # archive hash before extraction and may re-sign after extraction if needed.
 path	sha256
 lib/wine/x86_64-unix/ntdll.so	c968c220b7e1cb9be2b1f3b878fd2ec72f815606f46d00b7d27c377b2da62a26
-lib/wine/x86_64-unix/opengl32.so	a16142febf7fee10e713040eaf5951ffe956bfa8dfa67a946c38344d67bf8317
-lib/wine/x86_64-unix/winemac.so	e39ec04fbe3db971e272e13209bffc5ccb059232015b565e5082e161069df199
+lib/wine/x86_64-unix/opengl32.so	f3b142741f0d99b0d93d7bcda6c8f9e6a397b4c8c5c0c61bb4984096dec5989d
+lib/wine/x86_64-unix/winemac.so	f6f8e2e2c1a2f93858f30beb0195004fead1c52eff49c8e779330cfa3002811e
+lib/wine/x86_64-unix/libwinemetalgl.dylib	4c21d346208874863e9ed5ad095fbc77d5809668ce47704ff6ae867adee819b0
+lib/wine/x86_64-unix/win32u.so	4e46fc64353f77bed38dc7cbe42ccab6c3a33763c3cdc63108d6da4c08a5d6f3
 lib/wine/x86_64-unix/metalsharp-opengl.dylib	c30e70d2118ea4e64dd1b0e23c987473213494abe1b67ddae43c02c2f905c21f
-lib/wine/x86_64-windows/opengl32.dll	281c88d31661da3bad69082cea243b74e81aec49f92f65462beff3c9ab5c70b4
-lib/wine/i386-windows/opengl32.dll	7269e65cec8f2ada466f139647a080cb8c78586ffcac00d1bdbe30d232d45451
+lib/wine/x86_64-windows/opengl32.dll	533806324a52ae68a43e5201c228e67452a3d6834f2c2bb0aec80fe2b50bd52a
+lib/wine/i386-windows/opengl32.dll	566b9a7922d5d1b1c577f87eab7e09ab05bfeeb7047db18df970b93ba240f1c1
 share/mono/wine-mono-11.3.0/support/winemono-support.msi	0567d9569c9ca7f678c7ccd4a5ccffbd9dc7bdd3c632ce204afaf7068bf9c2db
 share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86.dll	cda071f4f4948abc4ab85593ec06f3b633c7420dcf455d10157e06d460f2db9f
 share/mono/wine-mono-11.3.0/bin/libmono-2.0-x86_64.dll	ffc91174da9285dd7fdd1ee144db417ddf5233efc42914f45747ced0095e547c
