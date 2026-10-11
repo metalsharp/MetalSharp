@@ -4747,8 +4747,9 @@ static bool user_reg_section_has(const char* text, const char* section, const ch
  * context's (Wine patch: AppDefaults\<app.exe>\OpenGL LaterEntryPoints). Dead
  * Cells' HashLink loader refuses to start on WineMetalGL's 3.3 context without
  * glDispatchCompute, glMemoryBarrier, glBindImageTexture and
- * glMultiDrawElementsIndirect, which Windows drivers always return. */
-static const char* const later_gl_entry_point_apps[] = {"deadcells_gl.exe"};
+ * glMultiDrawElementsIndirect, which Windows drivers always return; Mosa Lina
+ * (2477090) is another HashLink game with the same loader. */
+static const char* const later_gl_entry_point_apps[] = {"deadcells_gl.exe", "Mosa Lina.exe"};
 static const char* const later_entry_points_line = "\"LaterEntryPoints\"=\"Y\"";
 
 /* `wine reg import` cold-boots a wineserver and costs seconds on every Steam
