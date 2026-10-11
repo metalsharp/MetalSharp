@@ -27,6 +27,7 @@ char* ms_steam_launch_json(const char*, int*);
 char* ms_steam_stop_json(const char*, int*);
 /* Migration-time guarantee: verify/restore steamwebhelper wrapper, bridge shim and Goldberg payloads. */
 bool ms_steam_wrappers_ensure(const char* home);
+bool ms_steam_usability_ensure(const char* home);
 char* ms_steam_ensure_launch_ready_json(const char*, int*);
 char* ms_steam_mac_launch_json(const char*, int*);
 char* ms_steam_mac_install_json(int*);

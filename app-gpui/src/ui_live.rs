@@ -3288,12 +3288,16 @@ fn check_needs_migration(live: &Live) -> bool {
     }
 }
 
-pub(super) fn run_bash_script(script: &str, live: &Live) -> Result<String, String> {
-    use std::io::Write;
-    let tools = live.resources().join("tools");
-    let path = std::env::join_paths(
-        [tools.to_string_lossy().into_owned()]
-            .into_iter()
+/// PATH for bundled scripts: the app's tools, the usual tool directories, then
+/// every entry of the inherited PATH. The inherited value is itself a
+/// `:`-separated list, so it is split rather than joined as one entry, which
+/// `join_paths` rejects ("path segment contains separator `:`").
+fn script_path(
+    tools: std::path::PathBuf,
+    inherited: Option<std::ffi::OsString>,
+) -> Result<std::ffi::OsString, String> {
+    std::env::join_paths(
+        std::iter::once(tools)
             .chain(
                 [
                     "/opt/homebrew/bin",
@@ -3304,11 +3308,16 @@ pub(super) fn run_bash_script(script: &str, live: &Live) -> Result<String, Strin
                     "/usr/sbin",
                     "/sbin",
                 ]
-                .map(str::to_owned),
+                .map(std::path::PathBuf::from),
             )
-            .chain(std::env::var("PATH").ok()),
+            .chain(inherited.iter().flat_map(std::env::split_paths)),
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())
+}
+
+pub(super) fn run_bash_script(script: &str, live: &Live) -> Result<String, String> {
+    use std::io::Write;
+    let path = script_path(live.resources().join("tools"), std::env::var_os("PATH"))?;
     let mut command = std::process::Command::new("/bin/bash");
     crate::lifecycle::unmask_child_signals(&mut command);
     let mut child = command
@@ -3448,5 +3457,34 @@ mod ubisoft_header_tests {
         assert!(!live.ubisoft_is_primary());
         live.apply_ubisoft_status(true, true, false);
         assert!(!live.ubisoft_is_primary());
+    }
+}
+
+#[cfg(test)]
+mod script_path_tests {
+    use super::script_path;
+    use std::path::PathBuf;
+
+    #[test]
+    fn inherited_path_entries_are_split_not_joined_whole() {
+        let path = script_path(
+            PathBuf::from("/Applications/MetalSharp.app/Contents/Resources/tools"),
+            Some("/usr/bin:/bin:/usr/sbin:/sbin".into()),
+        )
+        .expect("a multi-entry inherited PATH must be accepted");
+        let entries: Vec<PathBuf> = std::env::split_paths(&path).collect();
+        assert_eq!(
+            entries.first(),
+            Some(&PathBuf::from(
+                "/Applications/MetalSharp.app/Contents/Resources/tools"
+            ))
+        );
+        assert!(entries.ends_with(&[
+            PathBuf::from("/usr/bin"),
+            PathBuf::from("/bin"),
+            PathBuf::from("/usr/sbin"),
+            PathBuf::from("/sbin"),
+        ]));
+        assert!(script_path(PathBuf::from("/tools"), None).is_ok());
     }
 }
