@@ -43,6 +43,11 @@ bool ms_steam_wrappers_ensure(const char* home) {
     return true;
 }
 
+bool ms_steam_usability_ensure(const char* home) {
+    (void)home;
+    return true;
+}
+
 #include "../runtime/migration.c"
 
 static void make_directory(const char* path) {
