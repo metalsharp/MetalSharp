@@ -1426,7 +1426,7 @@ static bool write_migration_progress(const char* home, const char* state, unsign
     ms_json_writer_key(&writer, "step");
     ms_json_writer_u64(&writer, step);
     ms_json_writer_key(&writer, "total");
-    ms_json_writer_u64(&writer, 8);
+    ms_json_writer_u64(&writer, 9);
     ms_json_writer_key(&writer, "message");
     ms_json_writer_string(&writer, message);
     ms_json_writer_key(&writer, "error");
@@ -1755,7 +1755,24 @@ static void* migration_worker(void* opaque) {
                 free(backup);
             }
             (void)write_migration_progress(job->home, "running", 7, "Verifying MetalSharp update...", NULL);
-            (void)write_migration_progress(job->home, "complete", 8, "MetalSharp is updated and ready.", NULL);
+            /* Last: what Fix Steam does, so Steam keeps working across updates.
+             * Advisory like the bundle check: a Steam whose own webhelper is
+             * missing must not fail a finished update. */
+            (void)write_migration_progress(job->home, "running", 8, "Ensuring Steam Usability...", NULL);
+            if (!ms_steam_usability_ensure(job->home)) {
+                char* logs_dir = path_join(job->home, "logs");
+                char* note_path = logs_dir ? path_join(logs_dir, "migration-steam-usability-latest.txt") : NULL;
+                FILE* note = note_path ? fopen(note_path, "w") : NULL;
+                if (note) {
+                    fputs("After the update, the Steam webhelper wrapper could not be confirmed in every CEF "
+                          "directory.\nRun Start Steam > Fix Steam in MetalSharp.\n",
+                          note);
+                    fclose(note);
+                }
+                free(note_path);
+                free(logs_dir);
+            }
+            (void)write_migration_progress(job->home, "complete", 9, "MetalSharp is updated and ready.", NULL);
             unlink(job->lock_path);
             free(job->home);
             free(job->lock_path);

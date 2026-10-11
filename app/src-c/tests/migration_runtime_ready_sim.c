@@ -29,6 +29,11 @@ bool ms_steam_wrappers_ensure(const char* home) {
     return true;
 }
 
+bool ms_steam_usability_ensure(const char* home) {
+    (void)home;
+    return true;
+}
+
 char* ms_setup_install_all_json(const char* home, int* status) {
     (void)home;
     (void)status;

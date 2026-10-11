@@ -4480,7 +4480,11 @@ done:
     return cached;
 }
 
-static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_dir) {
+/* Puts the verified webhelper wrapper into every CEF directory and keeps Steam's
+ * own webhelper as steamwebhelper_real.exe. A small steamwebhelper.exe is taken
+ * as the wrapper; with `refresh` it must also be the verified wrapper, or it is
+ * replaced (what Fix Steam does). */
+static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_dir, bool refresh) {
     char* wrapper = extract_steamwebhelper_wrapper(home);
     char* cef_root;
     DIR* dir;
@@ -4507,7 +4511,8 @@ static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_di
             original_size = (unsigned long long)original_stat.st_size;
         if (real && stat(real, &real_stat) == 0)
             real_size = (unsigned long long)real_stat.st_size;
-        if (original_size > 0 && original_size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
+        if (original_size > 0 && original_size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES &&
+            (!refresh || steamwebhelper_wrapper_valid(original))) {
             if (marker) {
                 FILE* f = fopen(marker, "wb");
                 if (f) {
@@ -4583,7 +4588,7 @@ static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
     closedir(dir);
     free(cef_root);
     if (deploy)
-        deploy_steamwebhelper_wrapper(home, steam_dir);
+        deploy_steamwebhelper_wrapper(home, steam_dir, false);
 }
 
 static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
@@ -4624,7 +4629,7 @@ bool ms_steam_wrappers_ensure(const char* home) {
     bool ok = true;
     char* steam_dir = home ? join(home, "prefix-steam/drive_c/Program Files (x86)/Steam") : NULL;
 
-    deploy_steamwebhelper_wrapper(home, steam_dir);
+    deploy_steamwebhelper_wrapper(home, steam_dir, false);
     if (!steamwebhelper_wrappers_ready(steam_dir))
         ok = false;
 
@@ -4672,6 +4677,24 @@ bool ms_steam_wrappers_ensure(const char* home) {
         }
     }
 
+    free(steam_dir);
+    return ok;
+}
+
+/* Migration's last step, "Ensuring Steam Usability": what Fix Steam does, so
+ * Steam keeps working across updates. Every CEF directory gets the verified
+ * webhelper wrapper, replacing any steamwebhelper.exe that is not it, with
+ * Steam's own webhelper kept as steamwebhelper_real.exe; then the guarantees of
+ * ms_steam_wrappers_ensure. A Steam that is not installed has nothing to ensure. */
+bool ms_steam_usability_ensure(const char* home) {
+    char* steam_dir = home ? join(home, "prefix-steam/drive_c/Program Files (x86)/Steam") : NULL;
+    char* cef_root = steam_dir ? join(steam_dir, "bin/cef") : NULL;
+    bool ok = true;
+    if (cef_root && access(cef_root, F_OK) == 0) {
+        deploy_steamwebhelper_wrapper(home, steam_dir, true);
+        ok = ms_steam_wrappers_ensure(home);
+    }
+    free(cef_root);
     free(steam_dir);
     return ok;
 }
