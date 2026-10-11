@@ -1615,21 +1615,16 @@ int main(int argc, char** argv) {
     assert(strstr(pipeline_overrides("dxmt"), "d3d10core"));
     assert(strstr(pipeline_overrides("vkd3d"), "d3d9"));
     assert(strstr(pipeline_overrides("d3d9"), "d3d9,dxgi=n,b"));
-    /* Isaac is OpenGL-based: WineMetalGL breaks GL_VERSION on the 32-bit route. */
-    setenv("WINEMETALGL", "1", 1);
+    /* WineMetalGL is the OpenGL of every launch: WINEMETALGL is never forced to 0. */
+    setenv("WINEMETALGL", "0", 1);
     set_game_opengl_env(250900, "dxmt_32");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    setenv("WINEMETALGL", "1", 1);
-    set_game_opengl_env(391540, "d3d9");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    setenv("WINEMETALGL", "1", 1);
-    set_game_opengl_env(250900, "dxmt");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    setenv("WINEMETALGL", "1", 1);
-    set_game_opengl_env(42, "vkd3d");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    set_game_opengl_env(42, "dxmt_32");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
+    assert(!getenv("WINEMETALGL"));
+    setenv("WINEMETALGL", "0", 1);
+    set_game_opengl_env(588650, "wine_bare");
+    assert(!getenv("WINEMETALGL"));
+    setenv("WINEMETALGL", "0", 1);
+    set_game_opengl_env(0, "dxmt");
+    assert(!getenv("WINEMETALGL"));
     set_route_paths(home, "d3dmetal");
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));

@@ -864,11 +864,14 @@ static void ensure_x87_wow64_loader(const char* home) {
 }
 
 static void set_game_opengl_env(unsigned id, const char* pipeline) {
-    /* WineMetalGL is disabled globally for now; it is not reliable enough
-     * across the route families and can report invalid GL_VERSION values. */
+    /* WineMetalGL 2.x, the OpenGL 3.3 core and compatibility implementation on
+     * Metal that the runtime's winemac.so loads, is the OpenGL of every launch:
+     * the Steam client, launchers and games alike (games started from the Steam
+     * client inherit its environment). Dead Cells needs its 3.2 core contexts,
+     * which Apple's OpenGL under Wine does not give it. */
     (void)id;
     (void)pipeline;
-    setenv("WINEMETALGL", "0", 1);
+    unsetenv("WINEMETALGL");
 }
 
 void ms_steam_apply_graphics_route(const char* home, const char* pipeline) {
@@ -2777,6 +2780,7 @@ static char* spawn_offline_game(const char* home, const char* executable, unsign
         setenv("SteamGameId", app_id, 1);
         setenv("METALSHARP_PIPELINE", pipeline, 1);
         set_pipeline_runtime_env(home, pipeline);
+        set_game_opengl_env(id, pipeline);
         if (!strcmp(pipeline, "d3dmetal"))
             snprintf(
                 library_env, sizeof(library_env),
@@ -2805,7 +2809,6 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     char winemetal[PATH_MAX];
     char vulkan_icd[PATH_MAX];
     const char* backend = "dxmt";
-    setenv("WINEMETALGL", "0", 1);
     set_rosetta_avx_env();
     if (!pipeline)
         pipeline = "auto";
