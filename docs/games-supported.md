@@ -114,6 +114,7 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 | Ori and the Blind Forest: Definitive Edition | 387290 | |
 | Nidhogg 2 | 535520 | |
 | Balatro | 2379780 | |
+| Mosa Lina | 2477090 | Runs under WineMetalGL |
 
 ---
 
