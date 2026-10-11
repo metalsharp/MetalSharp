@@ -1,5 +1,5 @@
 # Supported Games
-**Updated:** 2026-10-06
+**Updated:** 2026-10-10
 
 Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M4 MacBook Air (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#launching-games-and-graphics-routes).
 
@@ -101,6 +101,7 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 | Mind Scanners | 1389550 | |
 | Dredge | 1562430 | |
 | Blasphemous 2 | 2114740 | |
+| Dead Cells | 588650 | Runs under WineMetalGL |
 
 ---
 
@@ -113,6 +114,7 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 | Ori and the Blind Forest: Definitive Edition | 387290 | |
 | Nidhogg 2 | 535520 | |
 | Balatro | 2379780 | |
+| Mosa Lina | 2477090 | Runs under WineMetalGL |
 
 ---
 

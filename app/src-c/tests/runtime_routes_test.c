@@ -588,6 +588,59 @@ int main(int argc, char** argv) {
             free(wine_bin);
         }
         {
+            /* A game closed from inside: once its launched process is gone, it
+             * runs on only while its own executable does, never while Wine's
+             * services (lsass.exe) are up. */
+            char* wine_helper = join(home, "runtime/wine/probe/metalsharp-probe");
+            pid_t service, game, leader;
+            assert(wine_helper);
+            service = fork();
+            assert(service >= 0);
+            if (service == 0) {
+                (void)setpgid(0, 0);
+                execl(wine_helper, wine_helper, "--wine-exe-probe", "C:\\windows\\system32\\lsass.exe", (char*)NULL);
+                _exit(127);
+            }
+            assert(setpgid(service, service) == 0 || errno == EACCES);
+            game = fork();
+            assert(game >= 0);
+            if (game == 0) {
+                (void)setpgid(0, 0);
+                execl(wine_helper, wine_helper, "--wine-exe-probe",
+                      "E:\\steamapps\\common\\Dead Cells\\deadcells_gl.exe", (char*)NULL);
+                _exit(127);
+            }
+            assert(setpgid(game, game) == 0 || errno == EACCES);
+            leader = fork();
+            assert(leader >= 0);
+            if (leader == 0)
+                _exit(0);
+            assert(waitpid(leader, NULL, 0) == leader);
+            ms_process_register_game_executable(987654325U, leader,
+                                                "/Volumes/Library/steamapps/common/Dead Cells/deadcells_gl.exe");
+            response = ms_process_running_json(home);
+            assert(response && strstr(response, "987654325"));
+            free(response);
+            assert(kill(game, SIGKILL) == 0);
+            wait_for_test_child(game);
+            response = ms_process_running_json(home);
+            assert(response && !strstr(response, "987654325"));
+            free(response);
+            /* Without a known executable, Wine's services still do not stand in. */
+            leader = fork();
+            assert(leader >= 0);
+            if (leader == 0)
+                _exit(0);
+            assert(waitpid(leader, NULL, 0) == leader);
+            ms_process_register_game(987654326U, leader);
+            response = ms_process_running_json(home);
+            assert(response && !strstr(response, "987654326"));
+            free(response);
+            assert(kill(service, SIGKILL) == 0);
+            wait_for_test_child(service);
+            free(wine_helper);
+        }
+        {
             char* wine_helper = join(home, "runtime/wine/probe/metalsharp-probe");
             pid_t wine_game = fork();
             int status = 0;
@@ -1615,21 +1668,16 @@ int main(int argc, char** argv) {
     assert(strstr(pipeline_overrides("dxmt"), "d3d10core"));
     assert(strstr(pipeline_overrides("vkd3d"), "d3d9"));
     assert(strstr(pipeline_overrides("d3d9"), "d3d9,dxgi=n,b"));
-    /* Isaac is OpenGL-based: WineMetalGL breaks GL_VERSION on the 32-bit route. */
-    setenv("WINEMETALGL", "1", 1);
+    /* WineMetalGL is the OpenGL of every launch: WINEMETALGL is never forced to 0. */
+    setenv("WINEMETALGL", "0", 1);
     set_game_opengl_env(250900, "dxmt_32");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    setenv("WINEMETALGL", "1", 1);
-    set_game_opengl_env(391540, "d3d9");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    setenv("WINEMETALGL", "1", 1);
-    set_game_opengl_env(250900, "dxmt");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    setenv("WINEMETALGL", "1", 1);
-    set_game_opengl_env(42, "vkd3d");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
-    set_game_opengl_env(42, "dxmt_32");
-    assert(!strcmp(getenv("WINEMETALGL"), "0"));
+    assert(!getenv("WINEMETALGL"));
+    setenv("WINEMETALGL", "0", 1);
+    set_game_opengl_env(588650, "wine_bare");
+    assert(!getenv("WINEMETALGL"));
+    setenv("WINEMETALGL", "0", 1);
+    set_game_opengl_env(0, "dxmt");
+    assert(!getenv("WINEMETALGL"));
     set_route_paths(home, "d3dmetal");
     assert(getenv("D3DMETAL_RUNTIME_DIR"));
     assert(strstr(getenv("D3DMETAL_FRAMEWORK_PATH"), "D3DMetal.framework/D3DMetal"));

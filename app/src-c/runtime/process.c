@@ -8,6 +8,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ubisoft.h"
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
@@ -35,6 +36,8 @@ typedef struct running_game {
     pid_t pid;
     unsigned long long keep_until_ms;
     bool wine_fallback;
+    /* Base name of the launched .exe, lower case; empty when unknown. */
+    char executable[128];
     struct running_game* next;
 } running_game;
 typedef struct retired_child {
@@ -127,6 +130,22 @@ static bool contains_ci(const char* value, const char* needle) {
     return false;
 }
 
+static bool command_runs_executable(const char* command, const char* executable) {
+    size_t length;
+    if (!command || !executable || !executable[0])
+        return false;
+    length = strlen(executable);
+    for (const char* at = command; *at; at++) {
+        if (strncasecmp(at, executable, length))
+            continue;
+        bool starts = at == command || at[-1] == '\\' || at[-1] == '/' || at[-1] == ' ' || at[-1] == '"';
+        bool ends = at[length] == '\0' || at[length] == ' ' || at[length] == '"';
+        if (starts && ends)
+            return true;
+    }
+    return false;
+}
+
 static bool process_executable_within(pid_t pid, const char* root) {
     char executable[PATH_MAX];
     size_t length;
@@ -163,7 +182,9 @@ static bool process_is_wine_helper(const char* command) {
            contains_ci(command, "wineboot.exe") || contains_ci(command, "winedevice.exe") ||
            contains_ci(command, "winedbg.exe") || contains_ci(command, "services.exe") ||
            contains_ci(command, "rpcss.exe") || contains_ci(command, "svchost.exe") ||
-           contains_ci(command, "conhost.exe");
+           contains_ci(command, "conhost.exe") || contains_ci(command, "lsass.exe") ||
+           contains_ci(command, "plugplay.exe") || contains_ci(command, "explorer.exe") ||
+           contains_ci(command, "winemenubuilder.exe");
 }
 
 static bool wine_game_process_owned(pid_t pid, const char* command, const char* prefix, const char* runtime) {
@@ -187,7 +208,7 @@ static bool wine_process_list_add(wine_process_list* list, pid_t pid) {
     return true;
 }
 
-static wine_process_list find_non_steam_wine_executables(const char* home) {
+static wine_process_list find_wine_executables(const char* home, const char* executable) {
     wine_process_list result = {0};
     char prefix[PATH_MAX], runtime[PATH_MAX], line[4096];
     FILE* pipe;
@@ -214,11 +235,17 @@ static wine_process_list find_non_steam_wine_executables(const char* home) {
             *newline = '\0';
         if (!wine_game_process_owned((pid_t)raw_pid, end, prefix, runtime))
             continue;
+        if (executable && !command_runs_executable(end, executable))
+            continue;
         if (!wine_process_list_add(&result, (pid_t)raw_pid))
             break;
     }
     pclose(pipe);
     return result;
+}
+
+static wine_process_list find_non_steam_wine_executables(const char* home) {
+    return find_wine_executables(home, NULL);
 }
 
 static size_t kill_non_steam_wine_executables(const char* home, wine_process_list* killed) {
@@ -371,11 +398,37 @@ void ms_process_register_pending_game(unsigned appid, pid_t pid, unsigned grace_
     pthread_mutex_unlock(&g_running_mutex);
 }
 
+static void set_executable(unsigned appid, const char* executable) {
+    const char* base = executable ? executable : "";
+    for (const char* at = base; *at; at++)
+        if (*at == '/' || *at == '\\')
+            base = at + 1;
+    for (running_game* g = g_running; g; g = g->next)
+        if (g->appid == appid) {
+            size_t i = 0;
+            for (; base[i] && i + 1 < sizeof(g->executable); i++)
+                g->executable[i] = (char)tolower((unsigned char)base[i]);
+            g->executable[i] = '\0';
+            return;
+        }
+}
+
 void ms_process_register_game(unsigned appid, pid_t pid) {
     if (appid > 0 && pid > 0) {
         pthread_mutex_lock(&g_running_mutex);
         g_last_registered_appid = appid;
         remember(appid, pid);
+        set_executable(appid, NULL);
+        pthread_mutex_unlock(&g_running_mutex);
+    }
+}
+
+void ms_process_register_game_executable(unsigned appid, pid_t pid, const char* executable) {
+    if (appid > 0 && pid > 0) {
+        pthread_mutex_lock(&g_running_mutex);
+        g_last_registered_appid = appid;
+        remember(appid, pid);
+        set_executable(appid, executable);
         pthread_mutex_unlock(&g_running_mutex);
     }
 }
@@ -592,8 +645,21 @@ char* ms_process_running_json(const char* home) {
     if (wine_processes.count > 0 && g_last_registered_appid > 0) {
         for (g = g_running; g; g = g->next)
             if (g->appid == g_last_registered_appid && !active(g->pid)) {
-                g->pid = wine_processes.pids[0];
-                g->wine_fallback = true;
+                /* The launched process and its group are gone. A game whose
+                 * executable is known runs on only while that executable does
+                 * (closing it from inside the game stops it); otherwise any
+                 * other Wine program in the prefix stands in for it. */
+                if (g->executable[0]) {
+                    wine_process_list same = find_wine_executables(home, g->executable);
+                    if (same.count > 0) {
+                        g->pid = same.pids[0];
+                        g->wine_fallback = true;
+                    }
+                    free(same.pids);
+                } else {
+                    g->pid = wine_processes.pids[0];
+                    g->wine_fallback = true;
+                }
                 break;
             }
     }

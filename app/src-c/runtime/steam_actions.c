@@ -864,11 +864,14 @@ static void ensure_x87_wow64_loader(const char* home) {
 }
 
 static void set_game_opengl_env(unsigned id, const char* pipeline) {
-    /* WineMetalGL is disabled globally for now; it is not reliable enough
-     * across the route families and can report invalid GL_VERSION values. */
+    /* WineMetalGL 2.x, the OpenGL 3.3 core and compatibility implementation on
+     * Metal that the runtime's winemac.so loads, is the OpenGL of every launch:
+     * the Steam client, launchers and games alike (games started from the Steam
+     * client inherit its environment). Dead Cells needs its 3.2 core contexts,
+     * which Apple's OpenGL under Wine does not give it. */
     (void)id;
     (void)pipeline;
-    setenv("WINEMETALGL", "0", 1);
+    unsetenv("WINEMETALGL");
 }
 
 void ms_steam_apply_graphics_route(const char* home, const char* pipeline) {
@@ -2777,6 +2780,7 @@ static char* spawn_offline_game(const char* home, const char* executable, unsign
         setenv("SteamGameId", app_id, 1);
         setenv("METALSHARP_PIPELINE", pipeline, 1);
         set_pipeline_runtime_env(home, pipeline);
+        set_game_opengl_env(id, pipeline);
         if (!strcmp(pipeline, "d3dmetal"))
             snprintf(
                 library_env, sizeof(library_env),
@@ -2805,7 +2809,6 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     char winemetal[PATH_MAX];
     char vulkan_icd[PATH_MAX];
     const char* backend = "dxmt";
-    setenv("WINEMETALGL", "0", 1);
     set_rosetta_avx_env();
     if (!pipeline)
         pipeline = "auto";
@@ -4477,7 +4480,11 @@ done:
     return cached;
 }
 
-static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_dir) {
+/* Puts the verified webhelper wrapper into every CEF directory and keeps Steam's
+ * own webhelper as steamwebhelper_real.exe. A small steamwebhelper.exe is taken
+ * as the wrapper; with `refresh` it must also be the verified wrapper, or it is
+ * replaced (what Fix Steam does). */
+static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_dir, bool refresh) {
     char* wrapper = extract_steamwebhelper_wrapper(home);
     char* cef_root;
     DIR* dir;
@@ -4504,7 +4511,8 @@ static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_di
             original_size = (unsigned long long)original_stat.st_size;
         if (real && stat(real, &real_stat) == 0)
             real_size = (unsigned long long)real_stat.st_size;
-        if (original_size > 0 && original_size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
+        if (original_size > 0 && original_size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES &&
+            (!refresh || steamwebhelper_wrapper_valid(original))) {
             if (marker) {
                 FILE* f = fopen(marker, "wb");
                 if (f) {
@@ -4580,7 +4588,7 @@ static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
     closedir(dir);
     free(cef_root);
     if (deploy)
-        deploy_steamwebhelper_wrapper(home, steam_dir);
+        deploy_steamwebhelper_wrapper(home, steam_dir, false);
 }
 
 static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
@@ -4621,7 +4629,7 @@ bool ms_steam_wrappers_ensure(const char* home) {
     bool ok = true;
     char* steam_dir = home ? join(home, "prefix-steam/drive_c/Program Files (x86)/Steam") : NULL;
 
-    deploy_steamwebhelper_wrapper(home, steam_dir);
+    deploy_steamwebhelper_wrapper(home, steam_dir, false);
     if (!steamwebhelper_wrappers_ready(steam_dir))
         ok = false;
 
@@ -4669,6 +4677,24 @@ bool ms_steam_wrappers_ensure(const char* home) {
         }
     }
 
+    free(steam_dir);
+    return ok;
+}
+
+/* Migration's last step, "Ensuring Steam Usability": what Fix Steam does, so
+ * Steam keeps working across updates. Every CEF directory gets the verified
+ * webhelper wrapper, replacing any steamwebhelper.exe that is not it, with
+ * Steam's own webhelper kept as steamwebhelper_real.exe; then the guarantees of
+ * ms_steam_wrappers_ensure. A Steam that is not installed has nothing to ensure. */
+bool ms_steam_usability_ensure(const char* home) {
+    char* steam_dir = home ? join(home, "prefix-steam/drive_c/Program Files (x86)/Steam") : NULL;
+    char* cef_root = steam_dir ? join(steam_dir, "bin/cef") : NULL;
+    bool ok = true;
+    if (cef_root && access(cef_root, F_OK) == 0) {
+        deploy_steamwebhelper_wrapper(home, steam_dir, true);
+        ok = ms_steam_wrappers_ensure(home);
+    }
+    free(cef_root);
     free(steam_dir);
     return ok;
 }
@@ -4740,6 +4766,15 @@ static bool user_reg_section_has(const char* text, const char* section, const ch
     return false;
 }
 
+/* Executables whose OpenGL loader needs entry points of GL versions above the
+ * context's (Wine patch: AppDefaults\<app.exe>\OpenGL LaterEntryPoints). Dead
+ * Cells' HashLink loader refuses to start on WineMetalGL's 3.3 context without
+ * glDispatchCompute, glMemoryBarrier, glBindImageTexture and
+ * glMultiDrawElementsIndirect, which Windows drivers always return; Mosa Lina
+ * (2477090) is another HashLink game with the same loader. */
+static const char* const later_gl_entry_point_apps[] = {"deadcells_gl.exe", "Mosa Lina.exe"};
+static const char* const later_entry_points_line = "\"LaterEntryPoints\"=\"Y\"";
+
 /* `wine reg import` cold-boots a wineserver and costs seconds on every Steam
  * start. The values only change with the Retina setting, so skip the import
  * when the prefix's user.reg already carries all of them. */
@@ -4756,6 +4791,12 @@ static bool steam_registry_seeded(const char* prefix, bool retina) {
         char section[256];
         snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\DllOverrides", apps[i]);
         seeded = user_reg_section_has(text, section, overrides, sizeof(overrides) / sizeof(overrides[0]));
+    }
+    for (size_t i = 0; seeded && i < sizeof(later_gl_entry_point_apps) / sizeof(later_gl_entry_point_apps[0]); i++) {
+        char section[256];
+        snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\OpenGL",
+                 later_gl_entry_point_apps[i]);
+        seeded = user_reg_section_has(text, section, &later_entry_points_line, 1);
     }
     seeded = seeded && user_reg_section_has(text, "Software\\\\Wine\\\\Mac Driver", &retina_line, 1) &&
              user_reg_section_has(text, "Control Panel\\\\Desktop", &dpi_line, 1);
@@ -4792,6 +4833,9 @@ static void seed_steam_registry(const char* home) {
     fputs("\"d3d12\"=\"builtin\"\r\n\"d3d12core\"=\"builtin\"\r\n\"d3d12SDKLayers\"=\"builtin\"\r\n\"dxcore\"="
           "\"builtin\"\r\n",
           f);
+    for (size_t i = 0; i < sizeof(later_gl_entry_point_apps) / sizeof(later_gl_entry_point_apps[0]); i++)
+        fprintf(f, "\r\n[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\%s\\OpenGL]\r\n%s\r\n",
+                later_gl_entry_point_apps[i], later_entry_points_line);
     fputs("\r\n[HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver]\r\n", f);
     fprintf(f, "\"RetinaMode\"=\"%c\"\r\n", retina ? 'Y' : 'N');
     fputs("\r\n[HKEY_CURRENT_USER\\Control Panel\\Desktop]\r\n", f);
@@ -5882,7 +5926,7 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
             *status = 500;
         return result;
     }
-    ms_process_register_game(id, pid);
+    ms_process_register_game_executable(id, pid, executable);
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "pid");
@@ -6811,13 +6855,14 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         e = spawn_direct_game(home, executable, id, pipeline, &pid);
     else
         e = spawn_direct_game(home, executable, id, pipeline, &pid);
-    free(executable);
     if (e) {
         char* o = err(e);
         free(e);
+        free(executable);
         return o;
     }
-    ms_process_register_game(id, pid);
+    ms_process_register_game_executable(id, pid, executable);
+    free(executable);
     (void)mark_steam_bottle_launch(home, id, pid);
     record_launch_timing(home, id, started_at, pipeline);
     if (status)
@@ -6905,15 +6950,16 @@ char* ms_steam_launch_external_json(const char* home, const char* body, size_t l
     else
         error_text = spawn_direct_game(home, executable, id, pipeline, &pid);
     free(game_dir);
-    free(executable);
     if (error_text) {
         char* result = err(error_text);
         free(error_text);
+        free(executable);
         if (status)
             *status = 500;
         return result;
     }
-    ms_process_register_game(id, pid);
+    ms_process_register_game_executable(id, pid, executable);
+    free(executable);
     record_launch_timing(home, id, started_at, pipeline);
     if (status)
         *status = 200;
