@@ -175,7 +175,7 @@ cat > "$home/runtime/wine/bin/metalsharp-wine" <<'EOF'
 export WINEDLLPATH="$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows"
 export DYLD_FALLBACK_LIBRARY_PATH="$MS_LIB:$MS_LIB/wine/x86_64-unix:${DYLD_FALLBACK_LIBRARY_PATH}"
 export VK_ICD_FILENAMES="/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
-printf 'dll=%s\ndyld=%s\nvkicd=%s\n' "$WINEDLLPATH" "${DYLD_FALLBACK_LIBRARY_PATH:-}" "${VK_ICD_FILENAMES:-}" > "$METALSHARP_HOME/wrapper-env"
+printf 'dll=%s\ndyld=%s\nvkicd=%s\ninsert=%s\n' "$WINEDLLPATH" "${DYLD_FALLBACK_LIBRARY_PATH:-}" "${VK_ICD_FILENAMES:-}" "${DYLD_INSERT_LIBRARIES:-}" > "$METALSHARP_HOME/wrapper-env"
 EOF
 chmod +x "$home/runtime/wine/bin/metalsharp-wine"
 mkdir -p "$home/bottles/gog-prefix/prefix"
@@ -244,6 +244,7 @@ wrapper = (home / "runtime/wine/bin/metalsharp-wine").read_text()
 assert "METALSHARP_ROUTE_ENV_V1" in wrapper
 assert 'if [ -z "${METALSHARP_PIPELINE:-}" ] || [ -z "${WINEDLLPATH:-}" ]; then' in wrapper
 assert 'elif [ "$METALSHARP_PIPELINE" != "vkd3d" ]; then' in wrapper
+assert wrapper.startswith("#!/bin/bash\n# METALSHARP_DYLD_PASSTHROUGH_V1\n")
 stat = (home / "runtime/wine/bin/metalsharp-wine").stat()
 (home / "wine-wrapper-inode").write_text(f"{stat.st_dev}:{stat.st_ino}")
 game = json.loads((home / "gog" / "library.json").read_text())["games"][0]
@@ -252,7 +253,7 @@ assert game["primaryExe"] == "Game.exe"
 assert game["primaryTaskName"] == "Play"
 assert game["downloadSizeBytes"] == 12 and game["diskSizeBytes"] == 34
 PY
-/bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; METALSHARP_PIPELINE=dxmt; WINEDLLPATH=/route/dxmt; DYLD_FALLBACK_LIBRARY_PATH=/route/dyld; VK_ICD_FILENAMES=/wrong; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
+/bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; METALSHARP_PIPELINE=dxmt; WINEDLLPATH=/route/dxmt; DYLD_FALLBACK_LIBRARY_PATH=/route/dyld; VK_ICD_FILENAMES=/wrong; METALSHARP_DYLD_INSERT_LIBRARIES=/route/shim.dylib; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
 cp "$home/wrapper-env" "$home/dxmt-wrapper-env"
 /bin/bash -c 'MS_LIB="$METALSHARP_HOME/runtime/wine/lib"; unset METALSHARP_PIPELINE; WINEDLLPATH=/stale; DYLD_FALLBACK_LIBRARY_PATH=/custom; VK_ICD_FILENAMES=/custom; . "$1"' _ "$home/runtime/wine/bin/metalsharp-wine"
 cp "$home/wrapper-env" "$home/default-wrapper-env"
@@ -265,9 +266,11 @@ home = Path(os.environ["METALSHARP_HOME"])
 read = lambda name: dict(line.split("=", 1) for line in (home / name).read_text().splitlines())
 dxmt = read("dxmt-wrapper-env")
 assert dxmt["dll"] == "/route/dxmt" and dxmt["dyld"].startswith("/route/dyld:") and not dxmt["vkicd"]
+assert dxmt["insert"] == "/route/shim.dylib"
 default = read("default-wrapper-env")
 assert default["dll"] == str(home / "runtime/wine/lib/wine/x86_64-windows") + ":" + str(home / "runtime/wine/lib/wine/i386-windows")
 assert default["vkicd"] == "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+assert not default["insert"]
 vkd3d = read("vkd3d-wrapper-env")
 assert vkd3d["dll"] == "/route/vkd3d" and vkd3d["vkicd"] == "/route/vkd3d-icd"
 PY
