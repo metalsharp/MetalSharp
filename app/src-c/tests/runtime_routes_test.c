@@ -1347,6 +1347,7 @@ int main(int argc, char** argv) {
         assert(rockstar_launcher_game_for(3240220, "d3dmetal")->agility_frontend);
         assert(!strcmp(default_pipeline_for_appid(home, 1174180), "d3dmetal"));
         assert(!strcmp(default_pipeline_for_appid(home, 3240220), "d3dmetal"));
+        assert(wants_performance_cores_only(1245620) && !wants_performance_cores_only(526870));
         assert(!rockstar_launcher_game_for(1174180, "d3dmetal")->agility_frontend);
         assert(is_rockstar_launcher_executable(launcher));
         assert(!is_rockstar_launcher_executable("/games/Red Dead Redemption 2/RDR2.exe"));

@@ -5574,6 +5574,42 @@ static bool direct_game_launch_paths(const char* executable, unsigned id, char* 
     return written >= 0 && (size_t)written < program_size;
 }
 
+static bool wants_performance_cores_only(unsigned id) {
+    return id == 1245620;
+}
+
+/* Builds the performance-core shim from the source shipped in the app bundle. */
+static char* performance_core_shim(const char* home) {
+    const char* bundle_dir = getenv("METALSHARP_BUNDLE_DIR");
+    char source[PATH_MAX];
+    char* output = join(home, "runtime/shims/libmetalsharp_cpu_topology.dylib");
+    char* shims = join(home, "runtime/shims");
+    snprintf(source, sizeof(source), "%s/../runtime/shim-sources/wine/shims/cpu_topology_interpose.c",
+             bundle_dir ? bundle_dir : "/Applications/MetalSharp.app/Contents/Resources/bundles");
+    if (output && shims && access(output, R_OK) != 0 && access(source, R_OK) == 0 && ensure_directory(shims)) {
+        char* argv[] = {(char*)"/usr/bin/clang",
+                        (char*)"-dynamiclib",
+                        (char*)"-O2",
+                        (char*)"-arch",
+                        (char*)"x86_64",
+                        (char*)"-arch",
+                        (char*)"arm64",
+                        (char*)"-o",
+                        output,
+                        source,
+                        NULL};
+        if (run_fna_tool("/usr/bin/clang", argv) && access(output, R_OK) == 0) {
+            char* sign_argv[] = {(char*)"/usr/bin/codesign", (char*)"--force", (char*)"-s", (char*)"-", output, NULL};
+            (void)run_fna_tool("/usr/bin/codesign", sign_argv);
+        }
+    }
+    free(shims);
+    if (output && access(output, R_OK) == 0)
+        return output;
+    free(output);
+    return NULL;
+}
+
 static char* spawn_direct_game(const char* home, const char* executable, unsigned id, const char* pipeline,
                                pid_t* pid) {
     char* wine = join(home, "runtime/wine/bin/metalsharp-wine");
@@ -5625,6 +5661,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
     /* Settings -> Graphics runtime logs: keep Wine's stderr for every game
      * (errors, DLL loads, exceptions) instead of discarding it. */
     char runtime_log[PATH_MAX] = "";
+    char* cpu_shim = wants_performance_cores_only(id) ? performance_core_shim(home) : NULL;
     if (ms_config_graphics_runtime_logs_enabled(home)) {
         char runtime_log_dir[PATH_MAX];
         snprintf(runtime_log_dir, sizeof(runtime_log_dir), "%s/logs/%s/%u", home, pipeline, id);
@@ -5637,6 +5674,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         close(exec_pipe[0]);
         close(exec_pipe[1]);
         free(wine);
+        free(cpu_shim);
         free(prefix);
         free(cwd);
         return error;
@@ -5668,6 +5706,11 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         ms_steam_apply_launch_preferences(home);
         set_game_opengl_env(id, env_pipeline);
         set_launch_cache_env(home, id, env_pipeline);
+        if (cpu_shim) {
+            /* The wrapper restores DYLD_INSERT_LIBRARIES from this name. */
+            setenv("METALSHARP_DYLD_INSERT_LIBRARIES", cpu_shim, 1);
+            setenv("DYLD_INSERT_LIBRARIES", cpu_shim, 1);
+        }
         if (runtime_log[0]) {
             int log_fd = open(runtime_log, O_WRONLY | O_CREAT | O_APPEND, 0644);
             if (log_fd >= 0) {
@@ -5778,12 +5821,14 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         if (received > 0) {
             (void)waitpid(child, NULL, 0);
             free(wine);
+            free(cpu_shim);
             free(prefix);
             free(cwd);
             return strdup(strerror(error));
         }
     }
     free(wine);
+    free(cpu_shim);
     free(prefix);
     free(cwd);
     *pid = child;
