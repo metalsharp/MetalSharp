@@ -110,7 +110,7 @@ Without their work, this project would not have been possible.
 
 Users who have contributed to MetalSharp in it's active development:
 
-[TimDarcet](https://github.com/TimDarcet) [@erenaspire7](https://github.com/erenaspire7)
+[TimDarcet](https://github.com/TimDarcet) , [erenaspire7](https://github.com/erenaspire7)
 
 ## Star History
 
