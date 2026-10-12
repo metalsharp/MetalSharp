@@ -922,8 +922,9 @@ static void build_launch_args(unsigned id, const char* pipeline, char** argv, si
         append_launch_arg(argv, count, max, "data");
         append_launch_arg(argv, count, max, "--release");
     }
-    if (id == 379720 || id == 275850 || id == 892970 || id == 252490 || id == 570 || id == 548430 || id == 526870 ||
-        id == 1272080)
+    /* DOOM (379720) runs its OpenGL renderer (DOOMx64.exe) on WineMetalGL: its
+     * Vulkan device creation fails on MoltenVK. */
+    if (id == 275850 || id == 892970 || id == 252490 || id == 570 || id == 548430 || id == 526870 || id == 1272080)
         append_launch_arg(argv, count, max, "-vulkan");
     if (id == 949230)
         append_launch_arg(argv, count, max, "-force-vulkan");
@@ -2688,7 +2689,7 @@ static char* preferred_steam_game_executable(const char* game_dir, unsigned id, 
     else if (id == 1145360)
         preferred[count++] = "x64Vk/Hades.exe";
     else if (id == 379720)
-        preferred[count++] = "DOOMx64vk.exe";
+        preferred[count++] = "DOOMx64.exe"; /* OpenGL 4.5 renderer, on WineMetalGL 3.1 */
     else if (id == 782330)
         preferred[count++] = "DOOMEternalx64vk.exe";
     else if (id == 105600)
