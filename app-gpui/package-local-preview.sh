@@ -130,7 +130,7 @@ cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   make -C "$ROOT/app/src-c"
   "$ROOT/tools/package/create-host-runtime.sh"
-  mkdir -p "$CONTENTS/Resources/runtime" "$CONTENTS/Resources/tools" "$CONTENTS/Resources/scripts/tools/native" "$CONTENTS/Resources/bundles" "$CONTENTS/Resources/licenses" "$CONTENTS/Resources/runtime/shim-sources/fna/shims"
+  mkdir -p "$CONTENTS/Resources/runtime" "$CONTENTS/Resources/tools" "$CONTENTS/Resources/scripts/tools/native" "$CONTENTS/Resources/bundles" "$CONTENTS/Resources/licenses" "$CONTENTS/Resources/runtime/shim-sources/fna/shims" "$CONTENTS/Resources/runtime/shim-sources/wine/shims"
   install -m 0755 "$ROOT/app/src-c/build/metalsharp-backend" "$CONTENTS/Resources/runtime/metalsharp-backend"
   cp -R "$ROOT/app/native/host" "$CONTENTS/Resources/runtime/host"
   for tool in zstd unzstd wrestool icotool unar lsar; do
@@ -143,6 +143,7 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   cp -R "$ROOT/LICENSES/." "$CONTENTS/Resources/licenses/"
   install -m 0644 "$ROOT/THIRD_PARTY_LICENSES" "$CONTENTS/Resources/THIRD_PARTY_LICENSES"
   cp -R "$ROOT/src/fna/shims/." "$CONTENTS/Resources/runtime/shim-sources/fna/shims/"
+  cp -R "$ROOT/src/wine/shims/." "$CONTENTS/Resources/runtime/shim-sources/wine/shims/"
   for entry in "$ROOT"/app/native/*; do
     [ -e "$entry" ] || continue
     [ "$(basename "$entry")" = host ] && continue
