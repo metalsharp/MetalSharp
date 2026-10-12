@@ -106,6 +106,12 @@ Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-o
 
 Without their work, this project would not have been possible. 
 
+## Hall Of Fame; 
+
+Users who have contributed to MetalSharp in it's active development:
+
+@TimDarcet @erenaspire7
+
 ## Star History
 
 <a href="https://star-history.com/#metalsharp/MetalSharp&Date">
