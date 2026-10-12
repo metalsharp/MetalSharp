@@ -883,6 +883,11 @@ static char* replace_text(const char* text, const char* needle, const char* repl
 
 bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
     static const char marker[] = "# METALSHARP_ROUTE_ENV_V1";
+    /* SIP strips DYLD_* when a shell script runs, so routes pass the variables under another name. */
+    static const char passthrough[] = "# METALSHARP_DYLD_PASSTHROUGH_V1\n"
+                                      "if [ -n \"${METALSHARP_DYLD_INSERT_LIBRARIES:-}\" ]; then\n"
+                                      "  export DYLD_INSERT_LIBRARIES=\"$METALSHARP_DYLD_INSERT_LIBRARIES\"\n"
+                                      "fi\n";
     static const char old_dll[] = "export WINEDLLPATH=\"$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows\"";
     static const char new_dll[] = "if [ -z \"${METALSHARP_PIPELINE:-}\" ] || [ -z \"${WINEDLLPATH:-}\" ]; then\n"
                                   "  export WINEDLLPATH=\"$MS_LIB/wine/x86_64-windows:$MS_LIB/wine/i386-windows\"\n"
@@ -903,7 +908,9 @@ bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
                                  "elif [ \"$METALSHARP_PIPELINE\" != \"vkd3d\" ]; then\n"
                                  "  unset VK_ICD_FILENAMES\n"
                                  "fi";
-    char *path = NULL, *text = NULL, *patched_dll = NULL, *patched_dyld = NULL, *patched_vk = NULL, *final = NULL;
+    char *path = NULL, *text = NULL, *patched_dll = NULL, *patched_dyld = NULL, *patched_vk = NULL, *routed = NULL,
+         *final = NULL;
+    bool has_route_env;
     struct stat st;
     char temporary[PATH_MAX];
     int fd = -1;
@@ -923,21 +930,32 @@ bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
     text = read_file(path, NULL);
     if (!text)
         goto done;
-    if (strstr(text, marker) || (strstr(text, "METALSHARP_PIPELINE") && strstr(text, "${WINEDLLPATH:-") &&
-                                 strstr(text, "DYLD_FALLBACK_LIBRARY_PATH:+") && strstr(text, "VK_ICD_FILENAMES"))) {
+    has_route_env =
+        strstr(text, marker) || (strstr(text, "METALSHARP_PIPELINE") && strstr(text, "${WINEDLLPATH:-") &&
+                                 strstr(text, "DYLD_FALLBACK_LIBRARY_PATH:+") && strstr(text, "VK_ICD_FILENAMES"));
+    if (has_route_env && strstr(text, "# METALSHARP_DYLD_PASSTHROUGH_V1")) {
         ok = true;
         goto done;
     }
-    patched_dll = replace_text(text, old_dll, new_dll);
-    if (!patched_dll)
+    if (has_route_env) {
+        routed = strdup(text);
+    } else {
+        patched_dll = replace_text(text, old_dll, new_dll);
+        patched_dyld = patched_dll ? replace_text(patched_dll, old_dyld, new_dyld) : NULL;
+        patched_vk = patched_dyld ? replace_text(patched_dyld, old_vk, new_vk) : NULL;
+        routed =
+            patched_vk ? replace_text(patched_vk, "#!/bin/bash\n", "#!/bin/bash\n# METALSHARP_ROUTE_ENV_V1\n") : NULL;
+    }
+    if (!routed)
         goto done;
-    patched_dyld = replace_text(patched_dll, old_dyld, new_dyld);
-    if (!patched_dyld)
-        goto done;
-    patched_vk = replace_text(patched_dyld, old_vk, new_vk);
-    if (!patched_vk)
-        goto done;
-    final = replace_text(patched_vk, "#!/bin/bash\n", "#!/bin/bash\n# METALSHARP_ROUTE_ENV_V1\n");
+    if (strstr(routed, "# METALSHARP_DYLD_PASSTHROUGH_V1")) {
+        final = routed;
+        routed = NULL;
+    } else {
+        char header[sizeof("#!/bin/bash\n") + sizeof(passthrough)];
+        snprintf(header, sizeof(header), "#!/bin/bash\n%s", passthrough);
+        final = replace_text(routed, "#!/bin/bash\n", header);
+    }
     if (!final)
         goto done;
     if (snprintf(temporary, sizeof(temporary), "%s.route-XXXXXX", path) >= (int)sizeof(temporary))
@@ -986,6 +1004,7 @@ done:
     free(patched_dll);
     free(patched_dyld);
     free(patched_vk);
+    free(routed);
     free(final);
     return ok;
 }
