@@ -173,6 +173,21 @@ static void set_json_response(ms_http_response* response, int status, char* body
     response->body_length = body == NULL ? 0 : strlen(body);
     response->owns_body = body != NULL;
 }
+
+/* Record a failed action under the "error" text of its JSON result, so the
+ * issue log names the real cause instead of a fixed guess. */
+static void issue_log_json_error(const char* home, const char* kind, const char* subject, const char* body,
+                                 const char* fallback) {
+    ms_json* parsed = body ? ms_json_parse(body, strlen(body), NULL, 0) : NULL;
+    char* error = NULL;
+    if (!parsed || !ms_json_as_string(ms_json_object_get(parsed, "error"), &error) || !error || !*error) {
+        free(error);
+        error = NULL;
+    }
+    ms_issue_log(home, kind, subject, error ? error : fallback);
+    free(error);
+    ms_json_free(parsed);
+}
 static unsigned char* read_binary(const char* path, size_t* length) {
     struct stat st;
     unsigned char* data;
@@ -2313,7 +2328,8 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         if (status >= 400)
-            ms_issue_log(context->metalsharp_home, "steam-launch", "wine-steam", "MetalSharp Wine not found");
+            issue_log_json_error(context->metalsharp_home, "steam-launch", "wine-steam", body,
+                                 "Wine Steam launch failed");
         set_json_response(response, status, body);
         return true;
     }
