@@ -40,12 +40,11 @@ cat > "$HOST_DIR/manifest.json" <<'JSON'
 {
   "abi": "metalsharp-host-runtime",
   "version": {
-    "major": 1,
+    "major": 2,
     "minor": 0
   },
-  "defaultSteamBridgePort": 18733,
+  "steamBridgeSocket": "$METALSHARP_HOME/run/steam-bridge.sock",
   "env": {
-    "steamBridgePort": "METALSHARP_STEAM_BRIDGE_PORT",
     "monoLib": "METALSHARP_MONO_LIB",
     "monoRoot": "METALSHARP_MONO_ROOT",
     "monoAssemblyDir": "METALSHARP_MONO_ASSEMBLY_DIR",

@@ -15,11 +15,13 @@
 #include "metalsharp_backend/gog.h"
 #include "metalsharp_backend/integration.h"
 #include "metalsharp_backend/json.h"
+#include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/kernel_apc.h"
 #include "metalsharp_backend/kernel_driver.h"
 #include "metalsharp_backend/kernel_extra.h"
 #include "metalsharp_backend/kernel_handles.h"
 #include "metalsharp_backend/kernel_integrity.h"
+#include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/migration.h"
@@ -82,26 +84,12 @@ static char* home_path(void) {
     return path;
 }
 
-static unsigned short bridge_port(void) {
-    const char* value = getenv("METALSHARP_STEAM_BRIDGE_PORT");
-    char* end = NULL;
-    unsigned long parsed;
-    if (value == NULL || value[0] == '\0')
-        return 18733;
-    errno = 0;
-    parsed = strtoul(value, &end, 10);
-    if (errno != 0 || end == value || *end != '\0' || parsed == 0 || parsed > 65535)
-        return 18733;
-    return (unsigned short)parsed;
-}
-
 void ms_backend_context_init(ms_backend_context* context, const char* version) {
     if (context == NULL)
         return;
     memset(context, 0, sizeof(*context));
     context->version = version == NULL ? MS_BACKEND_DEFAULT_VERSION : version;
     context->metalsharp_home = home_path();
-    context->steam_bridge_port = bridge_port();
     context->dev_mode = getenv("METALSHARP_DEV") != NULL && strcmp(getenv("METALSHARP_DEV"), "1") == 0;
 }
 
@@ -133,22 +121,45 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
     return body;
 }
 
-static char* host_abi_json(unsigned short port) {
-    static const char body_template[] =
-        "{\"ok\":true,\"magic\":\"MSAB\",\"version\":{\"major\":1,\"minor\":0},"
-        "\"services\":[\"process\",\"paths\",\"logging\",\"steam\",\"graphics\",\"audio\",\"input\",\"managed_"
-        "runtime\"],"
-        "\"steam_bridge\":{\"default_port\":18733,\"active_port\":%u,\"env\":\"METALSHARP_STEAM_BRIDGE_PORT\"},"
-        "\"managed_runtime_env\":[\"METALSHARP_MONO_LIB\",\"METALSHARP_MONO_ROOT\",\"METALSHARP_MONO_ASSEMBLY_DIR\","
-        "\"METALSHARP_MONO_CONFIG_DIR\"]}";
-    int needed = snprintf(NULL, 0, body_template, (unsigned)port);
-    char* body;
-    if (needed < 0)
-        return NULL;
-    body = (char*)malloc((size_t)needed + 1);
-    if (body != NULL)
-        (void)snprintf(body, (size_t)needed + 1, body_template, (unsigned)port);
-    return body;
+static char* host_abi_json(const char* home) {
+    static const char* const services[] = {"process",  "paths", "logging", "steam",
+                                           "graphics", "audio", "input",   "managed_runtime"};
+    static const char* const managed_env[] = {"METALSHARP_MONO_LIB", "METALSHARP_MONO_ROOT",
+                                              "METALSHARP_MONO_ASSEMBLY_DIR", "METALSHARP_MONO_CONFIG_DIR"};
+    char bridge_socket[128];
+    ms_json_writer w;
+    if (!ms_local_socket_path(home, MS_LOCAL_SOCKET_STEAM_BRIDGE, bridge_socket, sizeof(bridge_socket)))
+        bridge_socket[0] = '\0';
+    ms_json_writer_init(&w);
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "ok");
+    ms_json_writer_bool(&w, true);
+    ms_json_writer_key(&w, "magic");
+    ms_json_writer_string(&w, "MSAB");
+    ms_json_writer_key(&w, "version");
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "major");
+    ms_json_writer_u64(&w, 2);
+    ms_json_writer_key(&w, "minor");
+    ms_json_writer_u64(&w, 0);
+    ms_json_writer_object_end(&w);
+    ms_json_writer_key(&w, "services");
+    ms_json_writer_array_begin(&w);
+    for (size_t i = 0; i < sizeof(services) / sizeof(services[0]); i++)
+        ms_json_writer_string(&w, services[i]);
+    ms_json_writer_array_end(&w);
+    ms_json_writer_key(&w, "steam_bridge");
+    ms_json_writer_object_begin(&w);
+    ms_json_writer_key(&w, "socket");
+    ms_json_writer_string(&w, bridge_socket);
+    ms_json_writer_object_end(&w);
+    ms_json_writer_key(&w, "managed_runtime_env");
+    ms_json_writer_array_begin(&w);
+    for (size_t i = 0; i < sizeof(managed_env) / sizeof(managed_env[0]); i++)
+        ms_json_writer_string(&w, managed_env[i]);
+    ms_json_writer_array_end(&w);
+    ms_json_writer_object_end(&w);
+    return ms_json_writer_take(&w);
 }
 
 static _Thread_local const char* ms_current_request_path;
@@ -324,7 +335,7 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         return handle_grid_art(request, response, context->metalsharp_home);
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/runtime/host-abi") == 0) {
-        body = host_abi_json(context->steam_bridge_port);
+        body = host_abi_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

@@ -6,12 +6,13 @@
 
 /* Owner-only Unix-domain sockets under <METALSHARP_HOME>/run.
  *
- * MetalSharp's local IPC endpoints (backend API) live in one
+ * MetalSharp's local IPC endpoints (backend API, Steam bridge) live in one
  * 0700 directory owned by the current user instead of on fixed TCP ports,
  * which can collide with other software. */
 
 #define MS_LOCAL_SOCKET_DIR          "run"
 #define MS_LOCAL_SOCKET_BACKEND      "backend.sock"
+#define MS_LOCAL_SOCKET_STEAM_BRIDGE "steam-bridge.sock"
 
 /* Create (or tighten) <home>/run as a 0700 directory owned by the caller.
  * Fails when the path is a symlink, not a directory, or owned by someone else. */

@@ -10,10 +10,12 @@
 extern "C" {
 #endif
 
-#define METALSHARP_HOST_ABI_VERSION_MAJOR    1u
-#define METALSHARP_HOST_ABI_VERSION_MINOR    0u
-#define METALSHARP_HOST_ABI_MAGIC            0x4d534142u
-#define METALSHARP_STEAM_BRIDGE_DEFAULT_PORT 18733u
+#define METALSHARP_HOST_ABI_VERSION_MAJOR 2u
+#define METALSHARP_HOST_ABI_VERSION_MINOR 0u
+#define METALSHARP_HOST_ABI_MAGIC         0x4d534142u
+/* The Steam bridge listens on <METALSHARP_HOME>/run/steam-bridge.sock, an
+ * owner-only Unix socket (never a TCP port). */
+#define METALSHARP_STEAM_BRIDGE_SOCKET_NAME  "run/steam-bridge.sock"
 #define METALSHARP_HOST_SERVICE_BIT(service) (1u << (uint32_t)(service))
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -63,8 +65,7 @@ typedef struct MetalSharpHostRuntimePaths {
 
 typedef struct MetalSharpSteamBridgeConfig {
     uint32_t struct_size;
-    const char* host;
-    uint16_t port;
+    const char* socket_path;
     uint32_t appid;
     const char* bottle_id;
 } MetalSharpSteamBridgeConfig;

@@ -587,12 +587,18 @@ integration_log=$(curl --silent --fail --request POST --header 'Content-Type: ap
 printf '%s' "$integration_log" | python3 -c 'import json, sys; v=json.load(sys.stdin); assert v["ok"] and v["log"]["pid"] == 123'
 abi=$(curl --silent --fail --unix-socket "$sock" "http://localhost/runtime/host-abi")
 printf '%s' "$abi" | python3 -c '
-import json, sys
+import json, os, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
 assert v["magic"] == "MSAB"
-assert v["version"] == {"major": 1, "minor": 0}
-assert v["steam_bridge"]["default_port"] == 18733
+assert v["version"] == {"major": 2, "minor": 0}
+assert v["steam_bridge"] == {"socket": os.environ["METALSHARP_HOME"] + "/run/steam-bridge.sock"}
+'
+bridge_status=$(curl --silent --fail --unix-socket "$sock" "http://localhost/steam/bridge-status")
+printf '%s' "$bridge_status" | python3 -c '
+import json, os, sys
+v = json.load(sys.stdin)
+assert v == {"ok": True, "running": False, "socket": os.environ["METALSHARP_HOME"] + "/run/steam-bridge.sock"}, v
 '
 
 status=$(curl --silent --output /dev/null --write-out '%{http_code}' --unix-socket "$sock" "http://localhost/not-a-route")

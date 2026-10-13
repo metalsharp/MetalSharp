@@ -3,6 +3,7 @@
 #include "metalsharp_backend/config.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/steam_actions.h"
 
@@ -1460,18 +1461,27 @@ char* ms_steam_is_running_json(const char* metalsharp_home) {
 }
 
 char* ms_steam_bridge_status_json(const char* metalsharp_home) {
-    const char* port = getenv("METALSHARP_STEAM_BRIDGE_PORT");
+    char socket_path[128];
     ms_json_writer w;
     char* result;
-    (void)metalsharp_home;
+    bool running = false;
+    if (ms_local_socket_path(metalsharp_home, MS_LOCAL_SOCKET_STEAM_BRIDGE, socket_path, sizeof(socket_path))) {
+        int fd = ms_local_socket_connect(socket_path);
+        if (fd >= 0) {
+            running = ms_local_socket_peer_is_owner(fd);
+            close(fd);
+        }
+    } else {
+        socket_path[0] = '\0';
+    }
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
     ms_json_writer_bool(&w, true);
     ms_json_writer_key(&w, "running");
-    ms_json_writer_bool(&w, false);
-    ms_json_writer_key(&w, "port");
-    ms_json_writer_u64(&w, port == NULL ? 18733 : strtoull(port, NULL, 10));
+    ms_json_writer_bool(&w, running);
+    ms_json_writer_key(&w, "socket");
+    ms_json_writer_string(&w, socket_path);
     ms_json_writer_object_end(&w);
     result = ms_json_writer_take(&w);
     return result;

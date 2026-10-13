@@ -8,6 +8,7 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/mtsp.h"
@@ -1278,33 +1279,25 @@ static char* fna_game_executable(const char* game_dir, unsigned id) {
     return find_game_executable(game_dir, 0);
 }
 
-static bool fna_bridge_running(unsigned port) {
-    int fd;
-    struct sockaddr_in address;
+/* The Wine-side bridge listens on <home>/run/steam-bridge.sock, an owner-only
+ * Unix socket; only a listener running as this user counts as the bridge. */
+static bool fna_bridge_running(const char* socket_path) {
     bool running = false;
-    fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = ms_local_socket_connect(socket_path);
     if (fd < 0)
         return false;
-    memset(&address, 0, sizeof(address));
-    address.sin_family = AF_INET;
-    address.sin_port = htons((uint16_t)port);
-    address.sin_addr.s_addr = htonl(0x7f000001U);
-    if (connect(fd, (struct sockaddr*)&address, sizeof(address)) == 0)
-        running = true;
+    running = ms_local_socket_peer_is_owner(fd);
     close(fd);
     return running;
 }
 
 static bool ensure_fna_bridge(const char* home) {
-    char bridge[PATH_MAX], wine[PATH_MAX], prefix[PATH_MAX];
-    unsigned port = 18733;
-    const char* configured = getenv("METALSHARP_STEAM_BRIDGE_PORT");
+    char bridge[PATH_MAX], wine[PATH_MAX], prefix[PATH_MAX], socket_path[128];
     pid_t child;
-    if (configured && *configured)
-        port = (unsigned)strtoul(configured, NULL, 10);
-    if (port < 1 || port > 65535)
-        port = 18733;
-    if (fna_bridge_running(port))
+    if (!ms_local_socket_prepare_dir(home) ||
+        !ms_local_socket_path(home, MS_LOCAL_SOCKET_STEAM_BRIDGE, socket_path, sizeof(socket_path)))
+        return false;
+    if (fna_bridge_running(socket_path))
         return true;
     snprintf(bridge, sizeof(bridge), "%s/runtime/steam-bridge/steambridge.exe", home);
     snprintf(wine, sizeof(wine), "%s/runtime/wine/bin/metalsharp-wine", home);
@@ -1324,17 +1317,14 @@ static bool ensure_fna_bridge(const char* home) {
     if (child < 0)
         return false;
     if (child == 0) {
-        char port_text[16];
-        snprintf(port_text, sizeof(port_text), "%u", port);
         setenv("WINEPREFIX", prefix, 1);
         setenv("METALSHARP_HOME", home, 1);
-        setenv("METALSHARP_STEAM_BRIDGE_PORT", port_text, 1);
         setenv("WINEDEBUG", "-all", 1);
         execl(wine, wine, bridge, (char*)NULL);
         _exit(127);
     }
     for (unsigned i = 0; i < 20; i++) {
-        if (fna_bridge_running(port))
+        if (fna_bridge_running(socket_path))
             return true;
         usleep(250000);
     }
@@ -7482,10 +7472,8 @@ char* ms_steam_misc_json(const char* action, const unsigned char* body, size_t l
     if (!strcmp(action, "stop-targets"))
         return strdup("{\"ok\":true,\"targets\":[]}");
     if (!strcmp(action, "bridge-start")) {
-        const char* value = getenv("METALSHARP_STEAM_BRIDGE_PORT");
         const char* home = getenv("METALSHARP_HOME");
-        char bridge[PATH_MAX], wine[PATH_MAX];
-        unsigned long port = value && *value ? strtoul(value, NULL, 10) : 18733;
+        char bridge[PATH_MAX], wine[PATH_MAX], socket_path[128];
         if (!home || !*home)
             home = ".metalsharp";
         snprintf(bridge, sizeof(bridge), "%s/runtime/steam-bridge/steambridge.exe", home);
@@ -7500,12 +7488,17 @@ char* ms_steam_misc_json(const char* action, const unsigned char* body, size_t l
                 *status = 500;
             return err("MetalSharp Wine not found — run setup first");
         }
+        if (!ms_local_socket_path(home, MS_LOCAL_SOCKET_STEAM_BRIDGE, socket_path, sizeof(socket_path))) {
+            if (status)
+                *status = 500;
+            return err("MetalSharp home path is too long for the Steam bridge socket");
+        }
         ms_json_writer_init(&w);
         ms_json_writer_object_begin(&w);
         ms_json_writer_key(&w, "ok");
         ms_json_writer_bool(&w, true);
-        ms_json_writer_key(&w, "port");
-        ms_json_writer_u64(&w, port >= 1 && port <= 65535 ? port : 18733);
+        ms_json_writer_key(&w, "socket");
+        ms_json_writer_string(&w, socket_path);
         ms_json_writer_object_end(&w);
         return ms_json_writer_take(&w);
     }

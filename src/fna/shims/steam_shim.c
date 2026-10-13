@@ -1,16 +1,18 @@
-#include <arpa/inet.h>
 #include <dlfcn.h>
-#include <netinet/in.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/un.h>
 #include <unistd.h>
 
-#define DEFAULT_BRIDGE_PORT 18733
-#define BRIDGE_PORT_ENV     "METALSHARP_STEAM_BRIDGE_PORT"
+/* The Wine-side bridge listens on <METALSHARP_HOME>/run/steam-bridge.sock, an
+ * owner-only Unix socket, rather than a fixed TCP port that other software
+ * may already be using. */
+#define BRIDGE_SOCKET_NAME "run/steam-bridge.sock"
 
 #define MSG_INIT             1
 #define MSG_SHUTDOWN         2
@@ -38,25 +40,24 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
 static int g_initialized = 0;
 static HSteamPipe g_pipe = 0;
 static HSteamUser g_user = 0;
-static int g_bridge_port = 0;
-
-static int bridge_port(void) {
-    if (g_bridge_port > 0)
-        return g_bridge_port;
-
-    const char* configured = getenv(BRIDGE_PORT_ENV);
-    if (configured && configured[0]) {
-        char* end = NULL;
-        long parsed = strtol(configured, &end, 10);
-        if (end && *end == '\0' && parsed > 0 && parsed <= 65535) {
-            g_bridge_port = (int)parsed;
-            return g_bridge_port;
-        }
-        fprintf(stderr, "[steam_shim] Ignoring invalid %s=%s\n", BRIDGE_PORT_ENV, configured);
+static int bridge_socket_path(struct sockaddr_un* address) {
+    const char* home = getenv("METALSHARP_HOME");
+    const char* user_home = getenv("HOME");
+    int written;
+    memset(address, 0, sizeof(*address));
+    address->sun_family = AF_UNIX;
+    if (home && home[0])
+        written = snprintf(address->sun_path, sizeof(address->sun_path), "%s/%s", home, BRIDGE_SOCKET_NAME);
+    else if (user_home && user_home[0])
+        written =
+            snprintf(address->sun_path, sizeof(address->sun_path), "%s/.metalsharp/%s", user_home, BRIDGE_SOCKET_NAME);
+    else
+        return 0;
+    if (written < 0 || (size_t)written >= sizeof(address->sun_path)) {
+        fprintf(stderr, "[steam_shim] Steam bridge socket path is too long\n");
+        return 0;
     }
-
-    g_bridge_port = DEFAULT_BRIDGE_PORT;
-    return g_bridge_port;
+    return 1;
 }
 
 static int send_all(int s, const void* buf, int len) {
@@ -84,23 +85,28 @@ static int recv_all(int s, void* buf, int len) {
 }
 
 static int bridge_connect(void) {
+    struct sockaddr_un addr;
+    uid_t peer_uid;
+    gid_t peer_gid;
     if (g_sock >= 0)
         return 1;
-    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (!bridge_socket_path(&addr))
+        return 0;
+    int s = socket(AF_UNIX, SOCK_STREAM, 0);
     if (s < 0)
         return 0;
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    int port = bridge_port();
-    addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (connect(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         close(s);
         return 0;
     }
+    /* The bridge always runs as this user. */
+    if (getpeereid(s, &peer_uid, &peer_gid) != 0 || peer_uid != geteuid()) {
+        fprintf(stderr, "[steam_shim] Ignoring Steam bridge owned by another user\n");
+        close(s);
+        return 0;
+    }
     g_sock = s;
-    fprintf(stderr, "[steam_shim] Connected to bridge on port %d\n", port);
+    fprintf(stderr, "[steam_shim] Connected to bridge at %s\n", addr.sun_path);
     return 1;
 }
 

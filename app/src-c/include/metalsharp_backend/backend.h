@@ -14,7 +14,6 @@
 typedef struct {
     const char* version;
     const char* metalsharp_home;
-    unsigned short steam_bridge_port;
     bool dev_mode;
 } ms_backend_context;
 
