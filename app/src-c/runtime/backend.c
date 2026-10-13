@@ -2551,38 +2551,6 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, status, body);
         return true;
     }
-    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/kernel-translation/ipc/start") == 0) {
-        int status = 500;
-        body = ms_kernel_extra_json("ipc-start", request->body, request->body_length, &status);
-        if (body == NULL)
-            return false;
-        set_json_response(response, status, body);
-        return true;
-    }
-    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/kernel-translation/ipc/stop") == 0) {
-        int status = 500;
-        body = ms_kernel_extra_json("ipc-stop", request->body, request->body_length, &status);
-        if (body == NULL)
-            return false;
-        set_json_response(response, status, body);
-        return true;
-    }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/kernel-translation/ipc/status") == 0) {
-        int status = 500;
-        body = ms_kernel_extra_json("ipc-status", request->body, request->body_length, &status);
-        if (body == NULL)
-            return false;
-        set_json_response(response, status, body);
-        return true;
-    }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/kernel-translation/ipc/handles") == 0) {
-        int status = 500;
-        body = ms_kernel_extra_json("ipc-handles", request->body, request->body_length, &status);
-        if (body == NULL)
-            return false;
-        set_json_response(response, status, body);
-        return true;
-    }
     if ((strcmp(request->method, "GET") == 0 || strcmp(request->method, "POST") == 0) &&
         strncmp(request->path, "/kernel-translation/es-live/", 28) == 0) {
         const char* action = strrchr(request->path, '/');

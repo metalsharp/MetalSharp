@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generator": "app-gpui/inventory-backend-routes.py",
   "router": "app/src-c/runtime/backend.c",
-  "router_sha256": "f6e5cc04cd34e7709cd19f59478082b8c73711084f07197cf11ac27b13de9d15",
+  "router_sha256": "feb678da66da90d677944908b7a364fa2109bcfd19c5be7949cb3395eb493478",
   "limitations": [
     "This is a migration discovery inventory, not a full C/Rust parser or a parity report.",
     "Dynamic/prefix routes and unmatched comparisons require manual expansion.",
@@ -1298,50 +1298,6 @@
       "path": "/kernel-translation/integrity/set-cached-signing-level",
       "router_lines": [
         671
-      ],
-      "literal_references": [],
-      "request_contract": "manual-review",
-      "response_contract": "manual-review",
-      "acceptance": "not-verified"
-    },
-    {
-      "method": "GET",
-      "path": "/kernel-translation/ipc/handles",
-      "router_lines": [
-        2578
-      ],
-      "literal_references": [],
-      "request_contract": "manual-review",
-      "response_contract": "manual-review",
-      "acceptance": "not-verified"
-    },
-    {
-      "method": "POST",
-      "path": "/kernel-translation/ipc/start",
-      "router_lines": [
-        2554
-      ],
-      "literal_references": [],
-      "request_contract": "manual-review",
-      "response_contract": "manual-review",
-      "acceptance": "not-verified"
-    },
-    {
-      "method": "GET",
-      "path": "/kernel-translation/ipc/status",
-      "router_lines": [
-        2570
-      ],
-      "literal_references": [],
-      "request_contract": "manual-review",
-      "response_contract": "manual-review",
-      "acceptance": "not-verified"
-    },
-    {
-      "method": "POST",
-      "path": "/kernel-translation/ipc/stop",
-      "router_lines": [
-        2562
       ],
       "literal_references": [],
       "request_contract": "manual-review",
@@ -4336,31 +4292,31 @@
     {
       "path_or_prefix": "/kernel-translation/es-live/",
       "comparison": "strncmp",
-      "router_line": 2587,
+      "router_line": 2555,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/es/",
       "comparison": "strncmp",
-      "router_line": 2601,
+      "router_line": 2569,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/ob/",
       "comparison": "strncmp",
-      "router_line": 2611,
+      "router_line": 2579,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/",
       "comparison": "strncmp",
-      "router_line": 2621,
+      "router_line": 2589,
       "status": "manual-review"
     },
     {
       "path_or_prefix": "/kernel-translation/ipc/",
       "comparison": "strncmp",
-      "router_line": 2622,
+      "router_line": 2590,
       "status": "manual-review"
     }
   ]

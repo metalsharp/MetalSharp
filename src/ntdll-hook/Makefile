@@ -22,7 +22,7 @@ I386_OBJS = $(patsubst src/%.c,$(I386_DIR)/src/%.o,$(SRCS))
 all: $(TARGET) i386
 
 $(TARGET_RAW): $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^ -lws2_32 -lkernel32
+	$(CC) $(LDFLAGS) -o $@ $^ -lkernel32
 
 $(TARGET): $(TARGET_RAW)
 	cp $< $@
@@ -32,12 +32,12 @@ src/%.o: src/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # 32-bit build: hosts the MetalFX live-toggle poller for 32-bit games.
-# No Nt*/IPC hooks (those are x64-only); DllMain runs the metalfx poller.
+# Same source as x64: DllMain runs the metalfx poller.
 i386: $(I386_TARGET)
 
 $(I386_TARGET_RAW): $(I386_OBJS)
 	@mkdir -p $(I386_DIR)
-	$(CC_I386) $(LDFLAGS_I386) -o $@ $^ -lws2_32 -lkernel32
+	$(CC_I386) $(LDFLAGS_I386) -o $@ $^ -lkernel32
 
 $(I386_TARGET): $(I386_TARGET_RAW)
 	cp $< $@

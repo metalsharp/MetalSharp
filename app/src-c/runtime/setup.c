@@ -6,6 +6,7 @@
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -879,6 +880,67 @@ static char* replace_text(const char* text, const char* needle, const char* repl
     memcpy(result + prefix, replacement, new_length);
     memcpy(result + prefix + new_length, match + old_length, suffix + 1);
     return result;
+}
+
+static bool bytes_contain(const char* data, size_t length, const char* needle) {
+    size_t needle_length = strlen(needle);
+    for (size_t i = 0; needle_length <= length && i <= length - needle_length; ++i)
+        if (memcmp(data + i, needle, needle_length) == 0)
+            return true;
+    return false;
+}
+
+/* Builds of metalsharp_ntdll_hook.dll before the NT IPC client was removed log
+ * this string from DllMain. */
+static bool hook_has_nt_ipc_client(const char* path) {
+    size_t length = 0;
+    char* data = read_file(path, &length);
+    bool found = data != NULL && bytes_contain(data, length, "[metalsharp_ntdll_hook] IPC connect");
+    free(data);
+    return found;
+}
+
+/* Prefixes seeded by the former Rust backend carry their own copy of the hook
+ * in system32/syswow64, registered through AppInit_DLLs, so every Wine process
+ * loads it. Those x64 copies still connect to the retired NT IPC bridge on a
+ * fixed loopback port (19384) at startup. Swap them for the bundled hook
+ * (MetalFX poller only), or delete them when no IPC-free build is bundled. */
+static void refresh_prefix_hook(const char* prefix, const char* windows_dir, const char* bundled) {
+    char legacy[PATH_MAX], staged[PATH_MAX];
+    struct stat info;
+    snprintf(legacy, sizeof(legacy), "%s/drive_c/windows/%s/metalsharp_ntdll_hook.dll", prefix, windows_dir);
+    if (lstat(legacy, &info) != 0 || !S_ISREG(info.st_mode) || !hook_has_nt_ipc_client(legacy))
+        return;
+    snprintf(staged, sizeof(staged), "%s.metalsharp-new", legacy);
+    if (file_nonempty(bundled) && !hook_has_nt_ipc_client(bundled) && copy_file_path(bundled, staged) &&
+        rename(staged, legacy) == 0)
+        return;
+    (void)unlink(staged);
+    (void)unlink(legacy);
+}
+
+void ms_setup_refresh_legacy_ntdll_hooks(const char* metalsharp_home) {
+    char x64[PATH_MAX], i386[PATH_MAX];
+    DIR* directory;
+    struct dirent* entry;
+    if (metalsharp_home == NULL || (directory = opendir(metalsharp_home)) == NULL)
+        return;
+    snprintf(x64, sizeof(x64), "%s/runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll",
+             metalsharp_home);
+    snprintf(i386, sizeof(i386), "%s/runtime/wine/lib/metalsharp/i386-windows/metalsharp_ntdll_hook.dll",
+             metalsharp_home);
+    while ((entry = readdir(directory)) != NULL) {
+        char prefix[PATH_MAX];
+        struct stat info;
+        if (strncmp(entry->d_name, "prefix-", 7) != 0)
+            continue;
+        snprintf(prefix, sizeof(prefix), "%s/%s", metalsharp_home, entry->d_name);
+        if (lstat(prefix, &info) != 0 || !S_ISDIR(info.st_mode))
+            continue;
+        refresh_prefix_hook(prefix, "system32", x64);
+        refresh_prefix_hook(prefix, "syswow64", i386);
+    }
+    closedir(directory);
 }
 
 bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home) {
