@@ -17,6 +17,9 @@ void ms_steam_cancel_background_tasks(void);
 /* Apply registered graphics and global launch preferences to a child process. */
 void ms_steam_apply_graphics_route(const char* home, const char* pipeline);
 void ms_steam_apply_launch_preferences(const char* home);
+/* True when the user.reg `section` (as written there, e.g. `Software\\Wine\\Mac Driver`)
+ * exists in `text` and holds every line of `values`. */
+bool ms_steam_user_reg_section_has(const char* text, const char* section, const char* const* values, size_t count);
 /* Apply configured controller shims without overwriting unowned game DLLs. */
 void ms_steam_deploy_controller_input_shims(const char* home, const char* game_dir);
 /* Return the app-managed Wine shim that opens requested Wine virtual desktops. */
