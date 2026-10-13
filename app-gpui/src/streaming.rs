@@ -86,9 +86,8 @@ mod tests {
     use super::*;
     fn fixture(reply: serde_json::Value) -> (BackendClient, std::thread::JoinHandle<String>) {
         use std::io::{Read, Write};
-        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let client = BackendClient::for_port(socket.local_addr().unwrap().port())
-            .unwrap()
+        let (socket, path) = crate::unix_transport::test_listener();
+        let client = BackendClient::for_socket(&path)
             .with_client_token("a".repeat(64))
             .unwrap();
         let handle = std::thread::spawn(move || {
@@ -162,9 +161,9 @@ mod tests {
     }
     #[test]
     fn invalid_pin_is_rejected_before_transport() {
-        let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let (socket, path) = crate::unix_transport::test_listener();
         socket.set_nonblocking(true).unwrap();
-        let client = BackendClient::for_port(socket.local_addr().unwrap().port()).unwrap();
+        let client = BackendClient::for_socket(&path);
         assert!(matches!(
             client.streaming_action(StreamingAction::Pair("123".into())),
             Err(BackendError::InvalidInput)

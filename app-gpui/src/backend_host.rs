@@ -1,9 +1,9 @@
 //! Own only the C-backend child launched by this application. Never adopt/kill
-//! a listener by port, version or process name. Default application mode is offline.
+//! a listener by socket, version or process name. Default application mode is offline.
 use crate::backend::BackendClient;
 use anyhow::{Context, Result, bail};
 use std::{
-    net::TcpListener,
+    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     thread,
@@ -12,7 +12,6 @@ use std::{
 
 #[derive(Clone, Debug)]
 pub struct HostConfig {
-    pub port: u16,
     pub home: PathBuf,
     pub binary: PathBuf,
     pub resources: PathBuf,
@@ -20,19 +19,6 @@ pub struct HostConfig {
 }
 impl HostConfig {
     pub fn from_environment(validation: bool) -> Result<Self> {
-        let port = if validation {
-            std::env::var("METALSHARP_GPUI_PORT")
-                .ok()
-                .map(|v| v.parse())
-                .transpose()
-                .context("Invalid GPUI validation port")?
-                .unwrap_or(9276)
-        } else {
-            9274
-        };
-        if port == 0 || (validation && port == 9274) {
-            bail!("validation must use a non-production, nonzero port");
-        }
         let user_home = PathBuf::from(std::env::var_os("HOME").context("HOME unavailable")?);
         let home = if validation {
             std::env::var_os("METALSHARP_GPUI_HOME")
@@ -44,6 +30,7 @@ impl HostConfig {
         if validation {
             validate_home(&home, &user_home)?;
         }
+        check_socket_path(&home)?;
         let executable = std::env::current_exe()?;
         let packaged = executable
             .parent()
@@ -66,7 +53,6 @@ impl HostConfig {
             bail!("Build/package the C backend before enabling connected mode");
         }
         Ok(Self {
-            port,
             home,
             binary: binary
                 .canonicalize()
@@ -75,6 +61,22 @@ impl HostConfig {
             validation,
         })
     }
+    /// The backend serves its API only on this owner-only Unix socket.
+    pub fn socket(&self) -> PathBuf {
+        backend_socket(&self.home)
+    }
+}
+
+fn backend_socket(home: &Path) -> PathBuf {
+    home.join("run/backend.sock")
+}
+
+/// `sockaddr_un.sun_path` holds 104 bytes on macOS, including the terminator.
+fn check_socket_path(home: &Path) -> Result<()> {
+    if backend_socket(home).as_os_str().len() >= 104 {
+        bail!("MetalSharp home path is too long for the backend socket");
+    }
+    Ok(())
 }
 
 pub struct BackendHost {
@@ -83,39 +85,33 @@ pub struct BackendHost {
     binary_name: String,
 }
 
-/// PIDs of `metalsharp-backend` processes listening on `port` (Electron's
+fn socket_in_use(socket: &Path) -> bool {
+    UnixStream::connect(socket).is_ok()
+}
+
+/// PID of a `metalsharp-backend` answering on `socket` (Electron's
 /// `getListeningBackendPid`): never a foreign listener.
-fn listening_backend_pids(port: u16) -> Vec<libc::pid_t> {
-    let Ok(output) = Command::new("/usr/sbin/lsof")
-        .args(["-nP", &format!("-tiTCP:{port}"), "-sTCP:LISTEN"])
-        .stderr(Stdio::null())
+fn listening_backend_pid(socket: &Path) -> Option<libc::pid_t> {
+    let status = BackendClient::for_socket(socket)
+        .request("GET", "/status", None, Duration::from_secs(2))
+        .ok()?;
+    let pid = libc::pid_t::try_from(status.get("pid")?.as_u64()?).ok()?;
+    let name = Command::new("/bin/ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
         .output()
-    else {
-        return Vec::new();
-    };
-    String::from_utf8_lossy(&output.stdout)
-        .split_whitespace()
-        .filter_map(|pid| pid.parse::<libc::pid_t>().ok())
-        .filter(|pid| *pid > 0)
-        .filter(|pid| {
-            Command::new("/bin/ps")
-                .args(["-o", "comm=", "-p", &pid.to_string()])
-                .output()
-                .map(|out| {
-                    String::from_utf8_lossy(&out.stdout)
-                        .trim()
-                        .ends_with("metalsharp-backend")
-                })
-                .unwrap_or(false)
-        })
-        .collect()
+        .ok()?;
+    (pid > 0
+        && String::from_utf8_lossy(&name.stdout)
+            .trim()
+            .ends_with("metalsharp-backend"))
+    .then_some(pid)
 }
 
 /// Production launches own a freshly spawned packaged backend, exactly like
 /// Electron's BackendBridge.shouldRestart(): an orphan/older backend on the
-/// production port is terminated (SIGTERM, then SIGKILL after 3 s).
-fn terminate_stale_production_backend(port: u16) {
-    for pid in listening_backend_pids(port) {
+/// production socket is terminated (SIGTERM, then SIGKILL after 3 s).
+fn terminate_stale_production_backend(socket: &Path) {
+    if let Some(pid) = listening_backend_pid(socket) {
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
@@ -128,24 +124,22 @@ fn terminate_stale_production_backend(port: u16) {
         }
     }
     let deadline = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < deadline && TcpListener::bind(("127.0.0.1", port)).is_err() {
+    while Instant::now() < deadline && socket_in_use(socket) {
         thread::sleep(Duration::from_millis(150));
     }
 }
 
 impl BackendHost {
     pub fn start(config: &HostConfig) -> Result<Self> {
-        if config.port == 0 {
-            bail!("Invalid backend port");
-        }
+        let socket = config.socket();
         if !config.validation {
-            terminate_stale_production_backend(config.port);
+            terminate_stale_production_backend(&socket);
         }
-        let reservation = TcpListener::bind(("127.0.0.1", config.port)).context(
-            "Backend port is already occupied; no foreign process will be adopted or killed",
-        )?;
+        if socket_in_use(&socket) {
+            bail!("Backend socket is already in use; no foreign process will be adopted or killed");
+        }
         // Production matches Electron: no session token, because the updater
-        // script and other local helpers query :9274/status unauthenticated.
+        // script and other local helpers query /status unauthenticated.
         let token = if config.validation {
             let mut entropy = [0_u8; 32];
             if unsafe { libc::getentropy(entropy.as_mut_ptr().cast(), entropy.len()) } != 0 {
@@ -182,7 +176,6 @@ impl BackendHost {
         }
         command
             .env("METALSHARP_HOME", &config.home)
-            .env("METALSHARP_PORT", config.port.to_string())
             .env("METALSHARP_BUNDLE_DIR", config.resources.join("bundles"))
             .env("METALSHARP_HOMEBREW_INSTALLER", installer)
             .env(
@@ -218,13 +211,12 @@ impl BackendHost {
                 command.env(&key, path);
             }
         }
-        drop(reservation);
         let child = command
             .spawn()
             .context("Could not spawn packaged C backend")?;
         let client = match token {
-            Some(token) => BackendClient::for_port(config.port)?.with_client_token(token)?,
-            None => BackendClient::for_port(config.port)?,
+            Some(token) => BackendClient::for_socket(&socket).with_client_token(token)?,
+            None => BackendClient::for_socket(&socket),
         };
         // Construct RAII guard immediately, so ALL startup failures reap the child.
         let binary_name = config
@@ -246,7 +238,7 @@ impl BackendHost {
                 .client
                 .request("GET", "/status", None, Duration::from_millis(500));
             if let Ok(reply) = reply {
-                // Port reservation has a TOCTOU window; a healthy stranger must not
+                // The in-use check has a TOCTOU window; a healthy stranger must not
                 // satisfy readiness. Verify child pid and exact data-home identity.
                 if reply.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
                     && reply.get("pid").and_then(serde_json::Value::as_u64)
@@ -397,14 +389,10 @@ mod tests {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let binary = repo.join("app/src-c/build/metalsharp-backend");
         assert!(binary.is_file(), "build the C backend first");
-        let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = reservation.local_addr().unwrap().port();
-        drop(reservation);
         let home =
             std::env::temp_dir().join(format!("metalsharp-gpui-c-smoke-{}", std::process::id()));
         assert!(!home.exists(), "fixture directory must be fresh");
         let config = HostConfig {
-            port,
             home: home.clone(),
             binary,
             resources: repo.join("app"),
@@ -415,7 +403,7 @@ mod tests {
         assert_eq!(client.status().unwrap().pid, Some(host.child.id()));
         let setup = client.setup_state().unwrap();
         assert!(!setup.completed);
-        let unauthorized = BackendClient::for_port(port).unwrap();
+        let unauthorized = BackendClient::for_socket(&config.socket());
         assert!(matches!(
             unauthorized.status(),
             Err(crate::backend::BackendError::Http(401))
@@ -516,13 +504,15 @@ mod tests {
             crate::configuration::ControllerInput::XInput
         );
         // Simulate a crash, then prove RAII cleanup cannot kill/adopt a replacement
-        // listener that happens to occupy the old port.
+        // listener that happens to occupy the old socket.
         restarted.child.kill().unwrap();
         restarted.child.wait().unwrap();
         assert!(!restarted.is_running());
-        let foreign = TcpListener::bind(("127.0.0.1", port)).unwrap();
+        std::fs::remove_file(config.socket()).unwrap();
+        let foreign = std::os::unix::net::UnixListener::bind(config.socket()).unwrap();
         drop(restarted);
-        assert!(foreign.local_addr().is_ok());
+        assert!(socket_in_use(&config.socket()));
+        drop(foreign);
         std::fs::remove_dir_all(home).unwrap();
     }
     #[test]
@@ -531,13 +521,9 @@ mod tests {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let binary = repo.join("app/src-c/build/metalsharp-backend");
         assert!(binary.is_file(), "build the C backend first");
-        let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = reservation.local_addr().unwrap().port();
-        drop(reservation);
         let home =
             std::env::temp_dir().join(format!("metalsharp-gpui-prod-smoke-{}", std::process::id()));
         let config = HostConfig {
-            port,
             home: home.clone(),
             binary,
             resources: repo.join("app"),
@@ -547,7 +533,7 @@ mod tests {
         let first = BackendHost::start(&config).unwrap();
         let first_pid = first.child.id();
         // Electron-style: updater scripts can read /status without a token.
-        let anonymous = BackendClient::for_port(port).unwrap();
+        let anonymous = BackendClient::for_socket(&config.socket());
         assert_eq!(anonymous.status().unwrap().pid, Some(first_pid));
         // Leak the first host (simulating an orphan); a new launch must replace it.
         std::mem::forget(first);
@@ -563,16 +549,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(home);
     }
     #[test]
-    fn occupied_port_is_never_adopted() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    fn occupied_socket_is_never_adopted() {
+        let home = std::env::temp_dir().join(format!("ms-gpui-occupied-{}", std::process::id()));
+        std::fs::create_dir_all(home.join("run")).unwrap();
+        let socket = backend_socket(&home);
+        let _ = std::fs::remove_file(&socket);
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
         let config = HostConfig {
-            port: listener.local_addr().unwrap().port(),
-            home: PathBuf::from("/should-not-create"),
+            home: home.clone(),
             binary: PathBuf::from("/missing"),
             resources: PathBuf::from("/missing"),
             validation: true,
         };
         assert!(BackendHost::start(&config).is_err());
-        assert!(listener.local_addr().is_ok());
+        assert!(listener.local_addr().is_ok() && socket_in_use(&socket));
+        drop(listener);
+        std::fs::remove_dir_all(home).unwrap();
+    }
+    #[test]
+    fn overlong_home_is_rejected_before_spawn() {
+        assert!(check_socket_path(Path::new("/Users/fixture/.metalsharp")).is_ok());
+        assert!(check_socket_path(&Path::new("/").join("a".repeat(100))).is_err());
     }
 }

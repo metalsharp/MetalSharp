@@ -228,7 +228,7 @@ fn ui_state_path(home: &std::path::Path) -> std::path::PathBuf {
 impl MetalSharpApp {
     // ───────────────────────────── boot ─────────────────────────────
 
-    /// Production launch: own backend on :9274 with `~/.metalsharp`.
+    /// Production launch: own backend on `~/.metalsharp/run/backend.sock`.
     pub fn new_live(
         config: crate::backend_host::HostConfig,
         window: &mut Window,

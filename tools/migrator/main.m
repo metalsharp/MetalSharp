@@ -1,5 +1,8 @@
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 static const CGFloat kBgR = 0.106f;
 static const CGFloat kBgG = 0.157f;
@@ -88,24 +91,48 @@ static NSTimeInterval gStartTime = 0;
 }
 @end
 
-static NSDictionary *fetchJSON(NSString *urlString, NSString *method) {
-    NSURL *url = [NSURL URLWithString:urlString];
-    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
-    req.HTTPMethod = method ?: @"GET";
-    req.timeoutInterval = 5.0;
+// The backend serves HTTP only on its owner-only Unix socket.
+static NSDictionary *fetchJSON(NSString *path, NSString *method) {
+    NSString *socketPath = [NSHomeDirectory() stringByAppendingPathComponent:@".metalsharp/run/backend.sock"];
+    struct sockaddr_un address = {0};
+    const char *socketPathC = socketPath.fileSystemRepresentation;
+    if (strlen(socketPathC) >= sizeof(address.sun_path)) return nil;
+    address.sun_family = AF_UNIX;
+    strlcpy(address.sun_path, socketPathC, sizeof(address.sun_path));
 
-    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-    __block NSDictionary *result = nil;
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return nil;
+    struct timeval timeout = {5, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    int noSigpipe = 1;
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, sizeof(noSigpipe));
+    if (connect(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
+        close(fd);
+        return nil;
+    }
 
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (data && !error) {
-            result = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        }
-        dispatch_semaphore_signal(sem);
-    }];
-    [task resume];
-    dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
-    return result;
+    NSString *request = [NSString stringWithFormat:@"%@ %@ HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n"
+                                                   @"Connection: close\r\n\r\n",
+                                                   method ?: @"GET", path];
+    NSData *requestData = [request dataUsingEncoding:NSUTF8StringEncoding];
+    if (send(fd, requestData.bytes, requestData.length, 0) != (ssize_t)requestData.length) {
+        close(fd);
+        return nil;
+    }
+    NSMutableData *response = [NSMutableData data];
+    char buffer[8192];
+    ssize_t count;
+    while ((count = recv(fd, buffer, sizeof(buffer), 0)) > 0) [response appendBytes:buffer length:(NSUInteger)count];
+    close(fd);
+
+    NSData *separator = [@"\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding];
+    NSRange headerEnd = [response rangeOfData:separator options:0 range:NSMakeRange(0, response.length)];
+    if (headerEnd.location == NSNotFound) return nil;
+    NSUInteger bodyStart = NSMaxRange(headerEnd);
+    NSData *body = [response subdataWithRange:NSMakeRange(bodyStart, response.length - bodyStart)];
+    id json = [NSJSONSerialization JSONObjectWithData:body options:0 error:nil];
+    return [json isKindOfClass:[NSDictionary class]] ? json : nil;
 }
 
 static void relaunchApp() {
@@ -119,7 +146,7 @@ static void relaunchApp() {
 }
 
 static void pollProgress() {
-    NSDictionary *progress = fetchJSON(@"http://127.0.0.1:9274/update/migrate/progress", @"GET");
+    NSDictionary *progress = fetchJSON(@"/update/migrate/progress", @"GET");
     if (!progress) return;
 
     NSString *status = progress[@"status"] ?: @"";
@@ -224,7 +251,7 @@ static void pollProgress() {
     [contentView setNeedsDisplay:YES];
     [[NSRunLoop currentRunLoop] addTimer:[NSTimer scheduledTimerWithTimeInterval:0.05 target:contentView selector:@selector(setNeedsDisplay:) userInfo:nil repeats:YES] forMode:NSDefaultRunLoopMode];
 
-    fetchJSON(@"http://127.0.0.1:9274/update/migrate/start", @"POST");
+    fetchJSON(@"/update/migrate/start", @"POST");
 
     gPollTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(pollTick) userInfo:nil repeats:YES];
     [[NSRunLoop currentRunLoop] addTimer:gPollTimer forMode:NSDefaultRunLoopMode];

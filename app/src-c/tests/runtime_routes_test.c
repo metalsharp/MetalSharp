@@ -387,14 +387,14 @@ int main(int argc, char** argv) {
     assert(setenv("DYLD_FALLBACK_LIBRARY_PATH", "/tmp/foreign-wine/lib", 1) == 0);
     assert(setenv("SteamAppId", "999", 1) == 0);
     assert(setenv("GRAPHICS_BACKEND", "foreign", 1) == 0);
-    assert(setenv("METALSHARP_PORT", "9123", 1) == 0);
+    assert(setenv("METALSHARP_TEST_SENTINEL", "9123", 1) == 0);
     sanitize_inherited_runtime_environment();
     assert(getenv("WINEPREFIX") == NULL && getenv("WINEARCH") == NULL);
     assert(getenv("PROTON_LOG") == NULL && getenv("STEAM_COMPAT_DATA_PATH") == NULL);
     assert(getenv("DXVK_HUD") == NULL && getenv("VK_ICD_FILENAMES") == NULL);
     assert(getenv("DYLD_FALLBACK_LIBRARY_PATH") == NULL && getenv("SteamAppId") == NULL);
     assert(getenv("GRAPHICS_BACKEND") == NULL);
-    assert(getenv("METALSHARP_PORT") && !strcmp(getenv("METALSHARP_PORT"), "9123"));
+    assert(getenv("METALSHARP_TEST_SENTINEL") && !strcmp(getenv("METALSHARP_TEST_SENTINEL"), "9123"));
     assert(valid_pipeline("d3dmetal"));
     assert(valid_pipeline("dxmt"));
     assert(valid_pipeline("dxmt_32"));
@@ -968,7 +968,7 @@ int main(int argc, char** argv) {
         free(response);
         free(sharp_home);
     }
-    unsetenv("METALSHARP_PORT");
+    unsetenv("METALSHARP_TEST_SENTINEL");
 #ifdef __APPLE__
     unsetenv("ROSETTA_ADVERTISE_AVX");
     set_rosetta_avx_env();

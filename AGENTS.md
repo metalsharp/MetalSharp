@@ -12,7 +12,7 @@ MetalSharp is a native macOS app (Rust/GPUI, in `app-gpui/`) that runs Windows g
 
 ```text
 app/
-├── src-c/                      C HTTP backend (127.0.0.1:9274)
+├── src-c/                      C HTTP backend (~/.metalsharp/run/backend.sock)
 │   ├── include/                Backend public headers
 │   ├── runtime/                Routes, launch/runtime orchestration, providers, setup, migration
 │   ├── tests/                  C unit, transaction, and HTTP smoke tests
@@ -34,7 +34,7 @@ docs/                           Architecture, runtime, emulator, and compatibili
 CMakeLists.txt                  Native engine build
 ```
 
-The C backend is the only backend. The GPUI app's packaging builds it from `app/src-c` and packages `app/src-c/build/metalsharp-backend` as `Contents/Resources/runtime/metalsharp-backend`; the app supervises it on port 9274.
+The C backend is the only backend. The GPUI app's packaging builds it from `app/src-c` and packages `app/src-c/build/metalsharp-backend` as `Contents/Resources/runtime/metalsharp-backend`; the app supervises it on `~/.metalsharp/run/backend.sock`.
 
 ## Runtime and Routing
 
@@ -50,11 +50,12 @@ Important runtime paths:
 - Ubisoft Connect prefix: `~/.metalsharp/prefix-ubisoft/`
 - Bottles: `~/.metalsharp/bottles/<bottle_id>/`
 - Logs: `~/.metalsharp/logs/`
+- IPC sockets: `~/.metalsharp/run/` (`0700`, owner-only Unix sockets)
 - Shader cache: `~/.metalsharp/shader-cache/<pipeline>/<appid>/`
 
 ## Backend API
 
-The backend listens on `127.0.0.1:9274`; `METALSHARP_PORT` is validation-only. The router is `app/src-c/runtime/backend.c`. Domain implementations live beside it, including `steam_actions.c`, `bottles.c`, `setup.c`, `migration.c`, `epic.c`, `gog.c`, `gamejolt.c`, `pcsx2.c`, `rpcs3.c`, `shadps4.c`, and `sharpemu.c`.
+The backend serves HTTP only on the owner-only Unix socket `$METALSHARP_HOME/run/backend.sock` (no TCP port); query it with `curl --unix-socket`. The router is `app/src-c/runtime/backend.c`. Domain implementations live beside it, including `steam_actions.c`, `bottles.c`, `setup.c`, `migration.c`, `epic.c`, `gog.c`, `gamejolt.c`, `pcsx2.c`, `rpcs3.c`, `shadps4.c`, and `sharpemu.c`.
 
 Representative endpoints:
 
@@ -127,7 +128,7 @@ Use `tools/release/set-version.sh X.Y.Z`.
 ## Required Practices
 
 - The packaged C backend is authoritative.
-- Use port 9274 for normal operation; temporary ports are validation-only.
+- The backend has no TCP listener; validation isolates it with a temporary `METALSHARP_HOME`.
 - Package and atomically install backend/frontend changes before final validation.
 - Do not preview the GPUI app against a temporary `METALSHARP_HOME` except with `--connected-validation`.
 - Preserve firmware, saves, configuration, profiles, caches, and external games during emulator updates.

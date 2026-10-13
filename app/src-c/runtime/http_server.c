@@ -6,11 +6,10 @@
 #endif
 
 #include "metalsharp_backend/http_server.h"
+#include "metalsharp_backend/local_socket.h"
 
-#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,8 +92,9 @@ int ms_http_take_client_token(char token[65]) {
 }
 
 /* The backend's only clients are the native app and local helper scripts
- * (GET /status); none of them is a browser. Requests that look like they come
- * from one are rejected before they reach a handler:
+ * (GET /status); none of them is a browser, and a browser cannot open the Unix
+ * socket. As defence in depth, requests that look like they come from one are
+ * still rejected before they reach a handler:
  *  - any Origin header (browsers send one on cross-origin requests and on
  *    form/fetch POSTs; the native client and curl send none), and
  *  - a Host other than loopback. */
@@ -364,49 +364,14 @@ static void send_response(int fd, const ms_http_response* response) {
     }
 }
 
-int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler, void* context) {
-    return ms_http_serve_authenticated(port, stop_flag, handler, context, NULL);
-}
-
-int ms_http_serve_authenticated(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler,
-                                void* context, const char* token) {
-    int server_fd;
-    if (token != NULL && strlen(token) != 64) {
-        errno = EINVAL;
-        return -1;
-    }
-    int reuse = 1;
-    struct sockaddr_in address;
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0)
-        return -1;
-    /* Backend children (Wine, curl, installers) are forked from request
-     * handlers. Never let them inherit the listener, otherwise the port can
-     * remain occupied after the backend exits and a later app launch cannot
-     * restart the backend. */
-    if (fcntl(server_fd, F_SETFD, FD_CLOEXEC) < 0) {
-        close(server_fd);
-        return -1;
-    }
-    (void)setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    memset(&address, 0, sizeof(address));
-    address.sin_family = AF_INET;
-    if (inet_pton(AF_INET, "127.0.0.1", &address.sin_addr) != 1) {
-        close(server_fd);
-        return -1;
-    }
-    address.sin_port = htons(port);
-    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0 || listen(server_fd, 16) < 0) {
-        close(server_fd);
-        return -1;
-    }
+/* Serve requests on a listening socket until stop_flag becomes non-zero. */
+static int serve_listener(int server_fd, volatile sig_atomic_t* stop_flag, ms_http_handler handler, void* context,
+                          const char* token) {
     /* A timeout-free blocking accept is not reliably interrupted by signal()
      * on every supported macOS libc configuration. Polling the listening fd
      * keeps SIGTERM deterministic without a signal-handler socket write. */
-    if (fcntl(server_fd, F_SETFL, O_NONBLOCK) < 0) {
-        close(server_fd);
+    if (fcntl(server_fd, F_SETFL, O_NONBLOCK) < 0)
         return -1;
-    }
     while (stop_flag == NULL || !*stop_flag) {
         int client_fd = accept(server_fd, NULL, NULL);
         if (client_fd < 0) {
@@ -417,10 +382,15 @@ int ms_http_serve_authenticated(unsigned short port, volatile sig_atomic_t* stop
                 (void)nanosleep(&delay, NULL);
                 continue;
             }
-            close(server_fd);
             return -1;
         }
         if (fcntl(client_fd, F_SETFD, FD_CLOEXEC) < 0) {
+            close(client_fd);
+            continue;
+        }
+        /* The socket directory is 0700, but verify the peer as well: only
+         * processes running as this user may drive the backend. */
+        if (!ms_local_socket_peer_is_owner(client_fd)) {
             close(client_fd);
             continue;
         }
@@ -461,6 +431,20 @@ int ms_http_serve_authenticated(unsigned short port, volatile sig_atomic_t* stop
         }
         close(client_fd);
     }
-    close(server_fd);
     return 0;
+}
+
+int ms_http_serve_unix(const char* socket_path, volatile sig_atomic_t* stop_flag, ms_http_handler handler,
+                       void* context, const char* token) {
+    int server_fd, result;
+    if (token != NULL && strlen(token) != 64) {
+        errno = EINVAL;
+        return -1;
+    }
+    server_fd = ms_local_socket_listen(socket_path, 16);
+    if (server_fd < 0)
+        return -1;
+    result = serve_listener(server_fd, stop_flag, handler, context, token);
+    ms_local_socket_close(socket_path, server_fd);
+    return result;
 }

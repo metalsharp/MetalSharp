@@ -67,10 +67,10 @@ cat > "$STAGE/READ-ME-GPUI-TEST.txt" <<EOF
 MetalSharp GPUI $VERSION — local connected test build
 
 This is the GPUI application and bundled C backend/runtime assets, not the synthetic UI preview.
-It behaves exactly like the production MetalSharp app: it starts the backend on port 9274 with
-~/.metalsharp, so the runtime installs to ~/.metalsharp/runtime and Steam to
+It behaves exactly like the production MetalSharp app: it starts the backend on
+~/.metalsharp/run/backend.sock, so the runtime installs to ~/.metalsharp/runtime and Steam to
 ~/.metalsharp/prefix-steam. Quit any other MetalSharp app before launching it; only one
-backend can own port 9274. This local ad-hoc-signed build is not notarized or for distribution.
+backend can own that socket. This local ad-hoc-signed build is not notarized or for distribution.
 EOF
 
 hdiutil create \

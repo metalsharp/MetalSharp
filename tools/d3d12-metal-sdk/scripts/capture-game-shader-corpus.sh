@@ -7,7 +7,8 @@ APPID="1962700"
 LAUNCH_METHOD="dxmt_metal12"
 SECONDS_TO_RUN="20"
 RESULTS_DIR="$SDK_DIR/results"
-BACKEND_URL="${METALSHARP_BACKEND_URL:-http://127.0.0.1:9274}"
+BACKEND_SOCKET="${METALSHARP_BACKEND_SOCKET:-${METALSHARP_HOME:-$HOME/.metalsharp}/run/backend.sock}"
+BACKEND_URL="http://localhost"
 GAME_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/Subnautica2/Binaries/Win64"
 CORPUS_DIR="/Volumes/AverySSD/SteamLibrary/steamapps/common/Subnautica2/.metalsharp-cache/shader-cache/m12/1962700"
 START_STEAM=0
@@ -22,7 +23,7 @@ Options:
   --appid ID              Steam appid. Defaults to 1962700.
   --launch-method NAME    MetalSharp launch method. Defaults to dxmt_metal12.
   --seconds N             Bounded capture window. Defaults to 20.
-  --backend-url URL       MetalSharp backend URL. Defaults to http://127.0.0.1:9274.
+  --backend-socket PATH   MetalSharp backend socket. Defaults to ~/.metalsharp/run/backend.sock.
   --game-dir PATH         Win64 game directory for runtime preflight.
   --corpus-dir PATH       Expected shader corpus directory.
   --results-dir PATH      Result output directory.
@@ -56,8 +57,8 @@ while [[ $# -gt 0 ]]; do
       SECONDS_TO_RUN="$2"
       shift 2
       ;;
-    --backend-url)
-      BACKEND_URL="$2"
+    --backend-socket)
+      BACKEND_SOCKET="$2"
       shift 2
       ;;
     --game-dir)
@@ -105,25 +106,25 @@ trap cleanup EXIT
 
 find "$CORPUS_DIR" -type f \( -name '*.dxbc' -o -name 'pso-*.json' \) 2>/dev/null | sort > "$before_file" || true
 
-curl -fsS -X POST "$BACKEND_URL/kill" \
+curl -fsS --unix-socket "$BACKEND_SOCKET" -X POST "$BACKEND_URL/kill" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"pid\":0}" >/dev/null || true
 pkill -9 -f '[S]ubnautica2-Win64-Shipping.exe|[S]ubnautica2|[C]rashReportClient.exe|[c]rashpad_handler.exe' || true
 
 if [[ "$START_STEAM" == "1" ]]; then
-  curl -fsS -X POST "$BACKEND_URL/steam/launch" \
+  curl -fsS --unix-socket "$BACKEND_SOCKET" -X POST "$BACKEND_URL/steam/launch" \
     -H 'Content-Type: application/json' \
     -d '{}' >/dev/null
   sleep 15
 fi
 
-curl -fsS -X POST "$BACKEND_URL/steam/launch-game" \
+curl -fsS --unix-socket "$BACKEND_SOCKET" -X POST "$BACKEND_URL/steam/launch-game" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"launchMethod\":\"$LAUNCH_METHOD\"}" > "$launch_file"
 
 sleep "$SECONDS_TO_RUN"
 
-curl -fsS -X POST "$BACKEND_URL/kill" \
+curl -fsS --unix-socket "$BACKEND_SOCKET" -X POST "$BACKEND_URL/kill" \
   -H 'Content-Type: application/json' \
   -d "{\"appid\":$APPID,\"pid\":0}" >/dev/null || true
 pkill -9 -f '[S]ubnautica2-Win64-Shipping.exe|[S]ubnautica2|[C]rashReportClient.exe|[c]rashpad_handler.exe' || true

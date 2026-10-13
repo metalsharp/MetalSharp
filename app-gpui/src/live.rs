@@ -28,15 +28,9 @@ impl Global for Live {}
 
 impl Live {
     pub fn new(config: HostConfig) -> Self {
-        let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(DEFAULT_TIMEOUT))
-            .proxy(None)
-            .max_redirects(0)
-            .http_status_as_error(false)
-            .build()
-            .into();
+        let agent = crate::unix_transport::agent(&config.socket(), DEFAULT_TIMEOUT);
         Self(Arc::new(Inner {
-            base_url: format!("http://127.0.0.1:{}", config.port),
+            base_url: crate::unix_transport::BASE_URL.to_owned(),
             agent,
             token: Mutex::new(None),
             host: Mutex::new(None),

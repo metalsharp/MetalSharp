@@ -5,7 +5,7 @@ How MetalSharp launches games, what it installs, and where state lives. Build in
 
 ## Launch Flow
 
-The C backend (`127.0.0.1:9274`) owns every launch. Route selection is data-driven: adding a game means editing `configs/mtsp-rules.toml`, not backend code.
+The C backend (`~/.metalsharp/run/backend.sock`) owns every launch. Route selection is data-driven: adding a game means editing `configs/mtsp-rules.toml`, not backend code.
 
 ```text
 Play clicked

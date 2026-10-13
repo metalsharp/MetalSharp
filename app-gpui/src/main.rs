@@ -26,6 +26,7 @@ mod sharp_preview;
 mod streaming;
 mod toast;
 mod ui;
+mod unix_transport;
 mod updater_bridge;
 
 use anyhow::Result;
@@ -158,7 +159,7 @@ fn main() -> Result<()> {
             });
         return Ok(());
     }
-    // Default launch is the production app (port 9274, ~/.metalsharp), like Electron.
+    // Default launch is the production app (~/.metalsharp/run/backend.sock), like Electron.
     let connected = match args.as_slice() {
         [] => Some(backend_host::HostConfig::from_environment(false)?),
         [mode] if mode == "--preview" => None,
