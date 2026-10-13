@@ -92,6 +92,39 @@ int ms_http_take_client_token(char token[65]) {
     return 1;
 }
 
+/* The backend's only clients are the native app and local helper scripts
+ * (GET /status); none of them is a browser. Requests that look like they come
+ * from one are rejected before they reach a handler:
+ *  - any Origin header (browsers send one on cross-origin requests and on
+ *    form/fetch POSTs; the native client and curl send none), and
+ *  - a Host other than loopback. */
+static bool is_loopback_host(const char* host) {
+    size_t length;
+    const char* colon;
+    const char* bracket;
+    if (host == NULL)
+        return false;
+    /* Strip an optional :port. IPv6 literals are bracketed, so only treat a
+     * colon after any closing ']' as the port separator. */
+    colon = strrchr(host, ':');
+    bracket = strrchr(host, ']');
+    if (colon != NULL && (bracket == NULL || colon > bracket))
+        length = (size_t)(colon - host);
+    else
+        length = strlen(host);
+    return (length == 9 && strncmp(host, "127.0.0.1", 9) == 0) || (length == 9 && strncmp(host, "localhost", 9) == 0) ||
+           (length == 3 && strncmp(host, "::1", 3) == 0) || (length == 5 && strncmp(host, "[::1]", 5) == 0);
+}
+
+/* Request bodies are accepted only as JSON. */
+static bool is_json_content_type(const char* value) {
+    if (value == NULL)
+        return false;
+    if (strncasecmp(value, "application/json", 16) != 0)
+        return false;
+    return value[16] == '\0' || value[16] == ';' || value[16] == ' ' || value[16] == '\t';
+}
+
 static bool token_matches(const char* supplied, const char* expected) {
     if (supplied == NULL || strlen(supplied) != 64)
         return false;
@@ -111,6 +144,9 @@ static bool receive_request(int fd, ms_http_request* request, const char* token,
     char* save = NULL;
     size_t content_length = 0;
     bool content_length_seen = false;
+    bool origin_seen = false;
+    char* host_value = NULL;
+    char* content_type_value = NULL;
 
     memset(request, 0, sizeof(*request));
     buffer = (unsigned char*)malloc(capacity);
@@ -216,6 +252,14 @@ static bool receive_request(int fd, ms_http_request* request, const char* token,
                 free(name);
                 goto fail;
             }
+        } else if (strcmp(name, "origin") == 0) {
+            origin_seen = true;
+        } else if (strcmp(name, "host") == 0) {
+            if (host_value == NULL)
+                host_value = strdup(value);
+        } else if (strcmp(name, "content-type") == 0) {
+            if (content_type_value == NULL)
+                content_type_value = strdup(value);
         }
         free(name);
     }
@@ -224,6 +268,18 @@ static bool receive_request(int fd, ms_http_request* request, const char* token,
     /* Reject before reading a body or dispatching any route. A CORS-simple
      * request, even one with a large/incomplete body, gains no app capability. */
     if (token != NULL && !token_matches(request->client_token, token)) {
+        *unauthorized = true;
+        goto fail;
+    }
+
+    /* Only native-client requests reach a handler: no Origin header and a
+     * loopback Host (see is_loopback_host). */
+    if (origin_seen || !is_loopback_host(host_value)) {
+        *unauthorized = true;
+        goto fail;
+    }
+    /* Any request bearing a body must declare JSON. */
+    if (content_length_seen && content_length > 0 && !is_json_content_type(content_type_value)) {
         *unauthorized = true;
         goto fail;
     }
@@ -258,9 +314,13 @@ static bool receive_request(int fd, ms_http_request* request, const char* token,
         request->body[content_length] = '\0';
         request->body_length = content_length;
     }
+    free(host_value);
+    free(content_type_value);
     free(buffer);
     return true;
 fail:
+    free(host_value);
+    free(content_type_value);
     free(header_copy);
     free(buffer);
     ms_http_request_free(request);
@@ -290,14 +350,13 @@ static const char* reason_phrase(int status) {
     }
 }
 
-static void send_response(int fd, const ms_http_response* response, bool legacy_cors) {
+static void send_response(int fd, const ms_http_response* response) {
     char header[512];
     const char* content_type = response->content_type == NULL ? "application/json" : response->content_type;
+    /* No CORS headers: the backend has no browser clients. */
     int written = snprintf(header, sizeof(header),
-                           "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
-                           "%sConnection: close\r\n\r\n",
-                           response->status, reason_phrase(response->status), content_type, response->body_length,
-                           legacy_cors ? "Access-Control-Allow-Origin: *\r\n" : "");
+                           "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
+                           response->status, reason_phrase(response->status), content_type, response->body_length);
     if (written > 0 && (size_t)written < sizeof(header)) {
         (void)send_all(fd, header, (size_t)written);
         if (response->body_length > 0 && response->body != NULL)
@@ -396,7 +455,7 @@ int ms_http_serve_authenticated(unsigned short port, volatile sig_atomic_t* stop
                 response.body = bad_request;
                 response.body_length = sizeof(bad_request) - 1;
             }
-            send_response(client_fd, &response, token == NULL);
+            send_response(client_fd, &response);
             if (response.owns_body)
                 free((void*)response.body);
         }

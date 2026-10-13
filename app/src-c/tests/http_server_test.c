@@ -127,7 +127,8 @@ static void session_authentication_test(void) {
              "GET /status HTTP/1.1\r\nHost: localhost\r\nx-MeTaLsHaRp-ClIeNt-ToKeN: %s\r\n\r\n", token);
     exchange(port, request, 200, false);
     snprintf(request, sizeof(request),
-             "POST /status HTTP/1.1\r\nHost: localhost\r\nX-MetalSharp-Client-Token: %s\r\nContent-Length: 2\r\n\r\n{}",
+             "POST /status HTTP/1.1\r\nHost: localhost\r\nX-MetalSharp-Client-Token: %s\r\nContent-Type: "
+             "application/json\r\nContent-Length: 2\r\n\r\n{}",
              token);
     exchange(port, request, 200, false);
     snprintf(request, sizeof(request),
@@ -191,7 +192,18 @@ int main(void) {
     assert(strstr(response, "HTTP/1.1 200 OK") != NULL);
     close(fd);
 
-    exchange(port, status_request, 200, true);
+    exchange(port, status_request, 200, false);
+    /* Browser-shaped requests are rejected: an Origin header, a non-loopback
+     * Host, or a non-JSON body. */
+    exchange(port, "GET /status HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: https://example.com\r\n\r\n", 401, false);
+    exchange(port, "GET /status HTTP/1.1\r\nHost: example.com\r\n\r\n", 401, false);
+    exchange(port,
+             "POST /status HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n{}", 401,
+             false);
+    exchange(
+        port,
+        "POST /status HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}",
+        200, false);
     assert(kill(child, SIGTERM) == 0);
     assert(waitpid(child, &status, 0) == child);
     session_authentication_test();
