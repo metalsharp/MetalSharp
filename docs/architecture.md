@@ -1,5 +1,5 @@
 # MetalSharp Architecture
-**Updated:** 2026-10-06
+**Updated:** 2026-10-13
 
 How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md); emulator providers are in [emulators.md](emulators.md).
 
@@ -57,7 +57,7 @@ Internal route and lane IDs used in code, configs, and cache paths:
 - **Retina:** on by default for the shared prefix (`RetinaMode`, 192 DPI; off restores 96). Restart Wine Steam after changing it.
 - **`metalsharp-wine` wrapper** preserves the backend's route-specific `WINEDLLPATH`, `DYLD_FALLBACK_LIBRARY_PATH`, and Vulkan ICD settings.
 
-**WineMetalGL** (OpenGL) comes from [WineMetalGL 2.2.0](https://github.com/metalsharp/WineMetalGL/releases/tag/winemetalgl-2.2.0) (`winemetalgl-2.2.0-x86_64.tar.gz`): `libwinemetalgl.dylib` (x86_64) sits next to `winemac.so`, which loads it, and the runtime's `winemac.so`, `win32u.so` and `opengl32` (`.so`, and `.dll` for x86_64 and i386) are the release's patched Wine modules, built from MetalSharp's Wine. It gives programs OpenGL 3.3 core and compatibility contexts on Metal; `WINEMETALGL=0` selects Apple's OpenGL. Executables listed in `later_gl_entry_point_apps` (`steam_actions.c`) get `LaterEntryPoints` in the Steam prefix's registry, for OpenGL loaders that require entry points of later GL versions. The old sidecar `metalsharp-opengl.dylib` stays in the runtime only because setup still checks for it; nothing loads it. Artifact hashes are in `tools/bundles/wine-runtime-hashes.tsv`.
+**WineMetalGL** (OpenGL) comes from [WineMetalGL 3.1.0](https://github.com/metalsharp/WineMetalGL/releases/tag/winemetalgl-3.1.0) (`winemetalgl-3.1.0-x86_64.tar.gz`): its core, `libwinemetalgl.dylib` (x86_64), sits next to `winemac.so`, which loads it. The runtime's `winemac.so`, `win32u.so` and `opengl32` (`.so`, and `.dll` for x86_64 and i386) are still WineMetalGL 2.2.0's patched Wine modules, built from MetalSharp's Wine; the 3.x core keeps the driver interface they load it through. The runtime also carries 3.1.0's Wine module (`winemetalgl.so`, and `winemetalgl.dll` for x86_64 and i386), which a prefix uses only with the module's forwarding `opengl32.dll` and `opengl32=native`; MetalSharp's prefixes do not install it. It gives programs OpenGL 4.6 core and compatibility contexts on Metal; `WINEMETALGL=0` selects Apple's OpenGL. DOOM (2016) runs its OpenGL renderer on it. Executables listed in `later_gl_entry_point_apps` (`steam_actions.c`) get `LaterEntryPoints` in the Steam prefix's registry, for OpenGL loaders that require entry points of later GL versions. The old sidecar `metalsharp-opengl.dylib` stays in the runtime only because setup still checks for it; nothing loads it. Artifact hashes are in `tools/bundles/wine-runtime-hashes.tsv`.
 
 ### Launch Environment
 

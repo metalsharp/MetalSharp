@@ -983,6 +983,22 @@ int main(int argc, char** argv) {
     free(aniimo_exe);
     free(aniimo_dir);
 
+    // DOOM (2016) runs its OpenGL renderer on WineMetalGL, not -vulkan (MoltenVK
+    // cannot create its Vulkan device).
+    fixture(home, "doom/DOOMx64vk.exe", "Vulkan executable");
+    fixture(home, "doom/DOOMx64.exe", "OpenGL executable");
+    char* doom_dir = join(home, "doom");
+    char* doom_exe = preferred_steam_game_executable(doom_dir, 379720, "wine_bare");
+    assert(doom_exe && strstr(doom_exe, "/doom/DOOMx64.exe"));
+    free(doom_exe);
+    free(doom_dir);
+    {
+        char* args[8] = {0};
+        size_t count = 0;
+        build_launch_args(379720, "wine_bare", args, &count, sizeof(args) / sizeof(args[0]));
+        assert(count == 0);
+    }
+
     fixture(home, "helldivers/tools/gguninst.exe", "GameGuard uninstaller");
     fixture(home, "helldivers/bin/helldivers2.exe", "game executable");
     char* helldivers_dir = join(home, "helldivers");
