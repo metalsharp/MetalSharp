@@ -116,6 +116,8 @@ int main(void) {
     if (!ms_setup_wine_wrapper_ensure(context.metalsharp_home))
         fprintf(stderr, "warning: could not update MetalSharp Wine wrapper for graphics routes\n");
     ms_setup_refresh_legacy_ntdll_hooks(context.metalsharp_home);
+    if (!ms_setup_wine_sdl_ensure(context.metalsharp_home))
+        fprintf(stderr, "warning: could not link SDL2 into the MetalSharp Wine runtime for controllers\n");
     fprintf(stderr, "metalsharp-backend listening on %s\n", socket_path);
     fprintf(stderr, "MetalSharp v%s backend started on %s\n", context.version, socket_path);
     {

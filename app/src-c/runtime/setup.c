@@ -1071,6 +1071,41 @@ done:
     return ok;
 }
 
+bool ms_setup_wine_sdl_ensure(const char* metalsharp_home) {
+    /* winebus.so dlopen()s libSDL2-2.0.0.dylib for its SDL bus. Without it, Wine falls back to IOHID, which drops
+     * gamepads such as Xbox controllers that macOS only exposes as vendor-defined HID. The wrapper puts
+     * runtime/wine/lib on the library path, so point it at the universal SDL2 already shipped in runtime/shims. */
+    static const char relative_target[] = "../../shims/libSDL2-2.0.0.dylib";
+    char *lib = NULL, *link_path = NULL, *shim = NULL;
+    struct stat st;
+    bool ok = true;
+    if (!metalsharp_home)
+        return false;
+    lib = join_path(metalsharp_home, "runtime/wine/lib");
+    link_path = join_path(metalsharp_home, "runtime/wine/lib/libSDL2-2.0.0.dylib");
+    shim = join_path(metalsharp_home, "runtime/shims/libSDL2-2.0.0.dylib");
+    if (!lib || !link_path || !shim) {
+        ok = false;
+        goto done;
+    }
+    if (stat(lib, &st) != 0 || !S_ISDIR(st.st_mode) || stat(shim, &st) != 0 || !S_ISREG(st.st_mode))
+        goto done;
+    if (lstat(link_path, &st) == 0) {
+        if (!S_ISLNK(st.st_mode) || stat(link_path, &st) == 0)
+            goto done;
+        if (unlink(link_path) != 0) {
+            ok = false;
+            goto done;
+        }
+    }
+    ok = symlink(relative_target, link_path) == 0 || errno == EEXIST;
+done:
+    free(lib);
+    free(link_path);
+    free(shim);
+    return ok;
+}
+
 static ms_json* read_json(const char* path) {
     size_t length;
     char error[128];
@@ -2141,6 +2176,8 @@ static void run_install_all_worker(const char* home) {
             _exit(0);
         }
     }
+    if (!ms_setup_wine_sdl_ensure(home))
+        fprintf(stderr, "warning: could not link SDL2 into the MetalSharp Wine runtime for controllers\n");
     write_install_progress(home, 9, total, "Support Assets", "done", "Support assets ready", NULL);
     {
         const char* const mapping[][2] = {{"scripts/tools", "scripts/tools"}};
