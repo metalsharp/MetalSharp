@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Ubisoft Connect login blocked by bot protection (#718)** — after submitting credentials, a fresh login landed on DataDome's "Access is temporarily restricted" page, which judges the browser by its WebGL GPU. Connect's WebGL ran on SwiftShader (a headless browser's renderer), and 32-bit Connect's D3D11 (Wine's wined3d) reports a GeForce GTX 470 that no current Windows driver supports. Connect's Chromium now composites in software as before, but runs WebGL on ANGLE's D3D11 (`--disable-gpu-compositing`, `--use-angle=d3d11` instead of `--disable-gpu`, `--disable-d3d11` and SwiftShader WebGL), and the Ubisoft prefix gives `UbisoftConnect.exe`, `upc.exe` and `Uplay.exe` wined3d's AMD Radeon RX 6800 XT IDs (`AppDefaults\<exe>\Direct3D`, 1002:73bf), the GPU that let the reporter log in. Games in the prefix keep their own adapter.
+
 ## v0.78.0 - Unreleased
 
 ### Added

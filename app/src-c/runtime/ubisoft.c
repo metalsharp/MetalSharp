@@ -37,21 +37,27 @@
 #define UBISOFT_INSTALLER_URL    "https://ubi.li/4vxt9"
 #define UBISOFT_PIPELINE_DEFAULT "d3dmetal"
 
-/* Ubisoft Connect is a CEF app and runs much better under D3DMetal with its
- * Chromium GPU process off, so start it with the same switches EVE Online's
- * launcher gets through Steam (steam_actions.c): GPU off, software WebGL
- * through ANGLE. */
-static const char* const UBISOFT_CONNECT_ARGS[] = {"-no-cef-sandbox",
-                                                   "-cef-single-process",
-                                                   "-noverifyfiles",
-                                                   "-no-dwrite",
-                                                   "--no-sandbox",
-                                                   "--in-process-gpu",
-                                                   "--disable-gpu",
-                                                   "--disable-d3d11",
-                                                   "--enable-unsafe-swiftshader",
-                                                   "--use-gl=angle",
-                                                   "--use-angle=swiftshader-webgl"};
+/* Ubisoft Connect is a CEF app. It runs much better under Wine with Chromium's
+ * GPU process off, so Chromium composites in software inside Connect's own
+ * process. WebGL keeps the GPU (ANGLE on D3D11): Ubisoft's login is behind
+ * DataDome bot protection, which reads the WebGL renderer, and SwiftShader's
+ * is a headless browser's (issue #718). */
+static const char* const UBISOFT_CONNECT_ARGS[] = {
+    "-no-cef-sandbox",  "-cef-single-process",       "-noverifyfiles", "-no-dwrite",       "--no-sandbox",
+    "--in-process-gpu", "--disable-gpu-compositing", "--use-gl=angle", "--use-angle=d3d11"};
+
+/* Connect's executables, in launch preference order. */
+static const char* const UBISOFT_CONNECT_EXES[] = {"UbisoftConnect.exe", "upc.exe", "Uplay.exe"};
+
+/* The GPU Connect's WebGL reports (issue #718). Connect is 32-bit, so its
+ * D3D11 is Wine's wined3d, whose default adapter here is a GeForce GTX 470:
+ * no current Windows driver supports it, so it is no GPU a real Chromium
+ * reports. wined3d takes the PCI IDs of AppDefaults\<exe>\Direct3D and names
+ * the adapter from its table: AMD 1002:73bf, "Radeon RX 6800/6800 XT / 6900
+ * XT", the GPU whose IDs let the issue's reporter log in. Only Connect's
+ * executables get it, so games in the prefix keep their own adapter. */
+static const char* const UBISOFT_CONNECT_GPU[] = {"\"VideoPciVendorID\"=dword:00001002",
+                                                  "\"VideoPciDeviceID\"=dword:000073bf"};
 
 static pthread_mutex_t ubisoft_install_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool ubisoft_install_active;
@@ -158,11 +164,10 @@ static char* ubisoft_prefix(const char* home) {
 static char* ubisoft_launcher(const char* home) {
     char* prefix = ubisoft_prefix(home);
     char* base = prefix ? path_join(prefix, "drive_c/Program Files (x86)/Ubisoft/Ubisoft Game Launcher") : NULL;
-    static const char* const names[] = {"UbisoftConnect.exe", "upc.exe", "Uplay.exe"};
     char* result = NULL;
     if (base) {
-        for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-            char* candidate = path_join(base, names[i]);
+        for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_EXES) / sizeof(UBISOFT_CONNECT_EXES[0]); i++) {
+            char* candidate = path_join(base, UBISOFT_CONNECT_EXES[i]);
             if (candidate && path_is_file(candidate)) {
                 result = candidate;
                 break;
@@ -493,6 +498,50 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
     return true;
 }
 
+/* Whether the prefix's user.reg gives every Connect executable UBISOFT_CONNECT_GPU. */
+static bool connect_gpu_seeded(const char* prefix) {
+    char* path = path_join(prefix, "user.reg");
+    char* text = path ? read_text(path, (size_t)64 << 20) : NULL;
+    bool seeded = text != NULL;
+    for (size_t i = 0; seeded && i < sizeof(UBISOFT_CONNECT_EXES) / sizeof(UBISOFT_CONNECT_EXES[0]); i++) {
+        char section[256];
+        snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\Direct3D",
+                 UBISOFT_CONNECT_EXES[i]);
+        seeded = ms_steam_user_reg_section_has(text, section, UBISOFT_CONNECT_GPU,
+                                               sizeof(UBISOFT_CONNECT_GPU) / sizeof(UBISOFT_CONNECT_GPU[0]));
+    }
+    free(text);
+    free(path);
+    return seeded;
+}
+
+/* Writes drive_c/metalsharp-ubisoft.reg, which gives Connect's executables UBISOFT_CONNECT_GPU. */
+static bool write_connect_gpu_reg(const char* prefix) {
+    char* path = path_join(prefix, "drive_c/metalsharp-ubisoft.reg");
+    FILE* file = path ? fopen(path, "wb") : NULL;
+    bool ok = file != NULL;
+    if (file) {
+        fputs("Windows Registry Editor Version 5.00\r\n", file);
+        for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_EXES) / sizeof(UBISOFT_CONNECT_EXES[0]); i++) {
+            fprintf(file, "\r\n[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\%s\\Direct3D]\r\n",
+                    UBISOFT_CONNECT_EXES[i]);
+            for (size_t v = 0; v < sizeof(UBISOFT_CONNECT_GPU) / sizeof(UBISOFT_CONNECT_GPU[0]); v++)
+                fprintf(file, "%s\r\n", UBISOFT_CONNECT_GPU[v]);
+        }
+        ok = fclose(file) == 0;
+    }
+    free(path);
+    return ok;
+}
+
+/* `wine reg import` boots a wineserver, so it runs only while the values are missing. */
+static void seed_connect_gpu(const char* home, const char* wine, const char* prefix) {
+    char* argv[] = {(char*)wine, "reg", "import", "C:\\metalsharp-ubisoft.reg", NULL};
+    if (connect_gpu_seeded(prefix) || !write_connect_gpu_reg(prefix))
+        return;
+    (void)run_child_wait(wine, argv, home, prefix, NULL);
+}
+
 static bool spawn_launcher(const char* home, const char* launcher, const char* pipeline, unsigned game_appid) {
     char* wine = ubisoft_wine(home);
     char* prefix = ubisoft_prefix(home);
@@ -505,6 +554,7 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
         free(pidfile);
         return false;
     }
+    seed_connect_gpu(home, wine, prefix);
     pid = fork();
     if (pid == 0) {
         char* args[2 + sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]) + 1];

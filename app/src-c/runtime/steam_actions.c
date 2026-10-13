@@ -4732,7 +4732,7 @@ char* ms_steam_ensure_launch_ready_json(const char* home, int* status) {
 /* True when `section` (registry path as written in user.reg, e.g.
  * `Software\\Wine\\Mac Driver`) exists in `text` and contains every line in
  * `values`. Section names compare case-insensitively like the registry. */
-static bool user_reg_section_has(const char* text, const char* section, const char* const* values, size_t count) {
+bool ms_steam_user_reg_section_has(const char* text, const char* section, const char* const* values, size_t count) {
     size_t section_length = strlen(section);
     for (const char* line = text; line && *line;) {
         const char* next = strchr(line, '\n');
@@ -4791,16 +4791,16 @@ static bool steam_registry_seeded(const char* prefix, bool retina) {
     for (size_t i = 0; seeded && i < sizeof(apps) / sizeof(apps[0]); i++) {
         char section[256];
         snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\DllOverrides", apps[i]);
-        seeded = user_reg_section_has(text, section, overrides, sizeof(overrides) / sizeof(overrides[0]));
+        seeded = ms_steam_user_reg_section_has(text, section, overrides, sizeof(overrides) / sizeof(overrides[0]));
     }
     for (size_t i = 0; seeded && i < sizeof(later_gl_entry_point_apps) / sizeof(later_gl_entry_point_apps[0]); i++) {
         char section[256];
         snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\OpenGL",
                  later_gl_entry_point_apps[i]);
-        seeded = user_reg_section_has(text, section, &later_entry_points_line, 1);
+        seeded = ms_steam_user_reg_section_has(text, section, &later_entry_points_line, 1);
     }
-    seeded = seeded && user_reg_section_has(text, "Software\\\\Wine\\\\Mac Driver", &retina_line, 1) &&
-             user_reg_section_has(text, "Control Panel\\\\Desktop", &dpi_line, 1);
+    seeded = seeded && ms_steam_user_reg_section_has(text, "Software\\\\Wine\\\\Mac Driver", &retina_line, 1) &&
+             ms_steam_user_reg_section_has(text, "Control Panel\\\\Desktop", &dpi_line, 1);
     free(text);
     free(path);
     return seeded;
@@ -4935,8 +4935,8 @@ bool ms_steam_ensure_game_audio_fix(const char* home, unsigned appid) {
     snprintf(section, sizeof(section), "Software\\\\Wine\\\\AppDefaults\\\\%s\\\\DllOverrides", exe);
     text = user_reg ? read_bounded_file(user_reg) : NULL;
     if (source && files_ready &&
-        !(text && user_reg_section_has(text, section, faudio_overrides,
-                                       sizeof(faudio_overrides) / sizeof(faudio_overrides[0])))) {
+        !(text && ms_steam_user_reg_section_has(text, section, faudio_overrides,
+                                                sizeof(faudio_overrides) / sizeof(faudio_overrides[0])))) {
         char* reg_file = join(prefix, "drive_c/metalsharp-faudio.reg");
         FILE* f = reg_file ? fopen(reg_file, "wb") : NULL;
         pid_t pid;

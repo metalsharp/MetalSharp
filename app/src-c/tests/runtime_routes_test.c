@@ -147,16 +147,67 @@ static void test_ubisoft_library(const char* home) {
         free(small_icon);
     }
     {
-        /* Ubisoft Connect keeps its CEF launch switches and starts with the GPU off. */
-        static const char* const required[] = {"-no-cef-sandbox", "-cef-single-process",
-                                               "--disable-gpu",   "--in-process-gpu",
-                                               "--use-gl=angle",  "--use-angle=swiftshader-webgl"};
+        /* Ubisoft Connect keeps its CEF launch switches and composites in
+         * software, while WebGL runs on ANGLE's D3D11, not SwiftShader (#718). */
+        static const char* const required[] = {"-no-cef-sandbox",           "-cef-single-process", "--in-process-gpu",
+                                               "--disable-gpu-compositing", "--use-gl=angle",      "--use-angle=d3d11"};
+        static const char* const forbidden[] = {"--disable-gpu", "--disable-d3d11", "--enable-unsafe-swiftshader",
+                                                "--use-angle=swiftshader-webgl"};
         for (size_t r = 0; r < sizeof(required) / sizeof(required[0]); r++) {
             bool found = false;
             for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
                 found = found || !strcmp(UBISOFT_CONNECT_ARGS[i], required[r]);
             assert(found);
         }
+        for (size_t f = 0; f < sizeof(forbidden) / sizeof(forbidden[0]); f++)
+            for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
+                assert(strcmp(UBISOFT_CONNECT_ARGS[i], forbidden[f]));
+    }
+    {
+        /* Connect's executables report an AMD Radeon RX 6800 XT through
+         * wined3d's per-app PCI IDs (#718): the .reg file sets them, and the
+         * prefix counts as seeded only once user.reg has them for every one. */
+        char* prefix = join(home, "ubisoft-gpu-prefix");
+        char* drive_c = join(prefix, "drive_c");
+        assert(mkdir(prefix, 0755) == 0 && mkdir(drive_c, 0755) == 0);
+        assert(!connect_gpu_seeded(prefix));
+        assert(write_connect_gpu_reg(prefix));
+        char* reg_path = join(drive_c, "metalsharp-ubisoft.reg");
+        char* reg = read_text(reg_path, 65536);
+        static const char header[] = "Windows Registry Editor Version 5.00\r\n";
+        assert(reg && !strncmp(reg, header, sizeof(header) - 1));
+        for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_EXES) / sizeof(UBISOFT_CONNECT_EXES[0]); i++) {
+            char section[256];
+            snprintf(section, sizeof(section),
+                     "[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\%s\\Direct3D]\r\n"
+                     "\"VideoPciVendorID\"=dword:00001002\r\n\"VideoPciDeviceID\"=dword:000073bf\r\n",
+                     UBISOFT_CONNECT_EXES[i]);
+            assert(strstr(reg, section));
+        }
+        /* user.reg as Wine writes it: a timestamp after the section, a #time line, values sorted. */
+        char* user_reg = join(prefix, "user.reg");
+        FILE* f = fopen(user_reg, "wb");
+        assert(f);
+        fputs("WINE REGISTRY Version 2\n\n[Software\\\\Wine\\\\AppDefaults\\\\UbisoftConnect.exe\\\\Direct3D] "
+              "1791892205\n"
+              "#time=1dd5b08fcd13c12\n\"VideoPciDeviceID\"=dword:000073bf\n\"VideoPciVendorID\"=dword:00001002\n\n",
+              f);
+        fclose(f);
+        assert(!connect_gpu_seeded(prefix)); /* upc.exe and Uplay.exe still missing */
+        f = fopen(user_reg, "ab");
+        assert(f);
+        fputs("[Software\\\\Wine\\\\AppDefaults\\\\upc.exe\\\\Direct3D] 1791892205\n"
+              "\"VideoPciDeviceID\"=dword:000073bf\n\"VideoPciVendorID\"=dword:00001002\n\n"
+              "[Software\\\\Wine\\\\AppDefaults\\\\Uplay.exe\\\\Direct3D] 1791892205\n"
+              "\"VideoPciDeviceID\"=dword:000073bf\n\"VideoPciVendorID\"=dword:00001002\n",
+              f);
+        fclose(f);
+        assert(connect_gpu_seeded(prefix));
+        free(user_reg);
+        free(reg);
+        free(reg_path);
+        free(drive_c);
+        free(prefix);
     }
     char* raw = ms_ubisoft_library_json(home);
     ms_json* root = raw ? ms_json_parse(raw, strlen(raw), error, sizeof(error)) : NULL;
