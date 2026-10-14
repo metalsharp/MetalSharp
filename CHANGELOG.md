@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.79.0 - Unreleased
+## v0.79.0 — 2026-10-14
 
 ### Added
 
@@ -23,16 +23,24 @@
 - **DOOM (2016) (#722)** — launches `DOOMx64.exe` on its OpenGL 4.5 renderer instead of `DOOMx64vk.exe -vulkan`, which fails on MoltenVK.
 - **A game closed from inside stops showing as running (#716)** — the running list no longer adopts an unrelated Wine program once a direct launch's process is gone.
 - **Updater install progress (#715)** — the progress bar no longer jumps backwards while the update closes MetalSharp and stops the old runtime.
-- **Ubisoft Connect login blocked by bot protection (#718)** — after submitting credentials, a fresh login landed on DataDome's "Access is temporarily restricted" page, which judges the browser by its WebGL GPU. Connect's WebGL ran on SwiftShader (a headless browser's renderer), and 32-bit Connect's D3D11 (Wine's wined3d) reports a GeForce GTX 470 that no current Windows driver supports. Connect's Chromium now composites in software as before, but runs WebGL on ANGLE's D3D11 (`--disable-gpu-compositing`, `--use-angle=d3d11` instead of `--disable-gpu`, `--disable-d3d11` and SwiftShader WebGL), and the Ubisoft prefix gives `UbisoftConnect.exe`, `upc.exe` and `Uplay.exe` wined3d's AMD Radeon RX 6800 XT IDs (`AppDefaults\<exe>\Direct3D`, 1002:73bf), the GPU that let the reporter log in. Games in the prefix keep their own adapter.
+- **Ubisoft Connect login blocked by bot protection (#718, #723)** — after submitting credentials, a fresh login landed on DataDome's "Access is temporarily restricted" page, which judges the browser by its WebGL GPU. Connect's WebGL ran on SwiftShader (a headless browser's renderer), and 32-bit Connect's D3D11 (Wine's wined3d) reports a GeForce GTX 470 that no current Windows driver supports. Connect's Chromium now composites in software as before, but runs WebGL on ANGLE's D3D11 (`--disable-gpu-compositing`, `--use-angle=d3d11` instead of `--disable-gpu`, `--disable-d3d11` and SwiftShader WebGL), and the Ubisoft prefix gives `UbisoftConnect.exe`, `upc.exe` and `Uplay.exe` wined3d's AMD Radeon RX 6800 XT IDs (`AppDefaults\<exe>\Direct3D`, 1002:73bf), the GPU that let the reporter log in. Games in the prefix keep their own adapter.
 
-## v0.78.0 - Unreleased
+### Documentation
+
+- **Fix a Broken Update** — `docs/Fix a Broken Update.md` and the README link the recovery steps for an in-app update that left MetalSharp closed.
+- **README** — clearer project description and launch instructions, updated acknowledgements, and a Hall of Fame for outside contributors.
+
+## v0.78.0 — 2026-10-07
 
 ### Added
 
 - **Space theme** — a clean galaxy theme with its own spiral-galaxy picker icon: deep-space indigo surfaces and page background, starlight-violet accent and lavender text, a cosmic blue → violet → nebula magenta chrome spectrum on violet-black header and footer ink, and a purple underglow beneath the library dock's cards. Page background, hero/dock fades and chrome ink are now per-theme (`page_bg`, `page_bg_raised`, `chrome_ink`); every existing theme keeps its exact colors.
 
+- **Persistent artwork cache and new chrome (#709)** — resolved artwork is recorded in `~/.metalsharp/cache/gpui-artwork/index.json`, so relaunches show cards and heroes immediately; cached art refreshes in the background, fetches run on their own thread pool, and a Steam Art Manager change refreshes only the affected games. Custom grid art can be any image format, and the header and footer get chrome bars and new icons.
+
 ### Changed
 
+- **License changed to AGPL-3.0-or-later** (from PolyForm Noncommercial 1.0.0).
 - **Ubisoft Connect header button** — after **Launch Ubisoft**, the header's primary button becomes **Stop Ubisoft** (with the Ubisoft icon) and the Steam start/stop action moves into the dropdown, instead of leaving Stop Ubisoft hidden in the dropdown. Stopping Ubisoft, or the status poll seeing Connect closed, restores **Start Steam** as the primary button.
 - **Bundle tars come only from the `bundles` release** — stop tracking the stale `app/bundles/metalsharp-graphics-dll.tar.zst` (an M12-era build) and `app/bundles/fnalibs.tar.zst` (an older build than the release), which were force-added past the `app/bundles/*.tar.zst` ignore rule. Because CI only downloads a bundle when `app/bundles/<asset>` is missing, the tracked copies meant CI never tested the published assets. PR CI's D3D12 gate no longer copies the retired `dxmt-m12` lane.
 - **D3DMetal Steam launcher handoff** — EVE Online's launch path (start Wine Steam with the D3DMetal environment, stage D3DMetal DLLs next to the game client, hand off through `steam://run/<appid>//` with Chromium GPU-off switches) is now a small table of launcher-gated games instead of EVE-only code. Assassin's Creed Odyssey (812140) now uses it too, replacing its Ubisoft Connect first-run crash-reporter retry monitor. Odyssey's running detection and Stop (which also stops Ubisoft Connect) are unchanged.
@@ -44,17 +52,58 @@
 - **Red Dead Redemption 2 and the Rockstar Games Launcher on D3DMetal and VKD3D** — the launcher draws its UI with D3D10.1 and exited about 3 s after start because D3DMetal lacks `DXGID3D10CreateDevice`. The graphics bundle now ships WFDXCompat's launcher companion (`Graphics/dll/wfdxcompat/`), setup stages it to `~/.metalsharp/runtime/wfdxcompat/`, and the D3DMetal route sets `WFDXCOMPAT_RUNTIME_DIR` so MetalSharp's Wine loads it for `Launcher.exe` and `SocialClubHelper.exe`. RDR2 now starts the launcher directly (with Wine Steam running) instead of through a Steam handoff that lost the route environment; both routes run the launcher on D3DMetal, VKD3D passes `-api Vulkan` with its MoltenVK lane, and D3DMetal switches `system.xml` to `kSettingAPI_DX12` before each launch.
 - **Ubisoft Connect client performance** — start Ubisoft Connect with the same Chromium switches EVE Online's launcher uses (`--disable-gpu`, `--in-process-gpu`, software WebGL through ANGLE), so its CEF UI no longer runs a GPU process under D3DMetal. Applies to Launch Ubisoft, the post-install launch, and the client start before a Ubisoft game.
 
-## v0.76.0 - Unreleased
+
+### Documentation
+
+- **Docs simplified into eight canonical files (#707)** — about 40 first-party docs collapse into `docs/README.md`, a user guide, architecture, compatibility and contributor docs, with one route table, one launch flow and one `~/.metalsharp` layout.
+- **CI (#706, #708)** — GPUI Preview checks out submodules for the host runtime build; the PR readiness checklist workflow is removed.
+
+## v0.77.0 — 2026-10-04
+
+### Added
+
+- **Graphics routes for every library and installed programs in Sharp** — routes are staged for Steam, GOG, Epic and GameJolt games on route save and launch, and Sharp adopts installed launchers and games.
+- **Install owned Steam games from Collection** — through steamcmd.
+- **GOG and Epic sign-in popups** — provider sign-in popups open inside the GOG and Epic sign-in windows.
+- **Settings links** — the Steam Web API and TheGamesDB key pages are linked from Settings.
 
 ### Changed
 
-- **License changed to AGPL-3.0-or-later** (from PolyForm Noncommercial 1.0.0).
+- **Native GPUI app replaces Electron (#703)** — MetalSharp's desktop app is now a native GPUI application with the same behavior as the Electron app it replaces: it drives the same C backend with the same routes, setup flow, library, settings, Sharp Library, storefront sign-ins, streaming panel and updater. The release DMG packages the GPUI app (`MetalSharp.app`, Developer ID signed), and the Electron app is removed.
+- **Steam window identity** — the Wine Steam client starts through a small `MetalSharp Steam.app` helper, so its windows and Dock tile carry the MetalSharp Steam icon instead of MetalSharp's.
+
+### Fixed
+
+- **The Elder Scrolls V: Skyrim Special Edition** — launches `SkyrimSE.exe` instead of its launcher, and NPC dialogue (xWMA) plays through FAudio's Windows build, installed for Skyrim only.
+- **AMID EVIL** — launches through the Wine Steam client, where it starts reliably.
+- **Saved bottle routes** — a saved DXMT route is honored when saving, launching, checking readiness and diagnosing, and a `<Name>Launcher.exe` next to `<Name>.exe` no longer wins on directory order.
+- **Steam start and stop, uninstall, shutdown and browser logins** — fixes for Steam start/stop, a crash on uninstall, slow app shutdown and in-app browser logins.
+- **Runtime and release packaging (#705)** — the pinned `ntdll.so` again carries the x87 cooperative hook that release bundle verification requires, GPUI Preview CI builds the host runtime library it packages, and release signing on the self-hosted runner keeps the login keychain searchable.
+
+## v0.76.0 — 2026-10-01
 
 ### Added
 
 - **Per-game executable selection** — choose and persist an installed Windows game's `.exe` from Steam/Ubisoft hero settings or the GOG/Epic game card. Choices are validated to stay within the game's install folder and are applied on subsequent launches.
 
-## v0.75.0 - 09/28/2026
+### Changed
+
+- **Dependency updates (#695, #696, #698, #699)** — `@types/node`, Vite, marked and Prettier.
+- **CI (#693)** — the runtime-routes test tolerates the backend's `SIGCHLD` handler reaping its child first.
+
+### Fixed
+
+- **Baldur's Gate 3 launch and stop (#688)** — defaults to D3DMetal with a plain Steam handoff, selects `bin/bg3_dx11.exe`, migrates bottles from the old DXMT default once, and Stop and Cmd+Opt+Q end both the Larian launcher and the game.
+- **In-app updater recovery (#690, fixes #689)** — stable updates hand off to the verified recovery installer (`update.sh --recover`) after download, instead of the direct-DMG path that could leave MetalSharp closed without restarting.
+- **Storefront executable selection and Ubisoft visibility (#694)** — BeamNG.drive uses its 64-bit executable on Steam, The Witcher 3 launches `witcher3.exe` instead of REDlauncher on Steam, Epic and GOG, and an installed Ubisoft copy is no longer hidden by an uninstalled Steam entry.
+- **Sharp Library Open Folder (#700)** — **Tools → Open Folder** opens the selected app's bottle prefix in Finder, replacing the broken Add Asset flow.
+- **`fast-uri` host confusion (#691, GHSA-58mr-gqgx-xq4g)** — the override moves to the patched 3.1.7, with a regression test.
+
+### Documentation
+
+- **Supported games and README** — `GAMES-SUPPORTED.md` and README updates.
+
+## v0.75.0 — 2026-09-28
 
 ### Added
 
