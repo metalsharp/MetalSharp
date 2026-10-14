@@ -52,7 +52,6 @@
 - **Red Dead Redemption 2 and the Rockstar Games Launcher on D3DMetal and VKD3D** — the launcher draws its UI with D3D10.1 and exited about 3 s after start because D3DMetal lacks `DXGID3D10CreateDevice`. The graphics bundle now ships WFDXCompat's launcher companion (`Graphics/dll/wfdxcompat/`), setup stages it to `~/.metalsharp/runtime/wfdxcompat/`, and the D3DMetal route sets `WFDXCOMPAT_RUNTIME_DIR` so MetalSharp's Wine loads it for `Launcher.exe` and `SocialClubHelper.exe`. RDR2 now starts the launcher directly (with Wine Steam running) instead of through a Steam handoff that lost the route environment; both routes run the launcher on D3DMetal, VKD3D passes `-api Vulkan` with its MoltenVK lane, and D3DMetal switches `system.xml` to `kSettingAPI_DX12` before each launch.
 - **Ubisoft Connect client performance** — start Ubisoft Connect with the same Chromium switches EVE Online's launcher uses (`--disable-gpu`, `--in-process-gpu`, software WebGL through ANGLE), so its CEF UI no longer runs a GPU process under D3DMetal. Applies to Launch Ubisoft, the post-install launch, and the client start before a Ubisoft game.
 
-
 ### Documentation
 
 - **Docs simplified into eight canonical files (#707)** — about 40 first-party docs collapse into `docs/README.md`, a user guide, architecture, compatibility and contributor docs, with one route table, one launch flow and one `~/.metalsharp` layout.
