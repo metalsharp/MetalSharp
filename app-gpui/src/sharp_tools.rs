@@ -605,7 +605,7 @@ impl SharpPreview {
                         "POST",
                         "/steam/launch",
                         None,
-                        live::DEFAULT_TIMEOUT,
+                        live::STEAM_LAUNCH_TIMEOUT,
                         |_, r, cx| {
                             if r.as_ref().is_some_and(is_ok) {
                                 toast::success(cx, "Steam restart requested");

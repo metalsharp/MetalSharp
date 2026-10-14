@@ -47,17 +47,13 @@ for cef_dir in "$CEF_ROOT"/cef.*; do
   [ -e "$original" ] || [ -e "$real" ] || continue
 
   original_size=0
-  real_size=0
   [ -f "$original" ] && original_size=$(wc -c < "$original" | tr -d '[:space:]')
-  [ -f "$real" ] && real_size=$(wc -c < "$real" | tr -d '[:space:]')
 
+  # A full-size steamwebhelper.exe is Steam's own, freshly installed by a
+  # client update: it always becomes steamwebhelper_real.exe, never deleted.
   if [ "$original_size" -gt "$MAX" ]; then
-    if [ "$real_size" -le "$MAX" ]; then
-      rm -f "$real"
-      mv "$original" "$real"
-    else
-      rm -f "$original"
-    fi
+    rm -f "$real"
+    mv "$original" "$real"
   fi
 
   cp -p "$wrapper" "$original.tmp.$$"
@@ -76,5 +72,69 @@ done
   echo "No Steam CEF installations found under $CEF_ROOT" >&2
   exit 1
 }
+
+# Steam's client manifests (package/<name>.installed) list each CEF directory's
+# webhelper as "bin\cef\<dir>\steamwebhelper.exe,<size>;<mtime>;<crc32>". Older
+# MetalSharp deleted the webhelper a Steam update installed and kept the old
+# one as steamwebhelper_real.exe, which hangs Steam's UI. Restore it from
+# Steam's own package/*webhelper*.zip.vz.* download.
+PACKAGE_DIR="${CEF_ROOT%/bin/cef}/package"
+
+# VZ is "VZa", a 4-byte timestamp, 5 LZMA properties, raw LZMA data, then
+# CRC32, uncompressed size and "zv"; as an .lzma stream bsdtar reads the zip.
+vz_extract() {
+  local vz="$1" entry="$2" out="$3" length lzma="$tmp/webhelper.lzma"
+  length=$(wc -c < "$vz" | tr -d '[:space:]')
+  [ "$length" -gt 22 ] && [ "$(head -c 3 "$vz")" = VZa ] || return 1
+  {
+    tail -c +8 "$vz" | head -c 5
+    tail -c 6 "$vz" | head -c 4
+    printf '\0\0\0\0'
+    tail -c +13 "$vz" | head -c $((length - 22))
+  } > "$lzma"
+  /usr/bin/tar -xOf "$lzma" "$entry" > "$out"
+}
+
+stale=0
+for manifest in "$PACKAGE_DIR"/*.installed; do
+  [ -f "$manifest" ] || continue
+  while IFS=, read -r entry fields || [ -n "$entry" ]; do
+    # shellcheck disable=SC1003 # backslashes are literal Windows path separators
+    case "$entry" in 'bin\cef\'*'\steamwebhelper.exe') ;; *) continue ;; esac
+    # shellcheck disable=SC1003
+    cef_name=${entry#'bin\cef\'}
+    cef_name=${cef_name%'\steamwebhelper.exe'}
+    case "$cef_name" in '' | *\\*) continue ;; esac
+    fields=${fields%$'\r'}
+    want_size=${fields%%;*}
+    want_crc=${fields##*;}
+    real="$CEF_ROOT/$cef_name/steamwebhelper_real.exe"
+    [ -f "$CEF_ROOT/$cef_name/steamwebhelper.exe" ] || continue
+    read -r have_crc have_size _ < <(cksum -o 3 "$real" 2>/dev/null || echo "0 0")
+    [ "$have_crc" = "$want_crc" ] && [ "$have_size" = "$want_size" ] && continue
+    restored=0
+    staged="$real.ms-restore"
+    for vz in "$PACKAGE_DIR"/*webhelper*.zip.vz.*; do
+      [ -f "$vz" ] || continue
+      if vz_extract "$vz" "bin/cef/$cef_name/steamwebhelper.exe" "$staged"; then
+        read -r have_crc have_size _ < <(cksum -o 3 "$staged")
+        if [ "$have_crc" = "$want_crc" ] && [ "$have_size" = "$want_size" ]; then
+          chmod 755 "$staged"
+          mv -f "$staged" "$real"
+          restored=1
+          break
+        fi
+      fi
+      rm -f "$staged"
+    done
+    if [ "$restored" = 1 ]; then
+      echo "Restored Steam's updated webhelper for $cef_name."
+    else
+      echo "Steam's webhelper for $cef_name is out of date and its update package was not found." >&2
+      stale=1
+    fi
+  done < "$manifest"
+done
+[ "$stale" = 0 ] || exit 1
 
 echo "Deployed MetalSharp Steam webhelper wrapper to $count CEF directories."

@@ -265,7 +265,8 @@ static const char* image_type(const char* path) {
 static bool handle_grid_art(const ms_http_request* request, ms_http_response* response, const char* metalsharp_home) {
     long appid = 0;
     char kind[16] = {0};
-    if (sscanf(request->path, "/art/grid/%ld/%15s", &appid, kind) != 2 || appid <= 0 || appid > 2147483647L) {
+    /* Non-Steam shortcuts have appids above 2^31; Steam names their grid art the same way. */
+    if (sscanf(request->path, "/art/grid/%ld/%15s", &appid, kind) != 2 || appid <= 0 || appid > 4294967295L) {
         set_json_response(response, 404, strdup("{\"ok\":false,\"error\":\"invalid grid art request\"}"));
         return true;
     }

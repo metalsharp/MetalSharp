@@ -13,6 +13,9 @@ use std::{
 };
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
+/// `/steam/launch` waits up to 30 s for a cold Wine Steam to start, after its
+/// own launch preparation, so it gets more than the default.
+pub const STEAM_LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 struct Inner {
     base_url: String,
