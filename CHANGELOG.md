@@ -1,9 +1,28 @@
 # Changelog
 
-## Unreleased
+## v0.79.0 - Unreleased
+
+### Added
+
+- **Non-Steam games in the library (#727)** — games added to Wine Steam as non-Steam games (`shortcuts.vdf`) appear in MetalSharp's library automatically, with artwork from Steam's custom grid images, then SteamGridDB by name, then the game's icon. They start through Steam by default (`steam://rungameid`); choosing a route runs the game's executable directly. Stop works for them, and closing the game from inside clears its running state.
+- **Game controllers through SDL (#724)** — the bundled SDL2 is linked into the Wine runtime so `winebus` uses its SDL bus. Controllers macOS exposes only as vendor-defined HID, such as an Xbox Series X|S controller on Apple's driver, now reach games as XInput and DirectInput devices.
+- **Performance cores only for Elden Ring (#720)** — a small interpose shim reports only performance cores to Wine, so Elden Ring no longer oversubscribes its worker threads under Rosetta.
+
+### Changed
+
+- **Local IPC over Unix sockets (#726)** — the backend API, the Steam bridge and the in-game hook no longer use fixed loopback TCP ports (9274, 18733, 19384). The backend serves `$METALSHARP_HOME/run/backend.sock` in an owner-only directory, the Steam bridge moves to `run/steam-bridge.sock` (host ABI 2.0), the unused NT IPC bridge is removed, and the backend accepts only native-client requests.
+- **WineMetalGL is MetalSharp's OpenGL (#716, #722)** — every launch uses WineMetalGL 2.x (the runtime bundle now carries 3.1.0). Dead Cells' and Mosa Lina's OpenGL loaders get the later GL entry points they require.
+- **Start Steam waits for a cold start (#727)** — up to 30 s instead of 12 s before reporting that Wine Steam did not become ready; the app allows 60 s for the request.
+- **`DYLD_INSERT_LIBRARIES` reaches games (#719)** — the `metalsharp-wine` wrapper restores it from `METALSHARP_DYLD_INSERT_LIBRARIES`, since macOS strips `DYLD_*` variables when it runs the wrapper.
 
 ### Fixed
 
+- **Steam's UI never appeared after a Steam client update (#727)** — when a Steam update installed a new `steamwebhelper.exe`, MetalSharp's webhelper wrapper deployment deleted it and kept the previous webhelper, which cannot talk to the updated client: the UI loaded its JavaScript and stalled. A new Steam webhelper now always replaces the kept copy, and Start Steam, the update migration's last step and **Fix Steam** restore a stale one from Steam's downloaded update package, checked against Steam's client manifest.
+- **Portal launches from MetalSharp (#727)** — Portal starts through the Steam client.
+- **Start Steam when the Steam helper app is refused (#725)** — when LaunchServices refuses `MetalSharp Steam.app` (a quarantined or launch-disabled bundle), Wine Steam starts directly, and the issue log records the launch's real error.
+- **DOOM (2016) (#722)** — launches `DOOMx64.exe` on its OpenGL 4.5 renderer instead of `DOOMx64vk.exe -vulkan`, which fails on MoltenVK.
+- **A game closed from inside stops showing as running (#716)** — the running list no longer adopts an unrelated Wine program once a direct launch's process is gone.
+- **Updater install progress (#715)** — the progress bar no longer jumps backwards while the update closes MetalSharp and stops the old runtime.
 - **Ubisoft Connect login blocked by bot protection (#718)** — after submitting credentials, a fresh login landed on DataDome's "Access is temporarily restricted" page, which judges the browser by its WebGL GPU. Connect's WebGL ran on SwiftShader (a headless browser's renderer), and 32-bit Connect's D3D11 (Wine's wined3d) reports a GeForce GTX 470 that no current Windows driver supports. Connect's Chromium now composites in software as before, but runs WebGL on ANGLE's D3D11 (`--disable-gpu-compositing`, `--use-angle=d3d11` instead of `--disable-gpu`, `--disable-d3d11` and SwiftShader WebGL), and the Ubisoft prefix gives `UbisoftConnect.exe`, `upc.exe` and `Uplay.exe` wined3d's AMD Radeon RX 6800 XT IDs (`AppDefaults\<exe>\Direct3D`, 1002:73bf), the GPU that let the reporter log in. Games in the prefix keep their own adapter.
 
 ## v0.78.0 - Unreleased
