@@ -19,7 +19,7 @@ from pathlib import Path
 BACKEND = Path(sys.argv[1]).resolve()
 # MetalSharp: keep the synthetic release ahead of the app version; the
 # set-version script bumps this alongside the app version.
-VERSION = "0.78.1"  # Synthetic release must be newer than the current app.
+VERSION = "0.79.1"  # Synthetic release must be newer than the current app.
 
 
 class UnixHTTPConnection(http.client.HTTPConnection):
