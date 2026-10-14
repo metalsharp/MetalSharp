@@ -6663,7 +6663,9 @@ static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline
  * launched directly, but starts reliably through Steam (AmidEvil.exe ->
  * AmidEvil-Win64-Shipping.exe AmidEvil) with the same staged route DLLs. */
 static bool launches_through_steam_client(unsigned id) {
-    return id == 673130;
+    /* Portal (400) starts from Steam (hl2.exe -game portal -steam) but not
+     * as a direct launch of hl2.exe. */
+    return id == 673130 || id == 400;
 }
 
 static bool baldurs_gate_3_uses_steam_bootstrap(unsigned id, const char* pipeline) {

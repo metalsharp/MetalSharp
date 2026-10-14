@@ -1881,6 +1881,9 @@ int main(int argc, char** argv) {
         free(stopped);
     }
     {
+        /* AMID EVIL and Portal start through the Steam client; other games run directly. */
+        assert(launches_through_steam_client(673130) && launches_through_steam_client(400));
+        assert(!launches_through_steam_client(220) && !launches_through_steam_client(620));
         char* json = launch_mode_pid_result(42, 673130, "steam_handoff");
         char* launch_mode = NULL;
         long long number = 0;
