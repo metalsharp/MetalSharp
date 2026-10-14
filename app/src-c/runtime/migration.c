@@ -1765,7 +1765,8 @@ static void* migration_worker(void* opaque) {
                 FILE* note = note_path ? fopen(note_path, "w") : NULL;
                 if (note) {
                     fputs("After the update, the Steam webhelper wrapper could not be confirmed in every CEF "
-                          "directory.\nRun Start Steam > Fix Steam in MetalSharp.\n",
+                          "directory, or Steam's updated webhelper could not be restored from its package.\n"
+                          "Run Start Steam > Fix Steam in MetalSharp.\n",
                           note);
                     fclose(note);
                 }

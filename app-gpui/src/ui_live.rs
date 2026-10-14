@@ -1896,7 +1896,16 @@ impl MetalSharpApp {
             let _ = this.update(cx, |this, cx| {
                 this.live.steam_fix_busy = false;
                 match result {
-                    Ok(_) => toast::success(cx, "Fix Steam"),
+                    // The script reports what it repaired, e.g. a restored
+                    // webhelper after a Steam client update.
+                    Ok(output) => toast::success(
+                        cx,
+                        if output.is_empty() {
+                            "Fix Steam".into()
+                        } else {
+                            output
+                        },
+                    ),
                     Err(error) => toast::error(
                         cx,
                         if error.is_empty() {

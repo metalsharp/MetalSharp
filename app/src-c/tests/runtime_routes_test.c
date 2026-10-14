@@ -417,6 +417,136 @@ static void legacy_ntdll_hook_refresh_test(const char* root) {
     free(home);
 }
 
+static void sized_fixture(const char* home, const char* relative, size_t length, unsigned char seed) {
+    unsigned char* bytes = malloc(length);
+    assert(bytes);
+    for (size_t i = 0; i < length; i++)
+        bytes[i] = (unsigned char)(seed + i * 31u + (i >> 7));
+    fixture_bytes(home, relative, bytes, length);
+    free(bytes);
+}
+
+static unsigned long long fixture_size(const char* home, const char* relative, uint32_t* crc) {
+    char* path = join(home, relative);
+    unsigned long long size = 0;
+    *crc = steam_crc32_file(path, &size);
+    free(path);
+    return size;
+}
+
+/* A Steam client update installs a new steamwebhelper.exe over the wrapper.
+ * Deploying the wrapper again must keep that new webhelper as _real, and a
+ * stale _real left by older MetalSharp (which deleted the update) must be
+ * restored from Steam's package/bins_webhelpers_*.zip.vz.* to match the
+ * client manifest. */
+static void test_steamwebhelper_update(const char* root) {
+    char* home = join(root, "webhelper-update-home");
+    char* steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+    char* wrapper_source = strdup("../bundles/steamwebhelper.exe");
+    char* wrapper_cache = join(home, "cache/steam/steamwebhelper.exe");
+    char* src = join(root, "webhelper-update-src");
+    char command[4096];
+    uint32_t crc = 0, fresh_crc = 0;
+    unsigned char* data;
+    size_t lzma_length, zip_length;
+    FILE* file;
+    assert(home && steam && wrapper_source && wrapper_cache && src);
+    if (access(wrapper_source, R_OK) != 0) {
+        free(wrapper_source);
+        wrapper_source = strdup("../../app/bundles/steamwebhelper.exe");
+    }
+    {
+        char* cache = join(home, "cache/steam");
+        assert(cache && ensure_directory(cache));
+        free(cache);
+    }
+    assert(copy_file_path(wrapper_source, wrapper_cache) && steamwebhelper_wrapper_valid(wrapper_cache));
+
+    /* Steam updated: a new full-size steamwebhelper.exe next to an older _real. */
+    sized_fixture(steam, "bin/cef/cef.win64/steamwebhelper.exe", 150000, 'N');
+    sized_fixture(steam, "bin/cef/cef.win64/steamwebhelper_real.exe", 140000, 'O');
+    uint32_t updated_crc = 0;
+    unsigned long long updated_size = fixture_size(steam, "bin/cef/cef.win64/steamwebhelper.exe", &updated_crc);
+    deploy_steamwebhelper_wrapper(home, steam, false);
+    assert(fixture_size(steam, "bin/cef/cef.win64/steamwebhelper_real.exe", &crc) == updated_size &&
+           crc == updated_crc);
+    {
+        char* deployed = join(steam, "bin/cef/cef.win64/steamwebhelper.exe");
+        assert(steamwebhelper_wrapper_valid(deployed));
+        free(deployed);
+    }
+
+    /* Stale _real (the update was already deleted): restore from the package. */
+    sized_fixture(src, "bin/cef/cef.win64/steamwebhelper.exe", 160000, 'F');
+    unsigned long long fresh_size = fixture_size(src, "bin/cef/cef.win64/steamwebhelper.exe", &fresh_crc);
+    snprintf(command, sizeof(command),
+             "/usr/bin/tar -c --format zip -f '%s/wh.zip' -C '%s' bin/cef/cef.win64/steamwebhelper.exe && "
+             "/usr/bin/tar -c --format zip --lzma -f '%s/wh.lzma' -C '%s' bin/cef/cef.win64/steamwebhelper.exe",
+             root, src, root, src);
+    assert(system(command) == 0);
+    {
+        char* zip_path = join(root, "wh.zip");
+        char* lzma_path = join(root, "wh.lzma");
+        unsigned long long zip_size = 0;
+        uint32_t zip_crc = steam_crc32_file(zip_path, &zip_size);
+        unsigned char footer[10];
+        file = fopen(lzma_path, "rb");
+        assert(file && fseek(file, 0, SEEK_END) == 0);
+        lzma_length = (size_t)ftell(file);
+        assert(lzma_length > 13 && fseek(file, 0, SEEK_SET) == 0);
+        data = malloc(lzma_length);
+        assert(data && fread(data, 1, lzma_length, file) == lzma_length);
+        fclose(file);
+        zip_length = (size_t)zip_size;
+        footer[0] = (unsigned char)zip_crc;
+        footer[1] = (unsigned char)(zip_crc >> 8);
+        footer[2] = (unsigned char)(zip_crc >> 16);
+        footer[3] = (unsigned char)(zip_crc >> 24);
+        footer[4] = (unsigned char)zip_length;
+        footer[5] = (unsigned char)(zip_length >> 8);
+        footer[6] = (unsigned char)(zip_length >> 16);
+        footer[7] = (unsigned char)(zip_length >> 24);
+        footer[8] = 'z';
+        footer[9] = 'v';
+        char* vz = join(steam, "package/bins_webhelpers_win64.zip.vz.0123abcd_42");
+        char* parent = join(steam, "package");
+        assert(vz && parent && ensure_directory(parent));
+        file = fopen(vz, "wb");
+        assert(file);
+        assert(fwrite("VZa\0\0\0\0", 1, 7, file) == 7);
+        assert(fwrite(data, 1, 5, file) == 5);
+        assert(fwrite(data + 13, 1, lzma_length - 13, file) == lzma_length - 13);
+        assert(fwrite(footer, 1, sizeof(footer), file) == sizeof(footer));
+        assert(fclose(file) == 0);
+        free(data);
+        free(vz);
+        free(parent);
+        free(zip_path);
+        free(lzma_path);
+    }
+    snprintf(command, sizeof(command),
+             "bin\\cef\\cef.win64\\tier0_s64.dll,887960;1791921020;1\r\n"
+             "bin\\cef\\cef.win64\\steamwebhelper.exe,%llu;1791921020;%u\r\n",
+             fresh_size, (unsigned)fresh_crc);
+    fixture(steam, "package/steam_client_win64.installed", command);
+    assert(refresh_stale_steamwebhelpers(home, steam));
+    assert(fixture_size(steam, "bin/cef/cef.win64/steamwebhelper_real.exe", &crc) == fresh_size && crc == fresh_crc);
+    assert(refresh_stale_steamwebhelpers(home, steam));
+
+    /* No package carries the listed webhelper: report it, leave _real alone. */
+    snprintf(command, sizeof(command), "bin\\cef\\cef.win64\\steamwebhelper.exe,%llu;1791921020;%u\r\n", fresh_size,
+             (unsigned)(fresh_crc + 1));
+    fixture(steam, "package/steam_client_win64.installed", command);
+    assert(!refresh_stale_steamwebhelpers(home, steam));
+    assert(fixture_size(steam, "bin/cef/cef.win64/steamwebhelper_real.exe", &crc) == fresh_size && crc == fresh_crc);
+
+    free(home);
+    free(steam);
+    free(wrapper_source);
+    free(wrapper_cache);
+    free(src);
+}
+
 static void test_wine_sdl_link(const char* root) {
     char* home = join(root, "sdl-link-home");
     char* link_path = join(home, "runtime/wine/lib/libSDL2-2.0.0.dylib");
@@ -494,6 +624,7 @@ int main(int argc, char** argv) {
     test_ubisoft_library(home);
     test_ubisoft_idle_prefix_stop(home);
     test_wine_sdl_link(home);
+    test_steamwebhelper_update(home);
     ms_steam_apply_graphics_route(home, "d3dmetal");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows"));
     assert(getenv("D3DMETAL_FRAMEWORK_PATH"));

@@ -4532,19 +4532,25 @@ static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_di
                 }
             }
         } else {
-            if (real_size < STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
-                if (original_size > STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
-                    (void)unlink(real);
-                    (void)rename(original, real);
-                } else {
+            /* A full-size steamwebhelper.exe is Steam's own, freshly installed
+             * by a client update: it always becomes steamwebhelper_real.exe.
+             * Deleting it and keeping an older _real leaves a webhelper that
+             * cannot talk to the updated client, and Steam's UI never loads. */
+            if (original_size > STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
+                (void)unlink(real);
+                if (rename(original, real) != 0) {
                     free(cef_dir);
                     free(original);
                     free(real);
                     free(marker);
                     continue;
                 }
-            } else if (original) {
-                (void)unlink(original);
+            } else if (real_size < STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
+                free(cef_dir);
+                free(original);
+                free(real);
+                free(marker);
+                continue;
             }
             if (original && copy_file_path(wrapper, original) && marker) {
                 FILE* f = fopen(marker, "wb");
@@ -4563,6 +4569,215 @@ static void deploy_steamwebhelper_wrapper(const char* home, const char* steam_di
     free(cef_root);
 done:
     free(wrapper);
+}
+
+static uint32_t steam_crc32_file(const char* path, unsigned long long* size) {
+    static uint32_t table[256];
+    static bool table_ready = false;
+    unsigned char buffer[65536];
+    uint32_t crc = 0xFFFFFFFFu;
+    size_t read_count;
+    FILE* file = fopen(path, "rb");
+    *size = 0;
+    if (!file)
+        return 0;
+    if (!table_ready) {
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; k++)
+                c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            table[i] = c;
+        }
+        table_ready = true;
+    }
+    while ((read_count = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        for (size_t i = 0; i < read_count; i++)
+            crc = table[(crc ^ buffer[i]) & 0xFFu] ^ (crc >> 8);
+        *size += read_count;
+    }
+    fclose(file);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+/* Extracts `entry` from one of Steam's package/<name>.zip.vz.<hash> archives.
+ * VZ is "VZa", a 4-byte timestamp, 5 LZMA properties, raw LZMA data, then
+ * CRC32, uncompressed size and "zv". Rewrapped as an .lzma stream, the system
+ * bsdtar (libarchive with liblzma) reads the zip inside. */
+static bool extract_from_steam_vz(const char* home, const char* vz, const char* entry, const char* output) {
+    FILE* in = fopen(vz, "rb");
+    FILE* out = NULL;
+    unsigned char* data = NULL;
+    char* lzma = join(home, "cache/.steam-webhelper.lzma");
+    long length;
+    int fd = -1;
+    pid_t pid;
+    bool ok = false;
+    if (!in || !lzma || fseek(in, 0, SEEK_END) != 0 || (length = ftell(in)) < 22 || length > 256L * 1024 * 1024 ||
+        fseek(in, 0, SEEK_SET) != 0)
+        goto done;
+    data = malloc((size_t)length);
+    if (!data || fread(data, 1, (size_t)length, in) != (size_t)length || memcmp(data, "VZa", 3) != 0 ||
+        memcmp(data + length - 2, "zv", 2) != 0)
+        goto done;
+    out = fopen(lzma, "wb");
+    if (!out)
+        goto done;
+    {
+        unsigned char header[13];
+        memcpy(header, data + 7, 5);
+        memcpy(header + 5, data + length - 6, 4);
+        memset(header + 9, 0, 4);
+        if (fwrite(header, 1, sizeof(header), out) != sizeof(header) ||
+            fwrite(data + 12, 1, (size_t)(length - 22), out) != (size_t)(length - 22))
+            goto done;
+    }
+    if (fclose(out) != 0) {
+        out = NULL;
+        goto done;
+    }
+    out = NULL;
+    fd = open(output, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    if (fd < 0)
+        goto done;
+    pid = fork();
+    if (pid < 0)
+        goto done;
+    if (pid == 0) {
+        (void)dup2(fd, STDOUT_FILENO);
+        execl("/usr/bin/tar", "tar", "-xOf", lzma, entry, (char*)NULL);
+        _exit(127);
+    }
+    ok = wait_child_success(pid);
+done:
+    if (fd >= 0)
+        close(fd);
+    if (out)
+        fclose(out);
+    if (in)
+        fclose(in);
+    if (lzma)
+        (void)unlink(lzma);
+    free(lzma);
+    free(data);
+    return ok;
+}
+
+/* Restores Steam's current webhelper as steamwebhelper_real.exe in a CEF
+ * directory. Tries every webhelper package Steam has downloaded and keeps the
+ * one matching the client manifest's size and CRC32. */
+static bool restore_steamwebhelper_from_package(const char* home, const char* steam_dir, const char* cef_name,
+                                                const char* real, unsigned long long size, uint32_t crc) {
+    char* package_dir = join(steam_dir, "package");
+    char* staged = real ? malloc(strlen(real) + 16) : NULL;
+    char entry[PATH_MAX];
+    char* cache = join(home, "cache");
+    DIR* dir = package_dir ? opendir(package_dir) : NULL;
+    struct dirent* item;
+    bool restored = false;
+    if (!dir || !staged || !cache || !ensure_directory(cache))
+        goto done;
+    sprintf(staged, "%s.ms-restore", real);
+    snprintf(entry, sizeof(entry), "bin/cef/%s/steamwebhelper.exe", cef_name);
+    while (!restored && (item = readdir(dir)) != NULL) {
+        char* vz;
+        unsigned long long staged_size = 0;
+        if (!strstr(item->d_name, "webhelper") || !strstr(item->d_name, ".zip.vz."))
+            continue;
+        vz = join(package_dir, item->d_name);
+        if (vz && extract_from_steam_vz(home, vz, entry, staged) && steam_crc32_file(staged, &staged_size) == crc &&
+            staged_size == size && rename(staged, real) == 0)
+            restored = true;
+        free(vz);
+    }
+done:
+    if (staged)
+        (void)unlink(staged);
+    if (dir)
+        closedir(dir);
+    free(staged);
+    free(cache);
+    free(package_dir);
+    return restored;
+}
+
+/* Steam's client manifests (package/<name>.installed) list the webhelper of every
+ * CEF directory it ships as "bin\cef\<dir>\steamwebhelper.exe,<size>;<mtime>;<crc32>".
+ * Where the wrapper is deployed, steamwebhelper_real.exe must be that file.
+ * An older MetalSharp deleted the updated webhelper after a Steam client update
+ * and kept the previous one, which hangs Steam's UI; restore it from Steam's
+ * package. Returns false when a listed webhelper is stale and cannot be restored. */
+static bool refresh_stale_steamwebhelpers(const char* home, const char* steam_dir) {
+    static const char prefix[] = "bin\\cef\\";
+    static const char suffix[] = "\\steamwebhelper.exe,";
+    char* package_dir = steam_dir ? join(steam_dir, "package") : NULL;
+    DIR* dir = package_dir ? opendir(package_dir) : NULL;
+    struct dirent* item;
+    bool ok = true;
+    while (dir && (item = readdir(dir)) != NULL) {
+        size_t name_length = strlen(item->d_name);
+        char* manifest;
+        char* text;
+        if (name_length < 10 || strcmp(item->d_name + name_length - 10, ".installed") != 0)
+            continue;
+        manifest = join(package_dir, item->d_name);
+        text = manifest ? read_bounded_file(manifest) : NULL;
+        for (char* line = text; line && *line;) {
+            char* next = strpbrk(line, "\r\n");
+            char* mark;
+            if (next)
+                *next++ = '\0';
+            mark = strstr(line, suffix);
+            if (!strncasecmp(line, prefix, sizeof(prefix) - 1) && mark && mark > line + sizeof(prefix) - 1) {
+                char cef_name[128];
+                unsigned long long size = 0;
+                unsigned long long mtime = 0;
+                unsigned long long crc = 0;
+                size_t cef_length = (size_t)(mark - line) - (sizeof(prefix) - 1);
+                if (cef_length < sizeof(cef_name) && !memchr(line + sizeof(prefix) - 1, '\\', cef_length) &&
+                    sscanf(mark + sizeof(suffix) - 1, "%llu;%llu;%llu", &size, &mtime, &crc) == 3 &&
+                    size > STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
+                    char* cef_dir;
+                    char* original;
+                    char* real;
+                    struct stat original_stat;
+                    memcpy(cef_name, line + sizeof(prefix) - 1, cef_length);
+                    cef_name[cef_length] = '\0';
+                    cef_dir = join(steam_dir, "bin/cef");
+                    original = cef_dir ? join(cef_dir, cef_name) : NULL;
+                    free(cef_dir);
+                    cef_dir = original;
+                    original = cef_dir ? join(cef_dir, "steamwebhelper.exe") : NULL;
+                    real = cef_dir ? join(cef_dir, "steamwebhelper_real.exe") : NULL;
+                    /* Only a deployed wrapper uses _real; a full-size
+                     * steamwebhelper.exe is Steam's own and is current. */
+                    if (original && real && stat(original, &original_stat) == 0 &&
+                        (unsigned long long)original_stat.st_size <= STEAMWEBHELPER_WRAPPER_MAX_BYTES) {
+                        unsigned long long real_size = 0;
+                        uint32_t real_crc = steam_crc32_file(real, &real_size);
+                        if (real_size != size || real_crc != (uint32_t)crc) {
+                            char message[256];
+                            bool restored = restore_steamwebhelper_from_package(home, steam_dir, cef_name, real, size,
+                                                                                (uint32_t)crc);
+                            snprintf(message, sizeof(message), "%s Steam's updated webhelper for %s",
+                                     restored ? "Restored" : "Could not restore", cef_name);
+                            ms_log_event(home, message);
+                            ok = ok && restored;
+                        }
+                    }
+                    free(cef_dir);
+                    free(original);
+                    free(real);
+                }
+            }
+            line = next;
+        }
+        free(text);
+        free(manifest);
+    }
+    if (dir)
+        closedir(dir);
+    free(package_dir);
+    return ok;
 }
 
 static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
@@ -4600,6 +4815,7 @@ static void ensure_steam_launch_ready(const char* home, const char* steam_dir) {
     free(cef_root);
     if (deploy)
         deploy_steamwebhelper_wrapper(home, steam_dir, false);
+    (void)refresh_stale_steamwebhelpers(home, steam_dir);
 }
 
 static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
@@ -4633,15 +4849,19 @@ static bool steamwebhelper_wrappers_ready(const char* steam_dir) {
 /* MetalSharp: migration-time guarantee that the Steam wrappers and shims
  * cannot be lost. Re-extracts the steamwebhelper wrapper from the bundled
  * archive when the cache was wiped, redeploys it into every CEF directory,
- * restores the steam-bridge shim from runtime/shims, and restores the
- * Goldberg payloads from the assets fallback when the runtime copies
- * vanish. Returns true when every wrapper is present afterwards. */
+ * restores Steam's current webhelper as steamwebhelper_real.exe when it is
+ * stale against Steam's client manifest, restores the steam-bridge shim from
+ * runtime/shims, and restores the Goldberg payloads from the assets fallback
+ * when the runtime copies vanish. Returns true when every wrapper is present
+ * and every webhelper is current afterwards. */
 bool ms_steam_wrappers_ensure(const char* home) {
     bool ok = true;
     char* steam_dir = home ? join(home, "prefix-steam/drive_c/Program Files (x86)/Steam") : NULL;
 
     deploy_steamwebhelper_wrapper(home, steam_dir, false);
     if (!steamwebhelper_wrappers_ready(steam_dir))
+        ok = false;
+    if (!refresh_stale_steamwebhelpers(home, steam_dir))
         ok = false;
 
     /* Steam bridge shim: restore the deployed copy from runtime/shims. */
