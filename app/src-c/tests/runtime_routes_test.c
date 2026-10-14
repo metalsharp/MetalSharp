@@ -417,6 +417,45 @@ static void legacy_ntdll_hook_refresh_test(const char* root) {
     free(home);
 }
 
+static void test_wine_sdl_link(const char* root) {
+    char* home = join(root, "sdl-link-home");
+    char* link_path = join(home, "runtime/wine/lib/libSDL2-2.0.0.dylib");
+    char target[PATH_MAX];
+    ssize_t length;
+    struct stat st;
+
+    /* No Wine runtime or no bundled SDL2: nothing to do, and not an error. */
+    assert(ms_setup_wine_sdl_ensure(home));
+    fixture(home, "runtime/wine/lib/libz.dylib", "z");
+    assert(ms_setup_wine_sdl_ensure(home));
+    assert(lstat(link_path, &st) != 0);
+
+    fixture(home, "runtime/shims/libSDL2-2.0.0.dylib", "sdl");
+    assert(ms_setup_wine_sdl_ensure(home));
+    length = readlink(link_path, target, sizeof(target) - 1);
+    assert(length > 0);
+    target[length] = '\0';
+    assert(!strcmp(target, "../../shims/libSDL2-2.0.0.dylib"));
+    assert(stat(link_path, &st) == 0 && S_ISREG(st.st_mode));
+    assert(ms_setup_wine_sdl_ensure(home));
+
+    /* A dangling link is replaced; a runtime-provided SDL2 is left alone. */
+    assert(unlink(link_path) == 0);
+    assert(symlink("../../missing/libSDL2-2.0.0.dylib", link_path) == 0);
+    assert(ms_setup_wine_sdl_ensure(home));
+    length = readlink(link_path, target, sizeof(target) - 1);
+    assert(length > 0);
+    target[length] = '\0';
+    assert(!strcmp(target, "../../shims/libSDL2-2.0.0.dylib"));
+    assert(unlink(link_path) == 0);
+    fixture(home, "runtime/wine/lib/libSDL2-2.0.0.dylib", "runtime sdl");
+    assert(ms_setup_wine_sdl_ensure(home));
+    assert(lstat(link_path, &st) == 0 && S_ISREG(st.st_mode));
+
+    free(link_path);
+    free(home);
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
         for (;;)
@@ -454,6 +493,7 @@ int main(int argc, char** argv) {
     assert(!valid_pipeline("unknown"));
     test_ubisoft_library(home);
     test_ubisoft_idle_prefix_stop(home);
+    test_wine_sdl_link(home);
     ms_steam_apply_graphics_route(home, "d3dmetal");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows"));
     assert(getenv("D3DMETAL_FRAMEWORK_PATH"));

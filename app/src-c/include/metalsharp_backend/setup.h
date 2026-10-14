@@ -11,6 +11,8 @@ void ms_clear_quarantine_tree(const char* path);
 bool ms_setup_wine_wrapper_ensure(const char* metalsharp_home);
 /* Replace or remove pre-C-backend hook DLL copies that still carry the NT IPC client. */
 void ms_setup_refresh_legacy_ntdll_hooks(const char* metalsharp_home);
+/* Link the bundled SDL2 into the Wine runtime so winebus can use its SDL controller bus. */
+bool ms_setup_wine_sdl_ensure(const char* metalsharp_home);
 bool ms_setup_ensure_faudio(const char* metalsharp_home);
 
 char* ms_setup_state_json(const char* metalsharp_home);
