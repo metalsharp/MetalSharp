@@ -42,6 +42,10 @@
 
 #define STEAMWEBHELPER_WRAPPER_MAX_BYTES 100000ULL
 #define STEAMWEBHELPER_WRAPPER_SHA256    "f46a1e8c39c850ba22861f63559f13b4f68557acf04a92e6d1b899769b2ea1f9"
+/* 100 ms polls for a freshly started Wine Steam client to appear. A cold
+ * start (wineserver, then Steam.exe through the helper app) can take longer
+ * than 12 s, and the launch must not be reported as failed while it comes up. */
+#define WINE_STEAM_READY_POLLS 300
 
 /* Steam launch arguments that let a Chromium-based launcher start under
  * D3DMetal: no sandbox, GPU off, software WebGL through ANGLE. */
@@ -4003,7 +4007,7 @@ char* ms_steam_launch_json(const char* home, int* status) {
                                       "-noverifyfiles", "-no-dwrite", &pid);
     if (!errtext) {
         (void)write_wine_steam_route_pending(home, "d3dmetal");
-        for (int i = 0; i < 120 && !ms_steam_process_running(home); i++)
+        for (int i = 0; i < WINE_STEAM_READY_POLLS && !ms_steam_process_running(home); i++)
             usleep(100000);
     }
     free(steam);
@@ -4057,7 +4061,7 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
     free(steam_dir);
     if (error_text)
         return error_text;
-    for (int i = 0; i < 120 && !ms_steam_process_running(home); i++)
+    for (int i = 0; i < WINE_STEAM_READY_POLLS && !ms_steam_process_running(home); i++)
         usleep(100000);
     if (!ms_steam_process_running(home))
         return strdup("Wine Steam was started but did not become ready for this graphics route");
