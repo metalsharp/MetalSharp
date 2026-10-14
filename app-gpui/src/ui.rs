@@ -3240,7 +3240,8 @@ impl MetalSharpApp {
                     ),
             );
         }
-        if !game.is_ubisoft() {
+        // Goldberg stands in for a Steam app; a non-Steam shortcut has none.
+        if !game.is_ubisoft() && !game.is_shortcut() {
             let active = self.live.steam_emu_active;
             let enabled = game.installed && !self.live.steam_emu_busy;
             menu = menu.child(row(

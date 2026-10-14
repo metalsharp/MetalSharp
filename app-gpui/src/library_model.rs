@@ -96,6 +96,10 @@ impl LibGame {
     pub fn is_ubisoft(&self) -> bool {
         self.source.as_deref() == Some("ubisoft")
     }
+    /// A non-Steam game the user added to Wine Steam (shortcuts.vdf).
+    pub fn is_shortcut(&self) -> bool {
+        self.source.as_deref() == Some("steam_shortcut")
+    }
     pub fn str_or<'a>(value: &'a Option<String>) -> &'a str {
         value.as_deref().unwrap_or("")
     }
@@ -339,6 +343,26 @@ mod tests {
 
     fn game(value: Value) -> LibGame {
         serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn steam_shortcuts_launch_through_wine_steam() {
+        let shortcut = game(json!({
+            "appid": 3039101758u64, "name": "Soma", "installed": true,
+            "source": "steam_shortcut", "gameid": "13052842659859660800",
+            "launch_method": "steam", "cover_url": null
+        }));
+        assert!(shortcut.is_shortcut() && !shortcut.is_ubisoft());
+        assert_eq!(shortcut.key(), (false, 3039101758));
+        let (endpoint, body) = launch_request(&shortcut);
+        assert_eq!(endpoint, "/steam/launch-game");
+        assert_eq!(body["launchMethod"], "steam");
+        assert_eq!(body["appid"], 3039101758u64);
+        let routed = game(
+            json!({"appid": 3039101758u64, "source": "steam_shortcut", "launch_method": "d3dmetal"}),
+        );
+        assert_eq!(launch_request(&routed).0, "/steam/launch-game");
+        assert!(!game(json!({"appid": 400, "name": "Portal"})).is_shortcut());
     }
 
     #[test]

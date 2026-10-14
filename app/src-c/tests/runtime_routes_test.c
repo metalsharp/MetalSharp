@@ -547,6 +547,89 @@ static void test_steamwebhelper_update(const char* root) {
     free(src);
 }
 
+typedef struct {
+    unsigned char bytes[2048];
+    size_t length;
+} vdf_buffer;
+
+static void vdf_put(vdf_buffer* vdf, unsigned char type, const char* key) {
+    size_t key_length = strlen(key) + 1;
+    assert(vdf->length + 1 + key_length < sizeof(vdf->bytes));
+    vdf->bytes[vdf->length++] = type;
+    memcpy(vdf->bytes + vdf->length, key, key_length);
+    vdf->length += key_length;
+}
+
+static void vdf_string(vdf_buffer* vdf, const char* key, const char* value) {
+    size_t value_length = strlen(value) + 1;
+    vdf_put(vdf, 0x01, key);
+    assert(vdf->length + value_length < sizeof(vdf->bytes));
+    memcpy(vdf->bytes + vdf->length, value, value_length);
+    vdf->length += value_length;
+}
+
+static void vdf_int(vdf_buffer* vdf, const char* key, unsigned value) {
+    vdf_put(vdf, 0x02, key);
+    for (int i = 0; i < 4; i++)
+        vdf->bytes[vdf->length++] = (unsigned char)(value >> (8 * i));
+}
+
+static void vdf_end(vdf_buffer* vdf) {
+    vdf->bytes[vdf->length++] = 0x08;
+}
+
+/* Non-Steam games come from Wine Steam's binary shortcuts.vdf and start
+ * through Steam by their 64-bit game id. */
+static void test_steam_shortcuts(void) {
+    static const char steamapps[] = "/prefix/drive_c/Program Files (x86)/Steam/steamapps";
+    vdf_buffer vdf = {{0}, 0};
+    ms_steam_shortcut* shortcuts = NULL;
+    size_t count = 0;
+    char url[96];
+    vdf_put(&vdf, 0x00, "shortcuts");
+    vdf_put(&vdf, 0x00, "0");
+    vdf_int(&vdf, "appid", 3039101758u);
+    vdf_string(&vdf, "AppName", "Soma");
+    vdf_string(&vdf, "Exe", "\"Z:\\Volumes\\AverySSD\\SOMA\\Soma.exe\"");
+    vdf_string(&vdf, "StartDir", "\"Z:\\Volumes\\AverySSD\\SOMA\\\"");
+    vdf_string(&vdf, "LaunchOptions", "");
+    vdf_int(&vdf, "IsHidden", 0);
+    vdf_put(&vdf, 0x0A, "LastPlayTimeHigh");
+    for (int i = 0; i < 8; i++)
+        vdf.bytes[vdf.length++] = 0;
+    vdf_put(&vdf, 0x00, "tags");
+    vdf_string(&vdf, "0", "favorite");
+    vdf_end(&vdf);
+    vdf_end(&vdf);
+    vdf_put(&vdf, 0x00, "1");
+    vdf_int(&vdf, "appid", 4200861916u);
+    vdf_string(&vdf, "AppName", "Hidden");
+    vdf_string(&vdf, "Exe", "\"Z:\\hidden.exe\"");
+    vdf_int(&vdf, "IsHidden", 1);
+    vdf_end(&vdf);
+    vdf_end(&vdf);
+    vdf_end(&vdf);
+
+    assert(ms_steam_shortcuts_parse(vdf.bytes, vdf.length, steamapps, &shortcuts, &count) == 1 && count == 1);
+    assert(shortcuts[0].appid == 3039101758u && !strcmp(shortcuts[0].name, "Soma"));
+    assert(!strcmp(shortcuts[0].executable, "/prefix/dosdevices/z:/Volumes/AverySSD/SOMA/Soma.exe"));
+    assert(shortcuts[0].start_dir && !strcmp(shortcuts[0].start_dir, "/prefix/dosdevices/z:/Volumes/AverySSD/SOMA/"));
+    ms_steam_shortcuts_free(shortcuts, count);
+    free(shortcuts);
+
+    /* Truncated in the middle of an entry: nothing half-parsed comes back. */
+    shortcuts = NULL;
+    count = 0;
+    assert(ms_steam_shortcuts_parse(vdf.bytes, 40, steamapps, &shortcuts, &count) == 0 && count == 0);
+    free(shortcuts);
+    assert(ms_steam_shortcuts_parse((const unsigned char*)"\0nope\0\b\b", 8, steamapps, &shortcuts, &count) == 0);
+
+    assert(ms_steam_appid_is_shortcut(3039101758u) && !ms_steam_appid_is_shortcut(400));
+    assert(format_steam_run_url(url, sizeof(url), 3039101758u, "ignored") &&
+           !strcmp(url, "steam://rungameid/13052842659859660800"));
+    assert(format_steam_run_url(url, sizeof(url), 400, NULL) && !strcmp(url, "steam://run/400"));
+}
+
 static void test_wine_sdl_link(const char* root) {
     char* home = join(root, "sdl-link-home");
     char* link_path = join(home, "runtime/wine/lib/libSDL2-2.0.0.dylib");
@@ -625,6 +708,7 @@ int main(int argc, char** argv) {
     test_ubisoft_idle_prefix_stop(home);
     test_wine_sdl_link(home);
     test_steamwebhelper_update(home);
+    test_steam_shortcuts();
     ms_steam_apply_graphics_route(home, "d3dmetal");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows"));
     assert(getenv("D3DMETAL_FRAMEWORK_PATH"));

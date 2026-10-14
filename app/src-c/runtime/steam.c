@@ -671,6 +671,246 @@ char* ms_steam_library_host_path(const char* steamapps, const char* value, size_
     return result;
 }
 
+/* Binary VDF: a type byte (0x00 map, 0x01 string, 0x02 int32, 0x03 float,
+ * 0x04 pointer, 0x06 color, 0x07 uint64, 0x0A int64, 0x08 end of map), a
+ * NUL-terminated key, then the value. */
+typedef struct {
+    const unsigned char* at;
+    const unsigned char* end;
+} binary_vdf;
+
+static const char* binary_vdf_string(binary_vdf* vdf) {
+    const unsigned char* nul = memchr(vdf->at, '\0', (size_t)(vdf->end - vdf->at));
+    const char* text = (const char*)vdf->at;
+    if (!nul)
+        return NULL;
+    vdf->at = nul + 1;
+    return text;
+}
+
+static bool binary_vdf_skip_value(binary_vdf* vdf, unsigned char type, int depth) {
+    size_t width = 0;
+    switch (type) {
+    case 0x00:
+        if (depth > 8)
+            return false;
+        for (;;) {
+            unsigned char inner;
+            if (vdf->at >= vdf->end)
+                return false;
+            inner = *vdf->at++;
+            if (inner == 0x08)
+                return true;
+            if (!binary_vdf_string(vdf) || !binary_vdf_skip_value(vdf, inner, depth + 1))
+                return false;
+        }
+    case 0x01:
+        return binary_vdf_string(vdf) != NULL;
+    case 0x02:
+    case 0x03:
+    case 0x04:
+    case 0x06:
+        width = 4;
+        break;
+    case 0x07:
+    case 0x0A:
+        width = 8;
+        break;
+    default:
+        return false;
+    }
+    if ((size_t)(vdf->end - vdf->at) < width)
+        return false;
+    vdf->at += width;
+    return true;
+}
+
+static char* shortcut_host_path(const char* steamapps, const char* value) {
+    size_t length = value ? strlen(value) : 0;
+    if (length >= 2 && value[0] == '"' && value[length - 1] == '"') {
+        value++;
+        length -= 2;
+    }
+    return length ? ms_steam_library_host_path(steamapps, value, length) : NULL;
+}
+
+size_t ms_steam_shortcuts_parse(const unsigned char* data, size_t length, const char* steamapps,
+                                ms_steam_shortcut** shortcuts, size_t* count) {
+    binary_vdf vdf = {data, data + length};
+    const char* root;
+    size_t added = 0;
+    if (!data || length < 2 || *vdf.at++ != 0x00 || !(root = binary_vdf_string(&vdf)) ||
+        strcasecmp(root, "shortcuts") != 0)
+        return 0;
+    while (vdf.at < vdf.end) {
+        unsigned char type = *vdf.at++;
+        unsigned appid = 0;
+        unsigned hidden = 0;
+        const char *name = NULL, *exe = NULL, *start_dir = NULL, *options = NULL;
+        if (type == 0x08)
+            break;
+        if (!binary_vdf_string(&vdf))
+            break;
+        if (type != 0x00) {
+            if (!binary_vdf_skip_value(&vdf, type, 1))
+                break;
+            continue;
+        }
+        for (;;) {
+            unsigned char field;
+            const char* key;
+            if (vdf.at >= vdf.end)
+                return added;
+            field = *vdf.at++;
+            if (field == 0x08)
+                break;
+            if (!(key = binary_vdf_string(&vdf)))
+                return added;
+            if (field == 0x01 && (!strcasecmp(key, "AppName") || !strcasecmp(key, "Exe") ||
+                                  !strcasecmp(key, "StartDir") || !strcasecmp(key, "LaunchOptions"))) {
+                const char* value = binary_vdf_string(&vdf);
+                if (!value)
+                    return added;
+                if (!strcasecmp(key, "AppName"))
+                    name = value;
+                else if (!strcasecmp(key, "Exe"))
+                    exe = value;
+                else if (!strcasecmp(key, "StartDir"))
+                    start_dir = value;
+                else
+                    options = value;
+            } else if (field == 0x02 && (!strcasecmp(key, "appid") || !strcasecmp(key, "IsHidden"))) {
+                unsigned value;
+                if (vdf.end - vdf.at < 4)
+                    return added;
+                value = (unsigned)vdf.at[0] | (unsigned)vdf.at[1] << 8 | (unsigned)vdf.at[2] << 16 |
+                        (unsigned)vdf.at[3] << 24;
+                vdf.at += 4;
+                if (!strcasecmp(key, "appid"))
+                    appid = value;
+                else
+                    hidden = value;
+            } else if (!binary_vdf_skip_value(&vdf, field, 2)) {
+                return added;
+            }
+        }
+        if (!ms_steam_appid_is_shortcut(appid) || hidden || !name || !name[0] || !exe || !exe[0])
+            continue;
+        {
+            ms_steam_shortcut* grown = realloc(*shortcuts, (*count + 1) * sizeof(**shortcuts));
+            ms_steam_shortcut* shortcut;
+            if (!grown)
+                break;
+            *shortcuts = grown;
+            shortcut = &grown[*count];
+            memset(shortcut, 0, sizeof(*shortcut));
+            shortcut->appid = appid;
+            shortcut->name = strdup(name);
+            shortcut->executable = shortcut_host_path(steamapps, exe);
+            shortcut->start_dir = start_dir ? shortcut_host_path(steamapps, start_dir) : NULL;
+            shortcut->launch_options = strdup(options ? options : "");
+            if (!shortcut->name || !shortcut->executable || !shortcut->launch_options) {
+                ms_steam_shortcuts_free(shortcut, 1);
+                continue;
+            }
+            (*count)++;
+            added++;
+        }
+    }
+    return added;
+}
+
+void ms_steam_shortcuts_free(ms_steam_shortcut* shortcuts, size_t count) {
+    for (size_t i = 0; shortcuts && i < count; i++) {
+        free(shortcuts[i].name);
+        free(shortcuts[i].executable);
+        free(shortcuts[i].start_dir);
+        free(shortcuts[i].launch_options);
+    }
+}
+
+size_t ms_steam_shortcuts_load(const char* metalsharp_home, ms_steam_shortcut** shortcuts) {
+    char* steam = join_path(metalsharp_home, "prefix-steam/drive_c/Program Files (x86)/Steam");
+    char* steamapps = steam ? join_path(steam, "steamapps") : NULL;
+    char* userdata = steam ? join_path(steam, "userdata") : NULL;
+    DIR* dir = userdata ? opendir(userdata) : NULL;
+    struct dirent* entry;
+    size_t count = 0;
+    *shortcuts = NULL;
+    while (dir && (entry = readdir(dir)) != NULL) {
+        char relative[NAME_MAX + 32];
+        char* path;
+        unsigned char* data;
+        size_t length = 0;
+        if (entry->d_name[0] == '.')
+            continue;
+        snprintf(relative, sizeof(relative), "%s/config/shortcuts.vdf", entry->d_name);
+        path = join_path(userdata, relative);
+        data = path ? (unsigned char*)read_file(path, &length) : NULL;
+        if (data) {
+            size_t before = count;
+            (void)ms_steam_shortcuts_parse(data, length, steamapps, shortcuts, &count);
+            /* The same shortcut can exist in two accounts: keep the first. */
+            for (size_t i = before; i < count;) {
+                bool duplicate = false;
+                for (size_t j = 0; j < before && !duplicate; j++)
+                    duplicate = (*shortcuts)[j].appid == (*shortcuts)[i].appid;
+                if (duplicate) {
+                    ms_steam_shortcuts_free(&(*shortcuts)[i], 1);
+                    memmove(&(*shortcuts)[i], &(*shortcuts)[i + 1], (count - i - 1) * sizeof(**shortcuts));
+                    count--;
+                } else {
+                    i++;
+                }
+            }
+        }
+        free(data);
+        free(path);
+    }
+    if (dir)
+        closedir(dir);
+    free(userdata);
+    free(steamapps);
+    free(steam);
+    return count;
+}
+
+char* ms_steam_shortcut_executable(const char* metalsharp_home, unsigned appid) {
+    ms_steam_shortcut* shortcuts = NULL;
+    size_t count;
+    char* result = NULL;
+    if (!ms_steam_appid_is_shortcut(appid))
+        return NULL;
+    count = ms_steam_shortcuts_load(metalsharp_home, &shortcuts);
+    for (size_t i = 0; i < count && !result; i++)
+        if (shortcuts[i].appid == appid)
+            result = strdup(shortcuts[i].executable);
+    ms_steam_shortcuts_free(shortcuts, count);
+    free(shortcuts);
+    return result;
+}
+
+/* The directory a shortcut starts in: its StartDir, else its executable's. */
+static char* shortcut_game_dir(const char* metalsharp_home, unsigned appid) {
+    ms_steam_shortcut* shortcuts = NULL;
+    size_t count = ms_steam_shortcuts_load(metalsharp_home, &shortcuts);
+    char* result = NULL;
+    for (size_t i = 0; i < count && !result; i++) {
+        if (shortcuts[i].appid != appid)
+            continue;
+        if (shortcuts[i].start_dir && access(shortcuts[i].start_dir, R_OK) == 0) {
+            result = strdup(shortcuts[i].start_dir);
+        } else {
+            char* slash = strrchr(shortcuts[i].executable, '/');
+            if (slash)
+                result = strndup(shortcuts[i].executable, (size_t)(slash - shortcuts[i].executable));
+        }
+    }
+    ms_steam_shortcuts_free(shortcuts, count);
+    free(shortcuts);
+    return result;
+}
+
 static char* vdf_path_value(const char* steamapps, const char* line) {
     const char* value;
     const char* end;
@@ -1016,6 +1256,8 @@ static const char* pipeline_display_name(const char* pipeline) {
         return "Mono/FNA";
     if (!strcmp(pipeline, "mac_steam"))
         return "Native macOS";
+    if (!strcmp(pipeline, "steam"))
+        return "Steam";
     return "VKD3D";
 }
 
@@ -1108,6 +1350,87 @@ static void write_library_game(ms_json_writer* w, const char* home, const steam_
     free(executable);
 }
 
+/* A non-Steam game from shortcuts.vdf. It starts through Steam by default,
+ * as the user added it there; a route chosen in MetalSharp launches its exe
+ * directly. Store artwork does not exist for it, so the app looks its art up
+ * by name (SteamGridDB) and Steam's own grid images. */
+static void write_library_shortcut(ms_json_writer* w, const char* home, const ms_steam_shortcut* shortcut) {
+    static const char* pipeline_ids[] = {"steam", "d3dmetal", "vkd3d", "d3d9", "dxmt", "dxmt_32"};
+    char preferred[64] = "";
+    char gameid[32];
+    bool installed = access(shortcut->executable, R_OK) == 0;
+    const char* effective =
+        bottle_string_value(home, shortcut->appid, "preferred_pipeline", preferred, sizeof(preferred)) ? preferred
+                                                                                                       : "steam";
+    char* icon = installed ? ms_steam_extract_executable_icon(home, shortcut->executable, shortcut->appid) : NULL;
+    snprintf(gameid, sizeof(gameid), "%llu", ((unsigned long long)shortcut->appid << 32) | 0x02000000ULL);
+    ms_json_writer_object_begin(w);
+    ms_json_writer_key(w, "appid");
+    ms_json_writer_u64(w, shortcut->appid);
+    ms_json_writer_key(w, "name");
+    ms_json_writer_string(w, shortcut->name);
+    ms_json_writer_key(w, "source");
+    ms_json_writer_string(w, "steam_shortcut");
+    ms_json_writer_key(w, "gameid");
+    ms_json_writer_string(w, gameid);
+    ms_json_writer_key(w, "installed");
+    ms_json_writer_bool(w, installed);
+    ms_json_writer_key(w, "state");
+    ms_json_writer_string(w, installed ? "installed" : "not_installed");
+    ms_json_writer_key(w, "can_uninstall");
+    ms_json_writer_bool(w, false);
+    ms_json_writer_key(w, "launch_method");
+    ms_json_writer_string(w, effective);
+    ms_json_writer_key(w, "launch_method_name");
+    ms_json_writer_string(w, pipeline_display_name(effective));
+    ms_json_writer_key(w, "preferred_pipeline");
+    if (preferred[0])
+        ms_json_writer_string(w, preferred);
+    else
+        ms_json_writer_null(w);
+    ms_json_writer_key(w, "executable_path");
+    ms_json_writer_string(w, shortcut->executable);
+    ms_json_writer_key(w, "available_pipelines");
+    ms_json_writer_array_begin(w);
+    for (size_t i = 0; i < sizeof(pipeline_ids) / sizeof(pipeline_ids[0]); i++) {
+        ms_json_writer_object_begin(w);
+        ms_json_writer_key(w, "id");
+        ms_json_writer_string(w, pipeline_ids[i]);
+        ms_json_writer_key(w, "name");
+        ms_json_writer_string(w, pipeline_display_name(pipeline_ids[i]));
+        ms_json_writer_key(w, "recommended");
+        ms_json_writer_bool(w, i == 0);
+        ms_json_writer_object_end(w);
+    }
+    ms_json_writer_array_end(w);
+    ms_json_writer_key(w, "has_native_build");
+    ms_json_writer_bool(w, false);
+    ms_json_writer_key(w, "native_app_path");
+    ms_json_writer_null(w);
+    ms_json_writer_key(w, "wine_game_path");
+    if (shortcut->start_dir)
+        ms_json_writer_string(w, shortcut->start_dir);
+    else
+        ms_json_writer_null(w);
+    ms_json_writer_key(w, "bottle_id");
+    ms_json_writer_null(w);
+    ms_json_writer_key(w, "bottle_health");
+    ms_json_writer_null(w);
+    ms_json_writer_key(w, "bottle_runtime_assets");
+    ms_json_writer_u64(w, 0);
+    ms_json_writer_key(w, "cover_url");
+    ms_json_writer_null(w);
+    ms_json_writer_key(w, "header_url");
+    ms_json_writer_null(w);
+    ms_json_writer_key(w, "embedded_icon_path");
+    if (icon)
+        ms_json_writer_string(w, icon);
+    else
+        ms_json_writer_null(w);
+    ms_json_writer_object_end(w);
+    free(icon);
+}
+
 static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     const char* home = getenv("HOME");
     steam_game* games = NULL;
@@ -1152,11 +1475,13 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
         ms_steam_stage_route_on_discovery(metalsharp_home, games[i].appid);
         (void)ms_steam_ensure_game_audio_fix(metalsharp_home, games[i].appid);
     }
+    ms_steam_shortcut* shortcuts = NULL;
+    size_t shortcut_count = ms_steam_shortcuts_load(metalsharp_home, &shortcuts);
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
     ms_json_writer_bool(&w, true);
-    size_t visible_count = 0;
+    size_t visible_count = shortcut_count;
     for (i = 0; i < count; ++i)
         if (!hidden_library_game(&games[i], exclude_native_mac_games))
             visible_count++;
@@ -1167,6 +1492,9 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
         size_t installed_count = 0;
         for (i = 0; i < count; ++i)
             if (!hidden_library_game(&games[i], exclude_native_mac_games) && games[i].installed)
+                installed_count++;
+        for (i = 0; i < shortcut_count; ++i)
+            if (access(shortcuts[i].executable, R_OK) == 0)
                 installed_count++;
         ms_json_writer_u64(&w, installed_count);
     }
@@ -1192,6 +1520,10 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
     for (i = 0; i < count; ++i)
         if (!hidden_library_game(&games[i], exclude_native_mac_games))
             write_library_game(&w, metalsharp_home, &games[i], refresh);
+    for (i = 0; i < shortcut_count; ++i)
+        write_library_shortcut(&w, metalsharp_home, &shortcuts[i]);
+    ms_steam_shortcuts_free(shortcuts, shortcut_count);
+    free(shortcuts);
     ms_json_writer_array_end(&w);
     ms_json_writer_object_end(&w);
     result = ms_json_writer_take(&w);
@@ -1247,6 +1579,8 @@ char* ms_steam_game_dir(const char* metalsharp_home, unsigned appid) {
         free(games[i].native_app_path);
     }
     free(games);
+    if (!result && ms_steam_appid_is_shortcut(appid))
+        result = shortcut_game_dir(metalsharp_home, appid);
     return result;
 }
 
@@ -1527,6 +1861,21 @@ char* ms_steam_watch_json(const char* metalsharp_home) {
             collect_steam_library_tree(path, &games, &count, &capacity);
             free(path);
         }
+    }
+    /* Non-Steam games added in Wine Steam count as library changes too. */
+    {
+        ms_steam_shortcut* shortcuts = NULL;
+        size_t shortcut_count = ms_steam_shortcuts_load(metalsharp_home, &shortcuts);
+        steam_game* grown = shortcut_count ? realloc(games, (count + shortcut_count) * sizeof(*games)) : games;
+        if (grown) {
+            games = grown;
+            for (i = 0; i < shortcut_count; i++) {
+                memset(&games[count], 0, sizeof(games[count]));
+                games[count++].appid = shortcuts[i].appid;
+            }
+        }
+        ms_steam_shortcuts_free(shortcuts, shortcut_count);
+        free(shortcuts);
     }
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);

@@ -5670,7 +5670,10 @@ static char* find_steam_game_executable(const char* home, unsigned id, const cha
             }
             return override_status > 0 ? override : NULL;
         }
-        executable = preferred_steam_game_executable(game_dir, id, pipeline);
+        /* A non-Steam shortcut names its executable exactly. */
+        executable = ms_steam_appid_is_shortcut(id) ? ms_steam_shortcut_executable(home, id) : NULL;
+        if (!executable)
+            executable = preferred_steam_game_executable(game_dir, id, pipeline);
         free(game_dir);
         if (executable || !candidates)
             goto done;
@@ -5922,9 +5925,16 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         setenv("METALSHARP_HOME", home, 1);
         setenv("WINEDEBUG", "-all", 1);
         setenv("WINEDEBUGGER", "none", 1);
-        setenv("SteamAppId", app_id, 1);
-        setenv("SteamGameId", app_id, 1);
-        setenv("SteamOverlayGameId", app_id, 1);
+        /* A non-Steam shortcut's id is not a Steam app. */
+        if (ms_steam_appid_is_shortcut(id)) {
+            unsetenv("SteamAppId");
+            unsetenv("SteamGameId");
+            unsetenv("SteamOverlayGameId");
+        } else {
+            setenv("SteamAppId", app_id, 1);
+            setenv("SteamGameId", app_id, 1);
+            setenv("SteamOverlayGameId", app_id, 1);
+        }
         setenv("METALSHARP_PIPELINE", env_pipeline, 1);
         set_route_paths(home, env_pipeline);
         set_route_default_env(home, env_pipeline);
@@ -6128,9 +6138,16 @@ static char* spawn_gptk_game(const char* home, const char* executable, unsigned 
                "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d", 1);
         if (!strcmp(pipeline, "d3dmetal"))
             setenv("D3DMETAL_FRAMEWORK_PATH", framework, 1);
-        setenv("SteamAppId", app_id, 1);
-        setenv("SteamGameId", app_id, 1);
-        setenv("SteamOverlayGameId", app_id, 1);
+        /* A non-Steam shortcut's id is not a Steam app. */
+        if (ms_steam_appid_is_shortcut(id)) {
+            unsetenv("SteamAppId");
+            unsetenv("SteamGameId");
+            unsetenv("SteamOverlayGameId");
+        } else {
+            setenv("SteamAppId", app_id, 1);
+            setenv("SteamGameId", app_id, 1);
+            setenv("SteamOverlayGameId", app_id, 1);
+        }
         if (!strcmp(pipeline, "d3dmetal"))
             setenv("SteamAppUser", "MetalSharp", 1);
         setenv("MS_GRAPHICS_BACKEND", !strcmp(pipeline, "d3dmetal") ? "d3dmetal" : "gptk", 1);
@@ -6225,8 +6242,11 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
 }
 
 static bool format_steam_run_url(char* url, size_t url_size, unsigned id, const char* encoded_args) {
-    int written = encoded_args && encoded_args[0] ? snprintf(url, url_size, "steam://run/%u//%s", id, encoded_args)
-                                                  : snprintf(url, url_size, "steam://run/%u", id);
+    /* A non-Steam shortcut runs by its 64-bit game id; it takes no store arguments. */
+    int written = ms_steam_appid_is_shortcut(id)    ? snprintf(url, url_size, "steam://rungameid/%llu",
+                                                               ((unsigned long long)id << 32) | 0x02000000ULL)
+                  : encoded_args && encoded_args[0] ? snprintf(url, url_size, "steam://run/%u//%s", id, encoded_args)
+                                                    : snprintf(url, url_size, "steam://run/%u", id);
     return written >= 0 && (size_t)written < url_size;
 }
 
@@ -6882,6 +6902,13 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
     }
     if (!has_route && default_to_steam)
         return launch_game_via_steam_json(home, id, status, NULL);
+    /* A non-Steam shortcut starts through Steam, as the user added it there,
+     * unless a route was chosen for it in MetalSharp. */
+    if (ms_steam_appid_is_shortcut(id) && (!has_route || !strcasecmp(pipeline, "auto"))) {
+        if (!bottle_pipeline_value(home, id, saved_pipeline, sizeof(saved_pipeline)) || !saved_pipeline[0] ||
+            !strcasecmp(saved_pipeline, "steam") || !canonical_pipeline(saved_pipeline))
+            return launch_game_via_steam_json(home, id, status, NULL);
+    }
     if (has_route && (!strcasecmp(pipeline, "steam") || !strcasecmp(pipeline, "mac_steam") ||
                       !strcasecmp(pipeline, "macos_steam"))) {
         /* An explicit Steam route is a Steam URL

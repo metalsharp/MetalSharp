@@ -1103,6 +1103,27 @@ impl MetalSharpApp {
             });
             hero.extend(embedded);
             (card, hero)
+        } else if game.is_shortcut() {
+            // Non-Steam shortcuts have no store artwork: Steam's own custom
+            // grid images first, then SteamGridDB by name, then the EXE icon.
+            let mut card = vec![
+                C::Backend(format!("/art/grid/{appid}/poster")),
+                C::Backend(format!("/art/grid/{appid}/header")),
+                C::SteamGridDb {
+                    name: game.name.clone(),
+                    hero: false,
+                },
+            ];
+            card.extend(embedded.clone());
+            let mut hero = vec![
+                C::Backend(format!("/art/grid/{appid}/hero")),
+                C::SteamGridDb {
+                    name: game.name.clone(),
+                    hero: true,
+                },
+            ];
+            hero.extend(embedded);
+            (card, hero)
         } else {
             let primary = game
                 .cover_url
@@ -1333,7 +1354,7 @@ impl MetalSharpApp {
             return;
         }
         self.load_game_settings(cx);
-        if game.installed && !game.is_ubisoft() {
+        if game.installed && !game.is_ubisoft() && !game.is_shortcut() {
             let appid = game.appid;
             live::call(
                 cx,
