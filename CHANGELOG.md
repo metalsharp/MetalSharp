@@ -11,7 +11,7 @@
 ### Changed
 
 - **Local IPC over Unix sockets (#726)** — the backend API, the Steam bridge and the in-game hook no longer use fixed loopback TCP ports (9274, 18733, 19384). The backend serves `$METALSHARP_HOME/run/backend.sock` in an owner-only directory, the Steam bridge moves to `run/steam-bridge.sock` (host ABI 2.0), the unused NT IPC bridge is removed, and the backend accepts only native-client requests.
-- **WineMetalGL is MetalSharp's OpenGL (#716, #722)** — every launch uses WineMetalGL 2.x (the runtime bundle now carries 3.1.0). Dead Cells' and Mosa Lina's OpenGL loaders get the later GL entry points they require.
+- **WineMetalGL is MetalSharp's OpenGL (#716, #722)** — every launch uses WineMetalGL (the runtime bundle now carries 3.2.0). Dead Cells' and Mosa Lina's OpenGL loaders get the later GL entry points they require.
 - **Start Steam waits for a cold start (#727)** — up to 30 s instead of 12 s before reporting that Wine Steam did not become ready; the app allows 60 s for the request.
 - **`DYLD_INSERT_LIBRARIES` reaches games (#719)** — the `metalsharp-wine` wrapper restores it from `METALSHARP_DYLD_INSERT_LIBRARIES`, since macOS strips `DYLD_*` variables when it runs the wrapper.
 
