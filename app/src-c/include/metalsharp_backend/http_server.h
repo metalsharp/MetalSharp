@@ -30,12 +30,13 @@ typedef bool (*ms_http_handler)(const ms_http_request* request, ms_http_response
 
 void ms_http_request_free(ms_http_request* request);
 
-/* Serve loopback HTTP/1.1 requests until stop_flag becomes non-zero. */
-int ms_http_serve(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler, void* context);
 /* Capture and unset the optional per-launch token before any helper is started.
  * Returns 0 for legacy mode, 1 for authenticated mode, -1 for invalid configuration. */
 int ms_http_take_client_token(char token[65]);
-int ms_http_serve_authenticated(unsigned short port, volatile sig_atomic_t* stop_flag, ms_http_handler handler,
-                                void* context, const char* client_token);
+/* Serve HTTP/1.1 on an owner-only Unix socket (see local_socket.h) until
+ * stop_flag becomes non-zero. Connections from other users are dropped before
+ * a request is read. */
+int ms_http_serve_unix(const char* socket_path, volatile sig_atomic_t* stop_flag, ms_http_handler handler,
+                       void* context, const char* client_token);
 
 #endif

@@ -13,14 +13,15 @@ Usage:
 """
 
 import argparse
+import http.client
 import json
 import os
 import signal
 import subprocess
 import sys
 import tempfile
+import socket
 import time
-import urllib.request
 
 try:
     os.setsid()
@@ -28,7 +29,7 @@ except OSError:
     pass
 
 APP_PATH = "/Applications/MetalSharp.app"
-BACKEND_PORT = 9274
+BACKEND_SOCKET = os.path.expanduser("~/.metalsharp/run/backend.sock")
 UPDATE_DMG_PATH = None
 
 
@@ -268,18 +269,27 @@ def admin_cp_r(src, dst):
     return r.returncode == 0
 
 
+class _BackendConnection(http.client.HTTPConnection):
+    """HTTP over the backend's owner-only Unix socket."""
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(BACKEND_SOCKET)
+
+
 def wait_for_backend(timeout=45):
     deadline = time.time() + timeout
     while time.time() < deadline:
+        connection = _BackendConnection("localhost", timeout=3)
         try:
-            req = urllib.request.Request(
-                "http://127.0.0.1:" + str(BACKEND_PORT) + "/status"
-            )
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read())
-                return data.get("version"), data.get("pid")
+            connection.request("GET", "/status")
+            data = json.loads(connection.getresponse().read())
+            return data.get("version"), data.get("pid")
         except Exception:
             pass
+        finally:
+            connection.close()
         time.sleep(1)
     return None, None
 

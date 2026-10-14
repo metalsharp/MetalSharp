@@ -5,7 +5,7 @@ How MetalSharp launches games, what it installs, and where state lives. Build in
 
 ## Launch Flow
 
-The C backend (`127.0.0.1:9274`) owns every launch. Route selection is data-driven: adding a game means editing `configs/mtsp-rules.toml`, not backend code.
+The C backend (`~/.metalsharp/run/backend.sock`) owns every launch. Route selection is data-driven: adding a game means editing `configs/mtsp-rules.toml`, not backend code.
 
 ```text
 Play clicked
@@ -184,13 +184,13 @@ Shim sources live in `src/fna/shims/`:
 ```text
 METALSHARP_HOST_ABI_VERSION_MAJOR / _MINOR
 MetalSharpHostRuntimePaths       bottle_id, bottle_prefix, game_install_path, log_path
-MetalSharpSteamBridgeConfig      appid, port (default 18733)
+MetalSharpSteamBridgeConfig      appid, socket_path (<METALSHARP_HOME>/run/steam-bridge.sock)
 MetalSharpManagedRuntimeConfig   Mono root/lib dirs
 MetalSharpHostCapabilities
 metalsharp_host_get_abi_version() / _query_capabilities() / _self_test()
 ```
 
-Shims read `METALSHARP_MONO_LIB`, `METALSHARP_MONO_ROOT`, `METALSHARP_MONO_ASSEMBLY_DIR`, `METALSHARP_MONO_CONFIG_DIR` (falling back to `METALSHARP_HOME`/`HOME`), and `METALSHARP_STEAM_BRIDGE_PORT`. Inspect with `GET /runtime/host-abi`. Built as `libmetalsharp_host_runtime.dylib`, staged by `tools/package/create-host-runtime.sh`, installed to `runtime/host/`; tested by `tests/test_host_runtime_abi.cpp`.
+Shims read `METALSHARP_MONO_LIB`, `METALSHARP_MONO_ROOT`, `METALSHARP_MONO_ASSEMBLY_DIR`, `METALSHARP_MONO_CONFIG_DIR` (falling back to `METALSHARP_HOME`/`HOME`). The Steam bridge listens on the owner-only Unix socket `$METALSHARP_HOME/run/steam-bridge.sock`; the shim only connects to a listener running as the same user. Inspect with `GET /runtime/host-abi`. Built as `libmetalsharp_host_runtime.dylib`, staged by `tools/package/create-host-runtime.sh`, installed to `runtime/host/`; tested by `tests/test_host_runtime_abi.cpp`.
 
 | Area | Source | Status |
 |---|---|---|

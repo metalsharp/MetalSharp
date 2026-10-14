@@ -144,7 +144,7 @@ if [ ! -f "$HOST_DIR/manifest.json" ]; then
 {
   "abi": "metalsharp-host-runtime",
   "version": {
-    "major": 1,
+    "major": 2,
     "minor": 0
   },
   "services": [

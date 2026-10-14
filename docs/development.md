@@ -47,16 +47,16 @@ Building the app does not compile Wine; see [Building MetalSharp Wine](building-
 ## Run
 
 ```bash
-cargo run --locked --manifest-path app-gpui/Cargo.toml                             # production: :9274, ~/.metalsharp
-cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-validation  # isolated home on :9276
+cargo run --locked --manifest-path app-gpui/Cargo.toml                             # production: ~/.metalsharp
+cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-validation  # isolated home
 cargo run --locked --manifest-path app-gpui/Cargo.toml -- --preview               # offline sample UI
 ```
 
-Production mode behaves like the installed app: it terminates any stale `metalsharp-backend` on 9274, starts a fresh one against `~/.metalsharp`, and stops it on quit. Quit any other MetalSharp first.
+Production mode behaves like the installed app: it terminates any stale `metalsharp-backend` on `~/.metalsharp/run/backend.sock`, starts a fresh one against `~/.metalsharp`, and stops it on quit. Quit any other MetalSharp first.
 
-Validation mode reads `METALSHARP_GPUI_PORT` (default 9276), `METALSHARP_GPUI_HOME` (absolute, dedicated directory) and optionally `METALSHARP_GPUI_BACKEND`, and protects its backend with a per-launch session token. It refuses the production port and home.
+Validation mode reads `METALSHARP_GPUI_HOME` (absolute, dedicated directory) and optionally `METALSHARP_GPUI_BACKEND`, and protects its backend with a per-launch session token. It refuses the production home.
 
-The backend alone honors `METALSHARP_PORT` (default `127.0.0.1:9274`) and `METALSHARP_HOME` (default `~/.metalsharp`).
+The backend honors `METALSHARP_HOME` (default `~/.metalsharp`) and serves HTTP only on the Unix socket `$METALSHARP_HOME/run/backend.sock` (directory `0700`, socket `0600`, peers must run as the same user); there is no TCP listener. Query it with `curl --unix-socket ~/.metalsharp/run/backend.sock http://localhost/status`. The socket path must fit in 103 bytes, so keep custom homes short.
 
 ## Test
 
@@ -87,7 +87,7 @@ DMG (`MetalSharp-<version>-arm64.dmg`):
 tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui
 ```
 
-`package-local-preview.sh` and `package-local-testing-app.sh` / `package-local-testing-dmg.sh` build the same app under separate bundle ids for side-by-side testing (they still use `~/.metalsharp` and port 9274).
+`package-local-preview.sh` and `package-local-testing-app.sh` / `package-local-testing-dmg.sh` build the same app under separate bundle ids for side-by-side testing (they still use `~/.metalsharp` and its backend socket).
 
 ## Release Signing
 

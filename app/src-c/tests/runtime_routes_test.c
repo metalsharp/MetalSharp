@@ -3,6 +3,7 @@
 #include "../runtime/steam_actions.c"
 #include "../runtime/epic.c"
 #include "../runtime/ubisoft.c"
+#include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/gamejolt.h"
 #include "metalsharp_backend/json.h"
@@ -367,6 +368,55 @@ static pid_t spawn_sharp_detached_fixture(const char* game_dir, const char* help
 }
 #endif
 
+static void write_hook_fixture(const char* home, const char* relative, const char* text) {
+    char* path = join(home, relative);
+    char* parent = path ? strdup(path) : NULL;
+    assert(path && parent);
+    *strrchr(parent, '/') = '\0';
+    assert(mkdir_p(parent));
+    assert(write_file_replacing(path, text, strlen(text)));
+    free(parent);
+    free(path);
+}
+
+static char* read_hook_fixture(const char* home, const char* relative) {
+    char* path = join(home, relative);
+    char* text = path ? read_text(path, 4096) : NULL;
+    free(path);
+    return text;
+}
+
+/* Legacy prefixes keep a system32 hook copy that still connects to the retired
+ * NT IPC port; startup swaps it for the bundled IPC-free hook, or deletes it
+ * when only a legacy build is bundled. Clean copies are left alone. */
+static void legacy_ntdll_hook_refresh_test(const char* root) {
+    static const char legacy[] = "MZ [metalsharp_ntdll_hook] IPC connect failed";
+    static const char current[] = "MZ [metalsharp_ntdll_hook] MetalFX poller";
+    static const char system32[] = "prefix-steam/drive_c/windows/system32/metalsharp_ntdll_hook.dll";
+    static const char syswow64[] = "prefix-steam/drive_c/windows/syswow64/metalsharp_ntdll_hook.dll";
+    static const char ubisoft[] = "prefix-ubisoft/drive_c/windows/system32/metalsharp_ntdll_hook.dll";
+    static const char bundled[] = "runtime/wine/lib/metalsharp/x86_64-windows/metalsharp_ntdll_hook.dll";
+    char* home = join(root, "legacy-hook-home");
+    char* text;
+    assert(home && mkdir_p(home));
+    write_hook_fixture(home, system32, legacy);
+    write_hook_fixture(home, syswow64, current);
+    write_hook_fixture(home, bundled, current);
+    ms_setup_refresh_legacy_ntdll_hooks(home);
+    assert((text = read_hook_fixture(home, system32)) && !strcmp(text, current));
+    free(text);
+    assert((text = read_hook_fixture(home, syswow64)) && !strcmp(text, current));
+    free(text);
+
+    write_hook_fixture(home, ubisoft, legacy);
+    write_hook_fixture(home, bundled, legacy);
+    ms_setup_refresh_legacy_ntdll_hooks(home);
+    assert(read_hook_fixture(home, ubisoft) == NULL);
+    assert((text = read_hook_fixture(home, system32)) && !strcmp(text, current));
+    free(text);
+    free(home);
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
         for (;;)
@@ -387,14 +437,14 @@ int main(int argc, char** argv) {
     assert(setenv("DYLD_FALLBACK_LIBRARY_PATH", "/tmp/foreign-wine/lib", 1) == 0);
     assert(setenv("SteamAppId", "999", 1) == 0);
     assert(setenv("GRAPHICS_BACKEND", "foreign", 1) == 0);
-    assert(setenv("METALSHARP_PORT", "9123", 1) == 0);
+    assert(setenv("METALSHARP_TEST_SENTINEL", "9123", 1) == 0);
     sanitize_inherited_runtime_environment();
     assert(getenv("WINEPREFIX") == NULL && getenv("WINEARCH") == NULL);
     assert(getenv("PROTON_LOG") == NULL && getenv("STEAM_COMPAT_DATA_PATH") == NULL);
     assert(getenv("DXVK_HUD") == NULL && getenv("VK_ICD_FILENAMES") == NULL);
     assert(getenv("DYLD_FALLBACK_LIBRARY_PATH") == NULL && getenv("SteamAppId") == NULL);
     assert(getenv("GRAPHICS_BACKEND") == NULL);
-    assert(getenv("METALSHARP_PORT") && !strcmp(getenv("METALSHARP_PORT"), "9123"));
+    assert(getenv("METALSHARP_TEST_SENTINEL") && !strcmp(getenv("METALSHARP_TEST_SENTINEL"), "9123"));
     assert(valid_pipeline("d3dmetal"));
     assert(valid_pipeline("dxmt"));
     assert(valid_pipeline("dxmt_32"));
@@ -968,7 +1018,7 @@ int main(int argc, char** argv) {
         free(response);
         free(sharp_home);
     }
-    unsetenv("METALSHARP_PORT");
+    unsetenv("METALSHARP_TEST_SENTINEL");
 #ifdef __APPLE__
     unsetenv("ROSETTA_ADVERTISE_AVX");
     set_rosetta_avx_env();
@@ -1901,6 +1951,7 @@ int main(int argc, char** argv) {
     free(drive_e_link);
     free(drive_c_link);
     free(dosdevices);
+    legacy_ntdll_hook_refresh_test(home);
     puts("runtime routing regressions passed");
     return 0;
 }

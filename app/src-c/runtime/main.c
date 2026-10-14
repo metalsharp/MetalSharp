@@ -1,5 +1,6 @@
 #include "metalsharp_backend/backend.h"
 #include "metalsharp_backend/epic.h"
+#include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/setup.h"
@@ -69,21 +70,6 @@ static void request_stop(int signal_number) {
     ms_process_request_background_shutdown();
 }
 
-static unsigned short configured_port(void) {
-    const char* value = getenv("METALSHARP_PORT");
-    char* end = NULL;
-    unsigned long parsed;
-    if (value == NULL || value[0] == '\0')
-        return 9274;
-    errno = 0;
-    parsed = strtoul(value, &end, 10);
-    if (errno != 0 || end == value || *end != '\0' || parsed == 0 || parsed > 65535) {
-        fprintf(stderr, "invalid METALSHARP_PORT=%s\n", value);
-        exit(EXIT_FAILURE);
-    }
-    return (unsigned short)parsed;
-}
-
 static void sleep_half_second(void) {
     struct timespec delay = {0, 500000000L};
     while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {
@@ -91,7 +77,7 @@ static void sleep_half_second(void) {
 }
 
 int main(void) {
-    unsigned short port;
+    char socket_path[128];
     ms_backend_context context;
     unsigned attempt;
     char client_token[65];
@@ -102,7 +88,6 @@ int main(void) {
     }
 
     sanitize_inherited_runtime_environment();
-    port = configured_port();
     /* A launcher spawning from a worker thread (GCD, GPUI) can hand us a
      * blocked signal mask; SIGTERM must reach request_stop, and children
      * (Wine, Steam) must not inherit blocked signals either. */
@@ -119,29 +104,37 @@ int main(void) {
         fprintf(stderr, "failed to resolve MetalSharp home\n");
         return EXIT_FAILURE;
     }
+    /* The API is served only on <METALSHARP_HOME>/run/backend.sock: an
+     * owner-only Unix socket, never a TCP port. */
+    if (!ms_local_socket_prepare_dir(context.metalsharp_home) ||
+        !ms_local_socket_path(context.metalsharp_home, MS_LOCAL_SOCKET_BACKEND, socket_path, sizeof(socket_path))) {
+        fprintf(stderr, "cannot prepare backend socket under %s/%s: %s\n", context.metalsharp_home, MS_LOCAL_SOCKET_DIR,
+                strerror(errno));
+        free((void*)context.metalsharp_home);
+        return EXIT_FAILURE;
+    }
     if (!ms_setup_wine_wrapper_ensure(context.metalsharp_home))
         fprintf(stderr, "warning: could not update MetalSharp Wine wrapper for graphics routes\n");
-    fprintf(stderr, "metalsharp-backend listening on 127.0.0.1:%u\n", (unsigned)port);
-    fprintf(stderr, "MetalSharp v%s backend started on 127.0.0.1:%u\n", context.version, (unsigned)port);
+    ms_setup_refresh_legacy_ntdll_hooks(context.metalsharp_home);
+    fprintf(stderr, "metalsharp-backend listening on %s\n", socket_path);
+    fprintf(stderr, "MetalSharp v%s backend started on %s\n", context.version, socket_path);
     {
         char message[256];
-        snprintf(message, sizeof(message), "MetalSharp v%s backend started on 127.0.0.1:%u", context.version,
-                 (unsigned)port);
+        snprintf(message, sizeof(message), "MetalSharp v%s backend started on %s", context.version, socket_path);
         ms_log_event(context.metalsharp_home, message);
     }
     ms_epic_sync_on_startup(context.metalsharp_home);
 
     for (attempt = 1; attempt <= 30 && !stop_requested; ++attempt) {
-        if (ms_http_serve_authenticated(port, &stop_requested, ms_backend_handle, &context,
-                                        token_mode == 1 ? client_token : NULL) == 0) {
+        if (ms_http_serve_unix(socket_path, &stop_requested, ms_backend_handle, &context,
+                               token_mode == 1 ? client_token : NULL) == 0)
             break;
-        }
         if (attempt == 30) {
-            fprintf(stderr, "failed to bind 127.0.0.1:%u after 30 attempts: %s\n", (unsigned)port, strerror(errno));
+            fprintf(stderr, "failed to bind %s after 30 attempts: %s\n", socket_path, strerror(errno));
             free((void*)context.metalsharp_home);
             return EXIT_FAILURE;
         }
-        fprintf(stderr, "bind 127.0.0.1:%u attempt %u/30 failed: %s — retrying in 500ms\n", (unsigned)port, attempt,
+        fprintf(stderr, "bind %s attempt %u/30 failed: %s — retrying in 500ms\n", socket_path, attempt,
                 strerror(errno));
         sleep_half_second();
     }

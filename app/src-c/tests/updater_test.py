@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import http.server
 import threading
 import os
@@ -13,8 +14,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 BACKEND = Path(sys.argv[1]).resolve()
@@ -23,29 +22,37 @@ BACKEND = Path(sys.argv[1]).resolve()
 VERSION = "0.78.1"  # Synthetic release must be newer than the current app.
 
 
-def free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+class UnixHTTPConnection(http.client.HTTPConnection):
+    """HTTP over the backend's owner-only Unix socket (<home>/run/backend.sock)."""
+
+    def __init__(self, socket_path: Path, timeout: float):
+        super().__init__("localhost", timeout=timeout)
+        self.socket_path = str(socket_path)
+
+    def connect(self) -> None:
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.socket_path)
 
 
-def request(port: int, method: str, path: str, body: dict | None = None) -> dict:
+def request(sock: Path, method: str, path: str, body: dict | None = None) -> dict:
     payload = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}",
-        data=payload,
-        method=method,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as response:
+    connection = UnixHTTPConnection(sock, timeout=30)
+    try:
+        connection.request(method, path, body=payload, headers={"Content-Type": "application/json"})
+        response = connection.getresponse()
+        if response.status >= 400:
+            raise OSError(f"HTTP {response.status} for {method} {path}")
         return json.load(response)
+    finally:
+        connection.close()
 
 
-def wait_for_download(port: int, timeout: float = 10) -> dict:
+def wait_for_download(sock: Path, timeout: float = 10) -> dict:
     deadline = time.time() + timeout
     progress: dict = {}
     while time.time() < deadline:
-        progress = request(port, "GET", "/update/progress")
+        progress = request(sock, "GET", "/update/progress")
         if progress.get("status") in {"downloaded", "error"}:
             return progress
         time.sleep(0.05)
@@ -58,13 +65,12 @@ class Backend:
         user_home = root / "home"
         home.mkdir()
         user_home.mkdir()
-        self.port = free_port()
+        self.sock = home / "run" / "backend.sock"
         env = os.environ.copy()
         env.update(
             {
                 "HOME": str(user_home),
                 "METALSHARP_HOME": str(home),
-                "METALSHARP_PORT": str(self.port),
                 "METALSHARP_UPDATE_RELEASE_JSON": str(release),
                 "METALSHARP_UPDATE_HOST_MACOS": str(macos),
             }
@@ -74,9 +80,9 @@ class Backend:
         deadline = time.time() + 10
         while time.time() < deadline:
             try:
-                if request(self.port, "GET", "/status").get("ok"):
+                if request(self.sock, "GET", "/status").get("ok"):
                     return
-            except (OSError, urllib.error.URLError):
+            except OSError:
                 time.sleep(0.05)
         raise AssertionError("backend did not become ready")
 
@@ -163,11 +169,11 @@ def test_download_progress(root: Path) -> None:
             asset["size"] = len(payload)
         release.write_text(json.dumps(data))
         with Backend(root, release, 27) as backend:
-            assert request(backend.port, "POST", "/update/start", {"variant": "regular"})["ok"]
+            assert request(backend.sock, "POST", "/update/start", {"variant": "regular"})["ok"]
             observed = set()
             deadline = time.time() + 20
             while time.time() < deadline:
-                progress = request(backend.port, "GET", "/update/progress")
+                progress = request(backend.sock, "GET", "/update/progress")
                 if progress["status"] == "downloading":
                     observed.add(progress["percent"])
                     assert progress["percent"] < 80
@@ -178,7 +184,7 @@ def test_download_progress(root: Path) -> None:
             else:
                 raise AssertionError("slow download did not complete")
             assert len([p for p in observed if 10 < p < 80]) >= 2, observed
-            result = request(backend.port, "GET", "/update/dmg-path")
+            result = request(backend.sock, "GET", "/update/dmg-path")
             assert Path(result["path"]).read_bytes() == payload
     finally:
         server.shutdown()
@@ -187,7 +193,8 @@ def test_download_progress(root: Path) -> None:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="metalsharp-updater-") as temporary:
+    # /tmp keeps <home>/run/backend.sock inside sockaddr_un.sun_path.
+    with tempfile.TemporaryDirectory(prefix="msu-", dir="/tmp") as temporary:
         root = Path(temporary)
         slow_root = root / "slow"
         slow_root.mkdir()
@@ -196,7 +203,7 @@ def main() -> None:
         supported_root = root / "supported"
         supported_root.mkdir()
         with Backend(supported_root, release, 27) as backend:
-            status = request(backend.port, "GET", "/update/check")
+            status = request(backend.sock, "GET", "/update/check")
             assert status["ok"] is True and status["available"] is True, status
             assert status["download_url"].endswith("regular-arm64.dmg"), status
             assert status["download_size"] == len(regular_bytes), status
@@ -205,31 +212,31 @@ def main() -> None:
             assert status["fex_download_size"] == len(fex_bytes), status
             assert status["fex_supported"] is True and status["macos_major"] == 27, status
 
-            started = request(backend.port, "POST", "/update/start", {"variant": "fex"})
+            started = request(backend.sock, "POST", "/update/start", {"variant": "fex"})
             assert started["ok"] is True, started
-            progress = wait_for_download(backend.port)
+            progress = wait_for_download(backend.sock)
             assert progress["status"] == "downloaded", progress
-            downloaded = request(backend.port, "GET", "/update/dmg-path?variant=fex")
+            downloaded = request(backend.sock, "GET", "/update/dmg-path?variant=fex")
             assert downloaded["ok"] is True and downloaded["version"] == VERSION, downloaded
             assert Path(downloaded["path"]).read_bytes() == fex_bytes
-            assert request(backend.port, "GET", "/update/dmg-path")["ok"] is False
+            assert request(backend.sock, "GET", "/update/dmg-path")["ok"] is False
 
-            started = request(backend.port, "POST", "/update/start", {"variant": "regular"})
+            started = request(backend.sock, "POST", "/update/start", {"variant": "regular"})
             assert started["ok"] is True, started
-            progress = wait_for_download(backend.port)
+            progress = wait_for_download(backend.sock)
             assert progress["status"] == "downloaded", progress
-            downloaded = request(backend.port, "GET", "/update/dmg-path")
+            downloaded = request(backend.sock, "GET", "/update/dmg-path")
             assert downloaded["ok"] is True and downloaded["version"] == VERSION, downloaded
             assert Path(downloaded["path"]).read_bytes() == regular_bytes
 
         unsupported_root = root / "unsupported"
         unsupported_root.mkdir()
         with Backend(unsupported_root, release, 26) as backend:
-            status = request(backend.port, "GET", "/update/check")
+            status = request(backend.sock, "GET", "/update/check")
             assert status["fex_available"] is True and status["fex_supported"] is False, status
-            blocked = request(backend.port, "POST", "/update/start", {"variant": "fex"})
+            blocked = request(backend.sock, "POST", "/update/start", {"variant": "fex"})
             assert blocked["ok"] is False and "macOS 27" in blocked["error"], blocked
-            invalid = request(backend.port, "POST", "/update/start", {"variant": "preview"})
+            invalid = request(backend.sock, "POST", "/update/start", {"variant": "preview"})
             assert invalid["ok"] is False and "variant" in invalid["error"], invalid
 
     print("baseline and FEX updater tests passed")

@@ -161,21 +161,13 @@ pub struct Library {
 }
 
 impl BackendClient {
-    pub fn for_port(port: u16) -> Result<Self, BackendError> {
-        if port == 0 {
-            return Err(BackendError::InvalidInput);
-        }
-        let config = Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(30)))
-            .proxy(None)
-            .max_redirects(0)
-            .http_status_as_error(false)
-            .build();
-        Ok(Self {
-            base_url: format!("http://127.0.0.1:{port}"),
-            agent: config.into(),
+    /// Client for the backend's owner-only socket, `<home>/run/backend.sock`.
+    pub fn for_socket(socket: &std::path::Path) -> Self {
+        Self {
+            base_url: crate::unix_transport::BASE_URL.to_owned(),
+            agent: crate::unix_transport::agent(socket, Duration::from_secs(30)),
             client_token: None,
-        })
+        }
     }
     pub(crate) fn with_client_token(mut self, token: String) -> Result<Self, BackendError> {
         if token.len() != 64
@@ -535,7 +527,6 @@ mod tests {
     use super::*;
     use std::{
         io::{Read, Write},
-        net::TcpListener,
         thread,
     };
     fn server(reply: &'static str) -> (BackendClient, thread::JoinHandle<String>) {
@@ -547,8 +538,8 @@ mod tests {
         headers: &str,
     ) -> (BackendClient, thread::JoinHandle<String>) {
         let headers = headers.to_owned();
-        let socket = TcpListener::bind("127.0.0.1:0").unwrap();
-        let client = BackendClient::for_port(socket.local_addr().unwrap().port()).unwrap();
+        let (socket, path) = crate::unix_transport::test_listener();
+        let client = BackendClient::for_socket(&path);
         let thread = thread::spawn(move || {
             let (mut stream, _) = socket.accept().unwrap();
             stream
@@ -658,7 +649,7 @@ mod tests {
     }
     #[test]
     fn rejects_unrestricted_routes_and_bad_identifiers() {
-        let c = BackendClient::for_port(9276).unwrap();
+        let c = BackendClient::for_socket(std::path::Path::new("/nonexistent/backend.sock"));
         for p in [
             "https://example.com",
             "//example.com",
@@ -668,7 +659,6 @@ mod tests {
             assert_eq!(c.get::<Value>(p).unwrap_err(), BackendError::InvalidRoute);
         }
         assert_eq!(c.stop_game(0).unwrap_err(), BackendError::InvalidInput);
-        assert!(BackendClient::for_port(0).is_err());
     }
     #[test]
     fn ubisoft_identifier_is_a_string_and_pipeline_is_preserved() {

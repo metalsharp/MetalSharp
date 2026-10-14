@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstring>
 
 int main() {
     MetalSharpHostAbiVersion version = metalsharp_host_abi_version();
@@ -17,10 +18,9 @@ int main() {
 
     MetalSharpSteamBridgeConfig bridge = {};
     bridge.struct_size = sizeof(bridge);
-    bridge.host = "127.0.0.1";
-    bridge.port = METALSHARP_STEAM_BRIDGE_DEFAULT_PORT;
+    bridge.socket_path = "/Users/fixture/.metalsharp/" METALSHARP_STEAM_BRIDGE_SOCKET_NAME;
     bridge.appid = 620;
-    assert(bridge.port == 18733u);
+    assert(std::strcmp(bridge.socket_path, "/Users/fixture/.metalsharp/run/steam-bridge.sock") == 0);
 
     MetalSharpManagedRuntimeConfig managed = {};
     managed.struct_size = sizeof(managed);
