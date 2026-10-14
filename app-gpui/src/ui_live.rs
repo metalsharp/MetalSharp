@@ -1750,7 +1750,7 @@ impl MetalSharpApp {
             "POST",
             "/steam/launch",
             None,
-            live::DEFAULT_TIMEOUT,
+            live::STEAM_LAUNCH_TIMEOUT,
             move |this, result, cx| {
                 this.live.steam_pending = None;
                 let ok = result.as_ref().is_some_and(is_ok);
