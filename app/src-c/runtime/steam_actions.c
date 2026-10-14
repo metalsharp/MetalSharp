@@ -6872,6 +6872,26 @@ static char* launch_ubisoft_connect_steam_mode(const char* home, unsigned appid,
     return NULL;
 }
 
+/* The Steam route: a steam:// handoff. Steam starts a non-Steam shortcut's
+ * executable itself, so register it by name: once the short-lived `start`
+ * process exits, the running list follows the Wine process of that
+ * executable, which gives the app its Stop control and notices the game
+ * closing. The grace covers Steam starting it. */
+static char* launch_steam_route_json(const char* home, unsigned id, int* status) {
+    pid_t pid = 0;
+    int launch_status = 500;
+    char* result = launch_game_via_steam_json(home, id, &launch_status, &pid);
+    if (status)
+        *status = launch_status;
+    if (result && launch_status < 400 && pid > 0 && ms_steam_appid_is_shortcut(id)) {
+        char* executable = ms_steam_shortcut_executable(home, id);
+        ms_process_register_game_executable(id, pid, executable);
+        ms_process_register_pending_game(id, pid, 45);
+        free(executable);
+    }
+    return result;
+}
+
 static char* ms_steam_launch_game_json_internal(const char* home, const char* body, size_t len, int* status,
                                                 bool default_to_steam) {
     unsigned id;
@@ -6901,19 +6921,19 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
         ms_json_free(request);
     }
     if (!has_route && default_to_steam)
-        return launch_game_via_steam_json(home, id, status, NULL);
+        return launch_steam_route_json(home, id, status);
     /* A non-Steam shortcut starts through Steam, as the user added it there,
      * unless a route was chosen for it in MetalSharp. */
     if (ms_steam_appid_is_shortcut(id) && (!has_route || !strcasecmp(pipeline, "auto"))) {
         if (!bottle_pipeline_value(home, id, saved_pipeline, sizeof(saved_pipeline)) || !saved_pipeline[0] ||
             !strcasecmp(saved_pipeline, "steam") || !canonical_pipeline(saved_pipeline))
-            return launch_game_via_steam_json(home, id, status, NULL);
+            return launch_steam_route_json(home, id, status);
     }
     if (has_route && (!strcasecmp(pipeline, "steam") || !strcasecmp(pipeline, "mac_steam") ||
                       !strcasecmp(pipeline, "macos_steam"))) {
         /* An explicit Steam route is a Steam URL
          * handoff; it does not resolve a local executable for that route. */
-        return launch_game_via_steam_json(home, id, status, NULL);
+        return launch_steam_route_json(home, id, status);
     }
     {
         const char* canonical = canonical_pipeline(pipeline);
