@@ -3638,13 +3638,17 @@ static bool is_steam_client_executable(const char* path) {
            (length == 9 || path[length - 10] == '/' || path[length - 10] == '\\');
 }
 
-/* Child side of the fork: exec `open` on the helper, forwarding the prepared
+/* Child side of the fork: run `open` on the helper, forwarding the prepared
  * environment (minus MetalSharp's own launch identity) and the Wine argv.
- * Returns only if exec failed, so the caller falls back to a direct exec. */
+ * Exits once LaunchServices accepts the launch. Returns if `open` could not
+ * run or LaunchServices refused the helper (a quarantined or launch-disabled
+ * bundle fails with -10810), so the caller falls back to a direct exec. */
 static void exec_via_steam_helper(const char* helper, const char* cwd, char* const* wine_argv) {
     extern char** environ;
     size_t env_count = 0, argc = 0, index = 0;
     char** argv;
+    pid_t opener;
+    int status = 0;
     setenv("METALSHARP_LAUNCH_CWD", cwd ? cwd : "", 1);
     while (environ[env_count])
         env_count++;
@@ -3668,8 +3672,20 @@ static void exec_via_steam_helper(const char* helper, const char* cwd, char* con
     for (size_t i = 0; i < argc; i++)
         argv[index++] = wine_argv[i];
     argv[index] = NULL;
-    execv("/usr/bin/open", argv);
+    opener = fork();
+    if (opener == 0) {
+        execv("/usr/bin/open", argv);
+        _exit(127);
+    }
     free(argv);
+    if (opener < 0)
+        return;
+    pid_t waited;
+    while ((waited = waitpid(opener, &status, 0)) < 0 && errno == EINTR)
+        ;
+    if (waited == opener && WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        _exit(0);
+    fprintf(stderr, "metalsharp: Steam helper app %s could not be launched; starting Wine directly\n", helper);
 }
 
 static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, unsigned id, const char* first,
