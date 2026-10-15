@@ -190,11 +190,13 @@ static bool line_is_factor(const char* line) {
     return strncmp(line, "d3d11.metalSpatialUpscaleFactor", strlen("d3d11.metalSpatialUpscaleFactor")) == 0;
 }
 
-static double read_conf_factor(const char* home) {
+/* The factor in dxmt.conf; *found tells whether the file has one. */
+static double read_conf_factor_found(const char* home, bool* found) {
     char* path = conf_path(home);
     char* text;
     char* line;
     double result = 2.0;
+    *found = false;
     if (path == NULL)
         return result;
     text = read_file(path, NULL);
@@ -206,6 +208,7 @@ static double read_conf_factor(const char* home) {
         char* end;
         if (!line_is_factor(line))
             continue;
+        *found = true;
         equals = strchr(line, '=');
         if (equals == NULL)
             equals = line + strlen("d3d11.metalSpatialUpscaleFactor");
@@ -216,9 +219,15 @@ static double read_conf_factor(const char* home) {
         break;
     }
     free(text);
-    if (fabs(result - 1.75) > 0.01 && fabs(result - 2.0) > 0.01)
+    /* 1.00: MetalFX off. */
+    if (fabs(result - 1.0) > 0.01 && fabs(result - 1.75) > 0.01 && fabs(result - 2.0) > 0.01)
         result = 2.0;
     return result;
+}
+
+static double read_conf_factor(const char* home) {
+    bool found;
+    return read_conf_factor_found(home, &found);
 }
 
 static bool write_conf_factor(const char* home, double factor) {
@@ -314,6 +323,27 @@ static bool write_conf_factor(const char* home, double factor) {
     return ok;
 }
 
+/* The factor dxmt.conf should hold. WineMetalGL upscales OpenGL windows by
+ * the file's factor unless DXMT_METALFX_SPATIAL_SWAPCHAIN=0, and games
+ * started from the Steam client keep the client's environment, so off has to
+ * be in the file: 1.00. The chosen factor stays in metalfx.overlay.json. */
+static double conf_factor_for(metalfx_state state) {
+    return state.enabled ? state.factor : 1.0;
+}
+
+bool ms_metalfx_sync_conf(const char* metalsharp_home) {
+    metalfx_state state;
+    bool found;
+    double factor;
+    if (metalsharp_home == NULL)
+        return false;
+    state = read_state(metalsharp_home);
+    factor = read_conf_factor_found(metalsharp_home, &found);
+    if (found && fabs(factor - conf_factor_for(state)) <= 0.001)
+        return true;
+    return write_conf_factor(metalsharp_home, conf_factor_for(state));
+}
+
 char* ms_metalfx_get_json(const char* metalsharp_home) {
     metalfx_state state = read_state(metalsharp_home);
     ms_json_writer writer;
@@ -332,7 +362,7 @@ char* ms_metalfx_get_json(const char* metalsharp_home) {
     ms_json_writer_string(&writer, "metalfx.overlay.json");
     ms_json_writer_key(&writer, "applies");
     ms_json_writer_string(&writer, "on/off takes effect on the game's next swapchain recreate (alt-enter / resolution "
-                                   "change); factor applies on relaunch");
+                                   "change), for OpenGL games on relaunch; factor applies on relaunch");
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);
     return result;
@@ -357,7 +387,7 @@ char* ms_metalfx_set_json(const char* metalsharp_home, const unsigned char* body
     }
     ms_json_free(request);
     state.timestamp = now_seconds();
-    ok = write_state(metalsharp_home, state) && write_conf_factor(metalsharp_home, state.factor);
+    ok = write_state(metalsharp_home, state) && write_conf_factor(metalsharp_home, conf_factor_for(state));
     if (ok)
         return ms_metalfx_get_json(metalsharp_home);
     {
