@@ -537,7 +537,7 @@ import json, sys
 v = json.load(sys.stdin)
 assert v["enabled"] is False
 assert v["factor"] == 1.75
-assert v["conf_factor"] == 1.75
+assert v["conf_factor"] == 1.0
 '
 
 handle_created=$(curl --silent --fail --request POST --header 'Content-Type: application/json' --data '{"pid":4242,"object_type":"File","name":"\\\\Device\\\\test"}' --unix-socket "$sock" "http://localhost/kernel-translation/handle/create")

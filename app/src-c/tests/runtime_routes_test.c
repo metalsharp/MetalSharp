@@ -3,6 +3,7 @@
 #include "../runtime/steam_actions.c"
 #include "../runtime/epic.c"
 #include "../runtime/ubisoft.c"
+#include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/gamejolt.h"
@@ -669,6 +670,68 @@ static void test_wine_sdl_link(const char* root) {
     free(home);
 }
 
+static bool dxmt_conf_has(const char* home, const char* line) {
+    char path[PATH_MAX];
+    char text[4096];
+    size_t length;
+    FILE* file;
+    snprintf(path, sizeof(path), "%s/runtime/wine/etc/dxmt.conf", home);
+    file = fopen(path, "rb");
+    if (!file)
+        return false;
+    length = fread(text, 1, sizeof(text) - 1, file);
+    fclose(file);
+    text[length] = '\0';
+    return strstr(text, line) != NULL;
+}
+
+/* MetalFX off reaches WineMetalGL through dxmt.conf (factor 1.00), and the
+ * environment the Steam client hands its games carries no factor and no
+ * DXMT_METALFX_SPATIAL_SWAPCHAIN=0, so a later toggle still applies. */
+static void test_metalfx_route_env(const char* home) {
+    static const char on_175[] = "{\"enabled\":true,\"factor\":1.75}";
+    static const char off[] = "{\"enabled\":false}";
+    static const char on[] = "{\"enabled\":true}";
+    char* response;
+    ms_steam_apply_graphics_route(home, "dxmt");
+    assert(getenv("DXMT_METALFX_SPATIAL_SWAPCHAIN") && !strcmp(getenv("DXMT_METALFX_SPATIAL_SWAPCHAIN"), "1"));
+    assert(!strstr(getenv("DXMT_CONFIG"), "metalSpatialUpscaleFactor"));
+    assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 2.00"));
+    response = ms_metalfx_set_json(home, (const unsigned char*)on_175, strlen(on_175));
+    assert(response && strstr(response, "\"ok\":true"));
+    free(response);
+    assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 1.75"));
+    response = ms_metalfx_set_json(home, (const unsigned char*)off, strlen(off));
+    assert(response && strstr(response, "\"conf_factor\":1,"));
+    free(response);
+    assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 1.00"));
+    ms_steam_apply_graphics_route(home, "dxmt");
+    assert(!getenv("DXMT_METALFX_SPATIAL_SWAPCHAIN"));
+    assert(!strstr(getenv("DXMT_CONFIG"), "metalSpatialUpscaleFactor"));
+    response = ms_metalfx_set_json(home, (const unsigned char*)on, strlen(on));
+    assert(response && strstr(response, "\"factor\":1.75"));
+    free(response);
+    assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 1.75"));
+    /* A dxmt.conf left at a factor while MetalFX is off (before this fix) is
+     * corrected when a route is applied. */
+    response = ms_metalfx_set_json(home, (const unsigned char*)off, strlen(off));
+    free(response);
+    {
+        char path[PATH_MAX];
+        FILE* file;
+        snprintf(path, sizeof(path), "%s/runtime/wine/etc/dxmt.conf", home);
+        file = fopen(path, "wb");
+        assert(file);
+        fputs("d3d11.metalSpatialUpscaleFactor = 1.75\nd3d11.preferredMaxFrameRate = 60\n", file);
+        fclose(file);
+    }
+    ms_steam_apply_graphics_route(home, "vkd3d");
+    assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 1.00"));
+    assert(dxmt_conf_has(home, "d3d11.preferredMaxFrameRate = 60"));
+    response = ms_metalfx_set_json(home, (const unsigned char*)on, strlen(on));
+    free(response);
+}
+
 int main(int argc, char** argv) {
     if (argc >= 2 && !strcmp(argv[1], "--wine-exe-probe")) {
         for (;;)
@@ -720,6 +783,7 @@ int main(int argc, char** argv) {
     assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/x86_64-windows"));
     assert(strstr(getenv("WINEDLLOVERRIDES"), "winemetal,dxgi,d3d11"));
     assert(!getenv("VK_DRIVER_FILES"));
+    test_metalfx_route_env(home);
     ms_steam_apply_graphics_route(home, "dxmt_32");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/i386-windows"));
     ms_steam_apply_graphics_route(home, "d3d9");

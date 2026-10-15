@@ -821,28 +821,27 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
 }
 
 static void set_route_default_env(const char* home, const char* pipeline) {
+    /* The MetalFX factor, 1.00 when off, is in dxmt.conf for DXMT and
+     * WineMetalGL alike, read when each game starts. Games started from the
+     * Steam client inherit the client's environment, so the environment
+     * carries no factor, and off leaves DXMT_METALFX_SPATIAL_SWAPCHAIN unset
+     * (DXMT upscales only with "1"; WineMetalGL then follows the file).
+     * DXMT games' metalsharp_ntdll_hook sets the switch from the toggle. */
+    (void)ms_metalfx_sync_conf(home);
     if (pipeline_is_dxmt(pipeline)) {
         bool metalfx_enabled;
         double metalfx_factor;
-        char dxmt_config[256];
         ms_metalfx_state(home, &metalfx_enabled, &metalfx_factor);
-        setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", metalfx_enabled ? "1" : "0", 1);
-        if (!metalfx_enabled) {
+        if (metalfx_enabled) {
+            setenv("DXMT_METALFX_SPATIAL_SWAPCHAIN", "1", 1);
+        } else {
+            unsetenv("DXMT_METALFX_SPATIAL_SWAPCHAIN");
             unsetenv("DXMT_METALFX_SPATIAL");
             unsetenv("DXMT_METALFX_TEMPORAL");
         }
         setenv("DXMT_ASYNC_PIPELINE_COMPILE", "1", 1);
-        if (metalfx_enabled)
-            snprintf(dxmt_config, sizeof(dxmt_config),
-                     "d3d11.metalSpatialUpscaleFactor=%.2f;"
-                     "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
-                     "dxmt.shaderMetalVersion=310",
-                     metalfx_factor);
-        else
-            snprintf(dxmt_config, sizeof(dxmt_config),
-                     "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;"
-                     "dxmt.shaderMetalVersion=310");
-        setenv("DXMT_CONFIG", dxmt_config, 1);
+        setenv("DXMT_CONFIG", "d3d11.preferredMaxFrameRate=60;d3d11.maxFeatureLevel=12_1;dxmt.shaderMetalVersion=310",
+               1);
     } else {
         unsetenv("DXMT_METALFX_SPATIAL_SWAPCHAIN");
         unsetenv("DXMT_METALFX_SPATIAL");
