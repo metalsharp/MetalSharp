@@ -1527,6 +1527,13 @@ int main(int argc, char** argv) {
         assert(strstr(overrides, "d3d10core=n,b"));
         assert(strstr(overrides, "bcrypt=b"));
         assert(strstr(overrides, "ncrypt=b"));
+        /* The Steam overlay loads in games Steam launches: no route disables
+         * GameOverlayRenderer. */
+        const char* pipelines[] = {"vkd3d", "d3d9", "dxmt", "dxmt_32", "m13", "d3dmetal", "wine_bare"};
+        for (size_t i = 0; i < sizeof(pipelines) / sizeof(pipelines[0]); i++) {
+            assert(format_steam_pipeline_overrides(overrides, sizeof(overrides), pipelines[i]));
+            assert(!strstr(overrides, "gameoverlayrenderer"));
+        }
     }
     {
         char* args[16];

@@ -2025,12 +2025,9 @@ static char* pipeline_diagnostic(const char* kind, const char* query, int* statu
         ENV_PAIR("SteamOverlayGameId", value);
         ENV_PAIR("DYLD_LIBRARY_PATH", unix_path);
         ENV_PAIR("DYLD_FALLBACK_LIBRARY_PATH", fallback_unix_path);
-        ENV_PAIR("WINEDLLOVERRIDES",
-                 !strcmp(pipeline, "vkd3d")
-                     ? "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"
-                 : !strcmp(pipeline, "d3d9")
-                     ? "d3d9,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"
-                     : "winemetal,dxgi,d3d11,d3d10core=n,b;gameoverlayrenderer,gameoverlayrenderer64=d");
+        ENV_PAIR("WINEDLLOVERRIDES", !strcmp(pipeline, "vkd3d")  ? "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b"
+                                     : !strcmp(pipeline, "d3d9") ? "d3d9,dxgi=n,b"
+                                                                 : "winemetal,dxgi,d3d11,d3d10core=n,b");
         ENV_PAIR("WINEDLLPATH", windows_path);
         if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32") || !strcmp(pipeline, "d3d9")) {
             snprintf(value, sizeof(value), "%s/etc/dxmt.conf", root);
