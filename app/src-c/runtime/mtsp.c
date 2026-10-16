@@ -2,8 +2,8 @@
 
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
-#include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/steam.h"
+#include "metalsharp_backend/steam_actions.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -25,7 +25,8 @@ struct pipeline {
 
 static const struct pipeline pipelines[] = {
     {"d3dmetal", "D3DMetal", "D3D11/D3D12 via Apple D3DMetal 4.0 (GPTK Wine)", "d3dmetal", "d3dmetal", true, false},
-    {"vkd3d", "VKD3D", "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver", "vulkan", "vulkan", false, true},
+    {"vkd3d", "VKD3D", "Direct3D 12 via VKD3D-Proton and the bundled MoltenVK Vulkan driver", "vulkan", "vulkan", false,
+     true},
     {"d3d9", "D3D9", "D3D9 -> Metal via the legacy DXMT launch family", "dxmt", "dxmt", false, true},
     {"dxmt", "DXMT", "D3D10/D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
     {"dxmt_32", "DXMT(32)", "32-bit D3D10/D3D11 -> Metal via DXMT", "dxmt", "dxmt", false, true},
@@ -510,20 +511,20 @@ char* ms_mtsp_launch_shape_json(const char* query) {
     } else
         id = default_pipeline;
     id = canonical_mtsp_pipeline(id);
-    const char* name = !strcmp(id, "d3dmetal")  ? "D3DMetal"
+    const char* name = !strcmp(id, "d3dmetal")    ? "D3DMetal"
                        : !strcmp(id, "vkd3d")     ? "VKD3D"
-                       : !strcmp(id, "d3d9") ? "D3D9"
+                       : !strcmp(id, "d3d9")      ? "D3D9"
                        : !strcmp(id, "dxmt")      ? "DXMT"
                        : !strcmp(id, "dxmt_32")   ? "DXMT(32)"
                        : !strcmp(id, "fna_arm64") ? "Mono/FNA"
                                                   : "VKD3D";
-    const char* backend = !strcmp(id, "vkd3d") ? "vulkan"
-                          : !strcmp(id, "d3dmetal") ? "d3dmetal"
+    const char* backend = !strcmp(id, "vkd3d")       ? "vulkan"
+                          : !strcmp(id, "d3dmetal")  ? "d3dmetal"
                           : !strcmp(id, "fna_arm64") ? "mono"
                                                      : "dxmt";
     const char* custom_exe = appid == 1145360 ? "x86/Hades.exe" : NULL;
-    const char* graphics = !strcmp(id, "vkd3d") ? "vulkan"
-                           : !strcmp(id, "d3dmetal") ? "d3dmetal"
+    const char* graphics = !strcmp(id, "vkd3d")       ? "vulkan"
+                           : !strcmp(id, "d3dmetal")  ? "d3dmetal"
                            : !strcmp(id, "fna_arm64") ? "mono"
                                                       : "dxmt";
     bool default_rule = !strcmp(id, default_pipeline) && strcmp(id, "vkd3d") != 0;
@@ -582,10 +583,7 @@ char* ms_mtsp_launch_shape_json(const char* query) {
         ms_json_writer_string(&writer, "lib/wine/x86_64-unix");
     ms_json_writer_array_end(&writer);
     ms_json_writer_key(&writer, "wine_overrides");
-    ms_json_writer_string(
-        &writer, !strcmp(id, "vkd3d")
-                     ? "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d"
-                     : "");
+    ms_json_writer_string(&writer, !strcmp(id, "vkd3d") ? "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b" : "");
     ms_json_writer_key(&writer, "winedllpath_dirs");
     ms_json_writer_array_begin(&writer);
     if (!strcmp(id, "vkd3d")) {

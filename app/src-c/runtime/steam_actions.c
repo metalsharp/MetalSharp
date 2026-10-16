@@ -491,15 +491,15 @@ static const char* pipeline_backend(const char* pipeline) {
 
 static const char* pipeline_overrides(const char* pipeline) {
     if (!strcmp(pipeline, "vkd3d"))
-        return "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
+        return "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b";
     if (pipeline_is_d3d9(pipeline))
-        return "d3d9,dxgi=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
+        return "d3d9,dxgi=n,b";
     if (!strcmp(pipeline, "dxmt"))
-        return "winemetal,dxgi,d3d11,d3d10core=n,b,d3d12=b;gameoverlayrenderer,gameoverlayrenderer64=d";
+        return "winemetal,dxgi,d3d11,d3d10core=n,b,d3d12=b";
     if (!strcmp(pipeline, "dxmt_32"))
-        return "winemetal,dxgi,d3d11,d3d10core=n,b,d3d12=b;gameoverlayrenderer,gameoverlayrenderer64=d";
+        return "winemetal,dxgi,d3d11,d3d10core=n,b,d3d12=b";
     if (!strcmp(pipeline, "m13") || !strcmp(pipeline, "d3dmetal"))
-        return "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d";
+        return "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b";
     return NULL;
 }
 
@@ -507,9 +507,7 @@ static bool format_steam_pipeline_overrides(char* out, size_t out_size, const ch
     static const char steam_runtime_overrides[] = "d3d10core=n,b;bcrypt=b;ncrypt=b";
     const char* route_overrides = pipeline_overrides(pipeline);
     int written = route_overrides ? snprintf(out, out_size, "%s;%s", route_overrides, steam_runtime_overrides)
-                                  : snprintf(out, out_size,
-                                             "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b;"
-                                             "gameoverlayrenderer,gameoverlayrenderer64=d");
+                                  : snprintf(out, out_size, "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b");
     return written >= 0 && (size_t)written < out_size;
 }
 
@@ -3592,8 +3590,7 @@ static char* spawn_wine(const char* home, const char* first, const char* second,
         setenv("WINEDEBUGGER", "none", 1);
         setenv("STEAM_RUNTIME", "0", 1);
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
-        setenv("WINEDLLOVERRIDES",
-               "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b;gameoverlayrenderer,gameoverlayrenderer64=d", 1);
+        setenv("WINEDLLOVERRIDES", "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b", 1);
         snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
                  home);
 #ifdef __APPLE__
@@ -6133,8 +6130,7 @@ static char* spawn_gptk_game(const char* home, const char* executable, unsigned 
         setenv("WINEDEBUG", "-all", 1);
         ms_steam_apply_launch_preferences(home);
         setenv("METALSHARP_WINE_BINARY", wine, 1);
-        setenv("WINEDLOVERRIDES",
-               "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b;gameoverlayrenderer,gameoverlayrenderer64=d", 1);
+        setenv("WINEDLOVERRIDES", "d3d10,d3d11,d3d12,dxgi,nvapi64,nvngx-on-metalfx=n,b", 1);
         if (!strcmp(pipeline, "d3dmetal"))
             setenv("D3DMETAL_FRAMEWORK_PATH", framework, 1);
         /* A non-Steam shortcut's id is not a Steam app. */
