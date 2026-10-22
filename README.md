@@ -4,6 +4,8 @@
 
 **Run Windows games on MacOS Silicon.**
 
+Developer Notice: The Next Planned Release is MetalSharp 1.0.0 With An Arm64 Wine With FEX, Working VKD3D-Proton, And Much More. As a Result, This Project Will Be Halted at 0.80.0 Until The 1.0.0 Release Can Be Pushed. Thanks For Using MetalSharp!
+
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.79.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.79.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-purple.svg?style=for-the-badge" alt="License"></a>
