@@ -334,7 +334,9 @@ void ms_steam_deploy_controller_input_shims(const char* home, const char* game_d
         return;
     /* MetalSharp Wine's own xinput/dinput builtins see controllers through winebus' SDL bus;
      * "off" also removes shims an x86_64 install staged. */
-    mode = ms_wine_is_fex() ? "off" : controller_input_mode_for_home(home);
+    mode = ms_wine_is_fex() ? strdup("off") : controller_input_mode_for_home(home);
+    if (!mode)
+        return;
     remove_input_shim_manifest(game_dir);
     if (!strcmp(mode, "off")) {
         free((void*)mode);
@@ -1785,14 +1787,20 @@ static bool stage_fex_route_dlls(const char* home, const char* pipeline, const c
         return true;
     }
     *slash = '\0';
+    /* Each lane stages only its own architecture: Mullion the 64-bit (ARM64X) set, Mullion (32) the
+     * i386 set, DXVK its x86_64 set (a 32-bit program on DXVK keeps Mullion (32)). */
     if (!strcmp(pipeline, "dxvk") && !is32) {
         source = "lib/dxvk/x86_64-windows";
         files = dxvk;
         count = sizeof(dxvk) / sizeof(dxvk[0]);
-    } else if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32") || !strcmp(pipeline, "dxvk")) {
-        source = is32 ? "lib/mullion/i386-windows" : "lib/mullion/aarch64-windows";
-        files = is32 ? mullion32 : mullion64;
-        count = is32 ? sizeof(mullion32) / sizeof(mullion32[0]) : sizeof(mullion64) / sizeof(mullion64[0]);
+    } else if (!strcmp(pipeline, "dxmt_32") || (!strcmp(pipeline, "dxvk") && is32)) {
+        source = "lib/mullion/i386-windows";
+        files = mullion32;
+        count = sizeof(mullion32) / sizeof(mullion32[0]);
+    } else if (!strcmp(pipeline, "dxmt")) {
+        source = "lib/mullion/aarch64-windows";
+        files = mullion64;
+        count = sizeof(mullion64) / sizeof(mullion64[0]);
     }
     for (size_t i = 0; i < count; i++)
         ok = stage_route_asset(home, source, files[i], exe_dir) && ok;
@@ -2360,11 +2368,15 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
         free(fnalibs);
         goto done;
     }
-    if (!strcmp(canonical, "m13") || !strcmp(canonical, "d3dmetal") || !strcmp(canonical, "m32") ||
-        !strcmp(canonical, "wine_bare"))
-        goto done;
     if (game_dir && access(game_dir, F_OK) == 0)
         executable = preferred_steam_game_executable(game_dir, (unsigned)appid, canonical);
+    if (!strcmp(canonical, "m13") || !strcmp(canonical, "d3dmetal") || !strcmp(canonical, "m32") ||
+        !strcmp(canonical, "wine_bare")) {
+        /* These routes stage nothing, but switching to one still removes the previous route's DLLs. */
+        if (executable || (executable = find_steam_game_executable(home, (unsigned)appid, canonical)))
+            remove_stale_route_dlls(home, canonical, game_dir, executable);
+        goto done;
+    }
     if (!executable)
         executable = find_steam_game_executable(home, (unsigned)appid, canonical);
     if (!executable) {
