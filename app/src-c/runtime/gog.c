@@ -4,6 +4,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -1048,6 +1049,12 @@ static bool gog_initialize_prefix(const char* home, char* error, size_t error_si
         snprintf(error, error_size, "failed to create GOG prefix");
         free(prefix);
         return false;
+    }
+    /* MetalSharp Wine's prefixes get wineboot, VC++ 2022 and the core fonts before first use. */
+    if (ms_wine_is_fex()) {
+        bool ready = ms_wine_fex_prepare_prefix(home, prefix, false, error, error_size);
+        free(prefix);
+        return ready;
     }
     drive_c = join(prefix, "drive_c");
     if (drive_c && stat(drive_c, &st) == 0 && S_ISDIR(st.st_mode)) {

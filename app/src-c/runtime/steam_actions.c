@@ -13,8 +13,10 @@
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/mtsp.h"
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -101,8 +103,14 @@ static const char ROCKSTAR_LAUNCHER_PATH[] = "prefix-steam/drive_c/Program Files
 
 static char* join(const char* a, const char* b);
 
+/* The lane the Wine Steam client, the Steam-launcher titles and the Rockstar launcher run on:
+ * D3DMetal on the x86_64 runtime, Mullion on MetalSharp Wine (the fex build). */
+static const char* d3dmetal_lane(void) {
+    return ms_wine_is_fex() ? "dxmt" : "d3dmetal";
+}
+
 static const rockstar_launcher_game* rockstar_launcher_game_for(unsigned id, const char* pipeline) {
-    if (!pipeline || (strcmp(pipeline, "d3dmetal") && strcmp(pipeline, "vkd3d")))
+    if (!pipeline || (strcmp(pipeline, d3dmetal_lane()) && strcmp(pipeline, "vkd3d")))
         return NULL;
     for (size_t i = 0; i < sizeof(ROCKSTAR_LAUNCHER_GAMES) / sizeof(ROCKSTAR_LAUNCHER_GAMES[0]); i++)
         if (ROCKSTAR_LAUNCHER_GAMES[i].appid == id)
@@ -144,7 +152,7 @@ static bool format_wine_host_path(char* out, size_t out_size, const char* host_p
 }
 
 static const d3dmetal_steam_launcher_game* d3dmetal_steam_launcher_game_for(unsigned id, const char* pipeline) {
-    if (!pipeline || strcmp(pipeline, "d3dmetal"))
+    if (!pipeline || strcmp(pipeline, d3dmetal_lane()))
         return NULL;
     for (size_t i = 0; i < sizeof(D3DMETAL_STEAM_LAUNCHER_GAMES) / sizeof(D3DMETAL_STEAM_LAUNCHER_GAMES[0]); i++)
         if (D3DMETAL_STEAM_LAUNCHER_GAMES[i].appid == id)
@@ -324,7 +332,9 @@ void ms_steam_deploy_controller_input_shims(const char* home, const char* game_d
     ms_json_writer writer;
     if (!game_dir || access(game_dir, F_OK) != 0)
         return;
-    mode = controller_input_mode_for_home(home);
+    /* MetalSharp Wine's own xinput/dinput builtins see controllers through winebus' SDL bus;
+     * "off" also removes shims an x86_64 install staged. */
+    mode = ms_wine_is_fex() ? "off" : controller_input_mode_for_home(home);
     remove_input_shim_manifest(game_dir);
     if (!strcmp(mode, "off")) {
         free((void*)mode);
@@ -392,7 +402,7 @@ void ms_steam_deploy_controller_input_shims(const char* home, const char* game_d
  * Wine DLL search path, Unix library path, overrides, environment, and args
  * must all be selected from the same route.
  */
-static const char* canonical_pipeline(const char* requested) {
+static const char* canonical_pipeline_any(const char* requested) {
     if (!requested || !requested[0] || !strcasecmp(requested, "auto") || !strcasecmp(requested, "dxmt"))
         return requested && !strcasecmp(requested, "dxmt") ? "dxmt" : "auto";
     if (!strcasecmp(requested, "d3d12") || !strcasecmp(requested, "dx12"))
@@ -426,6 +436,14 @@ static const char* canonical_pipeline(const char* requested) {
     return NULL;
 }
 
+/* On MetalSharp Wine (the fex build) the D3DMetal, VKD3D and GPTK lanes run on Mullion, and DXVK
+ * is a lane of its own (x86_64 programs) instead of a name for the D3D9 route. */
+static const char* canonical_pipeline(const char* requested) {
+    if (ms_wine_is_fex() && requested && !strcasecmp(requested, "dxvk"))
+        return "dxvk";
+    return ms_wine_route_pipeline(canonical_pipeline_any(requested));
+}
+
 static bool pipeline_is_dxmt(const char* pipeline) {
     return pipeline && (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32") || !strcmp(pipeline, "d3d9"));
 }
@@ -448,7 +466,8 @@ static void set_wine_msync(const char* home) {
 static void set_x87_sidecar_env(const char* home, bool enabled) {
     char x87sidecar[PATH_MAX];
     struct stat sidecar_stat;
-    if (!enabled) {
+    /* Rosetta only: MetalSharp Wine runs x87 code with FEX. */
+    if (!enabled || ms_wine_is_fex()) {
         unsetenv("ROSETTA_X87_PATH");
         return;
     }
@@ -500,6 +519,8 @@ void ms_steam_apply_launch_preferences(const char* home) {
 }
 
 static const char* pipeline_backend(const char* pipeline) {
+    if (ms_wine_is_fex())
+        return ms_wine_fex_graphics_backend(pipeline);
     if (!strcmp(pipeline, "vkd3d"))
         return "vulkan";
     if (!strcmp(pipeline, "m13"))
@@ -512,6 +533,10 @@ static const char* pipeline_backend(const char* pipeline) {
 }
 
 static const char* pipeline_overrides(const char* pipeline) {
+    /* MetalSharp Wine serves Mullion and DXVK as its own builtins, ahead of any copy in a game's
+     * folder, so the routes need no native-first overrides there. */
+    if (ms_wine_is_fex())
+        return NULL;
     if (!strcmp(pipeline, "vkd3d"))
         return "d3d12,d3d12core,d3d11,d3d10core,dxgi,d3d9=n,b";
     if (pipeline_is_d3d9(pipeline))
@@ -528,7 +553,12 @@ static const char* pipeline_overrides(const char* pipeline) {
 static bool format_steam_pipeline_overrides(char* out, size_t out_size, const char* pipeline) {
     static const char steam_runtime_overrides[] = "d3d10core=n,b;bcrypt=b;ncrypt=b";
     const char* route_overrides = pipeline_overrides(pipeline);
-    int written = route_overrides ? snprintf(out, out_size, "%s;%s", route_overrides, steam_runtime_overrides)
+    int written;
+    if (ms_wine_is_fex()) {
+        written = snprintf(out, out_size, "bcrypt=b;ncrypt=b");
+        return written >= 0 && (size_t)written < out_size;
+    }
+    written = route_overrides ? snprintf(out, out_size, "%s;%s", route_overrides, steam_runtime_overrides)
                                   : snprintf(out, out_size, "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b");
     return written >= 0 && (size_t)written < out_size;
 }
@@ -625,6 +655,10 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
 }
 
 static void set_rosetta_avx_env(void) {
+    if (ms_wine_is_fex()) {
+        unsetenv("ROSETTA_ADVERTISE_AVX");
+        return;
+    }
 #ifdef __APPLE__
     /* Ask Rosetta to expose its translated AVX/AVX2 support to x86_64 Wine. */
     setenv("ROSETTA_ADVERTISE_AVX", "1", 1);
@@ -635,6 +669,8 @@ static void set_rosetta_avx_env(void) {
  * route was tuned with. */
 static void set_moltenvk_vkmt_env(const char* home) {
     char icd[PATH_MAX];
+    if (ms_wine_is_fex())
+        return;
     snprintf(icd, sizeof(icd), "%s/runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", home);
     setenv("VK_ICD_FILENAMES", icd, 1);
     setenv("VK_DRIVER_FILES", icd, 1);
@@ -653,6 +689,11 @@ static void set_moltenvk_vkmt_env(const char* home) {
 static void set_wfdxcompat_runtime_env(const char* home, const char* pipeline) {
     char runtime[PATH_MAX];
     char companion[PATH_MAX];
+    /* MetalSharp Wine carries its own companion (lib/wfdxcompat) and runs it on Mullion. */
+    if (ms_wine_is_fex()) {
+        unsetenv("WFDXCOMPAT_RUNTIME_DIR");
+        return;
+    }
     snprintf(runtime, sizeof(runtime), "%s/runtime/wfdxcompat", home);
     snprintf(companion, sizeof(companion), "%s/x86_64-windows/wfdx-launchers-v1.dll", runtime);
     if (pipeline && !strcmp(pipeline, "d3dmetal") && access(companion, R_OK) == 0)
@@ -667,6 +708,8 @@ static void set_wfdxcompat_runtime_env(const char* home, const char* pipeline) {
 static void set_wfdxcompat_agility_env(const char* home) {
     char runtime[PATH_MAX];
     char frontend[PATH_MAX];
+    if (ms_wine_is_fex())
+        return;
     snprintf(runtime, sizeof(runtime), "%s/runtime/wfdxcompat-agility", home);
     snprintf(frontend, sizeof(frontend), "%s/x86_64-windows/d3d12.dll", runtime);
     if (access(frontend, R_OK) == 0)
@@ -679,6 +722,9 @@ static void set_wfdxcompat_agility_env(const char* home) {
 static void set_rockstar_launcher_policy_env(const char* home) {
     char framework[PATH_MAX];
     char runtime[PATH_MAX];
+    /* MetalSharp Wine moves Launcher.exe and SocialClubHelper.exe onto Mullion with WFDXCompat itself. */
+    if (ms_wine_is_fex())
+        return;
     snprintf(framework, sizeof(framework), "%s/runtime/d3dmetal-gptk4-beta2/external/D3DMetal.framework/D3DMetal",
              home);
     snprintf(runtime, sizeof(runtime), "%s/runtime/d3dmetal-gptk4-beta2", home);
@@ -687,10 +733,38 @@ static void set_rockstar_launcher_policy_env(const char* home) {
     set_wfdxcompat_runtime_env(home, "d3dmetal");
 }
 
+/* A route on MetalSharp Wine: its loader finds Mullion, DXVK, WFDXCompat, MoltenVK and its own
+ * builtins inside MetalSharp-Wine.app, so the route chooses only the backend. The x86_64
+ * runtime's paths are cleared (runtime/wine/bin's wrappers clear them again). */
+static void set_fex_route_paths(const char* home, const char* pipeline) {
+    static const char* const x86_64_runtime_env[] = {
+        "WINEDLLPATH",     "DYLD_LIBRARY_PATH",      "DYLD_FALLBACK_LIBRARY_PATH", "DXMT_WINEMETAL_UNIXLIB",
+        "DXMT_RUNTIME_DIR", "D3DMETAL_FRAMEWORK_PATH", "D3DMETAL_RUNTIME_DIR",       "WFDXCOMPAT_RUNTIME_DIR",
+        "VK_ICD_FILENAMES", "VK_DRIVER_FILES",         "ROSETTA_ADVERTISE_AVX",      "ROSETTA_X87_PATH"};
+    const char* backend = ms_wine_fex_graphics_backend(pipeline);
+    for (size_t i = 0; i < sizeof(x86_64_runtime_env) / sizeof(x86_64_runtime_env[0]); i++)
+        unsetenv(x86_64_runtime_env[i]);
+    if (pipeline_is_dxmt(pipeline)) {
+        char config[PATH_MAX];
+        ensure_dxmt_shader_metal_version(home);
+        snprintf(config, sizeof(config), "%s/runtime/wine/etc/dxmt.conf", home);
+        setenv("DXMT_CONFIG_FILE", config, 1);
+    } else {
+        unsetenv("DXMT_CONFIG_FILE");
+    }
+    setenv("GRAPHICS_BACKEND", backend, 1);
+    setenv("MS_GRAPHICS_BACKEND", backend, 1);
+    ms_steam_apply_launch_preferences(home);
+}
+
 static void set_route_paths(const char* home, const char* pipeline) {
     char dllpath[PATH_MAX * 3];
     char unixpath[PATH_MAX * 3];
     const char* backend = pipeline_backend(pipeline);
+    if (ms_wine_is_fex()) {
+        set_fex_route_paths(home, pipeline);
+        return;
+    }
     set_rosetta_avx_env();
     if (pipeline_is_dxmt(pipeline))
         ensure_dxmt_shader_metal_version(home);
@@ -868,6 +942,8 @@ static void set_route_default_env(const char* home, const char* pipeline) {
 }
 
 static void ensure_x87_wow64_loader(const char* home) {
+    if (ms_wine_is_fex())
+        return;
     char* directory = join(home, "runtime/wine/lib/wine/i386-unix");
     char* loader = directory ? join(directory, "wine") : NULL;
     char* x64_loader = join(home, "runtime/wine/lib/wine/x86_64-unix/wine");
@@ -1348,6 +1424,10 @@ static bool ensure_fna_bridge(const char* home) {
 
 static char* spawn_fna_game(const char* home, unsigned id, pid_t* pid) {
     bool x86 = id != 413150;
+    /* The fex build installs no Rosetta; it is needed only once an x86 Mono game is played. */
+    if (x86 && ms_wine_is_fex() && !ms_rosetta_available())
+        return strdup("This game's Mono runtime is x86_64 and needs Rosetta 2. Install it with "
+                      "softwareupdate --install-rosetta --agree-to-license, then play again.");
     const char* mono_name = x86 ? "runtime/mono-x86/bin/mono" : "runtime/mono-arm64/bin/mono";
     const char* config_name = id == 504230   ? "celeste-x86-mono.config"
                               : id == 105600 ? "terraria-mono.config"
@@ -1626,7 +1706,18 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                                      "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows",
                                      "vkd3d/vkd3d-proton/x86_64-windows",
                                      "vkd3d/dxvk/x86_64-windows",
-                                     "vkd3d/dxvk/i386-windows"};
+                                     "vkd3d/dxvk/i386-windows",
+                                     /* the fex build: MetalSharp Wine's lanes, and the x86_64
+                                      * runtime it set aside, whose DLLs games may still hold */
+                                     "runtime/wine/lib/mullion/aarch64-windows",
+                                     "runtime/wine/lib/mullion/i386-windows",
+                                     "runtime/wine/lib/dxvk/x86_64-windows",
+                                     "runtime/wine-x86_64/lib/dxmt/x86_64-windows",
+                                     "runtime/wine-x86_64/lib/dxmt/i386-windows",
+                                     "runtime/wine-x86_64/lib/metalsharp/x86_64-windows",
+                                     "runtime/wine-x86_64/lib/metalsharp/i386-windows",
+                                     "runtime/wine-x86_64/lib/wine/x86_64-windows",
+                                     "runtime/wine-x86_64/lib/wine/i386-windows"};
     char* exe_dir = executable ? strdup(executable) : NULL;
     char* slash = exe_dir ? strrchr(exe_dir, '/') : NULL;
     (void)pipeline;
@@ -1668,6 +1759,41 @@ void ms_steam_cleanup_route_dlls(const char* home, const char* pipeline, const c
     remove_stale_route_dlls(home, pipeline, game_dir, executable);
 }
 
+/* The fex build stages the lane's DLLs from MetalSharp-Wine.app (runtime/wine/lib links to its
+ * lib): Mullion's ARM64X DLLs, its i386 ones for 32-bit programs, and DXVK for x86_64 programs.
+ * They are Wine builtins and the routes have no native-first overrides, so Wine still loads the
+ * app's own copies; staged ones keep a game folder's DLLs matching its route. */
+static bool stage_fex_route_dlls(const char* home, const char* pipeline, const char* executable, bool is32) {
+    static const char* const mullion64[] = {"d3d11.dll", "d3d10core.dll", "dxgi.dll", "winemetal.dll",
+                                            "d3d12.dll", "d3d12core.dll"};
+    static const char* const mullion32[] = {"d3d11.dll", "d3d10core.dll", "dxgi.dll", "winemetal.dll"};
+    static const char* const dxvk[] = {"d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"};
+    const char* const* files = NULL;
+    const char* source = NULL;
+    size_t count = 0;
+    char* exe_dir = executable ? strdup(executable) : NULL;
+    char* slash = exe_dir ? strrchr(exe_dir, '/') : NULL;
+    bool ok = true;
+    if (!slash) {
+        free(exe_dir);
+        return true;
+    }
+    *slash = '\0';
+    if (!strcmp(pipeline, "dxvk") && !is32) {
+        source = "lib/dxvk/x86_64-windows";
+        files = dxvk;
+        count = sizeof(dxvk) / sizeof(dxvk[0]);
+    } else if (!strcmp(pipeline, "dxmt") || !strcmp(pipeline, "dxmt_32") || !strcmp(pipeline, "dxvk")) {
+        source = is32 ? "lib/mullion/i386-windows" : "lib/mullion/aarch64-windows";
+        files = is32 ? mullion32 : mullion64;
+        count = is32 ? sizeof(mullion32) / sizeof(mullion32[0]) : sizeof(mullion64) / sizeof(mullion64[0]);
+    }
+    for (size_t i = 0; i < count; i++)
+        ok = stage_route_asset(home, source, files[i], exe_dir) && ok;
+    free(exe_dir);
+    return ok;
+}
+
 static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline, const char* executable) {
     char* exe_dir = NULL;
     char* game_dir = NULL;
@@ -1678,6 +1804,8 @@ static bool stage_route_dlls(const char* home, unsigned id, const char* pipeline
     size_t file_count = 0;
     bool is32 = executable_is_32bit(executable);
 
+    if (ms_wine_is_fex())
+        return stage_fex_route_dlls(home, pipeline, executable, is32);
     if (!strcmp(pipeline, "m13") || !strcmp(pipeline, "m32") || !strcmp(pipeline, "wine_bare"))
         return true;
     exe_dir = strdup(executable);
@@ -2104,7 +2232,10 @@ bool ms_steam_migrate_baldurs_gate_3_route_default(const char* home) {
     char* serialized = NULL;
     bool ok = false;
 
-    if (!path || !marker || !temporary)
+    /* MetalSharp Wine has no D3DMetal lane, and BG3 runs on Mullion there. */
+    if (ms_wine_is_fex())
+        ok = true;
+    if (ok || !path || !marker || !temporary)
         goto done;
     if (access(marker, F_OK) == 0) {
         ok = true;
@@ -2815,6 +2946,11 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     char winemetal[PATH_MAX];
     char vulkan_icd[PATH_MAX];
     const char* backend = "dxmt";
+    if (ms_wine_is_fex()) {
+        const char* canonical = canonical_pipeline(pipeline);
+        set_fex_route_paths(home, canonical && strcmp(canonical, "auto") ? canonical : "dxmt");
+        return;
+    }
     set_rosetta_avx_env();
     if (!pipeline)
         pipeline = "auto";
@@ -2905,7 +3041,7 @@ static bool managed_wine_process_running(const char* home, bool steam_only) {
     char line[4096];
     bool running = false;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return false;
@@ -2946,7 +3082,7 @@ static pid_t wine_steam_client_pid(const char* home) {
     char line[4096];
     pid_t steam_pid = 0;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return 0;
@@ -3324,7 +3460,7 @@ static pid_t scan_baldurs_gate_3_wine_processes(const char* home, int signal_num
     FILE* pipe;
     pid_t best_pid = 0;
     int best_rank = 0;
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     if (failed)
         *failed = !game_dir || !paths || path_count == 0;
     if (!game_dir || !paths || path_count == 0) {
@@ -3424,7 +3560,7 @@ static size_t signal_eve_wine_processes(const char* home, int signal_number, boo
     if (failed)
         *failed = paths == NULL;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     free(game_dir);
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe) {
@@ -3473,7 +3609,7 @@ static pid_t scan_eve_wine_process_pid(const char* home, bool* failed) {
     if (failed)
         *failed = paths == NULL;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     free(game_dir);
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe) {
@@ -3547,7 +3683,7 @@ static void signal_wine_steam_processes(const char* home, int signal_number) {
     FILE* pipe;
     char line[4096];
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return;
@@ -4029,8 +4165,8 @@ char* ms_steam_launch_json(const char* home, int* status) {
     }
     redirect_wine_steam_desktop(home);
     if (ms_steam_process_running(home)) {
-        if (wine_steam_route_marker_is_pending(home, "d3dmetal"))
-            (void)write_wine_steam_route_marker(home, "d3dmetal");
+        if (wine_steam_route_marker_is_pending(home, d3dmetal_lane()))
+            (void)write_wine_steam_route_marker(home, d3dmetal_lane());
         errtext = NULL;
         if (activate_wine_steam(home, steam, &pid, &errtext)) {
             free(steam);
@@ -4058,10 +4194,10 @@ char* ms_steam_launch_json(const char* home, int* status) {
      * responsive client here; the branch above only activates it.
      * spawn_wine_for_pipeline prepares the webhelper wrappers and registry. */
     bool ui_never_initialized = !steam_ui_initialized(home);
-    errtext = spawn_wine_for_pipeline(home, "d3dmetal", 0, steam, "-no-cef-sandbox", "-cef-single-process",
+    errtext = spawn_wine_for_pipeline(home, d3dmetal_lane(), 0, steam, "-no-cef-sandbox", "-cef-single-process",
                                       "-noverifyfiles", "-no-dwrite", &pid);
     if (!errtext) {
-        (void)write_wine_steam_route_pending(home, "d3dmetal");
+        (void)write_wine_steam_route_pending(home, d3dmetal_lane());
         for (int i = 0; i < WINE_STEAM_READY_POLLS && !ms_steam_process_running(home); i++)
             usleep(100000);
     }
@@ -4075,8 +4211,9 @@ char* ms_steam_launch_json(const char* home, int* status) {
     }
     if (!ms_steam_process_running(home))
         return err("Wine Steam was started but did not become ready");
-    if (!write_wine_steam_route_marker(home, "d3dmetal"))
-        return err("Wine Steam is running, but its D3DMetal launch environment could not be verified");
+    if (!write_wine_steam_route_marker(home, d3dmetal_lane()))
+        return err(ms_wine_is_fex() ? "Wine Steam is running, but its Mullion launch environment could not be verified"
+                                    : "Wine Steam is running, but its D3DMetal launch environment could not be verified");
     if (ui_never_initialized)
         watch_steam_ui_first_run(home);
     if (status)
@@ -4095,8 +4232,12 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
             return NULL;
         if (wine_steam_route_marker_is_pending(home, pipeline) && write_wine_steam_route_marker(home, pipeline))
             return NULL;
-        return strdup("Wine Steam is already running without MetalSharp's verified D3DMetal environment. Stop Wine "
-                      "Steam, then relaunch it from MetalSharp before starting this game.");
+        return strdup(ms_wine_is_fex() ? "Wine Steam is already running without MetalSharp's verified Mullion "
+                                         "environment. Stop Wine Steam, then relaunch it from MetalSharp before "
+                                         "starting this game."
+                                       : "Wine Steam is already running without MetalSharp's verified D3DMetal "
+                                         "environment. Stop Wine Steam, then relaunch it from MetalSharp before "
+                                         "starting this game.");
     }
     steam = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/Steam.exe");
     ui = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/steamui.dll");
@@ -4121,7 +4262,8 @@ static char* ensure_wine_steam_pipeline(const char* home, const char* pipeline) 
     if (!ms_steam_process_running(home))
         return strdup("Wine Steam was started but did not become ready for this graphics route");
     if (!write_wine_steam_route_marker(home, pipeline))
-        return strdup("Wine Steam started, but its D3DMetal launch environment could not be verified");
+        return strdup(ms_wine_is_fex() ? "Wine Steam started, but its Mullion launch environment could not be verified"
+                                       : "Wine Steam started, but its D3DMetal launch environment could not be verified");
     return NULL;
 }
 
@@ -4377,7 +4519,8 @@ static bool copy_file_path_new(const char* source, const char* destination) {
 }
 
 static bool select_wine_ntdll(const char* home, const char* pipeline) {
-    char* directory = join(home, "runtime/wine/lib/wine/x86_64-unix");
+    char* directory = join(home, ms_wine_is_fex() ? "runtime/MetalSharp-Wine.app/Contents/lib/wine/aarch64-unix"
+                                                  : "runtime/wine/lib/wine/x86_64-unix");
     char* canonical = directory ? join(directory, "ntdll.so") : NULL;
     bool ok = canonical && access(canonical, R_OK) == 0;
     (void)pipeline;
@@ -5173,6 +5316,9 @@ static bool same_file_size(const char* left, const char* right) {
 }
 
 bool ms_steam_ensure_game_audio_fix(const char* home, unsigned appid) {
+    /* MetalSharp Wine decodes xWMA with GStreamer and FFmpeg; FAudio's copy is for the x86_64 Wine. */
+    if (ms_wine_is_fex())
+        return true;
     static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
     static unsigned failed[64];
     static size_t failed_count = 0;
@@ -5289,7 +5435,9 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
         fprintf(owner, "%ld\\n", (long)getpid());
         fclose(owner);
     }
-    if (prefix)
+    /* Steam installs into a fresh prefix, except on the fex build into the one setup just prepared
+     * for it (wineboot, VC++ 2022, core fonts) and nothing has run in yet. */
+    if (prefix && !(ms_wine_is_fex() && ms_wine_fex_prefix_ready(prefix) && steam_exe && access(steam_exe, F_OK) != 0))
         (void)remove_tree(prefix);
     write_steam_install_stage(home, "downloading");
     unlink(installer);
@@ -5308,6 +5456,14 @@ static void steam_install_worker(const char* home, const char* lock_path, const 
     /* A first Wine invocation initializes a fresh prefix automatically. Running
      * wineboot --init here also explicitly starts a second service manager. */
     write_steam_install_stage(home, "creating-steam-prefix");
+    /* MetalSharp Wine's prefix gets wineboot, VC++ 2022 and the core fonts before Steam runs in it. */
+    if (ms_wine_is_fex()) {
+        char prefix_error[512];
+        if (!prefix || !ms_wine_fex_prepare_prefix(home, prefix, false, prefix_error, sizeof(prefix_error))) {
+            ms_log_event(home, prefix_error);
+            goto done;
+        }
+    }
     wine_error = spawn_wine_install(home, "cmd", "/c", "exit 0", &pid);
     if (wine_error) {
         free(wine_error);
@@ -5913,7 +6069,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
      * Vulkan) or, for other titles, the game's own route. */
     const rockstar_launcher_game* rockstar =
         is_rockstar_launcher_executable(executable) ? rockstar_launcher_game_for(id, pipeline) : NULL;
-    const char* env_pipeline = rockstar && rockstar->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
+    const char* env_pipeline = rockstar && rockstar->launcher_on_d3dmetal ? d3dmetal_lane() : pipeline;
     if (!wine || access(wine, X_OK) != 0) {
         free(wine);
         wine = join(home, "runtime/wine/bin/wine");
@@ -6457,10 +6613,10 @@ static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3d
     }
 
     ms_steam_deploy_controller_input_shims(home, game_dir);
-    remove_stale_route_dlls(home, "d3dmetal", game_dir, launcher);
+    remove_stale_route_dlls(home, d3dmetal_lane(), game_dir, launcher);
     if (executable) {
-        remove_stale_route_dlls(home, "d3dmetal", game_dir, executable);
-        if (!stage_route_dlls(home, game->appid, "d3dmetal", executable)) {
+        remove_stale_route_dlls(home, d3dmetal_lane(), game_dir, executable);
+        if (!stage_route_dlls(home, game->appid, d3dmetal_lane(), executable)) {
             free(game_dir);
             free(launcher);
             free(executable);
@@ -6474,7 +6630,7 @@ static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3d
 
     /* Reuse the shared Wine Steam client if it is already running. When no
      * client exists, start one with D3DMetal configured before the handoff. */
-    error_text = ensure_wine_steam_pipeline(home, "d3dmetal");
+    error_text = ensure_wine_steam_pipeline(home, d3dmetal_lane());
     if (error_text) {
         char* result = err(error_text);
         free(error_text);
@@ -6491,7 +6647,7 @@ static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3d
     ms_process_register_pending_game(game->appid, pid, 15);
     if (status)
         *status = 200;
-    return pipeline_pid_result(pid, game->appid, "d3dmetal", home);
+    return pipeline_pid_result(pid, game->appid, d3dmetal_lane(), home);
 }
 
 /* RDR2 defaults to its Vulkan renderer, which D3DMetal cannot back: the game
@@ -6640,7 +6796,7 @@ static bool apply_protected_exe_swap(const char* home, unsigned id, const char* 
         char* game_dir;
         bool ok;
         if (swap->appid != id || !pipeline ||
-            (strcmp(pipeline, "d3dmetal") && !(swap->vkd3d && !strcmp(pipeline, "vkd3d"))))
+            (strcmp(pipeline, d3dmetal_lane()) && !(swap->vkd3d && !strcmp(pipeline, "vkd3d"))))
             continue;
         game_dir = ms_steam_game_dir(home, id);
         if (!game_dir)
@@ -6658,7 +6814,7 @@ static bool apply_protected_exe_swap(const char* home, unsigned id, const char* 
  * DX12. RDR2 runs the launcher identically on both routes; its VKD3D keeps the Vulkan renderer
  * (-api Vulkan, forwarded by the launcher) instead. */
 static bool prepare_rockstar_game(const char* home, const rockstar_launcher_game* game, const char* pipeline) {
-    const char* stage_pipeline = game->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
+    const char* stage_pipeline = game->launcher_on_d3dmetal ? d3dmetal_lane() : pipeline;
     char* game_dir = ms_steam_game_dir(home, game->appid);
     char* client = game_dir ? join(game_dir, game->client) : NULL;
     bool ok = client && access(client, F_OK) == 0;
@@ -6669,7 +6825,7 @@ static bool prepare_rockstar_game(const char* home, const rockstar_launcher_game
     }
     free(game_dir);
     free(client);
-    if (ok && game->dx12_settings && !strcmp(pipeline, "d3dmetal") && !ensure_rdr2_dx12_settings(home))
+    if (ok && game->dx12_settings && !strcmp(pipeline, d3dmetal_lane()) && !ensure_rdr2_dx12_settings(home))
         ms_log_event(home, "Red Dead Redemption 2: could not switch system.xml to DX12 for D3DMetal.");
     return ok;
 }
@@ -6681,7 +6837,7 @@ static bool prepare_rockstar_game(const char* home, const rockstar_launcher_game
  * is installed, launches start it directly again (launch_rockstar_via_launcher_json). */
 static char* launch_rockstar_first_run_via_steam_json(const char* home, const rockstar_launcher_game* game,
                                                       const char* pipeline, int* status) {
-    const char* steam_pipeline = game->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
+    const char* steam_pipeline = game->launcher_on_d3dmetal ? d3dmetal_lane() : pipeline;
     char message[256];
     char* error_text;
     char* result;
@@ -6833,7 +6989,7 @@ static bool steam_game_uses_ubisoft_connect(unsigned id, const char* game_dir) {
 }
 
 static bool marvel_rivals_uses_steam_bootstrap(unsigned id, const char* pipeline) {
-    return id == 2767030 && pipeline && !strcmp(pipeline, "d3dmetal");
+    return id == 2767030 && pipeline && !strcmp(pipeline, d3dmetal_lane());
 }
 
 /* Games that must be started by the Wine Steam client on every route. AMID
@@ -6847,7 +7003,7 @@ static bool launches_through_steam_client(unsigned id) {
 }
 
 static bool baldurs_gate_3_uses_steam_bootstrap(unsigned id, const char* pipeline) {
-    return id == 1086940 && pipeline && !strcmp(pipeline, "d3dmetal");
+    return id == 1086940 && pipeline && !strcmp(pipeline, d3dmetal_lane());
 }
 
 static bool ubisoft_connect_command(const char* command) {
@@ -6860,7 +7016,7 @@ static pid_t ubisoft_connect_process_pid(const char* home) {
     FILE* pipe;
     char line[4096];
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return 0;
@@ -6895,7 +7051,7 @@ static pid_t ubisoft_game_process_pid(const char* home, const char* executable) 
     FILE* pipe;
     char line[4096];
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     exe_name = exe_name ? exe_name + 1 : executable;
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
@@ -6942,7 +7098,7 @@ static bool signal_odyssey_processes(const char* home, const char* executable, i
     FILE* pipe;
     bool found = false;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe) {
         if (failed)
@@ -7848,7 +8004,7 @@ char* ms_steam_stop_targets_json(const char* home, int* status) {
     if (status)
         *status = 200;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");

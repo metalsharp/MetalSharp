@@ -117,6 +117,7 @@ test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) 
 	@python3 "$(CURDIR)/tests/updater_test.py" "$(TARGET)"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
 asan-test:
@@ -159,7 +160,7 @@ $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/met
 
 $(MIGRATION_TEST): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_test.c include/metalsharp_backend/migration.h include/metalsharp_backend/steam_actions.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/migration_test.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/wine_runtime.c tests/migration_test.c -lpthread
 
 $(HTTP_SERVER_TEST): runtime/http_server.c runtime/local_socket.c tests/http_server_test.c include/metalsharp_backend/http_server.h include/metalsharp_backend/local_socket.h
 	@mkdir -p "$(@D)"
@@ -176,16 +177,16 @@ $(WINE_RUNTIME_TEST): runtime/wine_runtime.c tests/wine_runtime_test.c include/m
 
 # The vcpp test #includes runtime/setup.c for the static progress helpers, so
 # setup.c itself must not be linked into this binary.
-$(VCPP_TEST): runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c tests/setup_vcpp_test.c runtime/setup.c include/metalsharp_backend/setup.h include/metalsharp_backend/rosetta.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
+$(VCPP_TEST): runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_vcpp_test.c runtime/setup.c include/metalsharp_backend/setup.h include/metalsharp_backend/rosetta.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c tests/setup_vcpp_test.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_vcpp_test.c -lpthread
 
 # The runtime-ready sim #includes runtime/migration.c for runtime_ready();
 # migration.c must not be linked into this binary (same pattern as the vcpp
 # test with setup.c).
 $(RUNTIME_READY_SIM): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_runtime_ready_sim.c include/metalsharp_backend/migration.h include/metalsharp_backend/steam_actions.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/migration_runtime_ready_sim.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/wine_runtime.c tests/migration_runtime_ready_sim.c -lpthread
 
 clean:
 	rm -rf "$(BUILD_DIR)"

@@ -2,7 +2,9 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -1751,8 +1753,17 @@ char* ms_epic_cancel_json(const char* home, const unsigned char* body, size_t bo
 }
 
 static int initialize_epic_prefix(const char* home, const char* prefix) {
-    char* wine = epic_join(home, "runtime/wine/bin/metalsharp-wine");
+    char* wine;
     char* output = NULL;
+    if (ms_wine_is_fex()) {
+        char error[512];
+        if (!epic_mkdir_p(prefix) || !ms_wine_fex_prepare_prefix(home, prefix, false, error, sizeof(error))) {
+            ms_log_event(home, error);
+            return -1;
+        }
+        return 0;
+    }
+    wine = epic_join(home, "runtime/wine/bin/metalsharp-wine");
     if (!wine || access(wine, X_OK) != 0 || !epic_mkdir_p(prefix)) {
         free(wine);
         return -1;

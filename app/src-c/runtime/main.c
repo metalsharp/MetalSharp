@@ -7,6 +7,7 @@
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/steamcmd.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -114,11 +115,16 @@ int main(void) {
         free((void*)context.metalsharp_home);
         return EXIT_FAILURE;
     }
-    if (!ms_setup_wine_wrapper_ensure(context.metalsharp_home))
-        fprintf(stderr, "warning: could not update MetalSharp Wine wrapper for graphics routes\n");
-    ms_setup_refresh_legacy_ntdll_hooks(context.metalsharp_home);
-    if (!ms_setup_wine_sdl_ensure(context.metalsharp_home))
-        fprintf(stderr, "warning: could not link SDL2 into the MetalSharp Wine runtime for controllers\n");
+    if (ms_wine_is_fex()) {
+        /* MetalSharp Wine's app is never patched; a MetalSharp update brings a newer one. */
+        ms_wine_fex_refresh_async(context.metalsharp_home);
+    } else {
+        if (!ms_setup_wine_wrapper_ensure(context.metalsharp_home))
+            fprintf(stderr, "warning: could not update MetalSharp Wine wrapper for graphics routes\n");
+        ms_setup_refresh_legacy_ntdll_hooks(context.metalsharp_home);
+        if (!ms_setup_wine_sdl_ensure(context.metalsharp_home))
+            fprintf(stderr, "warning: could not link SDL2 into the MetalSharp Wine runtime for controllers\n");
+    }
     fprintf(stderr, "metalsharp-backend listening on %s\n", socket_path);
     fprintf(stderr, "MetalSharp v%s backend started on %s\n", context.version, socket_path);
     {
@@ -127,7 +133,8 @@ int main(void) {
         ms_log_event(context.metalsharp_home, message);
     }
     ms_epic_sync_on_startup(context.metalsharp_home);
-    ms_rosetta_after_macos_upgrade_async(context.metalsharp_home);
+    if (!ms_wine_is_fex())
+        ms_rosetta_after_macos_upgrade_async(context.metalsharp_home);
 
     for (attempt = 1; attempt <= 30 && !stop_requested; ++attempt) {
         if (ms_http_serve_unix(socket_path, &stop_requested, ms_backend_handle, &context,

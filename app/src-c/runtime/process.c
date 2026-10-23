@@ -8,6 +8,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ubisoft.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -213,7 +214,7 @@ static wine_process_list find_wine_executables(const char* home, const char* exe
     char prefix[PATH_MAX], runtime[PATH_MAX], line[4096];
     FILE* pipe;
     snprintf(prefix, sizeof(prefix), "%s/prefix-steam", home);
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return result;

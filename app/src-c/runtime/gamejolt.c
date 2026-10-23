@@ -8,6 +8,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -358,7 +359,7 @@ void ms_gamejolt_register_game_process(const char* home, const char* id, pid_t p
         return;
     char* working_dir = strdup(executable);
     char* slash = working_dir ? strrchr(working_dir, '/') : NULL;
-    char* runtime_dir = join_path(home, "runtime/wine");
+    char* runtime_dir = ms_wine_process_root_dup(home);
     if (slash && slash != working_dir)
         *slash = '\0';
     else if (slash)

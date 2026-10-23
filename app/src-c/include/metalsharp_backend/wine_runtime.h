@@ -18,7 +18,7 @@ bool ms_wine_app_contents(const char* home, char* out, size_t out_size);
 
 /* On the fex build, ~/.metalsharp/runtime/wine is a small facade over the app: bin/ has
  * metalsharp-wine, wine, wine64, wineserver and the Wine programs as scripts that clear the
- * x86_64 runtime's library and DLL paths and run the app's wine; lib links to the app's lib;
+ * x86_64 runtime's library and DLL paths and run the app's wine; lib and share link to the app's;
  * etc/ is MetalSharp's own (dxmt.conf). Code that runs runtime/wine/bin/metalsharp-wine therefore
  * runs MetalSharp Wine on both builds. */
 bool ms_wine_fex_write_facade(const char* home, char* error, size_t error_size);
@@ -35,7 +35,42 @@ const char* ms_wine_fex_graphics_backend(const char* pipeline);
  * (runtime/wine/bin/wine, lib/wine/x86_64-unix/wine) or MetalSharp-Wine.app's
  * (Contents/MacOS/wine, Contents/lib/wine/aarch64-unix/wine). */
 bool ms_wine_is_runtime_wine_path(const char* home, const char* path);
+/* The directory every Wine process's executable is under, for telling MetalSharp's Wine processes
+ * from others: runtime/wine, or runtime/MetalSharp-Wine.app on fex. The _dup form is malloc'd. */
+bool ms_wine_process_root(const char* home, char* out, size_t out_size);
+char* ms_wine_process_root_dup(const char* home);
 /* The wineserver to stop a prefix with: the app's on fex, runtime/wine/bin/wineserver otherwise. */
 bool ms_wine_server_path(const char* home, char* out, size_t out_size);
+
+/* The fex build's MetalSharp Wine install: copies MetalSharp-Wine.app from this MetalSharp's
+ * Resources (METALSHARP_WINE_APP_SOURCE overrides it) to <home>/runtime with ditto, when it is
+ * missing or a different version; checks its signature (codesign --verify --deep --strict); makes
+ * it read-only, so nothing can break its seal; writes the runtime/wine facade. */
+bool ms_wine_fex_install_app(const char* home, char* error, size_t error_size);
+/* At backend start, on a detached thread: once setup has installed MetalSharp Wine, reinstall it
+ * when this MetalSharp carries a different build, and rewrite the facade's wrappers. */
+void ms_wine_fex_refresh_async(const char* home);
+/* The MetalSharp-Wine.app this MetalSharp carries, or NULL. Malloc'd. */
+char* ms_wine_fex_app_source(void);
+
+/* Prepares a prefix for MetalSharp Wine before anything runs in it: wineboot -u (ARM64X
+ * builtins and FEX's WoW64 keys), the bundled VC++ 2022 x64 and x86 runtimes, and the bundled
+ * Microsoft core fonts, unpacked with cabextract since their installers fail under Wine. Records
+ * it in <prefix>/.metalsharp-wine-arch ("arm64") and .metalsharp-prefix-ready. Done once per
+ * prefix; `force` runs it again. */
+bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force, char* error, size_t error_size);
+bool ms_wine_fex_prefix_ready(const char* prefix);
+
+/* Prefixes move between the builds one way, with a backup:
+ * - ms_wine_fex_convert_prefixes (fex): every MetalSharp prefix (prefix-steam, prefix-ubisoft,
+ *   sharp-prefix, bottles/<id>/prefix) that the x86_64 Wine built gets its system.reg, user.reg,
+ *   userdef.reg and drive_c/windows backed up to <prefix>/.metalsharp-x86_64-backup and is then
+ *   prepared for MetalSharp Wine (installed programs and games stay where they are). Returns how
+ *   many could not be converted.
+ * - ms_wine_restore_x86_64_prefixes (regular): a prefix marked arm64 gets that backup back; one
+ *   with no backup is left alone and counted, since the x86_64 Wine must not run it. */
+bool ms_wine_prefix_is_arm64(const char* prefix);
+unsigned ms_wine_fex_convert_prefixes(const char* home, char* error, size_t error_size);
+unsigned ms_wine_restore_x86_64_prefixes(const char* home);
 
 #endif

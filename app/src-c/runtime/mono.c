@@ -1,6 +1,7 @@
 #include "metalsharp_backend/mono.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <stdbool.h>
 #include <errno.h>
 #include <stdio.h>
@@ -110,7 +111,8 @@ static char* status(const char* home, const char* kind) {
     char* mono = p ? join(p, "drive_c/windows/mono/mono-2.0") : NULL;
     char* cache = mono_cache_path(home);
     bool running = mono_child_running();
-    bool installed = marker && access(marker, F_OK) == 0;
+    /* MetalSharp Wine carries Wine Mono in its share/wine/mono, which every prefix uses. */
+    bool installed = ms_wine_is_fex() || (marker && access(marker, F_OK) == 0);
     bool any_mono = mono && access(mono, F_OK) == 0;
     ms_json_writer w;
     char* o;
@@ -179,7 +181,8 @@ char* ms_mono_install_json(const char* home, const char* body, size_t len) {
     char *prefix = mono_prefix(home, kind), *marker = mono_marker(home, kind);
     char *cache_dir = join(home, "cache/wine-mono"), *cache = mono_cache_path(home);
     char *wine = join(home, "runtime/wine/bin/wine");
-    bool installed = marker && access(marker, F_OK) == 0;
+    /* MetalSharp Wine carries Wine Mono in its share/wine/mono, which every prefix uses. */
+    bool installed = ms_wine_is_fex() || (marker && access(marker, F_OK) == 0);
     bool running = mono_child_running();
     char* s;
     ms_json_writer w;

@@ -10,6 +10,7 @@
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -282,7 +283,7 @@ static bool ubisoft_client_command(const char* command) {
 static bool ubisoft_group_has_client(const char* home, pid_t group) {
     char runtime[PATH_MAX], prefix[PATH_MAX], line[4096];
     FILE* pipe;
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     snprintf(prefix, sizeof(prefix), "%s/prefix-ubisoft", home);
     pipe = popen("/bin/ps axo pid=,pgid=,command=", "r");
     if (!pipe)
@@ -311,7 +312,7 @@ static bool ubisoft_pid_matches(const char* home, pid_t target) {
     pid_t child, waited;
     if (target <= 1 || pipe(output) != 0)
         return false;
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     snprintf(prefix, sizeof(prefix), "%s/prefix-ubisoft", home);
     child = fork();
     if (child == 0) {
@@ -472,7 +473,14 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
         free(reg);
         return false;
     }
-    if (!initialized) {
+    if (ms_wine_is_fex()) {
+        if (!ms_wine_fex_prepare_prefix(home, prefix, false, error, error_size)) {
+            free(prefix);
+            free(wine);
+            free(reg);
+            return false;
+        }
+    } else if (!initialized) {
         char* argv[] = {wine, "wineboot", "-u", NULL};
         if (!run_child_wait(wine, argv, home, prefix, "d3dmetal")) {
             snprintf(error, error_size, "Wine could not initialize the Ubisoft Connect prefix");
@@ -1308,7 +1316,7 @@ static pid_t ubisoft_detect_installed_game_pid(const char* home, const ubisoft_g
     char runtime[PATH_MAX], line[4096];
     FILE* pipe;
     pid_t result = 0;
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return 0;

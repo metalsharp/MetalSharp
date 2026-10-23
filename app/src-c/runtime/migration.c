@@ -1,9 +1,11 @@
 #include "metalsharp_backend/migration.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/ubisoft.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <CommonCrypto/CommonDigest.h>
 #include <dirent.h>
 #include <errno.h>
@@ -23,7 +25,8 @@
 #include <unistd.h>
 
 #define MIGRATION_VERSION "0.80.0"
-#define MIGRATION_SCHEMA  6
+/* 7: setup.json records runtime_variant, and prefixes carry the Wine they were built for. */
+#define MIGRATION_SCHEMA  7
 
 static const char* const migration_payload_denies[] = {
     "steamapps",    "common",         "downloading", "shadercache", "compatdata",    "prefix",
@@ -421,7 +424,22 @@ static void restore_links(const char* prefix, migration_link* links) {
     }
     free(dosdevices);
 }
+/* The fex build's runtime: MetalSharp Wine with its facade, and the support assets setup stages. */
+static bool runtime_ready_fex(const char* home) {
+    static const char* const required[] = {"runtime/host/manifest.json", "runtime/goldberg/x86/steam_api.dll",
+                                           "runtime/goldberg/x64/steam_api64.dll", "configs/mtsp-rules.toml"};
+    bool ok = ms_wine_fex_facade_ready(home);
+    for (size_t i = 0; ok && i < sizeof(required) / sizeof(required[0]); i++) {
+        char* path = path_join(home, required[i]);
+        ok = path && file_nonempty_local(path);
+        free(path);
+    }
+    return ok;
+}
+
 static bool runtime_ready(const char* home) {
+    if (ms_wine_is_fex())
+        return runtime_ready_fex(home);
     /* Existence checks ONLY. Migration exists to deliver a working runtime,
      * and every content-level check this function once performed (pinned
      * sha256 tables, DXMT manifest version strings, MoltenVK hashes, bridge
@@ -781,6 +799,10 @@ static void free_preserved_data(preserved_data* data) {
 }
 
 static void remove_old_runtime(const char* home) {
+    /* The fex build keeps MetalSharp Wine (read-only, and setup reinstalls it only when it changed). */
+    char* app = path_join(home, "runtime/MetalSharp-Wine.app");
+    char* kept_app = path_join(home, ".MetalSharp-Wine.app.keep");
+    bool keep_app = ms_wine_is_fex() && app && kept_app && access(app, F_OK) == 0 && rename(app, kept_app) == 0;
     const char* names[] = {"runtime",
                            "configs",
                            "cache",
@@ -802,6 +824,10 @@ static void remove_old_runtime(const char* home) {
             (void)mkdir(path, 0700);
         free(path);
     }
+    if (keep_app)
+        (void)rename(kept_app, app);
+    free(app);
+    free(kept_app);
 }
 
 static void write_setup_metadata(const char* home) {
@@ -828,7 +854,7 @@ static void write_setup_metadata(const char* home) {
             const char* key = ms_json_object_key_at(value, i);
             char* raw = ms_json_stringify(ms_json_object_value_at(value, i));
             if (!key || !raw || !strcmp(key, "last_migrated_version") || !strcmp(key, "runtime_migration_schema") ||
-                (api_key && !strcmp(key, "steamApiKeySet"))) {
+                !strcmp(key, "runtime_variant") || (api_key && !strcmp(key, "steamApiKeySet"))) {
                 free(raw);
                 continue;
             }
@@ -841,6 +867,8 @@ static void write_setup_metadata(const char* home) {
     ms_json_writer_string(&writer, MIGRATION_VERSION);
     ms_json_writer_key(&writer, "runtime_migration_schema");
     ms_json_writer_u64(&writer, MIGRATION_SCHEMA);
+    ms_json_writer_key(&writer, "runtime_variant");
+    ms_json_writer_string(&writer, ms_wine_variant());
     if (api_key) {
         ms_json_writer_key(&writer, "steamApiKeySet");
         ms_json_writer_bool(&writer, true);
@@ -1485,7 +1513,7 @@ char* ms_migration_check_json(const char* home) {
     ms_json *setup = NULL, *marker = NULL;
     char e[128];
     char* prefix_path = path_join(home, "prefix-steam");
-    bool marker_needed = false, marker_mismatch = false, ready;
+    bool marker_needed = false, marker_mismatch = false, ready, variant_switch;
     char *legacy, *target = NULL;
     unsigned long long schema;
     ms_json_writer w;
@@ -1523,13 +1551,22 @@ char* ms_migration_check_json(const char* home) {
     schema = json_u64(setup, "runtime_migration_schema", 0);
     legacy = json_str(setup, "last_migrated_version");
     ready = runtime_ready(home);
+    {
+        /* Installed by the other build: its prefixes move to this build's Wine. A setup.json
+         * without runtime_variant was written by the regular build. */
+        char* recorded = json_str(setup, "runtime_variant");
+        variant_switch = strcmp(recorded ? recorded : "regular", ms_wine_variant()) != 0 &&
+                         (json_bool(setup, "completed", false) || exists(prefix_path));
+        free(recorded);
+    }
     marker_mismatch = target != NULL && compare_versions(target, MIGRATION_VERSION) > 0;
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
     ms_json_writer_bool(&w, true);
     ms_json_writer_key(&w, "needed");
-    ms_json_writer_bool(&w, marker_needed || (!ready && (json_bool(setup, "completed", false) || exists(prefix_path))));
+    ms_json_writer_bool(&w, marker_needed || variant_switch ||
+                                (!ready && (json_bool(setup, "completed", false) || exists(prefix_path))));
     ms_json_writer_key(&w, "current_version");
     ms_json_writer_string(&w, legacy ? legacy : "0.0.0");
     ms_json_writer_key(&w, "target_version");
@@ -1545,11 +1582,15 @@ char* ms_migration_check_json(const char* home) {
         ms_json_writer_null(&w);
     ms_json_writer_key(&w, "running_version");
     ms_json_writer_string(&w, MIGRATION_VERSION);
+    ms_json_writer_key(&w, "running_variant");
+    ms_json_writer_string(&w, ms_wine_variant());
     ms_json_writer_key(&w, "update_target_satisfied");
     ms_json_writer_bool(&w, !marker_mismatch);
     ms_json_writer_key(&w, "reason");
     if (marker_mismatch)
         ms_json_writer_string(&w, "post_update_target_version_mismatch");
+    else if (variant_switch)
+        ms_json_writer_string(&w, "runtime_variant_switch");
     else if (marker_needed && !ready)
         ms_json_writer_string(&w, "post_update_marker_and_runtime_repair");
     else if (marker_needed)
@@ -1663,10 +1704,30 @@ static void* migration_worker(void* opaque) {
             restore_preserved_data(job->home, &preserved);
             write_migration_report(job->home, true, true);
             free_preserved_data(&preserved);
-            bool gog_prefix_ok, ubisoft_prefix_ok;
-            (void)write_migration_progress(job->home, "running", 6,
-                                           "Rebuilding preserved GOG and Ubisoft Wine prefixes...", NULL);
-            (void)rebuild_preserved_wine_prefixes(job->home, &gog_prefix_ok, &ubisoft_prefix_ok);
+            bool gog_prefix_ok = true, ubisoft_prefix_ok = true;
+            if (ms_wine_is_fex()) {
+                char convert_error[512] = "";
+                (void)write_migration_progress(job->home, "running", 6,
+                                               "Moving your Wine prefixes to MetalSharp Wine (with a backup)...", NULL);
+                if (ms_wine_fex_convert_prefixes(job->home, convert_error, sizeof(convert_error)) > 0) {
+                    (void)write_migration_progress(job->home, "error", 6,
+                                                   "Could not move a Wine prefix to MetalSharp Wine",
+                                                   convert_error[0] ? convert_error : "prefix_conversion_failed");
+                    unlink(job->lock_path);
+                    free(job->home);
+                    free(job->lock_path);
+                    free(job);
+                    return NULL;
+                }
+            } else {
+                /* Prefixes the fex build converted get their x86_64 backup back first. */
+                if (ms_wine_restore_x86_64_prefixes(job->home) > 0)
+                    ms_log_event(job->home, "A Wine prefix was converted to MetalSharp Wine and has no x86_64 "
+                                            "backup; it was left as it is.");
+                (void)write_migration_progress(job->home, "running", 6,
+                                               "Rebuilding preserved GOG and Ubisoft Wine prefixes...", NULL);
+                (void)rebuild_preserved_wine_prefixes(job->home, &gog_prefix_ok, &ubisoft_prefix_ok);
+            }
             if (!gog_prefix_ok) {
                 (void)write_migration_progress(job->home, "error", 6,
                                                "Could not initialize the preserved GOG Wine prefix",
