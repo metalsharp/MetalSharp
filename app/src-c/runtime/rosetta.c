@@ -174,6 +174,26 @@ bool ms_rosetta_after_macos_upgrade(const char* home) {
     return true;
 }
 
+bool ms_rosetta_available(void) {
+    int status = 0;
+    pid_t pid = fork();
+    if (pid == 0) {
+        int null_fd = open("/dev/null", O_RDWR);
+        if (null_fd >= 0) {
+            dup2(null_fd, STDIN_FILENO);
+            dup2(null_fd, STDOUT_FILENO);
+            dup2(null_fd, STDERR_FILENO);
+        }
+        execl("/usr/bin/arch", "arch", "-x86_64", "/usr/bin/true", (char*)NULL);
+        _exit(127);
+    }
+    if (pid < 0)
+        return false;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        ;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
 static void* rosetta_worker(void* arg) {
     char* home = arg;
     (void)ms_rosetta_after_macos_upgrade(home);

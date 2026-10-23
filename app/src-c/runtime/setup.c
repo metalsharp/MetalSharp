@@ -5,6 +5,7 @@
 #include "metalsharp_backend/backend.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/rosetta.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -1729,8 +1730,7 @@ char* ms_setup_dependencies_json(const char* metalsharp_home) {
         any_fixed_file(homebrew_paths, sizeof(homebrew_paths) / sizeof(homebrew_paths[0])) || command_available("brew");
     bool xcode = access("/usr/bin/clang", X_OK) == 0 || access("/usr/bin/xcodebuild", X_OK) == 0 ||
                  command_available("clang") || command_available("xcodebuild");
-    bool rosetta = access("/Library/Apple/System/Library/LaunchDaemons/com.apple.oahd.plist", F_OK) == 0 ||
-                   system("/usr/bin/pgrep -q oahd >/dev/null 2>&1") == 0;
+    bool rosetta = ms_rosetta_available();
     bool steam = any_fixed_file(steam_paths, sizeof(steam_paths) / sizeof(steam_paths[0]));
     bool moltenvk = any_fixed_file(moltenvk_paths, sizeof(moltenvk_paths) / sizeof(moltenvk_paths[0]));
     bool wine_ready = file_nonempty(wine) || file_nonempty(metalsharp_wine);
@@ -2004,8 +2004,7 @@ static void run_install_all_worker(const char* home) {
     }
     write_install_progress(home, 2, total, "System Tools", "done", "System tools ready", NULL);
     write_install_progress(home, 3, total, "Rosetta 2", "installing", "Checking Rosetta 2...", NULL);
-    if (access("/Library/Apple/System/Library/LaunchDaemons/com.apple.oahd.plist", F_OK) != 0 &&
-        !command_available("oahd")) {
+    if (!ms_rosetta_available()) {
         pid_t rosetta_pid = fork();
         int rosetta_status = 0;
         if (rosetta_pid == 0) {
@@ -2106,7 +2105,6 @@ static void run_install_all_worker(const char* home) {
                                    "runtime/wine/lib/wine/x86_64-unix/ntdll.so",
                                    "runtime/wine/lib/wine/x86_64-unix/opengl32.so",
                                    "runtime/wine/lib/wine/x86_64-unix/winemac.so",
-                                   "runtime/wine/lib/wine/x86_64-unix/metalsharp-opengl.dylib",
                                    "runtime/wine/lib/wine/x86_64-windows/opengl32.dll",
                                    "runtime/wine/lib/wine/i386-windows/opengl32.dll",
                                    "runtime/wine/share/mono/wine-mono-11.3.0/support/winemono-support.msi",
