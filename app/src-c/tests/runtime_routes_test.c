@@ -1157,6 +1157,88 @@ int main(int argc, char** argv) {
         free(wine_path);
         free(exe_path);
     }
+    /* A Moonscraper installed before 0.80 (engine "auto", a prefix without the runtime's fonts) moves
+     * to DXMT at launch and gets the fonts its prefix lacks; a font already there is kept. */
+    {
+        char* sharp_home = join(home, "sharp-moon");
+        char* wine_path = join(sharp_home, "runtime/wine/bin/metalsharp-wine");
+        char* prefix = join(sharp_home, "bottles/installer_moonscraper/prefix");
+        char* exe_path = join(prefix, "drive_c/Program Files/Moonscraper Chart Editor/Moonscraper Chart Editor.exe");
+        char library[PATH_MAX * 2], bottle[PATH_MAX];
+        const char* launch_body = "{\"id\":\"sharp-moon\"}";
+        int status = 0;
+        char* response;
+        char* text;
+        fixture(home, "sharp-moon/runtime/wine/bin/metalsharp-wine", "#!/bin/sh\nexec /bin/sleep 30\n");
+        assert(chmod(wine_path, 0700) == 0);
+        fixture(home, "sharp-moon/runtime/wine/share/wine/fonts/arial.ttf", "liberation arial");
+        fixture(home, "sharp-moon/runtime/wine/share/wine/fonts/times.ttf", "liberation times");
+        fixture(home, "sharp-moon/runtime/wine/share/wine/fonts/tahoma.ttf", "wine tahoma");
+        fixture(home,
+                "sharp-moon/bottles/installer_moonscraper/prefix/drive_c/Program Files/Moonscraper Chart Editor/"
+                "Moonscraper Chart Editor.exe",
+                "game");
+        fixture(home, "sharp-moon/bottles/installer_moonscraper/prefix/drive_c/windows/Fonts/times.ttf",
+                "microsoft times");
+        snprintf(bottle, sizeof(bottle), "{\"id\":\"installer_moonscraper\",\"prefix_path\":\"%s\"}", prefix);
+        fixture(home, "sharp-moon/bottles/installer_moonscraper/bottle.json", bottle);
+        snprintf(library, sizeof(library),
+                 "[{\"id\":\"sharp-moon\",\"name\":\"Moonscraper Chart Editor\",\"exe_path\":\"%s\","
+                 "\"install_dir\":\"%s/drive_c/Program Files/Moonscraper Chart Editor\",\"engine\":\"auto\","
+                 "\"bottle_id\":\"installer_moonscraper\"}]",
+                 exe_path, prefix);
+        fixture(home, "sharp-moon/sharp-library/library.json", library);
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)launch_body, strlen(launch_body), "launch");
+        assert(response && strstr(response, "\"ok\":true") && strstr(response, "\"pipeline\":\"dxmt\""));
+        free(response);
+        text = read_hook_fixture(home, "sharp-moon/sharp-library/library.json");
+        assert(text && strstr(text, "\"engine\":\"dxmt\""));
+        free(text);
+        text =
+            read_hook_fixture(home, "sharp-moon/bottles/installer_moonscraper/prefix/drive_c/windows/Fonts/arial.ttf");
+        assert(text && !strcmp(text, "liberation arial"));
+        free(text);
+        text =
+            read_hook_fixture(home, "sharp-moon/bottles/installer_moonscraper/prefix/drive_c/windows/Fonts/tahoma.ttf");
+        assert(text && !strcmp(text, "wine tahoma"));
+        free(text);
+        text =
+            read_hook_fixture(home, "sharp-moon/bottles/installer_moonscraper/prefix/drive_c/windows/Fonts/times.ttf");
+        assert(text && !strcmp(text, "microsoft times"));
+        free(text);
+        response = ms_sharp_stop_all_json(&status);
+        assert(response && status == 200 && strstr(response, "\"stopped\":1"));
+        free(response);
+        free(sharp_home);
+        free(wine_path);
+        free(prefix);
+        free(exe_path);
+    }
+    /* A new Moonscraper install extracts with the runtime's innoextract (no Homebrew one) and
+     * defaults to DXMT. */
+    {
+        char* sharp_home = join(home, "sharp-moon-install");
+        char* extractor = join(sharp_home, "runtime/wine/bin/innoextract");
+        char* installer = join(home, "sharp-moon-downloads/MSCE.1.5.13.Installer.Win64.exe");
+        char body[PATH_MAX];
+        char* response;
+        char* text;
+        /* innoextract --extract --silent --output-dir DIR INSTALLER */
+        fixture(home, "sharp-moon-install/runtime/wine/bin/innoextract",
+                "#!/bin/sh\nmkdir -p \"$4/app\" && echo game > \"$4/app/Moonscraper Chart Editor.exe\"\n");
+        assert(chmod(extractor, 0700) == 0);
+        fixture(home, "sharp-moon-downloads/MSCE.1.5.13.Installer.Win64.exe", "MZ inno");
+        snprintf(body, sizeof(body), "{\"srcPath\":\"%s\"}", installer);
+        response = ms_sharp_action_json(sharp_home, (const unsigned char*)body, strlen(body), "install");
+        assert(response && strstr(response, "\"ok\":true") && strstr(response, "\"engine\":\"dxmt\""));
+        free(response);
+        text = read_hook_fixture(home, "sharp-moon-install/bottles/installer_moonscraper/bottle.json");
+        assert(text && strstr(text, "\"preferred_pipeline\":\"dxmt\""));
+        free(text);
+        free(sharp_home);
+        free(extractor);
+        free(installer);
+    }
 #ifdef __APPLE__
     {
         char *sharp_home = join(home, "sharp-detached"), *game_dir = join(home, "sharp-detached-game"),

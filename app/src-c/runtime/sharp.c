@@ -246,10 +246,6 @@ static char* app_json_from(const char* id, const char* name, const char* exe, co
     return o;
 }
 
-static char* app_json(const char* id, const char* name, const char* exe, const char* dir, const char* bottle_id) {
-    return app_json_from(id, name, exe, dir, bottle_id, "auto", NULL, 0);
-}
-
 static void sharp_entry_free(sharp_running_app* entry) {
     free(entry->id);
     free(entry->working_dir);
@@ -603,9 +599,80 @@ static bool is_moonscraper_installer(const char* path) {
            !strcasecmp(name + strlen(name) - 4, ".exe");
 }
 
-static const char* innoextract_binary(void) {
+static bool is_moonscraper_app(const char* exe) {
+    const char* name = exe ? strrchr(exe, '/') : NULL;
+    name = name ? name + 1 : exe;
+    return name && !strcasecmp(name, "Moonscraper Chart Editor.exe");
+}
+
+static bool copy_file(const char* source, const char* destination) {
+    char temp[PATH_MAX], buffer[65536];
+    int in, out;
+    ssize_t n;
+    bool ok = true;
+    if (snprintf(temp, sizeof(temp), "%s.tmp", destination) >= (int)sizeof(temp))
+        return false;
+    in = open(source, O_RDONLY);
+    if (in < 0)
+        return false;
+    out = open(temp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (out < 0) {
+        close(in);
+        return false;
+    }
+    while (ok && (n = read(in, buffer, sizeof(buffer))) != 0) {
+        if (n < 0) {
+            ok = errno == EINTR;
+            continue;
+        }
+        for (ssize_t done = 0; ok && done < n;) {
+            ssize_t w = write(out, buffer + done, (size_t)(n - done));
+            if (w < 0)
+                ok = errno == EINTR;
+            else
+                done += w;
+        }
+    }
+    close(in);
+    ok = close(out) == 0 && ok && rename(temp, destination) == 0;
+    if (!ok)
+        unlink(temp);
+    return ok;
+}
+
+/* Programs that open fonts in C:\windows\Fonts by file name need real files there: Unity's dynamic
+ * fonts left Moonscraper's input fields blank without them. The runtime's wine.inf copies these into
+ * new prefixes; a prefix made before that runtime gets the missing ones here. A font already in the
+ * prefix, such as a real Microsoft Arial, is kept. */
+static void ensure_prefix_fonts(const char* home, const char* prefix) {
+    static const char* const fonts[] = {"arial.ttf",   "arialbd.ttf", "ariali.ttf",  "arialbi.ttf", "times.ttf",
+                                        "timesbd.ttf", "timesi.ttf",  "timesbi.ttf", "cour.ttf",    "courbd.ttf",
+                                        "couri.ttf",   "courbi.ttf",  "tahoma.ttf",  "tahomabd.ttf"};
+    char source[PATH_MAX], destination[PATH_MAX];
+    struct stat st;
+    if (!home || !prefix || !prefix[0])
+        return;
+    snprintf(destination, sizeof(destination), "%s/drive_c/windows/Fonts", prefix);
+    if (stat(destination, &st) != 0 || !S_ISDIR(st.st_mode))
+        return;
+    for (size_t i = 0; i < sizeof(fonts) / sizeof(fonts[0]); i++) {
+        snprintf(source, sizeof(source), "%s/runtime/wine/share/wine/fonts/%s", home, fonts[i]);
+        snprintf(destination, sizeof(destination), "%s/drive_c/windows/Fonts/%s", prefix, fonts[i]);
+        if (access(destination, F_OK) != 0 && access(source, R_OK) == 0)
+            (void)copy_file(source, destination);
+    }
+}
+
+/* The runtime bundle ships innoextract (arm64, linked only to system libraries) next to Wine;
+ * a Homebrew one is the fallback. */
+static const char* innoextract_binary(const char* home) {
     static const char* prefixes[] = {"/opt/homebrew/bin/", "/usr/local/bin/", "/usr/bin/"};
     static char path[PATH_MAX];
+    if (home) {
+        snprintf(path, sizeof(path), "%s/runtime/wine/bin/innoextract", home);
+        if (access(path, X_OK) == 0)
+            return path;
+    }
     for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
         snprintf(path, sizeof(path), "%sinnoextract", prefixes[i]);
         if (access(path, X_OK) == 0)
@@ -672,7 +739,7 @@ static bool write_moonscraper_bottle(const char* home, const char* source, const
     ms_json_writer_key(&writer, "runtime_profile");
     ms_json_writer_string(&writer, "game_install");
     ms_json_writer_key(&writer, "preferred_pipeline");
-    ms_json_writer_string(&writer, "wine_bare");
+    ms_json_writer_string(&writer, "dxmt");
     ms_json_writer_key(&writer, "installed_components");
     ms_json_writer_array_begin(&writer);
     ms_json_writer_array_end(&writer);
@@ -799,7 +866,7 @@ static char* bottle_prefix(const char* home, const char* bottle_id) {
 }
 
 static char* extract_moonscraper(const char* home, const char* source, char** install_dir_out, char** bottle_id_out) {
-    const char* extractor = innoextract_binary();
+    const char* extractor = innoextract_binary(home);
     const char* bottle_id = "installer_moonscraper";
     char *bottle_dir = join(home, "bottles/installer_moonscraper"), *prefix = NULL, *staging = NULL, *app_dir = NULL,
          *executable = NULL, *install_dir = NULL, *install_parent = NULL, *log_dir = NULL, *log_path = NULL;
@@ -1610,6 +1677,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
     }
     if (!strcmp(action, "install") || !strcmp(action, "import")) {
         char* bottle_id = NULL;
+        bool moonscraper = false;
         if (!strcmp(action, "install")) {
             src = field(j, "srcPath", "");
             if (!src[0]) {
@@ -1618,6 +1686,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 return failure("srcPath required");
             }
             if (is_moonscraper_installer(src)) {
+                moonscraper = true;
                 name = extract_moonscraper(home, src, &dir, &bottle_id);
                 exe = dir ? join(dir, "Moonscraper Chart Editor.exe") : NULL;
                 if (!name || !exe || !dir || !bottle_id) {
@@ -1627,8 +1696,8 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                     free(dir);
                     free(src);
                     ms_json_free(j);
-                    return failure(!innoextract_binary() ? "innoextract is required for MoonScraper installers"
-                                                         : "MoonScraper native extraction failed");
+                    return failure(!innoextract_binary(home) ? "innoextract is required for MoonScraper installers"
+                                                             : "MoonScraper native extraction failed");
                 }
             } else {
                 exe = strdup(src);
@@ -1654,7 +1723,8 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 dir = parent_dir(exe);
             }
         }
-        raw = app_json(id, name, exe, dir, bottle_id);
+        /* Moonscraper is a Unity D3D11 app: on wined3d it overflows a stack at startup. */
+        raw = app_json_from(id, name, exe, dir, bottle_id, moonscraper ? "dxmt" : "auto", NULL, 0);
         if (!raw || !append_raw(home, raw)) {
             free(id);
             free(bottle_id);
@@ -1855,6 +1925,13 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 }
                 if (bottle_id[0])
                     prefix = bottle_prefix(home, bottle_id);
+                /* Moonscraper installed before it defaulted to DXMT: on Wine's own D3D11 it
+                 * overflows a stack at startup, so it moves to DXMT for good. */
+                if (is_moonscraper_app(exe_path) && (!strcmp(engine, "auto") || !strcmp(engine, "wine_bare"))) {
+                    free(engine);
+                    engine = strdup("dxmt");
+                    (void)replace_field(home, id, "engine", "\"dxmt\"");
+                }
             }
             if (!exe_path || !exe_path[0] || access(exe_path, F_OK) != 0) {
                 free(exe_path);
@@ -1895,6 +1972,7 @@ char* ms_sharp_action_json(const char* home, const unsigned char* body, size_t l
                 /* Bottle-less apps run in the Steam prefix (metalsharp-wine's default). */
                 char* effective_prefix = prefix && prefix[0] ? strdup(prefix) : join(home, "prefix-steam");
                 map_external_volume_letters(effective_prefix);
+                ensure_prefix_fonts(home, effective_prefix);
                 free(effective_prefix);
             }
             if (!strcmp(action, "launch"))
