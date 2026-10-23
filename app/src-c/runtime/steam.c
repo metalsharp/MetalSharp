@@ -1473,6 +1473,7 @@ static char* steam_library_json(const char* metalsharp_home, bool refresh) {
         if (games[i].appid == 1086940)
             (void)ms_steam_migrate_baldurs_gate_3_route_default(metalsharp_home);
         ms_steam_stage_route_on_discovery(metalsharp_home, games[i].appid);
+        ms_steam_prepare_rockstar_on_discovery(metalsharp_home, games[i].appid);
         (void)ms_steam_ensure_game_audio_fix(metalsharp_home, games[i].appid);
     }
     ms_steam_shortcut* shortcuts = NULL;
