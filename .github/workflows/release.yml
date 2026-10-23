@@ -14,7 +14,8 @@ on:
 
 # Set the repository variable METALSHARP_RELEASE_RUNNER to `local` to run on
 # the self-hosted runner labelled `metalsharp-release`; otherwise GitHub's
-# macos-14 runners are used.
+# macos-26 runners are used (the Liquid Glass app icon needs its Xcode: macos-14's actool
+# produces no Assets.car).
 
 concurrency:
   group: release-ci-${{ github.ref }}
@@ -35,7 +36,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.developer_sdk == '1') ||
       vars.METALSHARP_BUILD_DEVELOPER_SDK == '1'
-    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-14' }}
+    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     concurrency:
       group: metalsharp-developer-sdk-bundles
       cancel-in-progress: false
@@ -109,7 +110,7 @@ jobs:
     name: Build DMG
     # Decoupled from developer-sdk: the DMG must build and the GitHub Release
     # must publish even when the D3D12 developer SDK build is disabled (=0).
-    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-14' }}
+    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -260,7 +261,7 @@ jobs:
   release:
     name: Release
     needs: [build]
-    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-14' }}
+    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     permissions:
       contents: write
     steps:
