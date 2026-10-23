@@ -938,6 +938,8 @@ char* ms_process_force_quit_json(const char* home, int* status) {
             ms_json_writer_object_end(&w);
             count++;
         }
+        /* Dropped from the list here, so reap it later instead of leaving a zombie. */
+        retire_child_if_needed(g->pid);
         free(g);
         g = next;
     }
