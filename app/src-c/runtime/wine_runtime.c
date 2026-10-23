@@ -365,7 +365,7 @@ char* ms_wine_fex_app_source(void) {
     return access(candidate, R_OK) == 0 ? strdup(candidate) : NULL;
 }
 
-/* CFBundleVersion and the code directory hash identify a MetalSharp Wine build. */
+/* The code directory hash (CDHash) identifies a MetalSharp Wine build. */
 static bool app_identity(const char* app, char* out, size_t out_size) {
     char command[PATH_MAX * 2];
     FILE* pipe;

@@ -53,6 +53,51 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    /* A prefix the fex build converted gets its x86_64 backup back; one without a backup is
+     * counted and left alone; an x86_64 prefix is not touched. */
+    {
+        static const char* const dirs[] = {"prefix-steam/drive_c/windows",
+                                           "prefix-steam/.metalsharp-x86_64-backup/drive_c/windows",
+                                           "prefix-ubisoft/drive_c/windows", "sharp-prefix/drive_c/windows"};
+        char command[PATH_MAX * 2];
+        for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
+            snprintf(command, sizeof(command), "mkdir -p '%s/%s'", home, dirs[i]);
+            EXPECT(system(command) == 0);
+        }
+        snprintf(path, sizeof(path), "%s/prefix-steam/system.reg", home);
+        write_text(path, "arm64 registry\n");
+        snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/windows/arm64.txt", home);
+        write_text(path, "arm64\n");
+        snprintf(path, sizeof(path), "%s/prefix-steam/.metalsharp-wine-arch", home);
+        write_text(path, "arm64\n");
+        snprintf(path, sizeof(path), "%s/prefix-steam/.metalsharp-x86_64-backup/system.reg", home);
+        write_text(path, "x86_64 registry\n");
+        snprintf(path, sizeof(path), "%s/prefix-steam/.metalsharp-x86_64-backup/drive_c/windows/x86_64.txt", home);
+        write_text(path, "x86_64\n");
+        snprintf(path, sizeof(path), "%s/prefix-steam/.metalsharp-x86_64-backup/.complete", home);
+        write_text(path, "x86_64\n");
+        snprintf(path, sizeof(path), "%s/prefix-ubisoft/system.reg", home);
+        write_text(path, "arm64 registry\n");
+        snprintf(path, sizeof(path), "%s/prefix-ubisoft/.metalsharp-wine-arch", home);
+        write_text(path, "arm64\n");
+        snprintf(path, sizeof(path), "%s/sharp-prefix/system.reg", home);
+        write_text(path, "x86_64 registry\n");
+        EXPECT(ms_wine_restore_x86_64_prefixes(home) == 1);
+        snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/windows/x86_64.txt", home);
+        EXPECT(access(path, R_OK) == 0);
+        snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/windows/arm64.txt", home);
+        EXPECT(access(path, F_OK) != 0);
+        snprintf(path, sizeof(path), "%s/prefix-steam", home);
+        EXPECT(!ms_wine_prefix_is_arm64(path));
+        snprintf(path, sizeof(path), "%s/prefix-steam/.metalsharp-x86_64-backup", home);
+        EXPECT(access(path, F_OK) != 0);
+        snprintf(path, sizeof(path), "%s/prefix-ubisoft", home);
+        EXPECT(ms_wine_prefix_is_arm64(path));
+        snprintf(command, sizeof(command), "rm -rf '%s/prefix-steam' '%s/prefix-ubisoft' '%s/sharp-prefix'", home, home,
+                 home);
+        EXPECT(system(command) == 0);
+    }
+
     /* No app: refused, and nothing is created. */
     snprintf(path, sizeof(path), "%s/runtime", home);
     mkdir(path, 0755);
