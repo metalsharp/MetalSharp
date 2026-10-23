@@ -11,6 +11,11 @@
 ### Changed
 
 - **The FEX update is no longer limited to macOS 27** — the backend's macOS 27 block is gone; below 26.4 the app recommends x86_64 but lets the user continue. Settings' separate **Update to FEX** row is replaced by **What's New**.
+- **Runtime bundle: WineMetalGL 3.7.0, fonts and innoextract** — `metalsharp-runtime.tar.zst` carries WineMetalGL 3.7.0 (core, Wine module and x87sidecar), Liberation 2.1.5 built as Arial, Times New Roman and Courier New (copied with Tahoma into new prefixes' `C:\windows\Fonts` by `wine.inf`), and an arm64 innoextract 1.9 in `bin/`.
+
+### Fixed
+
+- **Moonscraper Chart Editor installs and runs** — installing `MSCE.*.Installer.*.exe` from the Sharp Library no longer fails with "innoextract is required": the backend uses the runtime's innoextract before a Homebrew one. Moonscraper defaults to DXMT (on Wine's own D3D11 it overflows a stack at startup), and an install made before this moves to DXMT at its next launch. Sharp Library launches copy any of the runtime's fonts a prefix lacks into its `C:\windows\Fonts`, so Unity's dynamic fonts no longer leave Moonscraper's input fields blank in an existing prefix; a font already there is kept.
 
 ## v0.79.0 — 2026-10-14
 
