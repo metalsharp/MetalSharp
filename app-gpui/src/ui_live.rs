@@ -66,6 +66,16 @@ pub(super) enum SteamPending {
     Stopping,
 }
 
+/// The update's dialogs, one at a time: the release's notes, the choice between its builds, the notice
+/// before the Arm64 build, and the last confirmation before MetalSharp closes to update.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum UpdateDialog {
+    WhatsNew,
+    Choose,
+    ArmNotice,
+    Confirm(&'static str),
+}
+
 pub(super) struct LiveState {
     pub enabled: bool,
     /// App.vue `showStartupVideo`: attach the native overlay on next render.
@@ -103,7 +113,7 @@ pub(super) struct LiveState {
     pub update_progress: f32,
     pub update_message: String,
     pub update_dismissed: bool,
-    pub update_confirm: Option<&'static str>,
+    pub update_dialog: Option<UpdateDialog>,
     pub running: HashMap<u64, u64>,
     pub launching: Option<u64>,
     running_poll_in_flight: bool,
@@ -187,7 +197,7 @@ impl Default for LiveState {
             update_progress: 0.0,
             update_message: String::new(),
             update_dismissed: false,
-            update_confirm: None,
+            update_dialog: None,
             running: HashMap::new(),
             launching: None,
             running_poll_in_flight: false,
@@ -2536,43 +2546,62 @@ impl MetalSharpApp {
             .map(str::to_owned)
     }
 
-    /// App.vue `startUpdateDownload` (opens the confirmation).
+    /// The release's notes, before anything is downloaded.
+    pub(super) fn open_whats_new(&mut self, cx: &mut Context<Self>) {
+        self.live.update_dialog = Some(UpdateDialog::WhatsNew);
+        cx.notify();
+    }
+
+    /// The update, from wherever it is started: the choice between the release's builds when it has the
+    /// Arm64 one with FEX, else straight to the confirmation.
+    pub(super) fn open_update(&mut self, cx: &mut Context<Self>) {
+        if self.live.update_downloading {
+            return;
+        }
+        let arm = self.update_flag("fex_available");
+        self.live.update_dialog = Some(if arm {
+            UpdateDialog::Choose
+        } else {
+            UpdateDialog::Confirm("regular")
+        });
+        cx.notify();
+    }
+
+    /// One of the builds chosen: the Arm64 one first asks for macOS 26.4 or newer.
     pub(super) fn start_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
         if self.live.update_downloading {
             return;
         }
-        if variant == "fex"
-            && self
-                .live
-                .update_status
-                .as_ref()
-                .and_then(|s| s.get("fex_supported"))
-                .and_then(Value::as_bool)
-                != Some(true)
-        {
-            let detected = self
-                .live
-                .update_status
-                .as_ref()
-                .and_then(|s| s.get("macos_major"))
-                .and_then(Value::as_u64)
-                .filter(|v| *v > 0);
-            toast::error(
-                cx,
-                match detected {
-                    Some(v) => format!("FEX requires macOS 27 or newer (macOS {v} detected)"),
-                    None => "FEX requires macOS 27 or newer".into(),
-                },
-            );
-            return;
-        }
-        self.live.update_confirm = Some(variant);
+        self.live.update_dialog = Some(if variant == "fex" {
+            UpdateDialog::ArmNotice
+        } else {
+            UpdateDialog::Confirm("regular")
+        });
         cx.notify();
+    }
+
+    pub(super) fn update_flag(&self, key: &str) -> bool {
+        self.live
+            .update_status
+            .as_ref()
+            .and_then(|s| s.get(key))
+            .and_then(Value::as_bool)
+            == Some(true)
+    }
+
+    /// The release's build by name: `fex` is the Arm64 one with FEX, `regular` the x86_64 one.
+    pub(super) fn update_build_name(&self, variant: &str) -> String {
+        let version = self.update_field("latest_version").unwrap_or_default();
+        if variant == "fex" {
+            format!("MetalSharp {version} Arm64 with FEX")
+        } else {
+            format!("MetalSharp {version} x86_64")
+        }
     }
 
     /// App.vue `beginUpdateDownload`.
     pub(super) fn begin_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
-        self.live.update_confirm = None;
+        self.live.update_dialog = None;
         if self.live.update_downloading {
             return;
         }

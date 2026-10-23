@@ -222,19 +222,34 @@ static bool has_dmg_suffix(const char* name) {
            tolower((unsigned char)name[length - 2]) == 'm' && tolower((unsigned char)name[length - 1]) == 'g';
 }
 
-static int host_macos_major(void) {
+/* The Arm64 build with FEX is meant for macOS 26.4 and newer; older systems are warned, not refused. */
+#define MS_FEX_MIN_MACOS_MAJOR 26
+#define MS_FEX_MIN_MACOS_MINOR 4
+
+/* The host's macOS version ("26.4.1"), or METALSHARP_UPDATE_HOST_MACOS's for tests; empty if unknown. */
+static void host_macos_version(char* version, size_t size) {
     const char* override = getenv("METALSHARP_UPDATE_HOST_MACOS");
-    char version[64] = "";
-    if (override != NULL && override[0] != '\0')
-        return atoi(override);
-    FILE* pipe = popen("/usr/bin/sw_vers -productVersion", "r");
+    FILE* pipe;
+    version[0] = '\0';
+    if (override != NULL && override[0] != '\0') {
+        (void)snprintf(version, size, "%s", override);
+        return;
+    }
+    pipe = popen("/usr/bin/sw_vers -productVersion", "r");
     if (pipe == NULL)
-        return 0;
-    if (fgets(version, sizeof(version), pipe) == NULL)
+        return;
+    if (fgets(version, (int)size, pipe) == NULL)
         version[0] = '\0';
     if (pclose(pipe) != 0)
-        return 0;
-    return atoi(version);
+        version[0] = '\0';
+    version[strcspn(version, " \t\r\n")] = '\0';
+}
+
+static bool fex_recommended(const char* version) {
+    int major = 0, minor = 0;
+    if (sscanf(version, "%d.%d", &major, &minor) < 1)
+        return false;
+    return major > MS_FEX_MIN_MACOS_MAJOR || (major == MS_FEX_MIN_MACOS_MAJOR && minor >= MS_FEX_MIN_MACOS_MINOR);
 }
 
 typedef struct {
@@ -290,7 +305,7 @@ char* ms_update_check_json(void) {
     ms_json* release;
     char *tag, *latest, *name, *body;
     release_assets assets;
-    int macos_major;
+    char macos[64];
     ms_json_writer writer;
     char* result;
     if (text == NULL)
@@ -306,7 +321,7 @@ char* ms_update_check_json(void) {
     name = release_field_json(release, "name");
     body = release_field_json(release, "body");
     release_assets_find(release, &assets);
-    macos_major = host_macos_major();
+    host_macos_version(macos, sizeof(macos));
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
@@ -327,10 +342,14 @@ char* ms_update_check_json(void) {
     ms_json_writer_string(&writer, assets.fex_url == NULL ? "" : assets.fex_url);
     ms_json_writer_key(&writer, "fex_download_size");
     ms_json_writer_u64(&writer, assets.fex_size);
-    ms_json_writer_key(&writer, "fex_supported");
-    ms_json_writer_bool(&writer, macos_major >= 27);
+    ms_json_writer_key(&writer, "fex_recommended");
+    ms_json_writer_bool(&writer, fex_recommended(macos));
+    ms_json_writer_key(&writer, "fex_min_macos");
+    ms_json_writer_string(&writer, "26.4");
+    ms_json_writer_key(&writer, "macos_version");
+    ms_json_writer_string(&writer, macos);
     ms_json_writer_key(&writer, "macos_major");
-    ms_json_writer_i64(&writer, macos_major);
+    ms_json_writer_i64(&writer, atoi(macos));
     ms_json_writer_key(&writer, "release_notes");
     ms_json_writer_string(&writer, body == NULL ? "" : body);
     ms_json_writer_key(&writer, "release_name");
@@ -518,8 +537,6 @@ char* ms_update_start_json(const char* metalsharp_home, const unsigned char* bod
         free(variant);
         ms_json_free(request);
     }
-    if (fex && host_macos_major() < 27)
-        return strdup("{\"ok\":false,\"error\":\"FEX updates require macOS 27 or newer\"}");
     char* lock = join_path(metalsharp_home, "update.lock");
     char* dir = join_path(metalsharp_home, "cache/updates");
     if (lock == NULL || dir == NULL || mkdir_p(dir) == false) {

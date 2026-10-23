@@ -11,7 +11,7 @@ use std::path::PathBuf;
 mod live_impl;
 #[path = "ui_steamcmd.rs"]
 mod steamcmd_impl;
-use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending};
+use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending, UpdateDialog};
 use steamcmd_impl::{CollectionView, SteamcmdModal};
 
 const PAGE_BG: u32 = 0x080a0d;
@@ -882,12 +882,13 @@ impl MetalSharpApp {
             )
     }
 
-    fn render_update_confirm(
+    /// The update's dialogs (UpdateDialog): a modal over the window, closed by its backdrop.
+    fn render_update_dialog(
         &self,
-        variant: &'static str,
+        dialog: UpdateDialog,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let button = |id: &'static str, label: &'static str, primary: bool| {
+        let button = |id: &'static str, label: gpui::SharedString, primary: bool| {
             div()
                 .id(id)
                 .h(px(34.0))
@@ -904,8 +905,241 @@ impl MetalSharpApp {
                 .cursor_pointer()
                 .child(label)
         };
+        let close = |this: &mut Self, cx: &mut Context<Self>| {
+            this.live.update_dialog = None;
+            cx.notify();
+        };
+        let title = |text: String| {
+            div()
+                .text_size(px(17.0))
+                .font_weight(FontWeight::BOLD)
+                .child(text)
+        };
+        let body = |text: String| div().text_size(px(13.0)).line_height(px(19.0)).child(text);
+        let buttons = || div().flex().justify_end().gap(px(8.0));
+        let version = self.update_field("latest_version").unwrap_or_default();
+        let (width, content): (f32, gpui::Div) = match dialog {
+            UpdateDialog::WhatsNew => {
+                let notes = self.update_field("release_notes").unwrap_or_default();
+                let name = self
+                    .update_field("release_name")
+                    .filter(|name| !name.trim().is_empty());
+                let notes = if notes.trim().is_empty() {
+                    vec![
+                        body("No release notes were published for this update.".into())
+                            .text_color(rgb(0x9aa09e))
+                            .into_any_element(),
+                    ]
+                } else {
+                    crate::markdown::render("update-notes", &notes)
+                };
+                (
+                    560.0,
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(14.0))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(3.0))
+                                .child(title(format!("What's new in MetalSharp v{version}")))
+                                .children(name.map(|name| {
+                                    div()
+                                        .text_size(px(12.0))
+                                        .text_color(rgb(0x9aa09e))
+                                        .child(name)
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id("update-notes-scroll")
+                                .max_h(px(420.0))
+                                .overflow_y_scroll()
+                                .pr(px(6.0))
+                                .flex()
+                                .flex_col()
+                                .gap(px(9.0))
+                                .children(notes),
+                        )
+                        .child(
+                            buttons()
+                                .child(
+                                    button("update-notes-close", "Close".into(), false).on_click(
+                                        cx.listener(move |this, _, _, cx| close(this, cx)),
+                                    ),
+                                )
+                                .children(self.update_available().then(|| {
+                                    button("update-notes-update", "Update…".into(), true).on_click(
+                                        cx.listener(|this, _, _, cx| this.open_update(cx)),
+                                    )
+                                })),
+                        ),
+                )
+            }
+            UpdateDialog::Choose => {
+                let size = |key: &str| {
+                    self.live
+                        .update_status
+                        .as_ref()
+                        .and_then(|s| s.get(key))
+                        .and_then(serde_json::Value::as_u64)
+                        .filter(|bytes| *bytes > 0)
+                        .map(|bytes| format!(" · {:.0} MB", bytes as f64 / 1_048_576.0))
+                        .unwrap_or_default()
+                };
+                let option = |id: &'static str,
+                              name: String,
+                              detail: String,
+                              variant: &'static str| {
+                    div()
+                        .id(id)
+                        .p(px(14.0))
+                        .rounded(px(9.0))
+                        .border_1()
+                        .border_color(rgba(0xffffff24))
+                        .bg(rgba(0xffffff08))
+                        .cursor_pointer()
+                        .hover(|style| style.border_color(rgba(0x5fb7e8ff)).bg(rgba(0x5fb7e81a)))
+                        .flex()
+                        .flex_col()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .text_size(px(14.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(name),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .line_height(px(17.0))
+                                .text_color(rgb(0x9aa09e))
+                                .child(detail),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.start_update_download(variant, cx)
+                        }))
+                };
+                (
+                    460.0,
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(14.0))
+                        .child(title(format!("Choose your MetalSharp {version} build")))
+                        .child(body("This update comes in two builds. Pick the one for this Mac.".into()))
+                        .child(option(
+                            "update-choose-fex",
+                            self.update_build_name("fex"),
+                            format!(
+                                "MetalSharp Wine for Apple Silicon, running x86 games through FEX. Needs macOS 26.4 or newer.{}",
+                                size("fex_download_size")
+                            ),
+                            "fex",
+                        ))
+                        .child(option(
+                            "update-choose-regular",
+                            self.update_build_name("regular"),
+                            format!(
+                                "The x86_64 Wine MetalSharp uses today, for every macOS MetalSharp supports.{}",
+                                size("download_size")
+                            ),
+                            "regular",
+                        ))
+                        .child(
+                            buttons()
+                                .child(button("update-choose-notes", "What's new".into(), false).on_click(
+                                    cx.listener(|this, _, _, cx| this.open_whats_new(cx)),
+                                ))
+                                .child(button("update-choose-cancel", "Cancel".into(), false).on_click(cx.listener(
+                                    move |this, _, _, cx| close(this, cx),
+                                ))),
+                        ),
+                )
+            }
+            UpdateDialog::ArmNotice => {
+                let detected = self.update_field("macos_version").filter(|v| !v.is_empty());
+                let recommended = self.update_flag("fex_recommended");
+                let (status, color) = match &detected {
+                    Some(v) if recommended => (format!("This Mac is on macOS {v}."), 0x74d28a),
+                    Some(v) => (
+                        format!("This Mac is on macOS {v}, older than 26.4."),
+                        0xffd47f,
+                    ),
+                    None => (
+                        "MetalSharp could not read this Mac's macOS version.".to_owned(),
+                        0xffd47f,
+                    ),
+                };
+                (
+                    460.0,
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(14.0))
+                        .child(title("Before you install the Arm64 build".into()))
+                        .child(body(format!(
+                            "{} needs macOS 26.4 or newer. Please make sure this Mac is on macOS 26.4 or newer before you continue: on an older version it may not work on your system.",
+                            self.update_build_name("fex")
+                        )))
+                        .child(body(format!(
+                            "If it isn't, update to the regular {} release instead.",
+                            self.update_build_name("regular")
+                        )))
+                        .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(rgb(color)).child(status))
+                        .child(
+                            buttons()
+                                .child(button("update-arm-back", "Back".into(), false).on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.live.update_dialog = Some(UpdateDialog::Choose);
+                                        cx.notify();
+                                    },
+                                )))
+                                .child(button("update-arm-regular", "Use x86_64 instead".into(), false).on_click(
+                                    cx.listener(|this, _, _, cx| this.start_update_download("regular", cx)),
+                                ))
+                                .child(button("update-arm-continue", "Continue with Arm64".into(), true).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.live.update_dialog = Some(UpdateDialog::Confirm("fex"));
+                                        cx.notify();
+                                    }),
+                                )),
+                        ),
+                )
+            }
+            UpdateDialog::Confirm(variant) => (
+                420.0,
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(14.0))
+                    .child(title("Confirm Update".into()))
+                    .child(body(format!(
+                        "Install {}.",
+                        self.update_build_name(variant)
+                    )))
+                    .child(body(
+                        "MetalSharp will now close and re-open on its own to update. Proceed?"
+                            .into(),
+                    ))
+                    .child(
+                        buttons()
+                            .child(
+                                button("update-confirm-cancel", "Cancel".into(), false)
+                                    .on_click(cx.listener(move |this, _, _, cx| close(this, cx))),
+                            )
+                            .child(button("update-confirm-ok", "Ok".into(), true).on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.begin_update_download(variant, cx)
+                                }),
+                            )),
+                    ),
+            ),
+        };
         div()
-            .id("update-confirm-backdrop")
+            .id("update-dialog-backdrop")
             .occlude()
             .absolute()
             .top_0()
@@ -915,52 +1149,20 @@ impl MetalSharpApp {
             .items_center()
             .justify_center()
             .bg(rgba(0x000000a0))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.live.update_confirm = None;
-                cx.notify();
-            }))
+            .on_click(cx.listener(move |this, _, _, cx| close(this, cx)))
             .child(
                 div()
-                    .id("update-confirm-modal")
+                    .id("update-dialog")
                     .occlude()
                     .on_click(|_, _, cx| cx.stop_propagation())
-                    .w(px(420.0))
+                    .w(px(width))
                     .p(px(22.0))
                     .rounded(px(12.0))
                     .border_1()
                     .border_color(rgba(0xffffff1f))
                     .bg(rgb(0x14171a))
                     .text_color(rgb(0xe6e8e7))
-                    .flex()
-                    .flex_col()
-                    .gap(px(14.0))
-                    .child(div().text_size(px(17.0)).font_weight(FontWeight::BOLD).child("Confirm Update"))
-                    .children((variant == "fex").then(|| {
-                        div().text_size(px(12.0)).line_height(px(18.0)).text_color(rgb(0xffd47f)).child(
-                            "FEX Version Notice — The FEX DMG only works on macOS 27 or newer. The FEX version is experimental, so expect more potential bugs than the baseline MetalSharp version.",
-                        )
-                    }))
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .line_height(px(19.0))
-                            .child("MetalSharp will now close and re-open on it's own to update. Proceed?"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .gap(px(8.0))
-                            .child(button("update-confirm-cancel", "Cancel", false).on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.live.update_confirm = None;
-                                    cx.notify();
-                                },
-                            )))
-                            .child(button("update-confirm-ok", "Ok", true).on_click(cx.listener(
-                                move |this, _, _, cx| this.begin_update_download(variant, cx),
-                            ))),
-                    ),
+                    .child(content),
             )
     }
 }
@@ -1023,8 +1225,8 @@ impl Render for MetalSharpApp {
             .relative()
             .size_full()
             .child(body)
-            .children(self.live.update_confirm.map(|variant| {
-                gpui::deferred(self.render_update_confirm(variant, cx)).with_priority(300)
+            .children(self.live.update_dialog.map(|dialog| {
+                gpui::deferred(self.render_update_dialog(dialog, cx)).with_priority(300)
             }))
             .children(
                 self.steamcmd_modal
@@ -1225,7 +1427,7 @@ impl MetalSharpApp {
             let active = self.active_tab == LibraryTab::SharpLibrary;
             // App-level overlays cover the page; the native GameJolt view must hide.
             let obscured =
-                self.settings_open || self.streaming_open || self.live.update_confirm.is_some();
+                self.settings_open || self.streaming_open || self.live.update_dialog.is_some();
             sharp.update(cx, |sharp, cx| {
                 sharp.set_obscured(obscured, cx);
                 if sharp.palette != palette {
@@ -1820,13 +2022,6 @@ impl MetalSharpApp {
         } else {
             format!("{}…", first_line.chars().take(19).collect::<String>())
         };
-        let fex = self
-            .live
-            .update_status
-            .as_ref()
-            .and_then(|s| s.get("fex_available"))
-            .and_then(serde_json::Value::as_bool)
-            == Some(true);
         let button = |id: &'static str, label: &'static str, primary: bool| {
             div()
                 .id(id)
@@ -1886,14 +2081,12 @@ impl MetalSharpApp {
                         )
                 }))
                 .children((!downloading).then(|| {
-                    button("update-banner-install", "Download & Install", true).on_click(
-                        cx.listener(|this, _, _, cx| this.start_update_download("regular", cx)),
-                    )
+                    button("update-banner-notes", "What's new", false)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_whats_new(cx)))
                 }))
-                .children((!downloading && fex).then(|| {
-                    button("update-banner-fex", "Update to FEX Version", false).on_click(
-                        cx.listener(|this, _, _, cx| this.start_update_download("fex", cx)),
-                    )
+                .children((!downloading).then(|| {
+                    button("update-banner-install", "Download & Install", true)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_update(cx)))
                 }))
                 .children((!downloading).then(|| {
                     button("update-banner-close", "×", false).on_click(cx.listener(
@@ -2098,7 +2291,7 @@ impl MetalSharpApp {
                             .when(available && !downloading, |button| button.cursor_pointer())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 if this.update_available() && !this.live.update_downloading {
-                                    this.start_update_download("regular", cx);
+                                    this.open_update(cx);
                                 }
                             }))
                             .child("↓"),
@@ -2919,7 +3112,8 @@ impl MetalSharpApp {
                         }
                     }
                     E::LanguageChanged(code) => this.change_language(code, cx),
-                    E::StartUpdate(variant) => this.start_update_download(variant, cx),
+                    E::WhatsNew => this.open_whats_new(cx),
+                    E::StartUpdate => this.open_update(cx),
                     E::UpdateStatus(status) => this.live.update_status = Some(status.clone()),
                     E::SteamApiKeySaved(key, library) => {
                         this.live.steam_api_key = Some(key.clone());

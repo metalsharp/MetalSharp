@@ -60,7 +60,7 @@ def wait_for_download(sock: Path, timeout: float = 10) -> dict:
 
 
 class Backend:
-    def __init__(self, root: Path, release: Path, macos: int):
+    def __init__(self, root: Path, release: Path, macos: str):
         home = root / "metalsharp"
         user_home = root / "home"
         home.mkdir()
@@ -168,7 +168,7 @@ def test_download_progress(root: Path) -> None:
             asset["browser_download_url"] = f"http://127.0.0.1:{server.server_port}/download.dmg"
             asset["size"] = len(payload)
         release.write_text(json.dumps(data))
-        with Backend(root, release, 27) as backend:
+        with Backend(root, release, "27.0") as backend:
             assert request(backend.sock, "POST", "/update/start", {"variant": "regular"})["ok"]
             observed = set()
             deadline = time.time() + 20
@@ -202,7 +202,7 @@ def main() -> None:
         release, regular_bytes, fex_bytes = write_release(root)
         supported_root = root / "supported"
         supported_root.mkdir()
-        with Backend(supported_root, release, 27) as backend:
+        with Backend(supported_root, release, "27.0") as backend:
             status = request(backend.sock, "GET", "/update/check")
             assert status["ok"] is True and status["available"] is True, status
             assert status["download_url"].endswith("regular-arm64.dmg"), status
@@ -210,7 +210,8 @@ def main() -> None:
             assert status["fex_available"] is True, status
             assert status["fex_download_url"].endswith("fex-arm64.dmg"), status
             assert status["fex_download_size"] == len(fex_bytes), status
-            assert status["fex_supported"] is True and status["macos_major"] == 27, status
+            assert status["fex_recommended"] is True and status["macos_version"] == "27.0", status
+            assert status["macos_major"] == 27 and status["fex_min_macos"] == "26.4", status
 
             started = request(backend.sock, "POST", "/update/start", {"variant": "fex"})
             assert started["ok"] is True, started
@@ -229,13 +230,23 @@ def main() -> None:
             assert downloaded["ok"] is True and downloaded["version"] == VERSION, downloaded
             assert Path(downloaded["path"]).read_bytes() == regular_bytes
 
-        unsupported_root = root / "unsupported"
-        unsupported_root.mkdir()
-        with Backend(unsupported_root, release, 26) as backend:
+        # 26.4 is the oldest macOS the Arm64 build with FEX is meant for
+        minimum_root = root / "minimum"
+        minimum_root.mkdir()
+        with Backend(minimum_root, release, "26.4") as backend:
             status = request(backend.sock, "GET", "/update/check")
-            assert status["fex_available"] is True and status["fex_supported"] is False, status
-            blocked = request(backend.sock, "POST", "/update/start", {"variant": "fex"})
-            assert blocked["ok"] is False and "macOS 27" in blocked["error"], blocked
+            assert status["fex_recommended"] is True and status["macos_version"] == "26.4", status
+
+        # older systems are warned in the app, not refused: the download still starts
+        older_root = root / "older"
+        older_root.mkdir()
+        with Backend(older_root, release, "26.3.1") as backend:
+            status = request(backend.sock, "GET", "/update/check")
+            assert status["fex_available"] is True and status["fex_recommended"] is False, status
+            assert status["macos_version"] == "26.3.1" and status["macos_major"] == 26, status
+            started = request(backend.sock, "POST", "/update/start", {"variant": "fex"})
+            assert started["ok"] is True, started
+            assert wait_for_download(backend.sock)["status"] == "downloaded"
             invalid = request(backend.sock, "POST", "/update/start", {"variant": "preview"})
             assert invalid["ok"] is False and "variant" in invalid["error"], invalid
 
