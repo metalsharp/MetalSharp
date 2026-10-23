@@ -248,6 +248,7 @@ impl BackendHost {
                         .and_then(serde_json::Value::as_str)
                         .is_some_and(|p| same_home(Path::new(p), &config.home))
                 {
+                    crate::variant::set_from_reply(&reply);
                     return Ok(host);
                 }
             }

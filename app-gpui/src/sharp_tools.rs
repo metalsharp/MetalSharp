@@ -255,7 +255,9 @@ impl SharpPreview {
                     let r = r.unwrap();
                     toast::success(
                         cx,
-                        if action_id == "play_d3dmetal" {
+                        if action_id == "play_d3dmetal" && crate::variant::is_fex() {
+                            format!("{} launch started", crate::variant::FEX_GPTK_LABEL)
+                        } else if action_id == "play_d3dmetal" {
                             "D3DMetal launch started".to_owned()
                         } else {
                             format!("{label}: complete")
@@ -315,7 +317,7 @@ impl SharpPreview {
             .d3d_states
             .get(&bottle_id)
             .is_some_and(|state| b(state, "play_ready"));
-        let action = live
+        let mut action = live
             .d3d_actions
             .get(&bottle_id)
             .and_then(|actions| {
@@ -333,10 +335,19 @@ impl SharpPreview {
                     "detail": "Launch game exe directly through GPTK Wine",
                 })
             });
+        // On FEX this is Apple's Game Porting Toolkit through Rosetta, not the build's own Wine.
+        let fex = crate::variant::is_fex();
+        if fex {
+            action["label"] = json!(crate::variant::FEX_GPTK_PLAY_LABEL);
+        }
         if !play_ready || !b(&action, "enabled") {
             toast::error(
                 cx,
-                "D3DMetal bottle is not ready; seed VC runtime DLLs and seed prefix first",
+                if fex {
+                    "GPTK (Rosetta) bottle is not ready; install Rosetta, seed VC runtime DLLs and seed prefix first"
+                } else {
+                    "D3DMetal bottle is not ready; seed VC runtime DLLs and seed prefix first"
+                },
             );
             return;
         }

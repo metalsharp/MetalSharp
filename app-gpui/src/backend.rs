@@ -18,6 +18,9 @@ pub struct BackendStatus {
     pub version: Option<String>,
     pub pid: Option<u32>,
     pub metalsharp_home: Option<String>,
+    /// `regular` or `fex`; absent from an older backend, which is regular.
+    #[serde(default)]
+    pub variant: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -416,17 +419,7 @@ impl BackendClient {
         } else {
             let path = if game.has_native_build {
                 "/steam/mac-launch-game"
-            } else if [
-                "d3dmetal",
-                "vkd3d",
-                "d3d9",
-                "dxmt",
-                "dxmt_32",
-                "steam",
-                "wine_steam",
-            ]
-            .contains(&method.to_ascii_lowercase().as_str())
-            {
+            } else if crate::library_model::is_wine_steam_route(method) {
                 "/steam/launch-game"
             } else {
                 "/game/launch-auto"
@@ -438,7 +431,8 @@ impl BackendClient {
     pub fn save_pipeline(&self, game: &Game, pipeline: &str) -> Result<(), BackendError> {
         if game.appid == 0
             || game.has_native_build
-            || !["d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9", "fna_arm64"].contains(&pipeline)
+            || !(["d3dmetal", "dxmt", "dxmt_32", "vkd3d", "d3d9", "fna_arm64"].contains(&pipeline)
+                || (crate::variant::is_fex() && ["dxvk", "wine_bare"].contains(&pipeline)))
         {
             return Err(BackendError::InvalidInput);
         }

@@ -42,6 +42,8 @@ pub enum SettingsPreviewEvent {
     /// The update's dialogs: its notes, or the update itself (the choice between its builds)
     WhatsNew,
     StartUpdate,
+    /// FEX only: the other build at this version, offered as a switch rather than an update.
+    SwitchBuild,
     UpdateStatus(Value),
     SteamApiKeySaved(String, Option<Vec<crate::library_model::LibGame>>),
     ReloadLibrary,
@@ -1604,6 +1606,10 @@ impl Render for SettingsPreview {
                     app.backend_version
                         .as_ref()
                         .map(|v| self.text_control(format!("v{v}"))),
+                )
+                .children(
+                    crate::variant::is_fex()
+                        .then(|| self.text_control(crate::variant::FEX_WINE_LABEL.to_owned())),
                 ),
         );
         let restart = self.row(
@@ -1811,6 +1817,7 @@ impl Render for SettingsPreview {
             .get("current_version")
             .and_then(Value::as_str)
             .map(str::to_owned);
+        let same_version = !latest.is_empty() && current.as_deref() == Some(latest.as_str());
         let version = self.row(
             self.tr("ui.settings.version"),
             if available {
@@ -1858,6 +1865,27 @@ impl Render for SettingsPreview {
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsPreviewEvent::WhatsNew))),
             )
         });
+        // The other build (`switch_variant`) at the installed version is a switch, not an update.
+        let switch_build = if status.get("switch_variant").and_then(Value::as_str) == Some("fex") {
+            "Arm64 with FEX"
+        } else {
+            "x86_64"
+        };
+        let switch = (status_ok
+            && !available
+            && !app.update_downloading
+            && status.get("switch_available").and_then(Value::as_bool) == Some(true)
+            && same_version)
+            .then(|| {
+                self.row(
+                    "Switch build",
+                    format!("MetalSharp v{latest} {switch_build} is also available for this Mac"),
+                    self.action_button("switch-build", "Switch…", false)
+                        .on_click(
+                            cx.listener(|_, _, _, cx| cx.emit(SettingsPreviewEvent::SwitchBuild)),
+                        ),
+                )
+            });
         let progress = app.update_downloading.then(|| {
             self.row(
                 if app.update_message.is_empty() {
@@ -1964,6 +1992,9 @@ impl Render for SettingsPreview {
             updates = updates.child(r)
         }
         if let Some(r) = update {
+            updates = updates.child(r)
+        }
+        if let Some(r) = switch {
             updates = updates.child(r)
         }
         if let Some(r) = progress {

@@ -483,6 +483,9 @@ impl MetalSharpApp {
             live::DEFAULT_TIMEOUT,
             |this, status, cx| {
                 this.live.backend_connected = status.as_ref().is_some_and(is_ok);
+                if let Some(status) = status.as_ref().filter(|s| is_ok(s)) {
+                    crate::variant::set_from_reply(status);
+                }
                 if let Some(version) = status
                     .as_ref()
                     .and_then(|s| s.get("version"))
@@ -656,6 +659,9 @@ impl MetalSharpApp {
             MS(1500),
             move |this, status, cx| {
                 let connected = alive || status.as_ref().is_some_and(is_ok);
+                if let Some(status) = status.as_ref().filter(|s| is_ok(s)) {
+                    crate::variant::set_from_reply(status);
+                }
                 this.live.backend_connected = connected;
                 this.live.backend_version = status
                     .as_ref()
@@ -1927,7 +1933,14 @@ impl MetalSharpApp {
                 } else if ok {
                     this.live.ubisoft_running = true;
                     this.live.ubisoft_primary = true;
-                    toast::success(cx, "Starting Ubisoft Connect with D3DMetal…");
+                    toast::success(
+                        cx,
+                        if crate::variant::is_fex() {
+                            "Starting Ubisoft Connect with Mullion…"
+                        } else {
+                            "Starting Ubisoft Connect with D3DMetal…"
+                        },
+                    );
                 } else {
                     toast::error(
                         cx,
@@ -2546,6 +2559,9 @@ impl MetalSharpApp {
             live::DEFAULT_TIMEOUT,
             |this, result, cx| {
                 if let Some(result) = result {
+                    if is_ok(&result) && result.get("variant").is_some() {
+                        crate::variant::set_from_reply(&result);
+                    }
                     if is_ok(&result)
                         && result.get("available").and_then(Value::as_bool) == Some(true)
                     {
@@ -2600,16 +2616,67 @@ impl MetalSharpApp {
         cx.notify();
     }
 
-    /// One of the builds chosen: the Arm64 one first asks for macOS 26.4 or newer.
-    pub(super) fn start_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
-        if self.live.update_downloading {
+    /// The choice between the builds when the other build (`switch_variant`) is offered at this
+    /// version (`switch_available`) and there is no update.
+    pub(super) fn open_switch(&mut self, cx: &mut Context<Self>) {
+        if self.live.update_downloading || !self.update_switch_offered() {
             return;
         }
-        self.live.update_dialog = Some(if variant == "fex" {
-            UpdateDialog::ArmNotice
-        } else {
-            UpdateDialog::Confirm("regular")
-        });
+        self.live.update_dialog = Some(UpdateDialog::Choose);
+        cx.notify();
+    }
+
+    /// The other build is on offer at the version already installed. False whenever the backend
+    /// reports no `switch_available`, which leaves the update UI as it was.
+    pub(super) fn update_switch_offered(&self) -> bool {
+        !self.update_available()
+            && self.update_flag("switch_available")
+            && self.update_same_version()
+    }
+
+    /// The build that is running: `variant` from `/update/check`, else from `/status`.
+    pub(super) fn update_current_build(&self) -> &'static str {
+        match self.update_field("variant").as_deref() {
+            Some("fex") => "fex",
+            Some(_) => "regular",
+            None => crate::variant::name(),
+        }
+    }
+
+    fn update_same_version(&self) -> bool {
+        let latest = self.update_field("latest_version").unwrap_or_default();
+        let current = self
+            .update_field("current_version")
+            .or_else(|| self.live.backend_version.clone())
+            .unwrap_or_default();
+        !latest.is_empty() && latest.trim_start_matches('v') == current.trim_start_matches('v')
+    }
+
+    /// Installing `variant` replaces this build with the other one at the same version.
+    pub(super) fn update_is_switch(&self, variant: &str) -> bool {
+        variant != self.update_current_build() && self.update_same_version()
+    }
+
+    /// `variant` is this build at the version already installed, so nothing to install.
+    pub(super) fn update_is_installed(&self, variant: &str) -> bool {
+        variant == self.update_current_build() && self.update_same_version()
+    }
+
+    /// One of the builds chosen: the Arm64 one first asks for macOS 26.4 or newer, unless this
+    /// Mac already runs it.
+    pub(super) fn start_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
+        if self.live.update_downloading || self.update_is_installed(variant) {
+            return;
+        }
+        self.live.update_dialog = Some(
+            if variant == "fex" && self.update_current_build() == "fex" {
+                UpdateDialog::Confirm("fex")
+            } else if variant == "fex" {
+                UpdateDialog::ArmNotice
+            } else {
+                UpdateDialog::Confirm("regular")
+            },
+        );
         cx.notify();
     }
 
@@ -2662,10 +2729,17 @@ impl MetalSharpApp {
         } else {
             "download_url"
         };
-        if self
-            .update_field(url_key)
-            .filter(|u| !u.is_empty())
-            .is_none()
+        // `download_url` is the running build's: on FEX that is the FEX DMG, so the regular one is
+        // `regular_download_url` (absent from an older backend, where `download_url` is regular).
+        let regular_url = (variant != "fex")
+            .then(|| self.update_field("regular_download_url"))
+            .flatten()
+            .filter(|u| !u.is_empty());
+        if regular_url.is_none()
+            && self
+                .update_field(url_key)
+                .filter(|u| !u.is_empty())
+                .is_none()
         {
             toast::error(
                 cx,

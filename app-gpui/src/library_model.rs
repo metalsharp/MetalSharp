@@ -207,6 +207,11 @@ pub const PIPELINE_OPTIONS: [(&str, &str); 6] = [
 ];
 
 pub fn pipeline_label(id: &str) -> String {
+    if crate::variant::is_fex() {
+        return crate::variant::fex_pipeline_label(id)
+            .unwrap_or("Auto")
+            .to_owned();
+    }
     match id {
         "m9" | "dxvk" | "dxvk_32" => "D3D9".into(),
         _ => PIPELINE_OPTIONS
@@ -218,6 +223,12 @@ pub fn pipeline_label(id: &str) -> String {
 }
 
 pub fn normalize_pipeline(id: &str) -> String {
+    if crate::variant::is_fex() {
+        return match crate::variant::fex_pipeline_label(id) {
+            Some(_) => crate::variant::fex_pipeline(id).to_owned(),
+            None => "auto".into(),
+        };
+    }
     if PIPELINE_OPTIONS.iter().any(|(pid, _)| *pid == id) {
         id.to_owned()
     } else {
@@ -226,7 +237,30 @@ pub fn normalize_pipeline(id: &str) -> String {
 }
 
 /// `gamePipelineOptions`: Ubisoft titles expose backend-provided options.
+/// On FEX the list is Mullion (DXMT), DXVK, D3D9 and Wine (`variant::FEX_PIPELINE_OPTIONS`);
+/// DXVK is for x86_64 games only, which the backend checks at launch.
 pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
+    game_pipeline_options_for(game, crate::variant::is_fex())
+}
+
+fn game_pipeline_options_for(game: &LibGame, fex: bool) -> Vec<(String, String)> {
+    if fex {
+        let options: Vec<(String, String)> = if game.is_ubisoft() {
+            game.available_pipelines
+                .clone()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|option| Some((option.id?, option.name.unwrap_or_default())))
+                .collect()
+        } else {
+            crate::variant::FEX_PIPELINE_OPTIONS
+                .iter()
+                .map(|(id, label)| ((*id).to_owned(), (*label).to_owned()))
+                .collect()
+        };
+        // The backend runs D3DMetal, VKD3D and GPTK on Mullion here: show them as Mullion, once.
+        return crate::variant::fex_options(options);
+    }
     if !game.is_ubisoft() {
         return PIPELINE_OPTIONS
             .iter()
@@ -243,6 +277,10 @@ pub fn game_pipeline_options(game: &LibGame) -> Vec<(String, String)> {
 
 /// `collectionPipelineValue` / featured watcher selection.
 pub fn effective_pipeline(game: &LibGame) -> String {
+    effective_pipeline_for(game, crate::variant::is_fex())
+}
+
+fn effective_pipeline_for(game: &LibGame, fex: bool) -> String {
     let effective = if !game.preferred_pipeline().is_empty() {
         game.preferred_pipeline()
     } else {
@@ -254,15 +292,27 @@ pub fn effective_pipeline(game: &LibGame) -> String {
         .and_then(|options| options.iter().find(|option| option.recommended))
         .and_then(|option| option.id.clone())
         .unwrap_or_default();
-    let options = game_pipeline_options(game);
-    [effective.to_owned(), recommended]
+    let options = game_pipeline_options_for(game, fex);
+    let fex_id = |id: String| {
+        if fex {
+            crate::variant::fex_pipeline(&id).to_owned()
+        } else {
+            id
+        }
+    };
+    [fex_id(effective.to_owned()), fex_id(recommended)]
         .into_iter()
         .find(|id| options.iter().any(|(option, _)| option == id))
         .or_else(|| options.first().map(|(id, _)| id.clone()))
-        .unwrap_or_else(|| "d3dmetal".into())
+        .unwrap_or_else(|| if fex { "dxmt" } else { "d3dmetal" }.into())
 }
 
 pub fn is_wine_steam_route(launch_method: &str) -> bool {
+    let launch_method = launch_method.to_lowercase();
+    // DXVK and Wine are FEX-only pipeline choices.
+    if crate::variant::is_fex() && ["dxvk", "wine_bare"].contains(&launch_method.as_str()) {
+        return true;
+    }
     [
         "d3dmetal",
         "vkd3d",
@@ -272,7 +322,7 @@ pub fn is_wine_steam_route(launch_method: &str) -> bool {
         "steam",
         "wine_steam",
     ]
-    .contains(&launch_method.to_lowercase().as_str())
+    .contains(&launch_method.as_str())
 }
 
 /// LibraryView `launchGame` endpoint + body selection.
@@ -433,6 +483,37 @@ mod tests {
         assert_eq!(
             effective_pipeline(&game(json!({"appid":1,"name":"a"}))),
             "d3dmetal"
+        );
+    }
+
+    #[test]
+    fn fex_lists_mullion_dxvk_d3d9_wine_and_maps_saved_rosetta_pipelines() {
+        let g = game(json!({"appid":1,"name":"a","preferred_pipeline":"d3dmetal"}));
+        let ids: Vec<String> = game_pipeline_options_for(&g, true)
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(ids, ["dxmt", "dxvk", "d3d9", "wine_bare", "fna_arm64"]);
+        assert_eq!(effective_pipeline_for(&g, true), "dxmt");
+        assert_eq!(effective_pipeline_for(&g, false), "d3dmetal");
+        for saved in ["vkd3d", "m13", "dxmt_32"] {
+            let g = game(json!({"appid":1,"name":"a","launch_method":saved}));
+            assert_eq!(effective_pipeline_for(&g, true), "dxmt");
+        }
+        let ubisoft = game(
+            json!({"appid":2,"name":"u","source":"ubisoft","ubisoft_id":"7",
+            "available_pipelines":[{"id":"d3dmetal","name":"D3DMetal"},{"id":"dxmt","name":"DXMT"},{"id":"d3d9","name":"D3D9"}]}),
+        );
+        assert_eq!(
+            game_pipeline_options_for(&ubisoft, true),
+            [
+                ("dxmt".to_owned(), "Mullion (DXMT)".to_owned()),
+                ("d3d9".to_owned(), "D3D9".to_owned())
+            ]
+        );
+        assert_eq!(
+            game_pipeline_options_for(&g, false).len(),
+            PIPELINE_OPTIONS.len()
         );
     }
 }
