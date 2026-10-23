@@ -439,6 +439,24 @@ static void set_wine_msync(const char* home) {
     setenv("WINEMSYNC", ms_config_msync_enabled(home) ? "1" : "0", 1);
 }
 
+/* ROSETTA_X87_PATH makes Rosetta load the x87 sidecar (bin/x87sidecar), which speeds up x87
+ * floating point. The D3D9 route always has it; the x87Acceleration toggle (the hero card's game
+ * settings) gives it to every launch, whatever its graphics pipeline. */
+static void set_x87_sidecar_env(const char* home, bool enabled) {
+    char x87sidecar[PATH_MAX];
+    struct stat sidecar_stat;
+    if (!enabled) {
+        unsetenv("ROSETTA_X87_PATH");
+        return;
+    }
+    ensure_x87_wow64_loader(home);
+    snprintf(x87sidecar, sizeof(x87sidecar), "%s/runtime/wine/bin/x87sidecar", home);
+    if (lstat(x87sidecar, &sidecar_stat) == 0 && S_ISREG(sidecar_stat.st_mode) && access(x87sidecar, X_OK) == 0)
+        setenv("ROSETTA_X87_PATH", x87sidecar, 1);
+    else
+        unsetenv("ROSETTA_X87_PATH");
+}
+
 void ms_steam_apply_launch_preferences(const char* home) {
     if (!home)
         return;
@@ -460,6 +478,7 @@ void ms_steam_apply_launch_preferences(const char* home) {
     else
         unsetenv("METALSHARP_WINE_LAUNCH_WRAPPER");
     set_wine_msync(home);
+    set_x87_sidecar_env(home, ms_config_x87_enabled(home));
     unsetenv("METALSHARP_GAME_WINDOW_MODE");
     unsetenv("METALSHARP_GAME_RESOLUTION");
     if (config && ms_json_as_string(ms_json_object_get(config, "windowMode"), &mode) &&
@@ -770,25 +789,17 @@ static void set_route_paths(const char* home, const char* pipeline) {
         unsetenv("D3DMETAL_RUNTIME_DIR");
     }
     set_wfdxcompat_runtime_env(home, pipeline);
+    /* ms_steam_apply_launch_preferences above set ROSETTA_X87_PATH from the x87 toggle. */
     if (!strcmp(pipeline, "vkd3d")) {
         set_moltenvk_vkmt_env(home);
-        unsetenv("ROSETTA_X87_PATH");
     } else if (pipeline_is_d3d9(pipeline)) {
-        char x87sidecar[PATH_MAX];
-        struct stat sidecar_stat;
-        ensure_x87_wow64_loader(home);
         unsetenv("VK_ICD_FILENAMES");
         unsetenv("VK_DRIVER_FILES");
         /* The cooperative sidecar belongs to the restored D3D9 route. */
-        snprintf(x87sidecar, sizeof(x87sidecar), "%s/runtime/wine/bin/x87sidecar", home);
-        if (lstat(x87sidecar, &sidecar_stat) == 0 && S_ISREG(sidecar_stat.st_mode) && access(x87sidecar, X_OK) == 0)
-            setenv("ROSETTA_X87_PATH", x87sidecar, 1);
-        else
-            unsetenv("ROSETTA_X87_PATH");
+        set_x87_sidecar_env(home, true);
     } else {
         unsetenv("VK_ICD_FILENAMES");
         unsetenv("VK_DRIVER_FILES");
-        unsetenv("ROSETTA_X87_PATH");
     }
 }
 

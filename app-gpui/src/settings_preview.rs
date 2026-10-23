@@ -48,6 +48,8 @@ pub enum SettingsPreviewEvent {
     RefreshLaunchers,
     DeveloperMode(bool),
     LowPerformance(bool),
+    /// Library Layout: true for Grid, false for Steam Deck
+    LibraryLayout(bool),
     DeviceName(String),
     BackendRestarted,
 }
@@ -70,6 +72,7 @@ pub struct AppState {
     pub update_message: String,
     pub developer_mode: bool,
     pub low_performance: bool,
+    pub library_grid: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -400,6 +403,15 @@ impl SettingsPreview {
                 );
             },
         );
+    }
+
+    fn set_library_layout(&mut self, grid: bool, cx: &mut Context<Self>) {
+        if self.app.library_grid == grid {
+            return;
+        }
+        self.app.library_grid = grid;
+        cx.emit(SettingsPreviewEvent::LibraryLayout(grid));
+        cx.notify();
     }
 
     fn toggle_wine_steam(&mut self, cx: &mut Context<Self>) {
@@ -1652,6 +1664,30 @@ impl Render for SettingsPreview {
                     }),
                 ),
         );
+        let layout = self.row(
+            self.tr("ui.settings.libraryLayout"),
+            self.tr("ui.settingsDesc.libraryLayout"),
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    self.action_button(
+                        "library-layout-deck",
+                        self.tr("ui.settings.layoutSteamDeck"),
+                        !app.library_grid,
+                    )
+                    .on_click(cx.listener(|s, _, _, cx| s.set_library_layout(false, cx))),
+                )
+                .child(
+                    self.action_button(
+                        "library-layout-grid",
+                        self.tr("ui.settings.layoutGrid"),
+                        app.library_grid,
+                    )
+                    .on_click(cx.listener(|s, _, _, cx| s.set_library_layout(true, cx))),
+                ),
+        );
         let dev = self.row(
             self.tr("ui.settings.developerTools"),
             self.tr("ui.settingsDesc.developer"),
@@ -1906,6 +1942,7 @@ impl Render for SettingsPreview {
                         .child(backend)
                         .child(restart)
                         .child(kill)
+                        .child(layout)
                         .child(perf)
                         .child(dev)
                         .when(app.developer_mode, |d| d.child(logs)),
@@ -2088,7 +2125,7 @@ mod tests {
         let mut preview = SettingsPreview::new();
         for (language, _) in LANGUAGES {
             preview.language = language;
-            assert_eq!(preview.locales[language].len(), 76);
+            assert_eq!(preview.locales[language].len(), 80);
             assert!(!preview.tr("settings.title").is_empty());
         }
         preview.language = "unsupported";

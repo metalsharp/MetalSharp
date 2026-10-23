@@ -125,6 +125,9 @@ pub(super) struct LiveState {
     pub controller_busy: bool,
     pub msync: bool,
     pub msync_busy: bool,
+    /// x87 acceleration (Rosetta's x87 sidecar) for every launch, from the config's x87Acceleration
+    pub x87: bool,
+    pub x87_busy: bool,
     pub steam_emu_active: bool,
     pub steam_emu_busy: bool,
     pub collection_saving: HashSet<u64>,
@@ -209,6 +212,8 @@ impl Default for LiveState {
             controller_busy: false,
             msync: true,
             msync_busy: false,
+            x87: false,
+            x87_busy: false,
             steam_emu_active: false,
             steam_emu_busy: false,
             collection_saving: HashSet::new(),
@@ -333,6 +338,8 @@ impl MetalSharpApp {
             .get("lowPerformanceMode")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        self.library_grid = value.get("libraryLayout").and_then(Value::as_str) == Some("grid");
+        self.active_tab = self.home_tab();
         self.startup_video_seen = value
             .get("startupVideoSeen")
             .and_then(Value::as_bool)
@@ -351,6 +358,7 @@ impl MetalSharpApp {
             "language": self.selected_language,
             "developerMode": self.developer_mode,
             "lowPerformanceMode": self.low_performance,
+            "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
             "startupVideoSeen": self.startup_video_seen,
             "defaultRulesApplied": self.live.default_rules_applied,
         });
@@ -462,7 +470,7 @@ impl MetalSharpApp {
         self.step = 0;
         self.settings_open = false;
         self.streaming_open = false;
-        self.active_tab = LibraryTab::Play;
+        self.active_tab = self.home_tab();
         cx.notify();
     }
 
@@ -1406,6 +1414,8 @@ impl MetalSharpApp {
                             _ => "off",
                         };
                     this.live.msync = config.get("msync").and_then(Value::as_bool) != Some(false);
+                    this.live.x87 =
+                        config.get("x87Acceleration").and_then(Value::as_bool) == Some(true);
                     cx.notify();
                 }
             },
@@ -1511,6 +1521,29 @@ impl MetalSharpApp {
                     toast::error(cx, "Failed to update msync");
                 }
                 this.live.msync_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    pub(super) fn set_x87(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if !self.live.enabled || self.live.x87_busy {
+            return;
+        }
+        self.live.x87_busy = true;
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"x87Acceleration": enabled})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                if result.as_ref().is_some_and(is_ok) {
+                    this.live.x87 = enabled;
+                } else {
+                    toast::error(cx, "Failed to update x87 acceleration");
+                }
+                this.live.x87_busy = false;
                 cx.notify();
             },
         );
