@@ -164,9 +164,9 @@ $(GAME_EXE_TEST): runtime/game_executable.c tests/game_executable_test.c include
 
 # The vcpp test #includes runtime/setup.c for the static progress helpers, so
 # setup.c itself must not be linked into this binary.
-$(VCPP_TEST): runtime/json.c runtime/json_writer.c tests/setup_vcpp_test.c include/metalsharp_backend/setup.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
+$(VCPP_TEST): runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c tests/setup_vcpp_test.c runtime/setup.c include/metalsharp_backend/setup.h include/metalsharp_backend/rosetta.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/setup_vcpp_test.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c tests/setup_vcpp_test.c -lpthread
 
 # The runtime-ready sim #includes runtime/migration.c for runtime_ready();
 # migration.c must not be linked into this binary (same pattern as the vcpp
