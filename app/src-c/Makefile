@@ -5,12 +5,17 @@ BUILD_DIR ?= $(CURDIR)/build
 TARGET ?= $(BUILD_DIR)/metalsharp-backend
 INSTALL_TARGET ?= $(TARGET)
 VERSION ?= 0.80.0
+# regular: the x86_64 Wine runtime through Rosetta; fex: MetalSharp Wine (arm64, FEX)
+VARIANT ?= regular
 JSON_TEST ?= $(BUILD_DIR)/json-test
 MIGRATION_TEST ?= $(BUILD_DIR)/migration-test
 VCPP_TEST ?= $(BUILD_DIR)/setup-vcpp-test
 RUNTIME_READY_SIM ?= $(BUILD_DIR)/migration-runtime-ready-sim
 HTTP_SERVER_TEST ?= $(BUILD_DIR)/http-server-test
 GAME_EXE_TEST ?= $(BUILD_DIR)/game-executable-test
+WINE_RUNTIME_TEST ?= $(BUILD_DIR)/wine-runtime-test
+# A MetalSharp-Wine.app for the fex facade test; without one it checks only the mapping.
+METALSHARP_WINE_APP ?=
 
 CFLAGS ?= -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L
 CFLAGS += -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong
@@ -18,7 +23,7 @@ ifeq ($(shell uname -s),Darwin)
 CFLAGS += -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
 LDFLAGS += -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
 endif
-CPPFLAGS += -I$(CURDIR)/include -DMS_BACKEND_VERSION=\"$(VERSION)\"
+CPPFLAGS += -I$(CURDIR)/include -DMS_BACKEND_VERSION=\"$(VERSION)\" -DMS_BACKEND_VARIANT=\"$(VARIANT)\"
 LDFLAGS ?=
 
 SOURCES := \
@@ -34,6 +39,7 @@ SOURCES := \
 	runtime/steam.c \
 	runtime/game_executable.c \
 	runtime/updater.c \
+	runtime/wine_runtime.c \
 	runtime/rosetta.c \
 	runtime/kernel_handles.c \
 	runtime/kernel_apc.c \
@@ -98,7 +104,7 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 $(BUILD_DIR)/runtime-routes-test: tests/runtime_routes_test.c runtime/steam_actions.c runtime/epic.c $(OBJECTS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/runtime_routes_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/steam_actions.o $(BUILD_DIR)/c-backend/runtime/epic.o $(BUILD_DIR)/c-backend/runtime/ubisoft.o,$(OBJECTS))
 
-test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(BUILD_DIR)/runtime-routes-test
+test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(BUILD_DIR)/runtime-routes-test
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
@@ -107,6 +113,7 @@ test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) 
 	@ms_home="$$(mktemp -d)"; "$(VCPP_TEST)" $$ms_home; rc=$$?; rm -rf "$$ms_home"; exit $$rc
 	@"$(HTTP_SERVER_TEST)"
 	@"$(GAME_EXE_TEST)"
+	@ms_home="$$(mktemp -d)"; "$(WINE_RUNTIME_TEST)" "$$ms_home" $(METALSHARP_WINE_APP); rc=$$?; rm -rf "$$ms_home"; exit $$rc
 	@python3 "$(CURDIR)/tests/updater_test.py" "$(TARGET)"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
@@ -161,6 +168,11 @@ $(HTTP_SERVER_TEST): runtime/http_server.c runtime/local_socket.c tests/http_ser
 $(GAME_EXE_TEST): runtime/game_executable.c tests/game_executable_test.c include/metalsharp_backend/game_executable.h
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_executable.c tests/game_executable_test.c
+
+# The fex build's code, whatever VARIANT this build is.
+$(WINE_RUNTIME_TEST): runtime/wine_runtime.c tests/wine_runtime_test.c include/metalsharp_backend/wine_runtime.h
+	@mkdir -p "$(@D)"
+	$(CC) $(filter-out -DMS_BACKEND_VARIANT=%,$(CPPFLAGS)) -DMS_BACKEND_VARIANT=\"fex\" $(CFLAGS) -o "$@" runtime/wine_runtime.c tests/wine_runtime_test.c
 
 # The vcpp test #includes runtime/setup.c for the static progress helpers, so
 # setup.c itself must not be linked into this binary.

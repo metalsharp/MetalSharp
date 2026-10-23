@@ -3,6 +3,7 @@
 #include "metalsharp_backend/backend.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -328,6 +329,8 @@ char* ms_update_check_json(void) {
     ms_json_writer_bool(&writer, true);
     ms_json_writer_key(&writer, "current_version");
     ms_json_writer_string(&writer, MS_BACKEND_VERSION);
+    ms_json_writer_key(&writer, "variant");
+    ms_json_writer_string(&writer, ms_wine_variant());
     ms_json_writer_key(&writer, "latest_version");
     ms_json_writer_string(&writer, latest == NULL ? "" : latest);
     ms_json_writer_key(&writer, "available");

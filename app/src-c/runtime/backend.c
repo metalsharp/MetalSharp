@@ -43,6 +43,7 @@
 #include "metalsharp_backend/thread.h"
 #include "metalsharp_backend/ubisoft.h"
 #include "metalsharp_backend/updater.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -103,8 +104,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
         free(quoted_home);
         return NULL;
     }
-    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                      quoted_version, (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                      quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     if (needed < 0) {
         free(quoted_version);
         free(quoted_home);
@@ -113,8 +114,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
     body = (char*)malloc((size_t)needed + 1);
     if (body != NULL) {
         (void)snprintf(body, (size_t)needed + 1,
-                       "{\"ok\":true,\"version\":%s,\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                       quoted_version, (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+                       "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                       quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     }
     free(quoted_version);
     free(quoted_home);
