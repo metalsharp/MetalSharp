@@ -24,7 +24,7 @@
 #endif
 
 #define FACADE_MARKER  ".metalsharp-fex-facade"
-#define FACADE_VERSION "1"
+#define FACADE_VERSION "2"
 
 const char* ms_wine_variant(void) {
     return ms_wine_is_fex() ? "fex" : "regular";
@@ -50,7 +50,7 @@ bool ms_wine_app_contents(const char* home, char* out, size_t out_size) {
 const char* ms_wine_route_pipeline(const char* pipeline) {
     if (!ms_wine_is_fex() || !pipeline)
         return pipeline;
-    if (!strcmp(pipeline, "d3dmetal") || !strcmp(pipeline, "vkd3d") || !strcmp(pipeline, "m13"))
+    if (!strcmp(pipeline, "d3dmetal") || !strcmp(pipeline, "m13"))
         return "dxmt";
     return pipeline;
 }
@@ -60,6 +60,8 @@ const char* ms_wine_fex_graphics_backend(const char* pipeline) {
         return "wine";
     if (pipeline && !strcmp(pipeline, "dxvk"))
         return "dxvk";
+    if (pipeline && !strcmp(pipeline, "vkd3d"))
+        return "vkd3d";
     return "dxmt";
 }
 
@@ -149,9 +151,9 @@ static const char facade_prologue[] =
     "export WINEDEBUG=\"${WINEDEBUG:--all}\"\n"
     "export DXVK_STATE_CACHE_PATH=\"${DXVK_STATE_CACHE_PATH:-$MS_HOME/dxvk-cache}\"\n"
     "export DXVK_LOG_PATH=\"${DXVK_LOG_PATH:-$MS_HOME/dxvk-logs}\"\n"
-    "# GRAPHICS_BACKEND is dxmt (Mullion), dxvk or wine here; d3dmetal would mean wined3d.\n"
+    "# GRAPHICS_BACKEND is dxmt (Mullion), dxvk, vkd3d or wine here; d3dmetal would mean wined3d.\n"
     "case \"${GRAPHICS_BACKEND:-}\" in\n"
-    "  dxmt|dxvk|wine) ;;\n"
+    "  dxmt|dxvk|vkd3d|wine) ;;\n"
     "  '') unset GRAPHICS_BACKEND ;;\n"
     "  *) export GRAPHICS_BACKEND=dxmt ;;\n"
     "esac\n";

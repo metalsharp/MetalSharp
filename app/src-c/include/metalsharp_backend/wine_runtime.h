@@ -24,11 +24,11 @@ bool ms_wine_app_contents(const char* home, char* out, size_t out_size);
 bool ms_wine_fex_write_facade(const char* home, char* error, size_t error_size);
 bool ms_wine_fex_facade_ready(const char* home);
 
-/* The graphics pipeline a route runs on MetalSharp Wine. Its backends are Mullion (dxmt), DXVK
- * for x86_64 programs, and wined3d, so the D3DMetal, VKD3D and GPTK lanes run on Mullion. Returns
+/* The graphics pipeline a route runs on MetalSharp Wine. Its backends are Mullion (dxmt), DXVK and
+ * VKD3D-Proton for x86_64 programs, and wined3d, so the D3DMetal and GPTK lanes run on Mullion. Returns
  * the pipeline itself on the regular build, and for the pipelines both builds have. */
 const char* ms_wine_route_pipeline(const char* pipeline);
-/* GRAPHICS_BACKEND for a canonical pipeline on MetalSharp Wine: dxmt, dxvk or wine. */
+/* GRAPHICS_BACKEND for a canonical pipeline on MetalSharp Wine: dxmt, dxvk, vkd3d or wine. */
 const char* ms_wine_fex_graphics_backend(const char* pipeline);
 
 /* Whether a process's executable is the Wine MetalSharp runs: the x86_64 runtime's

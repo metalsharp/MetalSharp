@@ -671,11 +671,15 @@ static void set_rosetta_avx_env(void) {
  * route was tuned with. */
 static void set_moltenvk_vkmt_env(const char* home) {
     char icd[PATH_MAX];
-    if (ms_wine_is_fex())
-        return;
-    snprintf(icd, sizeof(icd), "%s/runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", home);
-    setenv("VK_ICD_FILENAMES", icd, 1);
-    setenv("VK_DRIVER_FILES", icd, 1);
+    /* MetalSharp Wine's own MoltenVK is this VKMT build; its loader points Vulkan at it. */
+    if (ms_wine_is_fex()) {
+        unsetenv("VK_ICD_FILENAMES");
+        unsetenv("VK_DRIVER_FILES");
+    } else {
+        snprintf(icd, sizeof(icd), "%s/runtime/wine/lib/moltenvk-vkmt/MoltenVK_icd.json", home);
+        setenv("VK_ICD_FILENAMES", icd, 1);
+        setenv("VK_DRIVER_FILES", icd, 1);
+    }
     setenv("VKMT_ALLOW_NON_SINGLE_TEXEL_ALIGNMENT", "1", 1);
     setenv("MVK_PRESENT_MODE", "1", 1);
     setenv("MVK_CONFIG_SYNCHRONOUS_QUEUE_SUBMITS", "1", 1);
@@ -756,6 +760,8 @@ static void set_fex_route_paths(const char* home, const char* pipeline) {
     }
     setenv("GRAPHICS_BACKEND", backend, 1);
     setenv("MS_GRAPHICS_BACKEND", backend, 1);
+    if (!strcmp(pipeline, "vkd3d"))
+        set_moltenvk_vkmt_env(home);
     ms_steam_apply_launch_preferences(home);
 }
 
@@ -1720,6 +1726,7 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                                      "runtime/wine/lib/mullion/aarch64-windows",
                                      "runtime/wine/lib/mullion/i386-windows",
                                      "runtime/wine/lib/dxvk/x86_64-windows",
+                                     "runtime/wine/lib/vkd3d-proton/x86_64-windows",
                                      "runtime/wine-x86_64/lib/dxmt/x86_64-windows",
                                      "runtime/wine-x86_64/lib/dxmt/i386-windows",
                                      "runtime/wine-x86_64/lib/metalsharp/x86_64-windows",
@@ -1776,6 +1783,8 @@ static bool stage_fex_route_dlls(const char* home, const char* pipeline, const c
                                             "d3d12.dll", "d3d12core.dll"};
     static const char* const mullion32[] = {"d3d11.dll", "d3d10core.dll", "dxgi.dll", "winemetal.dll"};
     static const char* const dxvk[] = {"d3d11.dll", "d3d10core.dll", "d3d9.dll", "dxgi.dll"};
+    static const char* const vkd3d[] = {"d3d12.dll", "d3d12core.dll", "dxgi.dll"};
+    static const char* const vkd3d_dxvk[] = {"d3d11.dll", "d3d10core.dll", "d3d9.dll"};
     const char* const* files = NULL;
     const char* source = NULL;
     size_t count = 0;
@@ -1789,7 +1798,14 @@ static bool stage_fex_route_dlls(const char* home, const char* pipeline, const c
     *slash = '\0';
     /* Each lane stages only its own architecture: Mullion the 64-bit (ARM64X) set, Mullion (32) the
      * i386 set, DXVK its x86_64 set (a 32-bit program on DXVK keeps Mullion (32)). */
-    if (!strcmp(pipeline, "dxvk") && !is32) {
+    if (!strcmp(pipeline, "vkd3d") && !is32) {
+        /* VKD3D-Proton's D3D12 and DXGI, with DXVK's D3D9/10/11, as the x86_64 build stages. */
+        for (size_t i = 0; i < sizeof(vkd3d_dxvk) / sizeof(vkd3d_dxvk[0]); i++)
+            ok = stage_route_asset(home, "lib/dxvk/x86_64-windows", vkd3d_dxvk[i], exe_dir) && ok;
+        source = "lib/vkd3d-proton/x86_64-windows";
+        files = vkd3d;
+        count = sizeof(vkd3d) / sizeof(vkd3d[0]);
+    } else if (!strcmp(pipeline, "dxvk") && !is32) {
         source = "lib/dxvk/x86_64-windows";
         files = dxvk;
         count = sizeof(dxvk) / sizeof(dxvk[0]);
