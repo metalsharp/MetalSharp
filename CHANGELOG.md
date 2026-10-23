@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- **Nothing launched after upgrading to macOS 27** — upgrading to macOS 27 can leave Rosetta 2 uninstalled, and MetalSharp's Wine is x86_64, so every launch failed until a fresh install re-ran setup's Rosetta step. At startup the backend now records the macOS major version, and when it reaches 27 or changes there (or nothing was recorded yet), it reinstalls Rosetta (`softwareupdate --install-rosetta --agree-to-license`) even if it looks installed. The version is recorded only after a successful install, so an offline attempt retries at the next start; output goes to `logs/rosetta.log`.
 - **Moonscraper Chart Editor installs and runs** — installing `MSCE.*.Installer.*.exe` from the Sharp Library no longer fails with "innoextract is required": the backend uses the runtime's innoextract before a Homebrew one. Moonscraper defaults to DXMT (on Wine's own D3D11 it overflows a stack at startup), and an install made before this moves to DXMT at its next launch. Sharp Library launches copy any of the runtime's fonts a prefix lacks into its `C:\windows\Fonts`, so Unity's dynamic fonts no longer leave Moonscraper's input fields blank in an existing prefix; a font already there is kept.
 
 ## v0.79.0 — 2026-10-14

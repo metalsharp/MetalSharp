@@ -3,6 +3,7 @@
 #include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/process.h"
+#include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/steamcmd.h"
@@ -126,6 +127,7 @@ int main(void) {
         ms_log_event(context.metalsharp_home, message);
     }
     ms_epic_sync_on_startup(context.metalsharp_home);
+    ms_rosetta_after_macos_upgrade_async(context.metalsharp_home);
 
     for (attempt = 1; attempt <= 30 && !stop_requested; ++attempt) {
         if (ms_http_serve_unix(socket_path, &stop_requested, ms_backend_handle, &context,

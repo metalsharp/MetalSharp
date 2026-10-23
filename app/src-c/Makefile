@@ -34,6 +34,7 @@ SOURCES := \
 	runtime/steam.c \
 	runtime/game_executable.c \
 	runtime/updater.c \
+	runtime/rosetta.c \
 	runtime/kernel_handles.c \
 	runtime/kernel_apc.c \
 	runtime/kernel_integrity.c \
