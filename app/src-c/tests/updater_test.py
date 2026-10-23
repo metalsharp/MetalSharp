@@ -17,6 +17,9 @@ import time
 from pathlib import Path
 
 BACKEND = Path(sys.argv[1]).resolve()
+# The FEX build of the backend (make VARIANT=fex); built next to BACKEND when not given.
+FEX_BACKEND = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else None
+SRC_C = Path(__file__).resolve().parent.parent
 # MetalSharp: keep the synthetic release ahead of the app version; the
 # set-version script bumps this alongside the app version.
 VERSION = "0.80.1"  # Synthetic release must be newer than the current app.
@@ -59,8 +62,30 @@ def wait_for_download(sock: Path, timeout: float = 10) -> dict:
     raise AssertionError(f"timed out waiting for update download: {progress}")
 
 
+def build_fex_backend(version: str) -> Path:
+    """The fex backend, in its own BUILD_DIR so its objects never mix with the regular build's."""
+    build_dir = BACKEND.parent / "updater-test-fex"
+    target = build_dir / "metalsharp-backend"
+    subprocess.run(
+        [
+            "make",
+            "-s",
+            "-C",
+            str(SRC_C),
+            "VARIANT=fex",
+            f"VERSION={version}",
+            f"BUILD_DIR={build_dir}",
+            f"TARGET={target}",
+            str(target),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+    return target
+
+
 class Backend:
-    def __init__(self, root: Path, release: Path, macos: str):
+    def __init__(self, root: Path, release: Path, macos: str, backend: Path | None = None):
         home = root / "metalsharp"
         user_home = root / "home"
         home.mkdir()
@@ -76,7 +101,7 @@ class Backend:
             }
         )
         self.log = open(root / "backend.log", "wb")
-        self.process = subprocess.Popen([str(BACKEND)], env=env, stdout=self.log, stderr=subprocess.STDOUT)
+        self.process = subprocess.Popen([str(backend or BACKEND)], env=env, stdout=self.log, stderr=subprocess.STDOUT)
         deadline = time.time() + 10
         while time.time() < deadline:
             try:
@@ -103,7 +128,7 @@ class Backend:
         self.close()
 
 
-def write_release(root: Path) -> tuple[Path, bytes, bytes]:
+def write_release(root: Path, version: str = VERSION, fex_asset: bool = True) -> tuple[Path, bytes, bytes]:
     regular_fallback = root / "regular-universal.dmg"
     regular = root / "regular-arm64.dmg"
     fex = root / "fex-arm64.dmg"
@@ -116,22 +141,28 @@ def write_release(root: Path) -> tuple[Path, bytes, bytes]:
     release.write_text(
         json.dumps(
             {
-                "tag_name": f"v{VERSION}",
-                "name": f"MetalSharp v{VERSION}",
+                "tag_name": f"v{version}",
+                "name": f"MetalSharp v{version}",
                 "body": "Synthetic updater release",
                 "assets": [
                     {
-                        "name": f"MetalSharp-{VERSION}.dmg",
+                        "name": f"MetalSharp-{version}.dmg",
                         "browser_download_url": regular_fallback.as_uri(),
                         "size": regular_fallback.stat().st_size,
                     },
+                    *(
+                        [
+                            {
+                                "name": f"MetalSharp-{version}-arm64-FEX.dmg",
+                                "browser_download_url": fex.as_uri(),
+                                "size": fex.stat().st_size,
+                            }
+                        ]
+                        if fex_asset
+                        else []
+                    ),
                     {
-                        "name": f"MetalSharp-{VERSION}-FEX-arm64.dmg",
-                        "browser_download_url": fex.as_uri(),
-                        "size": fex.stat().st_size,
-                    },
-                    {
-                        "name": f"MetalSharp-{VERSION}-arm64.dmg",
+                        "name": f"MetalSharp-{version}-arm64.dmg",
                         "browser_download_url": regular.as_uri(),
                         "size": regular.stat().st_size,
                     },
@@ -192,6 +223,122 @@ def test_download_progress(root: Path) -> None:
         worker.join()
 
 
+def release_variant(root: Path, name: str, version: str, fex_asset: bool = True) -> tuple[Path, bytes, bytes]:
+    release_root = root / name
+    release_root.mkdir()
+    return write_release(release_root, version, fex_asset)
+
+
+def test_regular_build_checks(root: Path, current: str) -> None:
+    """The regular build keeps its old answers and offers the FEX build as a switch."""
+    release, regular_bytes, fex_bytes = release_variant(root, "regular-newer-release", VERSION)
+    backend_root = root / "regular-newer"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0") as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["variant"] == "regular" and status["available"] is True, status
+        assert status["download_variant"] == "regular", status
+        assert status["download_url"].endswith("regular-arm64.dmg"), status
+        assert status["regular_download_url"] == status["download_url"], status
+        assert status["regular_download_size"] == len(regular_bytes), status
+        assert status["switch_variant"] == "fex" and status["switch_available"] is True, status
+        assert status["switch_download_url"].endswith("fex-arm64.dmg"), status
+        assert status["switch_download_size"] == len(fex_bytes), status
+        # no body: the build this backend is
+        started = request(backend.sock, "POST", "/update/start")
+        assert started["ok"] is True and started["variant"] == "regular", started
+        assert wait_for_download(backend.sock)["status"] == "downloaded"
+        assert Path(request(backend.sock, "GET", "/update/dmg-path")["path"]).read_bytes() == regular_bytes
+        # "build" names the build too
+        started = request(backend.sock, "POST", "/update/start", {"build": "fex"})
+        assert started["ok"] is True and started["variant"] == "fex", started
+        assert wait_for_download(backend.sock)["status"] == "downloaded"
+        downloaded = request(backend.sock, "GET", "/update/dmg-path?variant=fex")
+        assert Path(downloaded["path"]).read_bytes() == fex_bytes, downloaded
+        invalid = request(backend.sock, "POST", "/update/start", {"build": "preview"})
+        assert invalid["ok"] is False and "variant" in invalid["error"], invalid
+
+    # the same version: no update, but switching to the FEX build is offered
+    release, _, _ = release_variant(root, "regular-same-release", current)
+    backend_root = root / "regular-same"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0") as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["available"] is False and status["switch_available"] is True, status
+
+    # an older release offers neither
+    release, _, _ = release_variant(root, "regular-older-release", "0.1.0")
+    backend_root = root / "regular-older"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0") as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["available"] is False and status["switch_available"] is False, status
+
+    # a newer release without a FEX asset: the regular build's answer is unchanged
+    release, _, _ = release_variant(root, "regular-nofex-release", VERSION, fex_asset=False)
+    backend_root = root / "regular-nofex"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0") as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["available"] is True and status["fex_available"] is False, status
+        assert status["switch_available"] is False, status
+
+
+def test_fex_build_checks(root: Path, fex_backend: Path, current: str) -> None:
+    """The FEX build stays on FEX: its update and default download are the FEX asset."""
+    release, regular_bytes, fex_bytes = release_variant(root, "fex-newer-release", VERSION)
+    backend_root = root / "fex-newer"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0", fex_backend) as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["variant"] == "fex" and status["current_version"] == current, status
+        assert status["available"] is True and status["download_variant"] == "fex", status
+        assert status["download_url"].endswith("fex-arm64.dmg"), status
+        assert status["download_size"] == len(fex_bytes), status
+        assert status["fex_download_url"] == status["download_url"], status
+        assert status["regular_download_url"].endswith("regular-arm64.dmg"), status
+        assert status["switch_variant"] == "regular" and status["switch_available"] is True, status
+        assert status["switch_download_url"] == status["regular_download_url"], status
+        # no body and an empty body: the FEX build
+        for body in (None, {}):
+            started = request(backend.sock, "POST", "/update/start", body)
+            assert started["ok"] is True and started["variant"] == "fex", started
+            assert wait_for_download(backend.sock)["status"] == "downloaded"
+            downloaded = request(backend.sock, "GET", "/update/dmg-path?variant=fex")
+            assert downloaded["version"] == VERSION, downloaded
+            assert Path(downloaded["path"]).read_bytes() == fex_bytes, downloaded
+        # switching to the regular build is asked for by name
+        started = request(backend.sock, "POST", "/update/start", {"variant": "regular"})
+        assert started["ok"] is True and started["variant"] == "regular", started
+        assert wait_for_download(backend.sock)["status"] == "downloaded"
+        downloaded = request(backend.sock, "GET", "/update/dmg-path?variant=regular")
+        assert Path(downloaded["path"]).read_bytes() == regular_bytes, downloaded
+
+    # a newer release without a FEX asset is not an update for the FEX build
+    release, _, _ = release_variant(root, "fex-nofex-release", VERSION, fex_asset=False)
+    backend_root = root / "fex-nofex"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0", fex_backend) as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["available"] is False and status["download_url"] == "", status
+        assert status["switch_available"] is True, status
+
+    # the same version: switching to the regular build is offered, nothing else
+    release, _, _ = release_variant(root, "fex-same-release", current)
+    backend_root = root / "fex-same"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0", fex_backend) as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["available"] is False and status["switch_available"] is True, status
+
+    release, _, _ = release_variant(root, "fex-older-release", "0.1.0")
+    backend_root = root / "fex-older"
+    backend_root.mkdir()
+    with Backend(backend_root, release, "27.0", fex_backend) as backend:
+        status = request(backend.sock, "GET", "/update/check")
+        assert status["available"] is False and status["switch_available"] is False, status
+
+
 def main() -> None:
     # /tmp keeps <home>/run/backend.sock inside sockaddr_un.sun_path.
     with tempfile.TemporaryDirectory(prefix="msu-", dir="/tmp") as temporary:
@@ -249,6 +396,12 @@ def main() -> None:
             assert wait_for_download(backend.sock)["status"] == "downloaded"
             invalid = request(backend.sock, "POST", "/update/start", {"variant": "preview"})
             assert invalid["ok"] is False and "variant" in invalid["error"], invalid
+            current = status["current_version"]
+
+        builds_root = root / "builds"
+        builds_root.mkdir()
+        test_regular_build_checks(builds_root, current)
+        test_fex_build_checks(builds_root, FEX_BACKEND or build_fex_backend(current), current)
 
     print("baseline and FEX updater tests passed")
 

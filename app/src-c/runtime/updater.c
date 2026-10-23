@@ -300,6 +300,18 @@ static void release_assets_find(const ms_json* release, release_assets* selected
     }
 }
 
+static bool valid_variant(const char* variant) {
+    return variant != NULL && (strcmp(variant, "regular") == 0 || strcmp(variant, "fex") == 0);
+}
+
+/*
+ * /update/check for the build this backend is (ms_wine_variant()):
+ *   available       a newer version of this build: on regular, exactly the old rule (a newer tag);
+ *                   on fex, a newer tag that has a FEX asset
+ *   download_url    this build's asset (regular_download_url / fex_download_url name each one)
+ *   switch_*        the other build's asset at the same or a newer version; installing it at the
+ *                   same version is a build switch, which update.sh allows
+ */
 char* ms_update_check_json(void) {
     char* text = curl_release_json();
     char error[128];
@@ -323,6 +335,14 @@ char* ms_update_check_json(void) {
     body = release_field_json(release, "body");
     release_assets_find(release, &assets);
     host_macos_version(macos, sizeof(macos));
+    bool current_fex = ms_wine_is_fex();
+    int latest_order = latest == NULL || latest[0] == '\0' ? -1 : version_compare(latest, MS_BACKEND_VERSION);
+    const char* own_url = current_fex ? assets.fex_url : assets.regular_url;
+    unsigned long long own_size = current_fex ? assets.fex_size : assets.regular_size;
+    const char* other_url = current_fex ? assets.regular_url : assets.fex_url;
+    unsigned long long other_size = current_fex ? assets.regular_size : assets.fex_size;
+    bool available = current_fex ? (latest_order > 0 && assets.fex_url != NULL)
+                                 : (latest != NULL && version_compare(latest, MS_BACKEND_VERSION) > 0);
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
@@ -334,11 +354,25 @@ char* ms_update_check_json(void) {
     ms_json_writer_key(&writer, "latest_version");
     ms_json_writer_string(&writer, latest == NULL ? "" : latest);
     ms_json_writer_key(&writer, "available");
-    ms_json_writer_bool(&writer, latest != NULL && version_compare(latest, MS_BACKEND_VERSION) > 0);
+    ms_json_writer_bool(&writer, available);
     ms_json_writer_key(&writer, "download_url");
-    ms_json_writer_string(&writer, assets.regular_url == NULL ? "" : assets.regular_url);
+    ms_json_writer_string(&writer, own_url == NULL ? "" : own_url);
     ms_json_writer_key(&writer, "download_size");
+    ms_json_writer_u64(&writer, own_size);
+    ms_json_writer_key(&writer, "download_variant");
+    ms_json_writer_string(&writer, current_fex ? "fex" : "regular");
+    ms_json_writer_key(&writer, "regular_download_url");
+    ms_json_writer_string(&writer, assets.regular_url == NULL ? "" : assets.regular_url);
+    ms_json_writer_key(&writer, "regular_download_size");
     ms_json_writer_u64(&writer, assets.regular_size);
+    ms_json_writer_key(&writer, "switch_variant");
+    ms_json_writer_string(&writer, current_fex ? "regular" : "fex");
+    ms_json_writer_key(&writer, "switch_available");
+    ms_json_writer_bool(&writer, other_url != NULL && latest_order >= 0);
+    ms_json_writer_key(&writer, "switch_download_url");
+    ms_json_writer_string(&writer, other_url == NULL ? "" : other_url);
+    ms_json_writer_key(&writer, "switch_download_size");
+    ms_json_writer_u64(&writer, other_size);
     ms_json_writer_key(&writer, "fex_available");
     ms_json_writer_bool(&writer, assets.fex_url != NULL);
     ms_json_writer_key(&writer, "fex_download_url");
@@ -525,18 +559,25 @@ char* ms_update_dmg_path_json(const char* metalsharp_home, const char* variant) 
     }
 }
 
+/*
+ * POST /update/start {"variant": "regular"|"fex"} downloads that build's DMG; "build" is accepted as
+ * the same field. With no body, or a body that names neither, it downloads the build this backend is.
+ */
 char* ms_update_start_json(const char* metalsharp_home, const unsigned char* body, size_t body_length) {
-    bool fex = false;
+    bool fex = ms_wine_is_fex();
     if (body_length > 0) {
         char parse_error[128];
         ms_json* request = ms_json_parse((const char*)body, body_length, parse_error, sizeof(parse_error));
-        char* variant = request == NULL ? NULL : release_field_json(request, "variant");
-        if (request == NULL || variant == NULL || (strcmp(variant, "regular") != 0 && strcmp(variant, "fex") != 0)) {
+        const char* key = request != NULL && ms_json_object_get(request, "variant") != NULL ? "variant" : "build";
+        bool named = request != NULL && ms_json_object_get(request, key) != NULL;
+        char* variant = named ? release_field_json(request, key) : NULL;
+        if (request == NULL || (named && !valid_variant(variant))) {
             free(variant);
             ms_json_free(request);
             return strdup("{\"ok\":false,\"error\":\"update variant must be regular or fex\"}");
         }
-        fex = strcmp(variant, "fex") == 0;
+        if (named)
+            fex = strcmp(variant, "fex") == 0;
         free(variant);
         ms_json_free(request);
     }
@@ -578,11 +619,12 @@ char* ms_update_start_json(const char* metalsharp_home, const unsigned char* bod
         char* info = ms_update_check_json();
         char error[128];
         ms_json* json = info == NULL ? NULL : ms_json_parse(info, strlen(info), error, sizeof(error));
-        char* url = json == NULL ? NULL : release_field_json(json, fex ? "fex_download_url" : "download_url");
+        char* url = json == NULL ? NULL : release_field_json(json, fex ? "fex_download_url" : "regular_download_url");
         char* latest = json == NULL ? NULL : release_field_json(json, "latest_version");
         long long download_size = 0;
         if (json)
-            (void)ms_json_as_i64(ms_json_object_get(json, fex ? "fex_download_size" : "download_size"), &download_size);
+            (void)ms_json_as_i64(ms_json_object_get(json, fex ? "fex_download_size" : "regular_download_size"),
+                                 &download_size);
         free(info);
         ms_json_free(json);
         if (url == NULL || latest == NULL || url[0] == '\0') {
@@ -652,13 +694,13 @@ char* ms_update_start_json(const char* metalsharp_home, const unsigned char* bod
         unlink(lock);
         _exit(0);
     }
-    free(lock);
-    free(dir);
     if (child < 0) {
         unlink(lock);
         free(lock);
         free(dir);
         return strdup("{\"ok\":false,\"error\":\"failed to spawn updater\"}");
     }
-    return strdup("{\"ok\":true}");
+    free(lock);
+    free(dir);
+    return strdup(fex ? "{\"ok\":true,\"variant\":\"fex\"}" : "{\"ok\":true,\"variant\":\"regular\"}");
 }
