@@ -39,7 +39,9 @@ pub enum SettingsPreviewEvent {
     Close,
     ReopenSetup,
     LanguageChanged(&'static str),
-    StartUpdate(&'static str),
+    /// The update's dialogs: its notes, or the update itself (the choice between its builds)
+    WhatsNew,
+    StartUpdate,
     UpdateStatus(Value),
     SteamApiKeySaved(String, Option<Vec<crate::library_model::LibGame>>),
     ReloadLibrary,
@@ -72,7 +74,6 @@ pub struct AppState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConfirmAction {
-    FexUpdate,
     SwitchToMac,
     ForceKill,
     Uninstall,
@@ -1117,11 +1118,6 @@ impl SettingsPreview {
                 "Stop Wine Steam and start Mac Steam?",
                 "OK",
             ),
-            ConfirmAction::FexUpdate => (
-                "FEX Version Notice",
-                "The FEX DMG only works on macOS 27 or newer. The FEX version is experimental, so expect more potential bugs than the baseline MetalSharp version.\n\nSelect OK to continue or Cancel to keep the baseline version.",
-                "OK",
-            ),
         };
         div()
             .id("settings-confirm-backdrop")
@@ -1182,9 +1178,6 @@ impl SettingsPreview {
                                             ConfirmAction::Uninstall => this.uninstall(cx),
                                             ConfirmAction::SwitchToMac => {
                                                 this.switch_to_mac_steam(cx)
-                                            }
-                                            ConfirmAction::FexUpdate => {
-                                                cx.emit(SettingsPreviewEvent::StartUpdate("fex"))
                                             }
                                         }
                                     }
@@ -1782,7 +1775,6 @@ impl Render for SettingsPreview {
             .get("current_version")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        let fex_available = status.get("fex_available").and_then(Value::as_bool) == Some(true);
         let version = self.row(
             self.tr("ui.settings.version"),
             if available {
@@ -1810,30 +1802,24 @@ impl Render for SettingsPreview {
                     )
                 }),
         );
-        let update =
-            (available && !app.update_downloading).then(|| {
-                self.row(
-                    self.tr("ui.settings.downloadUpdate"),
-                    format!("v{latest} is ready to download"),
-                    self.action_button(
-                        "download-update",
-                        self.tr("ui.settings.downloadInstall"),
-                        true,
-                    )
-                    .on_click(cx.listener(|_, _, _, cx| {
-                        cx.emit(SettingsPreviewEvent::StartUpdate("regular"))
-                    })),
-                )
-            });
-        let fex = (available && fex_available && !app.update_downloading).then(|| {
+        let update = (available && !app.update_downloading).then(|| {
             self.row(
-                self.tr("ui.settings.fexUpdate"),
-                "macOS 27+ only · experimental and potentially less stable than baseline",
-                self.action_button("update-fex", self.tr("ui.settings.updateFex"), false)
-                    .on_click(cx.listener(|s, _, _, cx| {
-                        s.confirm = Some(ConfirmAction::FexUpdate);
-                        cx.notify();
-                    })),
+                self.tr("ui.settings.downloadUpdate"),
+                format!("v{latest} is ready to download"),
+                self.action_button(
+                    "download-update",
+                    self.tr("ui.settings.downloadInstall"),
+                    true,
+                )
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsPreviewEvent::StartUpdate))),
+            )
+        });
+        let notes = (available && !app.update_downloading).then(|| {
+            self.row(
+                self.tr("ui.settings.whatsNew"),
+                format!("What changed in v{latest}"),
+                self.action_button("update-notes", self.tr("ui.settings.whatsNew"), false)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsPreviewEvent::WhatsNew))),
             )
         });
         let progress = app.update_downloading.then(|| {
@@ -1937,10 +1923,10 @@ impl Render for SettingsPreview {
                 false,
             ));
         let mut updates = div().child(version);
-        if let Some(r) = update {
+        if let Some(r) = notes {
             updates = updates.child(r)
         }
-        if let Some(r) = fex {
+        if let Some(r) = update {
             updates = updates.child(r)
         }
         if let Some(r) = progress {
@@ -2102,7 +2088,7 @@ mod tests {
         let mut preview = SettingsPreview::new();
         for (language, _) in LANGUAGES {
             preview.language = language;
-            assert_eq!(preview.locales[language].len(), 77);
+            assert_eq!(preview.locales[language].len(), 76);
             assert!(!preview.tr("settings.title").is_empty());
         }
         preview.language = "unsupported";

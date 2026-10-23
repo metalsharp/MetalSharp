@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **What's new before updating** — an available update's release notes open in a **What's new** window, rendered from the release's Markdown (headings, lists, tables, code, links), from the update banner and from Settings → Updates.
+- **Choose the 1.0.0 build** — when a release carries both builds, **Download & Install** asks which one to install: **MetalSharp Arm64 with FEX** (native Apple Silicon Wine, x86 games through FEX) or **MetalSharp x86_64** (the current Wine).
+- **macOS 26.4 notice for the Arm64 build** — choosing Arm64 with FEX shows that it needs macOS 26.4 or newer and the Mac's own version, with a one-click switch to the x86_64 build. The backend reports `fex_recommended`, `fex_min_macos` and `macos_version` from `/update/check`.
+
+### Changed
+
+- **The FEX update is no longer limited to macOS 27** — the backend's macOS 27 block is gone; below 26.4 the app recommends x86_64 but lets the user continue. Settings' separate **Update to FEX** row is replaced by **What's New**.
+
 ## v0.79.0 — 2026-10-14
 
 ### Added

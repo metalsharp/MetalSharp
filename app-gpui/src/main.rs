@@ -15,6 +15,7 @@ mod library_model;
 mod lifecycle;
 mod live;
 mod logs_preview;
+mod markdown;
 #[allow(dead_code)]
 mod mini_browser;
 mod page_palette;
