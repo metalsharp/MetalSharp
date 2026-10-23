@@ -14,7 +14,7 @@ unset METALSHARP_UPDATE_TEST_SOURCE_ONLY
 STATUS_LOG="$(mktemp)"
 DMG_PATH="$(mktemp)"
 trap 'rm -f "$STATUS_LOG" "$DMG_PATH"' EXIT
-export APP_PID=0 BACKEND_PID=0 TARGET_VERSION=0.79.0
+export APP_PID=0 BACKEND_PID=0 TARGET_VERSION=0.80.0
 
 write_status() { printf '%s %s\n' "$1" "$2" >> "$STATUS_LOG"; }
 pkill() { return 0; }
