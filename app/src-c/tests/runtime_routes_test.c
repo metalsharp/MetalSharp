@@ -5,6 +5,7 @@
 #include "../runtime/ubisoft.c"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/rosetta.h"
+#include "metalsharp_backend/config.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/gamejolt.h"
@@ -769,6 +770,61 @@ static void test_rosetta_after_macos_upgrade(const char* root) {
     free(home);
 }
 
+/* x87 acceleration: the hero card's toggle (x87Acceleration) gives every route, and launches with no
+ * route (Sharp Library apps on Wine), ROSETTA_X87_PATH; D3D9 has it either way. */
+static void x87_config(const char* home, bool enabled) {
+    char body[64];
+    int status = 0;
+    char* response;
+    snprintf(body, sizeof(body), "{\"x87Acceleration\":%s}", enabled ? "true" : "false");
+    response = ms_config_set_json(home, (const unsigned char*)body, strlen(body), &status);
+    assert(response && status == 200 &&
+           strstr(response, enabled ? "\"x87Acceleration\":true" : "\"x87Acceleration\":false"));
+    free(response);
+    assert(ms_config_x87_enabled(home) == enabled);
+}
+
+static void test_x87_route_env(const char* root) {
+    static const char* const routes[] = {"dxmt", "vkd3d", "d3dmetal", "wine_bare", "d3d9"};
+    char* home = join(root, "x87");
+    char* sidecar = join(home, "runtime/wine/bin/x87sidecar");
+    char expected[PATH_MAX];
+    executable_fixture(root, "x87/runtime/wine/bin/x87sidecar");
+    snprintf(expected, sizeof(expected), "%s", sidecar);
+    /* Off by default: only D3D9 gets the sidecar. */
+    assert(!ms_config_x87_enabled(home));
+    for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
+        ms_steam_apply_graphics_route(home, routes[i]);
+        if (!strcmp(routes[i], "d3d9"))
+            assert(getenv("ROSETTA_X87_PATH") && !strcmp(getenv("ROSETTA_X87_PATH"), expected));
+        else
+            assert(!getenv("ROSETTA_X87_PATH"));
+    }
+    ms_steam_apply_launch_preferences(home);
+    assert(!getenv("ROSETTA_X87_PATH"));
+    /* On: every route, and a launch with no route. */
+    x87_config(home, true);
+    for (size_t i = 0; i < sizeof(routes) / sizeof(routes[0]); i++) {
+        ms_steam_apply_graphics_route(home, routes[i]);
+        assert(getenv("ROSETTA_X87_PATH") && !strcmp(getenv("ROSETTA_X87_PATH"), expected));
+    }
+    unsetenv("ROSETTA_X87_PATH");
+    ms_steam_apply_launch_preferences(home);
+    assert(getenv("ROSETTA_X87_PATH") && !strcmp(getenv("ROSETTA_X87_PATH"), expected));
+    /* Off again clears it, even after a D3D9 launch set it. */
+    x87_config(home, false);
+    ms_steam_apply_graphics_route(home, "d3d9");
+    ms_steam_apply_graphics_route(home, "dxmt");
+    assert(!getenv("ROSETTA_X87_PATH"));
+    /* No sidecar in the runtime: nothing to point Rosetta at. */
+    x87_config(home, true);
+    assert(unlink(sidecar) == 0);
+    ms_steam_apply_graphics_route(home, "dxmt");
+    assert(!getenv("ROSETTA_X87_PATH"));
+    free(sidecar);
+    free(home);
+}
+
 static void test_metalfx_route_env(const char* home) {
     static const char on_175[] = "{\"enabled\":true,\"factor\":1.75}";
     static const char off[] = "{\"enabled\":false}";
@@ -866,6 +922,7 @@ int main(int argc, char** argv) {
     assert(!getenv("VK_DRIVER_FILES"));
     test_metalfx_route_env(home);
     test_rosetta_after_macos_upgrade(home);
+    test_x87_route_env(home);
     ms_steam_apply_graphics_route(home, "dxmt_32");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/i386-windows"));
     ms_steam_apply_graphics_route(home, "d3d9");

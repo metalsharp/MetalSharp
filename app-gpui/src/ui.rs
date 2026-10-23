@@ -3393,6 +3393,7 @@ impl MetalSharpApp {
             );
         }
         let msync = self.live.msync;
+        let x87 = self.live.x87;
         menu = menu
             .child(row("MetalFX", metal_fx))
             .child(row("Controller input", controller))
@@ -3405,6 +3406,14 @@ impl MetalSharpApp {
                         msync,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
+                ),
+            ))
+            // Rosetta's x87 sidecar for every pipeline; the D3D9 route always has it.
+            .child(row(
+                "x87 acceleration",
+                div().flex().child(
+                    option(("game-setting-x87", 0), if x87 { "On" } else { "Off" }, x87)
+                        .on_click(cx.listener(move |this, _, _, cx| this.set_x87(!x87, cx))),
                 ),
             ));
         if game.installed && !game.has_native_build {
