@@ -3905,7 +3905,9 @@ static char* spawn_wine_for_pipeline(const char* home, const char* pipeline, uns
     redirect_wine_steam_desktop(home);
     ensure_steam_launch_ready(home, steam_dir);
     seed_steam_registry(home);
-    char* helper = id == 0 && is_steam_client_executable(first) ? steam_helper_app_path() : NULL;
+    /* MetalSharp Wine (the fex build) starts the Steam client directly through runtime/wine/bin's
+     * wrapper: under the helper app's identity macOS refuses the wrapper on an external volume. */
+    char* helper = !ms_wine_is_fex() && id == 0 && is_steam_client_executable(first) ? steam_helper_app_path() : NULL;
     child = fork();
     if (child < 0) {
         char* error_text = strdup(strerror(errno));
