@@ -13,6 +13,27 @@ CARGO_PROFILE="${METALSHARP_GPUI_CARGO_PROFILE:-debug}"
 BUNDLE="$APP_DIR/target/$APP_BUNDLE_NAME"
 CONTENTS="$BUNDLE/Contents"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$APP_DIR/target}"
+# Build variant: regular (x86_64 Wine through Rosetta, runtime bundles) or fex
+# (MetalSharp-Wine.app, native arm64 Wine with FEX, no runtime bundles).
+VARIANT="${METALSHARP_VARIANT:-regular}"
+case "$VARIANT" in
+  regular|fex) ;;
+  *) echo "METALSHARP_VARIANT must be regular or fex" >&2; exit 1 ;;
+esac
+# The FEX build carries MetalSharp-Wine.app (signed, notarized, with the
+# cross-architecture entitlement tied to its provisioning profile) unchanged.
+# Nothing below may re-sign, strip or otherwise write inside it.
+WINE_APP_NAME="MetalSharp-Wine.app"
+if [ "$VARIANT" = "fex" ]; then
+  WINE_APP_SOURCE="${METALSHARP_WINE_APP:-}"
+  if [ -z "$WINE_APP_SOURCE" ] || [ ! -d "$WINE_APP_SOURCE" ]; then
+    echo "The fex variant needs METALSHARP_WINE_APP set to a MetalSharp-Wine.app: ${WINE_APP_SOURCE:-unset}" >&2
+    exit 1
+  fi
+  [ -x "$WINE_APP_SOURCE/Contents/MacOS/wine" ] || { echo "Not a MetalSharp-Wine.app (no Contents/MacOS/wine): $WINE_APP_SOURCE" >&2; exit 1; }
+  codesign --verify --deep --strict "$WINE_APP_SOURCE" || { echo "MetalSharp-Wine.app does not verify: $WINE_APP_SOURCE" >&2; exit 1; }
+  FEX_BACKEND_BUILD_DIR="${METALSHARP_FEX_BACKEND_BUILD_DIR:-$ROOT/app/src-c/build/fex}"
+fi
 if [[ ! "$APP_VERSION" =~ ^[0-9]+([.][0-9]+){1,2}(-[A-Za-z0-9.-]+)?$ ]]; then
   echo "Invalid METALSHARP_GPUI_APP_VERSION: $APP_VERSION" >&2
   exit 1
@@ -39,8 +60,13 @@ command -v swift >/dev/null || { echo "swift is required to generate dock artwor
 (cd "$APP_DIR" && swift generate-dock-art.swift)
 
 CARGO_ARGS=(--locked --manifest-path "$APP_DIR/Cargo.toml")
-if [ -n "${METALSHARP_GPUI_CARGO_FEATURES:-}" ]; then
-  CARGO_ARGS+=(--features "$METALSHARP_GPUI_CARGO_FEATURES")
+CARGO_FEATURES="${METALSHARP_GPUI_CARGO_FEATURES:-}"
+# The app's fex cargo feature, once Cargo.toml declares it.
+if [ "$VARIANT" = "fex" ] && grep -Eq '^fex[[:space:]]*=' "$APP_DIR/Cargo.toml"; then
+  CARGO_FEATURES="${CARGO_FEATURES:+$CARGO_FEATURES,}fex"
+fi
+if [ -n "$CARGO_FEATURES" ]; then
+  CARGO_ARGS+=(--features "$CARGO_FEATURES")
 fi
 case "$CARGO_PROFILE" in
   debug) ;;
@@ -128,10 +154,20 @@ cp -R "$APP_DIR"/assets/. "$CONTENTS/Resources/assets/"
 # Explicitly package the authoritative C backend/resources for connected testing.
 # This builds/copies only; it never launches the backend, installers or accounts.
 if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
-  make -C "$ROOT/app/src-c"
+  if [ "$VARIANT" = "fex" ]; then
+    # Its own BUILD_DIR: make does not rebuild objects when only VARIANT changes.
+    make -C "$ROOT/app/src-c" VARIANT=fex BUILD_DIR="$FEX_BACKEND_BUILD_DIR"
+  else
+    make -C "$ROOT/app/src-c"
+  fi
   "$ROOT/tools/package/create-host-runtime.sh"
-  mkdir -p "$CONTENTS/Resources/runtime" "$CONTENTS/Resources/tools" "$CONTENTS/Resources/scripts/tools/native" "$CONTENTS/Resources/bundles" "$CONTENTS/Resources/licenses" "$CONTENTS/Resources/runtime/shim-sources/fna/shims" "$CONTENTS/Resources/runtime/shim-sources/wine/shims"
-  install -m 0755 "$ROOT/app/src-c/build/metalsharp-backend" "$CONTENTS/Resources/runtime/metalsharp-backend"
+  mkdir -p "$CONTENTS/Resources/runtime" "$CONTENTS/Resources/tools" "$CONTENTS/Resources/scripts/tools/native" "$CONTENTS/Resources/licenses" "$CONTENTS/Resources/runtime/shim-sources/fna/shims" "$CONTENTS/Resources/runtime/shim-sources/wine/shims"
+  if [ "$VARIANT" = "fex" ]; then
+    install -m 0755 "$FEX_BACKEND_BUILD_DIR/metalsharp-backend" "$CONTENTS/Resources/runtime/metalsharp-backend"
+  else
+    mkdir -p "$CONTENTS/Resources/bundles"
+    install -m 0755 "$ROOT/app/src-c/build/metalsharp-backend" "$CONTENTS/Resources/runtime/metalsharp-backend"
+  fi
   cp -R "$ROOT/app/native/host" "$CONTENTS/Resources/runtime/host"
   for tool in zstd unzstd wrestool icotool unar lsar; do
     [ -f "$ROOT/app/tools/$tool" ] || { echo "Missing required packaged tool: $tool" >&2; exit 1; }
@@ -153,7 +189,9 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
   install -m 0755 "$ROOT/tools/install-homebrew.sh" "$CONTENTS/Resources/scripts/tools/install-homebrew.sh"
   cp -R "$ROOT/app/updater" "$CONTENTS/Resources/scripts/tools/"
   cp -R "$ROOT/configs" "$CONTENTS/Resources/"
-  # Do not rebuild archives or copy the developer SDK.
+  # Do not rebuild archives or copy the developer SDK. The fex build ships no
+  # x86_64 runtime bundles (runtime, x87sidecar, D3DMetal, graphics DLLs).
+  if [ "$VARIANT" = "regular" ]; then
   BUNDLE_SOURCE="${METALSHARP_GPUI_BUNDLE_SOURCE:-$ROOT/app/bundles}"
   for archive in metalsharp-runtime metalsharp-assets metalsharp-graphics-dll metalsharp-scripts-tools metalsharp-steam fnalibs; do
     source="$BUNDLE_SOURCE/$archive.tar.zst"
@@ -181,6 +219,12 @@ if [ "${METALSHARP_GPUI_PACKAGE_BACKEND:-0}" = "1" ]; then
       fi
     done
   fi
+  fi
+fi
+
+if [ "$VARIANT" = "fex" ]; then
+  # ditto keeps the bundle byte-for-byte, signature and profile included.
+  ditto "$WINE_APP_SOURCE" "$CONTENTS/Resources/$WINE_APP_NAME"
 fi
 
 cat > "$CONTENTS/Info.plist" <<PLIST
@@ -197,6 +241,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleIconName</key><string>metalsharp-liquid-glass</string>
   <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
   <key>CFBundleVersion</key><string>$APP_BUILD_VERSION</string>
+  <key>MetalSharpVariant</key><string>$VARIANT</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -217,29 +262,51 @@ PLIST
 # Ad-hoc by default. METALSHARP_GPUI_SIGN_IDENTITY (a Developer ID Application
 # identity) signs inside-out with the hardened runtime, a secure timestamp and
 # the release entitlements, as notarization requires; --deep is not used there.
+# The fex build is never signed with --deep, which would re-sign the nested
+# MetalSharp-Wine.app and drop its entitlement; it is signed inside-out with
+# MetalSharp-Wine.app skipped (ad-hoc or Developer ID).
 SIGN_IDENTITY="${METALSHARP_GPUI_SIGN_IDENTITY:--}"
-if [ "$SIGN_IDENTITY" = "-" ]; then
+WINE_APP_DEST="$CONTENTS/Resources/$WINE_APP_NAME"
+if [ "$SIGN_IDENTITY" = "-" ] && [ "$VARIANT" = "regular" ]; then
   codesign --force --deep --sign - "$BUNDLE"
 else
+  if [ "$SIGN_IDENTITY" = "-" ]; then
+    sign_code() {
+      codesign --force --sign - "$1"
+    }
+  else
   ENTITLEMENTS="${METALSHARP_GPUI_ENTITLEMENTS:-$ROOT/tools/dmg/entitlements.mac.plist}"
   [ -s "$ENTITLEMENTS" ] || { echo "Missing signing entitlements: $ENTITLEMENTS" >&2; exit 1; }
   sign_code() {
     codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" \
       --sign "$SIGN_IDENTITY" "$1"
   }
+  fi
   # Loose Mach-O code in Resources (backend, host runtime, native helpers,
   # tools), deepest paths first; nested apps are signed as bundles below.
   while IFS= read -r file; do
-    case "${file#"$CONTENTS/Resources/"}" in *.app/*) continue ;; esac
+    case "${file#"$CONTENTS/Resources/"}" in "$WINE_APP_NAME"/*|*.app/*) continue ;; esac
     if file -b "$file" | grep -q 'Mach-O'; then
       sign_code "$file"
     fi
   done < <(find "$CONTENTS/Resources" -type f | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
   while IFS= read -r nested; do
+    case "$nested" in "$WINE_APP_DEST"|"$WINE_APP_DEST"/*) continue ;; esac
     sign_code "$nested"
-  done < <(find "$CONTENTS/Resources" -type d -name '*.app' | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
+  done < <(find "$CONTENTS/Resources" -path "$WINE_APP_DEST" -prune -o -type d -name '*.app' -print | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
   sign_code "$BUNDLE"
 fi
 codesign --verify --deep --strict --verbose=2 "$BUNDLE"
+if [ "$VARIANT" = "fex" ]; then
+  # The copy must still be the signed original: same CDHash, still valid.
+  codesign --verify --deep --strict --verbose=2 "$WINE_APP_DEST"
+  cdhash() { codesign --display --verbose=3 "$1" 2>&1 | sed -n 's/^CDHash=//p' | head -1; }
+  source_cdhash="$(cdhash "$WINE_APP_SOURCE")"
+  if [ -z "$source_cdhash" ] || [ "$source_cdhash" != "$(cdhash "$WINE_APP_DEST")" ]; then
+    echo "Packaged $WINE_APP_NAME no longer matches its source signature" >&2
+    exit 1
+  fi
+  echo "Nested $WINE_APP_NAME intact (CDHash $source_cdhash)"
+fi
 echo "Built local-only GPUI app: $BUNDLE"
 echo "Bundle id: $APP_BUNDLE_ID"

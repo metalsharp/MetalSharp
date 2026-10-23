@@ -2,6 +2,8 @@
 # Package the release MetalSharp app with the production identity expected by
 # app/updater/update.sh (com.metalsharp.app, Contents/MacOS/MetalSharp,
 # MetalSharp.app). Release CI and tools/dmg/build-dmg.sh build on this.
+# METALSHARP_VARIANT=fex (with METALSHARP_WINE_APP) packages the FEX build:
+# same identity, MetalSharp-Wine.app in Resources, no runtime bundles.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
