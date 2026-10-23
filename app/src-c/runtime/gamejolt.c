@@ -1400,6 +1400,21 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
         free(root);
         return result;
     }
+    if (!native && ms_wine_is_fex()) {
+        char prefix_error[512];
+        char* prefix = join_path(home, "sharp-prefix");
+        bool prepared = prefix && ms_wine_fex_prepare_prefix(home, prefix, false, prefix_error, sizeof(prefix_error));
+        free(prefix);
+        if (!prepared) {
+            free(id);
+            free(executable);
+            free(engine);
+            free(directory);
+            free(root);
+            ms_json_free(request);
+            return error_json("could not prepare the Wine prefix for GameJolt games");
+        }
+    }
     pid = fork();
     if (pid == 0) {
         char* slash = strrchr(executable, '/');

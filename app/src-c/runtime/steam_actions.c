@@ -881,8 +881,14 @@ static void set_route_paths(const char* home, const char* pipeline) {
 }
 
 static void set_launch_cache_env(const char* home, unsigned id, const char* pipeline) {
+    char fex_subdir[64];
     const char* subdir = pipeline;
     char shader[PATH_MAX], cache[PATH_MAX], summary[PATH_MAX * 2];
+    /* Mullion's caches are not DXMT's: the fex build keeps its own. */
+    if (ms_wine_is_fex()) {
+        snprintf(fex_subdir, sizeof(fex_subdir), "fex-%s", pipeline);
+        subdir = fex_subdir;
+    }
     snprintf(shader, sizeof(shader), "%s/shader-cache/%s/%u", home, subdir, id);
     snprintf(cache, sizeof(cache), "%s/pipeline-cache/%s/%u", home, subdir, id);
     (void)ensure_directory(shader);
