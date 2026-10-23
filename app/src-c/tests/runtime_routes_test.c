@@ -4,6 +4,7 @@
 #include "../runtime/epic.c"
 #include "../runtime/ubisoft.c"
 #include "metalsharp_backend/metalfx.h"
+#include "metalsharp_backend/rosetta.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/sharp.h"
 #include "metalsharp_backend/gamejolt.h"
@@ -688,6 +689,86 @@ static bool dxmt_conf_has(const char* home, const char* line) {
 /* MetalFX off reaches WineMetalGL through dxmt.conf (factor 1.00), and the
  * environment the Steam client hands its games carries no factor and no
  * DXMT_METALFX_SPATIAL_SWAPCHAIN=0, so a later toggle still applies. */
+/* Upgrading to macOS 27 can leave Rosetta uninstalled: the backend reinstalls it when the macOS
+ * major version reaches 27 or changes there, even if Rosetta looks installed. */
+static int rosetta_installs(const char* home) {
+    char* text = read_hook_fixture(home, "rosetta-installs");
+    int count = text ? (int)strlen(text) : 0;
+    free(text);
+    return count;
+}
+
+static void rosetta_case(const char* macos, bool arm64, bool expect_run, const char* expect_recorded) {
+    char* recorded;
+    assert(setenv("METALSHARP_ROSETTA_HOST_MACOS", macos, 1) == 0);
+    assert(setenv("METALSHARP_ROSETTA_HOST_ARM64", arm64 ? "1" : "0", 1) == 0);
+    assert(ms_rosetta_after_macos_upgrade(getenv("ROSETTA_TEST_HOME")) == expect_run);
+    recorded = read_hook_fixture(getenv("ROSETTA_TEST_HOME"), "config/rosetta-macos");
+    assert(expect_recorded ? recorded && atoi(recorded) == atoi(expect_recorded) : recorded == NULL);
+    free(recorded);
+}
+
+static void test_rosetta_after_macos_upgrade(const char* root) {
+    char* home = join(root, "rosetta");
+    char* installer = join(home, "softwareupdate");
+    char script[PATH_MAX * 2];
+    /* Counts its runs; fails while rosetta-offline exists. */
+    snprintf(script, sizeof(script),
+             "#!/bin/sh\n[ \"$1 $2\" = \"--install-rosetta --agree-to-license\" ] || exit 2\n"
+             "printf x >> '%s/rosetta-installs'\n[ ! -e '%s/rosetta-offline' ]\n",
+             home, home);
+    fixture(root, "rosetta/softwareupdate", script);
+    assert(chmod(installer, 0700) == 0);
+    assert(setenv("METALSHARP_ROSETTA_INSTALLER", installer, 1) == 0);
+    assert(setenv("ROSETTA_TEST_HOME", home, 1) == 0);
+
+    /* Setup not done yet: it installs Rosetta itself, so only the version is remembered. */
+    fixture(root, "rosetta/setup.json", "{\"completed\":false}");
+    rosetta_case("27.0", true, false, "27");
+    assert(rosetta_installs(home) == 0);
+
+    /* A completed install on macOS 26 records it; the upgrade to 27 reinstalls once. */
+    fixture(root, "rosetta/setup.json", "{\"completed\":true}");
+    fixture(root, "rosetta/config/rosetta-macos", "0\n");
+    rosetta_case("26.4", true, false, "26");
+    rosetta_case("27.0.1", true, true, "27");
+    assert(rosetta_installs(home) == 1);
+    rosetta_case("27.2", true, false, "27");
+    assert(rosetta_installs(home) == 1);
+
+    /* A failed install (offline) keeps the old version, so the next start tries again. */
+    fixture(root, "rosetta/rosetta-offline", "");
+    rosetta_case("28.0", true, true, "27");
+    assert(rosetta_installs(home) == 2);
+    {
+        char* offline = join(home, "rosetta-offline");
+        assert(unlink(offline) == 0);
+        free(offline);
+    }
+    rosetta_case("28.0", true, true, "28");
+    assert(rosetta_installs(home) == 3);
+
+    /* An install from before this check (nothing recorded) that is already on 27 reinstalls once. */
+    {
+        char* state = join(home, "config/rosetta-macos");
+        assert(unlink(state) == 0);
+        free(state);
+    }
+    rosetta_case("27.2", true, true, "27");
+    assert(rosetta_installs(home) == 4);
+
+    /* Intel Macs have no Rosetta. */
+    rosetta_case("28.0", false, false, "27");
+    assert(rosetta_installs(home) == 4);
+
+    unsetenv("METALSHARP_ROSETTA_INSTALLER");
+    unsetenv("METALSHARP_ROSETTA_HOST_MACOS");
+    unsetenv("METALSHARP_ROSETTA_HOST_ARM64");
+    unsetenv("ROSETTA_TEST_HOME");
+    free(installer);
+    free(home);
+}
+
 static void test_metalfx_route_env(const char* home) {
     static const char on_175[] = "{\"enabled\":true,\"factor\":1.75}";
     static const char off[] = "{\"enabled\":false}";
@@ -784,6 +865,7 @@ int main(int argc, char** argv) {
     assert(strstr(getenv("WINEDLLOVERRIDES"), "winemetal,dxgi,d3d11"));
     assert(!getenv("VK_DRIVER_FILES"));
     test_metalfx_route_env(home);
+    test_rosetta_after_macos_upgrade(home);
     ms_steam_apply_graphics_route(home, "dxmt_32");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/wine/lib/dxmt/i386-windows"));
     ms_steam_apply_graphics_route(home, "d3d9");
