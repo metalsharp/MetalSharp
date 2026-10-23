@@ -3723,7 +3723,9 @@ static void signal_wine_steam_processes(const char* home, int signal_number) {
  * left (or after ~3 s), so callers can report `running` without a fixed
  * sleep. */
 static void terminate_wine_steam_session(const char* home) {
-    char* wineserver = join(home, "runtime/wine/bin/wineserver");
+    char server[PATH_MAX];
+    /* The fex build stops the prefix with MetalSharp Wine's own wineserver, directly. */
+    char* wineserver = ms_wine_server_path(home, server, sizeof(server)) ? strdup(server) : NULL;
     char* prefix = join(home, "prefix-steam");
     pid_t child = -1;
 
@@ -3791,7 +3793,9 @@ static char* spawn_wine(const char* home, const char* first, const char* second,
         setenv("WINEDEBUGGER", "none", 1);
         setenv("STEAM_RUNTIME", "0", 1);
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
-        setenv("WINEDLLOVERRIDES", "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b", 1);
+        /* MetalSharp Wine serves Mullion itself, as the direct Steam launch does. */
+        setenv("WINEDLLOVERRIDES", ms_wine_is_fex() ? "bcrypt=b;ncrypt=b" : "dxgi,d3d11,d3d10core=n,b;bcrypt=b;ncrypt=b",
+               1);
         snprintf(library_env, sizeof(library_env), "%s/runtime/wine/lib:%s/runtime/wine/lib/wine/x86_64-unix", home,
                  home);
 #ifdef __APPLE__
