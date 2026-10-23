@@ -75,7 +75,11 @@
     "ui.settingsDesc.shader": "Persist compiled shaders to disk for faster loading",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Permanently deletes all Wine prefixes, bottles, Steam installation, Wine runtime, shader caches, and settings. The app will close after cleanup.",
-    "ui.settingsDesc.wineSteam": "Windows Steam running in MetalSharp Wine"
+    "ui.settingsDesc.wineSteam": "Windows Steam running in MetalSharp Wine",
+    "ui.settings.libraryLayout": "Library Layout",
+    "ui.settings.layoutGrid": "Grid",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck shows the selected game with a dock of games; Grid shows every game. The library opens in the layout you choose."
   },
   "zh-CN": {
     "actions.save": "保存",
@@ -153,7 +157,11 @@
     "ui.settingsDesc.shader": "着色器缓存",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "卸载 MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam（MetalSharp）"
+    "ui.settingsDesc.wineSteam": "Wine Steam（MetalSharp）",
+    "ui.settings.libraryLayout": "游戏库布局",
+    "ui.settings.layoutGrid": "网格",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck 显示所选游戏和游戏栏；网格显示所有游戏。游戏库会以你选择的布局打开。"
   },
   "es": {
     "actions.save": "Guardar",
@@ -231,7 +239,11 @@
     "ui.settingsDesc.shader": "Guarda los shaders compilados en disco para acelerar la carga",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Elimina permanentemente prefijos Wine, bottles, Steam, runtime, cachés de shaders y ajustes. La aplicación se cerrará.",
-    "ui.settingsDesc.wineSteam": "Steam de Windows ejecutándose en Wine de MetalSharp"
+    "ui.settingsDesc.wineSteam": "Steam de Windows ejecutándose en Wine de MetalSharp",
+    "ui.settings.libraryLayout": "Diseño de la biblioteca",
+    "ui.settings.layoutGrid": "Cuadrícula",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck muestra el juego seleccionado con una barra de juegos; Cuadrícula muestra todos los juegos. La biblioteca se abre con el diseño que elijas."
   },
   "hi": {
     "actions.save": "सहेजें",
@@ -309,7 +321,11 @@
     "ui.settingsDesc.shader": "शेडर कैश",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp अनइंस्टॉल करें",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "लाइब्रेरी लेआउट",
+    "ui.settings.layoutGrid": "ग्रिड",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck चुने गए गेम को गेम पट्टी के साथ दिखाता है; ग्रिड सभी गेम दिखाता है। लाइब्रेरी आपके चुने हुए लेआउट में खुलती है।"
   },
   "ar": {
     "actions.save": "حفظ",
@@ -387,7 +403,11 @@
     "ui.settingsDesc.shader": "ذاكرة تظليل",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "إلغاء تثبيت MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "تخطيط المكتبة",
+    "ui.settings.layoutGrid": "شبكة",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "يعرض Steam Deck اللعبة المحددة مع شريط الألعاب، وتعرض الشبكة جميع الألعاب. تُفتح المكتبة بالتخطيط الذي تختاره."
   },
   "pt-BR": {
     "actions.save": "Salvar",
@@ -465,7 +485,11 @@
     "ui.settingsDesc.shader": "Cache de shaders",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Desinstalar MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Layout da biblioteca",
+    "ui.settings.layoutGrid": "Grade",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck mostra o jogo selecionado com uma barra de jogos; Grade mostra todos os jogos. A biblioteca abre no layout que você escolher."
   },
   "bn": {
     "actions.save": "সংরক্ষণ",
@@ -543,7 +567,11 @@
     "ui.settingsDesc.shader": "শেডার ক্যাশ",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp আনইনস্টল",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "লাইব্রেরি লেআউট",
+    "ui.settings.layoutGrid": "গ্রিড",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck বাছাই করা গেমটি গেম বারসহ দেখায়; গ্রিড সব গেম দেখায়। লাইব্রেরি আপনার বেছে নেওয়া লেআউটে খোলে।"
   },
   "ru": {
     "actions.save": "Сохранить",
@@ -621,7 +649,11 @@
     "ui.settingsDesc.shader": "Кэш шейдеров",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Удалить MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Вид библиотеки",
+    "ui.settings.layoutGrid": "Сетка",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck показывает выбранную игру с панелью игр, а Сетка — все игры. Библиотека открывается в выбранном виде."
   },
   "ja": {
     "actions.save": "保存",
@@ -699,7 +731,11 @@
     "ui.settingsDesc.shader": "シェーダーキャッシュ",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp をアンインストール",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "ライブラリのレイアウト",
+    "ui.settings.layoutGrid": "グリッド",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck は選択したゲームとゲームバーを表示し、グリッドはすべてのゲームを表示します。ライブラリは選んだレイアウトで開きます。"
   },
   "pa": {
     "actions.save": "ਸੰਭਾਲੋ",
@@ -777,7 +813,11 @@
     "ui.settingsDesc.shader": "ਸ਼ੇਡਰ ਕੈਸ਼",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp ਅਣਇੰਸਟਾਲ ਕਰੋ",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "ਲਾਇਬ੍ਰੇਰੀ ਲੇਆਉਟ",
+    "ui.settings.layoutGrid": "ਗ੍ਰਿਡ",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck ਚੁਣੀ ਗਈ ਗੇਮ ਨੂੰ ਗੇਮ ਪੱਟੀ ਨਾਲ ਦਿਖਾਉਂਦਾ ਹੈ; ਗ੍ਰਿਡ ਸਾਰੀਆਂ ਗੇਮਾਂ ਦਿਖਾਉਂਦਾ ਹੈ। ਲਾਇਬ੍ਰੇਰੀ ਤੁਹਾਡੇ ਚੁਣੇ ਲੇਆਉਟ ਵਿੱਚ ਖੁੱਲ੍ਹਦੀ ਹੈ।"
   },
   "de": {
     "actions.save": "Speichern",
@@ -855,7 +895,11 @@
     "ui.settingsDesc.shader": "Shader-Cache",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp deinstallieren",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Bibliothekslayout",
+    "ui.settings.layoutGrid": "Raster",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck zeigt das ausgewählte Spiel mit einer Spieleleiste, Raster zeigt alle Spiele. Die Bibliothek öffnet sich im gewählten Layout."
   },
   "jv": {
     "actions.save": "Simpen",
@@ -933,7 +977,11 @@
     "ui.settingsDesc.shader": "Cache shader",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Copot MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Tata letak perpustakaan",
+    "ui.settings.layoutGrid": "Kothak",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck nuduhake game sing dipilih karo bilah game; Kothak nuduhake kabeh game. Perpustakaan dibukak nganggo tata letak sing sampeyan pilih."
   },
   "ko": {
     "actions.save": "저장",
@@ -1011,7 +1059,11 @@
     "ui.settingsDesc.shader": "셰이더 캐시",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp 제거",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "라이브러리 레이아웃",
+    "ui.settings.layoutGrid": "그리드",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck은 선택한 게임을 게임 바와 함께 보여 주고, 그리드는 모든 게임을 보여 줍니다. 라이브러리는 선택한 레이아웃으로 열립니다."
   },
   "fr": {
     "actions.save": "Enregistrer",
@@ -1089,7 +1141,11 @@
     "ui.settingsDesc.shader": "Cache des shaders",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Désinstaller MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Disposition de la bibliothèque",
+    "ui.settings.layoutGrid": "Grille",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck affiche le jeu sélectionné avec une barre de jeux ; Grille affiche tous les jeux. La bibliothèque s’ouvre dans la disposition choisie."
   },
   "te": {
     "actions.save": "సేవ్ చేయి",
@@ -1167,7 +1223,11 @@
     "ui.settingsDesc.shader": "షేడర్ క్యాష్",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp అన్‌ఇన్‌స్టాల్ చేయండి",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "లైబ్రరీ లేఅవుట్",
+    "ui.settings.layoutGrid": "గ్రిడ్",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck ఎంచుకున్న గేమ్‌ను గేమ్ బార్‌తో చూపిస్తుంది; గ్రిడ్ అన్ని గేమ్‌లను చూపిస్తుంది. లైబ్రరీ మీరు ఎంచుకున్న లేఅవుట్‌లో తెరుచుకుంటుంది."
   },
   "vi": {
     "actions.save": "Lưu",
@@ -1245,7 +1305,11 @@
     "ui.settingsDesc.shader": "Bộ nhớ đệm shader",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Gỡ cài đặt MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Bố cục thư viện",
+    "ui.settings.layoutGrid": "Lưới",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck hiển thị trò chơi đã chọn cùng thanh trò chơi; Lưới hiển thị mọi trò chơi. Thư viện mở theo bố cục bạn chọn."
   },
   "tr": {
     "actions.save": "Kaydet",
@@ -1323,7 +1387,11 @@
     "ui.settingsDesc.shader": "Gölgelendirici önbelleği",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp'i kaldır",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Kitaplık düzeni",
+    "ui.settings.layoutGrid": "Izgara",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck seçili oyunu bir oyun çubuğuyla gösterir; Izgara tüm oyunları gösterir. Kitaplık seçtiğiniz düzende açılır."
   },
   "ur": {
     "actions.save": "محفوظ کریں",
@@ -1401,7 +1469,11 @@
     "ui.settingsDesc.shader": "شیڈر کیش",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp ان انسٹال کریں",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "لائبریری لے آؤٹ",
+    "ui.settings.layoutGrid": "گرڈ",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck منتخب گیم کو گیم بار کے ساتھ دکھاتا ہے؛ گرڈ تمام گیمز دکھاتا ہے۔ لائبریری آپ کے منتخب کردہ لے آؤٹ میں کھلتی ہے۔"
   },
   "it": {
     "actions.save": "Salva",
@@ -1479,7 +1551,11 @@
     "ui.settingsDesc.shader": "Cache shader",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "Disinstalla MetalSharp",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "Layout della libreria",
+    "ui.settings.layoutGrid": "Griglia",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck mostra il gioco selezionato con una barra dei giochi; Griglia mostra tutti i giochi. La libreria si apre nel layout scelto."
   },
   "mr": {
     "actions.save": "जतन करा",
@@ -1557,6 +1633,10 @@
     "ui.settingsDesc.shader": "शेडर कॅशे",
     "ui.settingsDesc.theGamesDbApiKey": "Used as a fallback for Epic game artwork. Get a free key at",
     "ui.settingsDesc.uninstall": "MetalSharp अनइन्स्टॉल करा",
-    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)"
+    "ui.settingsDesc.wineSteam": "Wine Steam (MetalSharp)",
+    "ui.settings.libraryLayout": "लायब्ररी लेआउट",
+    "ui.settings.layoutGrid": "ग्रिड",
+    "ui.settings.layoutSteamDeck": "Steam Deck",
+    "ui.settingsDesc.libraryLayout": "Steam Deck निवडलेला गेम गेम पट्टीसह दाखवतो; ग्रिड सर्व गेम दाखवतो. लायब्ररी तुम्ही निवडलेल्या लेआउटमध्ये उघडते."
   }
 }

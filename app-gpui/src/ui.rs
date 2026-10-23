@@ -624,6 +624,8 @@ pub struct MetalSharpApp {
     copy: SetupCopy,
     developer_mode: bool,
     low_performance: bool,
+    /// The library's layout, and the tab it opens on: Grid (Collection) or Steam Deck (Play).
+    library_grid: bool,
     startup_video_seen: bool,
     migration_view: MigrationViewState,
     live: LiveState,
@@ -678,6 +680,7 @@ impl MetalSharpApp {
             copy,
             developer_mode: false,
             low_performance: false,
+            library_grid: false,
             startup_video_seen: false,
             migration_view: MigrationViewState::default(),
             live: LiveState::default(),
@@ -3137,6 +3140,14 @@ impl MetalSharpApp {
                         this.low_performance = *value;
                         this.save_ui_state(cx);
                     }
+                    E::LibraryLayout(grid) => {
+                        this.library_grid = *grid;
+                        // The library behind Settings switches now too.
+                        if matches!(this.active_tab, LibraryTab::Play | LibraryTab::Collection) {
+                            this.active_tab = this.home_tab();
+                        }
+                        this.save_ui_state(cx);
+                    }
                     E::DeviceName(name) => this.live.device_name = name.clone(),
                     E::BackendRestarted => {
                         this.check_backend(cx);
@@ -3180,6 +3191,16 @@ impl MetalSharpApp {
             update_message: self.live.update_message.clone(),
             developer_mode: self.developer_mode,
             low_performance: self.low_performance,
+            library_grid: self.library_grid,
+        }
+    }
+
+    /// The library tab the app opens on, from Settings' Library Layout.
+    fn home_tab(&self) -> LibraryTab {
+        if self.library_grid {
+            LibraryTab::Collection
+        } else {
+            LibraryTab::Play
         }
     }
 

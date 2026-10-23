@@ -333,6 +333,8 @@ impl MetalSharpApp {
             .get("lowPerformanceMode")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        self.library_grid = value.get("libraryLayout").and_then(Value::as_str) == Some("grid");
+        self.active_tab = self.home_tab();
         self.startup_video_seen = value
             .get("startupVideoSeen")
             .and_then(Value::as_bool)
@@ -351,6 +353,7 @@ impl MetalSharpApp {
             "language": self.selected_language,
             "developerMode": self.developer_mode,
             "lowPerformanceMode": self.low_performance,
+            "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
             "startupVideoSeen": self.startup_video_seen,
             "defaultRulesApplied": self.live.default_rules_applied,
         });
@@ -462,7 +465,7 @@ impl MetalSharpApp {
         self.step = 0;
         self.settings_open = false;
         self.streaming_open = false;
-        self.active_tab = LibraryTab::Play;
+        self.active_tab = self.home_tab();
         cx.notify();
     }
 
