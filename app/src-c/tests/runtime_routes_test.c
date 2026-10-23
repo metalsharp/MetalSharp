@@ -2424,6 +2424,39 @@ int main(int argc, char** argv) {
         ms_json_free(library);
         free(library_json);
     }
+    /* RDR2 found installed: its launcher route (D3DMetal DLLs for RDR2.exe) is staged once in the
+     * background, before the first launch. That launch, with no Rockstar Games Launcher installed
+     * yet, goes through Wine Steam on D3DMetal; here no Steam is installed, so it stops there. */
+    fixture(home, "Library/Application Support/Steam/steamapps/appmanifest_1174180.acf",
+            "\"AppState\"\n{\n\t\"appid\"\t\"1174180\"\n\t\"name\"\t\"Red Dead Redemption 2\"\n"
+            "\t\"installdir\"\t\"Red Dead Redemption 2\"\n}\n");
+    pe_fixture(home, "Library/Application Support/Steam/steamapps/common/Red Dead Redemption 2/RDR2.exe", 0x8664);
+    {
+        char* marker = join(home, "bottles/steam_1174180/.rockstar-prepared");
+        char* staged = join(home, "Library/Application Support/Steam/steamapps/common/Red Dead Redemption 2/d3d12.dll");
+        char* library_json = ms_steam_library_json(home);
+        char* response;
+        int status = 0;
+        assert(library_json);
+        free(library_json);
+        for (int i = 0; i < 100 && access(marker, F_OK) != 0; i++)
+            usleep(50000);
+        assert(access(marker, F_OK) == 0);
+        assert(access(staged, R_OK) == 0);
+        assert(unlink(staged) == 0);
+        /* Once prepared, rediscovery leaves it alone. */
+        library_json = ms_steam_library_json(home);
+        free(library_json);
+        usleep(200000);
+        assert(access(staged, F_OK) != 0);
+        response = launch_rockstar_first_run_via_steam_json(home, rockstar_launcher_game_for(1174180, "d3dmetal"),
+                                                            "d3dmetal", &status);
+        assert(response && strstr(response, "Steam is not installed"));
+        assert(access(staged, R_OK) == 0);
+        free(response);
+        free(staged);
+        free(marker);
+    }
     fixture(home, "Library/Application Support/Steam/steamapps/appmanifest_3900000002.acf",
             "\"AppState\"\n{\n\t\"appid\"\t\"3900000002\"\n\t\"name\"\t\"Native Test Game\"\n"
             "\t\"installdir\"\t\"Native Test Game\"\n}\n");

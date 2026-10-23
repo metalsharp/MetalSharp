@@ -182,6 +182,8 @@ static char* launch_d3dmetal_launcher_via_steam_json(const char* home, const d3d
                                                      int* status);
 static char* launch_rockstar_via_launcher_json(const char* home, const rockstar_launcher_game* game,
                                                const char* launcher, const char* pipeline, int* status);
+static char* launch_rockstar_first_run_via_steam_json(const char* home, const rockstar_launcher_game* game,
+                                                      const char* pipeline, int* status);
 static bool apply_protected_exe_swap(const char* home, unsigned id, const char* pipeline);
 
 char* ms_steam_wine_launch_wrapper_path(const char* home) {
@@ -6208,6 +6210,15 @@ char* ms_steam_launch_d3dmetal_json(const char* home, unsigned id, const char* b
             free(launcher);
             return result;
         }
+        if (rockstar_launcher_game_for(id, "d3dmetal")) {
+            if (!ms_steam_ensure_bottle_manifest(home, id, "d3dmetal")) {
+                if (status)
+                    *status = 500;
+                return err("failed to prepare D3DMetal bottle manifest");
+            }
+            return launch_rockstar_first_run_via_steam_json(home, rockstar_launcher_game_for(id, "d3dmetal"),
+                                                            "d3dmetal", status);
+        }
     }
     /* Use the same Steam-prefix direct launcher as every routed Steam
      * pipeline. It preserves SteamAppId/SteamGameId/SteamOverlayGameId and
@@ -6595,11 +6606,133 @@ static bool apply_protected_exe_swap(const char* home, unsigned id, const char* 
     return true;
 }
 
+/* What a Rockstar title needs before its launcher starts it: the route DLLs staged for the game's
+ * client (D3DMetal when the launcher takes the game there), and on D3DMetal RDR2's system.xml set to
+ * DX12. RDR2 runs the launcher identically on both routes; its VKD3D keeps the Vulkan renderer
+ * (-api Vulkan, forwarded by the launcher) instead. */
+static bool prepare_rockstar_game(const char* home, const rockstar_launcher_game* game, const char* pipeline) {
+    const char* stage_pipeline = game->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
+    char* game_dir = ms_steam_game_dir(home, game->appid);
+    char* client = game_dir ? join(game_dir, game->client) : NULL;
+    bool ok = client && access(client, F_OK) == 0;
+    if (ok) {
+        ms_steam_deploy_controller_input_shims(home, game_dir);
+        remove_stale_route_dlls(home, stage_pipeline, game_dir, client);
+        ok = stage_route_dlls(home, game->appid, stage_pipeline, client);
+    }
+    free(game_dir);
+    free(client);
+    if (ok && game->dx12_settings && !strcmp(pipeline, "d3dmetal") && !ensure_rdr2_dx12_settings(home))
+        ms_log_event(home, "Red Dead Redemption 2: could not switch system.xml to DX12 for D3DMetal.");
+    return ok;
+}
+
+/* The Rockstar Games Launcher is installed by Steam on the game's first run. Until it is, a direct
+ * launch cannot work (RDR2 reports "a serious issue" and exits), so that launch goes through the
+ * Wine Steam client, started on D3DMetal when the launcher runs there: its environment carries
+ * WFDXCompat's launcher companion, whose D3D10 bridge the launcher's UI needs. Once the launcher
+ * is installed, launches start it directly again (launch_rockstar_via_launcher_json). */
+static char* launch_rockstar_first_run_via_steam_json(const char* home, const rockstar_launcher_game* game,
+                                                      const char* pipeline, int* status) {
+    const char* steam_pipeline = game->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
+    char message[256];
+    char* error_text;
+    char* result;
+    pid_t pid = 0;
+    int launch_status = 500;
+    if (status)
+        *status = 500;
+    if (!prepare_rockstar_game(home, game, pipeline)) {
+        snprintf(message, sizeof(message), "required graphics runtime DLLs are missing for %s", game->name);
+        return err(message);
+    }
+    snprintf(message, sizeof(message),
+             "%s: the Rockstar Games Launcher is not installed yet; this first launch goes through Steam, which "
+             "installs it",
+             game->name);
+    ms_log_event(home, message);
+    if ((error_text = ensure_wine_steam_pipeline(home, steam_pipeline))) {
+        result = err(error_text);
+        free(error_text);
+        return result;
+    }
+    result = launch_game_via_steam_args_json(home, game->appid, NULL, &launch_status, &pid);
+    if (!result || launch_status >= 400) {
+        if (status)
+            *status = launch_status;
+        snprintf(message, sizeof(message), "%s Steam handoff failed", game->name);
+        return result ? result : err(message);
+    }
+    free(result);
+    ms_process_register_pending_game(game->appid, pid, 15);
+    if (status)
+        *status = 200;
+    return pipeline_pid_result(pid, game->appid, pipeline, home);
+}
+
+typedef struct {
+    char* home;
+    const rockstar_launcher_game* game;
+    char pipeline[32];
+} rockstar_discovery_job;
+
+static void* rockstar_discovery_worker(void* arg) {
+    rockstar_discovery_job* job = arg;
+    char marker[PATH_MAX];
+    snprintf(marker, sizeof(marker), "%s/bottles/steam_%u/.rockstar-prepared", job->home, job->game->appid);
+    if (prepare_rockstar_game(job->home, job->game, job->pipeline)) {
+        FILE* file = fopen(marker, "wb");
+        if (file)
+            fclose(file);
+    }
+    free(job->home);
+    free(job);
+    return NULL;
+}
+
+void ms_steam_prepare_rockstar_on_discovery(const char* home, unsigned id) {
+    static pthread_mutex_t attempted_lock = PTHREAD_MUTEX_INITIALIZER;
+    static unsigned attempted[16];
+    static size_t attempted_count = 0;
+    char marker[PATH_MAX], pipeline[32] = "d3dmetal";
+    const rockstar_launcher_game* game;
+    rockstar_discovery_job* job;
+    pthread_t thread;
+    bool tried = false;
+    if (!home || id == 0)
+        return;
+    /* The bottle manifest is materialized just before this on discovery; an unreadable one keeps
+     * the D3DMetal default. */
+    (void)bottle_pipeline_value(home, id, pipeline, sizeof(pipeline));
+    if (!(game = rockstar_launcher_game_for(id, canonical_pipeline(pipeline))))
+        return;
+    snprintf(marker, sizeof(marker), "%s/bottles/steam_%u/.rockstar-prepared", home, id);
+    if (access(marker, F_OK) == 0)
+        return;
+    pthread_mutex_lock(&attempted_lock);
+    for (size_t i = 0; i < attempted_count; i++)
+        if (attempted[i] == id)
+            tried = true;
+    if (!tried && attempted_count < sizeof(attempted) / sizeof(attempted[0]))
+        attempted[attempted_count++] = id;
+    pthread_mutex_unlock(&attempted_lock);
+    if (tried || !(job = calloc(1, sizeof(*job))))
+        return;
+    job->home = strdup(home);
+    job->game = game;
+    snprintf(job->pipeline, sizeof(job->pipeline), "%s", canonical_pipeline(pipeline));
+    if (!job->home || pthread_create(&thread, NULL, rockstar_discovery_worker, job) != 0) {
+        free(job->home);
+        free(job);
+        return;
+    }
+    (void)pthread_detach(thread);
+}
+
 static char* launch_rockstar_via_launcher_json(const char* home, const rockstar_launcher_game* game,
                                                const char* launcher, const char* pipeline, int* status) {
     char* game_dir = ms_steam_game_dir(home, game->appid);
     char* client = game_dir ? join(game_dir, game->client) : NULL;
-    const char* stage_pipeline = game->launcher_on_d3dmetal ? "d3dmetal" : pipeline;
     char message[256];
     char* error_text;
     pid_t pid = 0;
@@ -6614,24 +6747,16 @@ static char* launch_rockstar_via_launcher_json(const char* home, const rockstar_
         snprintf(message, sizeof(message), "%s was not found", game->name);
         return err(message);
     }
-    ms_steam_deploy_controller_input_shims(home, game_dir);
-    remove_stale_route_dlls(home, stage_pipeline, game_dir, client);
-    if (!stage_route_dlls(home, game->appid, stage_pipeline, client)) {
-        free(game_dir);
-        free(client);
+    free(game_dir);
+    free(client);
+    if (!prepare_rockstar_game(home, game, pipeline)) {
         snprintf(message, sizeof(message), "required graphics runtime DLLs are missing for %s", game->name);
         return err(message);
     }
-    free(game_dir);
-    free(client);
     if (!apply_protected_exe_swap(home, game->appid, pipeline)) {
         snprintf(message, sizeof(message), "%s: could not replace the anti-cheat launcher stub.", game->name);
         ms_log_event(home, message);
     }
-    /* RDR2 runs the launcher identically on both routes; its VKD3D keeps the
-     * Vulkan renderer (-api Vulkan, forwarded by the launcher) instead. */
-    if (game->dx12_settings && !strcmp(pipeline, "d3dmetal") && !ensure_rdr2_dx12_settings(home))
-        ms_log_event(home, "Red Dead Redemption 2: could not switch system.xml to DX12 for D3DMetal.");
     if ((error_text = ensure_wine_steam_running(home, status)))
         return error_text;
     if ((error_text = spawn_direct_game(home, launcher, game->appid, pipeline, &pid))) {
@@ -6986,6 +7111,13 @@ static char* ms_steam_launch_game_json_internal(const char* home, const char* bo
             char* result = launch_rockstar_via_launcher_json(home, rockstar_launcher_game_for(id, pipeline), launcher,
                                                              pipeline, status);
             free(launcher);
+            if (result && status && *status == 200)
+                record_launch_timing(home, id, started_at, pipeline);
+            return result;
+        }
+        if (rockstar_launcher_game_for(id, pipeline)) {
+            char* result = launch_rockstar_first_run_via_steam_json(home, rockstar_launcher_game_for(id, pipeline),
+                                                                    pipeline, status);
             if (result && status && *status == 200)
                 record_launch_timing(home, id, started_at, pipeline);
             return result;

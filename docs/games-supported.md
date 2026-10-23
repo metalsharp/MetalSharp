@@ -45,7 +45,7 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 | Marvel Rivals | 2767030 | Launches through Steam with -Windowed to avoid a mouse bug |
 | Baldur's Gate 3 | 1086940 | |
 | Watch Dogs Legions | Ubisoft | |
-| Red Dead Redemption 2 | 1174180 | Also runs on VKD3D (Vulkan) |
+| Red Dead Redemption 2 | 1174180 | Also runs on VKD3D (Vulkan). The first launch goes through Steam, which installs the Rockstar Games Launcher |
 | Grand Theft Auto V Enhanced | 3240220 | Story mode. Also runs on VKD3D |
 
 ---
