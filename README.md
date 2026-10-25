@@ -4,7 +4,7 @@
 
 **Run Windows games on MacOS Silicon.**
 
-MetalSharp 1.0.0 Releases on Sunday. A Brand New Arm64 Wine With FEX. 0.80.0 Is Your Last Chance to Update Your x86_64 Runtime so It Updates Correctly. 
+MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. 
 
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.80.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.80.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
