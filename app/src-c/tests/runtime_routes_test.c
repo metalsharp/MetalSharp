@@ -633,6 +633,29 @@ static void test_steam_shortcuts(void) {
     assert(format_steam_run_url(url, sizeof(url), 400, NULL) && !strcmp(url, "steam://run/400"));
 }
 
+static void test_wine_steam_logon_log(const char* root) {
+    static const char log[] = "prefix-steam/drive_c/Program Files (x86)/Steam/logs/connection_log.txt";
+    static const char earlier_session[] =
+        "[2026-10-27 20:16:52] [Logged On, 4, 7] [U:1:1] RecvMsgClientLogOnResponse() : processing complete\n"
+        "[2026-10-27 20:21:30] [Logged Off, 4, 0] [U:1:1] Log session ended\n\n\n"
+        "[2026-10-27 22:58:34] Client version: 1792618285\n"
+        "[2026-10-27 22:58:50] [Logging On, 4, 7] [U:1:1] Using JWT\n";
+    char* home = join(root, "steam-logon-home");
+    char bytes[sizeof(earlier_session) + 128];
+    struct tm started_tm = {
+        .tm_year = 2026 - 1900, .tm_mon = 9, .tm_mday = 27, .tm_hour = 22, .tm_min = 58, .tm_sec = 31, .tm_isdst = -1};
+    time_t started = mktime(&started_tm);
+    assert(!wine_steam_logged_on_since(home, started));
+    /* A logon from the previous Steam session does not count. */
+    fixture(home, log, earlier_session);
+    assert(!wine_steam_logged_on_since(home, started));
+    snprintf(bytes, sizeof(bytes), "%s%s", earlier_session,
+             "[2026-10-27 22:58:51] [Logged On, 4, 7] [U:1:1] RecvMsgClientLogOnResponse() : processing complete\n");
+    fixture(home, log, bytes);
+    assert(wine_steam_logged_on_since(home, started));
+    free(home);
+}
+
 static void test_wine_sdl_link(const char* root) {
     char* home = join(root, "sdl-link-home");
     char* link_path = join(home, "runtime/wine/lib/libSDL2-2.0.0.dylib");
@@ -909,6 +932,7 @@ int main(int argc, char** argv) {
     test_wine_sdl_link(home);
     test_steamwebhelper_update(home);
     test_steam_shortcuts();
+    test_wine_steam_logon_log(home);
     ms_steam_apply_graphics_route(home, "d3dmetal");
     assert(strstr(getenv("WINEDLLPATH"), "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows"));
     assert(getenv("D3DMETAL_FRAMEWORK_PATH"));
