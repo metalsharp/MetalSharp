@@ -685,6 +685,29 @@ const char* ms_wine_graphics_conf_env(void) {
 
 #define X86_64_BACKUP ".metalsharp-x86_64-backup"
 
+static bool steam_prefix_arm64(const char* home, bool* x86_64) {
+    char prefix[PATH_MAX], registry[PATH_MAX];
+    bool arm64 = format_path(prefix, sizeof(prefix), "%s/%s", home, "prefix-steam") && ms_wine_prefix_is_arm64(prefix);
+    if (x86_64)
+        *x86_64 = !arm64 && format_path(registry, sizeof(registry), "%s/%s", prefix, "system.reg") &&
+                  access(registry, F_OK) == 0;
+    return arm64;
+}
+
+const char* ms_wine_recorded_variant(const char* home, const char* recorded) {
+    if (recorded && (!strcmp(recorded, "fex") || !strcmp(recorded, "regular")))
+        return !strcmp(recorded, "fex") ? "fex" : "regular";
+    return home && steam_prefix_arm64(home, NULL) ? "fex" : "regular";
+}
+
+const char* ms_wine_setup_variant_to_record(const char* home) {
+    bool x86_64 = false;
+    bool arm64 = home && steam_prefix_arm64(home, &x86_64);
+    if (!home || (ms_wine_is_fex() ? x86_64 : arm64))
+        return NULL;
+    return ms_wine_variant();
+}
+
 static bool remove_regular_file(const char* dir, const char* name) {
     char path[PATH_MAX];
     struct stat info;

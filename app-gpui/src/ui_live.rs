@@ -3532,14 +3532,21 @@ fn ensure_metalsharp_dirs(home: &std::path::Path) {
     }
 }
 
-/// The build that set this home up (setup.json `runtime_variant`; missing means the regular build,
-/// 0.80.x and earlier) is not the build running: its prefixes must move to this build's Wine.
-fn variant_switch_pending(setup: &Value, running_variant: &str) -> bool {
+/// The build that set this home up (setup.json `runtime_variant`; without one, the FEX build when
+/// the Steam prefix is MetalSharp Wine's, else the regular build, 0.80.x and earlier) is not the build
+/// running: its prefixes must move to this build's Wine.
+fn variant_switch_pending(setup: &Value, steam_prefix_arm64: bool, running_variant: &str) -> bool {
     let recorded = setup
         .get("runtime_variant")
         .and_then(Value::as_str)
-        .unwrap_or("regular");
+        .unwrap_or(if steam_prefix_arm64 { "fex" } else { "regular" });
     !recorded.eq_ignore_ascii_case(running_variant)
+}
+
+/// The Steam prefix carries MetalSharp Wine's arch marker (`.metalsharp-wine-arch` = arm64).
+fn steam_prefix_arm64(home: &std::path::Path) -> bool {
+    std::fs::read_to_string(home.join("prefix-steam/.metalsharp-wine-arch"))
+        .is_ok_and(|text| text.starts_with("arm64"))
 }
 
 /// main `checkNeedsMigration` (post-update marker + backend check), and a move between the builds.
@@ -3585,7 +3592,7 @@ fn check_needs_migration(live: &Live) -> bool {
                     .map(str::to_owned)
             })
             .unwrap_or_else(|| "regular".into());
-        if !variant_switch_pending(&setup, &running) {
+        if !variant_switch_pending(&setup, steam_prefix_arm64(&home), &running) {
             return false;
         }
         return match live.request("GET", "/update/migrate/check", None, MS(3000)) {
@@ -3819,24 +3826,58 @@ mod variant_switch_tests {
     #[test]
     fn a_build_installed_by_hand_over_the_other_migrates() {
         // The FEX DMG dragged over 0.80.x (no runtime_variant) or a regular 1.0.0 install.
-        assert!(variant_switch_pending(&json!({"completed": true}), "fex"));
+        assert!(variant_switch_pending(
+            &json!({"completed": true}),
+            false,
+            "fex"
+        ));
         assert!(variant_switch_pending(
             &json!({"completed": true, "runtime_variant": "regular"}),
+            false,
             "fex"
         ));
         // The regular DMG dragged back over the FEX build.
         assert!(variant_switch_pending(
             &json!({"completed": true, "runtime_variant": "fex"}),
+            true,
+            "regular"
+        ));
+        assert!(variant_switch_pending(
+            &json!({"completed": true}),
+            true,
             "regular"
         ));
         // The same build: nothing without the updater's marker.
         assert!(!variant_switch_pending(
             &json!({"completed": true}),
+            false,
             "regular"
         ));
         assert!(!variant_switch_pending(
             &json!({"completed": true, "runtime_variant": "fex"}),
+            true,
             "fex"
+        ));
+    }
+
+    #[test]
+    fn a_fresh_fex_setup_does_not_migrate_on_its_second_launch() {
+        // What the setup wizard saves now, and what it saved before it recorded the build, over a
+        // Steam prefix MetalSharp Wine built.
+        assert!(!variant_switch_pending(
+            &json!({"step": 2, "deviceName": "Mac", "completed": true, "runtime_variant": "fex"}),
+            true,
+            "fex"
+        ));
+        assert!(!variant_switch_pending(
+            &json!({"step": 2, "deviceName": "Mac", "completed": true}),
+            true,
+            "fex"
+        ));
+        assert!(!variant_switch_pending(
+            &json!({"step": 2, "deviceName": "Mac", "completed": true, "runtime_variant": "regular"}),
+            false,
+            "regular"
         ));
     }
 }

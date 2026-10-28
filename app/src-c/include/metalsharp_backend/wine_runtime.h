@@ -97,6 +97,13 @@ const char* ms_wine_graphics_conf_env(void);
 unsigned ms_wine_fex_remove_old_game_caches(const char* dir, const char* executable);
 
 bool ms_wine_prefix_is_arm64(const char* prefix);
+/* The build that set up a home: setup.json's `runtime_variant` ("fex" or "regular"). Without one (0.80.x
+ * and earlier, or a setup that didn't record it), "fex" when the Steam prefix is MetalSharp Wine's, else
+ * "regular". */
+const char* ms_wine_recorded_variant(const char* home, const char* recorded);
+/* The build a finished setup records in setup.json, or NULL to leave it to migration: the running build,
+ * unless the home's Steam prefix is the other build's (an install that still has to move). */
+const char* ms_wine_setup_variant_to_record(const char* home);
 /* One prefix: converted as above when the x86_64 Wine built it, else prepared (setup's Steam
  * prefix, which may still be the 0.80.0 one). */
 bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* error, size_t error_size);

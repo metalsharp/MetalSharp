@@ -1355,6 +1355,11 @@ static void write_member(ms_json_writer* writer, const char* key, const ms_json*
     free(serialized);
 }
 
+/* setup.json has no runtime_variant yet. */
+static bool ms_setup_variant_needed(const ms_json* existing) {
+    return !existing || ms_json_object_get(existing, "runtime_variant") == NULL;
+}
+
 char* ms_setup_save_json(const char* metalsharp_home, const unsigned char* body, size_t body_length, int* status) {
     char* path = setup_path(metalsharp_home);
     char* parent = path == NULL ? NULL : strdup(path);
@@ -1439,6 +1444,21 @@ char* ms_setup_save_json(const char* metalsharp_home, const unsigned char* body,
     if (has_key && ms_json_object_get(existing, "steamApiKeySet") == NULL) {
         ms_json_writer_key(&writer, "steamApiKeySet");
         ms_json_writer_bool(&writer, api_key);
+    }
+    /* A finished setup records which build set the home up, so the next start doesn't take a fresh
+     * install for one the other build made (and migrate it). Migration owns these once recorded, and
+     * an install of the other build is left for migration to move. */
+    if (has_completed && completed) {
+        const char* variant = ms_setup_variant_needed(existing) ? ms_wine_setup_variant_to_record(metalsharp_home)
+                                                                 : NULL;
+        if (variant) {
+            ms_json_writer_key(&writer, "runtime_variant");
+            ms_json_writer_string(&writer, variant);
+        }
+        if (variant && ms_json_object_get(existing, "last_migrated_version") == NULL) {
+            ms_json_writer_key(&writer, "last_migrated_version");
+            ms_json_writer_string(&writer, MS_BACKEND_VERSION);
+        }
     }
     ms_json_writer_object_end(&writer);
     result = ms_json_writer_take(&writer);

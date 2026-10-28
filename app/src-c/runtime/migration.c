@@ -676,8 +676,8 @@ static ms_migration_path migration_path_for_home(const char* home) {
         char* from_version = json_str(setup, "last_migrated_version");
         bool installed = json_bool(setup, "completed", false) || (prefix_path && exists(prefix_path));
         bool marker_needed = marker && ms_json_type_of(marker) == MS_JSON_OBJECT && json_bool(marker, "needed", false);
-        path = ms_migration_path_for(ms_wine_variant(), recorded, from_version, installed, marker_needed,
-                                     runtime_ready(home));
+        path = ms_migration_path_for(ms_wine_variant(), ms_wine_recorded_variant(home, recorded), from_version,
+                                     installed, marker_needed, runtime_ready(home));
         free(recorded);
         free(from_version);
     }
@@ -1670,9 +1670,9 @@ char* ms_migration_check_json(const char* home) {
         /* Installed by the other build: its prefixes move to this build's Wine. A setup.json
          * without runtime_variant was written by the regular build. */
         char* recorded = json_str(setup, "runtime_variant");
-        path = ms_migration_path_for(ms_wine_variant(), recorded, legacy, json_bool(setup, "completed", false) ||
-                                                                              exists(prefix_path),
-                                     marker_needed, ready);
+        path = ms_migration_path_for(ms_wine_variant(), ms_wine_recorded_variant(home, recorded), legacy,
+                                     json_bool(setup, "completed", false) || exists(prefix_path), marker_needed,
+                                     ready);
         variant_switch = path == MS_MIGRATION_PATH_REGULAR_TO_FEX || path == MS_MIGRATION_PATH_FEX_TO_REGULAR;
         free(recorded);
     }

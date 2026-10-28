@@ -15,6 +15,7 @@ HTTP_SERVER_TEST ?= $(BUILD_DIR)/http-server-test
 GAME_EXE_TEST ?= $(BUILD_DIR)/game-executable-test
 WINE_RUNTIME_TEST ?= $(BUILD_DIR)/wine-runtime-test
 MTSP_RULES_TEST ?= $(BUILD_DIR)/mtsp-rules-test
+SETUP_VARIANT_TEST ?= $(BUILD_DIR)/setup-variant-test
 # A MetalSharp-Wine.app for the fex facade test; without one it checks only the mapping.
 METALSHARP_WINE_APP ?=
 
@@ -111,7 +112,8 @@ test: test-$(VARIANT)
 # The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
 # MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
 # the regular build's x86_64 runtime and run in test-regular.
-test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST)
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST)
+	@"$(SETUP_VARIANT_TEST)"
 	@"$(JSON_TEST)"
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@"$(MIGRATION_TEST)"
@@ -123,7 +125,8 @@ test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EX
 	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
-test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(BUILD_DIR)/runtime-routes-test
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test
+	@"$(SETUP_VARIANT_TEST)"
 	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
@@ -189,6 +192,11 @@ $(HTTP_SERVER_TEST): runtime/http_server.c runtime/local_socket.c tests/http_ser
 $(GAME_EXE_TEST): runtime/game_executable.c tests/game_executable_test.c include/metalsharp_backend/game_executable.h
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_executable.c tests/game_executable_test.c
+
+# setup.c and migration.c together, as this VARIANT builds them (both #included, like the vcpp test).
+$(SETUP_VARIANT_TEST): runtime/setup.c runtime/migration.c runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_variant_test.c include/metalsharp_backend/setup.h include/metalsharp_backend/migration.h include/metalsharp_backend/wine_runtime.h
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_variant_test.c -lpthread
 
 # This build's game rule set (configs/mtsp-rules.toml, or mtsp-rules-fex.toml with VARIANT=fex).
 $(MTSP_RULES_TEST): runtime/mtsp.c runtime/mtsp_catalog.c runtime/json.c runtime/json_writer.c runtime/wine_runtime.c tests/mtsp_rules_test.c include/metalsharp_backend/mtsp.h $(PROJECT_ROOT)/configs/mtsp-rules.toml $(PROJECT_ROOT)/configs/mtsp-rules-fex.toml
