@@ -1,8 +1,7 @@
 <div align="center">
 
 <p align="center">
-  <img width="600" alt="MetalSharp x Wine" src="https://github.com/user-attachments/assets/f9415911-377b-4a72-8f9a-8ccee1201c96" />
-
+  <img width="600" height="460" alt="metalsharp-banner" src="https://github.com/user-attachments/assets/f9c077b2-fd1f-4d56-9c58-7cf9a64e7c12" />
 </p>
 
 <h2> MetalSharp </h2>
