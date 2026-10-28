@@ -103,6 +103,30 @@ int main(int argc, char** argv) {
         EXPECT(access(path, F_OK) == 0);
     }
 
+    /* The startup refresh and a migration's install never replace MetalSharp Wine at once: the
+     * install lock is exclusive, and a pending or running migration keeps the refresh away. */
+    {
+        int held = ms_wine_fex_lock(home, false);
+        EXPECT(held >= 0);
+        EXPECT(ms_wine_fex_lock(home, false) == -1);
+        ms_wine_fex_unlock(held);
+        held = ms_wine_fex_lock(home, false);
+        EXPECT(held >= 0);
+        ms_wine_fex_unlock(held);
+        EXPECT(!ms_wine_fex_refresh_blocked(home));
+        snprintf(path, sizeof(path), "%s/.post-update-migration", home);
+        write_text(path, "{\"needed\":true}\n");
+        EXPECT(ms_wine_fex_refresh_blocked(home));
+        unlink(path);
+        snprintf(path, sizeof(path), "%s/migration.lock", home);
+        snprintf(other, sizeof(other), "%ld\n", (long)getpid());
+        write_text(path, other);
+        EXPECT(ms_wine_fex_refresh_blocked(home));
+        write_text(path, "999999\n");
+        EXPECT(!ms_wine_fex_refresh_blocked(home));
+        unlink(path);
+    }
+
     /* Caches earlier FEX builds left next to a game go, once: exactly vkd3d-proton.cache(.write)
      * and <exe>.dxvk-cache; everything else in the folder stays. */
     {

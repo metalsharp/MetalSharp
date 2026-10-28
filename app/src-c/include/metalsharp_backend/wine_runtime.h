@@ -48,6 +48,14 @@ bool ms_wine_server_path(const char* home, char* out, size_t out_size);
  * missing or a different version; checks its signature (codesign --verify --deep --strict); makes
  * it read-only, so nothing can break its seal; writes the runtime/wine facade. */
 bool ms_wine_fex_install_app(const char* home, char* error, size_t error_size);
+/* MetalSharp Wine's install lock (<home>/runtime/.metalsharp-wine.lock), which the install takes
+ * and the startup refresh only tries for: one process at a time replaces the app. Returns the
+ * lock's descriptor, or -1 (busy without `wait`, or an error). */
+int ms_wine_fex_lock(const char* home, bool wait);
+void ms_wine_fex_unlock(int fd);
+/* A migration is pending (the updater's marker) or running (migration.lock): it reinstalls MetalSharp
+ * Wine itself, so the startup refresh leaves it alone. */
+bool ms_wine_fex_refresh_blocked(const char* home);
 /* At backend start, on a detached thread: once setup has installed MetalSharp Wine, reinstall it
  * when this MetalSharp carries a different build, and rewrite the facade's wrappers. */
 void ms_wine_fex_refresh_async(const char* home);

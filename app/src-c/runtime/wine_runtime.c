@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -408,7 +409,57 @@ static bool remove_tree(const char* path) {
     return run_wait(command, NULL, NULL, 300) && lstat(path, &info) != 0;
 }
 
+int ms_wine_fex_lock(const char* home, bool wait) {
+    char runtime[PATH_MAX], path[PATH_MAX];
+    int fd;
+    if (!home || !format_path(runtime, sizeof(runtime), "%s/%s", home, "runtime") ||
+        !format_path(path, sizeof(path), "%s/%s", runtime, ".metalsharp-wine.lock") || !ensure_dir(runtime))
+        return -1;
+    fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+    if (fd < 0)
+        return -1;
+    while (flock(fd, wait ? LOCK_EX : LOCK_EX | LOCK_NB) != 0) {
+        if (errno != EINTR) {
+            close(fd);
+            return -1;
+        }
+    }
+    return fd;
+}
+
+void ms_wine_fex_unlock(int fd) {
+    if (fd >= 0)
+        close(fd);
+}
+
+bool ms_wine_fex_refresh_blocked(const char* home) {
+    char path[PATH_MAX], text[32] = "";
+    FILE* file;
+    long owner;
+    if (!home)
+        return true;
+    if (format_path(path, sizeof(path), "%s/%s", home, ".post-update-migration") && access(path, F_OK) == 0)
+        return true;
+    /* migration.lock holds the migrating backend's pid; one left by a backend that is gone is stale. */
+    if (!format_path(path, sizeof(path), "%s/%s", home, "migration.lock") || !(file = fopen(path, "r")))
+        return false;
+    if (!fgets(text, sizeof(text), file))
+        text[0] = '\0';
+    fclose(file);
+    owner = strtol(text, NULL, 10);
+    return owner > 0 && (kill((pid_t)owner, 0) == 0 || errno == EPERM);
+}
+
+static bool install_app_locked(const char* home, char* error, size_t error_size);
+
 bool ms_wine_fex_install_app(const char* home, char* error, size_t error_size) {
+    int lock = ms_wine_fex_lock(home, true);
+    bool ok = install_app_locked(home, error, error_size);
+    ms_wine_fex_unlock(lock);
+    return ok;
+}
+
+static bool install_app_locked(const char* home, char* error, size_t error_size) {
     char app[PATH_MAX], staging[PATH_MAX], old[PATH_MAX], runtime[PATH_MAX], log[PATH_MAX], logs[PATH_MAX];
     char source_identity[256] = "", installed_identity[256] = "";
     char* source = ms_wine_fex_app_source();
@@ -584,14 +635,18 @@ static void* refresh_thread(void* argument) {
     char* home = argument;
     char app[PATH_MAX], error[512] = "", installed[256] = "", carried[256] = "";
     char* source = ms_wine_fex_app_source();
-    /* Only an install that setup finished: a fresh one gets MetalSharp Wine from the setup wizard. */
-    if (source && ms_wine_app_path(home, app, sizeof(app)) && access(app, F_OK) == 0) {
+    /* Only an install that setup finished: a fresh one gets MetalSharp Wine from the setup wizard.
+     * A pending or running migration reinstalls it itself, and the lock keeps this refresh and a
+     * migration's install from replacing the app at the same time. */
+    int lock = ms_wine_fex_refresh_blocked(home) ? -1 : ms_wine_fex_lock(home, false);
+    if (lock >= 0 && source && ms_wine_app_path(home, app, sizeof(app)) && access(app, F_OK) == 0) {
         bool same = app_identity(app, installed, sizeof(installed)) &&
                     app_identity(source, carried, sizeof(carried)) && !strcmp(installed, carried);
         if (same ? !ms_wine_fex_facade_ready(home) && !ms_wine_fex_write_facade(home, error, sizeof(error))
-                 : !ms_wine_fex_install_app(home, error, sizeof(error)))
+                 : !install_app_locked(home, error, sizeof(error)))
             fprintf(stderr, "warning: could not refresh MetalSharp Wine: %s\n", error);
     }
+    ms_wine_fex_unlock(lock);
     free(source);
     free(home);
     return NULL;
