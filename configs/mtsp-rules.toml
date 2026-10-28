@@ -5229,6 +5229,10 @@ components = ["vcrun2019", "directx_jun2010"]
 [overrides.1422420.diagnostics]
 check_dlls = ["d3d11.dll", "dxgi.dll", "winemetal.dll"]
 
+[overrides.1422450]
+pipeline = "d3dmetal"
+name = "Deadlock"
+
 [overrides.1423600]
 pipeline = "dxmt"
 name = "BLUE REFLECTION: Second Light"
