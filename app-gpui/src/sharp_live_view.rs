@@ -1,5 +1,5 @@
 //! Rendering for the live Sharp sources, reusing the approved card styling.
-use super::sharp_live::{ENGINE_OPTIONS, SharpConfirm};
+use super::sharp_live::{ENGINE_OPTIONS, SharpConfirm, engine_options};
 use super::*;
 use serde_json::Value;
 
@@ -223,10 +223,27 @@ impl SharpPreview {
         cx: &mut Context<Self>,
     ) -> gpui::Div {
         let open = self.live.as_ref().unwrap().engine_menu.as_deref() == Some(key.as_str());
+        // On FEX a saved D3DMetal engine is the GPTK (Rosetta) tool flow; a saved VKD3D or M13
+        // engine runs on Mullion, so it reads as Mullion.
+        let gptk = crate::variant::is_fex()
+            && current == "d3dmetal"
+            && !options.iter().any(|(id, _)| *id == current);
+        let current = if crate::variant::is_fex()
+            && !gptk
+            && !options.iter().any(|(id, _)| *id == current)
+            && options
+                .iter()
+                .any(|(id, _)| id.as_str() == crate::variant::fex_pipeline(&current))
+        {
+            crate::variant::fex_pipeline(&current).to_owned()
+        } else {
+            current
+        };
         let label = options
             .iter()
             .find(|(id, _)| *id == current)
             .map(|(_, label)| label.clone())
+            .or_else(|| gptk.then(|| crate::variant::FEX_GPTK_LABEL.to_owned()))
             .unwrap_or_else(|| {
                 if current.is_empty() || current == "auto" {
                     "Auto".into()
@@ -621,11 +638,7 @@ impl SharpPreview {
                     body = body.child(actions);
                     if open {
                         let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
-                        options.extend(
-                            ENGINE_OPTIONS
-                                .iter()
-                                .map(|(i, l)| ((*i).to_owned(), (*l).to_owned())),
-                        );
+                        options.extend(engine_options());
                         let engine_id = id.clone();
                         let cover_id = id.clone();
                         let asset_app = app.clone();
@@ -876,11 +889,7 @@ impl SharpPreview {
                     body = body.child(actions);
                     if installed && live.open_bottle.contains(&id) {
                         let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
-                        options.extend(
-                            ENGINE_OPTIONS
-                                .iter()
-                                .map(|(i, l)| ((*i).to_owned(), (*l).to_owned())),
-                        );
+                        options.extend(engine_options());
                         let engine = live
                             .gog_engines
                             .get(&id)
@@ -1098,11 +1107,7 @@ impl SharpPreview {
                     body = body.child(actions);
                     if installed && live.open_bottle.contains(&app) {
                         let mut options = vec![("auto".to_owned(), "Auto".to_owned())];
-                        options.extend(
-                            ENGINE_OPTIONS
-                                .iter()
-                                .map(|(i, l)| ((*i).to_owned(), (*l).to_owned())),
-                        );
+                        options.extend(engine_options());
                         let pipeline_app = app.clone();
                         let mouse_app = app.clone();
                         let exe_game = game.clone();
@@ -1283,7 +1288,20 @@ impl SharpPreview {
                                     .collect()
                             })
                             .filter(|list: &Vec<(String, String)>| !list.is_empty())
+                            .map(|list| {
+                                if crate::variant::is_fex() {
+                                    crate::variant::fex_options(list)
+                                } else {
+                                    list
+                                }
+                            })
                             .unwrap_or_else(|| {
+                                if crate::variant::is_fex() {
+                                    return engine_options()
+                                        .into_iter()
+                                        .filter(|(id, _)| id != "fna_arm64")
+                                        .collect();
+                                }
                                 ["d3dmetal", "vkd3d", "dxmt", "dxmt_32", "d3d9"]
                                     .iter()
                                     .filter_map(|id| ENGINE_OPTIONS.iter().find(|(i, _)| i == id))

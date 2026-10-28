@@ -114,6 +114,8 @@ pub(super) struct LiveState {
     pub update_message: String,
     pub update_dismissed: bool,
     pub update_dialog: Option<UpdateDialog>,
+    /// The FEX build's one-time welcome over the library: the page shown, or None.
+    pub fex_welcome_page: Option<usize>,
     pub running: HashMap<u64, u64>,
     pub launching: Option<u64>,
     running_poll_in_flight: bool,
@@ -125,6 +127,13 @@ pub(super) struct LiveState {
     pub controller_busy: bool,
     pub msync: bool,
     pub msync_busy: bool,
+    pub metal_hud: bool,
+    pub metal_hud_busy: bool,
+    /// The frame rate limit (0 for none) of each FEX graphics lane: Mullion ("dxmt", in mullion.conf) and
+    /// VKD3D-Proton ("vkd3d", VKD3D_FRAME_RATE at launch), from the backend's /framerate.
+    pub frame_rate_dxmt: u32,
+    pub frame_rate_vkd3d: u32,
+    pub frame_rate_busy: bool,
     /// x87 acceleration (Rosetta's x87 sidecar) for every launch, from the config's x87Acceleration
     pub x87: bool,
     pub x87_busy: bool,
@@ -201,17 +210,23 @@ impl Default for LiveState {
             update_message: String::new(),
             update_dismissed: false,
             update_dialog: None,
+            fex_welcome_page: None,
             running: HashMap::new(),
             launching: None,
             running_poll_in_flight: false,
             selected_pipeline: "auto".into(),
             pipeline_saving: false,
-            metal_fx_mode: "2.0",
+            metal_fx_mode: "off",
             metal_fx_busy: false,
             controller_input: "off",
             controller_busy: false,
             msync: true,
             msync_busy: false,
+            metal_hud: false,
+            metal_hud_busy: false,
+            frame_rate_dxmt: 0,
+            frame_rate_vkd3d: 0,
+            frame_rate_busy: false,
             x87: false,
             x87_busy: false,
             steam_emu_active: false,
@@ -483,6 +498,9 @@ impl MetalSharpApp {
             live::DEFAULT_TIMEOUT,
             |this, status, cx| {
                 this.live.backend_connected = status.as_ref().is_some_and(is_ok);
+                if let Some(status) = status.as_ref().filter(|s| is_ok(s)) {
+                    crate::variant::set_from_reply(status);
+                }
                 if let Some(version) = status
                     .as_ref()
                     .and_then(|s| s.get("version"))
@@ -497,6 +515,8 @@ impl MetalSharpApp {
 
     /// App.vue `initApp`.
     pub(super) fn init_app(&mut self, cx: &mut Context<Self>) {
+        // The FEX build's welcome, once after an x86_64 install moved to it.
+        self.check_fex_welcome(cx);
         live::call(
             cx,
             "GET",
@@ -656,6 +676,9 @@ impl MetalSharpApp {
             MS(1500),
             move |this, status, cx| {
                 let connected = alive || status.as_ref().is_some_and(is_ok);
+                if let Some(status) = status.as_ref().filter(|s| is_ok(s)) {
+                    crate::variant::set_from_reply(status);
+                }
                 this.live.backend_connected = connected;
                 this.live.backend_version = status
                     .as_ref()
@@ -1414,12 +1437,29 @@ impl MetalSharpApp {
                             _ => "off",
                         };
                     this.live.msync = config.get("msync").and_then(Value::as_bool) != Some(false);
+                    this.live.metal_hud =
+                        config.get("metalHud").and_then(Value::as_bool) == Some(true);
                     this.live.x87 =
                         config.get("x87Acceleration").and_then(Value::as_bool) == Some(true);
                     cx.notify();
                 }
             },
         );
+        if crate::variant::is_fex() {
+            live::call(
+                cx,
+                "GET",
+                "/framerate",
+                None,
+                live::DEFAULT_TIMEOUT,
+                |this, state, cx| {
+                    if let Some(state) = state.filter(is_ok) {
+                        this.apply_frame_rate_state(&state);
+                        cx.notify();
+                    }
+                },
+            );
+        }
         live::call(
             cx,
             "GET",
@@ -1517,10 +1557,90 @@ impl MetalSharpApp {
             move |this, result, cx| {
                 if result.as_ref().is_some_and(is_ok) {
                     this.live.msync = enabled;
+                    // Games share the Steam client's wineserver, which keeps the setting it
+                    // started with.
+                    if crate::variant::is_fex() && this.live.wine_steam_running {
+                        toast::info(cx, "msync changes when Steam next starts");
+                    }
                 } else {
                     toast::error(cx, "Failed to update msync");
                 }
                 this.live.msync_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    /// The Metal performance HUD in games, from their next launch.
+    fn apply_frame_rate_state(&mut self, state: &Value) {
+        let limit = |key: &str| state.get(key).and_then(Value::as_u64).unwrap_or(0) as u32;
+        self.live.frame_rate_dxmt = limit("dxmt");
+        self.live.frame_rate_vkd3d = limit("vkd3d");
+    }
+
+    /// The frame rate lane of the selected game's pipeline: Mullion or VKD3D-Proton, which keep the
+    /// limit in different places; other pipelines have none.
+    pub(super) fn frame_rate_lane(&self) -> Option<&'static str> {
+        match crate::variant::fex_pipeline(&self.live.selected_pipeline) {
+            "dxmt" => Some("dxmt"),
+            "vkd3d" => Some("vkd3d"),
+            _ => None,
+        }
+    }
+
+    pub(super) fn frame_rate_limit(&self) -> Option<u32> {
+        self.frame_rate_lane().map(|lane| {
+            if lane == "dxmt" {
+                self.live.frame_rate_dxmt
+            } else {
+                self.live.frame_rate_vkd3d
+            }
+        })
+    }
+
+    pub(super) fn set_frame_rate(&mut self, fps: u32, cx: &mut Context<Self>) {
+        if !self.live.enabled || self.live.frame_rate_busy {
+            return;
+        }
+        let Some(lane) = self.frame_rate_lane() else {
+            return;
+        };
+        self.live.frame_rate_busy = true;
+        live::call(
+            cx,
+            "POST",
+            "/framerate",
+            Some(json!({"pipeline": lane, "fps": fps})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                match result {
+                    Some(state) if is_ok(&state) => this.apply_frame_rate_state(&state),
+                    _ => toast::error(cx, "Failed to update the frame rate limit"),
+                }
+                this.live.frame_rate_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    pub(super) fn set_metal_hud(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if !self.live.enabled || self.live.metal_hud_busy {
+            return;
+        }
+        self.live.metal_hud_busy = true;
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"metalHud": enabled})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                if result.as_ref().is_some_and(is_ok) {
+                    this.live.metal_hud = enabled;
+                } else {
+                    toast::error(cx, "Failed to update the Metal HUD");
+                }
+                this.live.metal_hud_busy = false;
                 cx.notify();
             },
         );
@@ -1927,7 +2047,14 @@ impl MetalSharpApp {
                 } else if ok {
                     this.live.ubisoft_running = true;
                     this.live.ubisoft_primary = true;
-                    toast::success(cx, "Starting Ubisoft Connect with D3DMetal…");
+                    toast::success(
+                        cx,
+                        if crate::variant::is_fex() {
+                            "Starting Ubisoft Connect with Mullion…"
+                        } else {
+                            "Starting Ubisoft Connect with D3DMetal…"
+                        },
+                    );
                 } else {
                     toast::error(
                         cx,
@@ -2135,6 +2262,16 @@ impl MetalSharpApp {
                             flow.install_current = current.to_owned();
                         }
                         let mut finished = false;
+                        // One step can report several parts (the Steam prefix: Windows, VC++,
+                        // fonts); each new one is logged.
+                        if crate::variant::is_fex()
+                            && status == "installing"
+                            && step == last_step
+                            && !log.is_empty()
+                            && flow.install_logs.last().map(|(text, _)| text) != Some(&log)
+                        {
+                            flow.install_logs.push((log.clone(), LogClass::Active));
+                        }
                         if step != last_step || status != last_status {
                             match status.as_str() {
                                 "done" => flow.install_logs.push((log, LogClass::Success)),
@@ -2546,6 +2683,9 @@ impl MetalSharpApp {
             live::DEFAULT_TIMEOUT,
             |this, result, cx| {
                 if let Some(result) = result {
+                    if is_ok(&result) && result.get("variant").is_some() {
+                        crate::variant::set_from_reply(&result);
+                    }
                     if is_ok(&result)
                         && result.get("available").and_then(Value::as_bool) == Some(true)
                     {
@@ -2600,16 +2740,67 @@ impl MetalSharpApp {
         cx.notify();
     }
 
-    /// One of the builds chosen: the Arm64 one first asks for macOS 26.4 or newer.
-    pub(super) fn start_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
-        if self.live.update_downloading {
+    /// The choice between the builds when the other build (`switch_variant`) is offered at this
+    /// version (`switch_available`) and there is no update.
+    pub(super) fn open_switch(&mut self, cx: &mut Context<Self>) {
+        if self.live.update_downloading || !self.update_switch_offered() {
             return;
         }
-        self.live.update_dialog = Some(if variant == "fex" {
-            UpdateDialog::ArmNotice
-        } else {
-            UpdateDialog::Confirm("regular")
-        });
+        self.live.update_dialog = Some(UpdateDialog::Choose);
+        cx.notify();
+    }
+
+    /// The other build is on offer at the version already installed. False whenever the backend
+    /// reports no `switch_available`, which leaves the update UI as it was.
+    pub(super) fn update_switch_offered(&self) -> bool {
+        !self.update_available()
+            && self.update_flag("switch_available")
+            && self.update_same_version()
+    }
+
+    /// The build that is running: `variant` from `/update/check`, else from `/status`.
+    pub(super) fn update_current_build(&self) -> &'static str {
+        match self.update_field("variant").as_deref() {
+            Some("fex") => "fex",
+            Some(_) => "regular",
+            None => crate::variant::name(),
+        }
+    }
+
+    fn update_same_version(&self) -> bool {
+        let latest = self.update_field("latest_version").unwrap_or_default();
+        let current = self
+            .update_field("current_version")
+            .or_else(|| self.live.backend_version.clone())
+            .unwrap_or_default();
+        !latest.is_empty() && latest.trim_start_matches('v') == current.trim_start_matches('v')
+    }
+
+    /// Installing `variant` replaces this build with the other one at the same version.
+    pub(super) fn update_is_switch(&self, variant: &str) -> bool {
+        variant != self.update_current_build() && self.update_same_version()
+    }
+
+    /// `variant` is this build at the version already installed, so nothing to install.
+    pub(super) fn update_is_installed(&self, variant: &str) -> bool {
+        variant == self.update_current_build() && self.update_same_version()
+    }
+
+    /// One of the builds chosen: the Arm64 one first asks for macOS 26.4 or newer, unless this
+    /// Mac already runs it.
+    pub(super) fn start_update_download(&mut self, variant: &'static str, cx: &mut Context<Self>) {
+        if self.live.update_downloading || self.update_is_installed(variant) {
+            return;
+        }
+        self.live.update_dialog = Some(
+            if variant == "fex" && self.update_current_build() == "fex" {
+                UpdateDialog::Confirm("fex")
+            } else if variant == "fex" {
+                UpdateDialog::ArmNotice
+            } else {
+                UpdateDialog::Confirm("regular")
+            },
+        );
         cx.notify();
     }
 
@@ -2662,10 +2853,17 @@ impl MetalSharpApp {
         } else {
             "download_url"
         };
-        if self
-            .update_field(url_key)
-            .filter(|u| !u.is_empty())
-            .is_none()
+        // `download_url` is the running build's: on FEX that is the FEX DMG, so the regular one is
+        // `regular_download_url` (absent from an older backend, where `download_url` is regular).
+        let regular_url = (variant != "fex")
+            .then(|| self.update_field("regular_download_url"))
+            .flatten()
+            .filter(|u| !u.is_empty());
+        if regular_url.is_none()
+            && self
+                .update_field(url_key)
+                .filter(|u| !u.is_empty())
+                .is_none()
         {
             toast::error(
                 cx,
@@ -3334,7 +3532,24 @@ fn ensure_metalsharp_dirs(home: &std::path::Path) {
     }
 }
 
-/// main `checkNeedsMigration` (post-update marker + backend check).
+/// The build that set this home up (setup.json `runtime_variant`; without one, the FEX build when
+/// the Steam prefix is MetalSharp Wine's, else the regular build, 0.80.x and earlier) is not the build
+/// running: its prefixes must move to this build's Wine.
+fn variant_switch_pending(setup: &Value, steam_prefix_arm64: bool, running_variant: &str) -> bool {
+    let recorded = setup
+        .get("runtime_variant")
+        .and_then(Value::as_str)
+        .unwrap_or(if steam_prefix_arm64 { "fex" } else { "regular" });
+    !recorded.eq_ignore_ascii_case(running_variant)
+}
+
+/// The Steam prefix carries MetalSharp Wine's arch marker (`.metalsharp-wine-arch` = arm64).
+fn steam_prefix_arm64(home: &std::path::Path) -> bool {
+    std::fs::read_to_string(home.join("prefix-steam/.metalsharp-wine-arch"))
+        .is_ok_and(|text| text.starts_with("arm64"))
+}
+
+/// main `checkNeedsMigration` (post-update marker + backend check), and a move between the builds.
 fn check_needs_migration(live: &Live) -> bool {
     let home = live.home();
     let marker_path = home.join(".post-update-migration");
@@ -3364,7 +3579,29 @@ fn check_needs_migration(live: &Live) -> bool {
         .and_then(Value::as_bool)
         == Some(true);
     if !needed {
-        return false;
+        // A build installed by hand over the other one (the FEX DMG dragged over 0.80.x or any
+        // regular install) leaves no updater marker; setup.json still names the build that set it up.
+        let running = live
+            .request("GET", "/status", None, MS(3000))
+            .ok()
+            .map(live::unwrap_data)
+            .and_then(|status| {
+                status
+                    .get("variant")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "regular".into());
+        if !variant_switch_pending(&setup, steam_prefix_arm64(&home), &running) {
+            return false;
+        }
+        return match live.request("GET", "/update/migrate/check", None, MS(3000)) {
+            Ok(result) => {
+                let result = live::unwrap_data(result);
+                is_ok(&result) && result.get("needed").and_then(Value::as_bool) == Some(true)
+            }
+            Err(_) => false,
+        };
     }
     match live.request("GET", "/update/migrate/check", None, MS(3000)) {
         Ok(result) => {
@@ -3578,5 +3815,69 @@ mod script_path_tests {
             PathBuf::from("/sbin"),
         ]));
         assert!(script_path(PathBuf::from("/tools"), None).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod variant_switch_tests {
+    use super::variant_switch_pending;
+    use serde_json::json;
+
+    #[test]
+    fn a_build_installed_by_hand_over_the_other_migrates() {
+        // The FEX DMG dragged over 0.80.x (no runtime_variant) or a regular 1.0.0 install.
+        assert!(variant_switch_pending(
+            &json!({"completed": true}),
+            false,
+            "fex"
+        ));
+        assert!(variant_switch_pending(
+            &json!({"completed": true, "runtime_variant": "regular"}),
+            false,
+            "fex"
+        ));
+        // The regular DMG dragged back over the FEX build.
+        assert!(variant_switch_pending(
+            &json!({"completed": true, "runtime_variant": "fex"}),
+            true,
+            "regular"
+        ));
+        assert!(variant_switch_pending(
+            &json!({"completed": true}),
+            true,
+            "regular"
+        ));
+        // The same build: nothing without the updater's marker.
+        assert!(!variant_switch_pending(
+            &json!({"completed": true}),
+            false,
+            "regular"
+        ));
+        assert!(!variant_switch_pending(
+            &json!({"completed": true, "runtime_variant": "fex"}),
+            true,
+            "fex"
+        ));
+    }
+
+    #[test]
+    fn a_fresh_fex_setup_does_not_migrate_on_its_second_launch() {
+        // What the setup wizard saves now, and what it saved before it recorded the build, over a
+        // Steam prefix MetalSharp Wine built.
+        assert!(!variant_switch_pending(
+            &json!({"step": 2, "deviceName": "Mac", "completed": true, "runtime_variant": "fex"}),
+            true,
+            "fex"
+        ));
+        assert!(!variant_switch_pending(
+            &json!({"step": 2, "deviceName": "Mac", "completed": true}),
+            true,
+            "fex"
+        ));
+        assert!(!variant_switch_pending(
+            &json!({"step": 2, "deviceName": "Mac", "completed": true, "runtime_variant": "regular"}),
+            false,
+            "regular"
+        ));
     }
 }

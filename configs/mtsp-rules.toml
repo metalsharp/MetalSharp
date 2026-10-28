@@ -1,5 +1,6 @@
-# MTSP Pipeline Override Rules
-# appid -> pipeline_id mapping.
+# MTSP Pipeline Override Rules: the regular x86_64 build (MetalSharp 1.0.0 and later, Wine under Rosetta)
+# appid -> pipeline_id mapping. The Arm64 FEX build's rules are configs/mtsp-rules-fex.toml, generated
+# from these by tools/rules/generate-fex-rules.py.
 #
 # Rules are intentionally appid-first because Steam titles drift less than display
 # names. Pipeline choices are based on verified Windows renderer/API data:
@@ -18,6 +19,11 @@
 #     components    - list of component ids (e.g. "vcrun2019", "directx_jun2010")
 #   env             (optional) - extra environment variables for launch
 #   diagnostics    (optional) - DLLs to verify in prefix before launch
+
+[rule_set]
+build = "regular"
+version = "1.0.0"
+schema = 1
 
 [overrides.105600]
 pipeline = "fna_arm64"

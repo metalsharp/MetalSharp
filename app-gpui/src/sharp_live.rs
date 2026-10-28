@@ -18,6 +18,22 @@ pub(super) const ENGINE_OPTIONS: [(&str, &str); 6] = [
     ("fna_arm64", "Mono/FNA"),
 ];
 
+/// The engine choices for this build: `ENGINE_OPTIONS`, or on FEX Mullion (DXMT), VKD3D-Proton,
+/// DXVK and OpenGL.
+pub(super) fn engine_options() -> Vec<(String, String)> {
+    if crate::variant::is_fex() {
+        crate::variant::FEX_PIPELINE_OPTIONS
+            .iter()
+            .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
+            .collect()
+    } else {
+        ENGINE_OPTIONS
+            .iter()
+            .map(|(i, l)| ((*i).to_owned(), (*l).to_owned()))
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SharpConfirm {
     UninstallApp(String, String),

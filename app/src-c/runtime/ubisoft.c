@@ -10,6 +10,7 @@
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -282,7 +283,7 @@ static bool ubisoft_client_command(const char* command) {
 static bool ubisoft_group_has_client(const char* home, pid_t group) {
     char runtime[PATH_MAX], prefix[PATH_MAX], line[4096];
     FILE* pipe;
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     snprintf(prefix, sizeof(prefix), "%s/prefix-ubisoft", home);
     pipe = popen("/bin/ps axo pid=,pgid=,command=", "r");
     if (!pipe)
@@ -311,7 +312,7 @@ static bool ubisoft_pid_matches(const char* home, pid_t target) {
     pid_t child, waited;
     if (target <= 1 || pipe(output) != 0)
         return false;
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     snprintf(prefix, sizeof(prefix), "%s/prefix-ubisoft", home);
     child = fork();
     if (child == 0) {
@@ -472,7 +473,14 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
         free(reg);
         return false;
     }
-    if (!initialized) {
+    if (ms_wine_is_fex()) {
+        if (!ms_wine_fex_convert_prefix(home, prefix, error, error_size)) {
+            free(prefix);
+            free(wine);
+            free(reg);
+            return false;
+        }
+    } else if (!initialized) {
         char* argv[] = {wine, "wineboot", "-u", NULL};
         if (!run_child_wait(wine, argv, home, prefix, "d3dmetal")) {
             snprintf(error, error_size, "Wine could not initialize the Ubisoft Connect prefix");
@@ -542,6 +550,12 @@ static void seed_connect_gpu(const char* home, const char* wine, const char* pre
     (void)run_child_wait(wine, argv, home, prefix, NULL);
 }
 
+/* The lane Ubisoft Connect itself (and its installer) runs on: D3DMetal on the x86_64 runtime,
+ * Mullion on MetalSharp Wine (the fex build). */
+static const char* connect_lane(void) {
+    return ms_wine_is_fex() ? "dxmt" : "d3dmetal";
+}
+
 static bool spawn_launcher(const char* home, const char* launcher, const char* pipeline, unsigned game_appid) {
     char* wine = ubisoft_wine(home);
     char* prefix = ubisoft_prefix(home);
@@ -561,7 +575,9 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
         size_t argc = 0;
         args[argc++] = wine;
         args[argc++] = (char*)launcher;
-        for (size_t i = 0; i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
+        /* The x86_64 runtime's CEF needs these; MetalSharp Wine's launcher policy gives Connect what
+         * it needs (--in-process-gpu), and -cef-single-process stalled it at startup there. */
+        for (size_t i = 0; !ms_wine_is_fex() && i < sizeof(UBISOFT_CONNECT_ARGS) / sizeof(UBISOFT_CONNECT_ARGS[0]); i++)
             args[argc++] = (char*)UBISOFT_CONNECT_ARGS[i];
         args[argc] = NULL;
         (void)setpgid(0, 0);
@@ -570,7 +586,7 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
         setenv("WINEDEBUG", "-all", 1);
         setenv("MS_FWD_COMPAT_GL_CTX", "1", 1);
         ms_steam_apply_launch_preferences(home);
-        ms_steam_apply_graphics_route(home, pipeline ? pipeline : UBISOFT_PIPELINE_DEFAULT);
+        ms_steam_apply_graphics_route(home, pipeline ? pipeline : connect_lane());
         execv(wine, args);
         _exit(127);
     }
@@ -594,9 +610,17 @@ static bool spawn_launcher(const char* home, const char* launcher, const char* p
     return true;
 }
 
+static bool stop_prefix(const char* home);
+
 static bool launch_connect(const char* home) {
     char* launcher = ubisoft_launcher(home);
-    bool ok = launcher && spawn_launcher(home, launcher, "d3dmetal", 0);
+    bool ok;
+    /* Connect is not running when this is called. On MetalSharp Wine a Connect started into the
+     * prefix's earlier session (processes an earlier Connect left behind) stalled before signing in,
+     * where one started into a fresh session never did: start it fresh. */
+    if (ms_wine_is_fex())
+        (void)stop_prefix(home);
+    ok = launcher && spawn_launcher(home, launcher, connect_lane(), 0);
     free(launcher);
     return ok;
 }
@@ -699,7 +723,7 @@ static void* install_worker(void* opaque) {
     if (ok) {
         char* args[] = {wine, installer, NULL};
         write_state(home, "installing", NULL);
-        ok = run_child_wait(wine, args, home, prefix, "d3dmetal");
+        ok = run_child_wait(wine, args, home, prefix, connect_lane());
         if (!ok)
             snprintf(error, sizeof(error), "The Ubisoft Connect installer did not complete successfully");
     }
@@ -834,7 +858,8 @@ char* ms_ubisoft_launch_json(const char* home, int* status) {
         return strdup("{\"ok\":true,\"running\":true}");
     }
     if (!initialize_prefix(home, (char[256]){0}, 256) || !launch_connect(home))
-        return strdup("{\"ok\":false,\"error\":\"Could not start Ubisoft Connect with D3DMetal\"}");
+        return strdup(ms_wine_is_fex() ? "{\"ok\":false,\"error\":\"Could not start Ubisoft Connect with Mullion\"}"
+                                       : "{\"ok\":false,\"error\":\"Could not start Ubisoft Connect with D3DMetal\"}");
     ms_json_writer_init(&w);
     ms_json_writer_object_begin(&w);
     ms_json_writer_key(&w, "ok");
@@ -1308,7 +1333,7 @@ static pid_t ubisoft_detect_installed_game_pid(const char* home, const ubisoft_g
     char runtime[PATH_MAX], line[4096];
     FILE* pipe;
     pid_t result = 0;
-    snprintf(runtime, sizeof(runtime), "%s/runtime/wine", home);
+    (void)ms_wine_process_root(home, runtime, sizeof(runtime));
     pipe = popen("/bin/ps axo pid=,command=", "r");
     if (!pipe)
         return 0;
@@ -1556,6 +1581,13 @@ char* ms_ubisoft_save_pipeline_json(const char* home, const char* body, size_t b
         goto done;
     }
     appid = ubisoft_appid(id);
+    /* The game takes this route when Ubisoft Connect starts it too (the fex build). */
+    if (!ms_steam_write_game_launch_env(home, appid, pipeline, game->path, executable)) {
+        if (status)
+            *status = 500;
+        snprintf(failure, sizeof(failure), "Could not write the %s launch environment for %s", pipeline, game->name);
+        goto done;
+    }
     char bottle[64];
     snprintf(bottle, sizeof(bottle), "ubisoft_%u", appid);
     dir = path_join(home, "bottles");
@@ -1755,6 +1787,12 @@ char* ms_ubisoft_launch_game_json(const char* home, const char* body, size_t bod
     }
     if (!ms_steam_stage_route_for_executable(home, pipeline, game->path, executable)) {
         snprintf(failure, sizeof(failure), "Could not stage the %s graphics route for %s", pipeline, game->name);
+        goto done;
+    }
+    /* Connect may start the game itself (a launch hand-off, or its own Play): the route rides in
+     * launch.env on the fex build. */
+    if (!ms_steam_write_game_launch_env(home, appid, pipeline, game->path, executable)) {
+        snprintf(failure, sizeof(failure), "Could not write the %s launch environment for %s", pipeline, game->name);
         goto done;
     }
     ms_steam_deploy_controller_input_shims(home, game->path);

@@ -67,11 +67,133 @@ static bool file_exists(const char* path) {
     return access(path, F_OK) == 0;
 }
 
+/* The migration each update takes, per build and per version it comes from. */
+static void test_migration_paths(void) {
+    /* FEX 1.0.0 -> FEX 1.1.0: the updater's handoff marker, setup.json recorded by the FEX build. */
+    assert(ms_migration_path_for("fex", "fex", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FEX_UPDATE);
+    /* ... also when the runtime needs repair, and never the 0.80.0 conversion or the welcome again. */
+    assert(ms_migration_path_for("fex", "fex", "1.0.0", true, false, false) == MS_MIGRATION_PATH_FEX_UPDATE);
+    assert(!ms_migration_fex_welcome_due(ms_migration_path_for("fex", "fex", "1.0.0", true, true, true)));
+    /* FEX with nothing to do. */
+    assert(ms_migration_path_for("fex", "fex", "1.1.0", true, false, true) == MS_MIGRATION_PATH_NONE);
+
+    /* Regular 0.80.x -> regular 1.1.0: setup.json from 0.80.x has no runtime_variant. The regular
+     * build's own migration, with no prefix restore. */
+    assert(ms_migration_path_for("regular", NULL, "0.80.0", true, true, true) == MS_MIGRATION_PATH_FULL);
+    assert(ms_migration_path_for("regular", NULL, "0.80.3", true, false, false) == MS_MIGRATION_PATH_FULL);
+    assert(ms_migration_path_for("regular", "regular", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FULL);
+    assert(ms_migration_path_for("regular", NULL, "0.80.0", true, false, true) == MS_MIGRATION_PATH_NONE);
+    assert(!ms_migration_fex_welcome_due(MS_MIGRATION_PATH_FULL));
+
+    /* Regular -> FEX through the updater's build switch, or 0.80.0 -> FEX 1.0.0: the full migration,
+     * the prefix conversion and, once, the welcome. Without the handoff marker too (a DMG installed by
+     * hand), and with a ready runtime. */
+    assert(ms_migration_path_for("fex", NULL, "0.80.0", true, true, false) == MS_MIGRATION_PATH_REGULAR_TO_FEX);
+    assert(ms_migration_path_for("fex", "regular", "1.0.0", true, false, true) ==
+           MS_MIGRATION_PATH_REGULAR_TO_FEX);
+    assert(ms_migration_fex_welcome_due(MS_MIGRATION_PATH_REGULAR_TO_FEX));
+    /* A FEX record from before 1.0.0 (a pre-release) is converted again. */
+    assert(ms_migration_path_for("fex", "fex", "0.80.0", true, true, true) == MS_MIGRATION_PATH_REGULAR_TO_FEX);
+
+    /* FEX -> regular: the regular migration, with the x86_64 backups restored. */
+    assert(ms_migration_path_for("regular", "fex", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FEX_TO_REGULAR);
+    assert(ms_migration_path_for("regular", "fex", "1.0.0", true, false, true) ==
+           MS_MIGRATION_PATH_FEX_TO_REGULAR);
+
+    /* A fresh install of either build migrates nothing and shows no welcome. */
+    assert(ms_migration_path_for("fex", NULL, NULL, false, false, false) == MS_MIGRATION_PATH_NONE);
+    assert(ms_migration_path_for("regular", NULL, NULL, false, false, false) == MS_MIGRATION_PATH_NONE);
+    assert(!ms_migration_fex_welcome_due(MS_MIGRATION_PATH_NONE));
+}
+
 int main(void) {
     char home[256];
     char path[512];
     preserved_data preserved;
 
+    test_migration_paths();
+    /* FEX -> regular: a restore that fails reports the step failed, so the worker records no build and the
+     * next start retries; once the backup can be read, the step succeeds. */
+    {
+        char restore_home[256], command[1024], file[512];
+        snprintf(restore_home, sizeof(restore_home), "/tmp/metalsharp-restore-test-%ld", (long)getpid());
+        remove_tree_local(restore_home);
+        snprintf(command, sizeof(command),
+                 "mkdir -p '%s/bottles/game/prefix/drive_c/windows' "
+                 "'%s/bottles/game/prefix/.metalsharp-x86_64-backup/drive_c/windows'",
+                 restore_home, restore_home);
+        assert(system(command) == 0);
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/system.reg", restore_home);
+        write_file(file, "arm64");
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-wine-arch", restore_home);
+        write_file(file, "arm64\n");
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-x86_64-backup/system.reg", restore_home);
+        write_file(file, "x86_64");
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-x86_64-backup/.complete", restore_home);
+        write_file(file, "x86_64\n");
+        snprintf(command, sizeof(command),
+                 "chmod 000 '%s/bottles/game/prefix/.metalsharp-x86_64-backup/drive_c/windows'", restore_home);
+        assert(system(command) == 0);
+        assert(!restore_prefixes_from_fex(restore_home));
+        snprintf(command, sizeof(command),
+                 "chmod 755 '%s/bottles/game/prefix/.metalsharp-x86_64-backup/drive_c/windows'", restore_home);
+        assert(system(command) == 0);
+        assert(restore_prefixes_from_fex(restore_home));
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-wine-arch", restore_home);
+        assert(!file_exists(file));
+        remove_tree_local(restore_home);
+    }
+    /* Back on the regular build, the old runtime goes completely, MetalSharp Wine's sealed
+     * (read-only) app included. */
+    {
+        char runtime_home[256], app[512], command[1200];
+        snprintf(runtime_home, sizeof(runtime_home), "/tmp/metalsharp-readonly-test-%ld", (long)getpid());
+        remove_tree_local(runtime_home);
+        snprintf(app, sizeof(app), "%s/runtime/MetalSharp-Wine.app/Contents/MacOS", runtime_home);
+        make_directory(app);
+        snprintf(app, sizeof(app), "%s/runtime/MetalSharp-Wine.app/Contents/MacOS/wine", runtime_home);
+        write_file(app, "wine");
+        snprintf(app, sizeof(app), "%s/runtime/MetalSharp-Wine.app", runtime_home);
+        snprintf(command, sizeof(command), "chmod -R a-w '%s'", app);
+        assert(system(command) == 0);
+        if (ms_wine_is_fex()) {
+            /* The FEX build keeps it, still sealed. */
+            struct stat info;
+            remove_old_runtime(runtime_home);
+            assert(stat(app, &info) == 0 && (info.st_mode & S_IWUSR) == 0);
+            snprintf(command, sizeof(command), "chmod -R u+w '%s'", app);
+            assert(system(command) == 0);
+        } else {
+            remove_old_runtime(runtime_home);
+            assert(!file_exists(app));
+        }
+        remove_tree_local(runtime_home);
+        assert(!file_exists(runtime_home));
+    }
+    /* The welcome is the FEX build's: pending and not yet shown, it is due there; the regular build
+     * never shows it, whatever is recorded. */
+    {
+        char welcome_home[256], marker[512];
+        char* json;
+        snprintf(welcome_home, sizeof(welcome_home), "/tmp/metalsharp-welcome-test-%ld", (long)getpid());
+        remove_tree_local(welcome_home);
+        make_directory(welcome_home);
+        snprintf(marker, sizeof(marker), "%s/%s", welcome_home, FEX_WELCOME_PENDING);
+        write_file(marker, "1\n");
+        json = ms_migration_fex_welcome_json(welcome_home);
+        assert(json && strstr(json, ms_wine_is_fex() ? "\"show\":true" : "\"show\":false"));
+        free(json);
+        json = ms_migration_fex_welcome_dismiss_json(welcome_home);
+        assert(json && strstr(json, "\"ok\":true"));
+        free(json);
+        assert(!file_exists(marker));
+        snprintf(marker, sizeof(marker), "%s/%s", welcome_home, FEX_WELCOME_SHOWN);
+        assert(file_exists(marker));
+        json = ms_migration_fex_welcome_json(welcome_home);
+        assert(json && strstr(json, "\"show\":false"));
+        free(json);
+        remove_tree_local(welcome_home);
+    }
     snprintf(home, sizeof(home), "/tmp/metalsharp-migration-test-%ld", (long)getpid());
     remove_tree_local(home);
     make_directory(home);

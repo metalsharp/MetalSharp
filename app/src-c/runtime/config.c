@@ -219,6 +219,27 @@ bool ms_config_msync_enabled(const char* metalsharp_home) {
     return enabled;
 }
 
+/* Apple's Metal performance HUD in games (MTL_HUD_ENABLED); off unless turned on. */
+bool ms_config_metal_hud_enabled(const char* metalsharp_home) {
+    char* path = config_path(metalsharp_home);
+    ms_json* config = path == NULL ? NULL : read_json_file(path);
+    bool enabled = config_bool(config, "metalHud", false);
+    free(path);
+    ms_json_free(config);
+    return enabled;
+}
+
+/* MoltenVK's ray tracing pipelines (MVK_CONFIG_ENABLE_EXPERIMENTAL_RAY_TRACING) on the fex build's VKD3D-Proton
+ * lane: DXR 1.1 and feature level 12_2. MoltenVK calls them experimental, so off unless turned on. */
+bool ms_config_ray_tracing_enabled(const char* metalsharp_home) {
+    char* path = config_path(metalsharp_home);
+    ms_json* config = path == NULL ? NULL : read_json_file(path);
+    bool enabled = config_bool(config, "rayTracing", false);
+    free(path);
+    ms_json_free(config);
+    return enabled;
+}
+
 bool ms_config_retina_enabled(const char* metalsharp_home) {
     char* path = config_path(metalsharp_home);
     ms_json* config = path == NULL ? NULL : read_json_file(path);
@@ -271,6 +292,8 @@ char* ms_config_get_json(const char* metalsharp_home) {
     bool msync = config_bool(config, "msync", true);
     bool retina = config_bool(config, "retinaMode", false);
     bool x87 = config_bool(config, "x87Acceleration", false);
+    bool metal_hud = config_bool(config, "metalHud", false);
+    bool ray_tracing = config_bool(config, "rayTracing", false);
     bool exclude_native_mac_steam_games = config_bool(config, "excludeNativeMacSteamGames", false);
     char* controller = controller_input(config);
     char* display = window_mode(config);
@@ -309,6 +332,10 @@ char* ms_config_get_json(const char* metalsharp_home) {
     ms_json_writer_bool(&writer, retina);
     ms_json_writer_key(&writer, "x87Acceleration");
     ms_json_writer_bool(&writer, x87);
+    ms_json_writer_key(&writer, "metalHud");
+    ms_json_writer_bool(&writer, metal_hud);
+    ms_json_writer_key(&writer, "rayTracing");
+    ms_json_writer_bool(&writer, ray_tracing);
     ms_json_writer_key(&writer, "excludeNativeMacSteamGames");
     ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
     ms_json_writer_object_end(&writer);
@@ -360,7 +387,9 @@ static void write_member(ms_json_writer* writer, const char* key, const ms_json*
 
 static bool write_config(const char* path, const ms_json* existing, bool set_logs, bool logs, bool set_controller,
                          const char* controller, bool set_msync, bool msync, bool set_retina, bool retina, bool set_x87,
-                         bool x87, bool set_exclude_native_mac_steam_games, bool exclude_native_mac_steam_games,
+                         bool x87, bool set_metal_hud, bool metal_hud, bool set_ray_tracing, bool ray_tracing,
+                         bool set_exclude_native_mac_steam_games,
+                         bool exclude_native_mac_steam_games,
                          bool set_window_mode, const char* window_mode_value, bool set_game_resolution,
                          const char* game_resolution_value) {
     char* parent;
@@ -373,6 +402,8 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
     bool emitted_msync = false;
     bool emitted_retina = false;
     bool emitted_x87 = false;
+    bool emitted_metal_hud = false;
+    bool emitted_ray_tracing = false;
     bool emitted_exclude_native_mac_steam_games = false;
     bool emitted_window_mode = false;
     bool emitted_game_resolution = false;
@@ -417,6 +448,14 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
             ms_json_writer_key(&writer, key);
             ms_json_writer_bool(&writer, x87);
             emitted_x87 = true;
+        } else if (set_metal_hud && strcmp(key, "metalHud") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_bool(&writer, metal_hud);
+            emitted_metal_hud = true;
+        } else if (set_ray_tracing && strcmp(key, "rayTracing") == 0) {
+            ms_json_writer_key(&writer, key);
+            ms_json_writer_bool(&writer, ray_tracing);
+            emitted_ray_tracing = true;
         } else if (set_exclude_native_mac_steam_games && strcmp(key, "excludeNativeMacSteamGames") == 0) {
             ms_json_writer_key(&writer, key);
             ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
@@ -457,6 +496,14 @@ static bool write_config(const char* path, const ms_json* existing, bool set_log
         ms_json_writer_key(&writer, "x87Acceleration");
         ms_json_writer_bool(&writer, x87);
     }
+    if (set_metal_hud && !emitted_metal_hud) {
+        ms_json_writer_key(&writer, "metalHud");
+        ms_json_writer_bool(&writer, metal_hud);
+    }
+    if (set_ray_tracing && !emitted_ray_tracing) {
+        ms_json_writer_key(&writer, "rayTracing");
+        ms_json_writer_bool(&writer, ray_tracing);
+    }
     if (set_exclude_native_mac_steam_games && !emitted_exclude_native_mac_steam_games) {
         ms_json_writer_key(&writer, "excludeNativeMacSteamGames");
         ms_json_writer_bool(&writer, exclude_native_mac_steam_games);
@@ -494,7 +541,9 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
     ms_json* request = NULL;
     char error[128];
     bool set_logs = false, logs = false, set_msync = false, msync = false, set_retina = false, retina = false,
-         set_x87 = false, x87 = false, set_exclude_native_mac_steam_games = false,
+         set_x87 = false, x87 = false, set_metal_hud = false, metal_hud = false,
+         set_ray_tracing = false, ray_tracing = false,
+         set_exclude_native_mac_steam_games = false,
          exclude_native_mac_steam_games = false, set_controller = false;
     bool set_window_mode = false, set_game_resolution = false;
     static const char* const window_modes[] = {"default", "windowed", "fullscreen"};
@@ -536,11 +585,15 @@ char* ms_config_set_json(const char* metalsharp_home, const unsigned char* body,
         set_retina = value != NULL && ms_json_as_bool(value, &retina);
         value = ms_json_object_get(request, "x87Acceleration");
         set_x87 = value != NULL && ms_json_as_bool(value, &x87);
+        value = ms_json_object_get(request, "metalHud");
+        set_metal_hud = value != NULL && ms_json_as_bool(value, &metal_hud);
+        value = ms_json_object_get(request, "rayTracing");
+        set_ray_tracing = value != NULL && ms_json_as_bool(value, &ray_tracing);
         value = ms_json_object_get(request, "excludeNativeMacSteamGames");
         set_exclude_native_mac_steam_games = value != NULL && ms_json_as_bool(value, &exclude_native_mac_steam_games);
     }
     if (!write_config(path, existing, set_logs, logs, set_controller, controller, set_msync, msync, set_retina, retina,
-                      set_x87, x87, set_exclude_native_mac_steam_games, exclude_native_mac_steam_games, set_window_mode,
+                      set_x87, x87, set_metal_hud, metal_hud, set_ray_tracing, ray_tracing, set_exclude_native_mac_steam_games, exclude_native_mac_steam_games, set_window_mode,
                       window_mode_value, set_game_resolution, game_resolution_value))
         goto fail;
     result = ms_config_get_json(metalsharp_home);

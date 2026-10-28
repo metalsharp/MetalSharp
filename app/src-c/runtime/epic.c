@@ -2,7 +2,9 @@
 #include "metalsharp_backend/game_executable.h"
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -209,6 +211,9 @@ static bool valid_pipeline(const char* pipeline) {
                                           "m11_32", "m10",      "m10_32", "m9",   "d3d9",    "fna_arm64"};
     if (!pipeline)
         return false;
+    /* The fex build's DXVK and OpenGL lanes. */
+    if (ms_wine_is_fex() && (!strcmp(pipeline, "dxvk") || !strcmp(pipeline, "wine_bare")))
+        return true;
     for (size_t index = 0; index < sizeof(allowed) / sizeof(allowed[0]); index++)
         if (!strcmp(pipeline, allowed[index]))
             return true;
@@ -681,6 +686,15 @@ static char* epic_installed_game_path(const char* home, const char* app_name) {
 
 /* Put the bottle's graphics route DLLs next to the game's exe (the same staging
  * Steam games get), or clear MetalSharp's route DLLs for Auto/Wine. */
+/* A stable id for an Epic game's per-game settings (caches, launch.env), with the top bit set like
+ * the other launchers' synthetic ids so it is never taken for a Steam app. */
+static unsigned epic_game_id(const char* app_name) {
+    unsigned hash = 5381;
+    for (const unsigned char* c = (const unsigned char*)app_name; c && *c; c++)
+        hash = hash * 33 + *c;
+    return hash | 0x80000000u;
+}
+
 static bool epic_stage_route(const char* home, const char* app_name, const char* pipeline,
                              const char* known_executable) {
     char* path = epic_legendary_installed_path(home);
@@ -718,6 +732,9 @@ static bool epic_stage_route(const char* home, const char* app_name, const char*
         ok = true;
     } else
         ok = ms_steam_stage_route_for_executable(home, pipeline, install_path, executable);
+    /* The fex build: legendary starts the game, which takes its route from launch.env. */
+    if (ok)
+        ok = ms_steam_write_game_launch_env(home, epic_game_id(app_name), pipeline, install_path, executable);
 done:
     free(executable);
     free(relative);
@@ -1196,6 +1213,7 @@ static char* epic_version(const ms_json* game) {
 
 static char* epic_process_path(const char* home, const char* app_name, const char* suffix);
 static pid_t read_process_pid_suffix(const char* home, const char* app_name, const char* suffix);
+static bool epic_game_running(const char* home, const char* app_name);
 static bool process_running(pid_t pid);
 
 static char* epic_bottle_path(const char* home, const char* app_name) {
@@ -1347,7 +1365,7 @@ static char* epic_games_response(const char* home, const ms_json* games, const m
             ms_json_writer_key(&writer, "mouseMode");
             ms_json_writer_string(&writer, valid_mouse_mode(mouse_mode) ? mouse_mode : "no-recenter");
             ms_json_writer_key(&writer, "running");
-            ms_json_writer_bool(&writer, process_running(read_process_pid_suffix(home, app_name, "launch.pid")));
+            ms_json_writer_bool(&writer, epic_game_running(home, app_name));
             ms_json_writer_key(&writer, "downloading");
             ms_json_writer_bool(&writer, process_running(read_process_pid_suffix(home, app_name, "pid")));
             ms_json_writer_key(&writer, "installPath");
@@ -1515,8 +1533,27 @@ static bool process_running(pid_t pid) {
     return pid > 1 && (kill(pid, 0) == 0 || errno == EPERM);
 }
 
+/* The fex build: <app>.launch.pgid holds the launch's process group (legendary, the game and what
+ * it starts). legendary does not wait for the game and the supervisor's `wineserver -w` can miss
+ * a server not started yet, so the game runs while its group has members; the file goes with them. */
+static bool epic_game_running(const char* home, const char* app_name) {
+    pid_t group;
+    char* path;
+    if (process_running(read_process_pid_suffix(home, app_name, "launch.pid")))
+        return true;
+    if (!ms_wine_is_fex() || (group = read_process_pid_suffix(home, app_name, "launch.pgid")) <= 1)
+        return false;
+    if (kill(-group, 0) == 0 || errno == EPERM)
+        return true;
+    if ((path = epic_process_path(home, app_name, "launch.pgid")))
+        (void)unlink(path);
+    free(path);
+    return false;
+}
+
 char* ms_epic_running_json(const char* home) {
-    static const char suffix[] = ".launch.pid";
+    /* The fex build lists by process group (launch.pgid outlives the supervisor's launch.pid). */
+    const char* suffix = ms_wine_is_fex() ? ".launch.pgid" : ".launch.pid";
     char* processes_path = epic_join(home, "epic/processes");
     DIR* processes = processes_path ? opendir(processes_path) : NULL;
     ms_json_writer writer;
@@ -1530,7 +1567,7 @@ char* ms_epic_running_json(const char* home) {
         struct dirent* entry;
         while ((entry = readdir(processes)) != NULL) {
             size_t name_length = strlen(entry->d_name);
-            size_t suffix_length = sizeof(suffix) - 1;
+            size_t suffix_length = strlen(suffix);
             char app_name[129];
             size_t app_length;
             if (name_length <= suffix_length || strcmp(entry->d_name + name_length - suffix_length, suffix))
@@ -1540,7 +1577,7 @@ char* ms_epic_running_json(const char* home) {
                 continue;
             memcpy(app_name, entry->d_name, app_length);
             app_name[app_length] = '\0';
-            if (valid_app_name(app_name) && process_running(read_process_pid_suffix(home, app_name, "launch.pid")))
+            if (valid_app_name(app_name) && epic_game_running(home, app_name))
                 ms_json_writer_string(&writer, app_name);
         }
         closedir(processes);
@@ -1751,8 +1788,17 @@ char* ms_epic_cancel_json(const char* home, const unsigned char* body, size_t bo
 }
 
 static int initialize_epic_prefix(const char* home, const char* prefix) {
-    char* wine = epic_join(home, "runtime/wine/bin/metalsharp-wine");
+    char* wine;
     char* output = NULL;
+    if (ms_wine_is_fex()) {
+        char error[512];
+        if (!epic_mkdir_p(prefix) || !ms_wine_fex_convert_prefix(home, prefix, error, sizeof(error))) {
+            ms_log_event(home, error);
+            return -1;
+        }
+        return 0;
+    }
+    wine = epic_join(home, "runtime/wine/bin/metalsharp-wine");
     if (!wine || access(wine, X_OK) != 0 || !epic_mkdir_p(prefix)) {
         free(wine);
         return -1;
@@ -1922,7 +1968,7 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
         result = epic_failure("could not initialize the isolated Epic game bottle");
         goto done;
     }
-    if (process_running(read_process_pid_suffix(home, app_name, "launch.pid"))) {
+    if (epic_game_running(home, app_name)) {
         result = epic_failure("this Epic game is already running");
         goto done;
     }
@@ -1978,6 +2024,15 @@ char* ms_epic_launch_json(const char* home, const unsigned char* body, size_t bo
     }
     char pid_text[32];
     snprintf(pid_text, sizeof(pid_text), "%ld\n", (long)pid);
+    if (ms_wine_is_fex()) {
+        pid_t group = getpgid(pid);
+        char* group_path = epic_process_path(home, app_name, "launch.pgid");
+        char group_text[32];
+        snprintf(group_text, sizeof(group_text), "%ld\n", (long)group);
+        if (group > 1 && group_path)
+            (void)epic_write_text_atomic(group_path, group_text, 0600);
+        free(group_path);
+    }
     if (launch_pid_path) {
         (void)epic_write_text_atomic(launch_pid_path, pid_text, 0600);
         if (!process_running(pid)) {
@@ -2035,9 +2090,13 @@ char* ms_epic_stop_json(const char* home, const unsigned char* body, size_t body
     int status = epic_run_capture(home, argv, prefix, &output, "legendary-launch.log");
     free(output);
     char* pid_path = epic_process_path(home, app_name, "launch.pid");
+    char* group_path = epic_process_path(home, app_name, "launch.pgid");
     if (status == 0 && pid_path)
         unlink(pid_path);
+    if (status == 0 && group_path)
+        unlink(group_path);
     free(pid_path);
+    free(group_path);
     free(app_name);
     free(wineserver);
     free(prefix);

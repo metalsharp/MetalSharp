@@ -258,9 +258,184 @@ jobs:
             dist/gpui/RELEASE-TAG.txt
             dist/bundles/metalsharp-bundle-manifest.tsv
 
+  build-fex:
+    name: Build FEX DMG
+    # The arm64 FEX build: MetalSharp.app around a pinned, already signed and
+    # notarized MetalSharp-Wine.app, which is carried unchanged (never re-signed:
+    # that would drop its cross-architecture entitlement). No runtime bundles.
+    runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
+    env:
+      METALSHARP_WINE_REPO: metalsharp/MetalSharp-Wine
+      METALSHARP_WINE_TAG: v4.0
+      METALSHARP_VARIANT: fex
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          tools/release/set-version.sh "$VERSION"
+
+      - name: Download and verify MetalSharp Wine
+        run: |
+          set -euo pipefail
+          WINE_DIR="$RUNNER_TEMP/metalsharp-wine"
+          ZIP="MetalSharp-Wine-${METALSHARP_WINE_TAG#v}-arm64.zip"
+          rm -rf "$WINE_DIR"
+          mkdir -p "$WINE_DIR/download" "$WINE_DIR/app"
+          gh release download "$METALSHARP_WINE_TAG" -R "$METALSHARP_WINE_REPO" \
+            -p "$ZIP" -p SHA256SUMS -D "$WINE_DIR/download"
+          expected="$(awk -v zip="$ZIP" '{ name = $2; sub(/^\*/, "", name) } name == zip { print $1 }' "$WINE_DIR/download/SHA256SUMS")"
+          actual="$(shasum -a 256 "$WINE_DIR/download/$ZIP" | awk '{print $1}')"
+          test "$(printf '%s\n' "$expected" | grep -c .)" = 1
+          if [ "$expected" != "$actual" ]; then
+            echo "$ZIP sha256 $actual does not match SHA256SUMS ($expected)" >&2
+            exit 1
+          fi
+          ditto -x -k "$WINE_DIR/download/$ZIP" "$WINE_DIR/app"
+          rm -f "$WINE_DIR/download/$ZIP"
+          WINE_APP="$WINE_DIR/app/MetalSharp-Wine.app"
+          test -x "$WINE_APP/Contents/MacOS/wine"
+          codesign --verify --deep --strict --verbose=2 "$WINE_APP"
+          codesign --display --verbose=4 "$WINE_APP" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|CDHash)='
+          xcrun stapler validate "$WINE_APP" || echo "MetalSharp-Wine.app carries no stapled ticket"
+          echo "METALSHARP_WINE_APP=$WINE_APP" >> "$GITHUB_ENV"
+          echo "METALSHARP_WINE_SHA256=$actual" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build C++ engine
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+          cmake --build . --parallel $(sysctl -n hw.ncpu)
+          mkdir -p ../app/native
+          cp libd3d11.dylib libd3d12.dylib libdxgi.dylib libxaudio2_9.dylib libxinput1_4.dylib libopengl32.dylib ../app/native/ 2>/dev/null || true
+          cp metalsharp metalsharp_launcher MetalSharpMigrator ../app/native/ 2>/dev/null || true
+          cd ..
+          METALSHARP_BUILD_DIR="$PWD/build" tools/package/create-host-runtime.sh
+
+      - name: Build C backend (FEX)
+        run: make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build/fex"
+
+      - name: Check Apple signing credentials
+        id: apple-signing
+        run: tools/dmg/check-apple-signing-readiness.sh
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Prepare Apple Developer ID signing
+        if: steps.apple-signing.outputs.ready == 'true'
+        run: tools/dmg/prepare-apple-signing.sh
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Adhoc-sign native binaries for unsigned local packaging
+        run: |
+          if [ -n "${CSC_KEYCHAIN:-}" ]; then
+            echo "Developer ID signing enabled; skipping ad-hoc pre-sign."
+            exit 0
+          fi
+          for f in app/native/*.dylib app/native/metalsharp app/native/metalsharp_launcher; do
+            codesign --force --sign - "$f" 2>/dev/null || true
+          done
+          find app/native/host -type f \( -name '*.dylib' -o -name '*.so' \) -print0 | xargs -0 -I{} codesign --force --sign - "{}" 2>/dev/null || true
+
+      - name: Package FEX GPUI app
+        # Signed inside-out without --deep; Resources/MetalSharp-Wine.app is
+        # skipped by every signing loop and checked against its CDHash.
+        run: |
+          set -euo pipefail
+          METALSHARP_GPUI_REQUIRE_BUNDLES=0 \
+          METALSHARP_GPUI_SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}" app-gpui/package-app.sh
+
+      - name: Package FEX DMG
+        run: tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui-fex
+
+      - name: Verify FEX DMG
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.apple-signing.outputs.ready }}" != "true" ]; then
+            export METALSHARP_FEX_VERIFY_ALLOW_ADHOC=1
+          fi
+          tools/dmg/verify-fex-dmg.sh dist/gpui-fex/MetalSharp-*-arm64-FEX.dmg "$METALSHARP_WINE_APP"
+
+      - name: Sign and notarize FEX DMG
+        if: steps.apple-signing.outputs.ready == 'true'
+        run: tools/dmg/sign-notarize-dmg.sh dist/gpui-fex/MetalSharp-*-arm64-FEX.dmg
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      - name: Verify Apple notarization (FEX)
+        if: steps.apple-signing.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          test "${{ steps.apple-signing.outputs.ready }}" = "true"
+          tools/dmg/verify-notarization.sh app-gpui/target/MetalSharp.app
+          tools/dmg/verify-notarization.sh dist/gpui-fex/MetalSharp-*-arm64-FEX.dmg
+          tools/dmg/verify-fex-dmg.sh dist/gpui-fex/MetalSharp-*-arm64-FEX.dmg "$METALSHARP_WINE_APP"
+
+      - name: Mark signed FEX DMG
+        if: steps.apple-signing.outputs.ready == 'true'
+        run: |
+          printf '%s\n' \
+            "MetalSharp FEX DMG was packaged with Apple Developer ID signing and notarization." \
+            "It carries MetalSharp-Wine.app from $METALSHARP_WINE_REPO $METALSHARP_WINE_TAG (zip sha256 $METALSHARP_WINE_SHA256), unmodified." \
+            > dist/gpui-fex/DMG-SIGNING-FEX.txt
+
+      - name: Mark unsigned FEX DMG
+        if: steps.apple-signing.outputs.ready != 'true'
+        run: |
+          printf '%s\n' \
+            "MetalSharp FEX DMG was packaged without Apple Developer ID signing because release secrets are not configured." \
+            "Configure MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, and one notarization credential set to produce a notarized DMG." \
+            "It carries MetalSharp-Wine.app from $METALSHARP_WINE_REPO $METALSHARP_WINE_TAG (zip sha256 $METALSHARP_WINE_SHA256), unmodified." \
+            > dist/gpui-fex/DMG-SIGNING-FEX.txt
+
+      - name: Record release identity
+        run: printf '%s\n' "$GITHUB_REF_NAME" > dist/gpui-fex/RELEASE-TAG.txt
+
+      - name: Remove signing keychain
+        if: always() && steps.apple-signing.outputs.ready == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/metalsharp-signing.keychain-db" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MetalSharp-FEX-dmg
+          path: |
+            dist/gpui-fex/*.dmg
+            dist/gpui-fex/DMG-SIGNING-FEX.txt
+            dist/gpui-fex/RELEASE-TAG.txt
+
   release:
     name: Release
-    needs: [build]
+    needs: [build, build-fex]
+    # The regular DMG is released whatever happens to the FEX build: a FEX failure leaves its DMG out
+    # of this release instead of blocking it.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     permissions:
       contents: write
@@ -271,18 +446,40 @@ jobs:
           name: MetalSharp-dmg
           path: release/
 
+      - name: Download FEX release artifacts
+        if: needs.build-fex.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: MetalSharp-FEX-dmg
+          path: release-fex/
+
       - name: Flatten and verify release payload
         run: |
           set -euo pipefail
-          find release -type f -print | sort
+          mkdir -p release-fex
+          find release release-fex -type f -print | sort
           mkdir -p release-flat
           find release -type f -name '*.dmg' -exec cp {} release-flat/ \;
           find release -type f -name 'DMG-SIGNING.txt' -exec cp {} release-flat/ \;
           find release -type f -name 'metalsharp-bundle-manifest.tsv' -exec cp {} release-flat/ \;
+          find release-fex -type f -name 'MetalSharp-*-arm64-FEX.dmg' -exec cp {} release-flat/ \;
+          find release-fex -type f -name 'DMG-SIGNING-FEX.txt' -exec cp {} release-flat/ \;
           test "$(find release-flat -type f -name '*.dmg' | wc -l | tr -d ' ')" -ge 1
+          # Both builds go to the same release; 0.80.0's updater tells them apart by "FEX".
+          test "$(find release-flat -type f -name '*.dmg' ! -name '*FEX*' | wc -l | tr -d ' ')" -eq 1
           test -s release-flat/DMG-SIGNING.txt
+          if [ "$FEX_RESULT" = "success" ]; then
+            test "$(find release-flat -type f -name 'MetalSharp-*-arm64-FEX.dmg' | wc -l | tr -d ' ')" -eq 1
+            test "$(find release-fex -type f -name RELEASE-TAG.txt -exec cat {} \;)" = "$(find release -type f -name RELEASE-TAG.txt -exec cat {} \;)"
+            test -s release-flat/DMG-SIGNING-FEX.txt
+          else
+            echo "::warning::The FEX build did not succeed ($FEX_RESULT); this release carries the regular DMG only."
+            test "$(find release-flat -type f -name '*FEX*' | wc -l | tr -d ' ')" -eq 0
+          fi
           test -s release-flat/metalsharp-bundle-manifest.tsv
           find release-flat -type f -print | sort
+        env:
+          FEX_RESULT: ${{ needs.build-fex.result }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -290,5 +487,6 @@ jobs:
           files: |
             release-flat/*.dmg
             release-flat/DMG-SIGNING.txt
+            release-flat/DMG-SIGNING-FEX.txt
             release-flat/metalsharp-bundle-manifest.tsv
           generate_release_notes: true

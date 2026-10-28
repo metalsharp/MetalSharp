@@ -1,12 +1,19 @@
 # AGENTS.md
 
-**Updated:** 2026-10-05
+**Updated:** 2026-10-28
 
 Guide for AI agents working on MetalSharp.
 
 ## Project
 
 MetalSharp is a native macOS app (Rust/GPUI, in `app-gpui/`) that runs Windows games and programs through Wine and Metal translation. The application uses a C HTTP backend, a C/C++/Objective-C native graphics engine, runtime bottles, per-game MTSP routing, and packaged runtime assets.
+
+It ships two builds from one source tree:
+
+- **Regular:** the x86_64 Wine 11.17 runtime under Rosetta (`make -C app/src-c`).
+- **Arm64 FEX:** MetalSharp Wine, a native arm64 Wine 11.20 with FEX, built with `make -C app/src-c VARIANT=fex`, which defines `MS_BACKEND_VARIANT="fex"`. The app follows the backend's `variant` (`app-gpui/src/variant.rs`).
+
+Every FEX behavior sits behind `ms_wine_is_fex()` in the backend or `crate::variant::is_fex()` in the app. The regular build must never take a FEX branch.
 
 ## Repository Structure
 
@@ -40,18 +47,18 @@ The C backend is the only backend. The GPUI app's packaging builds it from `app/
 
 Steam games use `steam_<appid>` bottles. Wine Steam stays the background client; game launches run through the selected route with the shared prefix, route env, cache paths, and Steam identity variables.
 
-Routes (D3DMetal, DXMT, DXMT(32), D3D9, VKD3D, Mono/FNA) and their internal lane names (`m9`–`m12`) are documented in [Architecture](docs/architecture.md).
+Regular routes (D3DMetal, DXMT, DXMT(32), D3D9, VKD3D, Mono/FNA) with their internal lane names (`m9`–`m12`), and the FEX lanes (Mullion, VKD3D-Proton, DXVK, OpenGL), are documented in [Architecture](docs/architecture.md). Each build has its own rule set: `configs/mtsp-rules.toml`, and `configs/mtsp-rules-fex.toml`, which `tools/rules/generate-fex-rules.py` generates. Don't edit it by hand.
 
 Important runtime paths:
 
 - Home: `~/.metalsharp/`
-- Wine: `~/.metalsharp/runtime/wine/`
+- Wine: `~/.metalsharp/runtime/wine/` (on the FEX build a facade over `~/.metalsharp/runtime/MetalSharp-Wine.app`, which stays read-only and is never re-signed)
 - Steam prefix: `~/.metalsharp/prefix-steam/`
 - Ubisoft Connect prefix: `~/.metalsharp/prefix-ubisoft/`
 - Bottles: `~/.metalsharp/bottles/<bottle_id>/`
 - Logs: `~/.metalsharp/logs/`
 - IPC sockets: `~/.metalsharp/run/` (`0700`, owner-only Unix sockets)
-- Shader cache: `~/.metalsharp/shader-cache/<pipeline>/<appid>/`
+- Shader cache: `~/.metalsharp/shader-cache/<pipeline>/<appid>/` (FEX: `shader-cache/fex-<lane>/<appid>/` and `pipeline-cache/fex-<lane>/<appid>/`)
 
 ## Backend API
 
@@ -80,6 +87,7 @@ Representative endpoints:
 
 ```bash
 make -C app/src-c test
+make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build-fex" test
 ```
 
 ### GPUI app
@@ -105,16 +113,17 @@ ctest --test-dir build-native --output-on-failure
 ```bash
 tools/dmg/create-bundles.sh
 tools/dmg/build-dmg.sh   # packages the GPUI app and builds MetalSharp-<version>-arm64.dmg
+METALSHARP_VARIANT=fex METALSHARP_WINE_APP=/path/to/MetalSharp-Wine.app tools/dmg/build-dmg.sh   # MetalSharp-<version>-arm64-FEX.dmg
 ```
 
 Do not rebuild the runtime archive unless explicitly requested.
 
 ## CI
 
-- `pr-ci.yml`: shell, rules, docs, Metal, C backend, native, and DMG workflow checks.
+- `pr-ci.yml`: shell, rules (both rule sets), docs, Metal, C backend (both builds), native, and DMG workflow checks.
 - `gpui-preview.yml`: GPUI app format, tests, route inventory, and backend smoke tests.
 - `ci.yml`: equivalent main-branch validation.
-- `release.yml`: native build, C backend and GPUI app packaging, DMG verification, signing, and publication.
+- `release.yml`: native build, C backend and GPUI app packaging, DMG verification, signing, and publication, for the regular DMG and (`build-fex`, around the pinned MetalSharp Wine release) the FEX DMG.
 
 ## Versioning
 

@@ -11,9 +11,12 @@ use std::path::PathBuf;
 mod live_impl;
 #[path = "ui_steamcmd.rs"]
 mod steamcmd_impl;
+#[path = "ui_welcome.rs"]
+mod welcome_impl;
 use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending, UpdateDialog};
 use steamcmd_impl::{CollectionView, SteamcmdModal};
 
+const GAME_SETTINGS_WIDTH: f32 = 600.0;
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
 const TEXT: u32 = 0xf2efe6;
@@ -195,6 +198,19 @@ struct SetupCopy {
     first_launch_text: String,
     #[serde(default)]
     exit: String,
+}
+
+impl SetupCopy {
+    /// The FEX build installs MetalSharp Wine, not the x86_64 runtime bundles or GPTK, so its
+    /// setup text says so. The locale files have only the regular wording; this text is English.
+    fn for_variant(mut self) -> Self {
+        if crate::variant::is_fex() {
+            self.runtime_lede = "MetalSharp installs MetalSharp Wine, a native Arm64 Wine that runs Windows x86 games with FEX and Direct3D through Mullion (Metal), along with Steam support files and Mono/FNA support.".into();
+            self.tool_extraction = "Archive extraction".into();
+            self.directx_desc = "Direct3D through Mullion, on Metal.".into();
+        }
+        self
+    }
 }
 
 pub(crate) fn asset_path(name: &str) -> PathBuf {
@@ -992,63 +1008,104 @@ impl MetalSharpApp {
                         .map(|bytes| format!(" · {:.0} MB", bytes as f64 / 1_048_576.0))
                         .unwrap_or_default()
                 };
-                let option = |id: &'static str,
-                              name: String,
-                              detail: String,
-                              variant: &'static str| {
-                    div()
-                        .id(id)
-                        .p(px(14.0))
-                        .rounded(px(9.0))
-                        .border_1()
-                        .border_color(rgba(0xffffff24))
-                        .bg(rgba(0xffffff08))
-                        .cursor_pointer()
-                        .hover(|style| style.border_color(rgba(0x5fb7e8ff)).bg(rgba(0x5fb7e81a)))
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.0))
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(name),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .line_height(px(17.0))
-                                .text_color(rgb(0x9aa09e))
-                                .child(detail),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.start_update_download(variant, cx)
-                        }))
-                };
+                // FEX marks the build this Mac runs; at the installed version it can't be picked.
+                let fex = crate::variant::is_fex();
+                let current = self.update_current_build();
+                let option =
+                    |id: &'static str, name: String, detail: String, variant: &'static str| {
+                        let installed = self.update_is_installed(variant);
+                        let name = if self.update_is_switch(variant) {
+                            format!("Switch to {name}")
+                        } else if fex && variant == current {
+                            format!("{name} · current build")
+                        } else {
+                            name
+                        };
+                        div()
+                            .id(id)
+                            .p(px(14.0))
+                            .rounded(px(9.0))
+                            .border_1()
+                            .border_color(rgba(0xffffff24))
+                            .bg(rgba(0xffffff08))
+                            .when(!installed, |option| {
+                                option.cursor_pointer().hover(|style| {
+                                    style.border_color(rgba(0x5fb7e8ff)).bg(rgba(0x5fb7e81a))
+                                })
+                            })
+                            .opacity(if installed { 0.6 } else { 1.0 })
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.0))
+                            .child(
+                                div()
+                                    .text_size(px(14.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .line_height(px(17.0))
+                                    .text_color(rgb(0x9aa09e))
+                                    .child(detail),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.start_update_download(variant, cx)
+                            }))
+                    };
                 (
                     460.0,
                     div()
                         .flex()
                         .flex_col()
                         .gap(px(14.0))
-                        .child(title(format!("Choose your MetalSharp {version} build")))
-                        .child(body("This update comes in two builds. Pick the one for this Mac.".into()))
+                        .child(title(if self.update_switch_offered() {
+                            format!("Switch your MetalSharp {version} build")
+                        } else {
+                            format!("Choose your MetalSharp {version} build")
+                        }))
+                        .child(body(if self.update_switch_offered() && current == "fex" {
+                            "This Mac runs the Arm64 build with FEX. The x86_64 build of this version is also available.".into()
+                        } else if self.update_switch_offered() {
+                            "This Mac runs the x86_64 build. The Arm64 build with FEX of this version is also available.".into()
+                        } else if fex {
+                            "This update comes in two builds. The Arm64 build with FEX, which this Mac runs, is recommended.".into()
+                        } else {
+                            "This update comes in two builds. Pick the one for this Mac.".into()
+                        }))
                         .child(option(
                             "update-choose-fex",
                             self.update_build_name("fex"),
-                            format!(
-                                "MetalSharp Wine for Apple Silicon, running x86 games through FEX. Needs macOS 26.4 or newer.{}",
-                                size("fex_download_size")
-                            ),
+                            if self.update_is_installed("fex") {
+                                "Installed: the build this Mac runs, already at this version.".to_owned()
+                            } else if fex {
+                                format!(
+                                    "Recommended. MetalSharp Wine for Apple Silicon, running x86 games through FEX.{}",
+                                    size("fex_download_size")
+                                )
+                            } else {
+                                format!(
+                                    "MetalSharp Wine for Apple Silicon, running x86 games through FEX. Needs macOS 26.4 or newer.{}",
+                                    size("fex_download_size")
+                                )
+                            },
                             "fex",
                         ))
                         .child(option(
                             "update-choose-regular",
                             self.update_build_name("regular"),
-                            format!(
-                                "The x86_64 Wine MetalSharp uses today, for every macOS MetalSharp supports.{}",
-                                size("download_size")
-                            ),
+                            if fex {
+                                format!(
+                                    "The x86_64 Wine build, running games through Rosetta, for every macOS MetalSharp supports.{}",
+                                    size("regular_download_size")
+                                )
+                            } else {
+                                format!(
+                                    "The x86_64 Wine MetalSharp uses today, for every macOS MetalSharp supports.{}",
+                                    size("download_size")
+                                )
+                            },
                             "regular",
                         ))
                         .child(
@@ -1118,11 +1175,16 @@ impl MetalSharpApp {
                     .flex()
                     .flex_col()
                     .gap(px(14.0))
-                    .child(title("Confirm Update".into()))
-                    .child(body(format!(
-                        "Install {}.",
-                        self.update_build_name(variant)
-                    )))
+                    .child(title(if self.update_is_switch(variant) {
+                        "Confirm Switch".into()
+                    } else {
+                        "Confirm Update".into()
+                    }))
+                    .child(body(if self.update_is_switch(variant) {
+                        format!("Switch to {}.", self.update_build_name(variant))
+                    } else {
+                        format!("Install {}.", self.update_build_name(variant))
+                    }))
                     .child(body(
                         "MetalSharp will now close and re-open on its own to update. Proceed?"
                             .into(),
@@ -1231,6 +1293,14 @@ impl Render for MetalSharpApp {
             .children(self.live.update_dialog.map(|dialog| {
                 gpui::deferred(self.render_update_dialog(dialog, cx)).with_priority(300)
             }))
+            .children(
+                self.live
+                    .fex_welcome_page
+                    .filter(|_| library_visible)
+                    .map(|page| {
+                        gpui::deferred(self.render_fex_welcome(page, cx)).with_priority(290)
+                    }),
+            )
             .children(
                 self.steamcmd_modal
                     .is_some()
@@ -1429,8 +1499,10 @@ impl MetalSharpApp {
             let palette = self.theme.page_palette();
             let active = self.active_tab == LibraryTab::SharpLibrary;
             // App-level overlays cover the page; the native GameJolt view must hide.
-            let obscured =
-                self.settings_open || self.streaming_open || self.live.update_dialog.is_some();
+            let obscured = self.settings_open
+                || self.streaming_open
+                || self.live.update_dialog.is_some()
+                || self.live.fex_welcome_page.is_some();
             sharp.update(cx, |sharp, cx| {
                 sharp.set_obscured(obscured, cx);
                 if sharp.palette != palette {
@@ -3032,8 +3104,11 @@ impl MetalSharpApp {
                 let tag = if game.is_ubisoft() {
                     "Ubisoft".to_owned()
                 } else {
-                    game.launch_method_name
-                        .clone()
+                    crate::variant::is_fex()
+                        .then(|| crate::variant::fex_pipeline_label(game.launch_method()))
+                        .flatten()
+                        .map(str::to_owned)
+                        .or_else(|| game.launch_method_name.clone())
                         .unwrap_or_else(|| "Installed".into())
                 };
                 let state = if game.state.as_deref() == Some("installed") {
@@ -3117,6 +3192,7 @@ impl MetalSharpApp {
                     E::LanguageChanged(code) => this.change_language(code, cx),
                     E::WhatsNew => this.open_whats_new(cx),
                     E::StartUpdate => this.open_update(cx),
+                    E::SwitchBuild => this.open_switch(cx),
                     E::UpdateStatus(status) => this.live.update_status = Some(status.clone()),
                     E::SteamApiKeySaved(key, library) => {
                         this.live.steam_api_key = Some(key.clone());
@@ -3290,9 +3366,16 @@ impl MetalSharpApp {
             .id("game-settings-popover")
             .occlude()
             .absolute()
-            .top(px(50.0))
-            .right(px(0.0))
-            .w(px(365.0))
+            // FEX: beside the gear button, opening up and to the left over the hero art: opening
+            // downward covered the dock's cards and ran past the bottom of a short window.
+            .when(crate::variant::is_fex(), |menu| {
+                menu.bottom(px(0.0))
+                    .right(px(50.0))
+                    .w(px(GAME_SETTINGS_WIDTH))
+            })
+            .when(!crate::variant::is_fex(), |menu| {
+                menu.top(px(50.0)).right(px(0.0)).w(px(365.0))
+            })
             .flex()
             .flex_col()
             .gap(px(12.0))
@@ -3355,8 +3438,11 @@ impl MetalSharpApp {
                 .cursor_pointer()
                 .child(text)
         };
+        // FEX lays the settings out two per line; the regular build keeps one per line.
+        let two_columns = crate::variant::is_fex();
         let row = |label: &'static str, options: gpui::Div| {
             div()
+                .when(two_columns, |cell| cell.flex_1().min_w_0())
                 .flex()
                 .items_center()
                 .justify_between()
@@ -3364,6 +3450,7 @@ impl MetalSharpApp {
                 .child(label)
                 .child(options)
         };
+        let mut cells: Vec<gpui::Div> = Vec::new();
         let mut metal_fx = div().flex().gap(px(4.0));
         for (index, (mode, text)) in [("1.75", "1.75×"), ("2.0", "2×"), ("off", "Off")]
             .into_iter()
@@ -3393,29 +3480,69 @@ impl MetalSharpApp {
             );
         }
         let msync = self.live.msync;
+        let metal_hud = self.live.metal_hud;
         let x87 = self.live.x87;
-        menu = menu
-            .child(row("MetalFX", metal_fx))
-            .child(row("Controller input", controller))
-            .child(row(
-                "msync",
+        cells.push(row("MetalFX", metal_fx));
+        // MetalSharp Wine's own xinput/dinput see controllers through SDL; the FEX build stages no
+        // input shims, so the choice would do nothing there.
+        if !crate::variant::is_fex() {
+            cells.push(row("Controller input", controller));
+        }
+        // The FEX build's Metal HUD switch.
+        if crate::variant::is_fex() {
+            cells.push(row(
+                "Metal HUD",
                 div().flex().child(
                     option(
-                        ("game-setting-msync", 0),
-                        if msync { "On" } else { "Off" },
-                        msync,
+                        ("game-setting-metal-hud", 0),
+                        if metal_hud { "On" } else { "Off" },
+                        metal_hud,
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.set_metal_hud(!metal_hud, cx)),
+                    ),
                 ),
-            ))
-            // Rosetta's x87 sidecar for every pipeline; the D3D9 route always has it.
-            .child(row(
+            ));
+        }
+        cells.push(row(
+            "msync",
+            div().flex().child(
+                option(
+                    ("game-setting-msync", 0),
+                    if msync { "On" } else { "Off" },
+                    msync,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
+            ),
+        ));
+        // The FEX build's frame rate limit, for the lane the game runs on: Mullion's mullion.conf or
+        // VKD3D-Proton's VKD3D_FRAME_RATE. Applies at the game's next start.
+        if crate::variant::is_fex() {
+            if let Some(limit) = self.frame_rate_limit() {
+                let mut frame_rate = div().flex().gap(px(4.0));
+                for (index, (fps, text)) in
+                    [(30, "30"), (60, "60"), (0, "Off")].into_iter().enumerate()
+                {
+                    frame_rate = frame_rate.child(
+                        option(("game-setting-frame-rate", index), text, limit == fps).on_click(
+                            cx.listener(move |this, _, _, cx| this.set_frame_rate(fps, cx)),
+                        ),
+                    );
+                }
+                cells.push(row("Limit framerate", frame_rate));
+            }
+        }
+        // Rosetta's x87 sidecar for every pipeline; the D3D9 route always has it. The FEX build
+        // has no Rosetta, so no toggle.
+        if !crate::variant::is_fex() {
+            cells.push(row(
                 "x87 acceleration",
                 div().flex().child(
                     option(("game-setting-x87", 0), if x87 { "On" } else { "Off" }, x87)
                         .on_click(cx.listener(move |this, _, _, cx| this.set_x87(!x87, cx))),
                 ),
             ));
+        }
         if game.installed && !game.has_native_build {
             let executable_name = game
                 .executable_path
@@ -3424,8 +3551,9 @@ impl MetalSharpApp {
                 .and_then(|path| path.rsplit(['/', '\\']).next())
                 .map(str::to_owned)
                 .unwrap_or_else(|| "Automatically detected".to_string());
-            menu = menu.child(
+            cells.push(
                 div()
+                    .when(two_columns, |cell| cell.flex_1().min_w_0())
                     .flex()
                     .items_center()
                     .justify_between()
@@ -3468,7 +3596,7 @@ impl MetalSharpApp {
         if !game.is_ubisoft() && !game.is_shortcut() {
             let active = self.live.steam_emu_active;
             let enabled = game.installed && !self.live.steam_emu_busy;
-            menu = menu.child(row(
+            cells.push(row(
                 "Steam Emu",
                 div().flex().child(
                     option(
@@ -3480,6 +3608,24 @@ impl MetalSharpApp {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_steam_emu(!active, cx))),
                 ),
             ));
+        }
+        if !two_columns {
+            return cells.into_iter().fold(menu, |menu, cell| menu.child(cell));
+        }
+        // Two settings per line (label and choices), with a rule between the columns.
+        let divider = theme.border();
+        let mut cells = cells.into_iter();
+        while let Some(left) = cells.next() {
+            let mut line = div().flex().items_center().gap(px(12.0)).child(left);
+            match cells.next() {
+                Some(right) => {
+                    line = line
+                        .child(div().w(px(1.0)).h(px(26.0)).flex_none().bg(rgb(divider)))
+                        .child(right);
+                }
+                None => line = line.child(div().flex_1()),
+            }
+            menu = menu.child(line);
         }
         menu
     }
@@ -4398,7 +4544,7 @@ impl MetalSharpApp {
 impl MetalSharpApp {
     fn render_setup_page(&mut self, cx: &mut Context<Self>) -> gpui::Div {
         let selected_language = self.selected_language;
-        let copy = self.copy.clone();
+        let copy = self.copy.clone().for_variant();
         let current_step = self.step.min(2);
         let language_menu_open = self.language_menu_open;
         let dismissible = self.live.setup.dismissible;

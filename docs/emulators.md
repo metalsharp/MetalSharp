@@ -1,5 +1,5 @@
 # Emulators
-**Updated:** 2026-10-05
+**Updated:** 2026-10-28
 
 MetalSharp installs and runs four console emulators from the Sharp Library. Each one runs out of process in its own managed environment, separate from any standalone install of the same emulator.
 
@@ -11,6 +11,8 @@ MetalSharp installs and runs four console emulators from the Sharp Library. Each
 | SharpEmu | PlayStation 5 | Experimental research — most games do not run |
 
 BIOS, firmware, and games must come from hardware and content you own. MetalSharp ships none of them.
+
+The emulators run outside Wine and work the same on both MetalSharp builds. Those whose official macOS build is x86_64 still need Rosetta 2, which the Arm64 FEX build doesn't install. Install it with `softwareupdate --install-rosetta --agree-to-license`.
 
 ## Managed Environment
 

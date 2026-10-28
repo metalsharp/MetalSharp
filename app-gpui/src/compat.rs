@@ -1,11 +1,13 @@
 //! Compatibility hints for Steam games, built into the app from the repo's
 //! compatibility sources: confirmed games in games-supported.md, launch rules
-//! in mtsp-rules.toml, and titles whose kernel-level anti-cheat can't run.
+//! in each build's rule set (mtsp-rules.toml, mtsp-rules-fex.toml on the Arm64 FEX build),
+//! and titles whose kernel-level anti-cheat can't run.
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
 const SUPPORTED_GAMES: &str = include_str!("../../docs/games-supported.md");
 const LAUNCH_RULES: &str = include_str!("../../configs/mtsp-rules.toml");
+const LAUNCH_RULES_FEX: &str = include_str!("../../configs/mtsp-rules-fex.toml");
 
 /// Kernel-level anti-cheat (EA AntiCheat, Easy Anti-Cheat kernel mode, ...).
 const KERNEL_ANTI_CHEAT_APPIDS: &[u64] = &[
@@ -52,6 +54,7 @@ fn rule_appids(toml: &str) -> HashSet<u64> {
 pub fn compat(appid: u64, name: &str) -> Option<Compat> {
     static SUPPORTED: OnceLock<HashSet<u64>> = OnceLock::new();
     static RULES: OnceLock<HashSet<u64>> = OnceLock::new();
+    static RULES_FEX: OnceLock<HashSet<u64>> = OnceLock::new();
     let lower = name.to_lowercase();
     if KERNEL_ANTI_CHEAT_APPIDS.contains(&appid)
         || KERNEL_ANTI_CHEAT_NAMES.iter().any(|n| lower.contains(n))
@@ -64,10 +67,12 @@ pub fn compat(appid: u64, name: &str) -> Option<Compat> {
     {
         return Some(Compat::Playable);
     }
-    if RULES
-        .get_or_init(|| rule_appids(LAUNCH_RULES))
-        .contains(&appid)
-    {
+    let rules = if crate::variant::is_fex() {
+        RULES_FEX.get_or_init(|| rule_appids(LAUNCH_RULES_FEX))
+    } else {
+        RULES.get_or_init(|| rule_appids(LAUNCH_RULES))
+    };
+    if rules.contains(&appid) {
         return Some(Compat::MayRun);
     }
     None
@@ -105,5 +110,16 @@ mod tests {
         assert_eq!(compat(0, "Fortnite"), Some(Compat::AntiCheat));
         assert_eq!(compat(105600, "Terraria").is_some(), true);
         assert_eq!(compat(1, "Not a game"), None);
+    }
+
+    #[test]
+    fn each_build_has_its_own_rule_set() {
+        let regular = rule_appids(LAUNCH_RULES);
+        let fex = rule_appids(LAUNCH_RULES_FEX);
+        assert!(LAUNCH_RULES.contains("build = \"regular\""));
+        assert!(LAUNCH_RULES_FEX.contains("build = \"fex\""));
+        // The FEX rules are the regular ones translated, plus games verified on MetalSharp Wine.
+        assert!(regular.is_subset(&fex));
+        assert!(fex.contains(&2054970) && !regular.contains(&2054970));
     }
 }

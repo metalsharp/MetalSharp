@@ -42,6 +42,8 @@ pub enum SettingsPreviewEvent {
     /// The update's dialogs: its notes, or the update itself (the choice between its builds)
     WhatsNew,
     StartUpdate,
+    /// FEX only: the other build at this version, offered as a switch rather than an update.
+    SwitchBuild,
     UpdateStatus(Value),
     SteamApiKeySaved(String, Option<Vec<crate::library_model::LibGame>>),
     ReloadLibrary,
@@ -80,6 +82,8 @@ enum ConfirmAction {
     SwitchToMac,
     ForceKill,
     Uninstall,
+    /// FEX: after Mullion's own caches are cleared, Metal's cache that every Mullion game shares.
+    ClearMullionShared,
 }
 
 pub struct SettingsPreview {
@@ -95,11 +99,15 @@ pub struct SettingsPreview {
     graphics_logs: bool,
     retina: bool,
     retina_busy: bool,
+    ray_tracing: bool,
+    ray_tracing_busy: bool,
     exclude_native: bool,
     native_busy: bool,
     backend_restarting: bool,
     shader_cache: Option<Value>,
     pipeline_cache: Option<Value>,
+    /// FEX only: each graphics lane's caches (`lanes` in `/cache/size`), by lane id.
+    cache_lanes: Option<Value>,
     confirm: Option<ConfirmAction>,
     language_menu: bool,
     uninstalling: bool,
@@ -114,6 +122,25 @@ impl Default for SettingsPreview {
         Self::new()
     }
 }
+
+/// The FEX build's cache rows: lane id (Mullion is "dxmt"), name, and what the lane keeps.
+const FEX_CACHE_LANES: [(&str, &str, &str); 3] = [
+    (
+        "dxmt",
+        "Mullion (DXMT)",
+        "Mullion's shader databases per game, and Metal's pipeline cache that every Mullion game shares (cleared only after you confirm)",
+    ),
+    (
+        "vkd3d",
+        "VKD3D-Proton",
+        "VKD3D-Proton's pipeline cache and DXVK state caches for games on the VKD3D-Proton lane",
+    ),
+    (
+        "dxvk",
+        "DXVK",
+        "DXVK's state caches for games on the DXVK lane",
+    ),
+];
 
 fn format_cache(cache: Option<&Value>) -> (String, bool) {
     let Some(cache) = cache else {
@@ -149,11 +176,14 @@ impl SettingsPreview {
             graphics_logs: false,
             retina: false,
             retina_busy: false,
+            ray_tracing: false,
+            ray_tracing_busy: false,
             exclude_native: false,
             native_busy: false,
             backend_restarting: false,
             shader_cache: None,
             pipeline_cache: None,
+            cache_lanes: None,
             confirm: None,
             language_menu: false,
             uninstalling: false,
@@ -267,6 +297,7 @@ impl SettingsPreview {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         self.retina = config.get("retinaMode").and_then(Value::as_bool) == Some(true);
+        self.ray_tracing = config.get("rayTracing").and_then(Value::as_bool) == Some(true);
         self.exclude_native = config
             .get("excludeNativeMacSteamGames")
             .and_then(Value::as_bool)
@@ -284,6 +315,7 @@ impl SettingsPreview {
                 if let Some(r) = r.filter(is_ok) {
                     this.shader_cache = r.get("shader_cache").cloned();
                     this.pipeline_cache = r.get("pipeline_cache").cloned();
+                    this.cache_lanes = r.get("lanes").cloned();
                     cx.notify();
                 }
             },
@@ -719,6 +751,40 @@ impl SettingsPreview {
         );
     }
 
+    fn set_ray_tracing(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.ray_tracing_busy || enabled == self.ray_tracing {
+            return;
+        }
+        let previous = self.ray_tracing;
+        self.ray_tracing_busy = true;
+        self.ray_tracing = enabled;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"rayTracing": enabled})),
+            live::DEFAULT_TIMEOUT,
+            move |this, r, cx| {
+                if let Some(r) = r.filter(is_ok) {
+                    this.apply_config(&r);
+                    toast::success(
+                        cx,
+                        format!(
+                            "Ray tracing {} — applies at the next game launch",
+                            if enabled { "enabled" } else { "disabled" }
+                        ),
+                    );
+                } else {
+                    this.ray_tracing = previous;
+                    toast::error(cx, "Failed to update ray tracing");
+                }
+                this.ray_tracing_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
     fn set_exclude_native(&mut self, enabled: bool, cx: &mut Context<Self>) {
         if self.native_busy || enabled == self.exclude_native {
             return;
@@ -806,12 +872,35 @@ impl SettingsPreview {
         }
     }
 
+    /// `kind` is "shader" or "pipeline", or on FEX a lane from `FEX_CACHE_LANES`.
     fn clear_cache(&mut self, kind: &'static str, cx: &mut Context<Self>) {
+        self.clear_cache_with(kind, false, cx);
+    }
+
+    /// Mullion's Metal cache that every Mullion game shares, which the user confirmed clearing.
+    fn mullion_shared_cache_bytes(&self) -> u64 {
+        self.cache_lanes
+            .as_ref()
+            .and_then(|lanes| lanes.get("dxmt"))
+            .and_then(|lane| lane.get("shared_bytes"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    }
+
+    /// `shared`: also Metal's Mullion cache in the user's cache folder (asked first).
+    fn clear_cache_with(&mut self, kind: &'static str, shared: bool, cx: &mut Context<Self>) {
+        let lane = FEX_CACHE_LANES.iter().find(|(id, ..)| *id == kind);
+        let body = match lane {
+            Some((id, ..)) => json!({"type": "lane", "lane": id, "shared": shared}),
+            None => json!({"type": kind}),
+        };
+        // MetalSharp's own Mullion caches go first; Metal's shared one only once the user agrees.
+        let ask_shared = kind == "dxmt" && !shared && self.mullion_shared_cache_bytes() > 0;
         live::call(
             cx,
             "POST",
             "/cache/clear",
-            Some(json!({"type": kind})),
+            Some(body),
             live::DEFAULT_TIMEOUT,
             move |this, r, cx| {
                 if let Some(r) = r.filter(is_ok) {
@@ -821,13 +910,19 @@ impl SettingsPreview {
                         cx,
                         format!(
                             "{} cache cleared — {freed} freed",
-                            if kind == "shader" {
+                            if let Some((_, name, _)) = lane {
+                                name
+                            } else if kind == "shader" {
                                 "Shader"
                             } else {
                                 "Pipeline"
                             }
                         ),
                     );
+                    if ask_shared {
+                        this.confirm = Some(ConfirmAction::ClearMullionShared);
+                        cx.notify();
+                    }
                 }
                 this.refresh_cache_sizes(cx);
             },
@@ -1130,6 +1225,11 @@ impl SettingsPreview {
                 "Stop Wine Steam and start Mac Steam?",
                 "OK",
             ),
+            ConfirmAction::ClearMullionShared => (
+                "Also clear Metal's Mullion cache?",
+                "MetalSharp's Mullion caches are cleared. Metal also keeps a pipeline cache that every Mullion game shares, including games started outside MetalSharp. Clearing it affects every Mullion game: each rebuilds its shaders the next time it starts.",
+                "Clear for Every Mullion Game",
+            ),
         };
         div()
             .id("settings-confirm-backdrop")
@@ -1190,6 +1290,9 @@ impl SettingsPreview {
                                             ConfirmAction::Uninstall => this.uninstall(cx),
                                             ConfirmAction::SwitchToMac => {
                                                 this.switch_to_mac_steam(cx)
+                                            }
+                                            ConfirmAction::ClearMullionShared => {
+                                                this.clear_cache_with("dxmt", true, cx)
                                             }
                                         }
                                     }
@@ -1588,6 +1691,18 @@ impl Render for SettingsPreview {
                 s.set_retina(next, cx)
             }),
         );
+        // The FEX build's VKD3D-Proton lane: MoltenVK's experimental ray tracing pipelines, for DXR 1.1
+        // and feature level 12_2.
+        let ray_tracing = crate::variant::is_fex().then(|| {
+            self.row(
+                "Ray Tracing (VKD3D-Proton)",
+                "MoltenVK's experimental ray tracing, so VKD3D-Proton games get DXR 1.1 and feature level 12_2",
+                self.toggle("ray-tracing-toggle", self.ray_tracing, cx, |s, cx| {
+                    let next = !s.ray_tracing;
+                    s.set_ray_tracing(next, cx)
+                }),
+            )
+        });
         let backend = self.row(
             self.tr("ui.settings.backendRuntime"),
             self.tr("ui.settingsDesc.backend"),
@@ -1604,6 +1719,10 @@ impl Render for SettingsPreview {
                     app.backend_version
                         .as_ref()
                         .map(|v| self.text_control(format!("v{v}"))),
+                )
+                .children(
+                    crate::variant::is_fex()
+                        .then(|| self.text_control(crate::variant::FEX_WINE_LABEL.to_owned())),
                 ),
         );
         let restart = self.row(
@@ -1799,6 +1918,32 @@ impl Render for SettingsPreview {
             false,
             cx,
         );
+        // FEX: one row per graphics lane, each with its real size and its own Clear.
+        let cache_lanes = self.cache_lanes.clone();
+        let lane_rows: Vec<_> = if crate::variant::is_fex() {
+            FEX_CACHE_LANES
+                .iter()
+                .map(|(lane, name, desc)| {
+                    let button: &'static str = match *lane {
+                        "dxmt" => "clear-cache-dxmt",
+                        "vkd3d" => "clear-cache-vkd3d",
+                        _ => "clear-cache-dxvk",
+                    };
+                    cache_row(
+                        self,
+                        button,
+                        format!("{name} Cache").into(),
+                        (*desc).into(),
+                        cache_lanes.as_ref().and_then(|lanes| lanes.get(*lane)),
+                        lane,
+                        true,
+                        cx,
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let status = app.update_status.clone().unwrap_or(Value::Null);
         let status_ok = is_ok(&status);
         let available = status_ok && status.get("available").and_then(Value::as_bool) == Some(true);
@@ -1811,6 +1956,7 @@ impl Render for SettingsPreview {
             .get("current_version")
             .and_then(Value::as_str)
             .map(str::to_owned);
+        let same_version = !latest.is_empty() && current.as_deref() == Some(latest.as_str());
         let version = self.row(
             self.tr("ui.settings.version"),
             if available {
@@ -1858,6 +2004,28 @@ impl Render for SettingsPreview {
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsPreviewEvent::WhatsNew))),
             )
         });
+        // The other build (`switch_variant`) at the installed version is a switch, not an update.
+        let switch_build = if status.get("switch_variant").and_then(Value::as_str) == Some("fex") {
+            "Arm64 with FEX"
+        } else {
+            "x86_64"
+        };
+        let switch = (crate::variant::is_fex()
+            && status_ok
+            && !available
+            && !app.update_downloading
+            && status.get("switch_available").and_then(Value::as_bool) == Some(true)
+            && same_version)
+            .then(|| {
+                self.row(
+                    "Switch build",
+                    format!("MetalSharp v{latest} {switch_build} is also available for this Mac"),
+                    self.action_button("switch-build", "Switch…", false)
+                        .on_click(
+                            cx.listener(|_, _, _, cx| cx.emit(SettingsPreviewEvent::SwitchBuild)),
+                        ),
+                )
+            });
         let progress = app.update_downloading.then(|| {
             self.row(
                 if app.update_message.is_empty() {
@@ -1931,7 +2099,8 @@ impl Render for SettingsPreview {
                         .child(wine_row)
                         .when(!app.wine_steam_installed, |d| d.child(setup_row))
                         .child(mac_row)
-                        .child(retina),
+                        .child(retina)
+                        .children(ray_tracing),
                     false,
                 ),
             )
@@ -1956,7 +2125,11 @@ impl Render for SettingsPreview {
             ))
             .child(self.card(
                 self.tr("settings.cache"),
-                div().child(shader).child(pipeline),
+                if crate::variant::is_fex() {
+                    div().children(lane_rows)
+                } else {
+                    div().child(shader).child(pipeline)
+                },
                 false,
             ));
         let mut updates = div().child(version);
@@ -1964,6 +2137,9 @@ impl Render for SettingsPreview {
             updates = updates.child(r)
         }
         if let Some(r) = update {
+            updates = updates.child(r)
+        }
+        if let Some(r) = switch {
             updates = updates.child(r)
         }
         if let Some(r) = progress {

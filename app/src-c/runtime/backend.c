@@ -23,6 +23,7 @@
 #include "metalsharp_backend/kernel_integrity.h"
 #include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
+#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/migration.h"
 #include "metalsharp_backend/mono.h"
@@ -43,6 +44,7 @@
 #include "metalsharp_backend/thread.h"
 #include "metalsharp_backend/ubisoft.h"
 #include "metalsharp_backend/updater.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -103,8 +105,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
         free(quoted_home);
         return NULL;
     }
-    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                      quoted_version, (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+    needed = snprintf(NULL, 0, "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                      quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     if (needed < 0) {
         free(quoted_version);
         free(quoted_home);
@@ -113,8 +115,8 @@ static char* make_json(const char* version, const char* home, bool dev_mode) {
     body = (char*)malloc((size_t)needed + 1);
     if (body != NULL) {
         (void)snprintf(body, (size_t)needed + 1,
-                       "{\"ok\":true,\"version\":%s,\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
-                       quoted_version, (long)getpid(), dev_mode ? "true" : "false", quoted_home);
+                       "{\"ok\":true,\"version\":%s,\"variant\":\"%s\",\"pid\":%ld,\"dev_mode\":%s,\"metalsharp_home\":%s}",
+                       quoted_version, ms_wine_variant(), (long)getpid(), dev_mode ? "true" : "false", quoted_home);
     }
     free(quoted_version);
     free(quoted_home);
@@ -384,6 +386,22 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
+        return true;
+    }
+    /* The fex build's frame rate limit; the regular build has no such route. */
+    if (ms_wine_is_fex() && strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
+        body = ms_frame_rate_get_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (ms_wine_is_fex() && strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
+        int status = 500;
+        body = ms_frame_rate_set_json(context->metalsharp_home, request->body, request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/setup/state") == 0) {
@@ -914,6 +932,22 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    /* The FEX build's one-time welcome after an x86_64 install moved to it. */
+    if (ms_wine_is_fex() && strcmp(request->method, "GET") == 0 && strcmp(request->path, "/welcome/fex") == 0) {
+        body = ms_migration_fex_welcome_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (ms_wine_is_fex() && strcmp(request->method, "POST") == 0 &&
+        strcmp(request->path, "/welcome/fex/dismiss") == 0) {
+        body = ms_migration_fex_welcome_dismiss_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/update/migrate/start") == 0) {
         body = ms_migration_start_json(context->metalsharp_home);
         if (body == NULL)
@@ -924,7 +958,10 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/update/dmg-path") == 0) {
         body = ms_update_dmg_path_json(
             context->metalsharp_home,
-            request->query != NULL && strcmp(request->query, "variant=fex") == 0 ? "fex" : "regular");
+            request->query == NULL                     ? ms_wine_variant()
+            : strcmp(request->query, "variant=fex") == 0 ? "fex"
+            : strcmp(request->query, "variant=regular") == 0 ? "regular"
+                                                             : ms_wine_variant());
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);

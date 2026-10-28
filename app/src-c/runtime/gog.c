@@ -4,6 +4,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -971,7 +972,7 @@ static char* status_json(const char* home) {
     gogdl = gogdl_path(home);
     drive_c = join(prefix, "drive_c");
     prefix_initialized = stat(prefix, &prefix_stat) == 0 && S_ISDIR(prefix_stat.st_mode) && drive_c != NULL &&
-                         access(drive_c, F_OK) == 0;
+                         access(drive_c, F_OK) == 0 && (!ms_wine_is_fex() || ms_wine_fex_prefix_ready(prefix));
     free(drive_c);
     if (!gogdl)
         state = "missing_gogdl";
@@ -1048,6 +1049,12 @@ static bool gog_initialize_prefix(const char* home, char* error, size_t error_si
         snprintf(error, error_size, "failed to create GOG prefix");
         free(prefix);
         return false;
+    }
+    /* MetalSharp Wine's prefixes get wineboot, VC++ 2022 and the core fonts before first use. */
+    if (ms_wine_is_fex()) {
+        bool ready = ms_wine_fex_convert_prefix(home, prefix, error, error_size);
+        free(prefix);
+        return ready;
     }
     drive_c = join(prefix, "drive_c");
     if (drive_c && stat(drive_c, &st) == 0 && S_ISDIR(st.st_mode)) {
@@ -1337,7 +1344,12 @@ static char* refresh_game_json(const char* home, const ms_json* game) {
         }
     }
     (void)ms_json_as_i64(ms_json_object_get(game, "lastLaunchPid"), &pid_value);
-    running = pid_value > 0 && kill((pid_t)pid_value, 0) == 0;
+    /* The fex build: lastLaunchPid leads gogdl's process group, which the game and what it starts
+     * (a GOG "launcher" playTask's real game) stay in after gogdl itself exits. */
+    if (ms_wine_is_fex())
+        running = pid_value > 0 && (kill(-(pid_t)pid_value, 0) == 0 || errno == EPERM);
+    else
+        running = pid_value > 0 && kill((pid_t)pid_value, 0) == 0;
     if (running) {
         free(status);
         status = strdup("running");
@@ -1761,6 +1773,12 @@ static char* gog_stop_json(const char* home, const char* id) {
         if (!strcmp(candidate, id)) {
             pid_t tracked = gog_tracked_pid(id);
             bool wine_stopped;
+            /* gogdl's own pid is gone once it exits; its group (the game) is not. */
+            if (tracked <= 0 && ms_wine_is_fex()) {
+                long long recorded = 0;
+                (void)ms_json_as_i64(ms_json_object_get(ms_json_array_get(games, i), "lastLaunchPid"), &recorded);
+                tracked = recorded > 1 ? (pid_t)recorded : 0;
+            }
             char *title = NULL, *platform = NULL, *install_root = NULL, *game_folder = NULL;
             bool installed = gog_launch_record(home, id, &title, &platform, &install_root, &game_folder);
             if (tracked > 0 && kill(-tracked, SIGTERM) != 0 && errno == ESRCH)
@@ -1854,6 +1872,15 @@ static char* gog_stop_all_json(const char* home) {
 
 /* Put the chosen graphics route's DLLs next to the game's exe (the same staging
  * Steam games get), or clear MetalSharp's route DLLs for Auto/Wine. */
+/* A stable id for a GOG game's per-game settings (caches, launch.env), with the top bit set like
+ * the other launchers' synthetic ids so it is never taken for a Steam app. */
+static unsigned gog_game_id(const char* product_id) {
+    unsigned hash = 5381;
+    for (const unsigned char* c = (const unsigned char*)product_id; c && *c; c++)
+        hash = hash * 33 + *c;
+    return hash | 0x80000000u;
+}
+
 static bool gog_stage_route(const char* home, const char* product_id, const char* engine,
                             const char* known_executable) {
     char *title = NULL, *platform = NULL, *install_root = NULL, *folder = NULL, *executable = NULL;
@@ -1875,6 +1902,10 @@ static bool gog_stage_route(const char* home, const char* product_id, const char
         ok = true;
     } else
         ok = ms_steam_stage_route_for_executable(home, engine, folder, executable);
+    /* The fex build: the game takes its route from launch.env when gogdl (or the game's own
+     * launcher exe, a GOG "launcher" playTask) starts it. */
+    if (ok)
+        ok = ms_steam_write_game_launch_env(home, gog_game_id(product_id), engine, folder, executable);
 done:
     free(executable);
     free(title);

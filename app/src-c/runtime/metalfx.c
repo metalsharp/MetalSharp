@@ -2,14 +2,17 @@
 
 #include "metalsharp_backend/json.h"
 #include "metalsharp_backend/json_writer.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -95,16 +98,13 @@ static char* state_path(const char* home) {
 }
 
 static char* conf_path(const char* home) {
-    char* runtime = join_path(home, "runtime/wine");
-    char* etc = runtime == NULL ? NULL : join_path(runtime, "etc");
-    char* path = etc == NULL ? NULL : join_path(etc, "dxmt.conf");
-    free(runtime);
-    free(etc);
-    return path;
+    char path[PATH_MAX];
+    return ms_wine_graphics_conf_path(home, path, sizeof(path)) ? strdup(path) : NULL;
 }
 
 static metalfx_state read_state(const char* home) {
-    metalfx_state state = {true, 2.0, 0};
+    /* Off until it is turned on. */
+    metalfx_state state = {false, 2.0, 0};
     char* path = state_path(home);
     size_t length;
     char* text;
@@ -184,10 +184,21 @@ static bool write_state(const char* home, metalfx_state state) {
     return ok;
 }
 
-static bool line_is_factor(const char* line) {
+static bool line_is_key(const char* line, const char* key) {
+    size_t length = strlen(key);
     while (*line != '\0' && isspace((unsigned char)*line))
         line++;
-    return strncmp(line, "d3d11.metalSpatialUpscaleFactor", strlen("d3d11.metalSpatialUpscaleFactor")) == 0;
+    return strncmp(line, key, length) == 0 && (line[length] == ' ' || line[length] == '\t' || line[length] == '=');
+}
+
+static bool line_is_factor(const char* line) {
+    return line_is_key(line, "d3d11.metalSpatialUpscaleFactor");
+}
+
+/* Mullion's switch: games read mullion.conf when they start, so the toggle needs no environment
+ * (one a game started from the Steam client would only get from the client's own start). */
+static bool line_is_switch(const char* line) {
+    return line_is_key(line, "d3d11.metalSpatialUpscale");
 }
 
 /* The factor in dxmt.conf; *found tells whether the file has one. */
@@ -230,11 +241,11 @@ static double read_conf_factor(const char* home) {
     return read_conf_factor_found(home, &found);
 }
 
-static bool write_conf_factor(const char* home, double factor) {
+static bool write_conf_factor(const char* home, double factor, bool enabled) {
     char* path = conf_path(home);
     char* parent;
     char* text;
-    char line[128];
+    char line[128], switch_line[64];
     size_t capacity = 1024, length = 0;
     char* output;
     char* cursor;
@@ -266,14 +277,42 @@ static bool write_conf_factor(const char* home, double factor) {
     }
     output[0] = '\0';
     (void)snprintf(line, sizeof(line), "d3d11.metalSpatialUpscaleFactor = %.2f", factor);
+    /* The switch line is Mullion's (the fex build); DXMT turns MetalFX on from the environment. */
+    if (ms_wine_is_fex())
+        (void)snprintf(switch_line, sizeof(switch_line), "d3d11.metalSpatialUpscale = %s", enabled ? "True" : "False");
+    else
+        switch_line[0] = '\0';
     if (text != NULL) {
         char* save = NULL;
         char* part = strtok_r(text, "\n", &save);
         while (part != NULL) {
-            const char* to_write = line_is_factor(part) ? line : part;
-            size_t part_length = strlen(to_write);
-            if (line_is_factor(part))
+            /* The factor line carries the switch line after it; a separate switch line is dropped. */
+            const char* to_write = part;
+            size_t part_length;
+            if (ms_wine_is_fex() && line_is_switch(part)) {
+                part = strtok_r(NULL, "\n", &save);
+                continue;
+            }
+            if (line_is_factor(part)) {
                 replaced = true;
+                to_write = line;
+            }
+            part_length = strlen(to_write);
+            if (length + part_length + strlen(switch_line) + 3 > capacity) {
+                while (length + part_length + strlen(switch_line) + 3 > capacity)
+                    capacity *= 2;
+                output = (char*)realloc(output, capacity);
+                if (output == NULL) {
+                    free(text);
+                    free(path);
+                    return false;
+                }
+            }
+            if (to_write == line && switch_line[0]) {
+                length += (size_t)snprintf(output + length, capacity - length, "%s\n%s\n", line, switch_line);
+                part = strtok_r(NULL, "\n", &save);
+                continue;
+            }
             if (length + part_length + 2 > capacity) {
                 while (length + part_length + 2 > capacity)
                     capacity *= 2;
@@ -292,9 +331,9 @@ static bool write_conf_factor(const char* home, double factor) {
         }
     }
     if (!replaced) {
-        size_t line_length = strlen(line);
-        if (length + line_length + 2 > capacity) {
-            capacity = length + line_length + 2;
+        size_t line_length = strlen(line) + strlen(switch_line) + 2;
+        if (length + line_length + 1 > capacity) {
+            capacity = length + line_length + 1;
             output = (char*)realloc(output, capacity);
             if (output == NULL) {
                 free(text);
@@ -302,10 +341,8 @@ static bool write_conf_factor(const char* home, double factor) {
                 return false;
             }
         }
-        memcpy(output + length, line, line_length);
-        length += line_length;
-        output[length++] = '\n';
-        output[length] = '\0';
+        length += (size_t)snprintf(output + length, capacity - length, switch_line[0] ? "%s\n%s\n" : "%s\n", line,
+                                   switch_line);
     }
     file = fopen(path, "wb");
     if (file == NULL) {
@@ -331,6 +368,27 @@ static double conf_factor_for(metalfx_state state) {
     return state.enabled ? state.factor : 1.0;
 }
 
+/* Whether the conf's switch line says `enabled`; false when it has none. */
+static bool conf_switch_is(const char* home, bool enabled) {
+    char* path = conf_path(home);
+    char* text = path ? read_file(path, NULL) : NULL;
+    bool matches = false;
+    for (char *save = NULL, *line = text ? strtok_r(text, "\n", &save) : NULL; line;
+         line = strtok_r(NULL, "\n", &save)) {
+        if (line_is_switch(line)) {
+            const char* value = strchr(line, '=');
+            value = value ? value + 1 : "";
+            while (isspace((unsigned char)*value))
+                value++;
+            matches = enabled == (!strncasecmp(value, "true", 4) || !strncmp(value, "1", 1));
+            break;
+        }
+    }
+    free(text);
+    free(path);
+    return matches;
+}
+
 bool ms_metalfx_sync_conf(const char* metalsharp_home) {
     metalfx_state state;
     bool found;
@@ -339,9 +397,10 @@ bool ms_metalfx_sync_conf(const char* metalsharp_home) {
         return false;
     state = read_state(metalsharp_home);
     factor = read_conf_factor_found(metalsharp_home, &found);
-    if (found && fabs(factor - conf_factor_for(state)) <= 0.001)
+    if (found && fabs(factor - conf_factor_for(state)) <= 0.001 &&
+        (!ms_wine_is_fex() || conf_switch_is(metalsharp_home, state.enabled)))
         return true;
-    return write_conf_factor(metalsharp_home, conf_factor_for(state));
+    return write_conf_factor(metalsharp_home, conf_factor_for(state), state.enabled);
 }
 
 char* ms_metalfx_get_json(const char* metalsharp_home) {
@@ -387,7 +446,8 @@ char* ms_metalfx_set_json(const char* metalsharp_home, const unsigned char* body
     }
     ms_json_free(request);
     state.timestamp = now_seconds();
-    ok = write_state(metalsharp_home, state) && write_conf_factor(metalsharp_home, conf_factor_for(state));
+    ok = write_state(metalsharp_home, state) &&
+         write_conf_factor(metalsharp_home, conf_factor_for(state), state.enabled);
     if (ok)
         return ms_metalfx_get_json(metalsharp_home);
     {

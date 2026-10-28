@@ -35,8 +35,11 @@ jobs:
       - name: Install toml
         run: pip3 install --user toml
 
-      - name: Validate mtsp-rules TOML
+      - name: Validate the rule sets (mtsp-rules.toml, mtsp-rules-fex.toml)
         run: python3 tools/ci/validate-rules-toml.py
+
+      - name: Check the FEX rule set is generated from the regular one
+        run: python3 tools/rules/generate-fex-rules.py --check
 
   docs:
     name: Doc Freshness CI
@@ -92,6 +95,10 @@ jobs:
 
       - name: C backend tests
         run: make -C app/src-c test
+
+      - name: C backend build and tests (Arm64 FEX)
+        # Its own BUILD_DIR: make does not rebuild objects when only VARIANT changes.
+        run: make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build-fex" test
 
       - name: Backend source contracts
         run: node --test app/tests/x87sidecar-gate.cjs app/tests/rosetta-avx-env.cjs

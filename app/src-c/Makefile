@@ -4,13 +4,20 @@ PROJECT_ROOT := $(abspath ../..)
 BUILD_DIR ?= $(CURDIR)/build
 TARGET ?= $(BUILD_DIR)/metalsharp-backend
 INSTALL_TARGET ?= $(TARGET)
-VERSION ?= 0.80.0
+VERSION ?= 1.0.0
+# regular: the x86_64 Wine runtime through Rosetta; fex: MetalSharp Wine (arm64, FEX)
+VARIANT ?= regular
 JSON_TEST ?= $(BUILD_DIR)/json-test
 MIGRATION_TEST ?= $(BUILD_DIR)/migration-test
 VCPP_TEST ?= $(BUILD_DIR)/setup-vcpp-test
 RUNTIME_READY_SIM ?= $(BUILD_DIR)/migration-runtime-ready-sim
 HTTP_SERVER_TEST ?= $(BUILD_DIR)/http-server-test
 GAME_EXE_TEST ?= $(BUILD_DIR)/game-executable-test
+WINE_RUNTIME_TEST ?= $(BUILD_DIR)/wine-runtime-test
+MTSP_RULES_TEST ?= $(BUILD_DIR)/mtsp-rules-test
+SETUP_VARIANT_TEST ?= $(BUILD_DIR)/setup-variant-test
+# A MetalSharp-Wine.app for the fex facade test; without one it checks only the mapping.
+METALSHARP_WINE_APP ?=
 
 CFLAGS ?= -std=c11 -O2 -g -D_POSIX_C_SOURCE=200809L
 CFLAGS += -Wall -Wextra -Wpedantic -Werror -fstack-protector-strong
@@ -18,7 +25,7 @@ ifeq ($(shell uname -s),Darwin)
 CFLAGS += -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
 LDFLAGS += -mmacosx-version-min=$(MACOSX_DEPLOYMENT_TARGET)
 endif
-CPPFLAGS += -I$(CURDIR)/include -DMS_BACKEND_VERSION=\"$(VERSION)\"
+CPPFLAGS += -I$(CURDIR)/include -DMS_BACKEND_VERSION=\"$(VERSION)\" -DMS_BACKEND_VARIANT=\"$(VARIANT)\"
 LDFLAGS ?=
 
 SOURCES := \
@@ -27,6 +34,7 @@ SOURCES := \
 	runtime/cache.c \
 	runtime/logs.c \
 	runtime/metalfx.c \
+	runtime/frame_rate.c \
 	runtime/mtsp.c \
 	runtime/mtsp_catalog.c \
 	runtime/setup.c \
@@ -34,6 +42,7 @@ SOURCES := \
 	runtime/steam.c \
 	runtime/game_executable.c \
 	runtime/updater.c \
+	runtime/wine_runtime.c \
 	runtime/rosetta.c \
 	runtime/kernel_handles.c \
 	runtime/kernel_apc.c \
@@ -73,7 +82,7 @@ SOURCES := \
 	runtime/main.c
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/c-backend/%.o)
 
-.PHONY: all clean install test asan-test
+.PHONY: all clean install test test-regular test-fex asan-test
 
 all: $(TARGET)
 
@@ -98,7 +107,27 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 $(BUILD_DIR)/runtime-routes-test: tests/runtime_routes_test.c runtime/steam_actions.c runtime/epic.c $(OBJECTS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/runtime_routes_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/steam_actions.o $(BUILD_DIR)/c-backend/runtime/epic.o $(BUILD_DIR)/c-backend/runtime/ubisoft.o,$(OBJECTS))
 
-test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(BUILD_DIR)/runtime-routes-test
+test: test-$(VARIANT)
+
+# The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
+# MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
+# the regular build's x86_64 runtime and run in test-regular.
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST)
+	@"$(SETUP_VARIANT_TEST)"
+	@"$(JSON_TEST)"
+	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
+	@"$(MIGRATION_TEST)"
+	@"$(HTTP_SERVER_TEST)"
+	@"$(GAME_EXE_TEST)"
+	@ms_home="$$(mktemp -d)"; "$(WINE_RUNTIME_TEST)" "$$ms_home" $(METALSHARP_WINE_APP); rc=$$?; rm -rf "$$ms_home"; exit $$rc
+	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
+
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(MTSP_RULES_TEST) $(SETUP_VARIANT_TEST) $(BUILD_DIR)/runtime-routes-test
+	@"$(SETUP_VARIANT_TEST)"
+	@cd "$(PROJECT_ROOT)" && METALSHARP_HOME= "$(abspath $(MTSP_RULES_TEST))"
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"
@@ -107,9 +136,11 @@ test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) 
 	@ms_home="$$(mktemp -d)"; "$(VCPP_TEST)" $$ms_home; rc=$$?; rm -rf "$$ms_home"; exit $$rc
 	@"$(HTTP_SERVER_TEST)"
 	@"$(GAME_EXE_TEST)"
+	@ms_home="$$(mktemp -d)"; "$(WINE_RUNTIME_TEST)" "$$ms_home" $(METALSHARP_WINE_APP); rc=$$?; rm -rf "$$ms_home"; exit $$rc
 	@python3 "$(CURDIR)/tests/updater_test.py" "$(TARGET)"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
 	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
 
 asan-test:
@@ -152,7 +183,7 @@ $(JSON_TEST): runtime/json.c runtime/json_writer.c tests/json_test.c include/met
 
 $(MIGRATION_TEST): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_test.c include/metalsharp_backend/migration.h include/metalsharp_backend/steam_actions.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/migration_test.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/wine_runtime.c tests/migration_test.c -lpthread
 
 $(HTTP_SERVER_TEST): runtime/http_server.c runtime/local_socket.c tests/http_server_test.c include/metalsharp_backend/http_server.h include/metalsharp_backend/local_socket.h
 	@mkdir -p "$(@D)"
@@ -162,18 +193,33 @@ $(GAME_EXE_TEST): runtime/game_executable.c tests/game_executable_test.c include
 	@mkdir -p "$(@D)"
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_executable.c tests/game_executable_test.c
 
+# setup.c and migration.c together, as this VARIANT builds them (both #included, like the vcpp test).
+$(SETUP_VARIANT_TEST): runtime/setup.c runtime/migration.c runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_variant_test.c include/metalsharp_backend/setup.h include/metalsharp_backend/migration.h include/metalsharp_backend/wine_runtime.h
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_variant_test.c -lpthread
+
+# This build's game rule set (configs/mtsp-rules.toml, or mtsp-rules-fex.toml with VARIANT=fex).
+$(MTSP_RULES_TEST): runtime/mtsp.c runtime/mtsp_catalog.c runtime/json.c runtime/json_writer.c runtime/wine_runtime.c tests/mtsp_rules_test.c include/metalsharp_backend/mtsp.h $(PROJECT_ROOT)/configs/mtsp-rules.toml $(PROJECT_ROOT)/configs/mtsp-rules-fex.toml
+	@mkdir -p "$(@D)"
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/mtsp.c runtime/mtsp_catalog.c runtime/json.c runtime/json_writer.c runtime/wine_runtime.c tests/mtsp_rules_test.c -lpthread
+
+# The fex build's code, whatever VARIANT this build is.
+$(WINE_RUNTIME_TEST): runtime/wine_runtime.c runtime/cache.c tests/wine_runtime_test.c include/metalsharp_backend/wine_runtime.h include/metalsharp_backend/cache.h
+	@mkdir -p "$(@D)"
+	$(CC) $(filter-out -DMS_BACKEND_VARIANT=%,$(CPPFLAGS)) -DMS_BACKEND_VARIANT=\"fex\" $(CFLAGS) -o "$@" runtime/wine_runtime.c runtime/cache.c runtime/json.c runtime/json_writer.c tests/wine_runtime_test.c
+
 # The vcpp test #includes runtime/setup.c for the static progress helpers, so
 # setup.c itself must not be linked into this binary.
-$(VCPP_TEST): runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c tests/setup_vcpp_test.c runtime/setup.c include/metalsharp_backend/setup.h include/metalsharp_backend/rosetta.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
+$(VCPP_TEST): runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_vcpp_test.c runtime/setup.c include/metalsharp_backend/setup.h include/metalsharp_backend/rosetta.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c tests/setup_vcpp_test.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/rosetta.c runtime/wine_runtime.c tests/setup_vcpp_test.c -lpthread
 
 # The runtime-ready sim #includes runtime/migration.c for runtime_ready();
 # migration.c must not be linked into this binary (same pattern as the vcpp
 # test with setup.c).
 $(RUNTIME_READY_SIM): runtime/json.c runtime/json_writer.c runtime/migration.c tests/migration_runtime_ready_sim.c include/metalsharp_backend/migration.h include/metalsharp_backend/steam_actions.h include/metalsharp_backend/json.h include/metalsharp_backend/json_writer.h
 	@mkdir -p "$(@D)"
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c tests/migration_runtime_ready_sim.c -lpthread
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/json.c runtime/json_writer.c runtime/logs.c runtime/wine_runtime.c tests/migration_runtime_ready_sim.c -lpthread
 
 clean:
 	rm -rf "$(BUILD_DIR)"

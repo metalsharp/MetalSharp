@@ -7,6 +7,11 @@ TARGET_VERSION=""
 STATUS_FILE=""
 METALSHARP_HOME_ARG=""
 APP_PID="0"
+# The build being installed: --variant regular|fex, else from the DMG's name.
+TARGET_VARIANT_ARG=""
+TARGET_VARIANT=""
+# --reinstall 1: the same version of the installed build may go back over it (the FEX build's --recover).
+TARGET_REINSTALL="0"
 
 write_status() {
     local phase="$1" percent="$2" message="$3" error="${4:-}"
@@ -162,6 +167,195 @@ prepare_install() {
     force_stop_old_runtime quiet
 }
 
+normalize_version() {
+    local value="${1#v}"
+    value="${value%%-*}"
+    value="${value%%+*}"
+    echo "$value" | sed -E 's/[^0-9.].*$//' | sed -E 's/^\.+|\.+$//g'
+}
+
+version_gt() {
+    local left
+    local right
+    left="$(normalize_version "$1")"
+    right="$(normalize_version "$2")"
+    awk -v left="$left" -v right="$right" '
+        BEGIN {
+            left_len = split(left, l, ".");
+            right_len = split(right, r, ".");
+            max = (left_len > right_len) ? left_len : right_len;
+            for (i = 1; i <= max; i++) {
+                a = (l[i] == "") ? 0 : l[i] + 0;
+                b = (r[i] == "") ? 0 : r[i] + 0;
+                if (a > b) exit 0;
+                if (a < b) exit 1;
+            }
+            exit 1;
+        }
+    '
+}
+
+read_app_version() {
+    local app_path="$1"
+    /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Contents/Info.plist" 2>/dev/null || \
+        defaults read "$app_path/Contents/Info" CFBundleShortVersionString 2>/dev/null || true
+}
+
+# The build an app bundle is, from its Info.plist MetalSharpVariant: "regular"
+# or "fex". Prints nothing when the key is missing (apps from before the FEX
+# build, which are all the regular build) or holds anything else.
+read_app_variant() {
+    local value
+    value="$(/usr/libexec/PlistBuddy -c "Print :MetalSharpVariant" "$1/Contents/Info.plist" 2>/dev/null || true)"
+    value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+    case "$value" in
+        regular|fex) echo "$value" ;;
+        *) echo "" ;;
+    esac
+}
+
+# The installed build: its MetalSharpVariant, else regular.
+installed_app_variant() {
+    local value
+    value="$(read_app_variant "$1")"
+    echo "${value:-regular}"
+}
+
+# The build a DMG holds, from its file name, the same rule the backend uses for
+# release assets: a name with "FEX" in it (MetalSharp-1.0.0-arm64-FEX.dmg, the
+# in-app download MetalSharp-1.0.0-FEX.dmg) is the FEX build; any other
+# MetalSharp DMG (MetalSharp-1.0.0-arm64.dmg, MetalSharp-1.0.0.dmg) is regular.
+dmg_name_variant() {
+    case "$(basename "$1" | tr '[:upper:]' '[:lower:]')" in
+        *fex*) echo "fex" ;;
+        *) echo "regular" ;;
+    esac
+}
+
+# Whether the target <version> <variant> may replace the installed <version>
+# <variant> [reinstall]: a newer version always may; the same version as a
+# switch between the regular and FEX builds, or, with reinstall=1, as a repair
+# of the same build; an older version never. An installed app whose version
+# can't be read doesn't block the install.
+install_target_allowed() {
+    local target_version="$1" target_variant="$2" current_version="$3" current_variant="$4" reinstall="${5:-0}"
+    [ -n "$current_version" ] || return 0
+    version_gt "$target_version" "$current_version" && return 0
+    version_gt "$current_version" "$target_version" && return 1
+    [ "$target_variant" != "$current_variant" ] || [ "$reinstall" = "1" ]
+}
+
+# The DMG --recover installs for the installed build <variant> at <version>:
+# sets RECOVERY_VARIANT, RECOVERY_DMG_NAME (the release asset) and
+# RECOVERY_CACHED_NAME (the in-app updater's download of it). The regular
+# build's are MetalSharp-<ver>-arm64.dmg and MetalSharp-<ver>.dmg; the FEX
+# build reinstalls the FEX build, MetalSharp-<ver>-arm64-FEX.dmg and
+# MetalSharp-<ver>-FEX.dmg, which carries its MetalSharp Wine.
+recovery_assets() {
+    local variant="$1" version="$2"
+    if [ "$variant" = "fex" ]; then
+        RECOVERY_VARIANT="fex"
+        RECOVERY_DMG_NAME="MetalSharp-$version-arm64-FEX.dmg"
+        RECOVERY_CACHED_NAME="MetalSharp-$version-FEX.dmg"
+    else
+        RECOVERY_VARIANT="regular"
+        RECOVERY_DMG_NAME="MetalSharp-$version-arm64.dmg"
+        RECOVERY_CACHED_NAME="MetalSharp-$version.dmg"
+    fi
+}
+
+# The Developer ID check --recover and FEX installs share: both apps pass a
+# strict deep signature check and the update is signed by the installed app's
+# team. Without an installed app only the update's own signature is checked.
+# On failure prints the reason and returns 1.
+verify_update_signature() {
+    local target_app="$1" installed_app="$2" details target_team installed_team
+    if ! codesign --verify --deep --strict "$target_app" >/dev/null 2>&1; then
+        echo "update app signature is invalid"
+        return 1
+    fi
+    if ! details="$(codesign -dv --verbose=4 "$target_app" 2>&1)"; then
+        echo "could not read update signature"
+        return 1
+    fi
+    target_team="$(printf '%s\n' "$details" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
+    if [ -z "$target_team" ] || [ "$target_team" = "not set" ]; then
+        echo "update app is not signed with a Developer ID team"
+        return 1
+    fi
+    [ -n "$installed_app" ] && [ -d "$installed_app" ] || return 0
+    if ! codesign --verify --deep --strict "$installed_app" >/dev/null 2>&1; then
+        echo "installed app signature is invalid"
+        return 1
+    fi
+    if ! details="$(codesign -dv --verbose=4 "$installed_app" 2>&1)"; then
+        echo "could not read installed app signature"
+        return 1
+    fi
+    installed_team="$(printf '%s\n' "$details" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
+    if [ "$target_team" != "$installed_team" ]; then
+        echo "update app is not signed by the installed app's Developer ID team"
+        return 1
+    fi
+    return 0
+}
+
+# Sets TARGET_VARIANT from --variant, else from the DMG's file name.
+resolve_target_variant() {
+    case "$TARGET_VARIANT_ARG" in
+        regular|fex) TARGET_VARIANT="$TARGET_VARIANT_ARG" ;;
+        '') TARGET_VARIANT="$(dmg_name_variant "$DMG_PATH")" ;;
+        *)
+            write_status "error" 0 "Update variant must be regular or fex: $TARGET_VARIANT_ARG" "variant_invalid"
+            return 1
+            ;;
+    esac
+}
+
+# Whether the mounted <app> may replace the installed <app> (TARGET_VERSION_CLEAN,
+# TARGET_VARIANT): the app holds the build being installed, it is newer or the
+# same version of the other build, and the FEX build (or a switch away from
+# it) carries the bundle id and the installed app's Developer ID team, the
+# checks --recover gives the regular build. Sets CURRENT_APP_VERSION and
+# CURRENT_VARIANT; on refusal writes the error status and returns 1.
+check_install_target() {
+    local app_source="$1" app_path="$2" dmg_app_variant signature_error
+    dmg_app_variant="$(read_app_variant "$app_source")"
+    if [ -n "$dmg_app_variant" ] && [ "$dmg_app_variant" != "$TARGET_VARIANT" ]; then
+        write_status "error" 50 "DMG holds the $dmg_app_variant build of MetalSharp, not the $TARGET_VARIANT build" "variant_mismatch"
+        return 1
+    fi
+
+    CURRENT_APP_VERSION=""
+    CURRENT_VARIANT="regular"
+    if [ -d "$app_path" ]; then
+        CURRENT_APP_VERSION="$(normalize_version "$(read_app_version "$app_path")")"
+        CURRENT_VARIANT="$(installed_app_variant "$app_path")"
+    fi
+    if ! install_target_allowed "$TARGET_VERSION_CLEAN" "$TARGET_VARIANT" "$CURRENT_APP_VERSION" "$CURRENT_VARIANT" \
+        "$TARGET_REINSTALL"; then
+        if version_gt "$CURRENT_APP_VERSION" "$TARGET_VERSION_CLEAN"; then
+            write_status "error" 50 "DMG version $TARGET_VERSION_CLEAN is older than installed MetalSharp $CURRENT_APP_VERSION" "target_not_newer"
+        else
+            write_status "error" 50 "DMG version $TARGET_VERSION_CLEAN is not newer than installed MetalSharp $CURRENT_APP_VERSION" "target_not_newer"
+        fi
+        return 1
+    fi
+
+    if [ "$TARGET_VARIANT" = "fex" ] || [ "$CURRENT_VARIANT" = "fex" ]; then
+        write_status "verifying_signature" 48 "Verifying the update's Developer ID signature..."
+        if ! /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$app_source/Contents/Info.plist" 2>/dev/null | grep -qx 'com.metalsharp.app'; then
+            write_status "error" 50 "Update image is not the MetalSharp app" "app_bundle_invalid"
+            return 1
+        fi
+        if ! signature_error="$(verify_update_signature "$app_source" "$app_path")"; then
+            write_status "error" 50 "$signature_error" "signature_invalid"
+            return 1
+        fi
+    fi
+    return 0
+}
+
 # Let tests source the updater functions without running the installer.
 if [ "${METALSHARP_UPDATE_TEST_SOURCE_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
@@ -185,9 +379,10 @@ run_recovery_update() {
     local app_source=""
     local target_version=""
     local current_version=""
-    local target_team=""
-    local installed_team=""
-    local details=""
+    local target_variant=""
+    local current_variant=""
+    local reason=""
+    local reinstall="0"
     local script_path=""
     local app_pid="0"
     local backend_pid="0"
@@ -223,8 +418,17 @@ run_recovery_update() {
     esac
     TARGET_VERSION="$recovery_version"
     write_status "recovery_verifying" 4 "Checking the latest official release..."
-    dmg_name="MetalSharp-$recovery_version-arm64.dmg"
-    existing_dmg="$ms_dir/cache/updates/MetalSharp-$recovery_version.dmg"
+    # Recovery installs the installed build again: the regular build's asset is
+    # exactly MetalSharp-<ver>-arm64.dmg (cached by the in-app updater as
+    # MetalSharp-<ver>.dmg), the FEX build's MetalSharp-<ver>-arm64-FEX.dmg
+    # (MetalSharp-<ver>-FEX.dmg), never one for the other, and the app inside is
+    # checked for its build below. The FEX build may reinstall its own version.
+    current_variant="$(installed_app_variant "$installed_app")"
+    recovery_assets "$current_variant" "$recovery_version"
+    reinstall="0"
+    [ "$RECOVERY_VARIANT" != "fex" ] || reinstall="1"
+    dmg_name="$RECOVERY_DMG_NAME"
+    existing_dmg="$ms_dir/cache/updates/$RECOVERY_CACHED_NAME"
     recovery_dmg="$recovery_dir/$dmg_name"
     download_url="https://github.com/$repository/releases/download/$release_tag/$dmg_name"
     mkdir -p "$recovery_dir" || recovery_fail "could not create recovery cache"
@@ -274,24 +478,19 @@ run_recovery_update() {
     [ "$target_version" = "$recovery_version" ] || recovery_fail "expected v$recovery_version, found ${target_version:-unknown}"
     /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_source/Contents/Info.plist" 2>/dev/null | grep -qx 'com.metalsharp.app' || \
         recovery_fail "update image is not the MetalSharp app"
-    codesign --verify --deep --strict "$app_source" >/dev/null 2>&1 || recovery_fail "update app signature is invalid"
-    codesign --verify --deep --strict "$installed_app" >/dev/null 2>&1 || recovery_fail "installed app signature is invalid"
-    details="$(codesign -dv --verbose=4 "$app_source" 2>&1)" || recovery_fail "could not read update signature"
-    target_team="$(printf '%s\n' "$details" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
-    details="$(codesign -dv --verbose=4 "$installed_app" 2>&1)" || recovery_fail "could not read installed app signature"
-    installed_team="$(printf '%s\n' "$details" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"
-    [ -n "$target_team" ] && [ "$target_team" = "$installed_team" ] || \
-        recovery_fail "update app is not signed by the installed app's Developer ID team"
+    target_variant="$(read_app_variant "$app_source")"
+    [ "${target_variant:-regular}" = "$RECOVERY_VARIANT" ] || \
+        recovery_fail "update image holds the ${target_variant:-regular} build, not the $RECOVERY_VARIANT build"
+    target_variant="$RECOVERY_VARIANT"
+    reason="$(verify_update_signature "$app_source" "$installed_app")" || recovery_fail "$reason"
     current_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$installed_app/Contents/Info.plist" 2>/dev/null || true)"
     [ -n "$current_version" ] || recovery_fail "could not read installed app version"
-    if ! awk -v left="$recovery_version" -v right="$current_version" 'BEGIN {
-        nl = split(left, l, "."); nr = split(right, r, "."); n = nl > nr ? nl : nr;
-        for (i = 1; i <= n; i++) {
-            a = l[i] == "" ? 0 : l[i] + 0; b = r[i] == "" ? 0 : r[i] + 0;
-            if (a > b) exit 0; if (a < b) exit 1;
-        }
-        exit 1;
-    }'; then
+    # The same version is allowed as a reinstall of the FEX build.
+    if ! install_target_allowed "$(normalize_version "$recovery_version")" "$target_variant" \
+        "$(normalize_version "$current_version")" "$current_variant" "$reinstall"; then
+        if version_gt "$(normalize_version "$current_version")" "$(normalize_version "$recovery_version")"; then
+            recovery_fail "v$recovery_version is older than the installed v$current_version"
+        fi
         recovery_fail "v$recovery_version is not newer than the installed v$current_version"
     fi
 
@@ -305,7 +504,13 @@ run_recovery_update() {
     backend_pid="${backend_pid:-0}"
 
     write_status "awaiting_confirmation" 20 "Waiting for confirmation to close MetalSharp and Steam/Wine processes..."
-    if ! /usr/bin/osascript -e "display dialog \"Install MetalSharp $recovery_version over v$current_version? This will close MetalSharp and stop Steam/Wine processes. Save work in running games first.\" buttons {\"Cancel\", \"Install Update\"} default button \"Cancel\" cancel button \"Cancel\" with icon caution" >/dev/null; then
+    local prompt="Install MetalSharp $recovery_version over v$current_version?"
+    if [ "$current_variant" != "$target_variant" ]; then
+        prompt="Switch from the FEX build of MetalSharp v$current_version to the regular build of MetalSharp $recovery_version?"
+    elif [ "$target_variant" = "fex" ]; then
+        prompt="Reinstall the Arm64 FEX build of MetalSharp $recovery_version, with its MetalSharp Wine, over v$current_version?"
+    fi
+    if ! /usr/bin/osascript -e "display dialog \"$prompt This will close MetalSharp and stop Steam/Wine processes. Save work in running games first.\" buttons {\"Cancel\", \"Install Update\"} default button \"Cancel\" cancel button \"Cancel\" with icon caution" >/dev/null; then
         recovery_fail "update cancelled"
     fi
     echo "Installing MetalSharp $recovery_version over v$current_version; the normal migration handoff will run after relaunch."
@@ -313,6 +518,8 @@ run_recovery_update() {
         --dmg "$dmg_path" \
         --backend-pid "$backend_pid" \
         --target-version "$recovery_version" \
+        --variant "$target_variant" \
+        --reinstall "$reinstall" \
         --status-file "$ms_dir/update_install_status.json" \
         --metalsharp-home "$ms_dir" \
         --app-pid "$app_pid"
@@ -333,6 +540,8 @@ while [ "$#" -gt 0 ]; do
         --status-file) shift; STATUS_FILE="${1:-}"; shift ;;
         --metalsharp-home) shift; METALSHARP_HOME_ARG="${1:-}"; shift ;;
         --app-pid) shift; APP_PID="${1:-0}"; shift ;;
+        --variant) shift; TARGET_VARIANT_ARG="${1:-}"; shift ;;
+        --reinstall) shift; TARGET_REINSTALL="${1:-0}"; shift ;;
         --) shift; break ;;
         *) shift ;;
     esac
@@ -402,40 +611,6 @@ verify_app_bundle() {
     return 0
 }
 
-normalize_version() {
-    local value="${1#v}"
-    value="${value%%-*}"
-    value="${value%%+*}"
-    echo "$value" | sed -E 's/[^0-9.].*$//' | sed -E 's/^\.+|\.+$//g'
-}
-
-version_gt() {
-    local left
-    local right
-    left="$(normalize_version "$1")"
-    right="$(normalize_version "$2")"
-    awk -v left="$left" -v right="$right" '
-        BEGIN {
-            left_len = split(left, l, ".");
-            right_len = split(right, r, ".");
-            max = (left_len > right_len) ? left_len : right_len;
-            for (i = 1; i <= max; i++) {
-                a = (l[i] == "") ? 0 : l[i] + 0;
-                b = (r[i] == "") ? 0 : r[i] + 0;
-                if (a > b) exit 0;
-                if (a < b) exit 1;
-            }
-            exit 1;
-        }
-    '
-}
-
-read_app_version() {
-    local app_path="$1"
-    /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$app_path/Contents/Info.plist" 2>/dev/null || \
-        defaults read "$app_path/Contents/Info" CFBundleShortVersionString 2>/dev/null || true
-}
-
 require_app_version() {
     local app_path="$1"
     local label="$2"
@@ -463,6 +638,7 @@ if [ -z "$TARGET_VERSION_CLEAN" ]; then
     write_status "error" 0 "Update target version is invalid: $TARGET_VERSION" "target_version_invalid"
     exit 1
 fi
+resolve_target_variant || exit 1
 
 prepare_install
 
@@ -497,13 +673,7 @@ if ! verify_app_bundle "$APP_SOURCE"; then
 fi
 require_app_version "$APP_SOURCE" "DMG app"
 
-if [ -d "$APP_PATH" ]; then
-    CURRENT_APP_VERSION="$(normalize_version "$(read_app_version "$APP_PATH")")"
-    if [ -n "$CURRENT_APP_VERSION" ] && ! version_gt "$TARGET_VERSION_CLEAN" "$CURRENT_APP_VERSION"; then
-        write_status "error" 50 "DMG version $TARGET_VERSION_CLEAN is not newer than installed MetalSharp $CURRENT_APP_VERSION" "target_not_newer"
-        exit 1
-    fi
-fi
+check_install_target "$APP_SOURCE" "$APP_PATH" || exit 1
 
 write_status "installing" 50 "Staging new version..."
 rm -rf "$TMP_APP_PATH" "$BACKUP_APP_PATH" 2>/dev/null || true
@@ -548,7 +718,7 @@ cleanup_update_app_backups
 write_status "installed" 80 "New version installed"
 
 mkdir -p "$MS_DIR"
-printf '{"needed":true,"target_version":"%s","timestamp":%s}\n' "$TARGET_VERSION" "$(date +%s)" > "$MS_DIR/.post-update-migration" 2>/dev/null || true
+printf '{"needed":true,"target_version":"%s","target_variant":"%s","previous_variant":"%s","timestamp":%s}\n' "$TARGET_VERSION" "$TARGET_VARIANT" "$CURRENT_VARIANT" "$(date +%s)" > "$MS_DIR/.post-update-migration" 2>/dev/null || true
 
 write_status "unmounting" 82 "Unmounting update disk..."
 detach_mount

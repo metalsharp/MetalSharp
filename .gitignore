@@ -79,3 +79,7 @@ vkd3d-proton-reference/
 # regeneratable from this repo) ships inside the app resources.
 !app/tools/steam-art-manager/
 !app/tools/steam-art-manager/**
+
+# backend builds of a variant (make VARIANT=fex BUILD_DIR=...)
+app/src-c/build-*/
+app/src-c/app/

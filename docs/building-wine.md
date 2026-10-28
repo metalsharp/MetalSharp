@@ -1,7 +1,9 @@
 # Building MetalSharp Wine
-**Updated:** 2026-10-05
+**Updated:** 2026-10-28
 
-Builds the **Wine 11.17** runtime: x86_64 Unix host (runs under Rosetta) with i386 + x86_64 PE (WoW64). Build into a separate directory, never over `~/.metalsharp/runtime` or a live Steam prefix.
+Builds the regular x86_64 build's **Wine 11.17** runtime: x86_64 Unix host (runs under Rosetta) with i386 + x86_64 PE (WoW64). Build into a separate directory, never over `~/.metalsharp/runtime` or a live Steam prefix.
+
+The Arm64 FEX build's runtime, MetalSharp Wine (Wine 11.20 with FEX, Mullion, VKD3D-Proton, DXVK and WineMetalGL), is built and released separately in [metalsharp/MetalSharp-Wine](https://github.com/metalsharp/MetalSharp-Wine); the FEX DMG carries its signed `MetalSharp-Wine.app` unchanged.
 
 ## Source
 

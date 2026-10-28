@@ -103,9 +103,12 @@ def check_updater_handoff() -> None:
 
     bridge = read("app-gpui/src/updater_bridge.rs")
     controller = read("app-gpui/src/ui_live.rs")
-    if 'variant == "regular"' not in bridge or 'command.arg("--recover")' not in bridge:
-        fail("stable in-app updates must hand off to update.sh --recover")
-    if '.arg("--app-pid")' not in bridge:
+    if 'running == "regular" && variant == "regular"' not in bridge or 'vec!["--recover".into()]' not in bridge:
+        fail("stable in-app updates of the regular build must hand off to update.sh --recover")
+    for needle in ['"--dmg".into()', '"--variant".into()', '"--target-version".into()']:
+        if needle not in bridge:
+            fail("updates that switch or involve the FEX build must install the downloaded DMG explicitly")
+    if '"--app-pid".into()' not in bridge:
         fail("FEX in-app updates must pass the MetalSharp PID to the updater")
     if "updater_bridge::spawn_install(" not in controller or "&path, pid, &target, variant," not in controller:
         fail("the selected update variant must reach the updater handoff")

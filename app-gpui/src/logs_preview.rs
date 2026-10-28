@@ -20,8 +20,38 @@ struct PreviewCrash {
     file: String,
 }
 
+/// Crash report groups, in display order. FEX runs D3DMetal and GPTK on VKD3D-Proton and D3D9 on
+/// DXVK, and has OpenGL, so its groups differ.
+fn crash_groups(fex: bool) -> &'static [&'static str] {
+    if fex {
+        &[
+            "Mullion (DXMT)",
+            "VKD3D-Proton",
+            "DXVK",
+            "OpenGL",
+            "System",
+            "Other",
+        ]
+    } else {
+        &[
+            "VKD3D", "D3D9", "DXMT", "DXMT(32)", "FNA/Mono", "D3DMetal", "M13", "System", "Other",
+        ]
+    }
+}
+
 fn crash_pipeline(raw: &str) -> &'static str {
-    match raw.trim().to_lowercase().as_str() {
+    crash_pipeline_for(raw, crate::variant::is_fex())
+}
+
+fn crash_pipeline_for(raw: &str, fex: bool) -> &'static str {
+    let raw = raw.trim().to_lowercase();
+    if fex {
+        return match raw.as_str() {
+            "system" => "System",
+            other => crate::variant::fex_pipeline_label(other).unwrap_or("Other"),
+        };
+    }
+    match raw.as_str() {
         "vkd3d" => "VKD3D",
         "d3d9" | "m9" | "dxvk" | "dxvk_32" => "D3D9",
         "dxmt" | "m10" | "m11" => "DXMT",
@@ -552,10 +582,7 @@ impl Render for LogsPreview {
                         .child("No crash reports found."),
                 );
             } else {
-                for pipeline in [
-                    "VKD3D", "D3D9", "DXMT", "DXMT(32)", "FNA/Mono", "D3DMetal", "M13", "System",
-                    "Other",
-                ] {
+                for &pipeline in crash_groups(crate::variant::is_fex()) {
                     let reports: Vec<_> = self
                         .crashes
                         .iter()
@@ -739,5 +766,32 @@ mod tests {
         }
         assert_eq!(logs.lines.len(), 1000);
         assert_eq!(format_bytes(18432), "18.0 KB");
+    }
+    #[test]
+    fn fex_crash_groups_fold_rosetta_pipelines_into_mullion() {
+        assert_eq!(crash_pipeline_for("dxmt_32", true), "Mullion (DXMT)");
+        for raw in ["d3dmetal", "m13"] {
+            assert_eq!(crash_pipeline_for(raw, true), "VKD3D-Proton");
+        }
+        assert_eq!(crash_pipeline_for("d3d9", true), "DXVK");
+        assert_eq!(crash_pipeline_for("VKD3D", true), "VKD3D-Proton");
+        assert_eq!(crash_pipeline_for("dxvk", true), "DXVK");
+        assert_eq!(crash_pipeline_for("wine_bare", true), "OpenGL");
+        assert_eq!(crash_pipeline_for("fna_x86", true), "Mullion (DXMT)");
+        assert_eq!(crash_pipeline_for("d3dmetal", false), "D3DMetal");
+        assert_eq!(crash_pipeline_for("dxvk", false), "D3D9");
+        for fex in [false, true] {
+            for raw in [
+                "d3dmetal",
+                "vkd3d",
+                "dxvk",
+                "wine_bare",
+                "fna_arm64",
+                "system",
+                "x",
+            ] {
+                assert!(crash_groups(fex).contains(&crash_pipeline_for(raw, fex)));
+            }
+        }
     }
 }

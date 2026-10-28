@@ -41,7 +41,7 @@ for f in "${STAGED[@]}"; do
         app-gpui/*.rs)                      NEED_CARGO=1 ;;
     esac
 done
-if printf '%s\n' "${STAGED[@]}" | grep -q '^configs/mtsp-rules.toml$'; then
+if printf '%s\n' "${STAGED[@]}" | grep -Eq '^(configs/mtsp-rules(-fex)?\.toml|tools/rules/generate-fex-rules\.py)$'; then
     NEED_PYTHON=1
 fi
 
@@ -99,11 +99,12 @@ fi
 # --- 3. Rules TOML validation --
 
 if [ "$NEED_PYTHON" -eq 1 ]; then
-    log "validating configs/mtsp-rules.toml"
+    log "validating configs/mtsp-rules.toml and configs/mtsp-rules-fex.toml"
     if ! python3 -c "import toml" 2>/dev/null; then
         pip3 install --user toml >/dev/null 2>&1
     fi
     python3 tools/ci/validate-rules-toml.py || fail "rules TOML validation failed."
+    python3 tools/rules/generate-fex-rules.py --check || fail "configs/mtsp-rules-fex.toml is out of date."
 fi
 
 # --- 4. ShellCheck on modified shell scripts --

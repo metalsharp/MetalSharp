@@ -1,9 +1,9 @@
 # Ubisoft Connect
-**Updated:** 2026-10-05
+**Updated:** 2026-10-28
 
 1. **Install.** Open the **Start Steam** dropdown in the library header and choose to install Ubisoft Connect. MetalSharp creates a Ubisoft prefix and runs the installer. Keep the default install location so MetalSharp can find it.
 
-2. **Start and stop.** Once installed, the dropdown shows **Launch Ubisoft**. Use the same dropdown to stop it.
+2. **Start and stop.** Once installed, the dropdown shows **Launch Ubisoft**. Use the same dropdown to stop it. Connect runs on D3DMetal on the x86_64 build and on Mullion on the Arm64 FEX build.
 
    <img width="370" alt="Launch Ubisoft in the dropdown" src="https://github.com/user-attachments/assets/aba24c45-a35b-49ad-bfb9-e34f9de0a094" />
    <img width="370" alt="Stop Ubisoft in the dropdown" src="https://github.com/user-attachments/assets/d32c82f1-468c-4622-a1fa-6dde3265dfc2" />

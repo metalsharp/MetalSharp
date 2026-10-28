@@ -10,6 +10,8 @@ bool ms_config_msync_enabled(const char* metalsharp_home);
 bool ms_config_retina_enabled(const char* metalsharp_home);
 /* x87 acceleration (the Rosetta x87 sidecar) for every launch, whatever its graphics pipeline. */
 bool ms_config_x87_enabled(const char* metalsharp_home);
+bool ms_config_metal_hud_enabled(const char* metalsharp_home);
+bool ms_config_ray_tracing_enabled(const char* metalsharp_home);
 bool ms_config_graphics_runtime_logs_enabled(const char* metalsharp_home);
 bool ms_config_exclude_native_mac_steam_games(const char* metalsharp_home);
 

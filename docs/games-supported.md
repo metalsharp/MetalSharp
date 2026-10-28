@@ -1,7 +1,16 @@
 # Supported Games
 **Updated:** 2026-10-28
 
-Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M4 MacBook Air (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#launching-games-and-graphics-routes).
+Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M4 MacBook Air (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#graphics-routes).
+
+The tables are the x86_64 build's routes. The Arm64 FEX build (early access) runs the same games on its own lanes. D3DMetal titles move to VKD3D-Proton, DXMT titles to Mullion, and D3D9 titles to DXVK, as its rule set `configs/mtsp-rules-fex.toml` sets out.
+
+## Arm64 FEX Build — verified on MetalSharp Wine
+
+- Dragon's Dogma 2 (2054970): Mullion
+- Red Dead Redemption 2 (1174180): Mullion (runs best there)
+- God of War Ragnarök (2322010): Mullion and VKD3D-Proton
+- PEAK (3527290): VKD3D-Proton and Mullion
 
 ## Sharp Library Sources
 

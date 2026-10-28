@@ -8,6 +8,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/process.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -130,6 +131,13 @@ static char* custom_game_name(const char* home, const char* id, const char* fall
 }
 
 static const char* canonical_gamejolt_engine(const char* engine) {
+    /* The fex build: Mullion by default, and its DXVK and OpenGL lanes. */
+    if (ms_wine_is_fex()) {
+        if (!engine || !engine[0] || !strcasecmp(engine, "auto"))
+            return "dxmt";
+        if (!strcasecmp(engine, "dxvk") || !strcasecmp(engine, "wine_bare"))
+            return !strcasecmp(engine, "dxvk") ? "dxvk" : "wine_bare";
+    }
     if (!engine || !engine[0] || !strcasecmp(engine, "auto") || !strcasecmp(engine, "vkd3d"))
         return "vkd3d";
     if (!strcasecmp(engine, "d3dmetal") || !strcasecmp(engine, "d3dmetal_native"))
@@ -358,7 +366,7 @@ void ms_gamejolt_register_game_process(const char* home, const char* id, pid_t p
         return;
     char* working_dir = strdup(executable);
     char* slash = working_dir ? strrchr(working_dir, '/') : NULL;
-    char* runtime_dir = join_path(home, "runtime/wine");
+    char* runtime_dir = ms_wine_process_root_dup(home);
     if (slash && slash != working_dir)
         *slash = '\0';
     else if (slash)
@@ -837,15 +845,20 @@ static void find_game_assets(const char* directory, unsigned depth, char** execu
 static void write_pipeline_options(ms_json_writer* writer) {
     static const char* const options[][2] = {
         {"d3dmetal", "D3DMetal"}, {"vkd3d", "VKD3D"}, {"dxmt", "DXMT"}, {"dxmt_32", "DXMT(32)"}, {"d3d9", "D3D9"}};
+    /* The fex build's lanes, Mullion recommended. */
+    static const char* const fex_options[][2] = {
+        {"dxmt", "Mullion (DXMT)"}, {"vkd3d", "VKD3D-Proton"}, {"dxvk", "DXVK"}, {"wine_bare", "OpenGL"}};
+    const char* const(*list)[2] = ms_wine_is_fex() ? fex_options : options;
+    size_t count = ms_wine_is_fex() ? sizeof(fex_options) / sizeof(fex_options[0]) : sizeof(options) / sizeof(options[0]);
     ms_json_writer_array_begin(writer);
-    for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
+    for (size_t i = 0; i < count; ++i) {
         ms_json_writer_object_begin(writer);
         ms_json_writer_key(writer, "id");
-        ms_json_writer_string(writer, options[i][0]);
+        ms_json_writer_string(writer, list[i][0]);
         ms_json_writer_key(writer, "name");
-        ms_json_writer_string(writer, options[i][1]);
+        ms_json_writer_string(writer, list[i][1]);
         ms_json_writer_key(writer, "recommended");
-        ms_json_writer_bool(writer, i == 1);
+        ms_json_writer_bool(writer, ms_wine_is_fex() ? i == 0 : i == 1);
         ms_json_writer_object_end(writer);
     }
     ms_json_writer_array_end(writer);
@@ -1064,8 +1077,12 @@ static void gamejolt_stage_route(const char* home, const char* id, const char* e
         (void)ms_json_as_bool(ms_json_object_get(game, "native"), &native);
         char* executable = field(game, "exe_path", "");
         char* install_dir = field(game, "install_dir", "");
-        if (!native && executable[0] && install_dir[0])
+        if (!native && executable[0] && install_dir[0]) {
             (void)ms_steam_stage_route_for_executable(home, engine, install_dir, executable);
+            /* The fex build: the game takes its route from launch.env however it starts. */
+            (void)ms_steam_write_game_launch_env(home, (unsigned)path_hash(executable) | 0x80000000u, engine,
+                                                 install_dir, executable);
+        }
         free(executable);
         free(install_dir);
         break;
@@ -1088,7 +1105,8 @@ char* ms_gamejolt_set_engine_json(const char* home, const unsigned char* body, s
     char* serialized;
     FILE* file;
     bool valid = !strcmp(engine, "d3dmetal") || !strcmp(engine, "vkd3d") || !strcmp(engine, "dxmt") ||
-                 !strcmp(engine, "dxmt_32") || !strcmp(engine, "d3d9");
+                 !strcmp(engine, "dxmt_32") || !strcmp(engine, "d3d9") ||
+                 (ms_wine_is_fex() && (!strcmp(engine, "dxvk") || !strcmp(engine, "wine_bare")));
     bool found = false;
     if (!request || !id[0] || !engine[0] || !valid || !path || !dir || !mkdir_p(dir)) {
         ms_json_free(request);
@@ -1371,7 +1389,9 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
     if (native)
         prepare_native_app(executable);
     if (!native) {
-        unsigned synthetic_id = (unsigned)path_hash(executable);
+        /* The top bit marks a synthetic (non-Steam) id; without it the fex build's direct launch would
+         * give the game a SteamAppId. */
+        unsigned synthetic_id = (unsigned)path_hash(executable) | (ms_wine_is_fex() ? 0x80000000u : 0);
         ms_json_writer request_writer;
         char* launch_body;
         char* result;
@@ -1382,7 +1402,8 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
         ms_json_writer_key(&request_writer, "exePath");
         ms_json_writer_string(&request_writer, executable);
         ms_json_writer_key(&request_writer, "pipeline");
-        ms_json_writer_string(&request_writer, !strcmp(engine, "auto") ? "vkd3d" : engine);
+        ms_json_writer_string(&request_writer,
+                              !strcmp(engine, "auto") ? (ms_wine_is_fex() ? "dxmt" : "vkd3d") : engine);
         ms_json_writer_object_end(&request_writer);
         launch_body = ms_json_writer_take(&request_writer);
         result = launch_body ? ms_steam_launch_external_json(home, launch_body, strlen(launch_body), NULL)
@@ -1398,6 +1419,21 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
         free(directory);
         free(root);
         return result;
+    }
+    if (!native && ms_wine_is_fex()) {
+        char prefix_error[512];
+        char* prefix = join_path(home, "sharp-prefix");
+        bool prepared = prefix && ms_wine_fex_convert_prefix(home, prefix, prefix_error, sizeof(prefix_error));
+        free(prefix);
+        if (!prepared) {
+            free(id);
+            free(executable);
+            free(engine);
+            free(directory);
+            free(root);
+            ms_json_free(request);
+            return error_json("could not prepare the Wine prefix for GameJolt games");
+        }
     }
     pid = fork();
     if (pid == 0) {

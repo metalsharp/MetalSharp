@@ -53,6 +53,11 @@ char* ms_game_find_executable_in_directory(const char*);
 void ms_steam_cleanup_route_dlls(const char*, const char*, const char*, const char*);
 /* Stage the selected route beside an arbitrary installed Windows game's executable. */
 bool ms_steam_stage_route_for_executable(const char*, const char*, const char*, const char*);
+/* The fex build: writes the game folder's .metalsharp/launch.env (and the executable's folder's) for
+ * this route, so the game takes it however it starts (a launcher such as Ubisoft Connect starting it
+ * included). True with nothing to do on the regular build. */
+bool ms_steam_write_game_launch_env(const char* home, unsigned id, const char* pipeline, const char* game_dir,
+                                    const char* executable);
 char* ms_steam_prepare_bottle_route_json(const char*, const char*);
 void ms_steam_stage_route_on_discovery(const char*, unsigned);
 /* For a Rockstar title on D3DMetal or VKD3D found installed: stage its launcher route and RDR2's

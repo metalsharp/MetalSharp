@@ -8,6 +8,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/logs.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -286,7 +287,7 @@ static void sharp_remember(const char* id, pid_t pid, bool process_group, const 
     if (!id || !id[0] || pid <= 1)
         return;
     char* resolved_working_dir = sharp_resolve_path(working_dir);
-    char* runtime_dir = join(home, "runtime/wine");
+    char* runtime_dir = ms_wine_process_root_dup(home);
     char* resolved_runtime_dir = runtime_dir ? sharp_resolve_path(runtime_dir) : NULL;
     free(runtime_dir);
     pthread_mutex_lock(&g_sharp_running_mutex);

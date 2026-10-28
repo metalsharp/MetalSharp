@@ -5,6 +5,7 @@
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1567,6 +1568,18 @@ static char* seed_vcpp_for_steam_bottle(const char* home, const char* id) {
         goto done;
     ms_json_as_string(ms_json_object_get(j, "prefix_path"), &prefix);
     ms_json_as_string(ms_json_object_get(j, "preferred_pipeline"), &pipeline);
+    /* MetalSharp Wine runs the VC++ 2022 installers in the prefix instead of copying x86_64 DLLs
+     * into its ARM64X system32. A prefix the x86_64 Wine built is backed up first. */
+    if (prefix && ms_wine_is_fex()) {
+        char error_text[512];
+        if (!ms_wine_fex_convert_prefix(home, prefix, error_text, sizeof(error_text))) {
+            free(prefix);
+            free(pipeline);
+            ms_json_free(j);
+            return strdup(error_text);
+        }
+        goto done;
+    }
     if (!prefix || (pipeline && !strcmp(pipeline, "d3dmetal")) || vcpp_prefix_ready(prefix))
         goto done;
     if (!seed_vcpp_runtime_dlls(home, prefix)) {
@@ -1700,6 +1713,29 @@ static char* repair_component_json(const char* home, const char* id, const unsig
         obj_string(&w, "detail",
                    available ? "component repair is available through MetalSharp Wine"
                              : "component installer or runtime artifact not found locally");
+        ms_json_writer_key(&w, "pid");
+        ms_json_writer_null(&w);
+        ms_json_writer_object_end(&w);
+        ms_json_writer_object_end(&w);
+        o = ms_json_writer_take(&w);
+        free(component);
+        ms_json_free(j);
+        return o;
+    }
+    if (ms_wine_is_fex() && (!strcmp(component, "d3d11") || !strcmp(component, "dxgi") ||
+                              !strcmp(component, "d3d10core") || !strcmp(component, "d3d10_1") ||
+                              !strcmp(component, "winemetal"))) {
+        /* MetalSharp Wine serves Mullion's ARM64X and i386 DLLs itself; nothing to stage. */
+        (void)mark_component_state(home, id, component, "installed");
+        ms_json_writer_init(&w);
+        ms_json_writer_object_begin(&w);
+        ms_json_writer_key(&w, "ok");
+        ms_json_writer_bool(&w, true);
+        ms_json_writer_key(&w, "repair");
+        ms_json_writer_object_begin(&w);
+        obj_string(&w, "id", component);
+        obj_string(&w, "status", "installed");
+        obj_string(&w, "detail", "Part of MetalSharp Wine (Mullion)");
         ms_json_writer_key(&w, "pid");
         ms_json_writer_null(&w);
         ms_json_writer_object_end(&w);
