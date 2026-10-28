@@ -194,4 +194,25 @@ make_app "$WORK/case/$n/TEAMA/target/MetalSharp.app" 1.0.0 fex com.example.other
     fail "a FEX app with another bundle id is refused"
 [ "$(last_error)" = "app_bundle_invalid" ] || fail "another bundle id reports app_bundle_invalid"
 
+# --recover reinstalls the installed build: the FEX build gets the FEX DMG (which carries its
+# MetalSharp Wine) and may reinstall its own version; the regular build keeps its assets and rule
+recovery_assets fex 1.0.0
+[ "$RECOVERY_VARIANT" = fex ] || fail "FEX recovery reinstalls the FEX build"
+[ "$RECOVERY_DMG_NAME" = MetalSharp-1.0.0-arm64-FEX.dmg ] || fail "FEX recovery downloads the FEX DMG"
+[ "$RECOVERY_CACHED_NAME" = MetalSharp-1.0.0-FEX.dmg ] || fail "FEX recovery reuses the updater's FEX download"
+[ "$(dmg_name_variant "$RECOVERY_DMG_NAME")" = fex ] || fail "the FEX recovery DMG reads as the FEX build"
+recovery_assets regular 1.0.0
+[ "$RECOVERY_VARIANT" = regular ] || fail "regular recovery installs the regular build"
+[ "$RECOVERY_DMG_NAME" = MetalSharp-1.0.0-arm64.dmg ] || fail "regular recovery downloads the regular DMG"
+[ "$RECOVERY_CACHED_NAME" = MetalSharp-1.0.0.dmg ] || fail "regular recovery reuses the updater's regular download"
+allowed 1.0.0 fex 1.0.0 fex 1
+allowed 1.0.1 fex 1.0.0 fex 1
+refused 1.0.0 fex 1.0.1 fex 1
+refused 1.0.0 regular 1.0.0 regular
+refused 1.0.0 fex 1.0.0 fex 0
+setup 1.0.0 fex 1.0.0 fex
+TARGET_REINSTALL=1
+check "$TARGET_APP" "$INSTALLED_APP" 1.0.0 fex || fail "FEX recovery reinstalls the same version"
+TARGET_REINSTALL=0
+
 echo "updater build switch tests passed"

@@ -10,6 +10,8 @@ APP_PID="0"
 # The build being installed: --variant regular|fex, else from the DMG's name.
 TARGET_VARIANT_ARG=""
 TARGET_VARIANT=""
+# --reinstall 1: the same version of the installed build may go back over it (the FEX build's --recover).
+TARGET_REINSTALL="0"
 
 write_status() {
     local phase="$1" percent="$2" message="$3" error="${4:-}"
@@ -231,15 +233,35 @@ dmg_name_variant() {
 }
 
 # Whether the target <version> <variant> may replace the installed <version>
-# <variant>: a newer version always may; the same version only as a switch
-# between the regular and FEX builds; an older version never. An installed app
-# whose version can't be read doesn't block the install.
+# <variant> [reinstall]: a newer version always may; the same version as a
+# switch between the regular and FEX builds, or, with reinstall=1, as a repair
+# of the same build; an older version never. An installed app whose version
+# can't be read doesn't block the install.
 install_target_allowed() {
-    local target_version="$1" target_variant="$2" current_version="$3" current_variant="$4"
+    local target_version="$1" target_variant="$2" current_version="$3" current_variant="$4" reinstall="${5:-0}"
     [ -n "$current_version" ] || return 0
     version_gt "$target_version" "$current_version" && return 0
     version_gt "$current_version" "$target_version" && return 1
-    [ "$target_variant" != "$current_variant" ]
+    [ "$target_variant" != "$current_variant" ] || [ "$reinstall" = "1" ]
+}
+
+# The DMG --recover installs for the installed build <variant> at <version>:
+# sets RECOVERY_VARIANT, RECOVERY_DMG_NAME (the release asset) and
+# RECOVERY_CACHED_NAME (the in-app updater's download of it). The regular
+# build's are MetalSharp-<ver>-arm64.dmg and MetalSharp-<ver>.dmg; the FEX
+# build reinstalls the FEX build, MetalSharp-<ver>-arm64-FEX.dmg and
+# MetalSharp-<ver>-FEX.dmg, which carries its MetalSharp Wine.
+recovery_assets() {
+    local variant="$1" version="$2"
+    if [ "$variant" = "fex" ]; then
+        RECOVERY_VARIANT="fex"
+        RECOVERY_DMG_NAME="MetalSharp-$version-arm64-FEX.dmg"
+        RECOVERY_CACHED_NAME="MetalSharp-$version-FEX.dmg"
+    else
+        RECOVERY_VARIANT="regular"
+        RECOVERY_DMG_NAME="MetalSharp-$version-arm64.dmg"
+        RECOVERY_CACHED_NAME="MetalSharp-$version.dmg"
+    fi
 }
 
 # The Developer ID check --recover and FEX installs share: both apps pass a
@@ -310,7 +332,8 @@ check_install_target() {
         CURRENT_APP_VERSION="$(normalize_version "$(read_app_version "$app_path")")"
         CURRENT_VARIANT="$(installed_app_variant "$app_path")"
     fi
-    if ! install_target_allowed "$TARGET_VERSION_CLEAN" "$TARGET_VARIANT" "$CURRENT_APP_VERSION" "$CURRENT_VARIANT"; then
+    if ! install_target_allowed "$TARGET_VERSION_CLEAN" "$TARGET_VARIANT" "$CURRENT_APP_VERSION" "$CURRENT_VARIANT" \
+        "$TARGET_REINSTALL"; then
         if version_gt "$CURRENT_APP_VERSION" "$TARGET_VERSION_CLEAN"; then
             write_status "error" 50 "DMG version $TARGET_VERSION_CLEAN is older than installed MetalSharp $CURRENT_APP_VERSION" "target_not_newer"
         else
@@ -359,6 +382,7 @@ run_recovery_update() {
     local target_variant=""
     local current_variant=""
     local reason=""
+    local reinstall="0"
     local script_path=""
     local app_pid="0"
     local backend_pid="0"
@@ -394,13 +418,17 @@ run_recovery_update() {
     esac
     TARGET_VERSION="$recovery_version"
     write_status "recovery_verifying" 4 "Checking the latest official release..."
-    # Recovery installs the regular build. Its release asset is exactly
-    # MetalSharp-<ver>-arm64.dmg and the in-app updater caches it as exactly
-    # MetalSharp-<ver>.dmg; the FEX build's names (MetalSharp-<ver>-arm64-FEX.dmg,
-    # MetalSharp-<ver>-FEX.dmg) never match either, and the app inside is
-    # checked for its build below.
-    dmg_name="MetalSharp-$recovery_version-arm64.dmg"
-    existing_dmg="$ms_dir/cache/updates/MetalSharp-$recovery_version.dmg"
+    # Recovery installs the installed build again: the regular build's asset is
+    # exactly MetalSharp-<ver>-arm64.dmg (cached by the in-app updater as
+    # MetalSharp-<ver>.dmg), the FEX build's MetalSharp-<ver>-arm64-FEX.dmg
+    # (MetalSharp-<ver>-FEX.dmg), never one for the other, and the app inside is
+    # checked for its build below. The FEX build may reinstall its own version.
+    current_variant="$(installed_app_variant "$installed_app")"
+    recovery_assets "$current_variant" "$recovery_version"
+    reinstall="0"
+    [ "$RECOVERY_VARIANT" != "fex" ] || reinstall="1"
+    dmg_name="$RECOVERY_DMG_NAME"
+    existing_dmg="$ms_dir/cache/updates/$RECOVERY_CACHED_NAME"
     recovery_dmg="$recovery_dir/$dmg_name"
     download_url="https://github.com/$repository/releases/download/$release_tag/$dmg_name"
     mkdir -p "$recovery_dir" || recovery_fail "could not create recovery cache"
@@ -451,16 +479,15 @@ run_recovery_update() {
     /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_source/Contents/Info.plist" 2>/dev/null | grep -qx 'com.metalsharp.app' || \
         recovery_fail "update image is not the MetalSharp app"
     target_variant="$(read_app_variant "$app_source")"
-    [ -z "$target_variant" ] || [ "$target_variant" = "regular" ] || \
-        recovery_fail "update image holds the $target_variant build, not the regular build"
-    target_variant="regular"
+    [ "${target_variant:-regular}" = "$RECOVERY_VARIANT" ] || \
+        recovery_fail "update image holds the ${target_variant:-regular} build, not the $RECOVERY_VARIANT build"
+    target_variant="$RECOVERY_VARIANT"
     reason="$(verify_update_signature "$app_source" "$installed_app")" || recovery_fail "$reason"
     current_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$installed_app/Contents/Info.plist" 2>/dev/null || true)"
     [ -n "$current_version" ] || recovery_fail "could not read installed app version"
-    current_variant="$(installed_app_variant "$installed_app")"
-    # The same version is allowed only as a switch from the FEX build.
+    # The same version is allowed as a reinstall of the FEX build.
     if ! install_target_allowed "$(normalize_version "$recovery_version")" "$target_variant" \
-        "$(normalize_version "$current_version")" "$current_variant"; then
+        "$(normalize_version "$current_version")" "$current_variant" "$reinstall"; then
         if version_gt "$(normalize_version "$current_version")" "$(normalize_version "$recovery_version")"; then
             recovery_fail "v$recovery_version is older than the installed v$current_version"
         fi
@@ -480,6 +507,8 @@ run_recovery_update() {
     local prompt="Install MetalSharp $recovery_version over v$current_version?"
     if [ "$current_variant" != "$target_variant" ]; then
         prompt="Switch from the FEX build of MetalSharp v$current_version to the regular build of MetalSharp $recovery_version?"
+    elif [ "$target_variant" = "fex" ]; then
+        prompt="Reinstall the Arm64 FEX build of MetalSharp $recovery_version, with its MetalSharp Wine, over v$current_version?"
     fi
     if ! /usr/bin/osascript -e "display dialog \"$prompt This will close MetalSharp and stop Steam/Wine processes. Save work in running games first.\" buttons {\"Cancel\", \"Install Update\"} default button \"Cancel\" cancel button \"Cancel\" with icon caution" >/dev/null; then
         recovery_fail "update cancelled"
@@ -490,6 +519,7 @@ run_recovery_update() {
         --backend-pid "$backend_pid" \
         --target-version "$recovery_version" \
         --variant "$target_variant" \
+        --reinstall "$reinstall" \
         --status-file "$ms_dir/update_install_status.json" \
         --metalsharp-home "$ms_dir" \
         --app-pid "$app_pid"
@@ -511,6 +541,7 @@ while [ "$#" -gt 0 ]; do
         --metalsharp-home) shift; METALSHARP_HOME_ARG="${1:-}"; shift ;;
         --app-pid) shift; APP_PID="${1:-0}"; shift ;;
         --variant) shift; TARGET_VARIANT_ARG="${1:-}"; shift ;;
+        --reinstall) shift; TARGET_REINSTALL="${1:-0}"; shift ;;
         --) shift; break ;;
         *) shift ;;
     esac
