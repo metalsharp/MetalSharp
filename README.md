@@ -51,14 +51,18 @@ If an In-App update fails, please use [Fix Broken Updater](https://github.com/me
 
 To launch a game, install it through Steam and launch it through MetalSharp. Choose between the below backends from the bottle dropdown if the game does not originally run. MetalSharp scans the game folder for DLL's and automatically assigns it to a backend pipeline, tested games are automatically assigned their compatible pipeline from the `mtsp-rules.toml`. See [Game Compatibility](docs/games-supported.md) for a list of tested and verified games.
 
-| Route | Engine | Notes |
-|---|---|---|
-| **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework | |
-| **_VKD3D_** | D3D12/D3D11/D3D10 Through Vulkan -> Metal | D3D12-Proton / Custom MoltenVK still in development |
-| **_DXMT_** | D3D11, D3D10 to Metal | |
-| **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal | |
-| **_D3D9_** | D3D9 With x87 Acceleration for Older Titles | |
-| **_Mono/FNA_** | Windows XNA/FNA via Native Mono | |
+MetalSharp has two runtimes: Arm64 with FEX (MacOS 26.4+) and x86_64 Under Rosetta. 
+
+| Version | Route | Engine | Notes |
+|---|---|---|---|
+| Arm64 FEX | **_Mullion (DXMT Fork)_** | D3D12 / D3D11 / D3D10 x86 / x64 -> Metal | |
+| Arm64 FEX / x86_64 | **_DXVK / VKD3D-Proton_** | D3D12/D3D11/D3D10 Through Vulkan -> Metal | D3D12 Only works for Arm64 Version |
+| Arm64 FEX | **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal | | 
+| x86_64 | **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework | |
+| X86_64 | **_DXMT_** | D3D11, D3D10 to Metal | |
+| x86_64 | **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal | |
+| x86_64 | **_D3D9_** | D3D9 With x87 Acceleration for Older Titles | |
+| x86_64 | **_Mono/FNA_** | Windows XNA/FNA via Native Mono | |
 
 ## Features
 
@@ -78,8 +82,15 @@ To launch a game, install it through Steam and launch it through MetalSharp. Cho
 
 ## Requirements
 
+For x86_64 Version Under Rosetta: 
+
 - Apple Silicon Mac M1-M5, MacOS 15+
-- About ~12 GB free space (9 GB Installed Runtime and 3 GB for Steam-Prefix Setup)
+- About ~12 GB free space
+
+For Arm64 Version with FEX: 
+
+- Apple Silicon Mac M1-M5, MacOS 26.4+
+- About ~12GB free space 
 
 ## Developer Setup
 
