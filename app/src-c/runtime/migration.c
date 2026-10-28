@@ -331,6 +331,10 @@ static void remove_tree_local(const char* path) {
         unlink(path);
         return;
     }
+    /* A read-only folder (MetalSharp-Wine.app, which the FEX build seals) keeps its entries until
+     * its owner may write to it again. */
+    if ((st.st_mode & (S_IRUSR | S_IWUSR | S_IXUSR)) != (S_IRUSR | S_IWUSR | S_IXUSR))
+        (void)chmod(path, (st.st_mode & 07777) | S_IRUSR | S_IWUSR | S_IXUSR);
     dir = opendir(path);
     if (!dir)
         return;
@@ -905,7 +909,13 @@ static void remove_old_runtime(const char* home) {
     /* The fex build keeps MetalSharp Wine (read-only, and setup reinstalls it only when it changed). */
     char* app = path_join(home, "runtime/MetalSharp-Wine.app");
     char* kept_app = path_join(home, ".MetalSharp-Wine.app.keep");
-    bool keep_app = ms_wine_is_fex() && app && kept_app && access(app, F_OK) == 0 && rename(app, kept_app) == 0;
+    struct stat app_info;
+    bool sealed = ms_wine_is_fex() && app && lstat(app, &app_info) == 0 && S_ISDIR(app_info.st_mode);
+    bool keep_app;
+    /* Moving a folder to another parent needs write access to it; the app is put back sealed. */
+    if (sealed)
+        (void)chmod(app, (app_info.st_mode & 07777) | S_IWUSR);
+    keep_app = sealed && kept_app && rename(app, kept_app) == 0;
     const char* names[] = {"runtime",
                            "configs",
                            "cache",
@@ -927,8 +937,8 @@ static void remove_old_runtime(const char* home) {
             (void)mkdir(path, 0700);
         free(path);
     }
-    if (keep_app)
-        (void)rename(kept_app, app);
+    if (keep_app && rename(kept_app, app) == 0)
+        (void)chmod(app, app_info.st_mode & 07777);
     free(app);
     free(kept_app);
 }

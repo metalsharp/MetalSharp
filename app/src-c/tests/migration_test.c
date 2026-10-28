@@ -112,6 +112,33 @@ int main(void) {
     preserved_data preserved;
 
     test_migration_paths();
+    /* Back on the regular build, the old runtime goes completely, MetalSharp Wine's sealed
+     * (read-only) app included. */
+    {
+        char runtime_home[256], app[512], command[1200];
+        snprintf(runtime_home, sizeof(runtime_home), "/tmp/metalsharp-readonly-test-%ld", (long)getpid());
+        remove_tree_local(runtime_home);
+        snprintf(app, sizeof(app), "%s/runtime/MetalSharp-Wine.app/Contents/MacOS", runtime_home);
+        make_directory(app);
+        snprintf(app, sizeof(app), "%s/runtime/MetalSharp-Wine.app/Contents/MacOS/wine", runtime_home);
+        write_file(app, "wine");
+        snprintf(app, sizeof(app), "%s/runtime/MetalSharp-Wine.app", runtime_home);
+        snprintf(command, sizeof(command), "chmod -R a-w '%s'", app);
+        assert(system(command) == 0);
+        if (ms_wine_is_fex()) {
+            /* The FEX build keeps it, still sealed. */
+            struct stat info;
+            remove_old_runtime(runtime_home);
+            assert(stat(app, &info) == 0 && (info.st_mode & S_IWUSR) == 0);
+            snprintf(command, sizeof(command), "chmod -R u+w '%s'", app);
+            assert(system(command) == 0);
+        } else {
+            remove_old_runtime(runtime_home);
+            assert(!file_exists(app));
+        }
+        remove_tree_local(runtime_home);
+        assert(!file_exists(runtime_home));
+    }
     /* The welcome is the FEX build's: the regular build never shows it, whatever is recorded. */
     {
         char welcome_home[256], marker[512];
