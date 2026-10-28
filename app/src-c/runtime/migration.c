@@ -433,7 +433,7 @@ static void restore_links(const char* prefix, migration_link* links) {
 /* The fex build's runtime: MetalSharp Wine with its facade, and the support assets setup stages. */
 static bool runtime_ready_fex(const char* home) {
     static const char* const required[] = {"runtime/host/manifest.json", "runtime/goldberg/x86/steam_api.dll",
-                                           "runtime/goldberg/x64/steam_api64.dll", "configs/mtsp-rules.toml"};
+                                           "runtime/goldberg/x64/steam_api64.dll", "configs/mtsp-rules-fex.toml"};
     bool ok = ms_wine_fex_facade_ready(home);
     for (size_t i = 0; ok && i < sizeof(required) / sizeof(required[0]); i++) {
         char* path = path_join(home, required[i]);

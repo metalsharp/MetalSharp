@@ -4,6 +4,7 @@
 #include "metalsharp_backend/json_writer.h"
 #include "metalsharp_backend/steam.h"
 #include "metalsharp_backend/steam_actions.h"
+#include "metalsharp_backend/wine_runtime.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -79,6 +80,197 @@ static char* replace_text(const char* input, const char* needle, const char* rep
     return output;
 }
 
+static void mtsp_catalog_entry(ms_json_writer* writer, unsigned long long appid, const char* pipeline, const char* name,
+                               const char* label, const char* exe, bool offline);
+
+/* The FEX lane a regular pipeline runs on, as MetalSharp Wine's routes take it
+ * (ms_wine_route_pipeline): D3DMetal and GPTK games take VKD3D-Proton, the D3D9 route DXVK, and FNA
+ * games on arm64 Mono run as Windows programs on Mullion. tools/rules/generate-fex-rules.py
+ * translates the regular rules into configs/mtsp-rules-fex.toml the same way. */
+const char* ms_mtsp_fex_lane(const char* regular) {
+    static const char* const lanes[][2] = {
+        {"m11", "dxmt"},          {"m10", "dxmt"},      {"dxmt", "dxmt"},         {"fna_arm64", "dxmt"},
+        {"m11_32", "dxmt_32"},    {"m10_32", "dxmt_32"}, {"dxmt_32", "dxmt_32"},  {"auto", "vkd3d"},
+        {"vkd3d", "vkd3d"},       {"d3dmetal", "vkd3d"}, {"m13", "vkd3d"},        {"m9", "dxvk"},
+        {"d3d9", "dxvk"},         {"d3d9_32", "dxvk"},   {"dxvk", "dxvk"},        {"dxvk_32", "dxvk"},
+    };
+    for (size_t i = 0; regular && i < sizeof(lanes) / sizeof(lanes[0]); i++)
+        if (!strcmp(regular, lanes[i][0]))
+            return lanes[i][1];
+    return regular && regular[0] ? regular : "dxmt";
+}
+
+static const char* fex_lane_label(const char* lane) {
+    if (!strcmp(lane, "dxmt"))
+        return "Mullion (DXMT)";
+    if (!strcmp(lane, "dxmt_32"))
+        return "Mullion (DXMT, 32-bit)";
+    if (!strcmp(lane, "vkd3d"))
+        return "VKD3D-Proton";
+    if (!strcmp(lane, "dxvk"))
+        return "DXVK";
+    if (!strcmp(lane, "wine_bare"))
+        return "OpenGL";
+    if (!strcmp(lane, "fna_x86"))
+        return "Mono/FNA (x86)";
+    return lane;
+}
+
+/* Opens this build's rule set (configs/mtsp-rules.toml, or mtsp-rules-fex.toml on the fex build):
+ * the staged one in METALSHARP_HOME, then a configs folder in the working directory or one above it
+ * (a checkout, the tests), then the one in MetalSharp.app's Resources. */
+FILE* ms_mtsp_open_rules_file(void) {
+    const char* file_name = ms_wine_rules_file();
+    const char* home = getenv("METALSHARP_HOME");
+    char path[PATH_MAX], cwd[PATH_MAX];
+    FILE* file = NULL;
+    if (home && *home && snprintf(path, sizeof(path), "%s/configs/%s", home, file_name) < (int)sizeof(path) &&
+        (file = fopen(path, "r")))
+        return file;
+    if (getcwd(cwd, sizeof(cwd))) {
+        for (size_t i = 0; i < 8; i++) {
+            char* slash;
+            if (snprintf(path, sizeof(path), "%s/configs/%s", cwd, file_name) < (int)sizeof(path) &&
+                (file = fopen(path, "r")))
+                return file;
+            if (snprintf(path, sizeof(path), "%s/app/configs/%s", cwd, file_name) < (int)sizeof(path) &&
+                (file = fopen(path, "r")))
+                return file;
+            slash = strrchr(cwd, '/');
+            if (!slash || slash == cwd)
+                break;
+            *slash = '\0';
+        }
+    }
+    {
+        /* Resources/MetalSharp-Wine.app on the fex build: its configs folder is beside it. */
+        char* wine_app = ms_wine_is_fex() ? ms_wine_fex_app_source() : NULL;
+        char* last = wine_app ? strrchr(wine_app, '/') : NULL;
+        if (last) {
+            *last = '\0';
+            if (snprintf(path, sizeof(path), "%s/configs/%s", wine_app, file_name) < (int)sizeof(path))
+                file = fopen(path, "r");
+        }
+        free(wine_app);
+    }
+    return file;
+}
+
+typedef struct {
+    unsigned long long appid;
+    char pipeline[32];
+    char name[192];
+    bool used;
+} fex_rule;
+
+/* The fex build's rule set: [overrides.<appid>] pipeline and name. Returns how many (0 without one). */
+static size_t load_fex_rules(fex_rule* rules, size_t capacity) {
+    FILE* file = ms_mtsp_open_rules_file();
+    char line[512];
+    size_t count = 0;
+    fex_rule* current = NULL;
+    if (!file)
+        return 0;
+    while (fgets(line, sizeof(line), file)) {
+        char section[64], value[192];
+        if (sscanf(line, "[overrides.%63[0-9]]", section) == 1 && strchr(line, ']') &&
+            *(strchr(line, '.') + 1 + strlen(section)) == ']') {
+            current = count < capacity ? &rules[count++] : NULL;
+            if (current) {
+                memset(current, 0, sizeof(*current));
+                current->appid = strtoull(section, NULL, 10);
+            }
+            continue;
+        }
+        if (line[0] == '[') {
+            current = NULL;
+            continue;
+        }
+        if (current && sscanf(line, "pipeline = \"%31[^\"]\"", value) == 1)
+            snprintf(current->pipeline, sizeof(current->pipeline), "%s", value);
+        else if (current && sscanf(line, "name = \"%191[^\"]\"", value) == 1)
+            snprintf(current->name, sizeof(current->name), "%s", value);
+    }
+    fclose(file);
+    return count;
+}
+
+/* The fex build's rules: each rule's lane from its rule set, else the regular pipeline's lane
+ * (ms_mtsp_fex_lane); rules only the fex rule set has are added. `found` tells whether it had one. */
+static char* apply_fex_rules(const char* regular, bool* found) {
+    enum { FEX_RULES_MAX = 2048 };
+    fex_rule* rules = calloc(FEX_RULES_MAX, sizeof(*rules));
+    size_t rule_count = rules ? load_fex_rules(rules, FEX_RULES_MAX) : 0;
+    char error[96];
+    ms_json* root = ms_json_parse(regular, strlen(regular), error, sizeof(error));
+    const ms_json* list = root ? ms_json_object_get(root, "rules") : NULL;
+    ms_json_writer writer;
+    size_t total = 0;
+    char* result;
+    *found = rule_count > 0;
+    if (!list || ms_json_type_of(list) != MS_JSON_ARRAY) {
+        ms_json_free(root);
+        free(rules);
+        return NULL;
+    }
+    ms_json_writer_init(&writer);
+    ms_json_writer_object_begin(&writer);
+    ms_json_writer_key(&writer, "ok");
+    ms_json_writer_bool(&writer, true);
+    ms_json_writer_key(&writer, "rules");
+    ms_json_writer_array_begin(&writer);
+    for (size_t i = 0; i < ms_json_array_length(list); i++) {
+        const ms_json* rule = ms_json_array_get(list, i);
+        long long appid = 0;
+        char* pipeline = NULL;
+        const char* lane;
+        (void)ms_json_as_i64(ms_json_object_get(rule, "appid"), &appid);
+        (void)ms_json_as_string(ms_json_object_get(rule, "default_pipeline"), &pipeline);
+        lane = ms_mtsp_fex_lane(pipeline);
+        for (size_t r = 0; r < rule_count; r++) {
+            if (rules[r].appid == (unsigned long long)appid) {
+                rules[r].used = true;
+                if (rules[r].pipeline[0])
+                    lane = rules[r].pipeline;
+                break;
+            }
+        }
+        ms_json_writer_object_begin(&writer);
+        for (size_t k = 0; k < ms_json_object_length(rule); k++) {
+            const char* key = ms_json_object_key_at(rule, k);
+            ms_json_writer_key(&writer, key);
+            if (!strcmp(key, "default_pipeline")) {
+                ms_json_writer_string(&writer, lane);
+            } else if (!strcmp(key, "default_pipeline_name")) {
+                ms_json_writer_string(&writer, fex_lane_label(lane));
+            } else {
+                char* raw = ms_json_stringify(ms_json_object_value_at(rule, k));
+                ms_json_writer_raw(&writer, raw ? raw : "null");
+                free(raw);
+            }
+        }
+        ms_json_writer_object_end(&writer);
+        free(pipeline);
+        total++;
+    }
+    for (size_t r = 0; r < rule_count; r++) {
+        if (!rules[r].used && rules[r].pipeline[0]) {
+            mtsp_catalog_entry(&writer, rules[r].appid, rules[r].pipeline,
+                               rules[r].name[0] ? rules[r].name : "MetalSharp rule", fex_lane_label(rules[r].pipeline),
+                               "", false);
+            total++;
+        }
+    }
+    ms_json_writer_array_end(&writer);
+    ms_json_writer_key(&writer, "count");
+    ms_json_writer_u64(&writer, total);
+    ms_json_writer_object_end(&writer);
+    result = ms_json_writer_take(&writer);
+    ms_json_free(root);
+    free(rules);
+    return result;
+}
+
 char* ms_mtsp_default_rules_json(void) {
     static const char* const replacements[][2] = {
         {"\"default_pipeline\":\"m11_32\"", "\"default_pipeline\":\"dxmt_32\""},
@@ -116,6 +308,20 @@ char* ms_mtsp_default_rules_json(void) {
         }
         free(raw);
         raw = normalized;
+    }
+    /* The fex build's lanes. Without its rule set (not staged yet) the regular rules' lanes are used,
+     * and the rule set is looked for again next time. */
+    if (ms_wine_is_fex()) {
+        bool found = false;
+        char* fex = apply_fex_rules(raw, &found);
+        if (fex) {
+            free(raw);
+            raw = fex;
+        }
+        if (!found) {
+            initialized = false;
+            return raw;
+        }
     }
     cached = raw;
     return strdup(cached);
@@ -303,7 +509,7 @@ static const char* mtsp_pipeline_name(const char* id) {
 }
 
 static void mtsp_catalog_entry(ms_json_writer* writer, unsigned long long appid, const char* pipeline, const char* name,
-                               const char* exe, bool offline) {
+                               const char* label, const char* exe, bool offline) {
     ms_json_writer_object_begin(writer);
     ms_json_writer_key(writer, "appid");
     ms_json_writer_u64(writer, appid);
@@ -312,7 +518,7 @@ static void mtsp_catalog_entry(ms_json_writer* writer, unsigned long long appid,
     ms_json_writer_key(writer, "default_pipeline");
     ms_json_writer_string(writer, pipeline);
     ms_json_writer_key(writer, "default_pipeline_name");
-    ms_json_writer_string(writer, mtsp_pipeline_name(pipeline));
+    ms_json_writer_string(writer, label ? label : mtsp_pipeline_name(pipeline));
     ms_json_writer_key(writer, "custom_exe_fix");
     ms_json_writer_bool(writer, exe && *exe);
     ms_json_writer_key(writer, "exe_names");
@@ -349,39 +555,13 @@ static void mtsp_catalog_entry(ms_json_writer* writer, unsigned long long appid,
 }
 
 char* ms_mtsp_default_rules_json_legacy(void) {
-    const char* candidates[16] = {"configs/mtsp-rules.toml", "app/configs/mtsp-rules.toml", NULL};
-    char home_candidate[1024], ancestor_paths[8][1024];
-    const char* home = getenv("METALSHARP_HOME");
-    size_t candidate_count = 2;
-    if (home && *home) {
-        snprintf(home_candidate, sizeof(home_candidate), "%s/configs/mtsp-rules.toml", home);
-        candidates[candidate_count++] = home_candidate;
-    }
-    char cwd[1024];
-    if (getcwd(cwd, sizeof(cwd))) {
-        char current[1024];
-        snprintf(current, sizeof(current), "%s", cwd);
-        for (size_t i = 0; i < 8 && candidate_count < 12; i++) {
-            snprintf(ancestor_paths[i], sizeof(ancestor_paths[i]), "%s/configs/mtsp-rules.toml", current);
-            candidates[candidate_count++] = ancestor_paths[i];
-            char* slash = strrchr(current, '/');
-            if (!slash || slash == current)
-                break;
-            *slash = 0;
-        }
-    }
-    FILE* file = NULL;
+    FILE* file = ms_mtsp_open_rules_file();
     char line[512], pipeline[64] = "auto", name[192] = "", exe[192] = "";
     unsigned long long appid = 0;
     size_t count = 0;
     bool offline = false, have = false;
     ms_json_writer writer;
     char* result;
-    for (size_t i = 0; i < candidate_count; i++) {
-        file = fopen(candidates[i], "r");
-        if (file)
-            break;
-    }
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
     ms_json_writer_key(&writer, "ok");
@@ -404,7 +584,7 @@ char* ms_mtsp_default_rules_json_legacy(void) {
             }
             if (root_section) {
                 if (have) {
-                    mtsp_catalog_entry(&writer, appid, pipeline, name[0] ? name : "MetalSharp rule", exe, offline);
+                    mtsp_catalog_entry(&writer, appid, pipeline, name[0] ? name : "MetalSharp rule", NULL, exe, offline);
                     count++;
                 }
                 appid = next_id;
@@ -466,7 +646,7 @@ char* ms_mtsp_default_rules_json_legacy(void) {
                 offline = true;
         }
         if (have) {
-            mtsp_catalog_entry(&writer, appid, pipeline, name[0] ? name : "MetalSharp rule", exe, offline);
+            mtsp_catalog_entry(&writer, appid, pipeline, name[0] ? name : "MetalSharp rule", NULL, exe, offline);
             count++;
         }
         fclose(file);

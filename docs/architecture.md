@@ -1,11 +1,22 @@
 # MetalSharp Architecture
-**Updated:** 2026-10-13
+**Updated:** 2026-10-28
 
 How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md); emulator providers are in [emulators.md](emulators.md).
 
 ## Launch Flow
 
-The C backend (`~/.metalsharp/run/backend.sock`) owns every launch. Route selection is data-driven: adding a game means editing `configs/mtsp-rules.toml`, not backend code.
+The C backend (`~/.metalsharp/run/backend.sock`) owns every launch. Route selection is data-driven: adding a game means editing its rule set, not backend code.
+
+### Rule sets
+
+Each build has its own rule set, with a `[rule_set]` table naming the build, version and schema:
+
+| Build | File | Pipelines |
+|---|---|---|
+| Regular (x86_64 Wine under Rosetta) | `configs/mtsp-rules.toml` | `dxmt`, `dxmt_32`, `d3d9`, `vkd3d`, `d3dmetal`, `wine_bare`, `fna_arm64`, `fna_x86` |
+| Arm64 FEX (MetalSharp Wine) | `configs/mtsp-rules-fex.toml` | `dxmt`/`dxmt_32` (Mullion), `vkd3d` (VKD3D-Proton), `dxvk`, `wine_bare` (OpenGL), `fna_x86` |
+
+The regular backend compiles its rules into `app/src-c/runtime/mtsp_catalog.c`. The FEX backend reads `mtsp-rules-fex.toml` from `~/.metalsharp/configs`, which setup stages from the app's `Resources/configs`, and applies its lanes over the compiled catalog. Rules the file doesn't name use the regular rule's lane (`ms_mtsp_fex_lane`). Don't edit the FEX file by hand: `tools/rules/generate-fex-rules.py` generates it from the regular rules with that same translation. D3DMetal and GPTK titles go to VKD3D-Proton, the D3D9 route to DXVK, and arm64 FNA titles to Mullion. Then the per-game lanes verified on MetalSharp Wine (`FEX_VERIFIED` in the generator) apply. CI runs the generator with `--check` and validates both files with `tools/ci/validate-rules-toml.py`.
 
 ```text
 Play clicked

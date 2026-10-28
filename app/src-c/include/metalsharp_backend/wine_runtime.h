@@ -11,6 +11,8 @@
  * The regular build never takes a fex branch. */
 const char* ms_wine_variant(void);
 bool ms_wine_is_fex(void);
+/* This build's game rule set in a configs folder: mtsp-rules.toml (regular) or mtsp-rules-fex.toml. */
+const char* ms_wine_rules_file(void);
 
 /* <home>/runtime/MetalSharp-Wine.app, and its Contents directory. */
 bool ms_wine_app_path(const char* home, char* out, size_t out_size);

@@ -36,6 +36,10 @@ bool ms_wine_is_fex(void) {
     return !strcmp(MS_BACKEND_VARIANT, "fex");
 }
 
+const char* ms_wine_rules_file(void) {
+    return ms_wine_is_fex() ? "mtsp-rules-fex.toml" : "mtsp-rules.toml";
+}
+
 static bool format_path(char* out, size_t out_size, const char* format, const char* a, const char* b) {
     int written = snprintf(out, out_size, format, a, b);
     return written >= 0 && (size_t)written < out_size;

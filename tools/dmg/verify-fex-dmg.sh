@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Verify a FEX DMG (MetalSharp-<ver>-arm64-FEX.dmg) without installing it:
 # - MetalSharp.app is com.metalsharp.app with MetalSharpVariant=fex and the
-#   backend, host runtime and updater the regular DMG also carries;
+#   backend, host runtime and updater the regular DMG also carries, and the FEX
+#   build's rule set (configs/mtsp-rules-fex.toml);
 # - Resources/MetalSharp-Wine.app is present, passes codesign --deep --strict,
 #   keeps its cross-architecture entitlement and provisioning profile, has
 #   Contents/MacOS/wine, and is signed by the outer app's team;
@@ -47,7 +48,8 @@ for required in \
   "$RESOURCES/runtime/host/manifest.json" \
   "$RESOURCES/runtime/host/HostRuntimeABI.h" \
   "$RESOURCES/scripts/tools/updater/update.py" \
-  "$RESOURCES/scripts/tools/updater/update.sh"
+  "$RESOURCES/scripts/tools/updater/update.sh" \
+  "$RESOURCES/configs/mtsp-rules-fex.toml"
 do
   [ -s "$required" ] || fail "missing ${required#"$APP/"}"
 done

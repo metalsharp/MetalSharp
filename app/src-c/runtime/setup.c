@@ -2563,11 +2563,15 @@ static void run_install_all_worker(const char* home) {
     }
     write_install_progress(home, 13, total, "Steam Bridge Shim", "done", "Steam bridge check complete", NULL);
     {
-        char* source = join_path(home, "scripts/tools/configs/mtsp-rules.toml");
-        char* destination = join_path(home, "configs/mtsp-rules.toml");
-        if ((!source || !file_nonempty(source)) && access("configs/mtsp-rules.toml", R_OK) == 0) {
+        /* This build's rule set: mtsp-rules.toml, or mtsp-rules-fex.toml on the fex build. */
+        char rules[64], local[96];
+        snprintf(rules, sizeof(rules), "configs/%s", ms_wine_rules_file());
+        snprintf(local, sizeof(local), "scripts/tools/%s", rules);
+        char* source = join_path(home, local);
+        char* destination = join_path(home, rules);
+        if ((!source || !file_nonempty(source)) && access(rules, R_OK) == 0) {
             free(source);
-            source = strdup("configs/mtsp-rules.toml");
+            source = strdup(rules);
         }
         if (source && destination && file_nonempty(source))
             (void)copy_file_path(source, destination);

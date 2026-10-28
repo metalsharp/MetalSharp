@@ -37,8 +37,11 @@ jobs:
       - name: Install toml
         run: pip3 install --user toml
 
-      - name: Validate mtsp-rules TOML
+      - name: Validate the rule sets (mtsp-rules.toml, mtsp-rules-fex.toml)
         run: python3 tools/ci/validate-rules-toml.py
+
+      - name: Check the FEX rule set is generated from the regular one
+        run: python3 tools/rules/generate-fex-rules.py --check
 
   docs:
     name: Doc Freshness CI

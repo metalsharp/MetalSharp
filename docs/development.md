@@ -1,5 +1,5 @@
 # Development
-**Updated:** 2026-10-05
+**Updated:** 2026-10-28
 
 Build, run, test, and package MetalSharp from source. Requires Apple Silicon; native code targets macOS 14.0 (`CMAKE_OSX_DEPLOYMENT_TARGET` in `CMakeLists.txt`).
 
@@ -113,7 +113,7 @@ chmod +x .git/hooks/pre-commit
 |---|---|---|
 | `*.c`, `*.cpp`, `*.h`, `*.hpp`, `*.m`, `*.mm` | `clang-format --dry-run --Werror` | fail |
 | `app-gpui/**/*.rs` | `cargo fmt --check` | fail |
-| `configs/mtsp-rules.toml` | `python3 tools/ci/validate-rules-toml.py` | fail |
+| `configs/mtsp-rules.toml`, `configs/mtsp-rules-fex.toml`, `tools/rules/generate-fex-rules.py` | `python3 tools/ci/validate-rules-toml.py` and `python3 tools/rules/generate-fex-rules.py --check` | fail |
 | `*.sh` | `shellcheck` | warn |
 | `*.md` | `python3 tools/ci/check-doc-freshness.py` | warn |
 
