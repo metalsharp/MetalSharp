@@ -433,6 +433,9 @@ jobs:
   release:
     name: Release
     needs: [build, build-fex]
+    # The regular DMG is released whatever happens to the FEX build: a FEX failure leaves its DMG out
+    # of this release instead of blocking it.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     permissions:
       contents: write
@@ -444,6 +447,7 @@ jobs:
           path: release/
 
       - name: Download FEX release artifacts
+        if: needs.build-fex.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: MetalSharp-FEX-dmg
@@ -452,6 +456,7 @@ jobs:
       - name: Flatten and verify release payload
         run: |
           set -euo pipefail
+          mkdir -p release-fex
           find release release-fex -type f -print | sort
           mkdir -p release-flat
           find release -type f -name '*.dmg' -exec cp {} release-flat/ \;
@@ -462,12 +467,19 @@ jobs:
           test "$(find release-flat -type f -name '*.dmg' | wc -l | tr -d ' ')" -ge 1
           # Both builds go to the same release; 0.80.0's updater tells them apart by "FEX".
           test "$(find release-flat -type f -name '*.dmg' ! -name '*FEX*' | wc -l | tr -d ' ')" -eq 1
-          test "$(find release-flat -type f -name 'MetalSharp-*-arm64-FEX.dmg' | wc -l | tr -d ' ')" -eq 1
-          test "$(find release-fex -type f -name RELEASE-TAG.txt -exec cat {} \;)" = "$(find release -type f -name RELEASE-TAG.txt -exec cat {} \;)"
           test -s release-flat/DMG-SIGNING.txt
-          test -s release-flat/DMG-SIGNING-FEX.txt
+          if [ "$FEX_RESULT" = "success" ]; then
+            test "$(find release-flat -type f -name 'MetalSharp-*-arm64-FEX.dmg' | wc -l | tr -d ' ')" -eq 1
+            test "$(find release-fex -type f -name RELEASE-TAG.txt -exec cat {} \;)" = "$(find release -type f -name RELEASE-TAG.txt -exec cat {} \;)"
+            test -s release-flat/DMG-SIGNING-FEX.txt
+          else
+            echo "::warning::The FEX build did not succeed ($FEX_RESULT); this release carries the regular DMG only."
+            test "$(find release-flat -type f -name '*FEX*' | wc -l | tr -d ' ')" -eq 0
+          fi
           test -s release-flat/metalsharp-bundle-manifest.tsv
           find release-flat -type f -print | sort
+        env:
+          FEX_RESULT: ${{ needs.build-fex.result }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
