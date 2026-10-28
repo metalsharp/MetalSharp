@@ -52,7 +52,12 @@ Building the app does not compile Wine; see [Building MetalSharp Wine](building-
 cargo run --locked --manifest-path app-gpui/Cargo.toml                             # production: ~/.metalsharp
 cargo run --locked --manifest-path app-gpui/Cargo.toml -- --connected-validation  # isolated home
 cargo run --locked --manifest-path app-gpui/Cargo.toml -- --preview               # offline sample UI
+cargo run --locked --manifest-path app-gpui/Cargo.toml -- --preview=2560x1440     # explicit offline viewport
 ```
+
+Settings groups preferences into General, Integrations, Storage, Updates, and Advanced. General → Library & display includes window-size presets. Automatic uses most of the display while leaving desktop space; Large (4K) is capped at 2800 × 1700 logical points. Presets resize the app window and fit smaller displays without entering full screen. Production saves the selection alongside the other UI preferences in `gpui-ui-state.json`; offline previews keep changes in memory.
+
+Preview dimensions use logical points; macOS applies the display's pixel density and may constrain the requested window to its available desktop area. The preview prints its actual viewport and scale factor at startup.
 
 Production mode behaves like the installed app: it terminates any stale `metalsharp-backend` on `~/.metalsharp/run/backend.sock`, starts a fresh one against `~/.metalsharp`, and stops it on quit. Quit any other MetalSharp first.
 

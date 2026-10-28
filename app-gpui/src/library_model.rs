@@ -434,6 +434,43 @@ mod tests {
     }
 
     #[test]
+    fn synced_owned_games_remain_available_outside_the_installed_library() {
+        let response = json!({"ok": true, "library": {"games": [
+            {"appid": 400, "name": "Portal", "installed": true, "state": "installed"},
+            {
+                "appid": 620, "name": "Portal 2", "installed": false, "state": "not_installed",
+                "cover_url": "https://steamcdn-a.akamaihd.net/steam/apps/620/library_600x900.jpg",
+                "header_url": "https://steamcdn-a.akamaihd.net/steam/apps/620/header.jpg",
+                "wine_game_path": null, "executable_path": null, "bottle_id": null
+            }
+        ]}});
+        let library = merge_libraries(parse_library(response.get("library")).unwrap(), Vec::new());
+        assert_eq!(library.len(), 2);
+        let owned = &library[1];
+        assert_eq!(owned.appid, 620);
+        assert!(!owned.installed && !owned.is_ubisoft());
+        assert_eq!(owned.state.as_deref(), Some("not_installed"));
+        assert_eq!(
+            owned.cover_url,
+            response["library"]["games"][1]["cover_url"]
+                .as_str()
+                .map(str::to_owned)
+        );
+        assert_eq!(
+            owned.header_url,
+            response["library"]["games"][1]["header_url"]
+                .as_str()
+                .map(str::to_owned)
+        );
+        assert!(owned.wine_game_path.is_none() && owned.executable_path.is_none());
+        let installed = live_games(&library, &HashMap::new());
+        assert_eq!(
+            installed.iter().map(|game| game.appid).collect::<Vec<_>>(),
+            [400]
+        );
+    }
+
+    #[test]
     fn launch_routes_match_renderer() {
         let g = game(json!({"appid":10,"name":"x","launch_method":"dxmt"}));
         assert_eq!(launch_request(&g).0, "/steam/launch-game");

@@ -35,6 +35,7 @@ pub struct SearchInput {
     pub content: SharedString,
     pub placeholder: SharedString,
     pub text_color: u32,
+    pub font_size: f32,
     pub placeholder_color: u32,
     /// Mask rendering/IME queries and prevent secret clipboard export.
     pub secret: bool,
@@ -54,6 +55,7 @@ impl SearchInput {
             content: "".into(),
             placeholder: "Search".into(),
             text_color: 0xffffff,
+            font_size: 14.0,
             placeholder_color: 0xaaaaaa,
             secret: false,
             selected_range: 0..0,
@@ -667,13 +669,13 @@ impl Render for SearchInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .line_height(px(20.0))
-            .text_size(px(14.0))
+            .line_height(px(self.font_size * 1.45))
+            .text_size(px(self.font_size))
             .text_color(rgb(self.text_color))
             .child(
                 div()
                     .w_full()
-                    .h(px(20.0))
+                    .h(px(self.font_size * 1.45))
                     .child(TextElement { input: cx.entity() }),
             )
     }
