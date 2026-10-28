@@ -50,7 +50,14 @@ bool ms_wine_app_contents(const char* home, char* out, size_t out_size) {
 const char* ms_wine_route_pipeline(const char* pipeline) {
     if (!ms_wine_is_fex() || !pipeline)
         return pipeline;
+    /* D3DMetal is Apple's and x86_64-only: its D3D12 games take VKD3D-Proton. DXVK's D3D9 replaces
+     * the D3D9 route (32-bit programs keep Wine's own D3D9, as DXVK is x86_64 here). */
     if (!strcmp(pipeline, "d3dmetal") || !strcmp(pipeline, "m13"))
+        return "vkd3d";
+    if (!strcmp(pipeline, "d3d9"))
+        return "dxvk";
+    /* FNA games run as Windows programs under FEX; the native Mono lane is the regular build's. */
+    if (!strcmp(pipeline, "fna_arm64"))
         return "dxmt";
     return pipeline;
 }
@@ -480,6 +487,20 @@ static bool vcpp_registered(const char* prefix) {
     return x64 && x86;
 }
 
+static void (*prefix_progress)(void* context, const char* part, const char* message);
+static void* prefix_progress_context;
+
+void ms_wine_set_prefix_progress(void (*progress)(void* context, const char* part, const char* message),
+                                 void* context) {
+    prefix_progress = progress;
+    prefix_progress_context = context;
+}
+
+static void report_prefix_progress(const char* part, const char* message) {
+    if (prefix_progress)
+        prefix_progress(prefix_progress_context, part, message);
+}
+
 bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force, char* error, size_t error_size) {
     static const char* const corefonts[] = {"andale32.exe", "arial32.exe",  "arialb32.exe", "comic32.exe",
                                             "courie32.exe", "georgi32.exe", "impact32.exe", "times32.exe",
@@ -506,8 +527,11 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
         return false;
     }
     (void)ensure_dir(prefix);
+    report_prefix_progress("Windows prefix", "Creating the Windows prefix...");
     {
-        const char* const boot[] = {wine, "wineboot", "-u", NULL};
+        /* -r: without it wineboot also runs the prefix's Run keys, which start Steam's client and
+         * keep the wineserver -w below waiting. */
+        const char* const boot[] = {wine, "wineboot", "-u", "-r", NULL};
         const char* const wait_server[] = {server, "-w", NULL};
         if (!run_wait(boot, prefix, log, 600) || !run_wait(wait_server, prefix, log, 300)) {
             set_error(error, error_size, "wineboot could not prepare the prefix; see logs/prefix-setup.log", prefix);
@@ -523,6 +547,9 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
             continue;
         if (access(installer, R_OK) == 0) {
             const char* const install[] = {wine, installer, "/install", "/quiet", "/norestart", NULL};
+            report_prefix_progress(x86 ? "VC++ 2022 (x86)" : "VC++ 2022 (x64)",
+                                   x86 ? "Installing the VC++ 2022 runtime (x86)..."
+                                       : "Installing the VC++ 2022 runtime (x64)...");
             /* 3010 (reboot required) also counts as installed; the DLL check below decides. */
             (void)run_wait(install, prefix, log, 900);
             (void)run_wait(wait_server, prefix, log, 300);
@@ -533,6 +560,7 @@ bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force
         return false;
     }
     (void)ensure_dir(fonts);
+    report_prefix_progress("Core fonts", "Installing the Microsoft core fonts...");
     for (size_t i = 0; i < sizeof(corefonts) / sizeof(corefonts[0]); i++) {
         char font[PATH_MAX];
         if (!format_path(font, sizeof(font), "%s/corefonts/%s", share, corefonts[i]) || access(font, R_OK) != 0)
@@ -580,6 +608,21 @@ void ms_wine_fex_refresh_async(const char* home) {
     pthread_detach(thread);
 }
 
+bool ms_wine_graphics_conf_path(const char* home, char* out, size_t out_size) {
+    char old[PATH_MAX];
+    if (!home ||
+        !format_path(out, out_size, "%s/runtime/wine/etc/%s", home, ms_wine_is_fex() ? "mullion.conf" : "dxmt.conf"))
+        return false;
+    if (ms_wine_is_fex() && access(out, F_OK) != 0 &&
+        format_path(old, sizeof(old), "%s/runtime/wine/etc/%s", home, "dxmt.conf") && access(old, F_OK) == 0)
+        (void)rename(old, out);
+    return true;
+}
+
+const char* ms_wine_graphics_conf_env(void) {
+    return ms_wine_is_fex() ? "MULLION_CONFIG_FILE" : "DXMT_CONFIG_FILE";
+}
+
 #define X86_64_BACKUP ".metalsharp-x86_64-backup"
 
 bool ms_wine_prefix_is_arm64(const char* prefix) {
@@ -600,15 +643,18 @@ static bool is_prefix(const char* prefix) {
 
 static const char* const backed_up[] = {"system.reg", "user.reg", "userdef.reg", "drive_c/windows"};
 
-static bool convert_prefix(const char* home, const char* prefix, char* error, size_t error_size) {
+bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* error, size_t error_size) {
     char backup[PATH_MAX], done_marker[PATH_MAX];
-    if (!is_prefix(prefix) || (ms_wine_prefix_is_arm64(prefix) && ms_wine_fex_prefix_ready(prefix)))
+    if (!is_prefix(prefix))
+        return ms_wine_fex_prepare_prefix(home, prefix, false, error, error_size);
+    if (ms_wine_prefix_is_arm64(prefix) && ms_wine_fex_prefix_ready(prefix))
         return true;
     if (!prefix_file(prefix, X86_64_BACKUP, backup, sizeof(backup)) ||
         !format_path(done_marker, sizeof(done_marker), "%s/%s", backup, ".complete"))
         return false;
     /* An earlier, interrupted conversion keeps the backup it completed. */
     if (!ms_wine_prefix_is_arm64(prefix) && access(done_marker, F_OK) != 0) {
+        report_prefix_progress("Backup", "Backing up the x86_64 prefix...");
         (void)remove_tree(backup);
         if (!ensure_dir(backup)) {
             set_error(error, error_size, "could not back up the prefix", prefix);
@@ -665,7 +711,7 @@ typedef struct {
 
 static bool convert_visit(const char* home, const char* prefix, void* opaque) {
     convert_context* context = opaque;
-    return convert_prefix(home, prefix, context->error, context->error_size);
+    return ms_wine_fex_convert_prefix(home, prefix, context->error, context->error_size);
 }
 
 unsigned ms_wine_fex_convert_prefixes(const char* home, char* error, size_t error_size) {

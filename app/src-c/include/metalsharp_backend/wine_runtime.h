@@ -25,8 +25,9 @@ bool ms_wine_fex_write_facade(const char* home, char* error, size_t error_size);
 bool ms_wine_fex_facade_ready(const char* home);
 
 /* The graphics pipeline a route runs on MetalSharp Wine. Its backends are Mullion (dxmt), DXVK and
- * VKD3D-Proton for x86_64 programs, and wined3d, so the D3DMetal and GPTK lanes run on Mullion. Returns
- * the pipeline itself on the regular build, and for the pipelines both builds have. */
+ * VKD3D-Proton for x86_64 programs, and wined3d, so the D3DMetal and GPTK lanes run on VKD3D-Proton
+ * and the D3D9 route on DXVK. Returns the pipeline itself on the regular build, and for the pipelines
+ * both builds have. */
 const char* ms_wine_route_pipeline(const char* pipeline);
 /* GRAPHICS_BACKEND for a canonical pipeline on MetalSharp Wine: dxmt, dxvk, vkd3d or wine. */
 const char* ms_wine_fex_graphics_backend(const char* pipeline);
@@ -59,6 +60,10 @@ char* ms_wine_fex_app_source(void);
  * it in <prefix>/.metalsharp-wine-arch ("arm64") and .metalsharp-prefix-ready. Done once per
  * prefix; `force` runs it again. */
 bool ms_wine_fex_prepare_prefix(const char* home, const char* prefix, bool force, char* error, size_t error_size);
+/* Called as each part of preparing or converting a prefix starts, with a short name for the part
+ * and a sentence (setup shows them); NULL stops it. */
+void ms_wine_set_prefix_progress(void (*progress)(void* context, const char* part, const char* message),
+                                 void* context);
 bool ms_wine_fex_prefix_ready(const char* prefix);
 
 /* Prefixes move between the builds one way, with a backup:
@@ -69,7 +74,16 @@ bool ms_wine_fex_prefix_ready(const char* prefix);
  *   many could not be converted.
  * - ms_wine_restore_x86_64_prefixes (regular): a prefix marked arm64 gets that backup back; one
  *   with no backup is left alone and counted, since the x86_64 Wine must not run it. */
+/* The graphics config MetalSharp edits: Mullion's runtime/wine/etc/mullion.conf, named by
+ * MULLION_CONFIG_FILE, on the fex build (a dxmt.conf from before is renamed to it once, keeping its
+ * settings); DXMT's dxmt.conf and DXMT_CONFIG_FILE on the regular build. */
+bool ms_wine_graphics_conf_path(const char* home, char* out, size_t out_size);
+const char* ms_wine_graphics_conf_env(void);
+
 bool ms_wine_prefix_is_arm64(const char* prefix);
+/* One prefix: converted as above when the x86_64 Wine built it, else prepared (setup's Steam
+ * prefix, which may still be the 0.80.0 one). */
+bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* error, size_t error_size);
 unsigned ms_wine_fex_convert_prefixes(const char* home, char* error, size_t error_size);
 unsigned ms_wine_restore_x86_64_prefixes(const char* home);
 

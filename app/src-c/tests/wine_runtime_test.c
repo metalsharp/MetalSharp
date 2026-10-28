@@ -34,10 +34,12 @@ int main(int argc, char** argv) {
     FILE* pipe;
 
     EXPECT(ms_wine_is_fex() && !strcmp(ms_wine_variant(), "fex"));
-    EXPECT(!strcmp(ms_wine_route_pipeline("d3dmetal"), "dxmt"));
-    EXPECT(!strcmp(ms_wine_route_pipeline("vkd3d"), "dxmt"));
-    EXPECT(!strcmp(ms_wine_route_pipeline("m13"), "dxmt"));
-    EXPECT(!strcmp(ms_wine_route_pipeline("d3d9"), "d3d9"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("d3dmetal"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("vkd3d"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_fex_graphics_backend("vkd3d"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("m13"), "vkd3d"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("d3d9"), "dxvk"));
+    EXPECT(!strcmp(ms_wine_route_pipeline("fna_arm64"), "dxmt"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("wine_bare"), "wine"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("dxvk"), "dxvk"));
     EXPECT(!strcmp(ms_wine_fex_graphics_backend("dxmt_32"), "dxmt"));
