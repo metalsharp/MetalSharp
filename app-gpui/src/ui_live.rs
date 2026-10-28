@@ -3532,7 +3532,17 @@ fn ensure_metalsharp_dirs(home: &std::path::Path) {
     }
 }
 
-/// main `checkNeedsMigration` (post-update marker + backend check).
+/// The build that set this home up (setup.json `runtime_variant`; missing means the regular build,
+/// 0.80.x and earlier) is not the build running: its prefixes must move to this build's Wine.
+fn variant_switch_pending(setup: &Value, running_variant: &str) -> bool {
+    let recorded = setup
+        .get("runtime_variant")
+        .and_then(Value::as_str)
+        .unwrap_or("regular");
+    !recorded.eq_ignore_ascii_case(running_variant)
+}
+
+/// main `checkNeedsMigration` (post-update marker + backend check), and a move between the builds.
 fn check_needs_migration(live: &Live) -> bool {
     let home = live.home();
     let marker_path = home.join(".post-update-migration");
@@ -3562,7 +3572,29 @@ fn check_needs_migration(live: &Live) -> bool {
         .and_then(Value::as_bool)
         == Some(true);
     if !needed {
-        return false;
+        // A build installed by hand over the other one (the FEX DMG dragged over 0.80.x or any
+        // regular install) leaves no updater marker; setup.json still names the build that set it up.
+        let running = live
+            .request("GET", "/status", None, MS(3000))
+            .ok()
+            .map(live::unwrap_data)
+            .and_then(|status| {
+                status
+                    .get("variant")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "regular".into());
+        if !variant_switch_pending(&setup, &running) {
+            return false;
+        }
+        return match live.request("GET", "/update/migrate/check", None, MS(3000)) {
+            Ok(result) => {
+                let result = live::unwrap_data(result);
+                is_ok(&result) && result.get("needed").and_then(Value::as_bool) == Some(true)
+            }
+            Err(_) => false,
+        };
     }
     match live.request("GET", "/update/migrate/check", None, MS(3000)) {
         Ok(result) => {
@@ -3776,5 +3808,35 @@ mod script_path_tests {
             PathBuf::from("/sbin"),
         ]));
         assert!(script_path(PathBuf::from("/tools"), None).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod variant_switch_tests {
+    use super::variant_switch_pending;
+    use serde_json::json;
+
+    #[test]
+    fn a_build_installed_by_hand_over_the_other_migrates() {
+        // The FEX DMG dragged over 0.80.x (no runtime_variant) or a regular 1.0.0 install.
+        assert!(variant_switch_pending(&json!({"completed": true}), "fex"));
+        assert!(variant_switch_pending(
+            &json!({"completed": true, "runtime_variant": "regular"}),
+            "fex"
+        ));
+        // The regular DMG dragged back over the FEX build.
+        assert!(variant_switch_pending(
+            &json!({"completed": true, "runtime_variant": "fex"}),
+            "regular"
+        ));
+        // The same build: nothing without the updater's marker.
+        assert!(!variant_switch_pending(
+            &json!({"completed": true}),
+            "regular"
+        ));
+        assert!(!variant_switch_pending(
+            &json!({"completed": true, "runtime_variant": "fex"}),
+            "fex"
+        ));
     }
 }
