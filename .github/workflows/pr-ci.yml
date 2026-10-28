@@ -93,6 +93,10 @@ jobs:
       - name: C backend tests
         run: make -C app/src-c test
 
+      - name: C backend build and tests (Arm64 FEX)
+        # Its own BUILD_DIR: make does not rebuild objects when only VARIANT changes.
+        run: make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build-fex" test
+
       - name: Backend source contracts
         run: node --test app/tests/x87sidecar-gate.cjs app/tests/rosetta-avx-env.cjs
 

@@ -80,7 +80,7 @@ SOURCES := \
 	runtime/main.c
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/c-backend/%.o)
 
-.PHONY: all clean install test asan-test
+.PHONY: all clean install test test-regular test-fex asan-test
 
 all: $(TARGET)
 
@@ -105,7 +105,23 @@ $(BUILD_DIR)/c-backend/%.o: %.c
 $(BUILD_DIR)/runtime-routes-test: tests/runtime_routes_test.c runtime/steam_actions.c runtime/epic.c $(OBJECTS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o "$@" tests/runtime_routes_test.c $(filter-out $(BUILD_DIR)/c-backend/runtime/main.o $(BUILD_DIR)/c-backend/runtime/steam_actions.o $(BUILD_DIR)/c-backend/runtime/epic.o $(BUILD_DIR)/c-backend/runtime/ubisoft.o,$(OBJECTS))
 
-test: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(BUILD_DIR)/runtime-routes-test
+test: test-$(VARIANT)
+
+# The FEX build's suite (make VARIANT=fex BUILD_DIR=... test): its backend and the tests that hold for
+# MetalSharp Wine. The route, smoke, VC++ seeding, runtime-ready and update-download tests describe
+# the regular build's x86_64 runtime and run in test-regular.
+test-fex: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST)
+	@"$(JSON_TEST)"
+	@"$(MIGRATION_TEST)"
+	@"$(HTTP_SERVER_TEST)"
+	@"$(GAME_EXE_TEST)"
+	@ms_home="$$(mktemp -d)"; "$(WINE_RUNTIME_TEST)" "$$ms_home" $(METALSHARP_WINE_APP); rc=$$?; rm -rf "$$ms_home"; exit $$rc
+	@bash "$(PROJECT_ROOT)/app/updater/tests/legacy_shutdown_timeout_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/install_progress_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@bash "$(PROJECT_ROOT)/app/updater/tests/build_switch_test.sh" "$(PROJECT_ROOT)/app/updater/update.sh"
+	@python3 "$(CURDIR)/tests/steam_process_test.py" "$(TARGET)"
+
+test-regular: $(TARGET) $(JSON_TEST) $(MIGRATION_TEST) $(HTTP_SERVER_TEST) $(VCPP_TEST) $(RUNTIME_READY_SIM) $(GAME_EXE_TEST) $(WINE_RUNTIME_TEST) $(BUILD_DIR)/runtime-routes-test
 	@home="$$(mktemp -d)"; "$(BUILD_DIR)/runtime-routes-test" "$$home"; rc=$$?; rm -rf "$$home"; exit $$rc
 	@ms_home="$$(mktemp -d)"; test_home="$$(mktemp -d)"; HOME="$$test_home" METALSHARP_HOME="$$ms_home" METALSHARP_RPCS3_RELEASE_JSON="$(CURDIR)/tests/rpcs3_release.json" METALSHARP_RPCS3_DOWNLOAD_FILE="$(CURDIR)/tests/rpcs3_bad_archive.7z" METALSHARP_SHADPS4_RELEASE_JSON="$(CURDIR)/tests/shadps4_release.json" METALSHARP_SHADPS4_DOWNLOAD_FILE="$(CURDIR)/tests/shadps4_bad_archive.zip" METALSHARP_SHADPS4_HOST_ARCH=arm64 METALSHARP_SHADPS4_HOST_MACOS=27 METALSHARP_SHADPS4_ROSETTA=1 METALSHARP_PCSX2_RELEASE_JSON="$(CURDIR)/tests/pcsx2_release.json" METALSHARP_PCSX2_DOWNLOAD_FILE="$(CURDIR)/tests/pcsx2_bad_archive.tar.xz" METALSHARP_PCSX2_HOST_ARCH=arm64 METALSHARP_PCSX2_HOST_MACOS=27 METALSHARP_PCSX2_ROSETTA=1 METALSHARP_PCSX2_SKIP_SIGNATURE_FOR_TESTS=1 METALSHARP_SHARPEMU_HOST_ARCH=arm64 METALSHARP_SHARPEMU_HOST_MACOS=27 METALSHARP_SHARPEMU_ROSETTA=1 METALSHARP_SHARPEMU_SANDBOX=1 "$(CURDIR)/tests/smoke.sh" "$(TARGET)"; rc=$$?; rm -rf "$$test_home" "$$ms_home"; exit $$rc
 	@"$(JSON_TEST)"

@@ -139,7 +139,8 @@ int main(void) {
         remove_tree_local(runtime_home);
         assert(!file_exists(runtime_home));
     }
-    /* The welcome is the FEX build's: the regular build never shows it, whatever is recorded. */
+    /* The welcome is the FEX build's: pending and not yet shown, it is due there; the regular build
+     * never shows it, whatever is recorded. */
     {
         char welcome_home[256], marker[512];
         char* json;
@@ -149,7 +150,7 @@ int main(void) {
         snprintf(marker, sizeof(marker), "%s/%s", welcome_home, FEX_WELCOME_PENDING);
         write_file(marker, "1\n");
         json = ms_migration_fex_welcome_json(welcome_home);
-        assert(json && strstr(json, "\"show\":false"));
+        assert(json && strstr(json, ms_wine_is_fex() ? "\"show\":true" : "\"show\":false"));
         free(json);
         json = ms_migration_fex_welcome_dismiss_json(welcome_home);
         assert(json && strstr(json, "\"ok\":true"));
@@ -157,6 +158,9 @@ int main(void) {
         assert(!file_exists(marker));
         snprintf(marker, sizeof(marker), "%s/%s", welcome_home, FEX_WELCOME_SHOWN);
         assert(file_exists(marker));
+        json = ms_migration_fex_welcome_json(welcome_home);
+        assert(json && strstr(json, "\"show\":false"));
+        free(json);
         remove_tree_local(welcome_home);
     }
     snprintf(home, sizeof(home), "/tmp/metalsharp-migration-test-%ld", (long)getpid());
