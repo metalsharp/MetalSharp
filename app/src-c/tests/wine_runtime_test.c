@@ -1,6 +1,7 @@
 /* The fex build's runtime/wine facade, written into a scratch home whose
  * runtime/MetalSharp-Wine.app links to a real MetalSharp Wine app (argv[2]); without one, only
  * the pipeline mapping and path checks run. Built with -DMS_BACKEND_VARIANT="fex". */
+#include "metalsharp_backend/cache.h"
 #include "metalsharp_backend/wine_runtime.h"
 #include <limits.h>
 #include <stdio.h>
@@ -53,6 +54,36 @@ int main(int argc, char** argv) {
     if (!home) {
         fprintf(stderr, "usage: %s <scratch home> [MetalSharp-Wine.app]\n", argv[0]);
         return 2;
+    }
+
+    /* Settings' cache rows on the fex build: each lane's size from its fex-<lane> folders, and a
+     * lane's Clear empties only that lane. (Mullion's lane also measures the user's cache folder, so
+     * it is not cleared here.) */
+    {
+        static const char clear_vkd3d[] = "{\"type\":\"lane\",\"lane\":\"vkd3d\"}";
+        static const char clear_unknown[] = "{\"type\":\"lane\",\"lane\":\"x\"}";
+        char* json;
+        snprintf(command, sizeof(command), "mkdir -p '%s/shader-cache/fex-dxvk/77' '%s/pipeline-cache/fex-vkd3d/123'",
+                 home, home);
+        EXPECT(system(command) == 0);
+        snprintf(path, sizeof(path), "%s/pipeline-cache/fex-vkd3d/123/vkd3d-proton.cache", home);
+        write_text(path, "vkd3d pipelines\n");
+        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxvk/77/game.dxvk-cache", home);
+        write_text(path, "dxvk state\n");
+        json = ms_cache_size_json(home);
+        EXPECT(json && strstr(json, "\"lanes\":{\"dxmt\":") && strstr(json, "\"vkd3d\":{\"bytes\":16,"));
+        EXPECT(json && strstr(json, "\"dxvk\":{\"bytes\":11,\"files\":1,\"apps\":1,"));
+        free(json);
+        json = ms_cache_clear_json(home, (const unsigned char*)clear_vkd3d, strlen(clear_vkd3d));
+        EXPECT(json && strstr(json, "\"bytes_freed\":16"));
+        free(json);
+        snprintf(path, sizeof(path), "%s/pipeline-cache/fex-vkd3d/123", home);
+        EXPECT(access(path, F_OK) != 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxvk/77/game.dxvk-cache", home);
+        EXPECT(access(path, F_OK) == 0);
+        json = ms_cache_clear_json(home, (const unsigned char*)clear_unknown, strlen(clear_unknown));
+        EXPECT(json && strstr(json, "\"ok\":false"));
+        free(json);
     }
 
     /* A prefix the fex build converted gets its x86_64 backup back; one without a backup is

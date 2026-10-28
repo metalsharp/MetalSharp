@@ -172,9 +172,9 @@ $(GAME_EXE_TEST): runtime/game_executable.c tests/game_executable_test.c include
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o "$@" runtime/game_executable.c tests/game_executable_test.c
 
 # The fex build's code, whatever VARIANT this build is.
-$(WINE_RUNTIME_TEST): runtime/wine_runtime.c tests/wine_runtime_test.c include/metalsharp_backend/wine_runtime.h
+$(WINE_RUNTIME_TEST): runtime/wine_runtime.c runtime/cache.c tests/wine_runtime_test.c include/metalsharp_backend/wine_runtime.h include/metalsharp_backend/cache.h
 	@mkdir -p "$(@D)"
-	$(CC) $(filter-out -DMS_BACKEND_VARIANT=%,$(CPPFLAGS)) -DMS_BACKEND_VARIANT=\"fex\" $(CFLAGS) -o "$@" runtime/wine_runtime.c tests/wine_runtime_test.c
+	$(CC) $(filter-out -DMS_BACKEND_VARIANT=%,$(CPPFLAGS)) -DMS_BACKEND_VARIANT=\"fex\" $(CFLAGS) -o "$@" runtime/wine_runtime.c runtime/cache.c runtime/json.c runtime/json_writer.c tests/wine_runtime_test.c
 
 # The vcpp test #includes runtime/setup.c for the static progress helpers, so
 # setup.c itself must not be linked into this binary.

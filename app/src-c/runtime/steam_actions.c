@@ -921,6 +921,9 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
         char log_path[PATH_MAX];
         setenv("DXMT_SHADER_CACHE_PATH", shader, 1);
         setenv("DXMT_PIPELINE_CACHE_PATH", cache, 1);
+        /* Mullion's shader database, where Settings measures and clears the lane. */
+        if (ms_wine_is_fex())
+            setenv("MULLION_SHADER_CACHE_PATH", shader, 1);
         snprintf(log_path, sizeof(log_path), "%s/logs/%s/%u/", home, subdir, id);
         (void)ensure_directory(log_path);
     } else if (!strcmp(pipeline, "vkd3d")) {
@@ -928,6 +931,12 @@ static void set_launch_cache_env(const char* home, unsigned id, const char* pipe
         setenv("DXVK_LOG_PATH", cache, 1);
         setenv("DXVK_LOG_LEVEL", "info", 1);
         setenv("VKD3D_DEBUG", "info", 1);
+        /* VKD3D-Proton's pipeline cache, which would otherwise go in the game's working folder. */
+        if (ms_wine_is_fex())
+            setenv("VKD3D_SHADER_CACHE_PATH", cache, 1);
+    } else if (ms_wine_is_fex() && !strcmp(pipeline, "dxvk")) {
+        /* DXVK's state cache, which would otherwise go next to the game's executable. */
+        setenv("DXVK_STATE_CACHE_PATH", shader, 1);
     }
 }
 
@@ -6369,6 +6378,7 @@ static const char* const launch_env_route_names[] = {
     "GRAPHICS_BACKEND", "MULLION_CONFIG_FILE", "DXMT_CONFIG_FILE", "DXMT_CONFIG", "MULLION_CONFIG",
     "WINEDLLOVERRIDES", "OPENGL_BACKEND",
     "DXVK_STATE_CACHE_PATH", "DXVK_LOG_PATH", "DXVK_LOG_LEVEL", "VKD3D_DEBUG", "VKD3D_CONFIG", "VKD3D_FRAME_RATE",
+    "VKD3D_SHADER_CACHE_PATH", "MULLION_SHADER_CACHE_PATH",
     "METALSHARP_PIPELINE"};
 
 static const char* env_value(char** env, const char* name, size_t length) {

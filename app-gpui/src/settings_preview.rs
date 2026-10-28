@@ -104,6 +104,8 @@ pub struct SettingsPreview {
     backend_restarting: bool,
     shader_cache: Option<Value>,
     pipeline_cache: Option<Value>,
+    /// FEX only: each graphics lane's caches (`lanes` in `/cache/size`), by lane id.
+    cache_lanes: Option<Value>,
     confirm: Option<ConfirmAction>,
     language_menu: bool,
     uninstalling: bool,
@@ -118,6 +120,25 @@ impl Default for SettingsPreview {
         Self::new()
     }
 }
+
+/// The FEX build's cache rows: lane id (Mullion is "dxmt"), name, and what the lane keeps.
+const FEX_CACHE_LANES: [(&str, &str, &str); 3] = [
+    (
+        "dxmt",
+        "Mullion (DXMT)",
+        "Mullion's shader databases and Metal's pipeline cache for Direct3D 10/11/12 games on Mullion",
+    ),
+    (
+        "vkd3d",
+        "VKD3D-Proton",
+        "VKD3D-Proton's pipeline cache and DXVK state caches for games on the VKD3D-Proton lane",
+    ),
+    (
+        "dxvk",
+        "DXVK",
+        "DXVK's state caches for games on the DXVK lane",
+    ),
+];
 
 fn format_cache(cache: Option<&Value>) -> (String, bool) {
     let Some(cache) = cache else {
@@ -160,6 +181,7 @@ impl SettingsPreview {
             backend_restarting: false,
             shader_cache: None,
             pipeline_cache: None,
+            cache_lanes: None,
             confirm: None,
             language_menu: false,
             uninstalling: false,
@@ -291,6 +313,7 @@ impl SettingsPreview {
                 if let Some(r) = r.filter(is_ok) {
                     this.shader_cache = r.get("shader_cache").cloned();
                     this.pipeline_cache = r.get("pipeline_cache").cloned();
+                    this.cache_lanes = r.get("lanes").cloned();
                     cx.notify();
                 }
             },
@@ -847,12 +870,18 @@ impl SettingsPreview {
         }
     }
 
+    /// `kind` is "shader" or "pipeline", or on FEX a lane from `FEX_CACHE_LANES`.
     fn clear_cache(&mut self, kind: &'static str, cx: &mut Context<Self>) {
+        let lane = FEX_CACHE_LANES.iter().find(|(id, ..)| *id == kind);
+        let body = match lane {
+            Some((id, ..)) => json!({"type": "lane", "lane": id}),
+            None => json!({"type": kind}),
+        };
         live::call(
             cx,
             "POST",
             "/cache/clear",
-            Some(json!({"type": kind})),
+            Some(body),
             live::DEFAULT_TIMEOUT,
             move |this, r, cx| {
                 if let Some(r) = r.filter(is_ok) {
@@ -862,7 +891,9 @@ impl SettingsPreview {
                         cx,
                         format!(
                             "{} cache cleared — {freed} freed",
-                            if kind == "shader" {
+                            if let Some((_, name, _)) = lane {
+                                name
+                            } else if kind == "shader" {
                                 "Shader"
                             } else {
                                 "Pipeline"
@@ -1856,6 +1887,32 @@ impl Render for SettingsPreview {
             false,
             cx,
         );
+        // FEX: one row per graphics lane, each with its real size and its own Clear.
+        let cache_lanes = self.cache_lanes.clone();
+        let lane_rows: Vec<_> = if crate::variant::is_fex() {
+            FEX_CACHE_LANES
+                .iter()
+                .map(|(lane, name, desc)| {
+                    let button: &'static str = match *lane {
+                        "dxmt" => "clear-cache-dxmt",
+                        "vkd3d" => "clear-cache-vkd3d",
+                        _ => "clear-cache-dxvk",
+                    };
+                    cache_row(
+                        self,
+                        button,
+                        format!("{name} Cache").into(),
+                        (*desc).into(),
+                        cache_lanes.as_ref().and_then(|lanes| lanes.get(*lane)),
+                        lane,
+                        true,
+                        cx,
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let status = app.update_status.clone().unwrap_or(Value::Null);
         let status_ok = is_ok(&status);
         let available = status_ok && status.get("available").and_then(Value::as_bool) == Some(true);
@@ -2037,7 +2094,11 @@ impl Render for SettingsPreview {
             ))
             .child(self.card(
                 self.tr("settings.cache"),
-                div().child(shader).child(pipeline),
+                if crate::variant::is_fex() {
+                    div().children(lane_rows)
+                } else {
+                    div().child(shader).child(pipeline)
+                },
                 false,
             ));
         let mut updates = div().child(version);
