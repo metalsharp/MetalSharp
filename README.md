@@ -49,11 +49,7 @@ For Direct Access to What is Installed During Setup, See Here: [Dependency Bundl
 
 If an In-App update fails, please use [Fix Broken Updater](https://github.com/metalsharp/MetalSharp/blob/main/docs/Fix%20a%20Broken%20Update.md)
 
-## Launching Games and Graphics Routes
-
-To launch a game, install it through Steam and launch it through MetalSharp. Choose between the below backends from the bottle dropdown if the game does not originally run. MetalSharp scans the game folder for DLL's and automatically assigns it to a backend pipeline, tested games are automatically assigned their compatible pipeline from the `mtsp-rules.toml`. See [Game Compatibility](docs/games-supported.md) for a list of tested and verified games.
-
-MetalSharp has two runtimes: Arm64 with FEX (MacOS 26.4+) and x86_64 Under Rosetta. 
+## Graphics Routes
 
 | Version | Route | Engine | Notes |
 |---|---|---|---|
@@ -61,8 +57,10 @@ MetalSharp has two runtimes: Arm64 with FEX (MacOS 26.4+) and x86_64 Under Roset
 | Arm64 FEX / x86_64 | **_DXVK / VKD3D-Proton_** | D3D12/D3D11/D3D10 Through Vulkan -> Metal | D3D12 Only works for Arm64 Version |
 | Arm64 FEX | **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal | | 
 
+___
+
 | Version | Route | Engine |
-|---|---|---|---|
+|---|---|---|
 | x86_64 | **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework |
 | X86_64 | **_DXMT_** | D3D11, D3D10 to Metal |
 | x86_64 | **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal |
