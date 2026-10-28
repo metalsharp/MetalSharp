@@ -51,10 +51,14 @@ If an In-App update fails, please use [Fix Broken Updater](https://github.com/me
 
 ## Graphics Routes
 
+- To launch your game, save your desired pipeline in MetalSharp and launch through MetalSharp.
+- MetalSharp automatically assigns your game a pipeline based on [Game-Compatability](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md) testing. 
+
 | Version | Route | Engine | Notes |
 |---|---|---|---|
+| Arm64 FEX | **_VKD3D-Proton_** | D3D12 Through Vulkan -> MetalSharp's MoltenVK  -> Metal | In Early-Access |
 | Arm64 FEX | **_Mullion (DXMT Fork)_** | D3D12 / D3D11 / D3D10 x86 / x64 -> Metal | In Early-Access |
-| Arm64 FEX / x86_64 | **_DXVK / VKD3D-Proton_** | D3D12/D3D11/D3D10 Through Vulkan -> Metal | D3D12 Only works for Arm64 Version |
+| Arm64 FEX | **_DXVK_** | D3D11 / D3D10 / D3D9 -> Vulkan -> MetalSharp's MoltenVK -> Metal | |
 | Arm64 FEX | **_OpenGL_** | WineMetalGL (OpenGL 1.0 through 4.6) -> Metal | | 
 
 ___
