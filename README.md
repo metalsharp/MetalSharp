@@ -22,9 +22,10 @@ MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. 8 P.
 
 <div align="center">
   
-MetalSharp is a Free Wine 11.17 Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
+MetalSharp is a Free Wine 11.17 x86_64 / Wine 11.20 with FEX Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
 
-<img width="892" height="685" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/03539f26-ce8b-4169-996b-7e89c5590aad" />
+<img width="916" height="796" alt="Screenshot 2026-10-27 at 9 41 34 PM" src="https://github.com/user-attachments/assets/f32e1409-1137-420f-bb6d-8d7fccd022a3" />
+
 
 </div>
 
