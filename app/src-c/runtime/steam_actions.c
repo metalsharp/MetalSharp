@@ -45,7 +45,8 @@
 /* 100 ms polls for a freshly started Wine Steam client to appear. A cold
  * start (wineserver, then Steam.exe through the helper app) can take longer
  * than 12 s, and the launch must not be reported as failed while it comes up. */
-#define WINE_STEAM_READY_POLLS 300
+#define WINE_STEAM_READY_POLLS        300
+#define WINE_STEAM_LOGON_WAIT_SECONDS 60
 
 /* Steam launch arguments that let a Chromium-based launcher start under
  * D3DMetal: no sandbox, GPU off, software WebGL through ANGLE. */
@@ -2971,6 +2972,51 @@ static pid_t wine_steam_client_pid(const char* home) {
     return steam_pid;
 }
 
+static time_t wine_steam_client_started_at(const char* home) {
+#ifdef __APPLE__
+    pid_t pid = wine_steam_client_pid(home);
+    struct proc_bsdinfo info;
+    if (pid <= 0 || proc_pidinfo((int)pid, PROC_PIDTBSDINFO, 0, &info, (int)sizeof(info)) != (int)sizeof(info))
+        return 0;
+    return (time_t)info.pbi_start_tvsec;
+#else
+    (void)home;
+    return 0;
+#endif
+}
+
+/* Steam appends "[<time>] [Logged On, ...]" to logs/connection_log.txt once
+ * its account session is up. True when that happened at or after `since`;
+ * Wine writes the timestamps in the host's local time. */
+static bool wine_steam_logged_on_since(const char* home, time_t since) {
+    char* path = join(home, "prefix-steam/drive_c/Program Files (x86)/Steam/logs/connection_log.txt");
+    FILE* log = path ? fopen(path, "r") : NULL;
+    char line[1024];
+    bool logged_on = false;
+    free(path);
+    while (log && !logged_on && fgets(line, sizeof(line), log)) {
+        struct tm stamp = {0};
+        const char* rest = line[0] == '[' ? strptime(line + 1, "%Y-%m-%d %H:%M:%S", &stamp) : NULL;
+        stamp.tm_isdst = -1;
+        logged_on = rest && !strncmp(rest, "] [Logged On,", 13) && mktime(&stamp) >= since;
+    }
+    if (log)
+        fclose(log);
+    return logged_on;
+}
+
+/* A Steamworks game started while Wine Steam is still signing in cannot reach
+ * the client and quits (Deadlock, launched 9 s before Steam's logon). Hold the
+ * launch until this Steam session has logged on. Only the first minute of a
+ * session is held, so offline mode or a Steam without network costs at most
+ * that one wait, and a game launched without Steam running is not held. */
+static void wait_for_wine_steam_logon(const char* home) {
+    time_t started;
+    while (!ms_process_background_shutdown_requested() && (started = wine_steam_client_started_at(home)) > 0 &&
+           time(NULL) - started < WINE_STEAM_LOGON_WAIT_SECONDS && !wine_steam_logged_on_since(home, started))
+        usleep(500000);
+}
+
 static char* wine_steam_route_marker_path(const char* home) {
     return join(home, "runtime/steam-session-pipeline");
 }
@@ -5885,6 +5931,7 @@ static char* spawn_direct_game(const char* home, const char* executable, unsigne
         free(cwd);
         return strdup("Game executable path is too long or invalid");
     }
+    wait_for_wine_steam_logon(home);
     if (pipe(exec_pipe) != 0) {
         char* error = strdup(strerror(errno));
         free(wine);
