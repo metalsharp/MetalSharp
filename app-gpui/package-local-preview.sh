@@ -144,6 +144,9 @@ cat > "$STEAM_HELPER/Info.plist" <<STEAMPLIST
   <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
   <key>CFBundleVersion</key><string>$APP_BUILD_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Windows games and launchers running in Wine keep their saves and settings in your Documents folder.</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on external drives.</string>
+  <key>NSNetworkVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on network drives.</string>
 </dict>
 </plist>
 STEAMPLIST
@@ -243,6 +246,9 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$APP_BUILD_VERSION</string>
   <key>MetalSharpVariant</key><string>$VARIANT</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Windows games and launchers running in Wine keep their saves and settings in your Documents folder.</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on external drives.</string>
+  <key>NSNetworkVolumesUsageDescription</key><string>Wine reaches Steam libraries and games installed on network drives.</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.games</string>

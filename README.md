@@ -10,7 +10,7 @@ ___
 
 MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. Updates Tonight!
 
-<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.80.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.80.0&style=for-the-badge" alt="Release"></a>
+<a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.0.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.0.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-purple.svg?style=for-the-badge" alt="License"></a>
 
