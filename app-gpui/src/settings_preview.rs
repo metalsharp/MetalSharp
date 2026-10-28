@@ -1922,7 +1922,8 @@ impl Render for SettingsPreview {
         } else {
             "x86_64"
         };
-        let switch = (status_ok
+        let switch = (crate::variant::is_fex()
+            && status_ok
             && !available
             && !app.update_downloading
             && status.get("switch_available").and_then(Value::as_bool) == Some(true)

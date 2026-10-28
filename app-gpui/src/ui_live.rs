@@ -213,7 +213,12 @@ impl Default for LiveState {
             running_poll_in_flight: false,
             selected_pipeline: "auto".into(),
             pipeline_saving: false,
-            metal_fx_mode: "off",
+            // MetalFX starts off on the FEX build; the regular build keeps 2x on.
+            metal_fx_mode: if crate::variant::is_fex() {
+                "off"
+            } else {
+                "2.0"
+            },
             metal_fx_busy: false,
             controller_input: "off",
             controller_busy: false,

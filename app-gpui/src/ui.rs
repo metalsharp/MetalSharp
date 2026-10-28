@@ -3354,11 +3354,16 @@ impl MetalSharpApp {
             .id("game-settings-popover")
             .occlude()
             .absolute()
-            // Beside the gear button, opening up and to the left over the hero art: opening downward
-            // covered the dock's cards and ran past the bottom of a short window.
-            .bottom(px(0.0))
-            .right(px(50.0))
-            .w(px(GAME_SETTINGS_WIDTH))
+            // FEX: beside the gear button, opening up and to the left over the hero art: opening
+            // downward covered the dock's cards and ran past the bottom of a short window.
+            .when(crate::variant::is_fex(), |menu| {
+                menu.bottom(px(0.0))
+                    .right(px(50.0))
+                    .w(px(GAME_SETTINGS_WIDTH))
+            })
+            .when(!crate::variant::is_fex(), |menu| {
+                menu.top(px(50.0)).right(px(0.0)).w(px(365.0))
+            })
             .flex()
             .flex_col()
             .gap(px(12.0))
@@ -3421,10 +3426,11 @@ impl MetalSharpApp {
                 .cursor_pointer()
                 .child(text)
         };
+        // FEX lays the settings out two per line; the regular build keeps one per line.
+        let two_columns = crate::variant::is_fex();
         let row = |label: &'static str, options: gpui::Div| {
             div()
-                .flex_1()
-                .min_w_0()
+                .when(two_columns, |cell| cell.flex_1().min_w_0())
                 .flex()
                 .items_center()
                 .justify_between()
@@ -3535,8 +3541,7 @@ impl MetalSharpApp {
                 .unwrap_or_else(|| "Automatically detected".to_string());
             cells.push(
                 div()
-                    .flex_1()
-                    .min_w_0()
+                    .when(two_columns, |cell| cell.flex_1().min_w_0())
                     .flex()
                     .items_center()
                     .justify_between()
@@ -3591,6 +3596,9 @@ impl MetalSharpApp {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_steam_emu(!active, cx))),
                 ),
             ));
+        }
+        if !two_columns {
+            return cells.into_iter().fold(menu, |menu, cell| menu.child(cell));
         }
         // Two settings per line (label and choices), with a rule between the columns.
         let divider = theme.border();
