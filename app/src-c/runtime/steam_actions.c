@@ -666,13 +666,13 @@ static void ensure_dxmt_shader_metal_version(const char* home) {
 }
 
 static void set_rosetta_avx_env(void) {
-    if (ms_wine_is_fex()) {
+    /* MetalSharp Wine runs under FEX, not Rosetta (the fex build). */
+    if (ms_wine_is_fex())
         unsetenv("ROSETTA_ADVERTISE_AVX");
-        return;
-    }
 #ifdef __APPLE__
     /* Ask Rosetta to expose its translated AVX/AVX2 support to x86_64 Wine. */
-    setenv("ROSETTA_ADVERTISE_AVX", "1", 1);
+    else
+        setenv("ROSETTA_ADVERTISE_AVX", "1", 1);
 #endif
 }
 
@@ -780,11 +780,11 @@ static void set_route_paths(const char* home, const char* pipeline) {
     char dllpath[PATH_MAX * 3];
     char unixpath[PATH_MAX * 3];
     const char* backend = pipeline_backend(pipeline);
+    set_rosetta_avx_env();
     if (ms_wine_is_fex()) {
         set_fex_route_paths(home, pipeline);
         return;
     }
-    set_rosetta_avx_env();
     if (pipeline_is_dxmt(pipeline))
         ensure_dxmt_shader_metal_version(home);
     dllpath[0] = '\0';
@@ -3052,12 +3052,12 @@ static void set_pipeline_runtime_env(const char* home, const char* pipeline) {
     char winemetal[PATH_MAX];
     char vulkan_icd[PATH_MAX];
     const char* backend = "dxmt";
+    set_rosetta_avx_env();
     if (ms_wine_is_fex()) {
         const char* canonical = canonical_pipeline(pipeline);
         set_fex_route_paths(home, canonical && strcmp(canonical, "auto") ? canonical : "dxmt");
         return;
     }
-    set_rosetta_avx_env();
     if (!pipeline)
         pipeline = "auto";
     if (pipeline_is_dxmt(pipeline)) {
