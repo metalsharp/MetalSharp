@@ -134,7 +134,7 @@ Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-o
 [ZED](https://github.com/zed-industries/zed) _For GPUI_, 
 [Wine-Mono](https://github.com/wine-mono/wine-mono), 
 [Legendary](https://github.com/legendary-gl/legendary) _For Headless Epic Login_, 
-[Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher) _For Headless GOG Login_, and [WineForge](https://github.com/Alien4042x/WineForge) _For WFDXCompat / WFSync_
+[Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher) _For Headless GOG Login_, and [WineForge](https://github.com/Alien4042x/WineForge) _For WFDXCompat / WFUSync_
 
 Without their work, this project would not have been possible. 
 
