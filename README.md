@@ -11,6 +11,7 @@ ___
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.0.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.0.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0-purple.svg?style=for-the-badge" alt="License"></a>
+<a href="https://discord.gg/kQfFNvVWt"><img src="https://img.shields.io/badge/Discord-Join%20Chat-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
 
 </div>
 
