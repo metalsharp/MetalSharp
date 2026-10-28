@@ -3,7 +3,7 @@
 <h1> MetalSharp </h1>
 
 <p align="center">
-  <img width="700" alt="MetalSharp X Wine" src="https://github.com/user-attachments/assets/f9c077b2-fd1f-4d56-9c58-7cf9a64e7c12" />
+  <img width="300" alt="MetalSharp X Wine" src="https://github.com/user-attachments/assets/f9c077b2-fd1f-4d56-9c58-7cf9a64e7c12" />
 </p>
 
 ___
