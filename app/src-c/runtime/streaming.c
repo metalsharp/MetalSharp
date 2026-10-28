@@ -336,7 +336,9 @@ static bool streaming_sha256_file(const char* path, char* out_hex, size_t out_si
 static bool streaming_expected_dmg_sha256(char* out_hex, size_t out_size) {
     char* response = malloc(512 * 1024);
     char* args[] = {(char*)"/usr/bin/curl",
-                    (char*)"-sk",
+                    (char*)"--fail",
+                    (char*)"--silent",
+                    (char*)"--show-error",
                     (char*)"--max-time",
                     (char*)"20",
                     (char*)"https://api.github.com/repos/LizardByte/Sunshine/releases/latest",
