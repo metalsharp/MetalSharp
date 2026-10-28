@@ -4,7 +4,7 @@
 # variant around a given MetalSharp-Wine.app, wrap it in
 # MetalSharp-<ver>-arm64-FEX.dmg and verify it. Nothing is launched or installed.
 #
-#   METALSHARP_WINE_APP           signed MetalSharp-Wine.app to carry (default below)
+#   METALSHARP_WINE_APP           signed MetalSharp-Wine.app to carry (required)
 #   METALSHARP_GPUI_SIGN_IDENTITY Developer ID Application identity; ad-hoc (-) by default
 #   METALSHARP_GPUI_APP_VERSION   app version (default: CMakeLists.txt)
 #   METALSHARP_BUILD_DIR          C++ build dir holding the host runtime (default: build/)
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WINE_APP="${METALSHARP_WINE_APP:-/Volumes/AverySSD/MetalSharp-Wine-Arm64-FEX/dist/MetalSharp-Wine.app}"
+WINE_APP="${METALSHARP_WINE_APP:?set METALSHARP_WINE_APP to a signed MetalSharp-Wine.app}"
 OUT_DIR="${METALSHARP_DMG_OUT_DIR:-$ROOT/dist/gpui-testing-fex}"
 BUILD_DIR="${METALSHARP_BUILD_DIR:-$ROOT/build}"
 APP="$ROOT/app-gpui/target/MetalSharp.app"
