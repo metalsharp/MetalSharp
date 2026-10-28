@@ -102,6 +102,40 @@ fn extract_bundled_updater(live: &Live) -> Option<PathBuf> {
     None
 }
 
+/// `update.sh`'s arguments for installing `variant` from the build running (`running`). The regular
+/// build updating itself keeps its `--recover` flow. Anything that changes or involves the FEX build
+/// installs the downloaded DMG explicitly: `--recover` reinstalls whatever build is installed, so from
+/// the FEX build it would put FEX back instead of switching to the regular build.
+fn install_args(
+    running: &str,
+    variant: &str,
+    dmg_path: &str,
+    backend_pid: u32,
+    target_version: &str,
+    home: &Path,
+    app_pid: u32,
+) -> Vec<std::ffi::OsString> {
+    if running == "regular" && variant == "regular" {
+        return vec!["--recover".into()];
+    }
+    vec![
+        "--dmg".into(),
+        dmg_path.into(),
+        "--backend-pid".into(),
+        backend_pid.to_string().into(),
+        "--target-version".into(),
+        target_version.into(),
+        "--variant".into(),
+        variant.into(),
+        "--status-file".into(),
+        status_file(home).into(),
+        "--metalsharp-home".into(),
+        home.into(),
+        "--app-pid".into(),
+        app_pid.to_string().into(),
+    ]
+}
+
 /// `UpdaterBridge.spawnInstallUpdater`.
 pub fn spawn_install(
     live: &Live,
@@ -124,24 +158,15 @@ pub fn spawn_install(
     let _ = std::fs::create_dir_all(&home);
     let mut command = std::process::Command::new("/bin/bash");
     crate::lifecycle::unmask_child_signals(&mut command);
-    command.arg(script);
-    if variant == "regular" {
-        command.arg("--recover");
-    } else {
-        command
-            .arg("--dmg")
-            .arg(dmg_path)
-            .arg("--backend-pid")
-            .arg(backend_pid.to_string())
-            .arg("--target-version")
-            .arg(target_version)
-            .arg("--status-file")
-            .arg(status_file(&home))
-            .arg("--metalsharp-home")
-            .arg(&home)
-            .arg("--app-pid")
-            .arg(std::process::id().to_string());
-    }
+    command.arg(script).args(install_args(
+        crate::variant::name(),
+        variant,
+        dmg_path,
+        backend_pid,
+        target_version,
+        &home,
+        std::process::id(),
+    ));
     command
         .env("METALSHARP_HOME", &home)
         .env("PATH", tool_path(&live.resources()))
@@ -170,4 +195,64 @@ pub fn read_install_status(home: &Path) -> Option<Value> {
 
 pub fn clear_install_status(home: &Path) {
     let _ = std::fs::remove_file(status_file(home));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::install_args;
+    use std::path::Path;
+
+    fn args(running: &str, variant: &str, version: &str) -> Vec<String> {
+        install_args(
+            running,
+            variant,
+            "/home/cache/updates/MetalSharp.dmg",
+            42,
+            version,
+            Path::new("/home"),
+            7,
+        )
+        .into_iter()
+        .map(|arg| arg.into_string().unwrap())
+        .collect()
+    }
+
+    fn installs(args: &[String], variant: &str, version: &str) -> bool {
+        let after = |flag: &str| {
+            args.iter()
+                .position(|arg| arg == flag)
+                .and_then(|i| args.get(i + 1))
+                .map(String::as_str)
+        };
+        !args.contains(&"--recover".to_owned())
+            && after("--dmg") == Some("/home/cache/updates/MetalSharp.dmg")
+            && after("--variant") == Some(variant)
+            && after("--target-version") == Some(version)
+    }
+
+    #[test]
+    fn switching_from_fex_to_regular_installs_the_regular_dmg() {
+        // The same version (a build switch) and a newer one.
+        assert!(installs(
+            &args("fex", "regular", "1.0.0"),
+            "regular",
+            "1.0.0"
+        ));
+        assert!(installs(
+            &args("fex", "regular", "1.1.0"),
+            "regular",
+            "1.1.0"
+        ));
+    }
+
+    #[test]
+    fn fex_targets_install_the_fex_dmg() {
+        assert!(installs(&args("regular", "fex", "1.0.0"), "fex", "1.0.0"));
+        assert!(installs(&args("fex", "fex", "1.1.0"), "fex", "1.1.0"));
+    }
+
+    #[test]
+    fn the_regular_build_updating_itself_keeps_its_recover_flow() {
+        assert_eq!(args("regular", "regular", "1.1.0"), ["--recover"]);
+    }
 }

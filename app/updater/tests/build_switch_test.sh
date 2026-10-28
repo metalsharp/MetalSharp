@@ -163,6 +163,9 @@ check "$TARGET_APP" "$INSTALLED_APP" 1.0.0 regular || fail "FEX to regular at th
 grep -q verifying_signature "$STATUS_LOG" || fail "a switch away from FEX verifies the signature"
 setup 1.0.0 fex 1.0.0 -
 check "$TARGET_APP" "$INSTALLED_APP" 1.0.0 regular || fail "a regular DMG without the key switches from FEX"
+setup 1.0.0 fex 1.1.0 regular
+check "$TARGET_APP" "$INSTALLED_APP" 1.1.0 regular || fail "FEX to a newer regular build installs the regular DMG"
+grep -q verifying_signature "$STATUS_LOG" || fail "a newer regular build over FEX verifies the signature"
 
 # same version, same build, and downgrades stay refused on FEX
 setup 1.0.0 fex 1.0.0 fex
