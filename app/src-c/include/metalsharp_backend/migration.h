@@ -31,4 +31,10 @@ ms_migration_path ms_migration_path_for(const char* running_variant, const char*
                                         const char* from_version, bool installed, bool marker_needed,
                                         bool runtime_ready);
 const char* ms_migration_path_name(ms_migration_path path);
+
+/* The FEX build's welcome, shown once after a REGULAR_TO_FEX migration: GET says whether it is due,
+ * POST .../dismiss records that it was shown. Never due on the regular build. */
+bool ms_migration_fex_welcome_due(ms_migration_path path);
+char* ms_migration_fex_welcome_json(const char* home);
+char* ms_migration_fex_welcome_dismiss_json(const char* home);
 #endif

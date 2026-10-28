@@ -114,6 +114,8 @@ pub(super) struct LiveState {
     pub update_message: String,
     pub update_dismissed: bool,
     pub update_dialog: Option<UpdateDialog>,
+    /// The FEX build's one-time welcome over the library: the page shown, or None.
+    pub fex_welcome_page: Option<usize>,
     pub running: HashMap<u64, u64>,
     pub launching: Option<u64>,
     running_poll_in_flight: bool,
@@ -208,6 +210,7 @@ impl Default for LiveState {
             update_message: String::new(),
             update_dismissed: false,
             update_dialog: None,
+            fex_welcome_page: None,
             running: HashMap::new(),
             launching: None,
             running_poll_in_flight: false,
@@ -512,6 +515,8 @@ impl MetalSharpApp {
 
     /// App.vue `initApp`.
     pub(super) fn init_app(&mut self, cx: &mut Context<Self>) {
+        // The FEX build's welcome, once after an x86_64 install moved to it.
+        self.check_fex_welcome(cx);
         live::call(
             cx,
             "GET",

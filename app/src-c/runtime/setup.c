@@ -2607,9 +2607,23 @@ static void run_install_all_worker(const char* home) {
         write_install_progress(home, 18, total, "Steam Prefix", "installing",
                                "Preparing the Steam prefix: Windows, VC++ 2022 and core fonts...", NULL);
         /* A 0.80.0 Steam prefix is backed up before MetalSharp Wine touches it. */
+        char* registry = prefix ? join_path(prefix, "system.reg") : NULL;
+        bool from_x86_64 = registry && access(registry, F_OK) == 0 && !ms_wine_prefix_is_arm64(prefix);
+        free(registry);
         ms_wine_set_prefix_progress(report_steam_prefix_step, (void*)home);
         bool prepared = prefix && ms_wine_fex_convert_prefix(home, prefix, prefix_error, sizeof(prefix_error));
         ms_wine_set_prefix_progress(NULL, NULL);
+        /* An x86_64 install moved to this build: the library shows the FEX welcome once
+         * (migration.c, FEX_WELCOME_PENDING). */
+        if (prepared && from_x86_64) {
+            char* pending = join_path(home, ".fex-welcome-pending");
+            FILE* file = pending ? fopen(pending, "w") : NULL;
+            if (file) {
+                fputs("1\n", file);
+                fclose(file);
+            }
+            free(pending);
+        }
         if (!prepared) {
             write_install_progress(home, 18, total, "Steam Prefix", "error", "The Steam prefix could not be prepared",
                                    prefix_error);

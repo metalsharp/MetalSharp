@@ -587,6 +587,11 @@ static int compare_versions(const char* left, const char* right) {
     return 0;
 }
 
+/* The welcome the FEX build shows once after moving an x86_64 install to it, and the record that
+ * it was shown. */
+#define FEX_WELCOME_PENDING ".fex-welcome-pending"
+#define FEX_WELCOME_SHOWN   ".fex-welcome-shown"
+
 const char* ms_migration_path_name(ms_migration_path path) {
     switch (path) {
     case MS_MIGRATION_PATH_FULL:
@@ -621,6 +626,35 @@ ms_migration_path ms_migration_path_for(const char* running_variant, const char*
     return MS_MIGRATION_PATH_FEX_UPDATE;
 }
 
+bool ms_migration_fex_welcome_due(ms_migration_path path) {
+    return path == MS_MIGRATION_PATH_REGULAR_TO_FEX;
+}
+
+char* ms_migration_fex_welcome_json(const char* home) {
+    char* pending = path_join(home, FEX_WELCOME_PENDING);
+    char* shown = path_join(home, FEX_WELCOME_SHOWN);
+    bool show = ms_wine_is_fex() && pending && shown && exists(pending) && !exists(shown);
+    free(pending);
+    free(shown);
+    return strdup(show ? "{\"ok\":true,\"show\":true}" : "{\"ok\":true,\"show\":false}");
+}
+
+char* ms_migration_fex_welcome_dismiss_json(const char* home) {
+    char* pending = path_join(home, FEX_WELCOME_PENDING);
+    char* shown = path_join(home, FEX_WELCOME_SHOWN);
+    FILE* file = shown ? fopen(shown, "w") : NULL;
+    bool ok = file != NULL;
+    if (file) {
+        ok = fputs("1\n", file) >= 0;
+        ok = fclose(file) == 0 && ok;
+    }
+    if (ok && pending)
+        (void)unlink(pending);
+    free(pending);
+    free(shown);
+    return strdup(ok ? "{\"ok\":true,\"show\":false}"
+                     : "{\"ok\":false,\"error\":\"could not record the welcome as shown\"}");
+}
 
 /* The migration path for this home: NONE without a setup.json, as the check reports it. */
 static ms_migration_path migration_path_for_home(const char* home) {
@@ -1920,6 +1954,16 @@ static void* migration_worker(void* opaque) {
                 }
                 free(note_path);
                 free(logs_dir);
+            }
+            /* The FEX build's welcome, once, after an x86_64 install moved to it. */
+            if (ms_wine_is_fex() && ms_migration_fex_welcome_due(job->path)) {
+                char* pending = path_join(job->home, FEX_WELCOME_PENDING);
+                FILE* file = pending ? fopen(pending, "w") : NULL;
+                if (file) {
+                    fputs("1\n", file);
+                    fclose(file);
+                }
+                free(pending);
             }
             (void)write_migration_progress(job->home, "complete", 9, "MetalSharp is updated and ready.", NULL);
             unlink(job->lock_path);

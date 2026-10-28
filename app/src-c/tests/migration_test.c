@@ -73,6 +73,7 @@ static void test_migration_paths(void) {
     assert(ms_migration_path_for("fex", "fex", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FEX_UPDATE);
     /* ... also when the runtime needs repair, and never the 0.80.0 conversion or the welcome again. */
     assert(ms_migration_path_for("fex", "fex", "1.0.0", true, false, false) == MS_MIGRATION_PATH_FEX_UPDATE);
+    assert(!ms_migration_fex_welcome_due(ms_migration_path_for("fex", "fex", "1.0.0", true, true, true)));
     /* FEX with nothing to do. */
     assert(ms_migration_path_for("fex", "fex", "1.1.0", true, false, true) == MS_MIGRATION_PATH_NONE);
 
@@ -82,6 +83,7 @@ static void test_migration_paths(void) {
     assert(ms_migration_path_for("regular", NULL, "0.80.3", true, false, false) == MS_MIGRATION_PATH_FULL);
     assert(ms_migration_path_for("regular", "regular", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FULL);
     assert(ms_migration_path_for("regular", NULL, "0.80.0", true, false, true) == MS_MIGRATION_PATH_NONE);
+    assert(!ms_migration_fex_welcome_due(MS_MIGRATION_PATH_FULL));
 
     /* Regular -> FEX through the updater's build switch, or 0.80.0 -> FEX 1.0.0: the full migration,
      * the prefix conversion and, once, the welcome. Without the handoff marker too (a DMG installed by
@@ -89,6 +91,7 @@ static void test_migration_paths(void) {
     assert(ms_migration_path_for("fex", NULL, "0.80.0", true, true, false) == MS_MIGRATION_PATH_REGULAR_TO_FEX);
     assert(ms_migration_path_for("fex", "regular", "1.0.0", true, false, true) ==
            MS_MIGRATION_PATH_REGULAR_TO_FEX);
+    assert(ms_migration_fex_welcome_due(MS_MIGRATION_PATH_REGULAR_TO_FEX));
     /* A FEX record from before 1.0.0 (a pre-release) is converted again. */
     assert(ms_migration_path_for("fex", "fex", "0.80.0", true, true, true) == MS_MIGRATION_PATH_REGULAR_TO_FEX);
 
@@ -100,6 +103,7 @@ static void test_migration_paths(void) {
     /* A fresh install of either build migrates nothing and shows no welcome. */
     assert(ms_migration_path_for("fex", NULL, NULL, false, false, false) == MS_MIGRATION_PATH_NONE);
     assert(ms_migration_path_for("regular", NULL, NULL, false, false, false) == MS_MIGRATION_PATH_NONE);
+    assert(!ms_migration_fex_welcome_due(MS_MIGRATION_PATH_NONE));
 }
 
 int main(void) {
@@ -108,6 +112,26 @@ int main(void) {
     preserved_data preserved;
 
     test_migration_paths();
+    /* The welcome is the FEX build's: the regular build never shows it, whatever is recorded. */
+    {
+        char welcome_home[256], marker[512];
+        char* json;
+        snprintf(welcome_home, sizeof(welcome_home), "/tmp/metalsharp-welcome-test-%ld", (long)getpid());
+        remove_tree_local(welcome_home);
+        make_directory(welcome_home);
+        snprintf(marker, sizeof(marker), "%s/%s", welcome_home, FEX_WELCOME_PENDING);
+        write_file(marker, "1\n");
+        json = ms_migration_fex_welcome_json(welcome_home);
+        assert(json && strstr(json, "\"show\":false"));
+        free(json);
+        json = ms_migration_fex_welcome_dismiss_json(welcome_home);
+        assert(json && strstr(json, "\"ok\":true"));
+        free(json);
+        assert(!file_exists(marker));
+        snprintf(marker, sizeof(marker), "%s/%s", welcome_home, FEX_WELCOME_SHOWN);
+        assert(file_exists(marker));
+        remove_tree_local(welcome_home);
+    }
     snprintf(home, sizeof(home), "/tmp/metalsharp-migration-test-%ld", (long)getpid());
     remove_tree_local(home);
     make_directory(home);

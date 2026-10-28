@@ -11,6 +11,8 @@ use std::path::PathBuf;
 mod live_impl;
 #[path = "ui_steamcmd.rs"]
 mod steamcmd_impl;
+#[path = "ui_welcome.rs"]
+mod welcome_impl;
 use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending, UpdateDialog};
 use steamcmd_impl::{CollectionView, SteamcmdModal};
 
@@ -1292,6 +1294,14 @@ impl Render for MetalSharpApp {
                 gpui::deferred(self.render_update_dialog(dialog, cx)).with_priority(300)
             }))
             .children(
+                self.live
+                    .fex_welcome_page
+                    .filter(|_| library_visible)
+                    .map(|page| {
+                        gpui::deferred(self.render_fex_welcome(page, cx)).with_priority(290)
+                    }),
+            )
+            .children(
                 self.steamcmd_modal
                     .is_some()
                     .then(|| gpui::deferred(self.render_steamcmd_modal(cx)).with_priority(310)),
@@ -1489,8 +1499,10 @@ impl MetalSharpApp {
             let palette = self.theme.page_palette();
             let active = self.active_tab == LibraryTab::SharpLibrary;
             // App-level overlays cover the page; the native GameJolt view must hide.
-            let obscured =
-                self.settings_open || self.streaming_open || self.live.update_dialog.is_some();
+            let obscured = self.settings_open
+                || self.streaming_open
+                || self.live.update_dialog.is_some()
+                || self.live.fex_welcome_page.is_some();
             sharp.update(cx, |sharp, cx| {
                 sharp.set_obscured(obscured, cx);
                 if sharp.palette != palette {

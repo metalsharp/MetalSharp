@@ -932,6 +932,22 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
+    /* The FEX build's one-time welcome after an x86_64 install moved to it. */
+    if (ms_wine_is_fex() && strcmp(request->method, "GET") == 0 && strcmp(request->path, "/welcome/fex") == 0) {
+        body = ms_migration_fex_welcome_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (ms_wine_is_fex() && strcmp(request->method, "POST") == 0 &&
+        strcmp(request->path, "/welcome/fex/dismiss") == 0) {
+        body = ms_migration_fex_welcome_dismiss_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
     if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/update/migrate/start") == 0) {
         body = ms_migration_start_json(context->metalsharp_home);
         if (body == NULL)
