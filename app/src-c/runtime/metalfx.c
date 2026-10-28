@@ -103,8 +103,8 @@ static char* conf_path(const char* home) {
 }
 
 static metalfx_state read_state(const char* home) {
-    /* Off until it is turned on on the fex build; the regular build starts at 2x. */
-    metalfx_state state = {!ms_wine_is_fex(), 2.0, 0};
+    /* Off until it is turned on. */
+    metalfx_state state = {false, 2.0, 0};
     char* path = state_path(home);
     size_t length;
     char* text;

@@ -522,7 +522,7 @@ printf '%s' "$fx" | python3 -c '
 import json, sys
 v = json.load(sys.stdin)
 assert v["ok"] is True
-assert v["enabled"] is True
+assert v["enabled"] is False
 assert v["factor"] == 2.0
 '
 curl --silent --fail --request POST --header 'Content-Type: application/json' \
