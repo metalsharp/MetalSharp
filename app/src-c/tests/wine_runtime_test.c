@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
     }
 
     /* A prefix the fex build converted gets its x86_64 backup back; one without a backup is
-     * counted and left alone; an x86_64 prefix is not touched. */
+     * counted apart (not a failure to retry) and left alone; an x86_64 prefix is not touched. */
     {
         static const char* const dirs[] = {"prefix-steam/drive_c/windows",
                                            "prefix-steam/.metalsharp-x86_64-backup/drive_c/windows",
@@ -193,7 +193,9 @@ int main(int argc, char** argv) {
         write_text(path, "arm64\n");
         snprintf(path, sizeof(path), "%s/sharp-prefix/system.reg", home);
         write_text(path, "x86_64 registry\n");
-        EXPECT(ms_wine_restore_x86_64_prefixes(home) == 1);
+        unsigned without_backup = 0;
+        EXPECT(ms_wine_restore_x86_64_prefixes(home, &without_backup) == 0);
+        EXPECT(without_backup == 1);
         snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/windows/x86_64.txt", home);
         EXPECT(access(path, R_OK) == 0);
         snprintf(path, sizeof(path), "%s/prefix-steam/drive_c/windows/arm64.txt", home);
@@ -206,6 +208,68 @@ int main(int argc, char** argv) {
         EXPECT(ms_wine_prefix_is_arm64(path));
         snprintf(command, sizeof(command), "rm -rf '%s/prefix-steam' '%s/prefix-ubisoft' '%s/sharp-prefix'", home, home,
                  home);
+        EXPECT(system(command) == 0);
+    }
+
+    /* A conversion whose prepare fails after its backup completed (here: no MetalSharp Wine app) leaves no
+     * arch marker, though MetalSharp Wine's wineboot may have changed the prefix. Going back to the regular
+     * build restores it anyway and consumes the backup, so a later move backs the prefix up afresh; a
+     * restore that fails (an unreadable backup, like a full disk) leaves the prefix whole and the backup
+     * for the next try. */
+    {
+        char prefix[PATH_MAX], command[PATH_MAX * 2], error[256] = "";
+        unsigned without_backup = 0;
+        FILE* file;
+        char text[64];
+        snprintf(prefix, sizeof(prefix), "%s/bottles/cycle/prefix", home);
+        snprintf(command, sizeof(command), "mkdir -p '%s/drive_c/windows'", prefix);
+        EXPECT(system(command) == 0);
+        snprintf(path, sizeof(path), "%s/system.reg", prefix);
+        write_text(path, "x86_64 v1\n");
+        snprintf(path, sizeof(path), "%s/drive_c/windows/x86_64.txt", prefix);
+        write_text(path, "x86_64\n");
+        EXPECT(!ms_wine_fex_convert_prefix(home, prefix, error, sizeof(error)));
+        snprintf(path, sizeof(path), "%s/.metalsharp-x86_64-backup/.complete", prefix);
+        EXPECT(access(path, F_OK) == 0);
+        EXPECT(!ms_wine_prefix_is_arm64(prefix));
+        /* What MetalSharp Wine's wineboot did before the prepare failed. */
+        snprintf(path, sizeof(path), "%s/system.reg", prefix);
+        write_text(path, "arm64 wineboot\n");
+        snprintf(path, sizeof(path), "%s/drive_c/windows/arm64.txt", prefix);
+        write_text(path, "arm64\n");
+        EXPECT(ms_wine_restore_x86_64_prefixes(home, &without_backup) == 0);
+        snprintf(path, sizeof(path), "%s/system.reg", prefix);
+        file = fopen(path, "r");
+        EXPECT(file && fgets(text, sizeof(text), file) && !strcmp(text, "x86_64 v1\n"));
+        if (file)
+            fclose(file);
+        snprintf(path, sizeof(path), "%s/drive_c/windows/arm64.txt", prefix);
+        EXPECT(access(path, F_OK) != 0);
+        snprintf(path, sizeof(path), "%s/.metalsharp-x86_64-backup", prefix);
+        EXPECT(access(path, F_OK) != 0);
+
+        /* Games installed on the regular build since: the next move backs this state up, not the old one. */
+        snprintf(path, sizeof(path), "%s/system.reg", prefix);
+        write_text(path, "x86_64 v2\n");
+        EXPECT(!ms_wine_fex_convert_prefix(home, prefix, error, sizeof(error)));
+        snprintf(path, sizeof(path), "%s/.metalsharp-x86_64-backup/system.reg", prefix);
+        file = fopen(path, "r");
+        EXPECT(file && fgets(text, sizeof(text), file) && !strcmp(text, "x86_64 v2\n"));
+        if (file)
+            fclose(file);
+
+        /* A restore that can't copy the backup leaves the prefix's own drive_c/windows and the backup. */
+        snprintf(command, sizeof(command), "chmod 000 '%s/.metalsharp-x86_64-backup/drive_c/windows'", prefix);
+        EXPECT(system(command) == 0);
+        EXPECT(ms_wine_restore_x86_64_prefixes(home, &without_backup) == 1);
+        snprintf(path, sizeof(path), "%s/drive_c/windows/x86_64.txt", prefix);
+        EXPECT(access(path, R_OK) == 0);
+        snprintf(path, sizeof(path), "%s/.metalsharp-x86_64-backup/.complete", prefix);
+        EXPECT(access(path, F_OK) == 0);
+        snprintf(command, sizeof(command), "chmod 755 '%s/.metalsharp-x86_64-backup/drive_c/windows'", prefix);
+        EXPECT(system(command) == 0);
+        EXPECT(ms_wine_restore_x86_64_prefixes(home, &without_backup) == 0);
+        snprintf(command, sizeof(command), "rm -rf '%s/bottles'", home);
         EXPECT(system(command) == 0);
     }
 

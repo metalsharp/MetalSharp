@@ -1792,7 +1792,7 @@ static int initialize_epic_prefix(const char* home, const char* prefix) {
     char* output = NULL;
     if (ms_wine_is_fex()) {
         char error[512];
-        if (!epic_mkdir_p(prefix) || !ms_wine_fex_prepare_prefix(home, prefix, false, error, sizeof(error))) {
+        if (!epic_mkdir_p(prefix) || !ms_wine_fex_convert_prefix(home, prefix, error, sizeof(error))) {
             ms_log_event(home, error);
             return -1;
         }

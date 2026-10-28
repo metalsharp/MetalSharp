@@ -1569,10 +1569,10 @@ static char* seed_vcpp_for_steam_bottle(const char* home, const char* id) {
     ms_json_as_string(ms_json_object_get(j, "prefix_path"), &prefix);
     ms_json_as_string(ms_json_object_get(j, "preferred_pipeline"), &pipeline);
     /* MetalSharp Wine runs the VC++ 2022 installers in the prefix instead of copying x86_64 DLLs
-     * into its ARM64X system32. */
+     * into its ARM64X system32. A prefix the x86_64 Wine built is backed up first. */
     if (prefix && ms_wine_is_fex()) {
         char error_text[512];
-        if (!ms_wine_fex_prepare_prefix(home, prefix, false, error_text, sizeof(error_text))) {
+        if (!ms_wine_fex_convert_prefix(home, prefix, error_text, sizeof(error_text))) {
             free(prefix);
             free(pipeline);
             ms_json_free(j);

@@ -1423,7 +1423,7 @@ char* ms_gamejolt_launch_json(const char* home, const unsigned char* body, size_
     if (!native && ms_wine_is_fex()) {
         char prefix_error[512];
         char* prefix = join_path(home, "sharp-prefix");
-        bool prepared = prefix && ms_wine_fex_prepare_prefix(home, prefix, false, prefix_error, sizeof(prefix_error));
+        bool prepared = prefix && ms_wine_fex_convert_prefix(home, prefix, prefix_error, sizeof(prefix_error));
         free(prefix);
         if (!prepared) {
             free(id);

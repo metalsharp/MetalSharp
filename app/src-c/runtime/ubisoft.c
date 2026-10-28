@@ -474,7 +474,7 @@ static bool initialize_prefix(const char* home, char* error, size_t error_size) 
         return false;
     }
     if (ms_wine_is_fex()) {
-        if (!ms_wine_fex_prepare_prefix(home, prefix, false, error, error_size)) {
+        if (!ms_wine_fex_convert_prefix(home, prefix, error, error_size)) {
             free(prefix);
             free(wine);
             free(reg);

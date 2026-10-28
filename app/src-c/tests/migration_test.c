@@ -112,6 +112,37 @@ int main(void) {
     preserved_data preserved;
 
     test_migration_paths();
+    /* FEX -> regular: a restore that fails reports the step failed, so the worker records no build and the
+     * next start retries; once the backup can be read, the step succeeds. */
+    {
+        char restore_home[256], command[1024], file[512];
+        snprintf(restore_home, sizeof(restore_home), "/tmp/metalsharp-restore-test-%ld", (long)getpid());
+        remove_tree_local(restore_home);
+        snprintf(command, sizeof(command),
+                 "mkdir -p '%s/bottles/game/prefix/drive_c/windows' "
+                 "'%s/bottles/game/prefix/.metalsharp-x86_64-backup/drive_c/windows'",
+                 restore_home, restore_home);
+        assert(system(command) == 0);
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/system.reg", restore_home);
+        write_file(file, "arm64");
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-wine-arch", restore_home);
+        write_file(file, "arm64\n");
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-x86_64-backup/system.reg", restore_home);
+        write_file(file, "x86_64");
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-x86_64-backup/.complete", restore_home);
+        write_file(file, "x86_64\n");
+        snprintf(command, sizeof(command),
+                 "chmod 000 '%s/bottles/game/prefix/.metalsharp-x86_64-backup/drive_c/windows'", restore_home);
+        assert(system(command) == 0);
+        assert(!restore_prefixes_from_fex(restore_home));
+        snprintf(command, sizeof(command),
+                 "chmod 755 '%s/bottles/game/prefix/.metalsharp-x86_64-backup/drive_c/windows'", restore_home);
+        assert(system(command) == 0);
+        assert(restore_prefixes_from_fex(restore_home));
+        snprintf(file, sizeof(file), "%s/bottles/game/prefix/.metalsharp-wine-arch", restore_home);
+        assert(!file_exists(file));
+        remove_tree_local(restore_home);
+    }
     /* Back on the regular build, the old runtime goes completely, MetalSharp Wine's sealed
      * (read-only) app included. */
     {

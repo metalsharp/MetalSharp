@@ -767,7 +767,10 @@ bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* erro
     if (!prefix_file(prefix, X86_64_BACKUP, backup, sizeof(backup)) ||
         !format_path(done_marker, sizeof(done_marker), "%s/%s", backup, ".complete"))
         return false;
-    /* An earlier, interrupted conversion keeps the backup it completed. */
+    /* A conversion that was interrupted after its backup completed (its prepare failed: MetalSharp Wine's
+     * wineboot may already have changed drive_c/windows) keeps that backup, the prefix's only true x86_64
+     * copy. A backup is never left over from an earlier move: going back to the regular build restores
+     * it and removes it, so a later move to this build always makes a fresh one. */
     if (!ms_wine_prefix_is_arm64(prefix) && access(done_marker, F_OK) != 0) {
         report_prefix_progress("Backup", "Backing up the x86_64 prefix...");
         (void)remove_tree(backup);
@@ -834,34 +837,74 @@ unsigned ms_wine_fex_convert_prefixes(const char* home, char* error, size_t erro
     return home ? each_prefix(home, convert_visit, &context) : 0;
 }
 
+typedef struct {
+    unsigned without_backup;
+} restore_context;
+
+/* Puts the backup's copy of one item in place: copied beside the prefix's own first, then swapped in, so a
+ * copy that fails (a full disk) leaves the prefix's item as it was. */
+static bool restore_item(const char* source, const char* target) {
+    char staged[PATH_MAX], replaced[PATH_MAX];
+    struct stat info;
+    const char* const copy[] = {"/usr/bin/ditto", source, staged, NULL};
+    if (!format_path(staged, sizeof(staged), "%s%s", target, ".metalsharp-restore") ||
+        !format_path(replaced, sizeof(replaced), "%s%s", target, ".metalsharp-replaced") || !remove_tree(staged) ||
+        !remove_tree(replaced))
+        return false;
+    if (!run_wait(copy, NULL, NULL, 1800)) {
+        (void)remove_tree(staged);
+        return false;
+    }
+    if (lstat(target, &info) == 0 && rename(target, replaced) != 0) {
+        (void)remove_tree(staged);
+        return false;
+    }
+    if (rename(staged, target) != 0) {
+        (void)rename(replaced, target);
+        (void)remove_tree(staged);
+        return false;
+    }
+    (void)remove_tree(replaced);
+    return true;
+}
+
+/* A prefix with a complete x86_64 backup gets it back, whatever its arch marker says: a conversion whose
+ * prepare failed has no marker but MetalSharp Wine may have changed it. The backup is then removed (its
+ * .complete marker first), so it is never used again. Returns false when a restore failed, which a later
+ * try can fix; an arm64 prefix without a backup is counted apart and left alone. */
 static bool restore_visit(const char* home, const char* prefix, void* opaque) {
+    restore_context* context = opaque;
     char backup[PATH_MAX], done_marker[PATH_MAX], path[PATH_MAX];
     (void)home;
-    (void)opaque;
-    if (!ms_wine_prefix_is_arm64(prefix))
-        return true;
     if (!prefix_file(prefix, X86_64_BACKUP, backup, sizeof(backup)) ||
-        !format_path(done_marker, sizeof(done_marker), "%s/%s", backup, ".complete") || access(done_marker, F_OK) != 0)
+        !format_path(done_marker, sizeof(done_marker), "%s/%s", backup, ".complete"))
         return false;
+    if (access(done_marker, F_OK) != 0) {
+        if (ms_wine_prefix_is_arm64(prefix) && context)
+            context->without_backup++;
+        return true;
+    }
     for (size_t i = 0; i < sizeof(backed_up) / sizeof(backed_up[0]); i++) {
         char source[PATH_MAX], target[PATH_MAX];
         if (!format_path(source, sizeof(source), "%s/%s", backup, backed_up[i]) ||
             !prefix_file(prefix, backed_up[i], target, sizeof(target)))
             return false;
-        if (access(source, F_OK) == 0) {
-            const char* const copy[] = {"/usr/bin/ditto", source, target, NULL};
-            if (!remove_tree(target) || !run_wait(copy, NULL, NULL, 1800))
-                return false;
-        }
+        if (access(source, F_OK) == 0 && !restore_item(source, target))
+            return false;
     }
     if (prefix_file(prefix, ".metalsharp-prefix-ready", path, sizeof(path)))
         (void)unlink(path);
     if (prefix_file(prefix, ".metalsharp-wine-arch", path, sizeof(path)))
         (void)unlink(path);
+    (void)unlink(done_marker);
     (void)remove_tree(backup);
     return true;
 }
 
-unsigned ms_wine_restore_x86_64_prefixes(const char* home) {
-    return home ? each_prefix(home, restore_visit, NULL) : 0;
+unsigned ms_wine_restore_x86_64_prefixes(const char* home, unsigned* without_backup) {
+    restore_context context = {0};
+    unsigned failed = home ? each_prefix(home, restore_visit, &context) : 0;
+    if (without_backup)
+        *without_backup = context.without_backup;
+    return failed;
 }

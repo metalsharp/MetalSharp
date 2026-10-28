@@ -1737,6 +1737,20 @@ typedef struct {
     ms_migration_path path;
 } migration_job;
 
+/* FEX -> regular: every prefix the FEX build converted gets its x86_64 backup back. False when a
+ * restore failed (a later try can fix it); an arm64 prefix without a backup is only logged. */
+static bool restore_prefixes_from_fex(const char* home) {
+    unsigned without_backup = 0;
+    unsigned failed = ms_wine_restore_x86_64_prefixes(home, &without_backup);
+    if (without_backup > 0)
+        ms_log_event(home, "A Wine prefix was converted to MetalSharp Wine and has no x86_64 backup; it was left "
+                           "as it is.");
+    if (failed > 0)
+        ms_log_event(home, "A Wine prefix's x86_64 backup could not be restored; the backup is kept and MetalSharp "
+                           "tries again at its next start.");
+    return failed == 0;
+}
+
 static void* migration_worker(void* opaque) {
     migration_job* job = (migration_job*)opaque;
     preserved_data preserved = {0};
@@ -1851,10 +1865,19 @@ static void* migration_worker(void* opaque) {
                     ms_log_event(job->home, message);
                 }
             } else if (!ms_wine_is_fex()) {
-                /* Back from the FEX build: the prefixes it converted get their x86_64 backup back first. */
-                if (job->path == MS_MIGRATION_PATH_FEX_TO_REGULAR && ms_wine_restore_x86_64_prefixes(job->home) > 0)
-                    ms_log_event(job->home, "A Wine prefix was converted to MetalSharp Wine and has no x86_64 "
-                                            "backup; it was left as it is.");
+                /* Back from the FEX build: the prefixes it converted get their x86_64 backup back first. A
+                 * restore that failed leaves the build unrecorded, so the next start tries again. */
+                if (job->path == MS_MIGRATION_PATH_FEX_TO_REGULAR && !restore_prefixes_from_fex(job->home)) {
+                    (void)write_migration_progress(
+                        job->home, "error", 6,
+                        "Could not restore a Wine prefix's x86_64 backup; MetalSharp tries again at its next start",
+                        "prefix_restore_failed");
+                    unlink(job->lock_path);
+                    free(job->home);
+                    free(job->lock_path);
+                    free(job);
+                    return NULL;
+                }
                 (void)write_migration_progress(job->home, "running", 6,
                                                "Rebuilding preserved GOG and Ubisoft Wine prefixes...", NULL);
                 (void)rebuild_preserved_wine_prefixes(job->home, &gog_prefix_ok, &ubisoft_prefix_ok);

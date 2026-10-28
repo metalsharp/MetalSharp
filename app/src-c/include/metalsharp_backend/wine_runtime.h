@@ -82,8 +82,11 @@ bool ms_wine_fex_prefix_ready(const char* prefix);
  *   userdef.reg and drive_c/windows backed up to <prefix>/.metalsharp-x86_64-backup and is then
  *   prepared for MetalSharp Wine (installed programs and games stay where they are). Returns how
  *   many could not be converted.
- * - ms_wine_restore_x86_64_prefixes (regular): a prefix marked arm64 gets that backup back; one
- *   with no backup is left alone and counted, since the x86_64 Wine must not run it. */
+ * - ms_wine_restore_x86_64_prefixes (regular): a prefix with a complete backup gets it back, whatever
+ *   its arch marker says (a conversion whose prepare failed has none), each item copied beside the
+ *   prefix's own and then swapped in; the backup is then removed, so it is never reused. Returns how
+ *   many restores failed, which a later try can fix. An arm64 prefix with no backup is left alone and
+ *   counted in *without_backup, since the x86_64 Wine must not run it. */
 /* The graphics config MetalSharp edits: Mullion's runtime/wine/etc/mullion.conf, named by
  * MULLION_CONFIG_FILE, on the fex build (a dxmt.conf from before is renamed to it once, keeping its
  * settings); DXMT's dxmt.conf and DXMT_CONFIG_FILE on the regular build. */
@@ -108,6 +111,6 @@ const char* ms_wine_setup_variant_to_record(const char* home);
  * prefix, which may still be the 0.80.0 one). */
 bool ms_wine_fex_convert_prefix(const char* home, const char* prefix, char* error, size_t error_size);
 unsigned ms_wine_fex_convert_prefixes(const char* home, char* error, size_t error_size);
-unsigned ms_wine_restore_x86_64_prefixes(const char* home);
+unsigned ms_wine_restore_x86_64_prefixes(const char* home, unsigned* without_backup);
 
 #endif

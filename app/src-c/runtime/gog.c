@@ -1052,7 +1052,7 @@ static bool gog_initialize_prefix(const char* home, char* error, size_t error_si
     }
     /* MetalSharp Wine's prefixes get wineboot, VC++ 2022 and the core fonts before first use. */
     if (ms_wine_is_fex()) {
-        bool ready = ms_wine_fex_prepare_prefix(home, prefix, false, error, error_size);
+        bool ready = ms_wine_fex_convert_prefix(home, prefix, error, error_size);
         free(prefix);
         return ready;
     }
