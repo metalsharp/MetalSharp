@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img width="100" height="100" alt="MetalSharp-Wine" src="https://github.com/user-attachments/assets/458d09a5-9663-40d9-8538-de31105aa021" /> ### MetalSharp <img width="100" height="100" alt="metalsharp" src="https://github.com/user-attachments/assets/6ed4de12-c00e-4d59-bf77-aa35c7ff3337" /></h1>
+<h1><img width="100" height="100" alt="MetalSharp-Wine" src="https://github.com/user-attachments/assets/458d09a5-9663-40d9-8538-de31105aa021" /> MetalSharp <img width="100" height="100" alt="metalsharp" src="https://github.com/user-attachments/assets/6ed4de12-c00e-4d59-bf77-aa35c7ff3337" /></h1>
 
 **Run Windows games on MacOS Silicon.**
 
