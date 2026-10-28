@@ -2,13 +2,26 @@ MetalSharp bundles and stages third-party software. This file is the top-level
 notice surface; component license files are kept in `LICENSES/`, vendored
 source folders, or the referenced upstream/runtime packages.
 
+MetalSharp 1.0.0 ships two builds. Each entry says which build it applies to:
+
+- **Regular (x86_64):** `MetalSharp-<version>-arm64.dmg`, with the x86_64 Wine
+  11.17 runtime from the runtime bundles.
+- **Arm64 FEX:** `MetalSharp-<version>-arm64-FEX.dmg`, which carries MetalSharp
+  Wine v4.0 (`Contents/Resources/MetalSharp-Wine.app`) unmodified and
+  redistributes everything in it. Its components are listed under
+  "MetalSharp Wine (Arm64 FEX build)" at the end of this file. The app itself
+  carries every component's license in `Contents/share/licenses/` and beside
+  each runtime in `Contents/lib/` (for example `lib/mullion/LICENSE`).
+
 ## MetalSharp - Source Code
 
+- Builds: Both builds
 - License: GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later)
 - Files: `LICENSE`
 
 ## DXMT — Metal-based D3D11/D3D10 translation layer
 
+- Builds: Regular (x86_64) build. The Arm64 FEX build carries Mullion, a DXMT fork, inside MetalSharp Wine (below)
 - Repository: https://github.com/3Shain/dxmt
 - Version: v0.80-44-g391c23b
 - License: GNU Lesser General Public License v2.1 (LGPL-2.1)
@@ -20,6 +33,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## PCSX2 — PlayStation 2 emulator
 
+- Builds: Both builds (optional download, not bundled)
 - Repository and corresponding source: https://github.com/PCSX2/pcsx2
 - Stable binary releases: https://github.com/PCSX2/pcsx2/releases
 - License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
@@ -29,6 +43,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## RPCS3 — PlayStation 3 emulator
 
+- Builds: Both builds (optional download, not bundled)
 - Repository: https://github.com/RPCS3/rpcs3
 - Binary releases: https://github.com/RPCS3/rpcs3-binaries-mac-arm64 and https://github.com/RPCS3/rpcs3-binaries-mac
 - License: GNU General Public License v2.0 (GPL-2.0)
@@ -37,6 +52,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## shadPS4 — PlayStation 4 emulator
 
+- Builds: Both builds (optional download, not bundled)
 - Repository and corresponding source: https://github.com/shadps4-emu/shadPS4
 - Stable binary releases: https://github.com/shadps4-emu/shadPS4/releases
 - License: GNU General Public License v2.0 or later (GPL-2.0-or-later)
@@ -46,6 +62,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## SharpEmu — experimental PlayStation 5 emulator
 
+- Builds: Both builds (optional download, not bundled)
 - Repository and corresponding source: https://github.com/sharpemu/sharpemu
 - Stable binary releases: https://github.com/sharpemu/sharpemu/releases
 - License: GNU General Public License v2.0 or later (GPL-2.0-or-later)
@@ -55,6 +72,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Legendary — Epic Games library client
 
+- Builds: Both builds (optional download, not bundled)
 - Repository and corresponding source: https://github.com/legendary-gl/legendary
 - Binary releases: https://github.com/legendary-gl/legendary/releases/tag/0.21.0
 - Version: 0.21.0
@@ -64,6 +82,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## MojoShader — SDL shader bytecode parser
 
+- Builds: Both builds (native engine)
 - Repository: https://github.com/icculus/mojoshader
 - License: zlib-style license
 - Files: `src/wine/mojoshader/LICENSE.txt`
@@ -71,6 +90,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## WineForge-derived Wine / Wine runtime payload
 
+- Builds: Regular (x86_64) build. The Arm64 FEX build carries MetalSharp Wine, a WineForge-derived Wine 11.20 (below)
 - WineForge source: https://github.com/Alien4042x/WineForge
 - Upstream Wine: https://gitlab.winehq.org/wine/wine
 - Version: WineForge 0.6.0.4, based on Wine 11.17
@@ -87,6 +107,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## WFDXCompat — WineForge DXCompat integration
 
+- Builds: Regular (x86_64) build, as below. The Arm64 FEX build carries WFDXCompat (commit 3311bdc, built ARM64EC for Mullion) inside MetalSharp Wine at `lib/wfdxcompat/`, with this license
 - Repository: https://github.com/Alien4042x/WFDXCompat
 - License: GNU Lesser General Public License v2.1
 - Files: `LICENSES/WFDXCOMPAT-LGPL-2.1`
@@ -111,6 +132,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Apple Game Porting Toolkit / D3DMetal
 
+- Builds: Regular build; on the Arm64 FEX build only for the Sharp tools' optional GPTK (Rosetta) flow. Not bundled in either
 - Source: https://developer.apple.com/download/all/?q=game%20porting%20toolkit and the Homebrew `game-porting-toolkit` cask
 - License: Apple Game Porting Toolkit License Agreement (proprietary)
 - Used as: Homebrew-installed GPTK Wine, D3DMetal.framework, libd3dshared, and D3DMetal PE route DLLs for the optional D3DMetal route.
@@ -118,6 +140,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## MinGW-w64 DirectX headers
 
+- Builds: Source only (vendor tree)
 - Repository: https://github.com/mingw-w64/mingw-w64
 - License: permissive MinGW-w64 runtime/header terms
 - Files: `vendor/dxmt/include/native/directx/COPYING.MinGW-w64.txt`
@@ -125,6 +148,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## FNA / FAudio / SDL / FNA3D runtime lane
 
+- Builds: Both builds (the regular build from `metalsharp-assets.tar.zst`, the Arm64 FEX build from MetalSharp Wine's `share/metalsharp/`)
 - FNA repository: https://github.com/FNA-XNA/FNA
 - FNA3D repository: https://github.com/FNA-XNA/FNA3D
 - FAudio repository: https://github.com/FNA-XNA/FAudio
@@ -138,6 +162,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## fnalibs — FNA native library bundle
 
+- Builds: Both builds
 - Repository: https://github.com/FNA-XNA/fnalibs-dailies
 - Components: SDL3 (zlib), FNA3D (zlib), FAudio (zlib), theorafile (zlib)
 - theorafile statically links libogg, libvorbis, and libtheora (BSD-3-Clause);
@@ -147,6 +172,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## theorafile — Ogg Theora video playback
 
+- Builds: Both builds
 - Repository: https://github.com/FNA-XNA/theorafile
 - License: zlib License
 - Notes: Statically links libogg (BSD-3-Clause), libvorbis (BSD-3-Clause), and
@@ -155,6 +181,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Wine Mono 11.3.0
 
+- Builds: Both builds (the regular runtime's `share/mono`; MetalSharp Wine's `share/wine/mono`, arm64, x86 and x86_64)
 - Repository: https://github.com/wine-mono/wine-mono
 - Release: `wine-mono-11.3.0`
 - License: Component-specific LGPL, GPL-with-exception, MIT/X11, Apache-2.0,
@@ -166,6 +193,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Mono runtime lane
 
+- Builds: Both builds
 - Repository: https://github.com/mono/mono
 - License: MIT for Mono runtime components, with some subcomponents under their
   own compatible licenses.
@@ -173,6 +201,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## MonoKickstart
 
+- Builds: Both builds
 - Repository: https://github.com/OutOfOrder/MonoKickstart
 - License: zlib License
 - Used as: Universal macOS launcher (`kick.bin.osx`) that hosts the Mono
@@ -182,6 +211,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## fna-xna-wrapper — FNA.dll NuGet package
 
+- Builds: Both builds
 - Package: https://www.nuget.org/packages/fna-xna-wrapper/22.12.2
 - License: MIT
 - Used as: Pre-built FNA.dll managed assembly shipped in `fna-kickstart/` for
@@ -189,6 +219,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Steamworks / CSteamworks compatibility shims
 
+- Builds: Both builds
 - Steamworks SDK: https://partner.steamgames.com/
 - License: Valve Steamworks SDK terms.
 - Used as: MetalSharp stages compatibility shims for games that expect
@@ -198,6 +229,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Microsoft redistributables and DirectX/Agility payloads
 
+- Builds: Both builds
 - Sources: Microsoft redistributable packages, Steam Common Redistributables,
   and user/local runtime cache locations.
 - Licenses: Microsoft redistributable package terms.
@@ -209,6 +241,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## MoltenVK / Vulkan tooling
 
+- Builds: Regular build (runtime bundles). The Arm64 FEX build carries MetalSharp's MoltenVK 1.4.3 inside MetalSharp Wine (below)
 - Repository: https://github.com/KhronosGroup/MoltenVK
 - License: Apache License 2.0
 - Used as: Vulkan/MoltenVK runtime support assets where bundled by runtime
@@ -216,6 +249,7 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Goldberg Steam emulator assets
 
+- Builds: Both builds
 - Repository: https://gitlab.com/Mr_Goldberg/goldberg_emulator and community
   forks used by the downloader fallback logic.
 - License: GPL-family terms according to the downloaded build/source package.
@@ -224,14 +258,186 @@ source folders, or the referenced upstream/runtime packages.
 
 ## Rust crate dependencies
 
+- Builds: Both builds
 - Source: `app-gpui/Cargo.lock`
 - Licenses: crate-specific open-source licenses as declared by each crate.
 - Used as: The GPUI desktop application.
 
 ## FAudio (Windows build)
 
+- Builds: Both builds (the Arm64 FEX build from MetalSharp Wine's `share/metalsharp/archives/faudio.tar.zst`)
 - Source: FAudio 20.07 MinGW builds (https://github.com/Kron4ek/FAudio-Builds),
   shipped in `metalsharp-assets.tar.zst` under `assets/faudio/`.
 - Licenses: FAudio and SDL2 zlib; FFmpeg 4.3.1 GPL-3.0-or-later; mingw-w64
   winpthreads MIT/ZPL. See `LICENSES/FAUDIO-NOTICES.md`.
 - Used as: xWMA audio decoding for selected games in their Wine prefix.
+
+# MetalSharp Wine (Arm64 FEX build)
+
+The Arm64 FEX build distributes MetalSharp Wine v4.0
+(https://github.com/metalsharp/MetalSharp-Wine, release `v4.0`, asset
+`MetalSharp-Wine-4.0-arm64.zip`) unmodified. Provenance, authorship and the
+WineForge port record are in MetalSharp Wine's `docs/PROVENANCE.md`; the
+original copyright and license notices in each source file take precedence
+over this summary. The corresponding source of every modified LGPL component is
+published on the branches and repositories named below, at the commits that
+release is built from.
+
+## MetalSharp Wine — scripts, build glue, tests and docs
+
+- Builds: Arm64 FEX build
+- Repository: https://github.com/metalsharp/MetalSharp-Wine
+- License: GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later), like MetalSharp
+- Files: `LICENSE`
+
+## Wine 11.20 with WineForge and MetalSharp changes
+
+- Builds: Arm64 FEX build
+- Source: https://github.com/metalsharp/MetalSharp-Wine/tree/source/wine
+  (the `wine-11.20` tag plus MetalSharp Wine's commits; also `patches/wine/`)
+- Upstream: https://gitlab.winehq.org/wine/wine, WineForge
+  https://github.com/Alien4042x/WineForge (Radim Vesely), and CodeWeavers'
+  CrossOver macOS work
+- License: GNU Lesser General Public License v2.1 or later
+- Files: `LICENSES/WINE-LICENSE`, `LICENSES/WINEFORGE-LICENSE`,
+  `LICENSES/WINEFORGE-COPYING.LIB`, `LICENSES/WINEFORGE-NOTICES.md`
+- Notes: WineForge changes are ported with Radim Vesely's authorship and
+  copyright notices kept (MetalSharp Wine patch 0072 restores notices that had
+  been rebranded). WineForge's msync (WFUSync), launcher policy, native macOS
+  fullscreen, GCMouse raw input (Elvin Hayatov's WineHQ MR !11799) and native
+  Steam bridge are among them.
+
+## FEX — x86 and x86_64 emulation for Arm64
+
+- Builds: Arm64 FEX build
+- Repository: https://github.com/FEX-Emu/FEX; MetalSharp Wine's fork:
+  https://github.com/metalsharp/MetalSharp-Wine/tree/source/fex (FEX-2610 plus
+  MetalSharp Wine's commits)
+- License: MIT
+- Files: `LICENSES/FEX-MIT`
+- Used as: ARM64EC (x86_64) and WoW64 (i386) emulation of Windows x86 code.
+
+## Mullion — DXMT fork, Direct3D 10/11/12 on Metal
+
+- Builds: Arm64 FEX build
+- Repository: https://github.com/aaf2tbz/mullion (branch `metalsharp-2.1`,
+  build `8018c44`), developed there and sent upstream to
+  https://github.com/dttdrv/mullion; based on DXMT https://github.com/3Shain/dxmt
+- Authors: Feifan He for CodeWeavers, and Mullion contributors
+- License: GNU Lesser General Public License v2.1 or later
+- Files: `LICENSES/MULLION-LICENSE`, `LICENSES/DXMT-LGPL-2.1`
+- Used as: ARM64X and i386 Direct3D 10/11/12 DLLs and its Metal unix library
+  in MetalSharp Wine's `lib/mullion/`.
+
+## VKD3D-Proton for macOS — Direct3D 12 on Vulkan
+
+- Builds: Arm64 FEX build
+- Repository: https://github.com/metalsharp/VKD3D-Proton-MacOS (based on
+  https://github.com/HansKristian-Work/vkd3d-proton; build
+  `v3.0.1-485-g9dc54f2e`, ARM64X)
+- Authors: Hans-Kristian Arntzen and contributors
+- License: GNU Lesser General Public License v2.1
+- Files: `LICENSES/VKD3D-PROTON-LGPL-2.1`
+- Used as: The VKD3D-Proton lane, with DXVK 2.7.1's DXGI and D3D10/11
+  (`lib/vkd3d-proton/`).
+
+## DXVK and DXVK-macOS — Direct3D 9/10/11 on Vulkan
+
+- Builds: Arm64 FEX build
+- Repositories: https://github.com/doitsujin/dxvk (DXVK 2.7.1, unmodified,
+  in the VKD3D-Proton lane); https://github.com/metalsharp/DXVK-macOS-1.10
+  (DXVK-macOS 1.10.3, a fork of https://github.com/Gcenx/DXVK-macOS with its
+  D3D9-on-MoltenVK fixes, built ARM64X, the DXVK lane)
+- Authors: Philip Rebohle, Joshua Ashton and contributors
+- License: zlib
+- Files: `LICENSES/DXVK-ZLIB`
+
+## MoltenVK and SPIRV-Cross — Vulkan on Metal
+
+- Builds: Arm64 FEX build (the regular build's MoltenVK is listed above)
+- Repositories: https://github.com/KhronosGroup/MoltenVK and
+  https://github.com/KhronosGroup/SPIRV-Cross; MetalSharp's MoltenVK 1.4.3
+  build is in https://github.com/metalsharp/VKD3D-Proton-MacOS (`sources/MoltenVK`)
+- Authors: The Khronos Group, Brenwill Workshop and contributors
+- License: Apache License 2.0
+- Files: `LICENSES/MOLTENVK-SPIRV-CROSS-APACHE-2.0`
+- Notes: the Vulkan loader and headers (Apache-2.0) ship with it; their
+  notices are in the app's `share/licenses/vkloader` and `vkheaders`.
+
+## WineMetalGL — OpenGL on Metal
+
+- Builds: Both builds (the regular runtime bundle's WineMetalGL 3.7.0 x86_64;
+  MetalSharp Wine's arm64 build `winemetalgl-3.7.0-3-g062cc61`)
+- Repository: https://github.com/metalsharp/WineMetalGL; MetalSharp Wine's Wine
+  module: https://github.com/metalsharp/MetalSharp-Wine/tree/source/winemetalgl
+- License: GNU Lesser General Public License v3.0
+- Files: `LICENSES/WINEMETALGL-LGPL-3.0`
+
+## Apple Metal Shader Converter library
+
+- Builds: Arm64 FEX build
+- Source: Apple's Metal Shader Converter (`libmetalirconverter.dylib`, 4.0
+  beta 3), from metalsharp/VKD3D-Proton-MacOS's
+  `deps-metal-shaderconverter-4.0b3` release
+- License: Apple's Software License Agreement for Metal Shader Converter
+  (proprietary)
+- Files: `LICENSES/METAL-SHADER-CONVERTER-LICENSE.rtf`,
+  `LICENSES/METAL-SHADER-CONVERTER-ACKNOWLEDGEMENTS.rtf`
+- Used as: MoltenVK loads it to convert the VKD3D-Proton lane's DXIL shaders
+  into Metal libraries, for the sole purpose of shader conversion (section 2B).
+  It ships unmodified and with Apple's signature (section 2E), runs only on
+  Apple-branded systems (2C), and keeps Apple's notices (2D). It is the only
+  closed-source component in MetalSharp Wine.
+
+## Microsoft DirectX Shader Compiler and d3dcompiler_47
+
+- Builds: Arm64 FEX build
+- Source: DXC 1.9.2609 (`dxc_2026_09_29`,
+  https://github.com/microsoft/DirectXShaderCompiler) and `d3dcompiler_47.dll`
+  from the Windows SDK 10.0.28000.2705
+- License: Microsoft's DirectX Shader Compiler license terms and the University
+  of Illinois/NCSA (LLVM) license for DXC; the Windows SDK license
+  (https://aka.ms/WinSDKLicenseURL) for d3dcompiler_47
+- Files: `LICENSES/DXC-LICENSE-MS.txt`, `LICENSES/DXC-LICENSE-LLVM.txt`,
+  `LICENSES/D3DCOMPILER-47-NOTICE`
+- Used as: Unmodified redistributables installed into every prefix
+  (`share/wine/shadercompilers/`), ARM64 and x86.
+
+## FFmpeg 8.0
+
+- Builds: Arm64 FEX build
+- Repository: https://ffmpeg.org/
+- License: GNU Lesser General Public License v2.1 or later (built as LGPL,
+  with VideoToolbox and AudioToolbox)
+- Files: `LICENSES/FFMPEG-LICENSE.md`, `LICENSES/FFMPEG-LGPL-2.1`
+- Used as: Unmodified shared libraries for Wine's media playback.
+
+## GStreamer 1.26
+
+- Builds: Arm64 FEX build
+- Repository: https://gstreamer.freedesktop.org/ (core, base, good, bad and
+  libav plugins)
+- License: GNU Lesser General Public License v2.1 or later
+- Files: `LICENSES/GSTREAMER-LGPL-2.1`
+- Used as: Unmodified libraries and plugins for `winegstreamer`.
+
+## Wine Gecko 2.47.4
+
+- Builds: Arm64 FEX build
+- Repository: https://gitlab.winehq.org/wine/wine-gecko
+- License: Mozilla Public License 2.0, with component-specific terms as
+  documented by Wine Gecko
+- Used as: Wine's HTML engine (`share/wine/gecko/`, x86 and x86_64), unmodified.
+
+## Other libraries in MetalSharp Wine
+
+- Builds: Arm64 FEX build
+- Components: FreeType, GnuTLS, Nettle, GMP, libtasn1, libidn2,
+  libunistring, GLib, gettext, libffi, PCRE2, libpng, SDL2, cabextract 1.11,
+  innoextract 1.9 (with Boost and liblzma), the Liberation fonts, and the
+  llvm-mingw runtime libraries
+- Licenses: each its own (LGPL, GPL with exceptions, MIT, zlib, BSD, Boost,
+  SIL Open Font License and others)
+- Files: every one of their license files ships in the app's
+  `Contents/share/licenses/<component>/`.
+- Used as: Unmodified upstream releases.
