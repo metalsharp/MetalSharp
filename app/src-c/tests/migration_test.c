@@ -67,11 +67,47 @@ static bool file_exists(const char* path) {
     return access(path, F_OK) == 0;
 }
 
+/* The migration each update takes, per build and per version it comes from. */
+static void test_migration_paths(void) {
+    /* FEX 1.0.0 -> FEX 1.1.0: the updater's handoff marker, setup.json recorded by the FEX build. */
+    assert(ms_migration_path_for("fex", "fex", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FEX_UPDATE);
+    /* ... also when the runtime needs repair, and never the 0.80.0 conversion or the welcome again. */
+    assert(ms_migration_path_for("fex", "fex", "1.0.0", true, false, false) == MS_MIGRATION_PATH_FEX_UPDATE);
+    /* FEX with nothing to do. */
+    assert(ms_migration_path_for("fex", "fex", "1.1.0", true, false, true) == MS_MIGRATION_PATH_NONE);
+
+    /* Regular 0.80.x -> regular 1.1.0: setup.json from 0.80.x has no runtime_variant. The regular
+     * build's own migration, with no prefix restore. */
+    assert(ms_migration_path_for("regular", NULL, "0.80.0", true, true, true) == MS_MIGRATION_PATH_FULL);
+    assert(ms_migration_path_for("regular", NULL, "0.80.3", true, false, false) == MS_MIGRATION_PATH_FULL);
+    assert(ms_migration_path_for("regular", "regular", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FULL);
+    assert(ms_migration_path_for("regular", NULL, "0.80.0", true, false, true) == MS_MIGRATION_PATH_NONE);
+
+    /* Regular -> FEX through the updater's build switch, or 0.80.0 -> FEX 1.0.0: the full migration,
+     * the prefix conversion and, once, the welcome. Without the handoff marker too (a DMG installed by
+     * hand), and with a ready runtime. */
+    assert(ms_migration_path_for("fex", NULL, "0.80.0", true, true, false) == MS_MIGRATION_PATH_REGULAR_TO_FEX);
+    assert(ms_migration_path_for("fex", "regular", "1.0.0", true, false, true) ==
+           MS_MIGRATION_PATH_REGULAR_TO_FEX);
+    /* A FEX record from before 1.0.0 (a pre-release) is converted again. */
+    assert(ms_migration_path_for("fex", "fex", "0.80.0", true, true, true) == MS_MIGRATION_PATH_REGULAR_TO_FEX);
+
+    /* FEX -> regular: the regular migration, with the x86_64 backups restored. */
+    assert(ms_migration_path_for("regular", "fex", "1.0.0", true, true, true) == MS_MIGRATION_PATH_FEX_TO_REGULAR);
+    assert(ms_migration_path_for("regular", "fex", "1.0.0", true, false, true) ==
+           MS_MIGRATION_PATH_FEX_TO_REGULAR);
+
+    /* A fresh install of either build migrates nothing and shows no welcome. */
+    assert(ms_migration_path_for("fex", NULL, NULL, false, false, false) == MS_MIGRATION_PATH_NONE);
+    assert(ms_migration_path_for("regular", NULL, NULL, false, false, false) == MS_MIGRATION_PATH_NONE);
+}
+
 int main(void) {
     char home[256];
     char path[512];
     preserved_data preserved;
 
+    test_migration_paths();
     snprintf(home, sizeof(home), "/tmp/metalsharp-migration-test-%ld", (long)getpid());
     remove_tree_local(home);
     make_directory(home);

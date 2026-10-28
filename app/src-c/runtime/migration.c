@@ -587,6 +587,72 @@ static int compare_versions(const char* left, const char* right) {
     return 0;
 }
 
+const char* ms_migration_path_name(ms_migration_path path) {
+    switch (path) {
+    case MS_MIGRATION_PATH_FULL:
+        return "full";
+    case MS_MIGRATION_PATH_FEX_TO_REGULAR:
+        return "fex_to_regular";
+    case MS_MIGRATION_PATH_REGULAR_TO_FEX:
+        return "regular_to_fex";
+    case MS_MIGRATION_PATH_FEX_UPDATE:
+        return "fex_update";
+    case MS_MIGRATION_PATH_NONE:
+    default:
+        return "none";
+    }
+}
+
+ms_migration_path ms_migration_path_for(const char* running_variant, const char* recorded_variant,
+                                        const char* from_version, bool installed, bool marker_needed,
+                                        bool runtime_ready) {
+    bool running_fex = running_variant && !strcmp(running_variant, "fex");
+    bool from_fex = recorded_variant && !strcmp(recorded_variant, "fex");
+    if (installed && running_fex != from_fex)
+        return running_fex ? MS_MIGRATION_PATH_REGULAR_TO_FEX : MS_MIGRATION_PATH_FEX_TO_REGULAR;
+    if (!marker_needed && (runtime_ready || !installed))
+        return MS_MIGRATION_PATH_NONE;
+    if (!running_fex)
+        return MS_MIGRATION_PATH_FULL;
+    /* MetalSharp Wine came with 1.0.0, so a FEX install from before it (a pre-release) is converted
+     * again; its converted prefixes are skipped. */
+    if (installed && (!from_version || compare_versions(from_version, "1.0.0") < 0))
+        return MS_MIGRATION_PATH_REGULAR_TO_FEX;
+    return MS_MIGRATION_PATH_FEX_UPDATE;
+}
+
+
+/* The migration path for this home: NONE without a setup.json, as the check reports it. */
+static ms_migration_path migration_path_for_home(const char* home) {
+    char* setup_path = path_join(home, "setup.json");
+    char* marker_path = path_join(home, ".post-update-migration");
+    char* prefix_path = path_join(home, "prefix-steam");
+    char* setup_text = setup_path ? read_text(setup_path) : NULL;
+    char* marker_text = marker_path ? read_text(marker_path) : NULL;
+    char e[128];
+    ms_json* setup = setup_text ? ms_json_parse(setup_text, strlen(setup_text), e, sizeof(e)) : NULL;
+    ms_json* marker = marker_text ? ms_json_parse(marker_text, strlen(marker_text), e, sizeof(e)) : NULL;
+    ms_migration_path path = MS_MIGRATION_PATH_NONE;
+    if (setup && ms_json_type_of(setup) == MS_JSON_OBJECT) {
+        char* recorded = json_str(setup, "runtime_variant");
+        char* from_version = json_str(setup, "last_migrated_version");
+        bool installed = json_bool(setup, "completed", false) || (prefix_path && exists(prefix_path));
+        bool marker_needed = marker && ms_json_type_of(marker) == MS_JSON_OBJECT && json_bool(marker, "needed", false);
+        path = ms_migration_path_for(ms_wine_variant(), recorded, from_version, installed, marker_needed,
+                                     runtime_ready(home));
+        free(recorded);
+        free(from_version);
+    }
+    ms_json_free(setup);
+    ms_json_free(marker);
+    free(setup_text);
+    free(marker_text);
+    free(setup_path);
+    free(marker_path);
+    free(prefix_path);
+    return path;
+}
+
 static bool preserve_user_data(const char* home, preserved_data* out) {
     char template_path[PATH_MAX];
     char *cache = NULL, *prefix = NULL, *gptk = NULL, *games = NULL, *library = NULL, *bottles = NULL,
@@ -1518,6 +1584,7 @@ char* ms_migration_check_json(const char* home) {
     char e[128];
     char* prefix_path = path_join(home, "prefix-steam");
     bool marker_needed = false, marker_mismatch = false, ready, variant_switch;
+    ms_migration_path path;
     char *legacy, *target = NULL;
     unsigned long long schema;
     ms_json_writer w;
@@ -1559,8 +1626,10 @@ char* ms_migration_check_json(const char* home) {
         /* Installed by the other build: its prefixes move to this build's Wine. A setup.json
          * without runtime_variant was written by the regular build. */
         char* recorded = json_str(setup, "runtime_variant");
-        variant_switch = strcmp(recorded ? recorded : "regular", ms_wine_variant()) != 0 &&
-                         (json_bool(setup, "completed", false) || exists(prefix_path));
+        path = ms_migration_path_for(ms_wine_variant(), recorded, legacy, json_bool(setup, "completed", false) ||
+                                                                              exists(prefix_path),
+                                     marker_needed, ready);
+        variant_switch = path == MS_MIGRATION_PATH_REGULAR_TO_FEX || path == MS_MIGRATION_PATH_FEX_TO_REGULAR;
         free(recorded);
     }
     marker_mismatch = target != NULL && compare_versions(target, MIGRATION_VERSION) > 0;
@@ -1569,8 +1638,9 @@ char* ms_migration_check_json(const char* home) {
     ms_json_writer_key(&w, "ok");
     ms_json_writer_bool(&w, true);
     ms_json_writer_key(&w, "needed");
-    ms_json_writer_bool(&w, marker_needed || variant_switch ||
-                                (!ready && (json_bool(setup, "completed", false) || exists(prefix_path))));
+    ms_json_writer_bool(&w, path != MS_MIGRATION_PATH_NONE);
+    ms_json_writer_key(&w, "migration_path");
+    ms_json_writer_string(&w, ms_migration_path_name(path));
     ms_json_writer_key(&w, "current_version");
     ms_json_writer_string(&w, legacy ? legacy : "0.0.0");
     ms_json_writer_key(&w, "target_version");
@@ -1620,11 +1690,14 @@ char* ms_migration_check_json(const char* home) {
 typedef struct {
     char* home;
     char* lock_path;
+    ms_migration_path path;
 } migration_job;
 
 static void* migration_worker(void* opaque) {
     migration_job* job = (migration_job*)opaque;
-    preserved_data preserved;
+    preserved_data preserved = {0};
+    /* FEX -> FEX: user data stays where it is; setup brings the new MetalSharp Wine and runtime pieces. */
+    bool lightweight = job->path == MS_MIGRATION_PATH_FEX_UPDATE;
     int install_status = 200;
     char* install_progress_path = path_join(job->home, "install_progress.json");
     char* install_result;
@@ -1651,10 +1724,11 @@ static void* migration_worker(void* opaque) {
         free(job);
         return NULL;
     }
-    (void)write_migration_progress(job->home, "running", 2,
-                                   "Preserving user preferences, Steam API key, bottle settings, and GOG prefix...",
-                                   NULL);
-    if (!preserve_user_data(job->home, &preserved)) {
+    if (!lightweight)
+        (void)write_migration_progress(
+            job->home, "running", 2, "Preserving user preferences, Steam API key, bottle settings, and GOG prefix...",
+            NULL);
+    if (!lightweight && !preserve_user_data(job->home, &preserved)) {
         (void)write_migration_progress(job->home, "error", 2,
                                        "Could not safely preserve user data; no files were removed",
                                        "migration_preserve_failed");
@@ -1664,15 +1738,22 @@ static void* migration_worker(void* opaque) {
         free(job);
         return NULL;
     }
-    (void)write_migration_progress(job->home, "running", 3, "Cleaning stale runtime state...", NULL);
-    remove_old_runtime(job->home);
-    (void)write_migration_progress(job->home, "running", 4, "Installing update...", NULL);
+    if (!lightweight) {
+        (void)write_migration_progress(job->home, "running", 3, "Cleaning stale runtime state...", NULL);
+        remove_old_runtime(job->home);
+    }
+    (void)write_migration_progress(job->home, "running", 4,
+                                   lightweight ? "Installing the new MetalSharp Wine and runtime..."
+                                               : "Installing update...",
+                                   NULL);
     install_result = ms_setup_install_all_json(job->home, &install_status);
     if (install_result == NULL || strstr(install_result, "\"ok\":false") != NULL) {
         free(install_result);
-        restore_preserved_data(job->home, &preserved);
+        if (!lightweight) {
+            restore_preserved_data(job->home, &preserved);
+            free_preserved_data(&preserved);
+        }
         write_migration_report(job->home, true, true);
-        free_preserved_data(&preserved);
         (void)write_migration_progress(job->home, "error", 8,
                                        "Runtime install incomplete — re-run setup wizard after restart",
                                        "runtime_install_incomplete");
@@ -1691,9 +1772,11 @@ static void* migration_worker(void* opaque) {
         free(text);
         free(install_progress);
         if (failed) {
-            restore_preserved_data(job->home, &preserved);
+            if (!lightweight) {
+                restore_preserved_data(job->home, &preserved);
+                free_preserved_data(&preserved);
+            }
             write_migration_report(job->home, true, true);
-            free_preserved_data(&preserved);
             (void)write_migration_progress(job->home, "error", 8,
                                            "Runtime install incomplete — re-run setup wizard after restart",
                                            "runtime_install_incomplete");
@@ -1704,12 +1787,14 @@ static void* migration_worker(void* opaque) {
             return NULL;
         }
         if (complete) {
-            (void)write_migration_progress(job->home, "running", 5, "Restoring preserved user data...", NULL);
-            restore_preserved_data(job->home, &preserved);
+            if (!lightweight) {
+                (void)write_migration_progress(job->home, "running", 5, "Restoring preserved user data...", NULL);
+                restore_preserved_data(job->home, &preserved);
+                free_preserved_data(&preserved);
+            }
             write_migration_report(job->home, true, true);
-            free_preserved_data(&preserved);
             bool gog_prefix_ok = true, ubisoft_prefix_ok = true;
-            if (ms_wine_is_fex()) {
+            if (job->path == MS_MIGRATION_PATH_REGULAR_TO_FEX) {
                 char convert_error[512] = "";
                 (void)write_migration_progress(job->home, "running", 6,
                                                "Moving your Wine prefixes to MetalSharp Wine (with a backup)...", NULL);
@@ -1721,9 +1806,9 @@ static void* migration_worker(void* opaque) {
                              convert_error[0] ? convert_error : "unknown error");
                     ms_log_event(job->home, message);
                 }
-            } else {
-                /* Prefixes the fex build converted get their x86_64 backup back first. */
-                if (ms_wine_restore_x86_64_prefixes(job->home) > 0)
+            } else if (!ms_wine_is_fex()) {
+                /* Back from the FEX build: the prefixes it converted get their x86_64 backup back first. */
+                if (job->path == MS_MIGRATION_PATH_FEX_TO_REGULAR && ms_wine_restore_x86_64_prefixes(job->home) > 0)
                     ms_log_event(job->home, "A Wine prefix was converted to MetalSharp Wine and has no x86_64 "
                                             "backup; it was left as it is.");
                 (void)write_migration_progress(job->home, "running", 6,
@@ -1860,6 +1945,9 @@ char* ms_migration_start_json(const char* home) {
     ms_json_writer w;
     char* out;
     bool ready = runtime_ready(home);
+    ms_migration_path path = migration_path_for_home(home);
+    /* A move between the builds always runs: its prefixes change Wine even when the runtime is ready. */
+    bool variant_switch = path == MS_MIGRATION_PATH_REGULAR_TO_FEX || path == MS_MIGRATION_PATH_FEX_TO_REGULAR;
     if (target && compare_versions(target, MIGRATION_VERSION) > 0) {
         char message[256];
         snprintf(message, sizeof(message),
@@ -1903,7 +1991,7 @@ char* ms_migration_start_json(const char* home) {
     }
     dprintf(lock_fd, "%ld\n", (long)getpid());
     close(lock_fd);
-    if (ready && !marker_needed) {
+    if (ready && !marker_needed && !variant_switch) {
         write_setup_metadata(home);
         if (marker_path)
             unlink(marker_path);
@@ -1921,6 +2009,10 @@ char* ms_migration_start_json(const char* home) {
         } else {
             job->home = strdup(home);
             job->lock_path = strdup(lock_path);
+            /* What to do is decided here, before the migration rewrites setup.json. */
+            job->path = path == MS_MIGRATION_PATH_NONE
+                            ? (ms_wine_is_fex() ? MS_MIGRATION_PATH_FEX_UPDATE : MS_MIGRATION_PATH_FULL)
+                            : path;
             if (!job->home || !job->lock_path || pthread_create(&thread, NULL, migration_worker, job) != 0) {
                 free(job->home);
                 free(job->lock_path);
