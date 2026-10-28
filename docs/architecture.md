@@ -97,7 +97,7 @@ Internal route and lane IDs used in code, configs, and cache paths:
 
 | Lane | APIs | Chain |
 |---|---|---|
-| Mullion (`dxmt`, `dxmt_32`) | D3D12 / 11 / 10, x86_64 and i386 | DirectX -> Mullion (a DXMT fork) -> Metal; the default lane |
+| Mullion (`dxmt`, `dxmt_32`) | D3D12 / 11 / 10 for x86_64; D3D11 / 10 for i386 | DirectX -> Mullion (a DXMT fork) -> Metal; the default lane |
 | VKD3D-Proton (`vkd3d`) | D3D12 | DirectX -> VKD3D-Proton -> MoltenVK -> Metal; the regular build's D3DMetal and GPTK titles run here |
 | DXVK (`dxvk`) | D3D11 / 10 / 9, x86_64 | DirectX -> DXVK -> MoltenVK -> Metal; the regular build's D3D9 route runs here |
 | OpenGL (`wine_bare`) | OpenGL, Wine's Direct3D | Wine's wined3d over WineMetalGL; games with an OpenGL renderer are asked to use it |

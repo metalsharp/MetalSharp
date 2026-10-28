@@ -27,8 +27,8 @@ pub(super) const FEX_WELCOME_PAGES: [(&str, &[&str]); 3] = [
         &[
             "VKD3D-Proton: most Direct3D 12 games run here, on Vulkan through MetalSharp's MoltenVK to Metal. \
              Games that used D3DMetal or GPTK on the x86_64 build move to this lane.",
-            "Mullion (DXMT): Direct3D 12, 11 and 10 straight to Metal, for 64-bit and 32-bit x86 games. It is \
-             the default lane, and the one for D3D11 and D3D10 games.",
+            "Mullion (DXMT): Direct3D 12, 11 and 10 straight to Metal for 64-bit games, and Direct3D 11 and \
+             10 for 32-bit ones. It is the default lane, and the one for D3D11 and D3D10 games.",
             "DXVK: Direct3D 9, 10 and 11 on Vulkan through MoltenVK, for 64-bit games. The x86_64 build's D3D9 \
              route runs here, and it is worth a try when a game misbehaves on Mullion.",
             "OpenGL: Wine's own Direct3D on WineMetalGL; games with an OpenGL renderer (Unity, Unreal, Source) \

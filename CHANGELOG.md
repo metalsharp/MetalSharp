@@ -10,7 +10,7 @@ MetalSharp 1.0.0 comes in two builds from one release. Both share the app and it
 ### Added
 
 - **The Arm64 FEX build (#744)** — `make VARIANT=fex` builds a backend that runs MetalSharp Wine from its signed `MetalSharp-Wine.app`. The DMG carries the app, setup copies it read-only to `~/.metalsharp/runtime`, and setup installs offline from it. Its lanes:
-  - **Mullion (DXMT fork):** D3D12, D3D11 and D3D10 for x86_64 and 32-bit games, and the default lane.
+  - **Mullion (DXMT fork):** D3D12, D3D11 and D3D10 for x86_64 games, D3D11 and D3D10 for 32-bit games, and the default lane.
   - **VKD3D-Proton:** D3D12. The D3DMetal and GPTK titles run here.
   - **DXVK:** D3D11/10/9 for x86_64 games. The D3D9 route runs here.
   - **OpenGL:** Wine's Direct3D over WineMetalGL.
