@@ -3,6 +3,11 @@
 
 How MetalSharp launches games, what it installs, and where state lives. Build instructions are in [development.md](development.md) and [building-wine.md](building-wine.md); emulator providers are in [emulators.md](emulators.md).
 
+MetalSharp 1.0.0 comes in two builds from the same source. The backend picks its build at compile time (`make VARIANT=fex` defines `MS_BACKEND_VARIANT`), and the app follows the backend's `variant` in `GET /status`:
+
+- **Regular** (`MetalSharp-<version>-arm64.dmg`): the x86_64 Wine 11.17 runtime under Rosetta. Most of this document describes it.
+- **Arm64 FEX** (`MetalSharp-<version>-arm64-FEX.dmg`): MetalSharp Wine, a native arm64 Wine 11.20 that runs x86 code with FEX. See [Arm64 FEX Build](#arm64-fex-build).
+
 ## Launch Flow
 
 The C backend (`~/.metalsharp/run/backend.sock`) owns every launch. Route selection is data-driven: adding a game means editing its rule set, not backend code.
@@ -23,13 +28,16 @@ Play clicked
   -> app calls the backend (e.g. POST /steam/launch-game {"appid":<appid>,"launchMethod":"<pipeline>"})
   -> backend resolves the route: TOML rule -> managed/FNA eligibility -> PE imports -> directory heuristics -> fallback
   -> backend syncs and preflights the bottle, builds a LaunchRecipe
-  -> backend copies route DLLs beside the game executable and sets Wine/DYLD/cache env
+  -> regular build: backend copies route DLLs beside the game executable and sets Wine/DYLD/cache env
+     Arm64 FEX build: backend writes the route to <game>/.metalsharp/launch.env and stages no DLLs
   -> Wine (or native Mono) starts the game; Wine Steam stays alive in the background for Steamworks
 ```
 
 Pipeline endpoints: `GET /mtsp/pipelines`, `POST /mtsp/prepare`.
 
 ## Graphics Routes
+
+The regular build's routes (the Arm64 FEX build's lanes are under [Arm64 FEX Build](#arm64-fex-build)):
 
 | Route | APIs | Translation chain | DLLs staged beside the game |
 |---|---|---|---|
@@ -68,7 +76,7 @@ Internal route and lane IDs used in code, configs, and cache paths:
 - **Retina:** on by default for the shared prefix (`RetinaMode`, 192 DPI; off restores 96). Restart Wine Steam after changing it.
 - **`metalsharp-wine` wrapper** preserves the backend's route-specific `WINEDLLPATH`, `DYLD_FALLBACK_LIBRARY_PATH`, and Vulkan ICD settings.
 
-**WineMetalGL** (OpenGL) comes from [WineMetalGL 3.1.0](https://github.com/metalsharp/WineMetalGL/releases/tag/winemetalgl-3.1.0) (`winemetalgl-3.1.0-x86_64.tar.gz`): its core, `libwinemetalgl.dylib` (x86_64), sits next to `winemac.so`, which loads it. The runtime's `winemac.so`, `win32u.so` and `opengl32` (`.so`, and `.dll` for x86_64 and i386) are still WineMetalGL 2.2.0's patched Wine modules, built from MetalSharp's Wine; the 3.x core keeps the driver interface they load it through. The runtime also carries 3.1.0's Wine module (`winemetalgl.so`, and `winemetalgl.dll` for x86_64 and i386), which a prefix uses only with the module's forwarding `opengl32.dll` and `opengl32=native`; MetalSharp's prefixes do not install it. It gives programs OpenGL 4.6 core and compatibility contexts on Metal; `WINEMETALGL=0` selects Apple's OpenGL. DOOM (2016) runs its OpenGL renderer on it. Executables listed in `later_gl_entry_point_apps` (`steam_actions.c`) get `LaterEntryPoints` in the Steam prefix's registry, for OpenGL loaders that require entry points of later GL versions. The old sidecar `metalsharp-opengl.dylib` is no longer in the runtime, and setup no longer requires it; nothing loaded it. Artifact hashes are in `tools/bundles/wine-runtime-hashes.tsv`.
+**WineMetalGL** (OpenGL) comes from [WineMetalGL 3.7.0](https://github.com/metalsharp/WineMetalGL/releases/tag/winemetalgl-3.7.0) (`winemetalgl-3.7.0-x86_64.tar.gz`, in the runtime bundle since 0.80.0): its core, `libwinemetalgl.dylib` (x86_64), sits next to `winemac.so`, which loads it. The runtime's `winemac.so`, `win32u.so` and `opengl32` (`.so`, and `.dll` for x86_64 and i386) are still WineMetalGL 2.2.0's patched Wine modules, built from MetalSharp's Wine; the 3.x core keeps the driver interface they load it through. The runtime also carries the 3.x Wine module (`winemetalgl.so`, and `winemetalgl.dll` for x86_64 and i386), which a prefix uses only with the module's forwarding `opengl32.dll` and `opengl32=native`; MetalSharp's prefixes do not install it. It gives programs OpenGL 4.6 core and compatibility contexts on Metal; `WINEMETALGL=0` selects Apple's OpenGL. DOOM (2016) runs its OpenGL renderer on it. Executables listed in `later_gl_entry_point_apps` (`steam_actions.c`) get `LaterEntryPoints` in the Steam prefix's registry, for OpenGL loaders that require entry points of later GL versions. The old sidecar `metalsharp-opengl.dylib` is no longer in the runtime, and setup no longer requires it; nothing loaded it. Artifact hashes are in `tools/bundles/wine-runtime-hashes.tsv`.
 
 ### Launch Environment
 
@@ -82,6 +90,36 @@ Internal route and lane IDs used in code, configs, and cache paths:
 | `D3DMETAL_RUNTIME_DIR`, `D3DMETAL_FRAMEWORK_PATH` | D3DMetal payload root and framework executable |
 | `SteamAppId`, `SteamGameId` | Steam identity for direct launches |
 | `WINEMSYNC` | MSYNC selection |
+
+## Arm64 FEX Build
+
+**MetalSharp Wine** ([metalsharp/MetalSharp-Wine](https://github.com/metalsharp/MetalSharp-Wine), v4.0 for MetalSharp 1.0.0) is Wine 11.20 built as a native arm64 macOS app. Its FEX fork runs x86_64 (ARM64EC) and i386 (WoW64) Windows code, so the build needs no Rosetta. The FEX DMG carries the signed and notarized `MetalSharp-Wine.app` unchanged in `Resources/`. Setup copies it with `ditto` to `~/.metalsharp/runtime/MetalSharp-Wine.app` and makes it read-only: re-signing would drop its cross-architecture entitlement. `~/.metalsharp/runtime/wine` is a facade over the app (`wine_runtime.c`). Its `bin/` scripts run the app's wine, `lib` and `share` link to the app's, and `etc/` holds MetalSharp's own `mullion.conf`, so code that runs `runtime/wine/bin/metalsharp-wine` runs MetalSharp Wine.
+
+| Lane | APIs | Chain |
+|---|---|---|
+| Mullion (`dxmt`, `dxmt_32`) | D3D12 / 11 / 10, x86_64 and i386 | DirectX -> Mullion (a DXMT fork) -> Metal; the default lane |
+| VKD3D-Proton (`vkd3d`) | D3D12 | DirectX -> VKD3D-Proton -> MoltenVK -> Metal; the regular build's D3DMetal and GPTK titles run here |
+| DXVK (`dxvk`) | D3D11 / 10 / 9, x86_64 | DirectX -> DXVK -> MoltenVK -> Metal; the regular build's D3D9 route runs here |
+| OpenGL (`wine_bare`) | OpenGL, Wine's Direct3D | Wine's wined3d over WineMetalGL; games with an OpenGL renderer are asked to use it |
+
+- **Routing:** the backend writes each game's route to `<game>/.metalsharp/launch.env` (and the executable's folder). MetalSharp Wine applies it however the game starts: from Steam (`steam://run`, so cloud saves sync), a launcher, or directly. `launch-exe` and `launch-args` beside it pick the executable and its arguments. MetalSharp Wine's loader routes D3D and DXGI DLLs to the lane's copies inside the app by name, so no DLLs are staged in game folders.
+- **Rules:** `configs/mtsp-rules-fex.toml` (see [Rule sets](#rule-sets)).
+- **Caches:** each game's caches go in `shader-cache/fex-<lane>/<appid>/` and `pipeline-cache/fex-<lane>/<appid>/` (`MULLION_SHADER_CACHE_PATH`, `VKD3D_SHADER_CACHE_PATH`, `DXVK_STATE_CACHE_PATH`). Settings shows and clears them per lane. Metal's pipeline cache for Mullion games is shared by every Mullion game and lives in the user's cache folder (`$(getconf DARWIN_USER_CACHE_DIR)mullion/<exe>/com.apple.metal`), so Settings clears it only after asking.
+- **Settings:** per-lane frame rate limits (`/framerate`, Mullion's in `mullion.conf`), the Metal HUD, and ray tracing on the VKD3D-Proton lane. There are no x87 or controller-input settings: FEX runs x87 code, and MetalSharp Wine's own XInput and DirectInput see controllers through SDL.
+- **Prefixes:** setup prepares each prefix once (`wineboot -u`, VC++ 2022 x64 and x86, core fonts). Moving an x86_64 install to the FEX build backs up each prefix's `system.reg`, `user.reg`, `userdef.reg` and `drive_c/windows` to `.metalsharp-x86_64-backup`, then converts it. Moving back to the regular build restores that backup.
+
+### Updates Between Builds
+
+`migration.c` picks a path from the running build, the build recorded in `setup.json` (`runtime_variant`; missing means the regular build) and its version (`ms_migration_path_for`):
+
+| From -> to | Path |
+|---|---|
+| Regular -> regular | The regular build's migration |
+| Regular (0.80.x or later) -> FEX | Full migration that converts the Steam, GOG, Ubisoft and bottle prefixes, then the one-time welcome; also when the FEX DMG is installed by hand |
+| FEX -> FEX (1.0.0 -> later) | A light update: the new MetalSharp Wine and runtime pieces, user data in place, no prefix conversion |
+| FEX -> regular | The regular migration after restoring the x86_64 backups; the read-only app is removed with the old runtime |
+
+The updater (`app/updater/update.sh`) tells the builds apart by the DMG name (`FEX` in it) and the app's `MetalSharpVariant`. It installs a newer version, or the other build at the same version. `--recover` reinstalls the installed build, including the FEX build at its own version. While a migration is pending or running, the backend's startup MetalSharp Wine refresh does nothing, and an install lock (`runtime/.metalsharp-wine.lock`) keeps the two from replacing the app at once.
 
 ## Filesystem Layout
 

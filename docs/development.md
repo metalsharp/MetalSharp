@@ -28,15 +28,17 @@ cd MetalSharp
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
 cmake --build build --parallel $(sysctl -n hw.ncpu)
 
-# C backend -> app/src-c/build/metalsharp-backend
+# C backend -> app/src-c/build/metalsharp-backend (the regular x86_64 build)
 make -C app/src-c
+# The Arm64 FEX build's backend, in its own build directory
+make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build-fex"
 
 # GPUI app (generate tilted dock artwork once first)
 (cd app-gpui && swift generate-dock-art.swift)
 cargo build --release --manifest-path app-gpui/Cargo.toml
 ```
 
-Download the runtime bundles (Wine 11.17, D3DMetal, DXMT, Mono/FNA, Goldberg, Steam setup files) from the `bundles` release:
+The regular build's runtime bundles (Wine 11.17, D3DMetal, DXMT, Mono/FNA, Goldberg, Steam setup files) come from the `bundles` release; the Arm64 FEX build needs none, as `MetalSharp-Wine.app` carries its runtime:
 
 ```bash
 ./tools/dmg/create-bundles.sh
@@ -62,6 +64,7 @@ The backend honors `METALSHARP_HOME` (default `~/.metalsharp`) and serves HTTP o
 
 ```bash
 make -C app/src-c test        # HTTP smoke, JSON, migration, SIGPIPE, emulator update transactions
+make -C app/src-c VARIANT=fex BUILD_DIR="$PWD/app/src-c/build-fex" test   # the Arm64 FEX build's suite
 make -C app/src-c asan-test   # same under sanitizers
 cargo test --manifest-path app-gpui/Cargo.toml
 ```
@@ -87,7 +90,9 @@ DMG (`MetalSharp-<version>-arm64.dmg`):
 tools/dmg/package-gpui-dmg.sh app-gpui/target/MetalSharp.app dist/gpui
 ```
 
-`package-local-preview.sh` and `package-local-testing-app.sh` / `package-local-testing-dmg.sh` build the same app under separate bundle ids for side-by-side testing (they still use `~/.metalsharp` and its backend socket).
+The Arm64 FEX build packages the same way with `METALSHARP_VARIANT=fex` and `METALSHARP_WINE_APP` pointing at a signed `MetalSharp-Wine.app`. That app is copied unchanged into `Resources/` and never re-signed. The DMG is `MetalSharp-<version>-arm64-FEX.dmg`, checked by `tools/dmg/verify-fex-dmg.sh`. Release CI downloads the pinned MetalSharp Wine release (`METALSHARP_WINE_TAG` in `release.yml`, v4.0 for 1.0.0) and checks it against `SHA256SUMS`.
+
+`package-local-preview.sh` and `package-local-testing-app.sh` / `package-local-testing-dmg.sh` build the same app under separate bundle ids for side-by-side testing (they still use `~/.metalsharp` and its backend socket). `package-local-testing-fex-dmg.sh` builds the Arm64 FEX build's testing DMG.
 
 ## Release Signing
 
@@ -98,7 +103,7 @@ Releases must be Developer ID signed and notarized, or Gatekeeper blocks them. S
 
 The release job runs `tools/dmg/prepare-apple-signing.sh` → `package-app.sh` with `METALSHARP_GPUI_SIGN_IDENTITY` (hardened runtime, `tools/dmg/entitlements.mac.plist`) → `package-gpui-dmg.sh` → `sign-notarize-dmg.sh` → `verify-notarization.sh`. Without the secrets, CI ships an ad-hoc DMG with a `DMG-SIGNING.txt` marker.
 
-The in-app updater only accepts a DMG named `MetalSharp-<version>-arm64.dmg` containing `com.metalsharp.app` at that version, passing `codesign --verify --deep --strict`, and signed by the **same Developer ID team** as the installed app. Ad-hoc releases cannot be installed through the updater.
+The in-app updater only accepts a DMG named `MetalSharp-<version>-arm64.dmg` (or `MetalSharp-<version>-arm64-FEX.dmg` for the Arm64 FEX build) containing `com.metalsharp.app` at that version, passing `codesign --verify --deep --strict`, and signed by the **same Developer ID team** as the installed app. Ad-hoc releases cannot be installed through the updater. It installs a newer version, or the other build at the same version (a build switch). If the release's FEX build fails, the release job ships the regular DMG without it.
 
 ## Pre-commit Hook
 

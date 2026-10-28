@@ -55,7 +55,7 @@ If an In-App update fails, please use [Fix Broken Updater](https://github.com/me
 ## Graphics Routes
 
 - To launch your game, save your desired pipeline in MetalSharp and launch through MetalSharp.
-- MetalSharp automatically assigns your game a pipeline based on [Game-Compatability](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md) testing. 
+- MetalSharp automatically assigns your game a pipeline based on [Game-Compatibility](https://github.com/metalsharp/MetalSharp/blob/main/docs/games-supported.md) testing. Each build has its own rule set (`configs/mtsp-rules.toml`, `configs/mtsp-rules-fex.toml`).
 
 | Version | Route | Engine | Notes |
 |---|---|---|---|
@@ -69,7 +69,8 @@ ___
 | Version | Route | Engine |
 |---|---|---|
 | x86_64 | **_D3DMetal_** | D3D12/11/10 Through the Latest D3DMetal Framework |
-| X86_64 | **_DXMT_** | D3D11, D3D10 to Metal |
+| x86_64 | **_VKD3D_** | D3D12 Through VKD3D-Proton, D3D11 / D3D10 / D3D9 Through DXVK -> MoltenVK -> Metal |
+| x86_64 | **_DXMT_** | D3D11, D3D10 to Metal |
 | x86_64 | **_DXMT(32)_** | D3D11, D3D10 32-bit to Metal |
 | x86_64 | **_D3D9_** | D3D9 With x87 Acceleration for Older Titles |
 | x86_64 | **_Mono/FNA_** | Windows XNA/FNA via Native Mono |
@@ -83,8 +84,8 @@ ___
 | **_Epic Library_** | Download and play Epic Games through the Sharp Library |
 | **_Ubisoft Connect_** | Download and play Ubisoft Connect Games |
 | **_GameJolt Library_** | Download and Play GameJolt games through the Sharp Library |
-| **_Emulation Support_** |  Install, manage, and launch emulated games using PCSX2, RCPS3, ShadPS4, and SharpEmu |
-| **_Runtime Bottles_** | Select your launch method, Enable / Disable Msync / Controller Input / and MetalFX |
+| **_Emulation Support_** |  Install, manage, and launch emulated games using PCSX2, RPCS3, ShadPS4, and SharpEmu |
+| **_Runtime Bottles_** | Select your launch method, Enable / Disable Msync and MetalFX; Controller Input and x87 Acceleration on x86_64; Metal HUD, Frame Rate Limits and Ray Tracing on Arm64 FEX |
 | **_Route Routing_** | Automatic route selection based on game compatibility data and developer testing |
 | **_Steam Integration_** | Detects your Steam library, manages the Wine Steam session, and deploys a CEF runtime wrapper that survives Steam updates |
 | **_Steam Art Manager_** | Set custom artwork for any game in your Steam-Library(s) |
@@ -125,6 +126,9 @@ Licensed under the `GNU Affero General Public License v3.0` or later (AGPL-3.0-o
 ## Special Thanks To; 
 
 [DXMT](https://github.com/3Shain/dxmt) _For DirectX -> Metal_,  [Wine](https://www.winehq.org/) _For Tiny Windows VM_, 
+[FEX-Emu](https://github.com/FEX-Emu/FEX) _For x86 on Arm64_, 
+[VKD3D-Proton](https://github.com/HansKristian-Work/vkd3d-proton) _For D3D12 on Vulkan_, 
+[MoltenVK](https://github.com/KhronosGroup/MoltenVK) _For Vulkan on Metal_, 
 [DXVK-MacOS](https://github.com/Gcenx/DXVK-macOS) _For Vulkan On Mac_, 
 [Tormak9970](https://github.com/Tormak9970/Steam-Art-Manager) _For Steam Art Manager_, 
 [ZED](https://github.com/zed-industries/zed) _For GPUI_, 

@@ -1,6 +1,12 @@
 # MetalSharp 1.0.0: the Arm64 build with FEX
 
-**Status:** this is the plan. Nothing here is built yet, and nothing is released until all of it is tested locally (§11).
+**Status:** built for MetalSharp 1.0.0 (PR #744). This was the plan, and it stays as the design record. [Architecture](architecture.md#arm64-fex-build) describes the build as it ships. Where 1.0.0 differs from this plan:
+
+- It carries **MetalSharp Wine v4.0** (not 2.1), pinned by `METALSHARP_WINE_TAG` in `release.yml`.
+- Each build has its own rule set. The FEX build's `configs/mtsp-rules-fex.toml` is generated from the regular rules, with the games verified on MetalSharp Wine on top.
+- Migration takes an explicit path per build and version. A FEX -> FEX update only swaps in the new MetalSharp Wine and runtime pieces. A FEX DMG installed by hand over an x86_64 install runs the full conversion too.
+- Games keep their caches per lane, with Clear per lane in Settings. The FEX build shows a one-time welcome after an x86_64 install moves to it.
+- A failed FEX build no longer blocks the regular release, and PR CI builds and tests the FEX backend.
 
 ## What 1.0.0 ships
 
