@@ -4,7 +4,7 @@
 
 **Run Windows games on MacOS Silicon.**
 
-MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. 7 P.M MST. It's On The Way!
+MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. 8 P.M MST. It's On The Way!
 
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v0.80.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v0.80.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
