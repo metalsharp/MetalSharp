@@ -8,7 +8,7 @@ ___
 
 ### Run Windows games on MacOS Silicon.
 
-MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. Updates Tonight!
+MetalSharp 1.0.0 Is Here! Now With an Arm64 Build That Runs Games Through FEX, No Rosetta Needed. In Early Access!
 
 <a href="https://github.com/metalsharp/MetalSharp/releases/tag/v1.0.0"><img src="https://img.shields.io/github/v/release/metalsharp/MetalSharp?filter=v1.0.0&style=for-the-badge" alt="Release"></a>
 <a href="https://github.com/metalsharp/MetalSharp/releases"><img src="https://img.shields.io/github/downloads/metalsharp/MetalSharp/total?style=for-the-badge" alt="Downloads"></a>
@@ -30,7 +30,12 @@ MetalSharp is a Free Wine 11.17 x86_64 (MacOS 15+) / Wine 11.20 with FEX (MacOS 
 
 ## Quick Start
 
-Download the DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it.
+Download the DMG from [Releases](https://github.com/metalsharp/MetalSharp/releases), drag MetalSharp into `/Applications`, and open it. Each release has two builds:
+
+- `MetalSharp-<version>-arm64.dmg`: the x86_64 Wine build under Rosetta (MacOS 15+).
+- `MetalSharp-<version>-arm64-FEX.dmg`: the Arm64 build with FEX and MetalSharp Wine (MacOS 26.4+), in early access.
+
+The in-app updater keeps the build you have, and can switch between them.
 
 The setup wizard handles installing the remaining runtime dependencies. Installed games automatically sync into the User Library.
 
