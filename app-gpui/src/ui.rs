@@ -3502,10 +3502,13 @@ impl MetalSharpApp {
         if crate::variant::is_fex() {
             if let Some(limit) = self.frame_rate_limit() {
                 let mut frame_rate = div().flex().gap(px(4.0));
-                for (index, (fps, text)) in [(30, "30"), (60, "60"), (0, "Off")].into_iter().enumerate() {
+                for (index, (fps, text)) in
+                    [(30, "30"), (60, "60"), (0, "Off")].into_iter().enumerate()
+                {
                     frame_rate = frame_rate.child(
-                        option(("game-setting-frame-rate", index), text, limit == fps)
-                            .on_click(cx.listener(move |this, _, _, cx| this.set_frame_rate(fps, cx))),
+                        option(("game-setting-frame-rate", index), text, limit == fps).on_click(
+                            cx.listener(move |this, _, _, cx| this.set_frame_rate(fps, cx)),
+                        ),
                     );
                 }
                 cells.push(row("Limit framerate", frame_rate));
