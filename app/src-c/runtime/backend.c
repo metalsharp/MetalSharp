@@ -23,6 +23,7 @@
 #include "metalsharp_backend/kernel_integrity.h"
 #include "metalsharp_backend/local_socket.h"
 #include "metalsharp_backend/logs.h"
+#include "metalsharp_backend/frame_rate.h"
 #include "metalsharp_backend/metalfx.h"
 #include "metalsharp_backend/migration.h"
 #include "metalsharp_backend/mono.h"
@@ -385,6 +386,21 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
+        body = ms_frame_rate_get_json(context->metalsharp_home);
+        if (body == NULL)
+            return false;
+        set_json_response(response, 200, body);
+        return true;
+    }
+    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
+        int status = 500;
+        body = ms_frame_rate_set_json(context->metalsharp_home, request->body, request->body_length, &status);
+        if (body == NULL)
+            return false;
+        set_json_response(response, status, body);
         return true;
     }
     if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/setup/state") == 0) {
