@@ -3141,7 +3141,7 @@
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3578,
+          "line": 3585,
           "kind": "literal-candidate"
         },
         {
@@ -4190,12 +4190,12 @@
       "literal_references": [
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3591,
+          "line": 3598,
           "kind": "literal-candidate"
         },
         {
           "file": "app-gpui/src/ui_live.rs",
-          "line": 3599,
+          "line": 3606,
           "kind": "literal-candidate"
         }
       ],
