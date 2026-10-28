@@ -1,5 +1,5 @@
 # Supported Games
-**Updated:** 2026-10-10
+**Updated:** 2026-10-28
 
 Games confirmed playable by users or the developer, grouped by launch route. Many more likely work. Tested on an M4 MacBook Air (16 GB) from an external USB-C SSD. Routes are described in the [README](../README.md#launching-games-and-graphics-routes).
 
@@ -47,6 +47,7 @@ Games confirmed playable by users or the developer, grouped by launch route. Man
 | Watch Dogs Legions | Ubisoft | |
 | Red Dead Redemption 2 | 1174180 | Also runs on VKD3D (Vulkan). The first launch goes through Steam, which installs the Rockstar Games Launcher |
 | Grand Theft Auto V Enhanced | 3240220 | Story mode. Also runs on VKD3D |
+| Deadlock | 1422450 | Online Play |
 
 ---
 
