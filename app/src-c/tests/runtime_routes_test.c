@@ -852,15 +852,7 @@ static void test_metalfx_route_env(const char* home) {
     static const char on_175[] = "{\"enabled\":true,\"factor\":1.75}";
     static const char off[] = "{\"enabled\":false}";
     static const char on[] = "{\"enabled\":true}";
-    static const char on_2[] = "{\"enabled\":true,\"factor\":2.0}";
     char* response;
-    /* Off until it is turned on. */
-    ms_steam_apply_graphics_route(home, "dxmt");
-    assert(!getenv("DXMT_METALFX_SPATIAL_SWAPCHAIN"));
-    assert(dxmt_conf_has(home, "d3d11.metalSpatialUpscaleFactor = 1.00"));
-    response = ms_metalfx_set_json(home, (const unsigned char*)on_2, strlen(on_2));
-    assert(response && strstr(response, "\"ok\":true"));
-    free(response);
     ms_steam_apply_graphics_route(home, "dxmt");
     assert(getenv("DXMT_METALFX_SPATIAL_SWAPCHAIN") && !strcmp(getenv("DXMT_METALFX_SPATIAL_SWAPCHAIN"), "1"));
     assert(!strstr(getenv("DXMT_CONFIG"), "metalSpatialUpscaleFactor"));

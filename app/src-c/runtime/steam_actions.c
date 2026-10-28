@@ -1816,10 +1816,10 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                                      "runtime/d3dmetal-gptk4-beta2/wine/x86_64-windows",
                                      "vkd3d/vkd3d-proton/x86_64-windows",
                                      "vkd3d/dxvk/x86_64-windows",
-                                     "vkd3d/dxvk/i386-windows",
-                                     /* the fex build: MetalSharp Wine's lanes, and the x86_64
-                                      * runtime it set aside, whose DLLs games may still hold */
-                                     "runtime/wine/lib/mullion/aarch64-windows",
+                                     "vkd3d/dxvk/i386-windows"};
+    /* the fex build: MetalSharp Wine's lanes, and the x86_64 runtime it set aside, whose DLLs games
+     * may still hold */
+    const char* fex_source_subpaths[] = {"runtime/wine/lib/mullion/aarch64-windows",
                                      "runtime/wine/lib/mullion/i386-windows",
                                      "runtime/wine/lib/dxvk/x86_64-windows",
                                      "runtime/wine/lib/vkd3d-proton/x86_64-windows",
@@ -1870,8 +1870,12 @@ static void remove_stale_route_dlls(const char* home, const char* pipeline, cons
                 free(target);
                 continue;
             }
-            for (size_t s = 0; s < sizeof(source_subpaths) / sizeof(source_subpaths[0]); s++) {
-                char* source_dir = join(home, source_subpaths[s]);
+            size_t regular_count = sizeof(source_subpaths) / sizeof(source_subpaths[0]);
+            size_t source_count =
+                regular_count + (ms_wine_is_fex() ? sizeof(fex_source_subpaths) / sizeof(fex_source_subpaths[0]) : 0);
+            for (size_t s = 0; s < source_count; s++) {
+                char* source_dir =
+                    join(home, s < regular_count ? source_subpaths[s] : fex_source_subpaths[s - regular_count]);
                 char* source = source_dir ? join(source_dir, names[n]) : NULL;
                 bool same = source && access(source, R_OK) == 0 && files_match(target, source);
                 free(source_dir);
@@ -2456,11 +2460,15 @@ char* ms_steam_prepare_bottle_route_json(const char* home, const char* bottle_id
         free(fnalibs);
         goto done;
     }
+    if (!ms_wine_is_fex() && (!strcmp(canonical, "m13") || !strcmp(canonical, "d3dmetal") ||
+                              !strcmp(canonical, "m32") || !strcmp(canonical, "wine_bare")))
+        goto done;
     if (game_dir && access(game_dir, F_OK) == 0)
         executable = preferred_steam_game_executable(game_dir, (unsigned)appid, canonical);
     if (!strcmp(canonical, "m13") || !strcmp(canonical, "d3dmetal") || !strcmp(canonical, "m32") ||
         !strcmp(canonical, "wine_bare")) {
-        /* These routes stage nothing, but switching to one still removes the previous route's DLLs. */
+        /* The fex build: these routes stage nothing, but switching to one still removes the previous
+         * route's DLLs. */
         if (executable || (executable = find_steam_game_executable(home, (unsigned)appid, canonical)))
             remove_stale_route_dlls(home, canonical, game_dir, executable);
         goto done;
@@ -6328,8 +6336,8 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
         setenv("MVK_CONFIG_ENABLE_EXPERIMENTAL_RAY_TRACING", ms_config_ray_tracing_enabled(home) ? "1" : "0", 1);
     /* The hero card's frame rate limit on the VKD3D-Proton lane: its swap chain sleeps to the target
      * (VKD3D_FRAME_RATE). Mullion's is in mullion.conf, which games read when they start. */
-    if (ms_wine_is_fex() && !strcmp(env_pipeline, "vkd3d")) {
-        unsigned limit = ms_frame_rate_limit(home, "vkd3d");
+    if (ms_wine_is_fex()) {
+        unsigned limit = !strcmp(env_pipeline, "vkd3d") ? ms_frame_rate_limit(home, "vkd3d") : 0;
         char value[16];
         if (limit) {
             snprintf(value, sizeof(value), "%u", limit);
@@ -6337,8 +6345,6 @@ static void set_direct_game_env(const char* home, const char* prefix, unsigned i
         } else {
             unsetenv("VKD3D_FRAME_RATE");
         }
-    } else {
-        unsetenv("VKD3D_FRAME_RATE");
     }
     set_game_opengl_env(id, env_pipeline);
     set_launch_cache_env(home, id, env_pipeline);

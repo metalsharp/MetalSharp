@@ -388,14 +388,15 @@ bool ms_backend_handle(const ms_http_request* request, ms_http_response* respons
         set_json_response(response, 200, body);
         return true;
     }
-    if (strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
+    /* The fex build's frame rate limit; the regular build has no such route. */
+    if (ms_wine_is_fex() && strcmp(request->method, "GET") == 0 && strcmp(request->path, "/framerate") == 0) {
         body = ms_frame_rate_get_json(context->metalsharp_home);
         if (body == NULL)
             return false;
         set_json_response(response, 200, body);
         return true;
     }
-    if (strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
+    if (ms_wine_is_fex() && strcmp(request->method, "POST") == 0 && strcmp(request->path, "/framerate") == 0) {
         int status = 500;
         body = ms_frame_rate_set_json(context->metalsharp_home, request->body, request->body_length, &status);
         if (body == NULL)
