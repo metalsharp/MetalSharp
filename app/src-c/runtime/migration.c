@@ -24,7 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define MIGRATION_VERSION "0.80.0"
+#define MIGRATION_VERSION "1.0.0"
 /* 7: setup.json records runtime_variant, and prefixes carry the Wine they were built for. */
 #define MIGRATION_SCHEMA  7
 
@@ -57,6 +57,8 @@ typedef struct {
     migration_link* steam_links;
     migration_link* gptk_links;
     migration_link* ubisoft_links;
+    /* The fex build converts it in setup; the 0.80.0 copy must not go back over it. */
+    bool steam_prefix_x86_64;
 } preserved_data;
 
 static char* path_join(const char* a, const char* b) {
@@ -628,6 +630,7 @@ static bool preserve_user_data(const char* home, preserved_data* out) {
     bottles = path_join(home, "bottles");
     if (prefix) {
         out->steam_links = collect_links(prefix);
+        out->steam_prefix_x86_64 = ms_wine_is_fex() && !ms_wine_prefix_is_arm64(prefix);
         destination = path_join(out->temp, "prefix-steam");
         if (!copy_tree_filtered(prefix, destination, 2))
             goto fail;
@@ -917,7 +920,8 @@ static void restore_preserved_data(const char* home, const preserved_data* data)
     dst = path_join(home, "prefix-steam");
     if (src && dst && directory_local(src)) {
         (void)mkdir(dst, 0700);
-        (void)copy_tree_filtered(src, dst, 2);
+        if (!data->steam_prefix_x86_64 || !ms_wine_prefix_is_arm64(dst))
+            (void)copy_tree_filtered(src, dst, 2);
         {
             char* dos = path_join(dst, "dosdevices");
             char* c = dos ? path_join(dos, "c:") : NULL;
@@ -1493,7 +1497,7 @@ char* ms_migration_progress_json(const char* home) {
     if (!p)
         return NULL;
     out = raw_or(p,
-                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"0.80.0\"}");
+                 "{\"status\":\"idle\",\"step\":0,\"total\":0,\"message\":\"\",\"error\":null,\"version\":\"1.0.0\"}");
     free(p);
     return out;
 }
@@ -1501,7 +1505,7 @@ char* ms_migration_report_json(const char* home) {
     char *p = path_join(home, "logs/migration-report-latest.json"), *out;
     if (!p)
         return NULL;
-    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"0.80.0\",\"entries\":[],\"summary\":\"No "
+    out = raw_or(p, "{\"schema_version\":1,\"status\":\"idle\",\"version\":\"1.0.0\",\"entries\":[],\"summary\":\"No "
                     "migration has run yet.\"}");
     free(p);
     return out;
@@ -1683,7 +1687,7 @@ static void* migration_worker(void* opaque) {
         char* install_progress = path_join(job->home, "install_progress.json");
         char* text = install_progress ? read_text(install_progress) : NULL;
         bool complete = text && strstr(text, "\"status\":\"complete\"") != NULL;
-        bool failed = (text && strstr(text, "\"status\":\"error\"") != NULL) || attempts >= 600;
+        bool failed = (text && strstr(text, "\"status\":\"error\"") != NULL) || attempts >= (ms_wine_is_fex() ? 3600u : 600u);
         free(text);
         free(install_progress);
         if (failed) {
@@ -1709,15 +1713,13 @@ static void* migration_worker(void* opaque) {
                 char convert_error[512] = "";
                 (void)write_migration_progress(job->home, "running", 6,
                                                "Moving your Wine prefixes to MetalSharp Wine (with a backup)...", NULL);
+                /* Setup converted the Steam prefix; one other prefix failing leaves it with its backup. */
                 if (ms_wine_fex_convert_prefixes(job->home, convert_error, sizeof(convert_error)) > 0) {
-                    (void)write_migration_progress(job->home, "error", 6,
-                                                   "Could not move a Wine prefix to MetalSharp Wine",
-                                                   convert_error[0] ? convert_error : "prefix_conversion_failed");
-                    unlink(job->lock_path);
-                    free(job->home);
-                    free(job->lock_path);
-                    free(job);
-                    return NULL;
+                    char message[768];
+                    snprintf(message, sizeof(message),
+                             "A Wine prefix could not be moved to MetalSharp Wine (%s); its x86_64 backup is kept.",
+                             convert_error[0] ? convert_error : "unknown error");
+                    ms_log_event(job->home, message);
                 }
             } else {
                 /* Prefixes the fex build converted get their x86_64 backup back first. */

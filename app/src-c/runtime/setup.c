@@ -543,6 +543,7 @@ static bool copy_directory_contents(const char* source, const char* destination)
 
 static void remove_path_tree(const char* path);
 static bool copy_file_path(const char* source, const char* destination);
+static bool fex_stage_archive(const char* home, const char* name);
 
 static char* find_setup_source(const char* relative) {
     char cwd[PATH_MAX];
@@ -752,6 +753,10 @@ bool ms_setup_ensure_faudio(const char* home) {
     bool ok = installed && access(installed, R_OK) == 0;
     if (ok || !installed)
         goto done;
+    if (ms_wine_is_fex()) {
+        ok = fex_stage_archive(home, "faudio") && access(installed, R_OK) == 0;
+        goto done;
+    }
     archive = find_bundle_archive(home, "metalsharp-assets.tar.zst");
     if (!archive)
         goto done;
@@ -1191,7 +1196,12 @@ static bool required_ready(const char* runtime_dir, const char* const* unix_file
     return ready;
 }
 
+static bool host_runtime_installed(const char* home);
+
 static bool host_runtime_lib_ready(const char* home) {
+    /* The ntdll hook is the x86_64 runtime's; MetalSharp Wine has none and carries the host runtime. */
+    if (ms_wine_is_fex())
+        return host_runtime_installed(home);
     char* wine = join_path(home, "runtime/wine/lib/metalsharp");
     char* x64 = wine == NULL ? NULL : join_path(wine, "x86_64-windows/metalsharp_ntdll_hook.dll");
     char* x86 = wine == NULL ? NULL : join_path(wine, "i386-windows/metalsharp_ntdll_hook.dll");
@@ -2185,6 +2195,119 @@ static void install_x86_64_runtime_steps(const char* home, unsigned total) {
 }
 
 /* Steps 3 and 5-7 of the fex build: MetalSharp Wine instead of Rosetta and the runtime bundle. */
+/* The fex build stages its support assets from MetalSharp Wine's share/metalsharp (the asset
+ * bundles' own files, plus Mono and FAudio as archives/<name>.tar.zst) and MetalSharp.app's
+ * configs and scripts, so setup needs no network. The app is read-only; copies are made writable. */
+static bool set_tree_user_writable(const char* path) {
+    pid_t pid = fork();
+    int wait_status;
+    if (pid < 0)
+        return false;
+    if (pid == 0) {
+        execl("/bin/chmod", "chmod", "-R", "u+w", path, (char*)NULL);
+        _exit(127);
+    }
+    while (waitpid(pid, &wait_status, 0) < 0 && errno == EINTR) {
+    }
+    return WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0;
+}
+
+static bool fex_stage_tree(const char* source_root, const char* source, const char* home, const char* destination) {
+    char* from = join_path(source_root, source);
+    char* to = join_path(home, destination);
+    struct stat info;
+    bool ok = from && to && stat(from, &info) == 0 && S_ISDIR(info.st_mode);
+    if (ok) {
+        (void)set_tree_user_writable(to);
+        remove_path_tree(to);
+        ok = copy_directory_contents(from, to) && set_tree_user_writable(to);
+    }
+    free(from);
+    free(to);
+    return ok;
+}
+
+/* runtime/<name> from MetalSharp Wine's share/metalsharp/archives/<name>.tar.zst. */
+static bool fex_stage_archive(const char* home, const char* name) {
+    char contents[PATH_MAX], archive[PATH_MAX], temp[PATH_MAX], extracted[PATH_MAX], destination[PATH_MAX];
+    bool ok = false;
+    if (!ms_wine_app_contents(home, contents, sizeof(contents)) ||
+        snprintf(archive, sizeof(archive), "%s/share/metalsharp/archives/%s.tar.zst", contents, name) >=
+            (int)sizeof(archive) ||
+        snprintf(temp, sizeof(temp), "%s/.%s-extract-%ld", home, name, (long)getpid()) >= (int)sizeof(temp) ||
+        snprintf(extracted, sizeof(extracted), "%s/%s", temp, name) >= (int)sizeof(extracted) ||
+        snprintf(destination, sizeof(destination), "%s/runtime/%s", home, name) >= (int)sizeof(destination) ||
+        !file_nonempty(archive))
+        return false;
+    remove_path_tree(temp);
+    if (extract_archive_to(temp, archive) && access(extracted, F_OK) == 0) {
+        (void)set_tree_user_writable(destination);
+        remove_path_tree(destination);
+        ok = rename(extracted, destination) == 0;
+    }
+    remove_path_tree(temp);
+    return ok;
+}
+
+static bool fex_stage_support_assets(const char* home) {
+    static const char* const trees[][2] = {{"assets/goldberg", "runtime/goldberg"},
+                                           {"assets/shims", "runtime/shims"},
+                                           {"assets/fnalibs", "runtime/fnalibs"},
+                                           {"assets/fna-kickstart", "runtime/fna-kickstart"}};
+    static const char* const archives[] = {"mono-arm64", "mono-x86", "faudio"};
+    char contents[PATH_MAX], share[PATH_MAX];
+    bool ok = ms_wine_app_contents(home, contents, sizeof(contents)) &&
+              snprintf(share, sizeof(share), "%s/share/metalsharp", contents) < (int)sizeof(share);
+    for (size_t i = 0; ok && i < sizeof(trees) / sizeof(trees[0]); i++)
+        ok = fex_stage_tree(share, trees[i][0], home, trees[i][1]);
+    for (size_t i = 0; ok && i < sizeof(archives) / sizeof(archives[0]); i++)
+        ok = fex_stage_archive(home, archives[i]);
+    if (ok) {
+        /* mullion.conf is MetalSharp's to edit (a dxmt.conf from before becomes it); only a missing one
+         * is staged. MetalSharp Wine before 3.1 ships it as dxmt.conf. */
+        char destination[PATH_MAX];
+        char* source = join_path(share, "assets/wine/etc/mullion.conf");
+        char* etc = join_path(home, "runtime/wine/etc");
+        if (source && !file_nonempty(source)) {
+            free(source);
+            source = join_path(share, "assets/wine/etc/dxmt.conf");
+        }
+        if (source && etc && ms_wine_graphics_conf_path(home, destination, sizeof(destination)) &&
+            file_nonempty(source) && !file_nonempty(destination) && mkdir_p(etc) &&
+            copy_file_path(source, destination))
+            (void)chmod(destination, 0644);
+        free(source);
+        free(etc);
+    }
+    return ok;
+}
+
+static bool fex_stage_scripts_tools(const char* home) {
+    char contents[PATH_MAX], share[PATH_MAX];
+    char* wine_app = ms_wine_fex_app_source();
+    char* slash = wine_app ? strrchr(wine_app, '/') : NULL;
+    bool ok = slash && ms_wine_app_contents(home, contents, sizeof(contents)) &&
+              snprintf(share, sizeof(share), "%s/share/metalsharp", contents) < (int)sizeof(share);
+    if (ok) {
+        /* MetalSharp.app/Contents/Resources, where the backend found MetalSharp-Wine.app. */
+        *slash = '\0';
+        ok = fex_stage_tree(wine_app, "configs", home, "scripts/tools/configs") &&
+             fex_stage_tree(wine_app, "scripts/tools/native", home, "scripts/tools/native") &&
+             fex_stage_tree(wine_app, "scripts/tools/updater", home, "scripts/tools/updater") &&
+             fex_stage_tree(share, "tools/cef", home, "scripts/tools/cef");
+    }
+    free(wine_app);
+    return ok;
+}
+
+/* The setup button shows `current`: "Steam Prefix · VC++ 2022 (x64)" while that installer runs. */
+static void report_steam_prefix_step(void* context, const char* part, const char* message) {
+    const char* home = context;
+    char current[128];
+    snprintf(current, sizeof(current), "Steam Prefix · %s", part);
+    write_install_progress(home, 18, 18, current, "installing", message, NULL);
+}
+
 static void install_metalsharp_wine_steps(const char* home, unsigned total) {
     char error[512] = "";
     char* wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
@@ -2323,12 +2446,14 @@ static void run_install_all_worker(const char* home) {
         _exit(0);
     }
     write_install_progress(home, 4, total, "Extract Tools (zstd)", "done", "Bundled zstd ready", NULL);
-    {
+    if (ms_wine_is_fex()) {
+        write_install_progress(home, 5, total, "Runtime Bundle Downloads", "done",
+                               "MetalSharp Wine carries the runtime assets; nothing to download", NULL);
+    } else {
         const char* bundles[] = {"metalsharp-runtime.tar.zst",       "metalsharp-graphics-dll.tar.zst",
                                  "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
                                  "metalsharp-scripts-tools.tar.zst", "metalsharp-steam.tar.zst"};
-        /* MetalSharp Wine replaces the x86_64 runtime and graphics bundles (the first two). */
-        for (size_t i = ms_wine_is_fex() ? 2 : 0; i < sizeof(bundles) / sizeof(bundles[0]); i++) {
+        for (size_t i = 0; i < sizeof(bundles) / sizeof(bundles[0]); i++) {
             char* archive = find_bundle_archive(home, bundles[i]);
             bool available = archive != NULL;
             free(archive);
@@ -2369,18 +2494,22 @@ static void run_install_all_worker(const char* home) {
         const char* support_dirs[] = {"runtime/mono-x86", "runtime/mono-arm64", "runtime/shims", "runtime/fnalibs",
                                       "runtime/fna-kickstart"};
         write_install_progress(home, 9, total, "Support Assets", "installing", "Staging support assets...", NULL);
-        char* support_archive = find_bundle_archive(home, "metalsharp-assets.tar.zst");
+        char* support_archive = ms_wine_is_fex() ? NULL : find_bundle_archive(home, "metalsharp-assets.tar.zst");
         bool support_ready =
             home_required_dirs_ready(home, support_dirs, sizeof(support_dirs) / sizeof(support_dirs[0]));
-        bool support_ok = support_archive &&
-                          (support_ready || extract_split_bundle(home, "metalsharp-assets.tar.zst", mapping,
-                                                                 sizeof(mapping) / sizeof(mapping[0]))) &&
-                          home_required_dirs_ready(home, support_dirs, sizeof(support_dirs) / sizeof(support_dirs[0]));
+        bool support_ok = ms_wine_is_fex() ? fex_stage_support_assets(home)
+                                           : support_archive && (support_ready ||
+                                                                 extract_split_bundle(home, "metalsharp-assets.tar.zst",
+                                                                                      mapping, sizeof(mapping) /
+                                                                                                   sizeof(mapping[0])));
+        support_ok = support_ok &&
+                     home_required_dirs_ready(home, support_dirs, sizeof(support_dirs) / sizeof(support_dirs[0]));
         free(support_archive);
         if (!support_ok) {
             write_install_progress(home, 9, total, "Support Assets", "error",
                                    "Support asset bundle is missing or incomplete",
-                                   "missing or invalid metalsharp-assets.tar.zst");
+                                   ms_wine_is_fex() ? "MetalSharp Wine's share/metalsharp is missing support assets"
+                                                    : "missing or invalid metalsharp-assets.tar.zst");
             _exit(0);
         }
     }
@@ -2391,11 +2520,14 @@ static void run_install_all_worker(const char* home) {
         const char* const mapping[][2] = {{"scripts/tools", "scripts/tools"}};
         write_install_progress(home, 10, total, "Scripts and Tools", "installing", "Staging scripts and tools...",
                                NULL);
-        char* scripts_archive = find_bundle_archive(home, "metalsharp-scripts-tools.tar.zst");
+        char* scripts_archive =
+            ms_wine_is_fex() ? NULL : find_bundle_archive(home, "metalsharp-scripts-tools.tar.zst");
         bool scripts_ready = home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);
         bool scripts_ok =
-            scripts_archive &&
-            (scripts_ready || extract_split_bundle(home, "metalsharp-scripts-tools.tar.zst", mapping, 1)) &&
+            (ms_wine_is_fex()
+                 ? fex_stage_scripts_tools(home)
+                 : scripts_archive && (scripts_ready ||
+                                       extract_split_bundle(home, "metalsharp-scripts-tools.tar.zst", mapping, 1))) &&
             home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);
         free(scripts_archive);
         if (!scripts_ok) {
@@ -2474,7 +2606,11 @@ static void run_install_all_worker(const char* home) {
         char* prefix = join_path(home, "prefix-steam");
         write_install_progress(home, 18, total, "Steam Prefix", "installing",
                                "Preparing the Steam prefix: Windows, VC++ 2022 and core fonts...", NULL);
-        if (!prefix || !ms_wine_fex_prepare_prefix(home, prefix, false, prefix_error, sizeof(prefix_error))) {
+        /* A 0.80.0 Steam prefix is backed up before MetalSharp Wine touches it. */
+        ms_wine_set_prefix_progress(report_steam_prefix_step, (void*)home);
+        bool prepared = prefix && ms_wine_fex_convert_prefix(home, prefix, prefix_error, sizeof(prefix_error));
+        ms_wine_set_prefix_progress(NULL, NULL);
+        if (!prepared) {
             write_install_progress(home, 18, total, "Steam Prefix", "error", "The Steam prefix could not be prepared",
                                    prefix_error);
             free(prefix);
