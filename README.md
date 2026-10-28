@@ -1,12 +1,14 @@
 <div align="center">
 
+<h1> MetalSharp </h1>
+
 <p align="center">
-  <img width="600" height="460" alt="metalsharp-banner" src="https://github.com/user-attachments/assets/f9c077b2-fd1f-4d56-9c58-7cf9a64e7c12" />
+  <img width="700" alt="MetalSharp X Wine" src="https://github.com/user-attachments/assets/f9c077b2-fd1f-4d56-9c58-7cf9a64e7c12" />
 </p>
 
-<h2> MetalSharp </h2>
+___
 
-**Run Windows games on MacOS Silicon.**
+### Run Windows games on MacOS Silicon.
 
 MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. 8 P.M MST. It's On The Way!
 
@@ -22,9 +24,9 @@ MetalSharp 1.0.0 Releases Soon! Update to 0.80.0 To Make Sure You're Ready. 8 P.
   
 MetalSharp is a Free Wine 11.17 Custom-Built Runtime That Runs Windows Applications / Games on Apple Silicon, Built Inside a GPUI Application. MetalSharp Aims to Make The Process of Launching Your Games Easy Without Extra Needed Configuration Steps. 
 
-</div>
-
 <img width="892" height="685" alt="MetalSharp Library" src="https://github.com/user-attachments/assets/03539f26-ce8b-4169-996b-7e89c5590aad" />
+
+</div>
 
 ## Quick Start
 
