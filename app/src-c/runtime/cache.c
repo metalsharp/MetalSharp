@@ -167,7 +167,7 @@ static bool fex_cache_lane(const char* lane) {
     return false;
 }
 
-/* The folders of a lane: up to six, written to roots[]; returns how many. */
+/* The folders MetalSharp owns for a lane, per game: up to four, written to roots[]; returns how many. */
 static size_t fex_lane_roots(const char* home, const char* lane, char roots[6][PATH_MAX]) {
     static const char* const kinds[] = {"shader-cache", "pipeline-cache"};
     size_t count = 0;
@@ -176,14 +176,18 @@ static size_t fex_lane_roots(const char* home, const char* lane, char roots[6][P
         if (!strcmp(lane, "dxmt"))
             snprintf(roots[count++], PATH_MAX, "%s/%s/fex-dxmt_32", home, kinds[k]);
     }
-    if (!strcmp(lane, "dxmt")) {
-        char user_cache[PATH_MAX];
-        size_t length = confstr(_CS_DARWIN_USER_CACHE_DIR, user_cache, sizeof(user_cache));
-        if (length > 0 && length <= sizeof(user_cache))
-            snprintf(roots[count++], PATH_MAX, "%s%smullion", user_cache,
-                     user_cache[strlen(user_cache) - 1] == '/' ? "" : "/");
-    }
     return count;
+}
+
+/* Mullion's folder in the user's cache folder: Metal's pipeline cache for every Mullion game (one
+ * folder per executable, whoever started it), which MetalSharp does not own. */
+static bool mullion_shared_cache(char* out, size_t out_size) {
+    char user_cache[PATH_MAX];
+    size_t length = confstr(_CS_DARWIN_USER_CACHE_DIR, user_cache, sizeof(user_cache));
+    if (length == 0 || length > sizeof(user_cache) || !user_cache[0])
+        return false;
+    return snprintf(out, out_size, "%s%smullion", user_cache, user_cache[strlen(user_cache) - 1] == '/' ? "" : "/") <
+           (int)out_size;
 }
 
 /* Games with a cache in a lane's shader or pipeline folders (numeric app ids, each counted once). */
@@ -212,11 +216,19 @@ static unsigned long long fex_lane_apps(const char* home, const char* lane) {
 }
 
 static void write_fex_lane_summary(ms_json_writer* writer, const char* home, const char* lane) {
-    char roots[6][PATH_MAX];
+    char roots[6][PATH_MAX], shared[PATH_MAX];
     size_t count = fex_lane_roots(home, lane, roots);
-    struct cache_stats stats = {0};
+    struct cache_stats stats = {0}, shared_stats = {0};
+    bool has_shared = !strcmp(lane, "dxmt") && mullion_shared_cache(shared, sizeof(shared));
     for (size_t r = 0; r < count; r++)
         collect_stats(roots[r], 1, &stats);
+    if (has_shared) {
+        collect_stats(shared, 1, &shared_stats);
+        stats.bytes += shared_stats.bytes;
+        stats.files += shared_stats.files;
+        if (shared_stats.newest > stats.newest)
+            stats.newest = shared_stats.newest;
+    }
     ms_json_writer_object_begin(writer);
     ms_json_writer_key(writer, "bytes");
     ms_json_writer_u64(writer, stats.bytes);
@@ -231,23 +243,35 @@ static void write_fex_lane_summary(ms_json_writer* writer, const char* home, con
     for (size_t r = 0; r < count; r++)
         ms_json_writer_string(writer, roots[r]);
     ms_json_writer_array_end(writer);
+    /* Of the total, Metal's cache that every Mullion game shares (cleared only when asked for). */
+    if (has_shared) {
+        ms_json_writer_key(writer, "shared_bytes");
+        ms_json_writer_u64(writer, shared_stats.bytes);
+        ms_json_writer_key(writer, "shared_path");
+        ms_json_writer_string(writer, shared);
+    }
     ms_json_writer_key(writer, "status");
     ms_json_writer_string(writer, stats.files == 0 ? "empty" : "active");
     write_time_or_null(writer, stats.newest);
     ms_json_writer_object_end(writer);
 }
 
-static char* fex_lane_clear_json(const char* home, const char* lane) {
-    char roots[6][PATH_MAX];
+/* Clears MetalSharp's own folders of a lane; with `shared`, also Mullion's folder in the user's
+ * cache, which every Mullion game uses (the app asks first). */
+static char* fex_lane_clear_json(const char* home, const char* lane, bool shared) {
+    char roots[6][PATH_MAX], shared_path[PATH_MAX];
     size_t count = fex_lane_roots(home, lane, roots);
     struct cache_stats stats = {0};
     ms_json_writer writer;
     for (size_t r = 0; r < count; r++) {
         collect_stats(roots[r], 1, &stats);
         (void)remove_tree(roots[r]);
-        /* MetalSharp's own lane folders come back empty; Mullion makes its user-cache folder itself. */
-        if (strstr(roots[r], "-cache/fex-") != NULL)
-            (void)mkdir(roots[r], 0755);
+        (void)mkdir(roots[r], 0755);
+    }
+    /* Mullion makes its user-cache folder itself. */
+    if (shared && !strcmp(lane, "dxmt") && mullion_shared_cache(shared_path, sizeof(shared_path))) {
+        collect_stats(shared_path, 1, &stats);
+        (void)remove_tree(shared_path);
     }
     ms_json_writer_init(&writer);
     ms_json_writer_object_begin(&writer);
@@ -319,12 +343,15 @@ char* ms_cache_clear_json(const char* metalsharp_home, const unsigned char* body
             type = requested;
         }
     }
-    /* The FEX build clears one lane's caches: {"type":"lane","lane":"dxmt"|"vkd3d"|"dxvk"}. */
+    /* The FEX build clears one lane's caches: {"type":"lane","lane":"dxmt"|"vkd3d"|"dxvk"}, and with
+     * "shared":true Mullion's shared Metal cache too. */
     if (ms_wine_is_fex() && type && !strcmp(type, "lane")) {
         char* lane = NULL;
         char* lane_result;
+        bool shared = false;
         (void)ms_json_as_string(ms_json_object_get(request, "lane"), &lane);
-        lane_result = fex_cache_lane(lane) ? fex_lane_clear_json(metalsharp_home, lane)
+        (void)ms_json_as_bool(ms_json_object_get(request, "shared"), &shared);
+        lane_result = fex_cache_lane(lane) ? fex_lane_clear_json(metalsharp_home, lane, shared)
                                            : strdup("{\"ok\":false,\"error\":\"unknown cache lane\"}");
         free(lane);
         ms_json_free(request);

@@ -62,6 +62,7 @@ int main(int argc, char** argv) {
     {
         static const char clear_vkd3d[] = "{\"type\":\"lane\",\"lane\":\"vkd3d\"}";
         static const char clear_unknown[] = "{\"type\":\"lane\",\"lane\":\"x\"}";
+        static const char clear_dxmt[] = "{\"type\":\"lane\",\"lane\":\"dxmt\"}";
         char* json;
         snprintf(command, sizeof(command), "mkdir -p '%s/shader-cache/fex-dxvk/77' '%s/pipeline-cache/fex-vkd3d/123'",
                  home, home);
@@ -84,6 +85,22 @@ int main(int argc, char** argv) {
         json = ms_cache_clear_json(home, (const unsigned char*)clear_unknown, strlen(clear_unknown));
         EXPECT(json && strstr(json, "\"ok\":false"));
         free(json);
+        /* Mullion's Clear empties MetalSharp's per-game folders and, without "shared", leaves Metal's
+         * cache that every Mullion game shares (reported apart) alone. */
+        snprintf(command, sizeof(command), "mkdir -p '%s/shader-cache/fex-dxmt/9' '%s/shader-cache/fex-dxmt_32/8'", home,
+                 home);
+        EXPECT(system(command) == 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxmt/9/shaders_320.db", home);
+        write_text(path, "mullion shaders\n");
+        json = ms_cache_size_json(home);
+        EXPECT(json && strstr(json, "\"shared_bytes\":") && strstr(json, "\"apps\":2,"));
+        free(json);
+        json = ms_cache_clear_json(home, (const unsigned char*)clear_dxmt, strlen(clear_dxmt));
+        EXPECT(json && strstr(json, "\"bytes_freed\":16"));
+        free(json);
+        EXPECT(access(path, F_OK) != 0);
+        snprintf(path, sizeof(path), "%s/shader-cache/fex-dxmt", home);
+        EXPECT(access(path, F_OK) == 0);
     }
 
     /* A prefix the fex build converted gets its x86_64 backup back; one without a backup is

@@ -82,6 +82,8 @@ enum ConfirmAction {
     SwitchToMac,
     ForceKill,
     Uninstall,
+    /// FEX: after Mullion's own caches are cleared, Metal's cache that every Mullion game shares.
+    ClearMullionShared,
 }
 
 pub struct SettingsPreview {
@@ -126,7 +128,7 @@ const FEX_CACHE_LANES: [(&str, &str, &str); 3] = [
     (
         "dxmt",
         "Mullion (DXMT)",
-        "Mullion's shader databases and Metal's pipeline cache for Direct3D 10/11/12 games on Mullion",
+        "Mullion's shader databases per game, and Metal's pipeline cache that every Mullion game shares (cleared only after you confirm)",
     ),
     (
         "vkd3d",
@@ -872,11 +874,28 @@ impl SettingsPreview {
 
     /// `kind` is "shader" or "pipeline", or on FEX a lane from `FEX_CACHE_LANES`.
     fn clear_cache(&mut self, kind: &'static str, cx: &mut Context<Self>) {
+        self.clear_cache_with(kind, false, cx);
+    }
+
+    /// Mullion's Metal cache that every Mullion game shares, which the user confirmed clearing.
+    fn mullion_shared_cache_bytes(&self) -> u64 {
+        self.cache_lanes
+            .as_ref()
+            .and_then(|lanes| lanes.get("dxmt"))
+            .and_then(|lane| lane.get("shared_bytes"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    }
+
+    /// `shared`: also Metal's Mullion cache in the user's cache folder (asked first).
+    fn clear_cache_with(&mut self, kind: &'static str, shared: bool, cx: &mut Context<Self>) {
         let lane = FEX_CACHE_LANES.iter().find(|(id, ..)| *id == kind);
         let body = match lane {
-            Some((id, ..)) => json!({"type": "lane", "lane": id}),
+            Some((id, ..)) => json!({"type": "lane", "lane": id, "shared": shared}),
             None => json!({"type": kind}),
         };
+        // MetalSharp's own Mullion caches go first; Metal's shared one only once the user agrees.
+        let ask_shared = kind == "dxmt" && !shared && self.mullion_shared_cache_bytes() > 0;
         live::call(
             cx,
             "POST",
@@ -900,6 +919,10 @@ impl SettingsPreview {
                             }
                         ),
                     );
+                    if ask_shared {
+                        this.confirm = Some(ConfirmAction::ClearMullionShared);
+                        cx.notify();
+                    }
                 }
                 this.refresh_cache_sizes(cx);
             },
@@ -1202,6 +1225,11 @@ impl SettingsPreview {
                 "Stop Wine Steam and start Mac Steam?",
                 "OK",
             ),
+            ConfirmAction::ClearMullionShared => (
+                "Also clear Metal's Mullion cache?",
+                "MetalSharp's Mullion caches are cleared. Metal also keeps a pipeline cache that every Mullion game shares, including games started outside MetalSharp. Clearing it affects every Mullion game: each rebuilds its shaders the next time it starts.",
+                "Clear for Every Mullion Game",
+            ),
         };
         div()
             .id("settings-confirm-backdrop")
@@ -1262,6 +1290,9 @@ impl SettingsPreview {
                                             ConfirmAction::Uninstall => this.uninstall(cx),
                                             ConfirmAction::SwitchToMac => {
                                                 this.switch_to_mac_steam(cx)
+                                            }
+                                            ConfirmAction::ClearMullionShared => {
+                                                this.clear_cache_with("dxmt", true, cx)
                                             }
                                         }
                                     }
