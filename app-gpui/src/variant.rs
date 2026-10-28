@@ -30,22 +30,24 @@ fn reply_is_fex(reply: &Value) -> bool {
         .is_some_and(|variant| variant.eq_ignore_ascii_case("fex"))
 }
 
-/// The pipelines a game can pick on FEX. D3DMetal, VKD3D and GPTK are not part of it.
-pub const FEX_PIPELINE_OPTIONS: [(&str, &str); 5] = [
+/// The pipelines a game can pick on FEX. D3DMetal, GPTK and the D3D9 route are not part of it
+/// (DXVK covers D3D9), nor Mono/FNA (FNA games run as Windows programs under FEX).
+pub const FEX_PIPELINE_OPTIONS: [(&str, &str); 4] = [
     ("dxmt", "Mullion (DXMT)"),
+    ("vkd3d", "VKD3D-Proton"),
     ("dxvk", "DXVK"),
-    ("d3d9", "D3D9"),
-    ("wine_bare", "Wine"),
-    ("fna_arm64", "Mono/FNA"),
+    // Wine's own Direct3D on OpenGL (WineMetalGL), with the game asked for its OpenGL renderer.
+    ("wine_bare", "OpenGL"),
 ];
 
-/// On FEX the backend runs D3DMetal, VKD3D, GPTK and 32-bit DXMT on Mullion, so a saved
-/// pipeline of one of those reads as Mullion (DXMT). Every other id is unchanged.
+/// On FEX the backend runs D3DMetal and GPTK (D3D12 games) on VKD3D-Proton, the D3D9 route on
+/// DXVK, and 32-bit DXMT and Mono/FNA on Mullion, so a saved or recommended pipeline of one of
+/// those reads as that lane. Every other id is unchanged.
 pub fn fex_pipeline(id: &str) -> &str {
     match id {
-        "d3dmetal" | "vkd3d" | "m13" | "dxmt_32" | "m10" | "m11" | "m10_32" | "m11_32" => "dxmt",
-        "dxvk_32" => "dxvk",
-        "m9" => "d3d9",
+        "d3dmetal" | "m13" => "vkd3d",
+        "dxmt_32" | "m10" | "m11" | "m10_32" | "m11_32" | "fna_arm64" | "fna_x86" => "dxmt",
+        "d3d9" | "m9" | "dxvk_32" => "dxvk",
         "m32" | "wine" => "wine_bare",
         other => other,
     }
@@ -60,8 +62,8 @@ pub fn fex_pipeline_label(id: &str) -> Option<&'static str> {
         .map(|(_, label)| *label)
 }
 
-/// A backend-provided pipeline list as FEX shows it: D3DMetal, VKD3D and GPTK become one
-/// Mullion (DXMT) entry, and every known id gets its FEX label.
+/// A backend-provided pipeline list as FEX shows it: D3DMetal, GPTK and D3D9 fold into their FEX
+/// lanes (each shown once), and every known id gets its FEX label.
 pub fn fex_options(options: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
     let mut seen = std::collections::HashSet::new();
     options
@@ -96,14 +98,18 @@ mod tests {
     }
 
     #[test]
-    fn rosetta_only_pipelines_read_as_mullion() {
-        for id in ["d3dmetal", "vkd3d", "m13", "dxmt", "dxmt_32"] {
+    fn rosetta_only_pipelines_read_as_fex_lanes() {
+        for id in ["dxmt", "dxmt_32"] {
             assert_eq!(fex_pipeline(id), "dxmt");
             assert_eq!(fex_pipeline_label(id), Some("Mullion (DXMT)"));
         }
-        assert_eq!(fex_pipeline_label("dxvk"), Some("DXVK"));
-        assert_eq!(fex_pipeline_label("d3d9"), Some("D3D9"));
-        assert_eq!(fex_pipeline_label("wine_bare"), Some("Wine"));
+        for id in ["d3dmetal", "m13", "vkd3d"] {
+            assert_eq!(fex_pipeline_label(id), Some("VKD3D-Proton"));
+        }
+        for id in ["d3d9", "m9", "dxvk"] {
+            assert_eq!(fex_pipeline_label(id), Some("DXVK"));
+        }
+        assert_eq!(fex_pipeline_label("wine_bare"), Some("OpenGL"));
         assert_eq!(fex_pipeline_label("auto"), None);
     }
 }

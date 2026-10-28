@@ -97,6 +97,8 @@ pub struct SettingsPreview {
     graphics_logs: bool,
     retina: bool,
     retina_busy: bool,
+    ray_tracing: bool,
+    ray_tracing_busy: bool,
     exclude_native: bool,
     native_busy: bool,
     backend_restarting: bool,
@@ -151,6 +153,8 @@ impl SettingsPreview {
             graphics_logs: false,
             retina: false,
             retina_busy: false,
+            ray_tracing: false,
+            ray_tracing_busy: false,
             exclude_native: false,
             native_busy: false,
             backend_restarting: false,
@@ -269,6 +273,7 @@ impl SettingsPreview {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         self.retina = config.get("retinaMode").and_then(Value::as_bool) == Some(true);
+        self.ray_tracing = config.get("rayTracing").and_then(Value::as_bool) == Some(true);
         self.exclude_native = config
             .get("excludeNativeMacSteamGames")
             .and_then(Value::as_bool)
@@ -716,6 +721,40 @@ impl SettingsPreview {
                     toast::error(cx, "Failed to update Retina rendering");
                 }
                 this.retina_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    fn set_ray_tracing(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.ray_tracing_busy || enabled == self.ray_tracing {
+            return;
+        }
+        let previous = self.ray_tracing;
+        self.ray_tracing_busy = true;
+        self.ray_tracing = enabled;
+        cx.notify();
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"rayTracing": enabled})),
+            live::DEFAULT_TIMEOUT,
+            move |this, r, cx| {
+                if let Some(r) = r.filter(is_ok) {
+                    this.apply_config(&r);
+                    toast::success(
+                        cx,
+                        format!(
+                            "Ray tracing {} — applies at the next game launch",
+                            if enabled { "enabled" } else { "disabled" }
+                        ),
+                    );
+                } else {
+                    this.ray_tracing = previous;
+                    toast::error(cx, "Failed to update ray tracing");
+                }
+                this.ray_tracing_busy = false;
                 cx.notify();
             },
         );
@@ -1590,6 +1629,18 @@ impl Render for SettingsPreview {
                 s.set_retina(next, cx)
             }),
         );
+        // The FEX build's VKD3D-Proton lane: MoltenVK's experimental ray tracing pipelines, for DXR 1.1
+        // and feature level 12_2.
+        let ray_tracing = crate::variant::is_fex().then(|| {
+            self.row(
+                "Ray Tracing (VKD3D-Proton)",
+                "MoltenVK's experimental ray tracing, so VKD3D-Proton games get DXR 1.1 and feature level 12_2",
+                self.toggle("ray-tracing-toggle", self.ray_tracing, cx, |s, cx| {
+                    let next = !s.ray_tracing;
+                    s.set_ray_tracing(next, cx)
+                }),
+            )
+        });
         let backend = self.row(
             self.tr("ui.settings.backendRuntime"),
             self.tr("ui.settingsDesc.backend"),
@@ -1959,7 +2010,8 @@ impl Render for SettingsPreview {
                         .child(wine_row)
                         .when(!app.wine_steam_installed, |d| d.child(setup_row))
                         .child(mac_row)
-                        .child(retina),
+                        .child(retina)
+                        .children(ray_tracing),
                     false,
                 ),
             )

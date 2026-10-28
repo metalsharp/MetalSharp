@@ -125,6 +125,13 @@ pub(super) struct LiveState {
     pub controller_busy: bool,
     pub msync: bool,
     pub msync_busy: bool,
+    pub metal_hud: bool,
+    pub metal_hud_busy: bool,
+    /// The frame rate limit (0 for none) of each FEX graphics lane: Mullion ("dxmt", in mullion.conf) and
+    /// VKD3D-Proton ("vkd3d", VKD3D_FRAME_RATE at launch), from the backend's /framerate.
+    pub frame_rate_dxmt: u32,
+    pub frame_rate_vkd3d: u32,
+    pub frame_rate_busy: bool,
     /// x87 acceleration (Rosetta's x87 sidecar) for every launch, from the config's x87Acceleration
     pub x87: bool,
     pub x87_busy: bool,
@@ -206,12 +213,17 @@ impl Default for LiveState {
             running_poll_in_flight: false,
             selected_pipeline: "auto".into(),
             pipeline_saving: false,
-            metal_fx_mode: "2.0",
+            metal_fx_mode: "off",
             metal_fx_busy: false,
             controller_input: "off",
             controller_busy: false,
             msync: true,
             msync_busy: false,
+            metal_hud: false,
+            metal_hud_busy: false,
+            frame_rate_dxmt: 0,
+            frame_rate_vkd3d: 0,
+            frame_rate_busy: false,
             x87: false,
             x87_busy: false,
             steam_emu_active: false,
@@ -1420,12 +1432,29 @@ impl MetalSharpApp {
                             _ => "off",
                         };
                     this.live.msync = config.get("msync").and_then(Value::as_bool) != Some(false);
+                    this.live.metal_hud =
+                        config.get("metalHud").and_then(Value::as_bool) == Some(true);
                     this.live.x87 =
                         config.get("x87Acceleration").and_then(Value::as_bool) == Some(true);
                     cx.notify();
                 }
             },
         );
+        if crate::variant::is_fex() {
+            live::call(
+                cx,
+                "GET",
+                "/framerate",
+                None,
+                live::DEFAULT_TIMEOUT,
+                |this, state, cx| {
+                    if let Some(state) = state.filter(is_ok) {
+                        this.apply_frame_rate_state(&state);
+                        cx.notify();
+                    }
+                },
+            );
+        }
         live::call(
             cx,
             "GET",
@@ -1523,10 +1552,90 @@ impl MetalSharpApp {
             move |this, result, cx| {
                 if result.as_ref().is_some_and(is_ok) {
                     this.live.msync = enabled;
+                    // Games share the Steam client's wineserver, which keeps the setting it
+                    // started with.
+                    if crate::variant::is_fex() && this.live.wine_steam_running {
+                        toast::info(cx, "msync changes when Steam next starts");
+                    }
                 } else {
                     toast::error(cx, "Failed to update msync");
                 }
                 this.live.msync_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    /// The Metal performance HUD in games, from their next launch.
+    fn apply_frame_rate_state(&mut self, state: &Value) {
+        let limit = |key: &str| state.get(key).and_then(Value::as_u64).unwrap_or(0) as u32;
+        self.live.frame_rate_dxmt = limit("dxmt");
+        self.live.frame_rate_vkd3d = limit("vkd3d");
+    }
+
+    /// The frame rate lane of the selected game's pipeline: Mullion or VKD3D-Proton, which keep the
+    /// limit in different places; other pipelines have none.
+    pub(super) fn frame_rate_lane(&self) -> Option<&'static str> {
+        match crate::variant::fex_pipeline(&self.live.selected_pipeline) {
+            "dxmt" => Some("dxmt"),
+            "vkd3d" => Some("vkd3d"),
+            _ => None,
+        }
+    }
+
+    pub(super) fn frame_rate_limit(&self) -> Option<u32> {
+        self.frame_rate_lane().map(|lane| {
+            if lane == "dxmt" {
+                self.live.frame_rate_dxmt
+            } else {
+                self.live.frame_rate_vkd3d
+            }
+        })
+    }
+
+    pub(super) fn set_frame_rate(&mut self, fps: u32, cx: &mut Context<Self>) {
+        if !self.live.enabled || self.live.frame_rate_busy {
+            return;
+        }
+        let Some(lane) = self.frame_rate_lane() else {
+            return;
+        };
+        self.live.frame_rate_busy = true;
+        live::call(
+            cx,
+            "POST",
+            "/framerate",
+            Some(json!({"pipeline": lane, "fps": fps})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                match result {
+                    Some(state) if is_ok(&state) => this.apply_frame_rate_state(&state),
+                    _ => toast::error(cx, "Failed to update the frame rate limit"),
+                }
+                this.live.frame_rate_busy = false;
+                cx.notify();
+            },
+        );
+    }
+
+    pub(super) fn set_metal_hud(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if !self.live.enabled || self.live.metal_hud_busy {
+            return;
+        }
+        self.live.metal_hud_busy = true;
+        live::call(
+            cx,
+            "POST",
+            "/config",
+            Some(json!({"metalHud": enabled})),
+            live::DEFAULT_TIMEOUT,
+            move |this, result, cx| {
+                if result.as_ref().is_some_and(is_ok) {
+                    this.live.metal_hud = enabled;
+                } else {
+                    toast::error(cx, "Failed to update the Metal HUD");
+                }
+                this.live.metal_hud_busy = false;
                 cx.notify();
             },
         );
@@ -2148,6 +2257,16 @@ impl MetalSharpApp {
                             flow.install_current = current.to_owned();
                         }
                         let mut finished = false;
+                        // One step can report several parts (the Steam prefix: Windows, VC++,
+                        // fonts); each new one is logged.
+                        if crate::variant::is_fex()
+                            && status == "installing"
+                            && step == last_step
+                            && !log.is_empty()
+                            && flow.install_logs.last().map(|(text, _)| text) != Some(&log)
+                        {
+                            flow.install_logs.push((log.clone(), LogClass::Active));
+                        }
                         if step != last_step || status != last_status {
                             match status.as_str() {
                                 "done" => flow.install_logs.push((log, LogClass::Success)),

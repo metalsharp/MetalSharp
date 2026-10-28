@@ -18,8 +18,8 @@ pub(super) const ENGINE_OPTIONS: [(&str, &str); 6] = [
     ("fna_arm64", "Mono/FNA"),
 ];
 
-/// The engine choices for this build: `ENGINE_OPTIONS`, or on FEX Mullion (DXMT), DXVK, D3D9,
-/// Wine and Mono/FNA.
+/// The engine choices for this build: `ENGINE_OPTIONS`, or on FEX Mullion (DXMT), VKD3D-Proton,
+/// DXVK and OpenGL.
 pub(super) fn engine_options() -> Vec<(String, String)> {
     if crate::variant::is_fex() {
         crate::variant::FEX_PIPELINE_OPTIONS

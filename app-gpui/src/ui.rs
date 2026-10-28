@@ -14,6 +14,7 @@ mod steamcmd_impl;
 use live_impl::{LiveState, LogClass, MigrationViewState, SteamPending, UpdateDialog};
 use steamcmd_impl::{CollectionView, SteamcmdModal};
 
+const GAME_SETTINGS_WIDTH: f32 = 600.0;
 const PAGE_BG: u32 = 0x080a0d;
 const PANEL_BG: u32 = 0x101316;
 const TEXT: u32 = 0xf2efe6;
@@ -3353,9 +3354,11 @@ impl MetalSharpApp {
             .id("game-settings-popover")
             .occlude()
             .absolute()
-            .top(px(50.0))
-            .right(px(0.0))
-            .w(px(365.0))
+            // Beside the gear button, opening up and to the left over the hero art: opening downward
+            // covered the dock's cards and ran past the bottom of a short window.
+            .bottom(px(0.0))
+            .right(px(50.0))
+            .w(px(GAME_SETTINGS_WIDTH))
             .flex()
             .flex_col()
             .gap(px(12.0))
@@ -3420,6 +3423,8 @@ impl MetalSharpApp {
         };
         let row = |label: &'static str, options: gpui::Div| {
             div()
+                .flex_1()
+                .min_w_0()
                 .flex()
                 .items_center()
                 .justify_between()
@@ -3427,6 +3432,7 @@ impl MetalSharpApp {
                 .child(label)
                 .child(options)
         };
+        let mut cells: Vec<gpui::Div> = Vec::new();
         let mut metal_fx = div().flex().gap(px(4.0));
         for (index, (mode, text)) in [("1.75", "1.75×"), ("2.0", "2×"), ("off", "Off")]
             .into_iter()
@@ -3456,25 +3462,59 @@ impl MetalSharpApp {
             );
         }
         let msync = self.live.msync;
+        let metal_hud = self.live.metal_hud;
         let x87 = self.live.x87;
-        menu = menu
-            .child(row("MetalFX", metal_fx))
-            .child(row("Controller input", controller))
-            .child(row(
-                "msync",
+        cells.push(row("MetalFX", metal_fx));
+        // MetalSharp Wine's own xinput/dinput see controllers through SDL; the FEX build stages no
+        // input shims, so the choice would do nothing there.
+        if !crate::variant::is_fex() {
+            cells.push(row("Controller input", controller));
+        }
+        // The FEX build's Metal HUD switch.
+        if crate::variant::is_fex() {
+            cells.push(row(
+                "Metal HUD",
                 div().flex().child(
                     option(
-                        ("game-setting-msync", 0),
-                        if msync { "On" } else { "Off" },
-                        msync,
+                        ("game-setting-metal-hud", 0),
+                        if metal_hud { "On" } else { "Off" },
+                        metal_hud,
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.set_metal_hud(!metal_hud, cx)),
+                    ),
                 ),
             ));
+        }
+        cells.push(row(
+            "msync",
+            div().flex().child(
+                option(
+                    ("game-setting-msync", 0),
+                    if msync { "On" } else { "Off" },
+                    msync,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_msync(!msync, cx))),
+            ),
+        ));
+        // The FEX build's frame rate limit, for the lane the game runs on: Mullion's mullion.conf or
+        // VKD3D-Proton's VKD3D_FRAME_RATE. Applies at the game's next start.
+        if crate::variant::is_fex() {
+            if let Some(limit) = self.frame_rate_limit() {
+                let mut frame_rate = div().flex().gap(px(4.0));
+                for (index, (fps, text)) in [(30, "30"), (60, "60"), (0, "Off")].into_iter().enumerate() {
+                    frame_rate = frame_rate.child(
+                        option(("game-setting-frame-rate", index), text, limit == fps)
+                            .on_click(cx.listener(move |this, _, _, cx| this.set_frame_rate(fps, cx))),
+                    );
+                }
+                cells.push(row("Limit framerate", frame_rate));
+            }
+        }
         // Rosetta's x87 sidecar for every pipeline; the D3D9 route always has it. The FEX build
         // has no Rosetta, so no toggle.
         if !crate::variant::is_fex() {
-            menu = menu.child(row(
+            cells.push(row(
                 "x87 acceleration",
                 div().flex().child(
                     option(("game-setting-x87", 0), if x87 { "On" } else { "Off" }, x87)
@@ -3490,8 +3530,10 @@ impl MetalSharpApp {
                 .and_then(|path| path.rsplit(['/', '\\']).next())
                 .map(str::to_owned)
                 .unwrap_or_else(|| "Automatically detected".to_string());
-            menu = menu.child(
+            cells.push(
                 div()
+                    .flex_1()
+                    .min_w_0()
                     .flex()
                     .items_center()
                     .justify_between()
@@ -3534,7 +3576,7 @@ impl MetalSharpApp {
         if !game.is_ubisoft() && !game.is_shortcut() {
             let active = self.live.steam_emu_active;
             let enabled = game.installed && !self.live.steam_emu_busy;
-            menu = menu.child(row(
+            cells.push(row(
                 "Steam Emu",
                 div().flex().child(
                     option(
@@ -3546,6 +3588,21 @@ impl MetalSharpApp {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_steam_emu(!active, cx))),
                 ),
             ));
+        }
+        // Two settings per line (label and choices), with a rule between the columns.
+        let divider = theme.border();
+        let mut cells = cells.into_iter();
+        while let Some(left) = cells.next() {
+            let mut line = div().flex().items_center().gap(px(12.0)).child(left);
+            match cells.next() {
+                Some(right) => {
+                    line = line
+                        .child(div().w(px(1.0)).h(px(26.0)).flex_none().bg(rgb(divider)))
+                        .child(right);
+                }
+                None => line = line.child(div().flex_1()),
+            }
+            menu = menu.child(line);
         }
         menu
     }
