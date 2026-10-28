@@ -4265,10 +4265,10 @@ static void watch_steam_ui_first_run(const char* home) {
 /* Wine reaches the user's Documents (games keep saves and settings there) and the external drives that hold
  * Steam libraries, and macOS guards both behind privacy permissions granted per app. Without them, Wine only
  * reaches files it created itself: older ones fail with access denied (the Rockstar launcher's Social Club page
- * timed out on its own lock file). So the first Wine Steam start asks for them explicitly: reading Documents
- * and every external volume makes macOS show its prompts, for MetalSharp (the FEX build, where the backend
- * starts Wine Steam) or for MetalSharp Steam.app (which starts Wine Steam otherwise, and so is the app that
- * macOS asks). A permission already denied shows no prompt, so that opens Files and Folders in System Settings. */
+ * timed out on its own lock file). So on the FEX build, where the backend starts Wine Steam, the first Wine
+ * Steam start asks for them explicitly: reading Documents and every external volume makes macOS show its
+ * prompts for MetalSharp. A permission already denied shows no prompt, so that opens Files and Folders in
+ * System Settings. The regular build starts Wine Steam through MetalSharp Steam.app and asks nothing. */
 #define WINE_FOLDER_ACCESS_MARKER ".wine-folder-access-requested"
 
 static bool write_file_replacing(const char* path, const char* text, size_t length);
@@ -4291,53 +4291,28 @@ static bool read_protected_directory(const char* path) {
     return true;
 }
 
-static void request_wine_folder_access(const char* home, const char* helper) {
+static void request_wine_folder_access(const char* home) {
     char* marker = join(home, WINE_FOLDER_ACCESS_MARKER);
     const char* user_home = getenv("HOME");
     char documents[PATH_MAX], volume[PATH_MAX];
     bool denied = false;
+    DIR* volumes;
+    struct dirent* entry;
     if (!marker || access(marker, F_OK) == 0 || !user_home) {
         free(marker);
         return;
     }
     ms_log_event(home, "Asking macOS for access to Documents and external drives for Wine...");
     snprintf(documents, sizeof(documents), "%s/Documents", user_home);
-    if (helper) {
-        /* Run the reads as MetalSharp Steam.app, so the prompts and the permission belong to it. */
-        char* results = join(home, "run/wine-folder-access.txt");
-        char script[1024];
-        pid_t child;
-        int child_status = 0;
-        snprintf(script, sizeof(script),
-                 "r=\"$1\"; : > \"$r\"; ls \"$HOME/Documents\" >/dev/null 2>&1 || echo denied >> \"$r\"; "
-                 "for v in /Volumes/*; do [ \"$(cd \"$v\" 2>/dev/null && pwd -P)\" = / ] && continue; "
-                 "ls \"$v\" >/dev/null 2>&1 || echo denied >> \"$r\"; done");
-        child = results ? fork() : -1;
-        if (child == 0) {
-            execl("/usr/bin/open", "/usr/bin/open", "-n", "-W", "-a", helper, "--args", "/bin/sh", "-c", script,
-                  "wine-folder-access", results, (char*)NULL);
-            _exit(127);
-        }
-        if (child > 0) {
-            while (waitpid(child, &child_status, 0) < 0 && errno == EINTR)
-                ;
-            struct stat info;
-            denied = stat(results, &info) == 0 && info.st_size > 0;
-        }
-        free(results);
-    } else {
-        DIR* volumes;
-        struct dirent* entry;
-        if (!read_protected_directory(documents))
+    if (!read_protected_directory(documents))
+        denied = true;
+    volumes = opendir("/Volumes");
+    while (volumes && (entry = readdir(volumes)) != NULL) {
+        if (external_volume_path(entry->d_name, volume, sizeof(volume)) && !read_protected_directory(volume))
             denied = true;
-        volumes = opendir("/Volumes");
-        while (volumes && (entry = readdir(volumes)) != NULL) {
-            if (external_volume_path(entry->d_name, volume, sizeof(volume)) && !read_protected_directory(volume))
-                denied = true;
-        }
-        if (volumes)
-            closedir(volumes);
     }
+    if (volumes)
+        closedir(volumes);
     if (denied) {
         ms_log_event(home, "macOS denied Wine access to Documents or an external drive: allow MetalSharp under "
                            "Privacy & Security > Files and Folders, then restart Steam.");
@@ -4381,11 +4356,8 @@ char* ms_steam_launch_json(const char* home, int* status) {
         return err("Steam is not installed — use the setup wizard to install it first");
     }
     redirect_wine_steam_desktop(home);
-    if (!ms_steam_process_running(home)) {
-        char* access_helper = ms_wine_is_fex() ? NULL : steam_helper_app_path();
-        request_wine_folder_access(home, access_helper);
-        free(access_helper);
-    }
+    if (ms_wine_is_fex() && !ms_steam_process_running(home))
+        request_wine_folder_access(home);
     if (ms_steam_process_running(home)) {
         if (wine_steam_route_marker_is_pending(home, d3dmetal_lane()))
             (void)write_wine_steam_route_marker(home, d3dmetal_lane());
