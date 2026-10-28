@@ -5,6 +5,7 @@
 #include "metalsharp_backend/setup.h"
 #include "metalsharp_backend/steam_actions.h"
 #include "metalsharp_backend/wine_runtime.h"
+#include <CommonCrypto/CommonDigest.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -20,6 +21,9 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+#define GOGDL_URL    "https://github.com/Heroic-Games-Launcher/heroic-gogdl/releases/download/v1.3.1/gogdl_macos_arm64"
+#define GOGDL_SHA256 "33a6d9b329c35f1caa7968009bf2f4f0a6f57cd00f749a4d2cb2204f3e794d2e"
 
 typedef struct {
     char product_id[181];
@@ -390,35 +394,74 @@ static char* fetch_gog_owned(const char* home, char* error, size_t error_size) {
     return fetch_gog_url(home, "https://embed.gog.com/user/data/games", true, error, error_size);
 }
 
+/**
+ * Check a downloaded helper against the release digest before making it executable.
+ *
+ * @param path - File to read without executing it.
+ * @param expected - Lowercase SHA-256 digest of the pinned release.
+ * @returns Whether every byte matches the expected digest.
+ */
+static bool gogdl_sha256_matches(const char* path, const char* expected) {
+    FILE* file = fopen(path, "rb");
+    CC_SHA256_CTX context;
+    unsigned char buffer[8192], digest[CC_SHA256_DIGEST_LENGTH];
+    char actual[CC_SHA256_DIGEST_LENGTH * 2 + 1];
+    size_t count;
+    if (!file || CC_SHA256_Init(&context) != 1) {
+        if (file)
+            fclose(file);
+        return false;
+    }
+    while ((count = fread(buffer, 1, sizeof(buffer), file)) > 0)
+        CC_SHA256_Update(&context, buffer, (CC_LONG)count);
+    bool ok = !ferror(file) && CC_SHA256_Final(digest, &context) == 1;
+    fclose(file);
+    if (!ok)
+        return false;
+    for (size_t i = 0; i < sizeof(digest); i++)
+        snprintf(actual + i * 2, 3, "%02x", digest[i]);
+    return !strcmp(actual, expected);
+}
+
+static bool gogdl_candidate_available(const char* candidate, const char* managed) {
+    char candidate_real[PATH_MAX], managed_real[PATH_MAX];
+    if (!candidate || access(candidate, X_OK) != 0)
+        return false;
+    // PATH aliases must not revive the old app-managed Python wrapper.
+    if (realpath(candidate, candidate_real) && realpath(managed, managed_real) && !strcmp(candidate_real, managed_real))
+        return gogdl_sha256_matches(candidate, GOGDL_SHA256);
+    return true;
+}
+
 static char* gogdl_path(const char* home) {
     const char* explicit_path = getenv("METALSHARP_GOGDL_BIN");
     const char* path_env = getenv("PATH");
     char* path_copy;
     if (explicit_path && *explicit_path && access(explicit_path, X_OK) == 0)
         return strdup(explicit_path);
-    char* candidates[] = {join(home, "tools/gogdl"), join(home, "runtime/gogdl")};
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        bool found = candidates[i] && access(candidates[i], X_OK) == 0;
-        if (found) {
-            for (size_t j = i + 1; j < sizeof(candidates) / sizeof(candidates[0]); j++)
-                free(candidates[j]);
-            return candidates[i];
-        }
-        free(candidates[i]);
+    char* managed = join(home, "tools/gogdl");
+    if (!managed)
+        return NULL;
+    if (access(managed, X_OK) == 0 && gogdl_sha256_matches(managed, GOGDL_SHA256))
+        return managed;
+    char* candidate = join(home, "runtime/gogdl");
+    if (gogdl_candidate_available(candidate, managed)) {
+        free(managed);
+        return candidate;
     }
-    if (!path_env)
-        return NULL;
-    path_copy = strdup(path_env);
-    if (!path_copy)
-        return NULL;
-    for (char* dir = strtok(path_copy, ":"); dir; dir = strtok(NULL, ":")) {
-        char* candidate = join(dir, "gogdl");
-        if (candidate && access(candidate, X_OK) == 0) {
+    free(candidate);
+    path_copy = path_env ? strdup(path_env) : NULL;
+    char* save = NULL;
+    for (char* dir = path_copy ? strtok_r(path_copy, ":", &save) : NULL; dir; dir = strtok_r(NULL, ":", &save)) {
+        candidate = join(dir, "gogdl");
+        if (gogdl_candidate_available(candidate, managed)) {
+            free(managed);
             free(path_copy);
             return candidate;
         }
         free(candidate);
     }
+    free(managed);
     free(path_copy);
     return NULL;
 }
@@ -466,125 +509,66 @@ static bool run_bootstrap_argv(const char* const argv[], const char* context, ch
     return false;
 }
 
-static const char* bootstrap_tool(const char* name, char* path, size_t path_size) {
-    const char* fixed[] = {"/usr/bin", "/opt/homebrew/bin", "/usr/local/bin"};
-    for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
-        snprintf(path, path_size, "%s/%s", fixed[i], name);
-        if (access(path, X_OK) == 0)
-            return path;
-    }
-    const char* env_path = getenv("PATH");
-    char* copy = env_path ? strdup(env_path) : NULL;
-    char* save = NULL;
-    for (char* dir = copy ? strtok_r(copy, ":", &save) : NULL; dir; dir = strtok_r(NULL, ":", &save)) {
-        snprintf(path, path_size, "%s/%s", dir, name);
-        if (access(path, X_OK) == 0) {
-            free(copy);
-            return path;
-        }
-    }
-    free(copy);
-    return NULL;
-}
-
-static bool write_gogdl_wrapper(const char* home, char* error, size_t error_size) {
-    char* wrapper = join(home, "tools/gogdl");
-    char* target = join(home, "tools/gogdl-venv/bin/gogdl");
-    char* tools = join(home, "tools");
-    FILE* file;
-    bool tools_ok = tools && mkdir_p(tools);
-    free(tools);
-    if (!wrapper || !target || !tools_ok) {
-        snprintf(error, error_size, "failed to prepare GOG support wrapper");
-        free(wrapper);
-        free(target);
-        return false;
-    }
-    file = fopen(wrapper, "wb");
-    if (!file) {
-        snprintf(error, error_size, "failed to write GOG support wrapper");
-        free(wrapper);
-        free(target);
-        return false;
-    }
-    fprintf(file, "#!/bin/sh\nexec '%s' \"$@\"\n", target);
-    fclose(file);
-    chmod(wrapper, 0755);
-    free(wrapper);
-    free(target);
-    return true;
-}
-
 static bool ensure_gogdl_available(const char* home, char* error, size_t error_size) {
-    char venv[PATH_MAX], venv_python[PATH_MAX], source[PATH_MAX], git_dir[PATH_MAX];
     if (gogdl_available(home)) {
         deploy_gog_oauth_helper(home);
         return true;
     }
-    snprintf(venv, sizeof(venv), "%s/tools/gogdl-venv", home);
-    snprintf(venv_python, sizeof(venv_python), "%s/bin/python", venv);
-    if (access(venv_python, X_OK) == 0) {
-        if (!write_gogdl_wrapper(home, error, error_size) || !gogdl_available(home))
-            return false;
-        deploy_gog_oauth_helper(home);
-        return true;
-    }
-    char python[PATH_MAX], git[PATH_MAX];
-    if (!bootstrap_tool("python3", python, sizeof(python))) {
-        snprintf(error, error_size, "python3 is required to prepare GOG support");
-        return false;
-    }
-    if (!bootstrap_tool("git", git, sizeof(git))) {
-        snprintf(error, error_size, "git is required to prepare GOG support");
-        return false;
-    }
     char* tools = join(home, "tools");
-    bool tools_ok = tools && mkdir_p(tools);
-    free(tools);
-    if (!tools_ok) {
+    char* tool = tools ? join(tools, "gogdl") : NULL;
+    char* temporary = tools ? join(tools, ".gogdl-download-XXXXXX") : NULL;
+    bool ok = false;
+    if (!tools || !tool || !temporary || !mkdir_p(tools)) {
         snprintf(error, error_size, "failed to create GOG tools dir");
-        return false;
+        goto done;
     }
-    if (access(venv_python, X_OK) != 0) {
-        const char* argv[] = {python, "-m", "venv", venv, NULL};
-        if (!run_bootstrap_argv(argv, "GOG support environment setup", error, error_size))
-            return false;
+    int fd = mkstemp(temporary);
+    if (fd < 0) {
+        snprintf(error, error_size, "failed to create GOG support download");
+        goto done;
     }
-    snprintf(source, sizeof(source), "%s/tools/heroic-gogdl", home);
-    snprintf(git_dir, sizeof(git_dir), "%s/.git", source);
-    if (access(git_dir, F_OK) != 0) {
-        if (access(source, F_OK) == 0 && !remove_tree(source)) {
-            snprintf(error, error_size, "failed to reset GOG support source");
-            return false;
-        }
-        const char* argv[] = {git,
-                              "clone",
-                              "--depth",
-                              "1",
-                              "--recurse-submodules",
-                              "https://github.com/Heroic-Games-Launcher/heroic-gogdl.git",
-                              source,
-                              NULL};
-        if (!run_bootstrap_argv(argv, "GOG support source setup", error, error_size))
-            return false;
-    } else {
-        const char* argv[] = {git, "-C", source, "submodule", "update", "--init", "--recursive", NULL};
-        if (!run_bootstrap_argv(argv, "GOG support source refresh", error, error_size))
-            return false;
+    close(fd);
+    const char* argv[] = {"/usr/bin/curl",
+                          "--fail",
+                          "--location",
+                          "--silent",
+                          "--show-error",
+                          "--proto",
+                          "=https",
+                          "--proto-redir",
+                          "=https",
+                          "--tlsv1.2",
+                          "--retry",
+                          "2",
+                          "--connect-timeout",
+                          "20",
+                          "--max-time",
+                          "1800",
+                          "--max-filesize",
+                          "67108864",
+                          "-o",
+                          temporary,
+                          GOGDL_URL,
+                          NULL};
+    if (!run_bootstrap_argv(argv, "GOG support download", error, error_size))
+        goto done;
+    if (!gogdl_sha256_matches(temporary, GOGDL_SHA256)) {
+        snprintf(error, error_size, "GOG support download failed integrity validation");
+        goto done;
     }
-    const char* pip_argv[] = {venv_python, "-m", "pip", "install", "--upgrade", source, NULL};
-    if (!run_bootstrap_argv(pip_argv, "GOG support install", error, error_size))
-        return false;
-    if (!write_gogdl_wrapper(home, error, error_size))
-        return false;
-    char* wrapper = join(home, "tools/gogdl");
-    const char* verify_argv[] = {wrapper, "--version", NULL};
-    bool verified = wrapper && run_bootstrap_argv(verify_argv, "GOG support verification", error, error_size);
-    free(wrapper);
-    if (!verified)
-        return false;
+    if (chmod(temporary, 0755) != 0 || rename(temporary, tool) != 0) {
+        snprintf(error, error_size, "failed to install verified GOG support");
+        goto done;
+    }
     deploy_gog_oauth_helper(home);
-    return true;
+    ok = true;
+done:
+    if (temporary)
+        unlink(temporary);
+    free(temporary);
+    free(tool);
+    free(tools);
+    return ok;
 }
 
 static bool spawn_gogdl_download(const char* home, const char* product_id, const char* platform,
@@ -1928,10 +1912,11 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             ms_json_free(j);
             return gog_error_with_status(home, "missing authorization code");
         }
-        if (!gogdl_available(home)) {
+        char error[256];
+        if (!ensure_gogdl_available(home, error, sizeof(error))) {
             free(s);
             ms_json_free(j);
-            return gog_error_with_status(home, "gogdl binary not found; install it or set METALSHARP_GOGDL_BIN");
+            return gog_error_with_status(home, error);
         }
         if (!run_gogdl_auth(home, s)) {
             free(s);
@@ -1987,10 +1972,11 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
         return ms_gog_status_json(home);
     }
     if (!strcmp(action, "sync")) {
-        if (!gogdl_available(home))
-            return gog_error_with_status(home, "gogdl binary not found; install it or set METALSHARP_GOGDL_BIN");
         if (!authenticated(home))
             return gog_error_with_status(home, "GOG is not authenticated");
+        char error[256];
+        if (!ensure_gogdl_available(home, error, sizeof(error)))
+            return gog_error_with_status(home, error);
         return gog_sync_library(home);
     }
     if (!strcmp(action, "games"))
@@ -2148,13 +2134,14 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
             return err("invalid productId");
         }
         title = field(j, "title", s);
-        if (!strcmp(action, "play") && !gogdl_available(home)) {
-            free(s);
-            free(title);
-            ms_json_free(j);
-            return err("gogdl binary not found; install it or set METALSHARP_GOGDL_BIN");
-        }
         if (!strcmp(action, "play")) {
+            char error[256];
+            if (!ensure_gogdl_available(home, error, sizeof(error))) {
+                free(s);
+                free(title);
+                ms_json_free(j);
+                return err(error);
+            }
             char *folder = NULL, *install_root = NULL, *platform = NULL, *stored_title = NULL;
             char *engine = field(j, "engine", "auto"), *override_exe = NULL;
             pid_t launch_pid;
@@ -2274,13 +2261,14 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                     ms_json_free(j);
                     return err(message);
                 }
-                if (!gogdl_available(home) || !run_gogdl_import(home, s, folder)) {
+                char error[256] = "";
+                if (!ensure_gogdl_available(home, error, sizeof(error)) || !run_gogdl_import(home, s, folder)) {
                     free(folder);
                     free(import_root);
                     free(s);
                     free(title);
                     ms_json_free(j);
-                    return err("gogdl import failed");
+                    return err(error[0] ? error : "gogdl import failed");
                 }
                 raw = game_json_ex(s, title, "installed", "windows", import_root, folder, 0, 0, NULL);
                 bool imported_ok = raw && append_game(home, raw);
@@ -2342,14 +2330,15 @@ char* ms_gog_action_json(const char* home, const char* action, const unsigned ch
                 ms_json_free(j);
                 return err("platform must be windows, osx, or linux");
             }
-            if (!gogdl_available(home)) {
+            char error[256];
+            if (!ensure_gogdl_available(home, error, sizeof(error))) {
                 free(platform);
                 free(install_root);
                 free(language);
                 free(s);
                 free(title);
                 ms_json_free(j);
-                return err("gogdl binary not found; install it or set METALSHARP_GOGDL_BIN");
+                return err(error);
             }
             bool started = false;
             if (install_root && mkdir_p(install_root)) {

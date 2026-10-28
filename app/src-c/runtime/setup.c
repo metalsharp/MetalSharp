@@ -148,7 +148,7 @@ static bool mkdir_p(const char* path);
 static bool run_brew_install(const char* package);
 static void optional_string(ms_json_writer*, const char*, const char*);
 
-static char* find_bundle_archive(const char* home, const char* name) {
+static char* find_bundle_archive(const char* name) {
     const char* bundle_dir = getenv("METALSHARP_BUNDLE_DIR");
     const char* fixed[] = {
         "/Applications/MetalSharp.app/Contents/Resources/bundles",
@@ -157,31 +157,13 @@ static char* find_bundle_archive(const char* home, const char* name) {
     };
     char* candidate;
     size_t i;
+    // The launcher selects the app's resources; missing payloads must not fall back to mutable caches.
     if (bundle_dir) {
         candidate = join_path(bundle_dir, name);
         if (file_nonempty(candidate))
             return candidate;
         free(candidate);
-    }
-    candidate = join_path(home, name);
-    if (file_nonempty(candidate))
-        return candidate;
-    free(candidate);
-    candidate = join_path(home, "bundles");
-    if (candidate) {
-        char* path = join_path(candidate, name);
-        free(candidate);
-        if (file_nonempty(path))
-            return path;
-        free(path);
-    }
-    candidate = join_path(home, "cache/bundles");
-    if (candidate) {
-        char* path = join_path(candidate, name);
-        free(candidate);
-        if (file_nonempty(path))
-            return path;
-        free(path);
+        return NULL;
     }
     for (i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
         candidate = join_path(fixed[i], name);
@@ -470,54 +452,6 @@ static bool validate_wine_runtime(const char* home, const char* wine) {
     return ok;
 }
 
-static bool download_bundle_archive(const char* home, const char* name) {
-    char *cache = join_path(home, "cache/bundles"), *destination, *temporary;
-    pid_t pid, waited;
-    int wait_status;
-    if (!cache || !mkdir_p(cache)) {
-        free(cache);
-        return false;
-    }
-    destination = join_path(cache, name);
-    temporary = destination ? malloc(strlen(destination) + 16) : NULL;
-    if (temporary)
-        snprintf(temporary, strlen(destination) + 16, "%s.download", destination);
-    if (!destination || !temporary) {
-        free(cache);
-        free(destination);
-        free(temporary);
-        return false;
-    }
-    if (file_nonempty(destination)) {
-        free(cache);
-        free(destination);
-        free(temporary);
-        return true;
-    }
-    unlink(temporary);
-    pid = fork();
-    if (pid == 0) {
-        char url[512];
-        snprintf(url, sizeof(url), "https://github.com/metalsharp/MetalSharp/releases/download/bundles/%s", name);
-        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2",
-              "--connect-timeout", "30", "--max-time", "600", "-o", temporary, url, (char*)NULL);
-        _exit(127);
-    }
-    do
-        waited = waitpid(pid, &wait_status, 0);
-    while (waited < 0 && errno == EINTR);
-    bool ok = waited == pid && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0 && file_nonempty(temporary);
-    if (ok) {
-        unlink(destination);
-        ok = rename(temporary, destination) == 0;
-    } else
-        unlink(temporary);
-    free(cache);
-    free(destination);
-    free(temporary);
-    return ok;
-}
-
 static bool copy_directory_contents(const char* source, const char* destination) {
     char* source_contents = join_path(source, ".");
     pid_t pid;
@@ -714,7 +648,7 @@ static bool copy_file_path(const char* source, const char* destination) {
 
 static bool extract_split_bundle(const char* home, const char* archive_name, const char* const (*mapping)[2],
                                  size_t mapping_count) {
-    char* archive = find_bundle_archive(home, archive_name);
+    char* archive = find_bundle_archive(archive_name);
     char temp[PATH_MAX];
     bool ok = false;
     if (!archive)
@@ -757,7 +691,7 @@ bool ms_setup_ensure_faudio(const char* home) {
         ok = fex_stage_archive(home, "faudio") && access(installed, R_OK) == 0;
         goto done;
     }
-    archive = find_bundle_archive(home, "metalsharp-assets.tar.zst");
+    archive = find_bundle_archive("metalsharp-assets.tar.zst");
     if (!archive)
         goto done;
     snprintf(temp, sizeof(temp), "%s/.faudio-extract-%ld", home, (long)getpid());
@@ -2129,7 +2063,7 @@ static void install_x86_64_runtime_steps(const char* home, unsigned total) {
     write_install_progress(home, 5, total, "Runtime Bundle Downloads", "installing", "Locating runtime bundles...",
                            NULL);
     {
-        char* archive = find_bundle_archive(home, "metalsharp-runtime.tar.zst");
+        char* archive = find_bundle_archive("metalsharp-runtime.tar.zst");
         char* existing_wine = join_path(home, "runtime/wine/bin/metalsharp-wine");
         char* existing_host = join_path(home, "runtime/host/manifest.json");
         bool already_ready = file_nonempty(existing_wine) && file_nonempty(existing_host);
@@ -2366,7 +2300,7 @@ static void install_graphics_lane_steps(const char* home, unsigned total) {
     write_install_progress(home, 11, total, "DXMT Graphics Runtimes", "installing", "Extracting graphics runtimes...",
                            NULL);
     {
-        char* archive = find_bundle_archive(home, "metalsharp-graphics-dll.tar.zst");
+        char* archive = find_bundle_archive("metalsharp-graphics-dll.tar.zst");
         char* temp = NULL;
         bool graphics_ok = true;
         if (archive) {
@@ -2474,17 +2408,13 @@ static void run_install_all_worker(const char* home) {
                                  "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
                                  "metalsharp-scripts-tools.tar.zst", "metalsharp-steam.tar.zst"};
         for (size_t i = 0; i < sizeof(bundles) / sizeof(bundles[0]); i++) {
-            char* archive = find_bundle_archive(home, bundles[i]);
+            char* archive = find_bundle_archive(bundles[i]);
             bool available = archive != NULL;
             free(archive);
             if (!available) {
-                write_install_progress(home, 5, total, "Runtime Bundle Downloads", "downloading",
-                                       "Downloading required runtime bundles...", NULL);
-                available = download_bundle_archive(home, bundles[i]);
-            }
-            if (!available) {
                 write_install_progress(home, 5, total, "Runtime Bundle Downloads", "error",
-                                       "Required runtime bundle could not be downloaded", bundles[i]);
+                                       "Required runtime bundle is missing; reinstall the full official MetalSharp app",
+                                       bundles[i]);
                 _exit(0);
             }
         }
@@ -2514,7 +2444,7 @@ static void run_install_all_worker(const char* home) {
         const char* support_dirs[] = {"runtime/mono-x86", "runtime/mono-arm64", "runtime/shims", "runtime/fnalibs",
                                       "runtime/fna-kickstart"};
         write_install_progress(home, 9, total, "Support Assets", "installing", "Staging support assets...", NULL);
-        char* support_archive = ms_wine_is_fex() ? NULL : find_bundle_archive(home, "metalsharp-assets.tar.zst");
+        char* support_archive = ms_wine_is_fex() ? NULL : find_bundle_archive("metalsharp-assets.tar.zst");
         bool support_ready =
             home_required_dirs_ready(home, support_dirs, sizeof(support_dirs) / sizeof(support_dirs[0]));
         bool support_ok = ms_wine_is_fex() ? fex_stage_support_assets(home)
@@ -2540,8 +2470,7 @@ static void run_install_all_worker(const char* home) {
         const char* const mapping[][2] = {{"scripts/tools", "scripts/tools"}};
         write_install_progress(home, 10, total, "Scripts and Tools", "installing", "Staging scripts and tools...",
                                NULL);
-        char* scripts_archive =
-            ms_wine_is_fex() ? NULL : find_bundle_archive(home, "metalsharp-scripts-tools.tar.zst");
+        char* scripts_archive = ms_wine_is_fex() ? NULL : find_bundle_archive("metalsharp-scripts-tools.tar.zst");
         bool scripts_ready = home_required_dirs_ready(home, (const char*[]){"scripts/tools"}, 1);
         bool scripts_ok =
             (ms_wine_is_fex()

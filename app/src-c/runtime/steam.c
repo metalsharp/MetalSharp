@@ -1,3 +1,7 @@
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
+
 #include "metalsharp_backend/steam.h"
 
 #include "metalsharp_backend/config.h"
@@ -458,12 +462,39 @@ static char* saved_key(const char* home) {
     char error[128];
     ms_json* json;
     char* key = NULL;
+    struct stat info;
+    FILE* file;
+    int fd;
     if (path == NULL)
         return NULL;
-    text = read_file(path, &length);
+    fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
     free(path);
-    if (text == NULL)
+    if (fd < 0)
         return strdup("");
+    // Tighten keys saved by older versions before reading them; never follow a redirected credential file.
+    if (fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != geteuid() || info.st_size < 0 ||
+        info.st_size > 1024 * 1024 || fchmod(fd, 0600) != 0) {
+        close(fd);
+        return strdup("");
+    }
+    file = fdopen(fd, "rb");
+    if (file == NULL) {
+        close(fd);
+        return strdup("");
+    }
+    text = malloc((size_t)info.st_size + 1);
+    if (text == NULL) {
+        fclose(file);
+        return NULL;
+    }
+    length = fread(text, 1, (size_t)info.st_size, file);
+    bool ok = !ferror(file);
+    fclose(file);
+    if (!ok) {
+        free(text);
+        return strdup("");
+    }
+    text[length] = '\0';
     json = ms_json_parse(text, length, error, sizeof(error));
     free(text);
     if (json != NULL)
@@ -1930,6 +1961,44 @@ char* ms_steam_watch_json(const char* metalsharp_home) {
     return result;
 }
 
+/**
+ * Atomically replace Steam credentials with an owner-only file.
+ *
+ * @param path - Credential file to replace without following a destination symlink.
+ * @param json - Serialized Steam configuration to save.
+ * @returns Whether the complete private file replaced the previous configuration.
+ */
+static bool write_private_steam_config(const char* path, const char* json) {
+    char* temporary = malloc(strlen(path) + 16);
+    FILE* file;
+    int fd;
+    bool ok;
+    if (temporary == NULL)
+        return false;
+    snprintf(temporary, strlen(path) + 16, "%s.XXXXXX", path);
+    fd = mkstemp(temporary);
+    if (fd < 0) {
+        free(temporary);
+        return false;
+    }
+    file = fdopen(fd, "wb");
+    if (file == NULL) {
+        close(fd);
+        unlink(temporary);
+        free(temporary);
+        return false;
+    }
+    ok = fputs(json, file) >= 0;
+    if (fclose(file) != 0)
+        ok = false;
+    if (ok)
+        ok = rename(temporary, path) == 0;
+    if (!ok)
+        unlink(temporary);
+    free(temporary);
+    return ok;
+}
+
 char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned char* body, size_t body_length,
                                  int* status) {
     ms_json* request = NULL;
@@ -1939,7 +2008,6 @@ char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned cha
     char* path = join_path(metalsharp_home, "cache/steam_config.json");
     char* owned = join_path(metalsharp_home, "cache/owned_games.json");
     char* steam_id = NULL;
-    FILE* file;
     ms_json_writer writer;
     char* json;
     char* result;
@@ -1964,10 +2032,7 @@ char* ms_steam_save_api_key_json(const char* metalsharp_home, const unsigned cha
     json = ms_json_writer_take(&writer);
     if (json == NULL)
         goto fail;
-    file = fopen(path, "wb");
-    if (file == NULL || fputs(json, file) < 0 || fclose(file) != 0) {
-        if (file != NULL)
-            fclose(file);
+    if (!write_private_steam_config(path, json)) {
         free(json);
         goto fail;
     }

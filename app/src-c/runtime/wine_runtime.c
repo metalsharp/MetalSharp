@@ -26,7 +26,7 @@
 #endif
 
 #define FACADE_MARKER  ".metalsharp-fex-facade"
-#define FACADE_VERSION "2"
+#define FACADE_VERSION "3"
 
 const char* ms_wine_variant(void) {
     return ms_wine_is_fex() ? "fex" : "regular";
@@ -146,6 +146,34 @@ static bool ensure_dir(const char* path) {
     return mkdir(path, 0755) == 0 || errno == EEXIST;
 }
 
+/**
+ * Quote a path as a shell literal without expanding its contents.
+ *
+ * @param value - Path to embed in a generated wrapper assignment.
+ * @returns Allocated quoted text to free, or NULL on allocation failure.
+ */
+static char* shell_literal(const char* value) {
+    size_t size = 3;
+    char *quoted, *out;
+    for (const char* p = value; *p; p++)
+        size += *p == '\'' ? 4 : 1;
+    quoted = malloc(size);
+    if (!quoted)
+        return NULL;
+    out = quoted;
+    *out++ = '\'';
+    for (const char* p = value; *p; p++) {
+        if (*p == '\'') {
+            memcpy(out, "'\\''", 4);
+            out += 4;
+        } else
+            *out++ = *p;
+    }
+    *out++ = '\'';
+    *out = '\0';
+    return quoted;
+}
+
 /* The x86_64 runtime's library and DLL paths, Rosetta's switches and the D3DMetal lane's
  * variables mean nothing to MetalSharp Wine, and its loader finds its own modules; a stale
  * WINEDLLPATH would load x86_64 builtins into ARM64EC processes. */
@@ -153,8 +181,8 @@ static const char facade_prologue[] =
     "#!/bin/bash\n"
     "# METALSHARP_FEX_FACADE_V" FACADE_VERSION "\n"
     "# MetalSharp Wine (native arm64 Wine with FEX) runs from its signed app.\n"
-    "MS_HOME=\"%s\"\n"
-    "MS_APP=\"%s\"\n"
+    "MS_HOME=%s\n"
+    "MS_APP=%s\n"
     "MS_WINE=\"$MS_APP/MacOS/wine\"\n"
     "unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH DYLD_INSERT_LIBRARIES WINEDLLPATH WINELOADER WINEDATADIR \\\n"
     "  CX_ROOT VK_ICD_FILENAMES VK_DRIVER_FILES DXMT_WINEMETAL_UNIXLIB DXMT_RUNTIME_DIR D3DMETAL_FRAMEWORK_PATH \\\n"
@@ -223,7 +251,7 @@ static bool write_facade_script(const char* bin, const char* name, const char* p
 bool ms_wine_fex_write_facade(const char* home, char* error, size_t error_size) {
     char contents[PATH_MAX], root[PATH_MAX], kept[PATH_MAX], bin[PATH_MAX], etc[PATH_MAX], target[PATH_MAX],
         marker[PATH_MAX];
-    char* prologue;
+    char *prologue, *quoted_home, *quoted_contents;
     size_t prologue_size;
     struct stat info;
     bool ok = true;
@@ -268,13 +296,24 @@ bool ms_wine_fex_write_facade(const char* home, char* error, size_t error_size) 
             return false;
         }
     }
-    prologue_size = sizeof(facade_prologue) + strlen(home) + strlen(contents);
+    quoted_home = shell_literal(home);
+    quoted_contents = shell_literal(contents);
+    if (!quoted_home || !quoted_contents) {
+        free(quoted_home);
+        free(quoted_contents);
+        set_error(error, error_size, "out of memory", NULL);
+        return false;
+    }
+    prologue_size = sizeof(facade_prologue) + strlen(quoted_home) + strlen(quoted_contents);
     prologue = malloc(prologue_size);
+    if (prologue)
+        snprintf(prologue, prologue_size, facade_prologue, quoted_home, quoted_contents);
+    free(quoted_home);
+    free(quoted_contents);
     if (!prologue) {
         set_error(error, error_size, "out of memory", NULL);
         return false;
     }
-    snprintf(prologue, prologue_size, facade_prologue, home, contents);
     ok = write_facade_script(bin, "metalsharp-wine", prologue, facade_metalsharp_wine);
     ok = write_facade_script(bin, "wine", prologue, "exec \"$MS_WINE\" \"$@\"\n") && ok;
     ok = write_facade_script(bin, "wine64", prologue, "exec \"$MS_WINE\" \"$@\"\n") && ok;
@@ -380,18 +419,84 @@ char* ms_wine_fex_app_source(void) {
     return access(candidate, R_OK) == 0 ? strdup(candidate) : NULL;
 }
 
-/* The code directory hash (CDHash) identifies a MetalSharp Wine build. */
-static bool app_identity(const char* app, char* out, size_t out_size) {
-    char command[PATH_MAX * 2];
-    FILE* pipe;
-    size_t used = 0;
-    snprintf(command, sizeof(command), "/usr/bin/codesign -dvvv '%s' 2>&1 | /usr/bin/grep '^CDHash='", app);
-    pipe = popen(command, "r");
-    if (!pipe)
+static bool parse_app_identity(char* output, char* out, size_t out_size) {
+    char* save = NULL;
+    bool found = false;
+    if (!out || out_size < sizeof("CDHash=") + 40)
         return false;
-    used = fread(out, 1, out_size - 1, pipe);
-    out[used] = '\0';
-    return pclose(pipe) == 0 && used > 0;
+    out[0] = '\0';
+    for (char* line = strtok_r(output, "\r\n", &save); line; line = strtok_r(NULL, "\r\n", &save)) {
+        if (strncmp(line, "CDHash=", 7))
+            continue;
+        if (found || strlen(line + 7) != 40 || strspn(line + 7, "0123456789abcdefABCDEF") != 40)
+            return false;
+        memcpy(out, line, 48);
+        found = true;
+    }
+    return found;
+}
+
+/**
+ * Read the code directory hash identifying a MetalSharp Wine build without a shell.
+ *
+ * @param app - Application path passed literally to codesign.
+ * @param out - Buffer receiving the CDHash-prefixed identity.
+ * @param out_size - Buffer size including its terminating NUL.
+ * @returns Whether codesign succeeded and returned one complete, valid identity.
+ */
+static bool app_identity(const char* app, char* out, size_t out_size) {
+    char output[8192], buffer[512];
+    size_t used = 0;
+    int descriptors[2], status = 0;
+    pid_t pid, waited;
+    bool read_ok = true;
+    if (!app || !out || out_size < sizeof("CDHash=") + 40)
+        return false;
+    out[0] = '\0';
+    if (pipe(descriptors) != 0)
+        return false;
+    if (fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) < 0 || fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) < 0) {
+        close(descriptors[0]);
+        close(descriptors[1]);
+        return false;
+    }
+    pid = fork();
+    if (pid == 0) {
+        close(descriptors[0]);
+        if (dup2(descriptors[1], STDOUT_FILENO) < 0 || dup2(descriptors[1], STDERR_FILENO) < 0)
+            _exit(127);
+        close(descriptors[1]);
+        execl("/usr/bin/codesign", "codesign", "-dvvv", "--", app, (char*)NULL);
+        _exit(127);
+    }
+    close(descriptors[1]);
+    if (pid < 0) {
+        close(descriptors[0]);
+        return false;
+    }
+    for (;;) {
+        ssize_t got = read(descriptors[0], buffer, sizeof(buffer));
+        if (got < 0 && errno == EINTR)
+            continue;
+        if (got <= 0) {
+            read_ok = read_ok && got == 0;
+            break;
+        }
+        if ((size_t)got >= sizeof(output) - used) {
+            read_ok = false;
+            continue;
+        }
+        memcpy(output + used, buffer, (size_t)got);
+        used += (size_t)got;
+    }
+    close(descriptors[0]);
+    do {
+        waited = waitpid(pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (!read_ok || waited != pid || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        return false;
+    output[used] = '\0';
+    return parse_app_identity(output, out, out_size);
 }
 
 static bool app_signature_valid(const char* app, const char* log) {

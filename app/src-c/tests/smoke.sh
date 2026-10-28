@@ -4,6 +4,7 @@ set -eu
 backend=$1
 home=${METALSHARP_HOME:?METALSHARP_HOME must be set}
 sock="$home/run/backend.sock"
+export METALSHARP_GOGDL_BIN="$home/tools/gogdl"
 
 "$backend" >/tmp/metalsharp-c-backend.stdout.$$ 2>/tmp/metalsharp-c-backend.stderr.$$ &
 pid=$!

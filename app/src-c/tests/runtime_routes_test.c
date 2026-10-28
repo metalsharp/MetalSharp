@@ -437,6 +437,25 @@ static unsigned long long fixture_size(const char* home, const char* relative, u
     return size;
 }
 
+static void test_steam_bundle_source(const char* root) {
+    char *bundled = join(root, "trusted-steam-bundles"), *expected = join(bundled, "metalsharp-steam.tar.zst");
+    char* previous = getenv("METALSHARP_BUNDLE_DIR") ? strdup(getenv("METALSHARP_BUNDLE_DIR")) : NULL;
+    assert(bundled && expected && ensure_directory(bundled));
+    fixture(root, "cache/bundles/metalsharp-steam.tar.zst", "untrusted cached download");
+    assert(setenv("METALSHARP_BUNDLE_DIR", bundled, 1) == 0);
+    assert(find_bundled_steam_archive() == NULL);
+    fixture(bundled, "metalsharp-steam.tar.zst", "packaged archive");
+    char* actual = find_bundled_steam_archive();
+    assert(actual && !strcmp(actual, expected));
+    free(actual);
+    assert(unlink(expected) == 0);
+    assert(find_bundled_steam_archive() == NULL);
+    assert(previous ? setenv("METALSHARP_BUNDLE_DIR", previous, 1) == 0 : unsetenv("METALSHARP_BUNDLE_DIR") == 0);
+    free(previous);
+    free(bundled);
+    free(expected);
+}
+
 /* A Steam client update installs a new steamwebhelper.exe over the wrapper.
  * Deploying the wrapper again must keep that new webhelper as _real, and a
  * stale _real left by older MetalSharp (which deleted the update) must be
@@ -938,6 +957,7 @@ int main(int argc, char** argv) {
     test_ubisoft_library(home);
     test_ubisoft_idle_prefix_stop(home);
     test_wine_sdl_link(home);
+    test_steam_bundle_source(home);
     test_steamwebhelper_update(home);
     test_steam_shortcuts();
     test_wine_steam_logon_log(home);

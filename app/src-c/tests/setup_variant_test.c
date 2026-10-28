@@ -48,10 +48,49 @@ static char* fresh_home(const char* name) {
     return strdup(path);
 }
 
+static void test_bundled_archives(const char* home) {
+    static const char* const names[] = {"metalsharp-runtime.tar.zst",       "metalsharp-graphics-dll.tar.zst",
+                                        "metalsharp-assets.tar.zst",        "fnalibs.tar.zst",
+                                        "metalsharp-scripts-tools.tar.zst", "metalsharp-steam.tar.zst"};
+    char *bundled = join_path(home, "app-resources/bundles"), *cache = join_path(home, "cache/bundles"),
+         *legacy = join_path(home, "bundles");
+    char* previous = getenv("METALSHARP_BUNDLE_DIR") ? strdup(getenv("METALSHARP_BUNDLE_DIR")) : NULL;
+    assert(bundled && cache && legacy && mkdir_p(bundled) && mkdir_p(cache) && mkdir_p(legacy));
+    assert(setenv("METALSHARP_BUNDLE_DIR", bundled, 1) == 0);
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        char *cached = join_path(cache, names[i]), *old = join_path(legacy, names[i]),
+             *loose = join_path(home, names[i]), *expected = join_path(bundled, names[i]), *actual;
+        assert(cached && old && loose && expected);
+        write_text_file(cached, "untrusted cached download");
+        write_text_file(old, "untrusted legacy archive");
+        write_text_file(loose, "untrusted loose archive");
+        assert(find_bundle_archive(names[i]) == NULL);
+        assert(!extract_split_bundle(home, names[i], NULL, 0));
+
+        write_text_file(expected, "packaged archive");
+        actual = find_bundle_archive(names[i]);
+        assert(actual && !strcmp(actual, expected));
+        free(actual);
+        assert(unlink(expected) == 0);
+        assert(find_bundle_archive(names[i]) == NULL);
+        free(cached);
+        free(old);
+        free(loose);
+        free(expected);
+    }
+    assert(previous ? setenv("METALSHARP_BUNDLE_DIR", previous, 1) == 0 : unsetenv("METALSHARP_BUNDLE_DIR") == 0);
+    free(previous);
+    free(bundled);
+    free(cache);
+    free(legacy);
+}
+
 int main(void) {
     static const char finished[] = "{\"step\":2,\"deviceName\":\"Mac\",\"completed\":true}";
     char* home = fresh_home("fresh");
     char *variant, *version, *json, path[512], command[600];
+
+    test_bundled_archives(home);
 
     /* A fresh setup of this build, finished in the wizard: the second launch migrates nothing. */
     json = ms_setup_save_json(home, (const unsigned char*)finished, strlen(finished), NULL);

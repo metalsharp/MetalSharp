@@ -4637,7 +4637,7 @@ static const char* fixed_unzstd_path(void) {
     return NULL;
 }
 
-static char* find_bundled_steam_archive(const char* home) {
+static char* find_bundled_steam_archive(void) {
     const char* bundle_dir = getenv("METALSHARP_BUNDLE_DIR");
     const char* fixed[] = {
         "/Applications/MetalSharp.app/Contents/Resources/bundles/metalsharp-steam.tar.zst",
@@ -4650,6 +4650,7 @@ static char* find_bundled_steam_archive(const char* home) {
         if (path && access(path, R_OK) == 0)
             return path;
         free(path);
+        return NULL;
     }
     for (size_t i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
         path = strdup(fixed[i]);
@@ -4657,10 +4658,6 @@ static char* find_bundled_steam_archive(const char* home) {
             return path;
         free(path);
     }
-    path = join(home, "cache/bundles/metalsharp-steam.tar.zst");
-    if (path && access(path, R_OK) == 0)
-        return path;
-    free(path);
     return NULL;
 }
 
@@ -4751,7 +4748,7 @@ static bool copy_bundled_steam_installer(const char* home, const char* installer
     char compress_program[PATH_MAX];
     if (fex_steam_file(home, "SteamSetup.exe", temp_path, sizeof(temp_path)))
         return copy_file_path(temp_path, installer);
-    archive = find_bundled_steam_archive(home);
+    archive = find_bundled_steam_archive();
     if (!archive || !unzstd)
         goto done;
     snprintf(compress_program, sizeof(compress_program), "--use-compress-program=%s", unzstd);
@@ -4814,47 +4811,6 @@ static bool steamwebhelper_wrapper_valid(const char* path) {
     return strncmp(output, STEAMWEBHELPER_WRAPPER_SHA256, 64) == 0;
 }
 
-static char* download_steam_bundle_archive(const char* home) {
-    char* bundles = join(home, "cache/bundles");
-    char* archive;
-    char* temporary;
-    pid_t pid;
-    if (!bundles || !ensure_directory(bundles)) {
-        free(bundles);
-        return NULL;
-    }
-    archive = join(bundles, "metalsharp-steam.tar.zst");
-    temporary = join(bundles, "metalsharp-steam.tar.zst.download");
-    free(bundles);
-    if (!archive || !temporary) {
-        free(archive);
-        free(temporary);
-        return NULL;
-    }
-    if (access(archive, R_OK) == 0) {
-        free(temporary);
-        return archive;
-    }
-    pid = fork();
-    if (pid < 0)
-        goto fail;
-    if (pid == 0) {
-        execl("/usr/bin/curl", "curl", "--fail", "--location", "--silent", "--show-error", "--retry", "3", "-o",
-              temporary, "https://github.com/metalsharp/MetalSharp/releases/download/bundles/metalsharp-steam.tar.zst",
-              (char*)NULL);
-        _exit(127);
-    }
-    if (!wait_child_success(pid) || rename(temporary, archive) != 0)
-        goto fail;
-    free(temporary);
-    return archive;
-fail:
-    (void)unlink(temporary);
-    free(archive);
-    free(temporary);
-    return NULL;
-}
-
 static char* extract_steamwebhelper_wrapper(const char* home) {
     char* cache = join(home, "cache/steam");
     char* cached = cache ? join(cache, "steamwebhelper.exe") : NULL;
@@ -4873,9 +4829,7 @@ static char* extract_steamwebhelper_wrapper(const char* home) {
             extracted = true;
         goto done;
     }
-    archive = find_bundled_steam_archive(home);
-    if (!archive)
-        archive = download_steam_bundle_archive(home);
+    archive = find_bundled_steam_archive();
     if (!cache || !cached || !archive || !unzstd || !ensure_directory(cache))
         goto done;
     temporary = join(home, "cache/.steam-webhelper-extract");

@@ -1,8 +1,7 @@
-/* The fex build's runtime/wine facade, written into a scratch home whose
- * runtime/MetalSharp-Wine.app links to a real MetalSharp Wine app (argv[2]); without one, only
- * the pipeline mapping and path checks run. Built with -DMS_BACKEND_VARIANT="fex". */
+/* FEX runtime and shell-injection regressions use a scratch home. An optional real
+ * MetalSharp Wine app (argv[2]) also checks its facade. Built with -DMS_BACKEND_VARIANT="fex". */
+#include "../runtime/wine_runtime.c"
 #include "metalsharp_backend/cache.h"
-#include "metalsharp_backend/wine_runtime.h"
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +25,103 @@ static void write_text(const char* path, const char* text) {
         fputs(text, file);
         fclose(file);
     }
+}
+
+static void test_app_identity(const char* home) {
+    static const char identity[] = "CDHash=0123456789abcdef0123456789abcdef01234567";
+    static const char* const cases[] = {
+        "Executable=/example\nCDHash=0123456789abcdef0123456789abcdef01234567\nSignature=adhoc\n",
+        "",
+        "CandidateCDHash sha256=0123456789abcdef0123456789abcdef01234567\n",
+        "CDHash=short\n",
+        "CDHash=0123456789abcdef0123456789abcdef0123456g\n",
+        "CDHash=0123456789abcdef0123456789abcdef01234567extra\n",
+        "CDHash=0123456789abcdef0123456789abcdef01234567\nCDHash=0123456789abcdef0123456789abcdef01234567\n"};
+    char parsed[256], expected[256], path[PATH_MAX], previous[PATH_MAX];
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char* output = strdup(cases[i]);
+        EXPECT(output && parse_app_identity(output, parsed, sizeof(parsed)) == (i == 0));
+        if (i == 0)
+            EXPECT(!strcmp(parsed, identity));
+        free(output);
+    }
+    EXPECT(app_identity("/usr/bin/true", expected, sizeof(expected)));
+    EXPECT(!strncmp(expected, "CDHash=", 7) && strlen(expected) == 47);
+    if (!getcwd(previous, sizeof(previous)) || chdir(home) != 0) {
+        EXPECT(false);
+        return;
+    }
+    static const char* const names[] = {"signed-wine", "O'Connor-wine", "wine'; touch identity-injected; #"};
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        snprintf(path, sizeof(path), "%s/%s", home, names[i]);
+        const char* const copy[] = {"/bin/cp", "/usr/bin/true", path, NULL};
+        EXPECT(run_wait(copy, NULL, NULL, 5));
+        EXPECT(app_identity(path, parsed, sizeof(parsed)));
+        EXPECT(!strcmp(parsed, expected));
+    }
+    EXPECT(access("identity-injected", F_OK) != 0);
+    snprintf(path, sizeof(path), "%s/unsigned-wine", home);
+    write_text(path, "unsigned\n");
+    EXPECT(!app_identity(path, parsed, sizeof(parsed)));
+    EXPECT(!app_identity("/nonexistent/metalsharp-wine", parsed, sizeof(parsed)));
+    EXPECT(!app_identity("/usr/bin/true", parsed, 47));
+    EXPECT(chdir(previous) == 0);
+}
+
+static void test_facade_paths(const char* home) {
+    static const char* const names[] = {"plain-home", "O'Connor-home", "home$(touch facade-dollar)",
+                                        "home`touch facade-backtick`", "home\"; touch facade-quote; #"};
+    char previous[PATH_MAX], fixture[PATH_MAX], path[PATH_MAX], result[PATH_MAX], error[256];
+    if (!getcwd(previous, sizeof(previous)) || chdir(home) != 0) {
+        EXPECT(false);
+        return;
+    }
+    snprintf(result, sizeof(result), "%s/facade-result", home);
+    EXPECT(setenv("METALSHARP_TEST_OUTPUT", result, 1) == 0);
+    EXPECT(unsetenv("WINEPREFIX") == 0);
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        snprintf(fixture, sizeof(fixture), "%s/%s", home, names[i]);
+        EXPECT(mkdir(fixture, 0755) == 0);
+        static const char* const dirs[] = {"runtime", "runtime/MetalSharp-Wine.app",
+                                           "runtime/MetalSharp-Wine.app/Contents",
+                                           "runtime/MetalSharp-Wine.app/Contents/MacOS"};
+        for (size_t j = 0; j < sizeof(dirs) / sizeof(dirs[0]); j++) {
+            EXPECT(format_path(path, sizeof(path), "%s/%s", fixture, dirs[j]));
+            EXPECT(mkdir(path, 0755) == 0);
+        }
+        EXPECT(format_path(path, sizeof(path), "%s/%s", fixture, "runtime/MetalSharp-Wine.app/Contents/MacOS/wine"));
+        write_text(path,
+                   "#!/bin/sh\nprintf '%s\\n' \"$WINEPREFIX\" \"$WINESERVER\" \"$1\" > \"$METALSHARP_TEST_OUTPUT\"\n");
+        EXPECT(chmod(path, 0755) == 0);
+        EXPECT(ms_wine_fex_write_facade(fixture, error, sizeof(error)));
+        if (i == 0) {
+            EXPECT(format_path(path, sizeof(path), "%s/%s", fixture, "runtime/wine/" FACADE_MARKER));
+            write_text(path, "2\n");
+            EXPECT(!ms_wine_fex_facade_ready(fixture));
+            EXPECT(ms_wine_fex_write_facade(fixture, error, sizeof(error)));
+            EXPECT(ms_wine_fex_facade_ready(fixture));
+        }
+        EXPECT(format_path(path, sizeof(path), "%s/%s", fixture, "runtime/wine/bin/wine"));
+        const char* const launch[] = {path, "literal game argument", NULL};
+        EXPECT(run_wait(launch, NULL, NULL, 5));
+        FILE* file = fopen(result, "r");
+        char output[PATH_MAX * 2 + 64] = "", expected[PATH_MAX * 2 + 64];
+        if (file) {
+            size_t got = fread(output, 1, sizeof(output) - 1, file);
+            output[got] = '\0';
+            fclose(file);
+        }
+        snprintf(expected, sizeof(expected),
+                 "%s/prefix-steam\n%s/runtime/MetalSharp-Wine.app/Contents/MacOS/wineserver\nliteral game argument\n",
+                 fixture, fixture);
+        EXPECT(file && !strcmp(output, expected));
+        unlink(result);
+    }
+    EXPECT(access("facade-dollar", F_OK) != 0);
+    EXPECT(access("facade-backtick", F_OK) != 0);
+    EXPECT(access("facade-quote", F_OK) != 0);
+    EXPECT(unsetenv("METALSHARP_TEST_OUTPUT") == 0);
+    EXPECT(chdir(previous) == 0);
 }
 
 int main(int argc, char** argv) {
@@ -55,6 +151,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "usage: %s <scratch home> [MetalSharp-Wine.app]\n", argv[0]);
         return 2;
     }
+    test_app_identity(home);
+    test_facade_paths(home);
 
     /* Settings' cache rows on the fex build: each lane's size from its fex-<lane> folders, and a
      * lane's Clear empties only that lane. (Mullion's lane also measures the user's cache folder, so
@@ -280,7 +378,7 @@ int main(int argc, char** argv) {
     EXPECT(!ms_wine_fex_facade_ready(home));
 
     if (!app) {
-        printf("wine runtime tests passed (no MetalSharp Wine app; facade not run)\n");
+        printf("wine runtime tests passed (no real MetalSharp Wine app)\n");
         return failures ? 1 : 0;
     }
     snprintf(path, sizeof(path), "%s/runtime/MetalSharp-Wine.app", home);
