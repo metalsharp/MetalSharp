@@ -1,6 +1,9 @@
 <div align="center">
 
-<h1><img width="100" height="100" alt="MetalSharp-Wine" src="https://github.com/user-attachments/assets/458d09a5-9663-40d9-8538-de31105aa021" /> <img width="75" height="75" alt="purple-x" src="https://github.com/user-attachments/assets/fb8b7685-db04-4f7d-97d3-37d6c9a3d893" /> <img width="100" height="100" alt="metalsharp" src="https://github.com/user-attachments/assets/6ed4de12-c00e-4d59-bf77-aa35c7ff3337" /></h1>
+<p align="center">
+  <img width="600" alt="MetalSharp x Wine" src="https://github.com/user-attachments/assets/f9415911-377b-4a72-8f9a-8ccee1201c96" />
+
+</p>
 
 <h2> MetalSharp </h2>
 
