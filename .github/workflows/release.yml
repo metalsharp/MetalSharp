@@ -266,7 +266,7 @@ jobs:
     runs-on: ${{ vars.METALSHARP_RELEASE_RUNNER == 'local' && fromJSON('["self-hosted","macOS","ARM64","metalsharp-release"]') || 'macos-26' }}
     env:
       METALSHARP_WINE_REPO: metalsharp/MetalSharp-Wine
-      METALSHARP_WINE_TAG: v3.0
+      METALSHARP_WINE_TAG: v4.0
       METALSHARP_VARIANT: fex
     steps:
       - uses: actions/checkout@v7

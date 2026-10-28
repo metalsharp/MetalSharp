@@ -196,7 +196,7 @@ All of these go through `wine_runtime.c`, with `wineboot -u` and `wineserver` fr
 ## 9. App UI (FEX)
 
 - **Pipeline menus** (hero card, collection, Sharp engines): offer Mullion (DXMT), DXVK, D3D9 and Wine. No D3DMetal, VKD3D or M13.
-- **Settings and dependencies:** no x87 acceleration row; no Rosetta row; Backend shows "MetalSharp Wine 2.x (Arm64, FEX)".
+- **Settings and dependencies:** no x87 acceleration row; no Rosetta row; Backend shows "MetalSharp Wine (Arm64, FEX)".
 - **Setup wizard text:** no GPTK or runtime-bundle wording; it says what FEX and Mullion are.
 - **Updates:** the update dialog marks the current build.
 
@@ -204,12 +204,12 @@ All of these go through `wine_runtime.c`, with `wineboot -u` and `wineserver` fr
 
 - **The x86_64 build job is unchanged.**
 - **A new `build-fex` job (macos-26):**
-  - downloads `MetalSharp-Wine-<ver>-arm64.zip` from a pinned metalsharp/MetalSharp-Wine release and checks it against `SHA256SUMS`;
+  - downloads `MetalSharp-Wine-<ver>-arm64.zip` from a pinned metalsharp/MetalSharp-Wine release (`METALSHARP_WINE_TAG`, v4.0 for 1.0.0: `MetalSharp-Wine-4.0-arm64.zip`) and checks it against `SHA256SUMS`;
   - builds the app and backend with `VARIANT=fex`;
   - puts `MetalSharp-Wine.app` in `Resources/`, excluded from the re-sign loop so its signature, entitlements and profile stay intact;
   - packages `MetalSharp-<ver>-arm64-FEX.dmg`, then signs, notarizes and staples it;
   - runs its own verify script (MetalSharp Wine present and valid; no x87sidecar or D3DMetal requirement).
-- **The `release` job** uploads both DMGs to the same `v<ver>` release.
+- **The `release` job** uploads both DMGs to the same `v<ver>` release. A failed `build-fex` leaves the FEX DMG out instead of blocking the regular one.
 - **MetalSharp Wine 2.1** ships first, with: the 12_2 Mullion build, WFDXCompat on Mullion, `LSUIElement`, the DYLD entitlement and helper entry points as needed.
 
 ## 11. Local testing (before any release)

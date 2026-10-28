@@ -92,7 +92,7 @@ For x86_64 Version Under Rosetta:
 - Apple Silicon Mac M1-M5, MacOS 15+
 - About ~12 GB free space
 
-For Arm64 Version with FEX: 
+For Arm64 Version with FEX (MetalSharp Wine 4.0): 
 
 - Apple Silicon Mac M1-M5, MacOS 26.4+
 - About ~12GB free space 
