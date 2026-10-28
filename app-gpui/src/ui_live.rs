@@ -273,6 +273,7 @@ impl MetalSharpApp {
         let live = Live::new(config);
         cx.set_global(live.clone());
         app.load_ui_state(&live);
+        app.window_size.apply(window, cx);
         // Re-render when cached artwork resolves.
         if let Some(cache) = crate::artwork::cache(cx) {
             app.observers
@@ -354,6 +355,10 @@ impl MetalSharpApp {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         self.library_grid = value.get("libraryLayout").and_then(Value::as_str) == Some("grid");
+        self.window_size = value
+            .get("windowSize")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default();
         self.active_tab = self.home_tab();
         self.startup_video_seen = value
             .get("startupVideoSeen")
@@ -374,6 +379,7 @@ impl MetalSharpApp {
             "developerMode": self.developer_mode,
             "lowPerformanceMode": self.low_performance,
             "libraryLayout": if self.library_grid { "grid" } else { "steamDeck" },
+            "windowSize": self.window_size,
             "startupVideoSeen": self.startup_video_seen,
             "defaultRulesApplied": self.live.default_rules_applied,
         });

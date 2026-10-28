@@ -79,7 +79,25 @@
     "ui.settings.libraryLayout": "Library Layout",
     "ui.settings.layoutGrid": "Grid",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck shows the selected game with a dock of games; Grid shows every game. The library opens in the layout you choose."
+    "ui.settingsDesc.libraryLayout": "Steam Deck shows the selected game with a dock of games; Grid shows every game. The library opens in the layout you choose.",
+    "settings.category_general": "General",
+    "settings.category_integrations": "Integrations",
+    "settings.category_storage": "Storage",
+    "settings.category_advanced": "Advanced",
+    "settings.category_general_desc": "Personalize your library and how MetalSharp works on this Mac.",
+    "settings.category_integrations_desc": "Connect your game libraries and manage your Steam installations.",
+    "settings.category_storage_desc": "Open your local files and manage the space used by game caches.",
+    "settings.category_updates_desc": "Check for updates, review release notes, and keep MetalSharp current.",
+    "settings.category_advanced_desc": "Troubleshooting and developer options. Destructive actions require confirmation.",
+    "settings.device_language": "Device & language",
+    "settings.library_display": "Library & display",
+    "settings.window_size": "Window size",
+    "settings.window_size_automatic": "Automatic",
+    "settings.window_size_compact": "Compact",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Large (4K)",
+    "settings.window_size_desc": "Choose a window size that fits your display. This resizes the window without entering full screen."
   },
   "zh-CN": {
     "actions.save": "保存",
@@ -161,7 +179,17 @@
     "ui.settings.libraryLayout": "游戏库布局",
     "ui.settings.layoutGrid": "网格",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck 显示所选游戏和游戏栏；网格显示所有游戏。游戏库会以你选择的布局打开。"
+    "ui.settingsDesc.libraryLayout": "Steam Deck 显示所选游戏和游戏栏；网格显示所有游戏。游戏库会以你选择的布局打开。",
+    "settings.category_general": "常规",
+    "settings.category_integrations": "集成",
+    "settings.category_storage": "存储",
+    "settings.category_advanced": "高级",
+    "settings.window_size": "窗口大小",
+    "settings.window_size_automatic": "自动",
+    "settings.window_size_compact": "紧凑",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "大窗口 (4K)"
   },
   "es": {
     "actions.save": "Guardar",
@@ -243,7 +271,17 @@
     "ui.settings.libraryLayout": "Diseño de la biblioteca",
     "ui.settings.layoutGrid": "Cuadrícula",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck muestra el juego seleccionado con una barra de juegos; Cuadrícula muestra todos los juegos. La biblioteca se abre con el diseño que elijas."
+    "ui.settingsDesc.libraryLayout": "Steam Deck muestra el juego seleccionado con una barra de juegos; Cuadrícula muestra todos los juegos. La biblioteca se abre con el diseño que elijas.",
+    "settings.category_general": "General",
+    "settings.category_integrations": "Integraciones",
+    "settings.category_storage": "Almacenamiento",
+    "settings.category_advanced": "Avanzado",
+    "settings.window_size": "Tamaño de ventana",
+    "settings.window_size_automatic": "Automático",
+    "settings.window_size_compact": "Compacto",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Grande (4K)"
   },
   "hi": {
     "actions.save": "सहेजें",
@@ -325,7 +363,17 @@
     "ui.settings.libraryLayout": "लाइब्रेरी लेआउट",
     "ui.settings.layoutGrid": "ग्रिड",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck चुने गए गेम को गेम पट्टी के साथ दिखाता है; ग्रिड सभी गेम दिखाता है। लाइब्रेरी आपके चुने हुए लेआउट में खुलती है।"
+    "ui.settingsDesc.libraryLayout": "Steam Deck चुने गए गेम को गेम पट्टी के साथ दिखाता है; ग्रिड सभी गेम दिखाता है। लाइब्रेरी आपके चुने हुए लेआउट में खुलती है।",
+    "settings.category_general": "सामान्य",
+    "settings.category_integrations": "इंटीग्रेशन",
+    "settings.category_storage": "स्टोरेज",
+    "settings.category_advanced": "उन्नत",
+    "settings.window_size": "विंडो का आकार",
+    "settings.window_size_automatic": "स्वचालित",
+    "settings.window_size_compact": "कॉम्पैक्ट",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "बड़ा (4K)"
   },
   "ar": {
     "actions.save": "حفظ",
@@ -407,7 +455,17 @@
     "ui.settings.libraryLayout": "تخطيط المكتبة",
     "ui.settings.layoutGrid": "شبكة",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "يعرض Steam Deck اللعبة المحددة مع شريط الألعاب، وتعرض الشبكة جميع الألعاب. تُفتح المكتبة بالتخطيط الذي تختاره."
+    "ui.settingsDesc.libraryLayout": "يعرض Steam Deck اللعبة المحددة مع شريط الألعاب، وتعرض الشبكة جميع الألعاب. تُفتح المكتبة بالتخطيط الذي تختاره.",
+    "settings.category_general": "عام",
+    "settings.category_integrations": "عمليات التكامل",
+    "settings.category_storage": "التخزين",
+    "settings.category_advanced": "متقدم",
+    "settings.window_size": "حجم النافذة",
+    "settings.window_size_automatic": "تلقائي",
+    "settings.window_size_compact": "مدمج",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "كبير (4K)"
   },
   "pt-BR": {
     "actions.save": "Salvar",
@@ -489,7 +547,17 @@
     "ui.settings.libraryLayout": "Layout da biblioteca",
     "ui.settings.layoutGrid": "Grade",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck mostra o jogo selecionado com uma barra de jogos; Grade mostra todos os jogos. A biblioteca abre no layout que você escolher."
+    "ui.settingsDesc.libraryLayout": "Steam Deck mostra o jogo selecionado com uma barra de jogos; Grade mostra todos os jogos. A biblioteca abre no layout que você escolher.",
+    "settings.category_general": "Geral",
+    "settings.category_integrations": "Integrações",
+    "settings.category_storage": "Armazenamento",
+    "settings.category_advanced": "Avançado",
+    "settings.window_size": "Tamanho da janela",
+    "settings.window_size_automatic": "Automático",
+    "settings.window_size_compact": "Compacto",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Grande (4K)"
   },
   "bn": {
     "actions.save": "সংরক্ষণ",
@@ -571,7 +639,17 @@
     "ui.settings.libraryLayout": "লাইব্রেরি লেআউট",
     "ui.settings.layoutGrid": "গ্রিড",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck বাছাই করা গেমটি গেম বারসহ দেখায়; গ্রিড সব গেম দেখায়। লাইব্রেরি আপনার বেছে নেওয়া লেআউটে খোলে।"
+    "ui.settingsDesc.libraryLayout": "Steam Deck বাছাই করা গেমটি গেম বারসহ দেখায়; গ্রিড সব গেম দেখায়। লাইব্রেরি আপনার বেছে নেওয়া লেআউটে খোলে।",
+    "settings.category_general": "সাধারণ",
+    "settings.category_integrations": "ইন্টিগ্রেশন",
+    "settings.category_storage": "স্টোরেজ",
+    "settings.category_advanced": "উন্নত",
+    "settings.window_size": "উইন্ডোর আকার",
+    "settings.window_size_automatic": "স্বয়ংক্রিয়",
+    "settings.window_size_compact": "ছোট",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "বড় (4K)"
   },
   "ru": {
     "actions.save": "Сохранить",
@@ -653,7 +731,17 @@
     "ui.settings.libraryLayout": "Вид библиотеки",
     "ui.settings.layoutGrid": "Сетка",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck показывает выбранную игру с панелью игр, а Сетка — все игры. Библиотека открывается в выбранном виде."
+    "ui.settingsDesc.libraryLayout": "Steam Deck показывает выбранную игру с панелью игр, а Сетка — все игры. Библиотека открывается в выбранном виде.",
+    "settings.category_general": "Основные",
+    "settings.category_integrations": "Интеграции",
+    "settings.category_storage": "Хранилище",
+    "settings.category_advanced": "Дополнительно",
+    "settings.window_size": "Размер окна",
+    "settings.window_size_automatic": "Автоматически",
+    "settings.window_size_compact": "Компактный",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Большой (4K)"
   },
   "ja": {
     "actions.save": "保存",
@@ -735,7 +823,17 @@
     "ui.settings.libraryLayout": "ライブラリのレイアウト",
     "ui.settings.layoutGrid": "グリッド",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck は選択したゲームとゲームバーを表示し、グリッドはすべてのゲームを表示します。ライブラリは選んだレイアウトで開きます。"
+    "ui.settingsDesc.libraryLayout": "Steam Deck は選択したゲームとゲームバーを表示し、グリッドはすべてのゲームを表示します。ライブラリは選んだレイアウトで開きます。",
+    "settings.category_general": "一般",
+    "settings.category_integrations": "連携",
+    "settings.category_storage": "ストレージ",
+    "settings.category_advanced": "詳細設定",
+    "settings.window_size": "ウィンドウサイズ",
+    "settings.window_size_automatic": "自動",
+    "settings.window_size_compact": "コンパクト",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "大 (4K)"
   },
   "pa": {
     "actions.save": "ਸੰਭਾਲੋ",
@@ -817,7 +915,17 @@
     "ui.settings.libraryLayout": "ਲਾਇਬ੍ਰੇਰੀ ਲੇਆਉਟ",
     "ui.settings.layoutGrid": "ਗ੍ਰਿਡ",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck ਚੁਣੀ ਗਈ ਗੇਮ ਨੂੰ ਗੇਮ ਪੱਟੀ ਨਾਲ ਦਿਖਾਉਂਦਾ ਹੈ; ਗ੍ਰਿਡ ਸਾਰੀਆਂ ਗੇਮਾਂ ਦਿਖਾਉਂਦਾ ਹੈ। ਲਾਇਬ੍ਰੇਰੀ ਤੁਹਾਡੇ ਚੁਣੇ ਲੇਆਉਟ ਵਿੱਚ ਖੁੱਲ੍ਹਦੀ ਹੈ।"
+    "ui.settingsDesc.libraryLayout": "Steam Deck ਚੁਣੀ ਗਈ ਗੇਮ ਨੂੰ ਗੇਮ ਪੱਟੀ ਨਾਲ ਦਿਖਾਉਂਦਾ ਹੈ; ਗ੍ਰਿਡ ਸਾਰੀਆਂ ਗੇਮਾਂ ਦਿਖਾਉਂਦਾ ਹੈ। ਲਾਇਬ੍ਰੇਰੀ ਤੁਹਾਡੇ ਚੁਣੇ ਲੇਆਉਟ ਵਿੱਚ ਖੁੱਲ੍ਹਦੀ ਹੈ।",
+    "settings.category_general": "ਆਮ",
+    "settings.category_integrations": "ਇੰਟੀਗ੍ਰੇਸ਼ਨ",
+    "settings.category_storage": "ਸਟੋਰੇਜ",
+    "settings.category_advanced": "ਉੱਨਤ",
+    "settings.window_size": "ਵਿੰਡੋ ਦਾ ਆਕਾਰ",
+    "settings.window_size_automatic": "ਆਟੋਮੈਟਿਕ",
+    "settings.window_size_compact": "ਸੰਖੇਪ",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "ਵੱਡਾ (4K)"
   },
   "de": {
     "actions.save": "Speichern",
@@ -899,7 +1007,17 @@
     "ui.settings.libraryLayout": "Bibliothekslayout",
     "ui.settings.layoutGrid": "Raster",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck zeigt das ausgewählte Spiel mit einer Spieleleiste, Raster zeigt alle Spiele. Die Bibliothek öffnet sich im gewählten Layout."
+    "ui.settingsDesc.libraryLayout": "Steam Deck zeigt das ausgewählte Spiel mit einer Spieleleiste, Raster zeigt alle Spiele. Die Bibliothek öffnet sich im gewählten Layout.",
+    "settings.category_general": "Allgemein",
+    "settings.category_integrations": "Integrationen",
+    "settings.category_storage": "Speicher",
+    "settings.category_advanced": "Erweitert",
+    "settings.window_size": "Fenstergröße",
+    "settings.window_size_automatic": "Automatisch",
+    "settings.window_size_compact": "Kompakt",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Groß (4K)"
   },
   "jv": {
     "actions.save": "Simpen",
@@ -981,7 +1099,17 @@
     "ui.settings.libraryLayout": "Tata letak perpustakaan",
     "ui.settings.layoutGrid": "Kothak",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck nuduhake game sing dipilih karo bilah game; Kothak nuduhake kabeh game. Perpustakaan dibukak nganggo tata letak sing sampeyan pilih."
+    "ui.settingsDesc.libraryLayout": "Steam Deck nuduhake game sing dipilih karo bilah game; Kothak nuduhake kabeh game. Perpustakaan dibukak nganggo tata letak sing sampeyan pilih.",
+    "settings.category_general": "Umum",
+    "settings.category_integrations": "Integrasi",
+    "settings.category_storage": "Panyimpenan",
+    "settings.category_advanced": "Lanjut",
+    "settings.window_size": "Ukuran jendhela",
+    "settings.window_size_automatic": "Otomatis",
+    "settings.window_size_compact": "Kompak",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Gedhe (4K)"
   },
   "ko": {
     "actions.save": "저장",
@@ -1063,7 +1191,17 @@
     "ui.settings.libraryLayout": "라이브러리 레이아웃",
     "ui.settings.layoutGrid": "그리드",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck은 선택한 게임을 게임 바와 함께 보여 주고, 그리드는 모든 게임을 보여 줍니다. 라이브러리는 선택한 레이아웃으로 열립니다."
+    "ui.settingsDesc.libraryLayout": "Steam Deck은 선택한 게임을 게임 바와 함께 보여 주고, 그리드는 모든 게임을 보여 줍니다. 라이브러리는 선택한 레이아웃으로 열립니다.",
+    "settings.category_general": "일반",
+    "settings.category_integrations": "연동",
+    "settings.category_storage": "저장 공간",
+    "settings.category_advanced": "고급",
+    "settings.window_size": "창 크기",
+    "settings.window_size_automatic": "자동",
+    "settings.window_size_compact": "작게",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "크게 (4K)"
   },
   "fr": {
     "actions.save": "Enregistrer",
@@ -1145,7 +1283,17 @@
     "ui.settings.libraryLayout": "Disposition de la bibliothèque",
     "ui.settings.layoutGrid": "Grille",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck affiche le jeu sélectionné avec une barre de jeux ; Grille affiche tous les jeux. La bibliothèque s’ouvre dans la disposition choisie."
+    "ui.settingsDesc.libraryLayout": "Steam Deck affiche le jeu sélectionné avec une barre de jeux ; Grille affiche tous les jeux. La bibliothèque s’ouvre dans la disposition choisie.",
+    "settings.category_general": "Général",
+    "settings.category_integrations": "Intégrations",
+    "settings.category_storage": "Stockage",
+    "settings.category_advanced": "Avancé",
+    "settings.window_size": "Taille de la fenêtre",
+    "settings.window_size_automatic": "Automatique",
+    "settings.window_size_compact": "Compacte",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Grande (4K)"
   },
   "te": {
     "actions.save": "సేవ్ చేయి",
@@ -1227,7 +1375,17 @@
     "ui.settings.libraryLayout": "లైబ్రరీ లేఅవుట్",
     "ui.settings.layoutGrid": "గ్రిడ్",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck ఎంచుకున్న గేమ్‌ను గేమ్ బార్‌తో చూపిస్తుంది; గ్రిడ్ అన్ని గేమ్‌లను చూపిస్తుంది. లైబ్రరీ మీరు ఎంచుకున్న లేఅవుట్‌లో తెరుచుకుంటుంది."
+    "ui.settingsDesc.libraryLayout": "Steam Deck ఎంచుకున్న గేమ్‌ను గేమ్ బార్‌తో చూపిస్తుంది; గ్రిడ్ అన్ని గేమ్‌లను చూపిస్తుంది. లైబ్రరీ మీరు ఎంచుకున్న లేఅవుట్‌లో తెరుచుకుంటుంది.",
+    "settings.category_general": "సాధారణం",
+    "settings.category_integrations": "అనుసంధానాలు",
+    "settings.category_storage": "నిల్వ",
+    "settings.category_advanced": "అధునాతన",
+    "settings.window_size": "విండో పరిమాణం",
+    "settings.window_size_automatic": "స్వయంచాలకం",
+    "settings.window_size_compact": "చిన్నది",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "పెద్దది (4K)"
   },
   "vi": {
     "actions.save": "Lưu",
@@ -1309,7 +1467,17 @@
     "ui.settings.libraryLayout": "Bố cục thư viện",
     "ui.settings.layoutGrid": "Lưới",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck hiển thị trò chơi đã chọn cùng thanh trò chơi; Lưới hiển thị mọi trò chơi. Thư viện mở theo bố cục bạn chọn."
+    "ui.settingsDesc.libraryLayout": "Steam Deck hiển thị trò chơi đã chọn cùng thanh trò chơi; Lưới hiển thị mọi trò chơi. Thư viện mở theo bố cục bạn chọn.",
+    "settings.category_general": "Chung",
+    "settings.category_integrations": "Tích hợp",
+    "settings.category_storage": "Bộ nhớ",
+    "settings.category_advanced": "Nâng cao",
+    "settings.window_size": "Kích thước cửa sổ",
+    "settings.window_size_automatic": "Tự động",
+    "settings.window_size_compact": "Gọn",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Lớn (4K)"
   },
   "tr": {
     "actions.save": "Kaydet",
@@ -1391,7 +1559,17 @@
     "ui.settings.libraryLayout": "Kitaplık düzeni",
     "ui.settings.layoutGrid": "Izgara",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck seçili oyunu bir oyun çubuğuyla gösterir; Izgara tüm oyunları gösterir. Kitaplık seçtiğiniz düzende açılır."
+    "ui.settingsDesc.libraryLayout": "Steam Deck seçili oyunu bir oyun çubuğuyla gösterir; Izgara tüm oyunları gösterir. Kitaplık seçtiğiniz düzende açılır.",
+    "settings.category_general": "Genel",
+    "settings.category_integrations": "Entegrasyonlar",
+    "settings.category_storage": "Depolama",
+    "settings.category_advanced": "Gelişmiş",
+    "settings.window_size": "Pencere boyutu",
+    "settings.window_size_automatic": "Otomatik",
+    "settings.window_size_compact": "Kompakt",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Büyük (4K)"
   },
   "ur": {
     "actions.save": "محفوظ کریں",
@@ -1473,7 +1651,17 @@
     "ui.settings.libraryLayout": "لائبریری لے آؤٹ",
     "ui.settings.layoutGrid": "گرڈ",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck منتخب گیم کو گیم بار کے ساتھ دکھاتا ہے؛ گرڈ تمام گیمز دکھاتا ہے۔ لائبریری آپ کے منتخب کردہ لے آؤٹ میں کھلتی ہے۔"
+    "ui.settingsDesc.libraryLayout": "Steam Deck منتخب گیم کو گیم بار کے ساتھ دکھاتا ہے؛ گرڈ تمام گیمز دکھاتا ہے۔ لائبریری آپ کے منتخب کردہ لے آؤٹ میں کھلتی ہے۔",
+    "settings.category_general": "عمومی",
+    "settings.category_integrations": "انضمام",
+    "settings.category_storage": "اسٹوریج",
+    "settings.category_advanced": "اعلیٰ",
+    "settings.window_size": "ونڈو کا سائز",
+    "settings.window_size_automatic": "خودکار",
+    "settings.window_size_compact": "مختصر",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "بڑا (4K)"
   },
   "it": {
     "actions.save": "Salva",
@@ -1555,7 +1743,17 @@
     "ui.settings.libraryLayout": "Layout della libreria",
     "ui.settings.layoutGrid": "Griglia",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck mostra il gioco selezionato con una barra dei giochi; Griglia mostra tutti i giochi. La libreria si apre nel layout scelto."
+    "ui.settingsDesc.libraryLayout": "Steam Deck mostra il gioco selezionato con una barra dei giochi; Griglia mostra tutti i giochi. La libreria si apre nel layout scelto.",
+    "settings.category_general": "Generali",
+    "settings.category_integrations": "Integrazioni",
+    "settings.category_storage": "Archiviazione",
+    "settings.category_advanced": "Avanzate",
+    "settings.window_size": "Dimensione finestra",
+    "settings.window_size_automatic": "Automatica",
+    "settings.window_size_compact": "Compatta",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "Grande (4K)"
   },
   "mr": {
     "actions.save": "जतन करा",
@@ -1637,6 +1835,16 @@
     "ui.settings.libraryLayout": "लायब्ररी लेआउट",
     "ui.settings.layoutGrid": "ग्रिड",
     "ui.settings.layoutSteamDeck": "Steam Deck",
-    "ui.settingsDesc.libraryLayout": "Steam Deck निवडलेला गेम गेम पट्टीसह दाखवतो; ग्रिड सर्व गेम दाखवतो. लायब्ररी तुम्ही निवडलेल्या लेआउटमध्ये उघडते."
+    "ui.settingsDesc.libraryLayout": "Steam Deck निवडलेला गेम गेम पट्टीसह दाखवतो; ग्रिड सर्व गेम दाखवतो. लायब्ररी तुम्ही निवडलेल्या लेआउटमध्ये उघडते.",
+    "settings.category_general": "सामान्य",
+    "settings.category_integrations": "इंटिग्रेशन",
+    "settings.category_storage": "स्टोरेज",
+    "settings.category_advanced": "प्रगत",
+    "settings.window_size": "विंडोचा आकार",
+    "settings.window_size_automatic": "स्वयंचलित",
+    "settings.window_size_compact": "संक्षिप्त",
+    "settings.window_size_full_hd": "Full HD",
+    "settings.window_size_qhd": "2K",
+    "settings.window_size_large": "मोठा (4K)"
   }
 }

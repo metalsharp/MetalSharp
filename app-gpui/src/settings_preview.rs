@@ -1,8 +1,8 @@
-//! Approved eight-card Settings overlay (`SettingsOverlay.vue`). With a live
-//! backend every control performs the same request/IPC as the Electron app.
+//! Categorized Settings overlay. Live controls preserve the Electron app's requests and IPC.
 use crate::live::{self, error_text, is_ok};
 use crate::page_palette::PagePalette;
 use crate::toast;
+use crate::window_layout::WindowSize;
 use gpui::{
     AppContext, Context, EventEmitter, FocusHandle, FontWeight, Render, Window, div, prelude::*,
     px, rgb, rgba,
@@ -52,6 +52,7 @@ pub enum SettingsPreviewEvent {
     LowPerformance(bool),
     /// Library Layout: true for Grid, false for Steam Deck
     LibraryLayout(bool),
+    WindowSize(WindowSize),
     DeviceName(String),
     BackendRestarted,
 }
@@ -75,6 +76,7 @@ pub struct AppState {
     pub developer_mode: bool,
     pub low_performance: bool,
     pub library_grid: bool,
+    pub window_size: WindowSize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,12 +88,84 @@ enum ConfirmAction {
     ClearMullionShared,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsCategory {
+    General,
+    Integrations,
+    Storage,
+    Updates,
+    Advanced,
+}
+
+impl SettingsCategory {
+    const ALL: [Self; 5] = [
+        Self::General,
+        Self::Integrations,
+        Self::Storage,
+        Self::Updates,
+        Self::Advanced,
+    ];
+
+    fn label_key(self) -> &'static str {
+        match self {
+            Self::General => "settings.category_general",
+            Self::Integrations => "settings.category_integrations",
+            Self::Storage => "settings.category_storage",
+            Self::Updates => "settings.updates",
+            Self::Advanced => "settings.category_advanced",
+        }
+    }
+
+    fn description_key(self) -> &'static str {
+        match self {
+            Self::General => "settings.category_general_desc",
+            Self::Integrations => "settings.category_integrations_desc",
+            Self::Storage => "settings.category_storage_desc",
+            Self::Updates => "settings.category_updates_desc",
+            Self::Advanced => "settings.category_advanced_desc",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum SettingsSection {
+    Device,
+    Library,
+    SteamAccount,
+    EpicAccount,
+    SteamRuntime,
+    Folders,
+    Cache,
+    Updates,
+    Services,
+    Developer,
+    DataAccess,
+    Danger,
+}
+
+impl SettingsSection {
+    fn category(self) -> SettingsCategory {
+        match self {
+            Self::Device | Self::Library => SettingsCategory::General,
+            Self::SteamAccount | Self::EpicAccount | Self::SteamRuntime => {
+                SettingsCategory::Integrations
+            }
+            Self::Folders | Self::Cache => SettingsCategory::Storage,
+            Self::Updates => SettingsCategory::Updates,
+            Self::Services | Self::Developer | Self::DataAccess | Self::Danger => {
+                SettingsCategory::Advanced
+            }
+        }
+    }
+}
+
 pub struct SettingsPreview {
     pub palette: PagePalette,
     pub language: &'static str,
     focus: Option<FocusHandle>,
     locales: HashMap<String, HashMap<String, String>>,
     narrow: bool,
+    category: SettingsCategory,
     app: AppState,
     steam_key_input: Option<gpui::Entity<crate::search_input::SearchInput>>,
     gamesdb_key_input: Option<gpui::Entity<crate::search_input::SearchInput>>,
@@ -142,6 +216,58 @@ const FEX_CACHE_LANES: [(&str, &str, &str); 3] = [
     ),
 ];
 
+#[derive(Clone, Copy, Debug)]
+struct SettingsLayout {
+    width: f32,
+    height: f32,
+    top: f32,
+    gutter: f32,
+    sidebar: bool,
+}
+
+/**
+ * Fit the panel to the logical viewport; macOS handles the display's pixel density.
+ *
+ * @param width - Available window width in logical points.
+ * @param height - Available window height in logical points.
+ * @returns Panel bounds and the navigation layout that fits the window.
+ */
+fn settings_layout(width: f32, height: f32) -> SettingsLayout {
+    let gutter = if width < 780.0 { 12.0 } else { 24.0 };
+    let panel_width = (width - gutter * 2.0).clamp(280.0, 1180.0);
+    let top = (height * 0.045).clamp(16.0, 56.0);
+    SettingsLayout {
+        width: panel_width,
+        height: (height - top - gutter).clamp(240.0, 1000.0),
+        top,
+        gutter,
+        sidebar: width >= 900.0,
+    }
+}
+
+/**
+ * Keeps the language menu inside the viewport, opening upward when space below is limited.
+ *
+ * @param anchor_y - Language button click position in logical points.
+ * @param viewport_height - Available window height in logical points.
+ * @returns Menu top and maximum height in logical points.
+ */
+fn language_menu_bounds(anchor_y: f32, viewport_height: f32) -> (f32, f32) {
+    let height = viewport_height.max(0.0);
+    let gutter = (height * 0.5).min(8.0);
+    let bottom = height - gutter;
+    let anchor = anchor_y.clamp(gutter, bottom);
+    let below_top = (anchor + 18.0).min(bottom);
+    let above_bottom = (anchor - 18.0).max(gutter);
+    let below_height = (bottom - below_top).min(360.0);
+    let above_height = (above_bottom - gutter).min(360.0);
+    if below_height < 120.0 && above_height > below_height {
+        (above_bottom - above_height, above_height)
+    } else {
+        (below_top, below_height)
+    }
+}
+
 fn format_cache(cache: Option<&Value>) -> (String, bool) {
     let Some(cache) = cache else {
         return ("...".into(), false);
@@ -169,6 +295,7 @@ impl SettingsPreview {
             locales: serde_json::from_str(include_str!("../assets/settings-locales.json"))
                 .expect("Settings locale data"),
             narrow: false,
+            category: SettingsCategory::General,
             app: AppState::default(),
             steam_key_input: None,
             gamesdb_key_input: None,
@@ -188,9 +315,7 @@ impl SettingsPreview {
             language_menu: false,
             uninstalling: false,
             language_anchor: gpui::Point::default(),
-            notice: Some(
-                "SAFE PREVIEW · Settings are simulated in memory; no backend, files, processes, or credentials are accessed.",
-            ),
+            notice: Some("Preview mode · changes aren’t saved"),
         }
     }
 
@@ -1042,6 +1167,63 @@ impl SettingsPreview {
         .detach();
     }
 
+    fn category_navigation(&self, sidebar: bool, cx: &mut Context<Self>) -> gpui::Div {
+        let p = self.palette;
+        let mut navigation = div()
+            .flex_none()
+            .flex()
+            .gap(px(5.0))
+            .p(px(12.0))
+            .bg(rgba((p.hover << 8) | 0x38))
+            .when(sidebar, |d| d.w(px(196.0)).h_full().flex_col().border_r_1())
+            .when(!sidebar, |d| d.w_full().flex_wrap().border_b_1())
+            .border_color(rgba((p.control_text << 8) | 0x12));
+        for category in SettingsCategory::ALL {
+            let active = self.category == category;
+            navigation = navigation.child(
+                div()
+                    .id(("settings-category", category as usize))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .h(px(42.0))
+                    .px(px(13.0))
+                    .rounded(px(9.0))
+                    .border_1()
+                    .border_color(rgba(if active {
+                        (p.accent << 8) | 0x45
+                    } else {
+                        0x00000000
+                    }))
+                    .bg(rgba(if active {
+                        (p.accent << 8) | 0x19
+                    } else {
+                        0x00000000
+                    }))
+                    .text_size(px(14.0))
+                    .font_weight(if active {
+                        FontWeight::SEMIBOLD
+                    } else {
+                        FontWeight::NORMAL
+                    })
+                    .text_color(rgb(if active && !p.light {
+                        p.accent
+                    } else {
+                        p.control_text
+                    }))
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(rgb(p.hover)))
+                    .child(self.tr(category.label_key()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.category = category;
+                        this.language_menu = false;
+                        cx.notify();
+                    })),
+            );
+        }
+        navigation
+    }
+
     fn credential_control(&self, epic: bool, cx: &mut Context<Self>) -> gpui::Div {
         let configured = if epic {
             self.gamesdb_configured
@@ -1059,16 +1241,15 @@ impl SettingsPreview {
         let field = div()
             .min_w_0()
             .flex_1()
-            .w(px(210.0))
-            .h(px(30.0))
+            .h(px(38.0))
             .px(px(10.0))
             .flex()
             .items_center()
-            .rounded(px(6.0))
+            .rounded(px(8.0))
             .border_1()
             .border_color(rgba(self.palette.control_border))
             .bg(rgba((self.palette.control_bg << 8) | 0xb3))
-            .text_size(px(12.0))
+            .text_size(px(13.0))
             .text_color(rgb(self.palette.control_text))
             .overflow_hidden();
         let field = match input {
@@ -1082,19 +1263,19 @@ impl SettingsPreview {
                 })),
         };
         div()
+            .w_full()
             .min_w_0()
             .flex()
-            .items_center()
-            .flex_wrap()
-            .gap(px(8.0))
+            .flex_col()
+            .items_start()
+            .gap(px(10.0))
             .child(
                 div()
+                    .w_full()
                     .min_w_0()
-                    .w(px(310.0))
-                    .max_w_full()
                     .flex()
                     .items_center()
-                    .gap(px(8.0))
+                    .gap(px(10.0))
                     .child(field)
                     .child(
                         self.action_button(
@@ -1106,6 +1287,7 @@ impl SettingsPreview {
                             },
                             true,
                         )
+                        .h(px(38.0))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if epic {
                                 this.save_gamesdb_key(cx);
@@ -1131,34 +1313,27 @@ impl SettingsPreview {
             ))
     }
 
-    fn language_control(&self, height: f32, cx: &mut Context<Self>) -> gpui::Div {
+    fn language_control(&self, cx: &mut Context<Self>) -> gpui::Div {
         let label = LANGUAGES
             .iter()
             .find(|(code, _)| *code == self.language)
             .map(|(_, name)| *name)
             .unwrap_or("English");
-        let control = div().relative().flex_none().child(
-            self.action_button("language-pick", format!("{label}  ⌄"), false)
-                .min_w(px(132.0))
-                .text_size(px(12.0))
+        div().relative().flex_none().child(
+            self.action_button("language-pick", label, false)
+                .min_w(px(160.0))
+                .gap(px(10.0))
+                .child(crate::ui::control_icon(
+                    "icon-chevron-down.svg",
+                    18.0,
+                    self.palette.control_text,
+                ))
                 .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
                     this.language_menu = !this.language_menu;
                     this.language_anchor = event.position();
                     cx.notify();
                 })),
-        );
-        let _ = height;
-        div()
-            .flex()
-            .items_center()
-            .gap(px(8.0))
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(self.tr("language.label")),
-            )
-            .child(control)
+        )
     }
 
     /// Language list, drawn at the overlay root below the clicked button.
@@ -1168,14 +1343,15 @@ impl SettingsPreview {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let anchor = self.language_anchor;
+        let (top, max_height) = language_menu_bounds(f32::from(anchor.y), height);
         let mut menu = div()
             .id("settings-language-list")
             .occlude()
             .absolute()
-            .top(anchor.y + px(18.0))
+            .top(px(top))
             .left((anchor.x - px(170.0)).max(px(8.0)))
             .w(px(210.0))
-            .max_h(px((height - f32::from(anchor.y) - 40.0).clamp(120.0, 360.0)))
+            .max_h(px(max_height))
             .overflow_y_scroll()
             .p(px(6.0))
             .rounded(px(8.0))
@@ -1319,9 +1495,9 @@ impl SettingsPreview {
             .flex()
             .items_center()
             .justify_center()
-            .h(px(30.))
-            .px(px(12.))
-            .rounded(px(6.))
+            .h(px(38.))
+            .px(px(13.))
+            .rounded(px(8.))
             .border_1()
             .border_color(rgba(if primary {
                 (p.accent << 8) | 0xff
@@ -1329,12 +1505,8 @@ impl SettingsPreview {
                 p.control_border
             }))
             .bg(rgb(if primary { p.accent } else { p.control_bg }))
-            .text_color(rgb(if primary {
-                p.control_bg
-            } else {
-                p.control_text
-            }))
-            .text_size(px(11.5))
+            .text_color(rgb(if primary { 0x101416 } else { p.control_text }))
+            .text_size(px(14.))
             .font_weight(FontWeight::SEMIBOLD)
             .cursor_pointer()
             .hover(move |s| s.bg(rgb(if primary { p.accent } else { p.hover })))
@@ -1386,50 +1558,88 @@ impl SettingsPreview {
     ) -> gpui::Div {
         let p = self.palette;
         div()
+            .w_full()
+            .min_w_0()
             .flex()
-            .justify_between()
-            .items_start()
-            .gap(px(if self.narrow { 8.0 } else { 18.0 }))
-            .when(self.narrow, |d| d.flex_col())
-            .py(px(11.))
+            .flex_col()
+            .gap(px(7.0))
+            .py(px(16.0))
             .border_b_1()
             .border_color(rgba(
                 (p.control_border & 0xffffff00)
-                    | (((p.control_border & 0xff) as f32 * 0.55) as u32),
+                    | (((p.control_border & 0xff) as f32 * 0.35) as u32),
             ))
             .child(
                 div()
-                    .flex_1()
+                    .w_full()
                     .min_w_0()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(12.0))
+                    .when(self.narrow, |d| d.flex_col().items_start())
                     .child(
                         div()
+                            .flex_1()
+                            .min_w_0()
                             .text_color(rgb(p.control_text))
-                            .text_size(px(13.))
+                            .text_size(px(14.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title.into()),
                     )
                     .child(
                         div()
-                            .mt(px(3.))
-                            .text_color(rgba((p.control_text << 8) | 0x9e))
-                            .text_size(px(11.5))
-                            .line_height(px(16.675))
-                            .child(desc),
+                            .flex_none()
+                            .min_w_0()
+                            .max_w_full()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(control),
                     ),
             )
             .child(
                 div()
-                    .flex_none()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_end()
-                    .gap(px(8.))
-                    .when(!self.narrow, |d| d.max_w(gpui::relative(0.55)))
-                    .when(self.narrow, |d| d.w_full().justify_start())
-                    .child(control),
+                    .w_full()
+                    .min_w_0()
+                    .text_color(rgba((p.control_text << 8) | 0xad))
+                    .text_size(px(13.0))
+                    .line_height(px(20.0))
+                    .child(desc),
             )
     }
+
+    fn credential_row(
+        &self,
+        title: impl Into<gpui::SharedString>,
+        desc: impl IntoElement,
+        epic: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        div()
+            .w_full()
+            .min_w_0()
+            .py(px(16.0))
+            .border_b_1()
+            .border_color(rgba((self.palette.control_text << 8) | 0x12))
+            .child(
+                div()
+                    .text_size(px(14.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title.into()),
+            )
+            .child(
+                div()
+                    .mt(px(7.0))
+                    .text_size(px(13.0))
+                    .line_height(px(20.0))
+                    .text_color(rgba((self.palette.control_text << 8) | 0xad))
+                    .child(desc),
+            )
+            .child(div().mt(px(14.0)).child(self.credential_control(epic, cx)))
+    }
+
     fn card(
         &self,
         title: impl Into<gpui::SharedString>,
@@ -1440,30 +1650,31 @@ impl SettingsPreview {
         let title: gpui::SharedString = title.into();
         div()
             .min_w_0()
-            .px(px(16.0))
-            .pt(px(14.0))
-            .pb(px(6.))
-            .rounded(px(10.))
+            .px(px(20.0))
+            .pt(px(18.0))
+            .pb(px(4.0))
+            .rounded(px(14.0))
             .border_1()
-            .border_color(rgba(p.control_border))
-            .bg(rgba((p.control_bg << 8) | 0xd1))
+            .border_color(rgba(if danger {
+                0xff70703d
+            } else {
+                (p.control_text << 8) | 0x14
+            }))
+            .bg(rgba((p.hover << 8) | if p.light { 0x88 } else { 0x52 }))
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(7.))
-                    .mb(px(10.))
-                    .pb(px(9.))
-                    .border_b_1()
-                    .border_color(rgba(if danger {
-                        0xff5c5c77
+                    .gap(px(8.0))
+                    .mb(px(4.0))
+                    .text_color(rgb(if danger {
+                        if p.light { 0xa33131 } else { 0xff8585 }
                     } else {
-                        (p.accent << 8) | 0x73
+                        p.control_text
                     }))
-                    .text_color(rgb(if danger { 0xff8585 } else { p.control_text }))
-                    .text_size(px(13.))
-                    .font_weight(FontWeight::BOLD)
-                    .child(title.to_uppercase()),
+                    .text_size(px(16.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(title),
             )
             .child(content)
     }
@@ -1512,8 +1723,8 @@ impl SettingsPreview {
             .id(id)
             .flex()
             .items_center()
-            .w(px(34.))
-            .h(px(19.))
+            .w(px(40.))
+            .h(px(24.))
             .px(px(2.))
             .rounded(px(999.))
             .border_1()
@@ -1531,19 +1742,19 @@ impl SettingsPreview {
             .on_click(cx.listener(move |this, _, _, cx| f(this, cx)))
             .child(
                 div()
-                    .size(px(13.))
+                    .size(px(18.))
                     .rounded(px(999.))
                     .bg(rgba(
                         ((if enabled { p.accent } else { p.control_text }) << 8)
                             | if enabled { 0xff } else { 0xb8 },
                     ))
-                    .when(enabled, |d| d.ml(px(15.))),
+                    .when(enabled, |d| d.ml(px(16.))),
             )
     }
     fn text_control(&self, text: impl Into<gpui::SharedString>) -> gpui::Div {
         div()
             .text_color(rgb(self.palette.control_text))
-            .text_size(px(12.))
+            .text_size(px(13.))
             .child(text.into())
     }
 }
@@ -1552,9 +1763,12 @@ impl EventEmitter<SettingsPreviewEvent> for SettingsPreview {}
 impl Render for SettingsPreview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.palette;
-        self.narrow = f32::from(window.viewport_size().width) <= 900.0;
+        let viewport = window.viewport_size();
+        let layout = settings_layout(f32::from(viewport.width), f32::from(viewport.height));
+        let content_width = layout.width - if layout.sidebar { 244.0 } else { 48.0 };
+        self.narrow = content_width < 560.0;
         let app = self.app.clone();
-        let steam_row = self.row_with_desc(
+        let steam_row = self.credential_row(
             self.tr("ui.settings.apiKey"),
             self.help_desc(
                 self.tr("ui.settingsDesc.apiKey"),
@@ -1563,38 +1777,36 @@ impl Render for SettingsPreview {
                 crate::mini_browser::BrowserPurpose::SteamApiKeyHelp,
                 "https://steamcommunity.com/dev/apikey",
             ),
-            self.credential_control(false, cx),
+            false,
+            cx,
         );
         let device_label = if app.device_name.is_empty() {
             self.tr("ui.settings.notSet").to_string()
         } else {
             app.device_name.clone()
         };
-        let device_row = self
+        let device_row = self.row(
+            self.tr("ui.settings.deviceName"),
+            self.tr("ui.settingsDesc.device"),
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(self.text_control(device_label))
+                .child(
+                    self.action_button("device-change", self.tr("ui.settings.change"), false)
+                        .on_click(cx.listener(|this, _, _, cx| this.change_device_name(cx))),
+                ),
+        );
+        let language_row = self
             .row(
-                self.tr("ui.settings.deviceName"),
-                self.tr("ui.settingsDesc.device"),
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(self.text_control(device_label))
-                    .child(
-                        self.action_button("device-change", self.tr("ui.settings.change"), false)
-                            .on_click(cx.listener(|this, _, _, cx| this.change_device_name(cx))),
-                    )
-                    .child(
-                        div()
-                            .w(px(1.))
-                            .h(px(28.))
-                            .mx(px(4.))
-                            .bg(rgba(p.control_border)),
-                    )
-                    .child(self.language_control(f32::from(window.viewport_size().height), cx)),
+                self.tr("language.label"),
+                "Choose the language used in MetalSharp.",
+                self.language_control(cx),
             )
             .border_b_0();
         let epic_row = self
-            .row_with_desc(
+            .credential_row(
                 self.tr("ui.settings.theGamesDbApiKey"),
                 self.help_desc(
                     self.tr("ui.settingsDesc.theGamesDbApiKey"),
@@ -1603,7 +1815,8 @@ impl Render for SettingsPreview {
                     crate::mini_browser::BrowserPurpose::TheGamesDbHelp,
                     "https://api.thegamesdb.net/key.php",
                 ),
-                self.credential_control(true, cx),
+                true,
+                cx,
             )
             .border_b_0();
         let wine_row = self.row(
@@ -1704,8 +1917,12 @@ impl Render for SettingsPreview {
             )
         });
         let backend = self.row(
-            self.tr("ui.settings.backendRuntime"),
-            self.tr("ui.settingsDesc.backend"),
+            if self.language == "en" {
+                "Game services".into()
+            } else {
+                self.tr("ui.settings.backendRuntime")
+            },
+            "Manages game launches and your connected libraries.",
             div()
                 .flex()
                 .items_center()
@@ -1727,7 +1944,7 @@ impl Render for SettingsPreview {
         );
         let restart = self.row(
             self.tr("ui.settings.restartBackend"),
-            self.tr("ui.settingsDesc.restart"),
+            "Restart game services if a launcher stops responding.",
             self.action_button(
                 "restart-backend",
                 if self.backend_restarting {
@@ -1745,7 +1962,7 @@ impl Render for SettingsPreview {
             self.action_button("force-kill", self.tr("ui.settings.forceKill"), false)
                 .bg(rgba(0xff5c5c1f))
                 .border_color(rgba(0xff5c5c8c))
-                .text_color(rgb(0xff8585))
+                .text_color(rgb(if p.light { 0xa33131 } else { 0xff8585 }))
                 .on_click(cx.listener(|s, _, _, cx| {
                     s.confirm = Some(ConfirmAction::ForceKill);
                     cx.notify()
@@ -1783,7 +2000,7 @@ impl Render for SettingsPreview {
                     }),
                 ),
         );
-        let layout = self.row(
+        let library_layout = self.row(
             self.tr("ui.settings.libraryLayout"),
             self.tr("ui.settingsDesc.libraryLayout"),
             div()
@@ -1807,6 +2024,42 @@ impl Render for SettingsPreview {
                     .on_click(cx.listener(|s, _, _, cx| s.set_library_layout(true, cx))),
                 ),
         );
+        let mut window_presets = div().w_full().flex().flex_wrap().gap(px(8.0));
+        for preset in WindowSize::ALL {
+            window_presets = window_presets.child(
+                self.action_button(
+                    preset.label_key(),
+                    self.tr(preset.label_key()),
+                    app.window_size == preset,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.app.window_size = preset;
+                    cx.emit(SettingsPreviewEvent::WindowSize(preset));
+                    cx.notify();
+                })),
+            );
+        }
+        let window_size = div()
+            .w_full()
+            .min_w_0()
+            .py(px(16.0))
+            .border_b_1()
+            .border_color(rgba((p.control_text << 8) | 0x12))
+            .child(
+                div()
+                    .text_size(px(14.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.tr("settings.window_size")),
+            )
+            .child(
+                div()
+                    .mt(px(7.0))
+                    .text_size(px(13.0))
+                    .line_height(px(20.0))
+                    .text_color(rgba((p.control_text << 8) | 0xad))
+                    .child(self.tr("settings.window_size_desc")),
+            )
+            .child(div().mt(px(12.0)).child(window_presets));
         let dev = self.row(
             self.tr("ui.settings.developerTools"),
             self.tr("ui.settingsDesc.developer"),
@@ -2061,77 +2314,12 @@ impl Render for SettingsPreview {
             self.action_button("uninstall", self.tr("ui.settings.uninstall"), false)
                 .bg(rgba(0xff5c5c1f))
                 .border_color(rgba(0xff5c5c8c))
-                .text_color(rgb(0xff8585))
+                .text_color(rgb(if p.light { 0xa33131 } else { 0xff8585 }))
                 .on_click(cx.listener(|s, _, _, cx| {
                     s.confirm = Some(ConfirmAction::Uninstall);
                     cx.notify()
                 })),
         );
-        let mut body = div()
-            .id("settings-preview-scroll")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .grid()
-            .grid_cols(if window.viewport_size().width <= px(900.) {
-                1
-            } else {
-                2
-            })
-            .gap(px(14.))
-            .px(px(20.))
-            .py(px(16.));
-        body = body
-            .child(self.card(
-                self.tr("settings.steamIntegration"),
-                div().child(steam_row).child(device_row),
-                false,
-            ))
-            .child(self.card(
-                self.tr("settings.epicIntegration"),
-                div().child(epic_row),
-                false,
-            ))
-            .child(
-                self.card(
-                    self.tr("settings.steam"),
-                    div()
-                        .child(wine_row)
-                        .when(!app.wine_steam_installed, |d| d.child(setup_row))
-                        .child(mac_row)
-                        .child(retina)
-                        .children(ray_tracing),
-                    false,
-                ),
-            )
-            .child(
-                self.card(
-                    self.tr("settings.backend"),
-                    div()
-                        .child(backend)
-                        .child(restart)
-                        .child(kill)
-                        .child(layout)
-                        .child(perf)
-                        .child(dev)
-                        .when(app.developer_mode, |d| d.child(logs)),
-                    false,
-                ),
-            )
-            .child(self.card(
-                self.tr("settings.dataPermissions"),
-                div().child(folders).child(repair),
-                false,
-            ))
-            .child(self.card(
-                self.tr("settings.cache"),
-                if crate::variant::is_fex() {
-                    div().children(lane_rows)
-                } else {
-                    div().child(shader).child(pipeline)
-                },
-                false,
-            ));
         let mut updates = div().child(version);
         if let Some(r) = notes {
             updates = updates.child(r)
@@ -2145,31 +2333,171 @@ impl Render for SettingsPreview {
         if let Some(r) = progress {
             updates = updates.child(r)
         }
-        body = body
-            .child(self.card(self.tr("settings.updates"), updates, false))
-            .child(self.card(
-                self.tr("ui.settings.dangerZone"),
-                div().child(uninstall),
-                true,
-            ));
+        let sections = vec![
+            (
+                SettingsSection::Device,
+                self.card(
+                    self.tr("settings.device_language"),
+                    div().child(device_row).child(language_row),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::Library,
+                self.card(
+                    self.tr("settings.library_display"),
+                    div()
+                        .child(library_layout)
+                        .child(window_size)
+                        .child(perf)
+                        .child(retina.border_b_0()),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::SteamAccount,
+                self.card(
+                    self.tr("settings.steamIntegration"),
+                    div().child(steam_row.border_b_0()),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::EpicAccount,
+                self.card(
+                    self.tr("settings.epicIntegration"),
+                    div().child(epic_row),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::SteamRuntime,
+                self.card(
+                    self.tr("settings.steam"),
+                    div()
+                        .child(wine_row)
+                        .when(!app.wine_steam_installed, |d| d.child(setup_row))
+                        .child(mac_row)
+                        .children(ray_tracing),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::Folders,
+                self.card(
+                    self.tr("settings.dataPermissions"),
+                    div().child(folders.border_b_0()),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::Cache,
+                self.card(
+                    self.tr("settings.cache"),
+                    if crate::variant::is_fex() {
+                        div().children(lane_rows)
+                    } else {
+                        div().child(shader).child(pipeline.border_b_0())
+                    },
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::Updates,
+                self.card(self.tr("settings.updates"), updates, false),
+            ),
+            (
+                SettingsSection::Services,
+                self.card(
+                    self.tr("settings.backend"),
+                    div().child(backend).child(restart.border_b_0()),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::Developer,
+                self.card(
+                    self.tr("ui.settings.developerTools"),
+                    div().child(dev).when(app.developer_mode, |d| d.child(logs)),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::DataAccess,
+                self.card(
+                    self.tr("ui.settings.dataAccess"),
+                    div().child(repair.border_b_0()),
+                    false,
+                ),
+            ),
+            (
+                SettingsSection::Danger,
+                self.card(
+                    self.tr("ui.settings.dangerZone"),
+                    div().child(kill).child(uninstall.border_b_0()),
+                    true,
+                ),
+            ),
+        ];
+        let active = self.category;
+        let content = div()
+            .w_full()
+            .max_w(px(800.0))
+            .mx_auto()
+            .flex()
+            .flex_col()
+            .gap(px(18.0))
+            .child(
+                div()
+                    .mb(px(4.0))
+                    .child(
+                        div()
+                            .text_size(px(24.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(self.tr(active.label_key())),
+                    )
+                    .child(
+                        div()
+                            .mt(px(7.0))
+                            .text_size(px(13.0))
+                            .line_height(px(20.0))
+                            .text_color(rgba((p.control_text << 8) | 0xa8))
+                            .child(self.tr(active.description_key())),
+                    ),
+            )
+            .children(
+                sections
+                    .into_iter()
+                    .filter(|(section, _)| section.category() == active)
+                    .map(|(_, card)| card),
+            );
+        let scroller = div()
+            .id(("settings-category-scroll", active as usize))
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .overflow_y_scroll()
+            .p(px(24.0))
+            .child(content);
+        let body = div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .when(!layout.sidebar, |d| d.flex_col())
+            .child(self.category_navigation(layout.sidebar, cx))
+            .child(scroller);
         let mut panel = div()
             .id("settings-panel")
             .occlude()
             .on_click(|_, _, cx| cx.stop_propagation())
             .flex()
             .flex_col()
-            .w(px(1080.))
-            .max_w(gpui::relative(1.))
-            .max_h(px((f32::from(window.viewport_size().height)
-                - if f32::from(window.viewport_size().width) <= 780.0 {
-                    154.0
-                } else {
-                    92.0
-                })
-            .max(120.)))
-            .rounded(px(14.))
+            .w(px(layout.width))
+            .max_w_full()
+            .h(px(layout.height))
+            .rounded(px(18.0))
             .border_1()
-            .border_color(rgba((p.accent << 8) | 0xff))
+            .border_color(rgba((p.control_text << 8) | 0x24))
             .bg(rgb(p.control_bg))
             .text_color(rgb(p.control_text))
             .shadow(vec![gpui::BoxShadow {
@@ -2184,9 +2512,9 @@ impl Render for SettingsPreview {
             .items_center()
             .justify_between()
             .gap(px(16.))
-            .px(px(22.))
-            .pt(px(18.))
-            .pb(px(14.))
+            .px(px(26.0))
+            .pt(px(22.0))
+            .pb(px(20.0))
             .border_b_1()
             .border_color(rgba(p.control_border))
             .bg(rgba((p.hover << 8) | 0x66))
@@ -2198,21 +2526,28 @@ impl Render for SettingsPreview {
                     .child(
                         div()
                             .text_color(rgba((p.control_text << 8) | 0x99))
-                            .font_family("Georgia")
-                            .text_size(px(10.))
-                            .child("M E T A L S H A R P"),
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("METALSHARP"),
                     )
                     .child(
                         div()
-                            .font_family("Georgia")
+                            .font_family("Rethink Sans")
                             .text_size(px(26.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .line_height(px(26.0))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .line_height(px(30.0))
                             .child(self.tr("settings.title")),
                     ),
             )
             .child(
-                self.action_button("close-settings", "×", false)
+                self.action_button("close-settings", "", false)
+                    .size(px(38.0))
+                    .px(px(0.0))
+                    .child(crate::ui::control_icon(
+                        "icon-close.svg",
+                        20.0,
+                        p.control_text,
+                    ))
                     .on_click(cx.listener(|s, _, _, cx| s.dismiss(cx))),
             );
         panel = panel.child(header);
@@ -2224,7 +2559,7 @@ impl Render for SettingsPreview {
                     .py(px(7.))
                     .bg(rgba((p.accent << 8) | 0x17))
                     .text_color(rgb(p.control_text))
-                    .text_size(px(10.))
+                    .text_size(px(12.0))
                     .child(note),
             );
         }
@@ -2243,13 +2578,9 @@ impl Render for SettingsPreview {
             .flex()
             .justify_center()
             .items_start()
-            .pt(if f32::from(bounds.width) <= 780. {
-                px(130.)
-            } else {
-                px(68.)
-            })
-            .px(px(24.))
-            .pb(px(24.))
+            .pt(px(layout.top))
+            .px(px(layout.gutter))
+            .pb(px(layout.gutter))
             .bg(rgba(0x06080a94))
             .on_click(cx.listener(|this, _, _, cx| this.dismiss(cx)))
             .child(
@@ -2289,11 +2620,89 @@ fn format_bytes(bytes: u64) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn language_menu_fits_near_bottom_and_preserves_top_anchors() {
+        for height in [540.0, 640.0, 1080.0] {
+            assert_eq!(language_menu_bounds(40.0, height), (58.0, 360.0));
+            for anchor in [height - 30.0, height - 80.0] {
+                let (top, max_height) = language_menu_bounds(anchor, height);
+                assert!(top >= 8.0);
+                assert!(top + max_height <= height - 8.0);
+                assert!(top + max_height < anchor);
+                assert!((120.0..=360.0).contains(&max_height));
+            }
+        }
+        let (top, max_height) = language_menu_bounds(60.0, 120.0);
+        assert!(top >= 8.0 && top + max_height <= 112.0);
+        assert!(max_height < 120.0);
+    }
+
+    #[test]
+    fn settings_panel_fits_logical_viewports() {
+        for (width, height) in [
+            (720.0, 540.0),
+            (960.0, 540.0),
+            (1280.0, 720.0),
+            (1920.0, 1080.0),
+            (2560.0, 1440.0),
+            (3840.0, 2160.0),
+        ] {
+            let layout = settings_layout(width, height);
+            assert!(layout.width + layout.gutter * 2.0 <= width);
+            assert!(layout.height + layout.top + layout.gutter <= height);
+            assert!(layout.width <= 1180.0 && layout.height <= 1000.0);
+            if layout.sidebar {
+                assert!(layout.width - 244.0 >= 608.0);
+            }
+        }
+        assert!(!settings_layout(899.0, 720.0).sidebar);
+        assert!(settings_layout(900.0, 720.0).sidebar);
+    }
+
+    #[test]
+    fn settings_categories_keep_preferences_and_advanced_actions_separate() {
+        use SettingsCategory as Category;
+        use SettingsSection as Section;
+        let groups = [
+            (Category::General, vec![Section::Device, Section::Library]),
+            (
+                Category::Integrations,
+                vec![
+                    Section::SteamAccount,
+                    Section::EpicAccount,
+                    Section::SteamRuntime,
+                ],
+            ),
+            (Category::Storage, vec![Section::Folders, Section::Cache]),
+            (Category::Updates, vec![Section::Updates]),
+            (
+                Category::Advanced,
+                vec![
+                    Section::Services,
+                    Section::Developer,
+                    Section::DataAccess,
+                    Section::Danger,
+                ],
+            ),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for (category, sections) in groups {
+            assert!(!sections.is_empty());
+            for section in sections {
+                assert!(seen.insert(section));
+                assert_eq!(section.category(), category);
+            }
+        }
+        assert_eq!(seen.len(), 12);
+        assert_eq!(SettingsPreview::new().category, Category::General);
+    }
+
+    #[test]
     fn safe_defaults_and_language_fixture() {
         let s = SettingsPreview::new();
         assert_eq!(s.language, "en");
         assert!(!s.retina);
         assert!(!s.app.wine_steam_installed);
+        assert_eq!(s.app.window_size, WindowSize::Automatic);
         assert_eq!(LANGUAGES.len(), 20);
     }
     #[test]
@@ -2301,13 +2710,45 @@ mod tests {
         let mut preview = SettingsPreview::new();
         for (language, _) in LANGUAGES {
             preview.language = language;
-            assert_eq!(preview.locales[language].len(), 80);
+            let original_keys = preview.locales[language]
+                .keys()
+                .filter(|key| {
+                    !key.starts_with("settings.category_")
+                        && !key.starts_with("settings.window_size")
+                        && key.as_str() != "settings.device_language"
+                        && key.as_str() != "settings.library_display"
+                })
+                .count();
+            assert_eq!(original_keys, 80);
             assert!(!preview.tr("settings.title").is_empty());
+            for category in SettingsCategory::ALL {
+                assert!(preview.locales["en"].contains_key(category.label_key()));
+                assert!(preview.locales["en"].contains_key(category.description_key()));
+                assert!(!preview.tr(category.label_key()).is_empty());
+                assert!(!preview.tr(category.description_key()).is_empty());
+            }
         }
         preview.language = "unsupported";
         assert_eq!(preview.tr("settings.title").as_ref(), "Settings");
         assert_eq!(format_bytes(1024), "1.0 KB");
     }
+    #[test]
+    fn window_size_choices_are_visible_and_localized() {
+        let mut preview = SettingsPreview::new();
+        let labels = ["Automatic", "Compact", "Full HD", "2K", "Large (4K)"];
+        for (preset, label) in WindowSize::ALL.into_iter().zip(labels) {
+            assert_eq!(preview.tr(preset.label_key()).as_ref(), label);
+        }
+        for (language, _) in LANGUAGES {
+            preview.language = language;
+            assert!(preview.locales[language].contains_key("settings.window_size"));
+            for preset in WindowSize::ALL {
+                assert!(preview.locales[language].contains_key(preset.label_key()));
+                assert!(!preview.tr(preset.label_key()).is_empty());
+            }
+        }
+    }
+
     #[test]
     fn cache_summary_matches_overlay_text() {
         assert_eq!(format_cache(None).0, "...");
